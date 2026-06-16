@@ -1,0 +1,1317 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState } from 'react';
+import { ArrowDown, ArrowUp, Camera, FileText, Image as ImageIcon, Plus, Trash2, X, Sparkles, Video } from 'lucide-react';
+import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { Recipe, Ingredient, MethodStep, RecipeCategory } from '../types';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+
+const CREATE_NEW_CATEGORY_VALUE = '__create_new_category__';
+const FALLBACK_CATEGORY_NAME = 'Others';
+const MAX_COVER_IMAGE_SIDE = 1200;
+const MAX_COVER_IMAGE_BYTES = 500 * 1024;
+const INITIAL_JPEG_QUALITY = 0.75;
+
+type ParsedImportedRecipe = {
+  id: string;
+  title: string;
+  yield: string;
+  ingredients: Ingredient[];
+  method: MethodStep[];
+  sourceText: string;
+};
+
+const getGeminiApiKey = () => {
+  const viteEnv = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) || {};
+  return viteEnv.VITE_GEMINI_API_KEY || viteEnv.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+};
+
+const parseAiSteps = (text: string) => {
+  const trimmed = text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '').trim();
+  const parsed = JSON.parse(trimmed);
+  const rawSteps = Array.isArray(parsed) ? parsed : parsed.steps;
+
+  if (!Array.isArray(rawSteps)) {
+    throw new Error('AI response did not contain a steps array.');
+  }
+
+  return rawSteps
+    .map(step => String(step).trim())
+    .filter(Boolean);
+};
+
+const cleanImportedLine = (line: string) => {
+  return line
+    .replace(/^[-*•]\s*/, '')
+    .replace(/^\d+[.)]\s*/, '')
+    .trim();
+};
+
+const isSectionHeading = (line: string, keywords: string[]) => {
+  const normalized = line.toLowerCase().replace(/[:：]/g, '').trim();
+  return keywords.some(keyword => normalized === keyword);
+};
+
+const parseIngredientLine = (line: string, index: number): Ingredient => {
+  const cleaned = cleanImportedLine(line);
+  const match = cleaned.match(/^([\d./\s]+)?\s*([a-zA-Z]+)?\s+(.+)$/);
+
+  if (!match) {
+    return { id: `ing_import_${Date.now()}_${index}`, name: cleaned, qty: '', unit: '' };
+  }
+
+  const qty = (match[1] || '').trim();
+  const possibleUnit = (match[2] || '').trim();
+  const name = (match[3] || cleaned).trim();
+  const knownUnits = ['g', 'kg', 'ml', 'l', 'L', 'pcs', 'pc', 'cup', 'cups', 'tbsp', 'tsp'];
+
+  if (!qty || !knownUnits.includes(possibleUnit)) {
+    return { id: `ing_import_${Date.now()}_${index}`, name: cleaned, qty: '', unit: '' };
+  }
+
+  return {
+    id: `ing_import_${Date.now()}_${index}`,
+    name,
+    qty,
+    unit: possibleUnit
+  };
+};
+
+const parsePastedRecipe = (rawText: string) => {
+  const lines = rawText
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  let parsedTitle = '';
+  let parsedYield = '';
+  const ingredientLines: string[] = [];
+  const methodLines: string[] = [];
+  let activeSection: 'ingredients' | 'method' | null = null;
+
+  lines.forEach((line, index) => {
+    const titleMatch = line.match(/^(recipe\s*)?title\s*[:：]\s*(.+)$/i);
+    const yieldMatch = line.match(/^(yield|makes|serves|servings)\s*[:：]\s*(.+)$/i);
+    const ingredientsMatch = line.match(/^(ingredients?|ingredient list)\s*[:：]?\s*(.*)$/i);
+    const methodMatch = line.match(/^(method|steps|instructions|directions|procedure|preparation)\s*[:：]?\s*(.*)$/i);
+
+    if (titleMatch) {
+      parsedTitle = titleMatch[2].trim();
+      return;
+    }
+
+    if (yieldMatch) {
+      parsedYield = yieldMatch[2].trim();
+      return;
+    }
+
+    if (ingredientsMatch && (isSectionHeading(line, ['ingredients', 'ingredient', 'ingredient list']) || ingredientsMatch[2].trim())) {
+      activeSection = 'ingredients';
+      if (ingredientsMatch[2].trim()) {
+        ingredientLines.push(ingredientsMatch[2].trim());
+      }
+      return;
+    }
+
+    if (methodMatch && (isSectionHeading(line, ['method', 'steps', 'instructions', 'directions', 'procedure', 'preparation']) || methodMatch[2].trim())) {
+      activeSection = 'method';
+      if (methodMatch[2].trim()) {
+        methodLines.push(methodMatch[2].trim());
+      }
+      return;
+    }
+
+    if (!parsedTitle && index === 0 && !line.includes(':')) {
+      parsedTitle = cleanImportedLine(line);
+      return;
+    }
+
+    if (activeSection === 'ingredients') {
+      ingredientLines.push(line);
+    } else if (activeSection === 'method') {
+      methodLines.push(line);
+    }
+  });
+
+  if (ingredientLines.length === 0) {
+    const ingredientStart = lines.findIndex(line => isSectionHeading(line, ['ingredients', 'ingredient list']));
+    const methodStart = lines.findIndex(line => isSectionHeading(line, ['method', 'steps', 'instructions', 'directions', 'procedure', 'preparation']));
+    if (ingredientStart >= 0) {
+      const end = methodStart > ingredientStart ? methodStart : lines.length;
+      ingredientLines.push(...lines.slice(ingredientStart + 1, end));
+    }
+  }
+
+  if (methodLines.length === 0) {
+    const methodStart = lines.findIndex(line => isSectionHeading(line, ['method', 'steps', 'instructions', 'directions', 'procedure', 'preparation']));
+    if (methodStart >= 0) {
+      methodLines.push(...lines.slice(methodStart + 1));
+    }
+  }
+
+  return {
+    title: parsedTitle,
+    yield: parsedYield,
+    ingredients: ingredientLines
+      .map((line, index) => parseIngredientLine(line, index))
+      .filter(ingredient => ingredient.name.trim()),
+    method: methodLines
+      .map(cleanImportedLine)
+      .filter(Boolean)
+      .map((description, index) => ({
+        id: `step_import_${Date.now()}_${index}`,
+        stepNumber: index + 1,
+        description,
+        image: ''
+      }))
+  };
+};
+
+const isYieldLine = (line: string) => /^(yield|makes|serves|servings)\s*[:：]/i.test(line.trim());
+
+const isLikelyRecipeTitleLine = (line: string) => {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.length > 90) return false;
+  if (/[:：]$/.test(trimmed)) return false;
+  if (/^(ingredients?|method|steps|instructions|directions|procedure|preparation|yield|makes|serves|servings)\b/i.test(trimmed)) return false;
+  return /[a-zA-Z]/.test(trimmed);
+};
+
+const toParsedImportedRecipe = (rawText: string, index: number): ParsedImportedRecipe | null => {
+  const parsedRecipe = parsePastedRecipe(rawText);
+
+  if (!parsedRecipe.title || parsedRecipe.ingredients.length === 0 || parsedRecipe.method.length === 0) {
+    return null;
+  }
+
+  return {
+    id: `pdf_recipe_${Date.now()}_${index}`,
+    title: parsedRecipe.title,
+    yield: parsedRecipe.yield,
+    ingredients: parsedRecipe.ingredients,
+    method: parsedRecipe.method,
+    sourceText: rawText.trim()
+  };
+};
+
+const detectRecipesFromText = (rawText: string): ParsedImportedRecipe[] => {
+  const cleanedText = rawText
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  if (!cleanedText) return [];
+
+  const explicitRecipeBlocks = cleanedText
+    .split(/\n(?=(?:recipe\s*)?title\s*[:：])/i)
+    .map(block => block.trim())
+    .filter(Boolean);
+
+  if (explicitRecipeBlocks.length > 1) {
+    return explicitRecipeBlocks
+      .map(toParsedImportedRecipe)
+      .filter((recipe): recipe is ParsedImportedRecipe => Boolean(recipe));
+  }
+
+  const lines = cleanedText
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  const ingredientIndexes = lines
+    .map((line, index) => (isSectionHeading(line, ['ingredients', 'ingredient', 'ingredient list']) ? index : -1))
+    .filter(index => index >= 0);
+
+  if (ingredientIndexes.length > 1) {
+    const titleIndexes = ingredientIndexes.map(ingredientIndex => {
+      for (let index = ingredientIndex - 1; index >= 0; index -= 1) {
+        if (isYieldLine(lines[index])) continue;
+        if (isLikelyRecipeTitleLine(lines[index])) return index;
+      }
+      return ingredientIndex;
+    });
+
+    return titleIndexes
+      .map((startIndex, index) => {
+        const endIndex = titleIndexes[index + 1] ?? lines.length;
+        return lines.slice(startIndex, endIndex).join('\n');
+      })
+      .map(toParsedImportedRecipe)
+      .filter((recipe): recipe is ParsedImportedRecipe => Boolean(recipe));
+  }
+
+  const singleRecipe = toParsedImportedRecipe(cleanedText, 0);
+  return singleRecipe ? [singleRecipe] : [];
+};
+
+const extractTextFromPdfFile = async (file: File) => {
+  const data = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data }).promise;
+  const pageTexts: string[] = [];
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    const page = await pdf.getPage(pageNumber);
+    const textContent = await page.getTextContent();
+    const pageText = textContent.items
+      .map(item => ('str' in item ? item.str : ''))
+      .join('\n');
+    pageTexts.push(pageText);
+  }
+
+  return pageTexts.join('\n\n');
+};
+
+const getDataUrlBytes = (dataUrl: string) => {
+  const base64 = dataUrl.split(',')[1] || '';
+  return Math.ceil((base64.length * 3) / 4);
+};
+
+const loadImageFromFile = (file: File) => {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Unable to read uploaded image.'));
+    };
+
+    image.src = objectUrl;
+  });
+};
+
+const drawImageToJpegDataUrl = (
+  image: HTMLImageElement,
+  width: number,
+  height: number,
+  quality: number
+) => {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width));
+  canvas.height = Math.max(1, Math.round(height));
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Unable to optimize image.');
+  }
+
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+  return canvas.toDataURL('image/jpeg', quality);
+};
+
+const optimizeCoverImageFile = async (file: File) => {
+  const image = await loadImageFromFile(file);
+  const longestSide = Math.max(image.width, image.height);
+  const initialScale = longestSide > MAX_COVER_IMAGE_SIDE ? MAX_COVER_IMAGE_SIDE / longestSide : 1;
+  let width = image.width * initialScale;
+  let height = image.height * initialScale;
+  let quality = INITIAL_JPEG_QUALITY;
+  let optimizedDataUrl = drawImageToJpegDataUrl(image, width, height, quality);
+  let attempts = 0;
+
+  while (getDataUrlBytes(optimizedDataUrl) > MAX_COVER_IMAGE_BYTES && attempts < 60) {
+    attempts += 1;
+    if (quality > 0.35) {
+      quality = Math.max(0.35, quality - 0.08);
+    } else {
+      width *= 0.85;
+      height *= 0.85;
+      quality = INITIAL_JPEG_QUALITY;
+    }
+
+    optimizedDataUrl = drawImageToJpegDataUrl(image, width, height, quality);
+  }
+
+  if (getDataUrlBytes(optimizedDataUrl) > MAX_COVER_IMAGE_BYTES) {
+    throw new Error('Uploaded image is too large to save. Please choose a smaller cover photo.');
+  }
+
+  return optimizedDataUrl;
+};
+
+interface AddRecipeTabProps {
+  onSave: (recipe: Recipe) => void;
+  onCancel: () => void;
+  categories: RecipeCategory[];
+  onCreateCategory: (name: string) => RecipeCategory | null;
+  initialRecipe?: Recipe | null;
+  mode?: 'add' | 'edit';
+}
+
+export default function AddRecipeTab({
+  onSave,
+  onCancel,
+  categories,
+  onCreateCategory,
+  initialRecipe = null,
+  mode = 'add'
+}: AddRecipeTabProps) {
+  const isEditing = mode === 'edit' && initialRecipe;
+
+  // Base details state
+  const [title, setTitle] = useState(initialRecipe?.title || '');
+  const [coverImage, setCoverImage] = useState(initialRecipe?.coverImage || '');
+  const [category, setCategory] = useState(initialRecipe?.category || categories[0]?.name || FALLBACK_CATEGORY_NAME);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [prepTime, setPrepTime] = useState<number>(initialRecipe?.prepTime || 30);
+  const [servings, setServings] = useState<number>(initialRecipe?.servings || 2);
+  const [recipeYield, setRecipeYield] = useState(initialRecipe?.yield || (initialRecipe ? `${initialRecipe.servings} servings` : ''));
+  const [difficulty, setDifficulty] = useState<'Easy' | 'Medium' | 'Hard'>(initialRecipe?.difficulty || 'Easy');
+  
+  // Chef's story
+  const [story, setStory] = useState(initialRecipe?.story || '');
+  const [chefNotes, setChefNotes] = useState(initialRecipe?.chefNotes || '');
+
+  // Ingredients state
+  const [ingredients, setIngredients] = useState<Ingredient[]>(
+    initialRecipe?.ingredients?.length
+      ? initialRecipe.ingredients
+      : [{ id: 'ing_1', name: '', qty: '', unit: '' }]
+  );
+
+  // Method steps state
+  const [methodSteps, setMethodSteps] = useState<MethodStep[]>(
+    initialRecipe?.method?.length
+      ? initialRecipe.method
+      : [{ id: 'step_1', stepNumber: 1, description: '', image: '' }]
+  );
+  const [isGeneratingSteps, setIsGeneratingSteps] = useState(false);
+  const [aiStepError, setAiStepError] = useState('');
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importMode, setImportMode] = useState<'text' | 'pdf'>('text');
+  const [importText, setImportText] = useState('');
+  const [importError, setImportError] = useState('');
+  const [isReadingPdf, setIsReadingPdf] = useState(false);
+  const [detectedPdfRecipes, setDetectedPdfRecipes] = useState<ParsedImportedRecipe[]>([]);
+  const [selectedPdfRecipeIds, setSelectedPdfRecipeIds] = useState<string[]>([]);
+
+  // Media
+  const [videoLink, setVideoLink] = useState(initialRecipe?.videoLink || '');
+
+  // Local helper for cover photo selection
+  const handleCoverPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      try {
+        const optimizedImage = await optimizeCoverImageFile(file);
+        setCoverImage(optimizedImage);
+      } catch (err) {
+        alert(err instanceof Error ? err.message : 'Unable to optimize uploaded image.');
+      }
+    }
+  };
+
+  // Local helper for step photo selection
+  const handleStepPhotoChange = (stepId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setMethodSteps(prev =>
+            prev.map(step => (step.id === stepId ? { ...step, image: event.target?.result as string } : step))
+          );
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Add Row methods
+  const addIngredientRow = () => {
+    setIngredients(prev => [
+      ...prev,
+      { id: `ing_${Date.now()}_${Math.random()}`, name: '', qty: '', unit: '' }
+    ]);
+  };
+
+  const removeIngredientRow = (id: string) => {
+    if (ingredients.length === 1) return;
+    setIngredients(prev => prev.filter(ing => ing.id !== id));
+  };
+
+  const updateIngredient = (id: string, field: keyof Ingredient, value: string) => {
+    setIngredients(prev =>
+      prev.map(ing => (ing.id === id ? { ...ing, [field]: value } : ing))
+    );
+  };
+
+  const handleCategorySelection = (value: string) => {
+    if (value === CREATE_NEW_CATEGORY_VALUE) {
+      setCategory(CREATE_NEW_CATEGORY_VALUE);
+      return;
+    }
+    setCategory(value);
+    setNewCategoryName('');
+  };
+
+  const handleCreateCategoryFromForm = () => {
+    const newCategory = onCreateCategory(newCategoryName);
+    if (newCategory) {
+      setCategory(newCategory.name);
+      setNewCategoryName('');
+    }
+  };
+
+  const addMethodStepRow = () => {
+    setMethodSteps(prev => [
+      ...prev,
+      {
+        id: `step_${Date.now()}_${Math.random()}`,
+        stepNumber: prev.length + 1,
+        description: '',
+        image: ''
+      }
+    ]);
+  };
+
+  const removeMethodStepRow = (id: string) => {
+    if (methodSteps.length === 1) return;
+    const filtered = methodSteps.filter(step => step.id !== id);
+    // Re-index step numbers
+    const reindexed = filtered.map((step, idx) => ({ ...step, stepNumber: idx + 1 }));
+    setMethodSteps(reindexed);
+  };
+
+  const updateMethodStep = (id: string, description: string) => {
+    setMethodSteps(prev =>
+      prev.map(step => (step.id === id ? { ...step, description } : step))
+    );
+  };
+
+  const moveMethodStep = (id: string, direction: 'up' | 'down') => {
+    setMethodSteps(prev => {
+      const currentIndex = prev.findIndex(step => step.id === id);
+      if (currentIndex === -1) return prev;
+
+      const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev;
+
+      const reordered = [...prev];
+      const [movedStep] = reordered.splice(currentIndex, 1);
+      reordered.splice(targetIndex, 0, movedStep);
+
+      return reordered.map((step, idx) => ({ ...step, stepNumber: idx + 1 }));
+    });
+  };
+
+  const handleAutoWriteSteps = async () => {
+    setAiStepError('');
+
+    if (!title.trim()) {
+      setAiStepError('Add a recipe title before generating steps.');
+      return;
+    }
+
+    const cleanIngredients = ingredients.filter(ing => ing.name.trim() !== '');
+    if (cleanIngredients.length === 0) {
+      setAiStepError('Add at least one ingredient before generating steps.');
+      return;
+    }
+
+    const hasExistingSteps = methodSteps.some(step => step.description.trim() || step.image);
+    if (hasExistingSteps && !window.confirm('Replace current steps with AI draft?')) {
+      return;
+    }
+
+    const apiKey = getGeminiApiKey();
+    if (!apiKey) {
+      setAiStepError('Missing Gemini API key. Add VITE_GEMINI_API_KEY or GEMINI_API_KEY to your local environment.');
+      return;
+    }
+
+    const ingredientLines = cleanIngredients
+      .map(ing => `- ${[ing.qty, ing.unit, ing.name].filter(Boolean).join(' ')}`)
+      .join('\n');
+
+    const prompt = `
+Draft cooking method steps only for this recipe.
+
+Recipe title: ${title.trim()}
+Category: ${category}
+Yield: ${recipeYield.trim() || 'Not specified'}
+Ingredients:
+${ingredientLines}
+
+Rules:
+- Return only a JSON array of strings.
+- Generate method steps only.
+- Do not generate nutrition.
+- Do not generate cost.
+- Do not generate new recipe ideas.
+- Keep steps practical, concise, and editable.
+`;
+
+    try {
+      setIsGeneratingSteps(true);
+      const { GoogleGenAI, Type } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING }
+          }
+        }
+      });
+
+      const draftSteps = parseAiSteps(response.text || '');
+      if (draftSteps.length === 0) {
+        throw new Error('AI returned no method steps.');
+      }
+
+      setMethodSteps(draftSteps.map((description, idx) => ({
+        id: `step_ai_${Date.now()}_${idx}`,
+        stepNumber: idx + 1,
+        description,
+        image: ''
+      })));
+    } catch (err) {
+      setAiStepError(err instanceof Error ? err.message : 'Unable to generate method steps.');
+    } finally {
+      setIsGeneratingSteps(false);
+    }
+  };
+
+  const handleImportRecipe = () => {
+    setImportError('');
+    const parsedRecipe = parsePastedRecipe(importText);
+
+    if (!parsedRecipe.title) {
+      setImportError('Could not find a recipe title.');
+      return;
+    }
+
+    if (parsedRecipe.ingredients.length === 0) {
+      setImportError('Could not find any ingredients.');
+      return;
+    }
+
+    if (parsedRecipe.method.length === 0) {
+      setImportError('Could not find any method steps. Add a Method, Steps, Instructions, Directions, Procedure, or Preparation section.');
+      return;
+    }
+
+    setTitle(parsedRecipe.title);
+    setRecipeYield(parsedRecipe.yield || recipeYield);
+    setIngredients(parsedRecipe.ingredients);
+    setMethodSteps(parsedRecipe.method);
+
+    setShowImportModal(false);
+    setImportText('');
+  };
+
+  const applyImportedRecipeToForm = (recipe: Pick<ParsedImportedRecipe, 'title' | 'yield' | 'ingredients' | 'method'>) => {
+    setTitle(recipe.title);
+    setRecipeYield(recipe.yield || recipeYield);
+    setIngredients(recipe.ingredients);
+    setMethodSteps(recipe.method);
+  };
+
+  const handlePdfFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportError('');
+    setDetectedPdfRecipes([]);
+    setSelectedPdfRecipeIds([]);
+
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      setImportError('Please upload a PDF file.');
+      return;
+    }
+
+    try {
+      setIsReadingPdf(true);
+      const extractedText = await extractTextFromPdfFile(file);
+      const detectedRecipes = detectRecipesFromText(extractedText);
+
+      if (detectedRecipes.length === 0) {
+        setImportError('No complete recipes were detected. The PDF needs selectable text with title, ingredients, and method sections.');
+        return;
+      }
+
+      setDetectedPdfRecipes(detectedRecipes);
+      setSelectedPdfRecipeIds(detectedRecipes.length === 1 ? [detectedRecipes[0].id] : []);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Unable to read this PDF.');
+    } finally {
+      setIsReadingPdf(false);
+      e.target.value = '';
+    }
+  };
+
+  const togglePdfRecipeSelection = (recipeId: string) => {
+    setSelectedPdfRecipeIds(prev =>
+      prev.includes(recipeId)
+        ? prev.filter(id => id !== recipeId)
+        : [...prev, recipeId]
+    );
+  };
+
+  const handleImportSelectedPdfRecipes = () => {
+    setImportError('');
+    const selectedRecipes = detectedPdfRecipes.filter(recipe => selectedPdfRecipeIds.includes(recipe.id));
+
+    if (selectedRecipes.length === 0) {
+      setImportError('Select at least one detected recipe to import.');
+      return;
+    }
+
+    applyImportedRecipeToForm(selectedRecipes[0]);
+    setShowImportModal(false);
+  };
+
+  // Handle Save
+  const handleSaveClick = () => {
+    if (!title.trim()) {
+      alert('Please give your recipe a title!');
+      return;
+    }
+
+    // Filter empty ingredients
+    const cleanIngredients = ingredients.filter(ing => ing.name.trim() !== '');
+    if (cleanIngredients.length === 0) {
+      alert('Please add at least one ingredient name!');
+      return;
+    }
+
+    // Filter empty steps
+    const cleanSteps = methodSteps.filter(step => step.description.trim() !== '');
+    if (cleanSteps.length === 0) {
+      alert('Please describe at least one cooking step!');
+      return;
+    }
+
+    let selectedCategory = category === CREATE_NEW_CATEGORY_VALUE ? newCategoryName.trim() : category.trim();
+    if (category === CREATE_NEW_CATEGORY_VALUE) {
+      const newCategory = onCreateCategory(newCategoryName);
+      if (!newCategory) {
+        alert('Please enter a category name.');
+        return;
+      }
+      selectedCategory = newCategory.name;
+      setCategory(newCategory.name);
+      setNewCategoryName('');
+    }
+
+    const savedServings = Number(servings) || 2;
+
+    const savedRecipe: Recipe = {
+      id: initialRecipe?.id || `recipe_${Date.now()}`,
+      title: title.trim(),
+      coverImage: coverImage || 'https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&q=80&w=800',
+      category: selectedCategory || FALLBACK_CATEGORY_NAME,
+      prepTime: Number(prepTime) || 30,
+      servings: savedServings,
+      yield: recipeYield.trim() || `${savedServings} servings`,
+      difficulty,
+      story: story.trim() || 'A homemade culinary masterpiece baked with fresh herbs and careful attention.',
+      chefNotes: chefNotes.trim(),
+      ingredients: cleanIngredients,
+      method: cleanSteps,
+      videoLink: videoLink.trim(),
+      chefName: initialRecipe?.chefName || 'User Log',
+      chefAvatar: initialRecipe?.chefAvatar,
+      isSaved: initialRecipe?.isSaved || false,
+      collections: initialRecipe?.collections || [],
+      createdAt: initialRecipe?.createdAt || new Date().toISOString(),
+      tags: initialRecipe?.tags,
+      isFeatured: initialRecipe?.isFeatured
+    };
+
+    onSave(savedRecipe);
+  };
+
+  return (
+    <div className="space-y-8 animate-fade-in pb-20">
+      <section className="bg-surface-container-low border border-surface-container-high p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+        <div>
+          <h2 className="font-display text-xl font-bold text-primary">Recipe Entry</h2>
+          <p className="font-sans text-xs text-on-surface-variant font-bold">
+            Paste an existing recipe to quickly fill the form, then review before saving.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            setImportError('');
+            setShowImportModal(true);
+          }}
+          className="self-start sm:self-auto bg-primary text-on-primary rounded-full px-4 py-2.5 font-sans font-bold text-xs flex items-center gap-2 active:scale-95 transition-all"
+        >
+          <FileText className="w-4 h-4" />
+          Import Recipe
+        </button>
+      </section>
+
+      {/* Photo Upload Area */}
+      <section>
+        <label className="block group relative w-full aspect-[16/9] md:aspect-[21/9] rounded-2xl border-2 border-dashed border-outline-variant bg-surface-container-low overflow-hidden cursor-pointer hover:border-primary transition-all">
+          <input
+            className="hidden"
+            type="file"
+            accept="image/*"
+            onChange={handleCoverPhotoChange}
+          />
+          {coverImage ? (
+            <img
+              className="w-full h-full object-cover transition-transform group-hover:scale-102 duration-500"
+              src={coverImage}
+              alt="Cover preview"
+              referrerPolicy="no-referrer"
+            />
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-on-surface-variant group-hover:text-primary transition-colors">
+              <Camera className="w-8 h-8 text-outline" />
+              <span className="font-sans font-bold text-sm">{isEditing ? 'Change Cover Photo' : 'Add Cover Photo'}</span>
+            </div>
+          )}
+        </label>
+      </section>
+
+      {/* Basic Title Info */}
+      <section className="space-y-6">
+        <div>
+          <input
+            type="text"
+            required
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder="Give your recipe a title..."
+            className="w-full bg-transparent border-none p-0 font-display font-bold text-3xl sm:text-4.5xl text-primary placeholder:text-outline-variant focus:ring-0 leading-tight"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="space-y-1.5">
+            <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Category</label>
+            <div className="space-y-2">
+              <select
+                value={category}
+                onChange={e => handleCategorySelection(e.target.value)}
+                className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold cursor-pointer transition-all"
+              >
+                {categories.map(item => (
+                  <option key={item.id} value={item.name}>
+                    {item.name}
+                  </option>
+                ))}
+                <option value={CREATE_NEW_CATEGORY_VALUE}>+ Create New Category</option>
+              </select>
+
+              {category === CREATE_NEW_CATEGORY_VALUE && (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newCategoryName}
+                    onChange={e => setNewCategoryName(e.target.value)}
+                    placeholder="New category name"
+                    className="min-w-0 flex-1 bg-white border border-surface-container-high rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3 focus:ring-1 focus:ring-primary font-bold"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCreateCategoryFromForm}
+                    className="bg-primary text-on-primary rounded-xl px-4 py-3 font-sans font-bold text-xs active:scale-95 transition-all"
+                  >
+                    Add
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Prep Time</label>
+            <div className="relative">
+              <input
+                type="number"
+                min="5"
+                value={prepTime}
+                onChange={e => setPrepTime(Number(e.target.value))}
+                placeholder="30"
+                className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface pl-4 pr-12 py-3.5 focus:ring-1 focus:ring-primary font-bold"
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-sans font-bold text-outline">
+                MIN
+              </span>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Servings</label>
+            <input
+              type="number"
+              min="1"
+              value={servings}
+              onChange={e => setServings(Number(e.target.value))}
+              placeholder="2"
+              className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Difficulty</label>
+            <select
+              value={difficulty}
+              onChange={e => setDifficulty(e.target.value as any)}
+              className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold cursor-pointer transition-all"
+            >
+              <option>Easy</option>
+              <option>Medium</option>
+              <option>Hard</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Yield</label>
+          <input
+            type="text"
+            value={recipeYield}
+            onChange={e => setRecipeYield(e.target.value)}
+            placeholder="e.g. 12 pcs, 20 servings, 1 loaf"
+            className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold"
+          />
+        </div>
+      </section>
+
+      {/* Chef's Story Section */}
+      <section className="bg-surface-container-low p-5 rounded-2xl border border-surface-container flex flex-col gap-4 shadow-sm">
+        <h3 className="font-display text-xl font-semibold text-primary flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-secondary animate-pulse" />
+          Story
+        </h3>
+        <textarea
+          value={story}
+          onChange={e => setStory(e.target.value)}
+          placeholder="Tell us the story behind this recipe. Is it a family heirloom? Inspired by a recent trip?"
+          rows={4}
+          className="w-full bg-white border-none rounded-xl font-sans text-sm text-on-surface p-4 focus:ring-1 focus:ring-primary resize-none placeholder:text-outline-variant font-medium leading-relaxed"
+        />
+      </section>
+
+      <section className="bg-surface-container-low p-5 rounded-2xl border border-surface-container flex flex-col gap-4 shadow-sm">
+        <h3 className="font-display text-xl font-semibold text-primary">
+          Chef Notes
+        </h3>
+        <textarea
+          value={chefNotes}
+          onChange={e => setChefNotes(e.target.value)}
+          placeholder="Add private notes, reminders, or cooking adjustments..."
+          rows={3}
+          className="w-full bg-white border-none rounded-xl font-sans text-sm text-on-surface p-4 focus:ring-1 focus:ring-primary resize-none placeholder:text-outline-variant font-medium leading-relaxed"
+        />
+      </section>
+
+      {/* Ingredients List */}
+      <section className="space-y-4" id="ingredients-section">
+        <h3 className="font-display text-2xl font-bold text-primary tracking-tight">Ingredients</h3>
+        
+        <div className="space-y-2.5" id="ingredient-list">
+          {ingredients.map((ing) => (
+            <div key={ing.id} className="grid grid-cols-[1fr_80px_100px_40px] gap-2 items-center animate-fade-in">
+              <input
+                type="text"
+                placeholder="Ingredient name (e.g., Fresh Basil)"
+                value={ing.name}
+                onChange={e => updateIngredient(ing.id, 'name', e.target.value)}
+                className="bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold"
+              />
+              <input
+                type="text"
+                placeholder="Qty"
+                value={ing.qty}
+                onChange={e => updateIngredient(ing.id, 'qty', e.target.value)}
+                className="bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold text-center"
+              />
+              <input
+                type="text"
+                placeholder="Unit"
+                list="ingredient-unit-options"
+                value={ing.unit}
+                onChange={e => updateIngredient(ing.id, 'unit', e.target.value)}
+                className="bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold text-center"
+              />
+              <button
+                type="button"
+                onClick={() => removeIngredientRow(ing.id)}
+                disabled={ingredients.length === 1}
+                className="text-outline hover:text-error transition-colors p-2 flex items-center justify-center disabled:opacity-30"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+        <datalist id="ingredient-unit-options">
+          <option value="g" />
+          <option value="kg" />
+          <option value="ml" />
+          <option value="L" />
+          <option value="pcs" />
+        </datalist>
+
+        <button
+          type="button"
+          onClick={addIngredientRow}
+          className="flex items-center gap-2 text-primary hover:text-secondary font-sans font-bold text-sm bg-primary/10 hover:bg-primary/15 px-4 py-2.5 rounded-full transition-all cursor-pointer"
+        >
+          <Plus className="w-4 h-4" />
+          Add Ingredient
+        </button>
+      </section>
+
+      {/* Method Section */}
+      <section className="space-y-4" id="method-section">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <h3 className="font-display text-2xl font-bold text-primary tracking-tight">Method</h3>
+          <button
+            type="button"
+            onClick={handleAutoWriteSteps}
+            disabled={isGeneratingSteps}
+            className="self-start sm:self-auto bg-secondary text-white disabled:bg-outline-variant rounded-full px-4 py-2.5 font-sans font-bold text-xs active:scale-95 transition-all"
+          >
+            {isGeneratingSteps ? 'Writing Steps...' : '✨ Auto Write Steps'}
+          </button>
+        </div>
+
+        {aiStepError && (
+          <div className="bg-secondary/10 border border-secondary/20 text-secondary rounded-xl p-3 font-sans text-xs font-bold">
+            {aiStepError}
+          </div>
+        )}
+        
+        <div className="space-y-5" id="steps-list">
+          {methodSteps.map((step, index) => (
+            <div
+              key={step.id}
+              className="bg-white p-5 rounded-2xl shadow-sm border border-surface-container-high space-y-4"
+            >
+              <div className="flex justify-between items-center">
+                <span className="font-sans font-extrabold text-xs tracking-wider text-secondary">
+                  STEP {step.stepNumber}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => moveMethodStep(step.id, 'up')}
+                    disabled={index === 0}
+                    className="text-outline hover:text-primary transition-colors disabled:opacity-30 p-1"
+                    title="Move step up"
+                  >
+                    <ArrowUp className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveMethodStep(step.id, 'down')}
+                    disabled={index === methodSteps.length - 1}
+                    className="text-outline hover:text-primary transition-colors disabled:opacity-30 p-1"
+                    title="Move step down"
+                  >
+                    <ArrowDown className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeMethodStepRow(step.id)}
+                    disabled={methodSteps.length === 1}
+                    className="text-outline hover:text-red-500 transition-colors disabled:opacity-30 p-1"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex gap-4 flex-col sm:flex-row items-stretch">
+                <label className="shrink-0 w-24 h-24 rounded-xl bg-surface-container flex items-center justify-center cursor-pointer border border-dashed border-outline-variant hover:border-primary overflow-hidden relative self-start sm:self-auto">
+                  <input
+                    className="hidden"
+                    type="file"
+                    accept="image/*"
+                    onChange={e => handleStepPhotoChange(step.id, e)}
+                  />
+                  {step.image ? (
+                    <img
+                      src={step.image}
+                      alt={`Step ${step.stepNumber}`}
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <ImageIcon className="w-5 h-5 text-outline-variant" />
+                  )}
+                </label>
+                <textarea
+                  placeholder="Describe this step in detail..."
+                  value={step.description}
+                  onChange={e => updateMethodStep(step.id, e.target.value)}
+                  rows={3}
+                  className="flex-1 bg-surface-container-lowest border-none rounded-xl font-sans text-sm p-4 focus:ring-1 focus:ring-primary resize-none placeholder:text-outline-variant font-medium leading-relaxed"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={addMethodStepRow}
+          className="flex items-center gap-2 text-primary hover:text-secondary font-sans font-bold text-sm bg-primary/10 hover:bg-primary/15 px-4 py-2.5 rounded-full transition-all cursor-pointer"
+        >
+          <Plus className="w-4 h-4" />
+          Add Step
+        </button>
+      </section>
+
+      {/* Video URL section */}
+      <section className="bg-surface-container-low p-5 rounded-2xl border border-surface-container flex flex-col justify-between shadow-sm">
+        <h3 className="font-sans font-bold text-xs tracking-wider text-primary uppercase pb-4 border-b border-surface-container font-sans flex items-center gap-1">
+          <Video className="w-4 h-4 text-secondary" /> Video URL
+        </h3>
+        <div className="pt-4">
+          <label className="text-[10px] font-sans font-bold text-on-surface-variant block mb-1">
+            Video URL
+          </label>
+          <input
+            type="url"
+            value={videoLink}
+            onChange={e => setVideoLink(e.target.value)}
+            placeholder="https://youtube.com/..."
+            className="w-full bg-white border border-outline-variant/20 rounded-xl px-4 py-3 text-xs font-semibold placeholder:text-outline-variant"
+          />
+        </div>
+      </section>
+
+      {/* Primary Floating Save Bar on bottom of screen (desktop has top nav Save, mobile also has this convenient one!) */}
+      <div className="sticky bottom-6 flex gap-4 pt-4 z-40 bg-surface/10 backdrop-blur-md p-2 rounded-2xl max-w-sm mx-auto sm:hidden shadow-lg border border-primary/5">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex-1 py-3.5 bg-surface-container hover:bg-surface-container-high rounded-full font-sans font-bold text-xs text-primary transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleSaveClick}
+          className="flex-1 py-3.5 bg-primary hover:bg-primary-container text-on-primary rounded-full font-sans font-bold text-xs transition-colors shadow-md shadow-primary/25"
+        >
+          {isEditing ? 'Save Changes' : 'Save Recipe'}
+        </button>
+      </div>
+
+      {/* Hidden button for App.tsx trigger */}
+      <button id="add-recipe-hidden-save-btn" onClick={handleSaveClick} className="hidden" />
+
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-background border border-surface-container-high rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 space-y-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="font-display text-xl font-bold text-primary">Import Recipe</h3>
+                <p className="font-sans text-xs text-on-surface-variant font-bold">
+                  Paste a recipe or import from a text-based PDF. This fills title, yield, ingredients, and method only.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowImportModal(false)}
+                className="p-2 rounded-full hover:bg-surface-container text-outline"
+                aria-label="Close import modal"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 bg-surface-container-low p-1 rounded-full">
+              <button
+                type="button"
+                onClick={() => {
+                  setImportMode('text');
+                  setImportError('');
+                }}
+                className={`rounded-full px-4 py-2.5 text-xs font-sans font-bold transition-all ${
+                  importMode === 'text'
+                    ? 'bg-primary text-on-primary shadow-sm'
+                    : 'text-primary hover:bg-white'
+                }`}
+              >
+                Paste Text
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setImportMode('pdf');
+                  setImportError('');
+                }}
+                className={`rounded-full px-4 py-2.5 text-xs font-sans font-bold transition-all ${
+                  importMode === 'pdf'
+                    ? 'bg-primary text-on-primary shadow-sm'
+                    : 'text-primary hover:bg-white'
+                }`}
+              >
+                Import from PDF
+              </button>
+            </div>
+
+            {importMode === 'text' ? (
+              <textarea
+                value={importText}
+                onChange={e => setImportText(e.target.value)}
+                placeholder={`Example:\nChocolate Buns\nYield: 12 pcs\n\nIngredients\n500 g flour\n60 g sugar\n300 ml milk\n\nMethod\n1. Mix dry ingredients.\n2. Add milk and knead.\n3. Proof, shape, and bake.`}
+                rows={14}
+                className="w-full bg-white border border-surface-container-high rounded-xl p-4 text-sm font-sans text-on-surface resize-none focus:ring-1 focus:ring-primary"
+              />
+            ) : (
+              <div className="space-y-4">
+                <label className="block bg-white border-2 border-dashed border-outline-variant rounded-2xl p-5 text-center cursor-pointer hover:border-primary transition-colors">
+                  <input
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    onChange={handlePdfFileChange}
+                    className="hidden"
+                  />
+                  <FileText className="w-8 h-8 mx-auto text-outline mb-2" />
+                  <span className="block font-sans font-bold text-sm text-primary">
+                    {isReadingPdf ? 'Reading PDF...' : 'Choose PDF'}
+                  </span>
+                  <span className="block font-sans font-bold text-[11px] text-on-surface-variant mt-1">
+                    Local text extraction only. Scanned image PDFs need OCR and are not supported.
+                  </span>
+                </label>
+
+                {detectedPdfRecipes.length > 0 && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <h4 className="font-display text-lg font-bold text-primary">
+                        Detected Recipes ({detectedPdfRecipes.length})
+                      </h4>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedPdfRecipeIds(
+                            selectedPdfRecipeIds.length === detectedPdfRecipes.length
+                              ? []
+                              : detectedPdfRecipes.map(recipe => recipe.id)
+                          )
+                        }
+                        className="text-xs font-sans font-bold text-secondary"
+                      >
+                        {selectedPdfRecipeIds.length === detectedPdfRecipes.length ? 'Clear All' : 'Select All'}
+                      </button>
+                    </div>
+
+                    <div className="space-y-3">
+                      {detectedPdfRecipes.map(recipe => {
+                        const isSelected = selectedPdfRecipeIds.includes(recipe.id);
+                        return (
+                          <label
+                            key={recipe.id}
+                            className={`block rounded-2xl border p-4 cursor-pointer transition-all ${
+                              isSelected
+                                ? 'bg-primary/10 border-primary'
+                                : 'bg-white border-surface-container-high hover:border-primary/50'
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => togglePdfRecipeSelection(recipe.id)}
+                                className="mt-1 accent-primary"
+                              />
+                              <div className="min-w-0 flex-1 space-y-2">
+                                <div>
+                                  <h5 className="font-display text-base font-bold text-primary truncate">
+                                    {recipe.title}
+                                  </h5>
+                                  <p className="font-sans text-[11px] font-bold text-on-surface-variant">
+                                    {recipe.yield || 'Yield not found'} • {recipe.ingredients.length} ingredients • {recipe.method.length} steps
+                                  </p>
+                                </div>
+
+                                {isSelected && (
+                                  <div className="grid md:grid-cols-2 gap-3 text-left">
+                                    <div className="bg-surface-container-low rounded-xl p-3">
+                                      <p className="font-sans text-[10px] font-extrabold text-secondary uppercase mb-2">
+                                        Ingredients Preview
+                                      </p>
+                                      <ul className="space-y-1">
+                                        {recipe.ingredients.slice(0, 5).map(ingredient => (
+                                          <li key={ingredient.id} className="font-sans text-xs font-semibold text-on-surface">
+                                            {[ingredient.qty, ingredient.unit, ingredient.name].filter(Boolean).join(' ')}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                    <div className="bg-surface-container-low rounded-xl p-3">
+                                      <p className="font-sans text-[10px] font-extrabold text-secondary uppercase mb-2">
+                                        Method Preview
+                                      </p>
+                                      <ol className="space-y-1">
+                                        {recipe.method.slice(0, 4).map(step => (
+                                          <li key={step.id} className="font-sans text-xs font-semibold text-on-surface">
+                                            {step.stepNumber}. {step.description}
+                                          </li>
+                                        ))}
+                                      </ol>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {importError && (
+              <div className="bg-secondary/10 border border-secondary/20 text-secondary rounded-xl p-3 font-sans text-xs font-bold">
+                {importError}
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowImportModal(false)}
+                className="bg-surface-container rounded-full px-5 py-3 text-xs font-sans font-bold text-primary"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={importMode === 'text' ? handleImportRecipe : handleImportSelectedPdfRecipes}
+                disabled={importMode === 'pdf' && (isReadingPdf || detectedPdfRecipes.length === 0)}
+                className="bg-primary disabled:bg-outline-variant text-on-primary rounded-full px-5 py-3 text-xs font-sans font-bold"
+              >
+                {importMode === 'pdf' ? 'Import Selected' : 'Fill Form'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Ce Lim\u0027s Kitchen",
+  "description": "A premium, digital heirloom cookbook celebrating seasonal produce and the joy of home cooking, featuring recipe adding, search, filter, and cookbook collections.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
