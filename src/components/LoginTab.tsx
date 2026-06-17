@@ -5,7 +5,14 @@
 
 import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import {
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  updateProfile
+} from 'firebase/auth';
 import BrandLogo from './BrandLogo';
+import { auth, isFirebaseConfigured } from '../firebase';
 
 type AuthView = 'welcome' | 'sign-in' | 'create-account' | 'forgot-password' | 'guest';
 
@@ -51,11 +58,15 @@ function FormField({
   type,
   placeholder,
   autoComplete,
+  value,
+  onChange,
 }: {
   label: string;
   type: string;
   placeholder: string;
   autoComplete: string;
+  value: string;
+  onChange: (value: string) => void;
 }) {
   return (
     <div className="space-y-1.5">
@@ -64,17 +75,121 @@ function FormField({
         type={type}
         placeholder={placeholder}
         autoComplete={autoComplete}
+        value={value}
+        onChange={event => onChange(event.target.value)}
         className={fieldClass}
       />
     </div>
   );
 }
 
+const getAuthErrorMessage = (error: unknown) => {
+  const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+
+  switch (code) {
+    case 'auth/invalid-credential':
+    case 'auth/user-not-found':
+    case 'auth/wrong-password':
+      return 'Email or password is incorrect.';
+    case 'auth/email-already-in-use':
+      return 'An account already exists with this email.';
+    case 'auth/weak-password':
+      return 'Password should be at least 6 characters.';
+    case 'auth/invalid-email':
+      return 'Please enter a valid email address.';
+    case 'auth/too-many-requests':
+      return 'Too many attempts. Please try again later.';
+    default:
+      return error instanceof Error ? error.message : 'Authentication failed. Please try again.';
+  }
+};
+
 export default function LoginTab() {
   const [view, setView] = useState<AuthView>('welcome');
+  const [signInEmail, setSignInEmail] = useState('');
+  const [signInPassword, setSignInPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [createEmail, setCreateEmail] = useState('');
+  const [createPassword, setCreatePassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [resetEmail, setResetEmail] = useState('');
+  const [authMessage, setAuthMessage] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const preventAuthSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const clearAuthStatus = () => {
+    setAuthMessage('');
+    setAuthError('');
+  };
+
+  const ensureFirebaseAuth = () => {
+    if (!isFirebaseConfigured || !auth) {
+      setAuthError('Firebase is not configured yet. Guest Mode is still available.');
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleSignIn = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    clearAuthStatus();
+    if (!ensureFirebaseAuth()) return;
+
+    setIsSubmitting(true);
+    try {
+      await signInWithEmailAndPassword(auth, signInEmail.trim(), signInPassword);
+      setAuthMessage('Signed in successfully.');
+    } catch (error) {
+      setAuthError(getAuthErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleCreateAccount = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    clearAuthStatus();
+    if (!ensureFirebaseAuth()) return;
+
+    if (createPassword !== confirmPassword) {
+      setAuthError('Passwords do not match.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const credential = await createUserWithEmailAndPassword(auth, createEmail.trim(), createPassword);
+      if (fullName.trim()) {
+        await updateProfile(credential.user, { displayName: fullName.trim() });
+      }
+      setAuthMessage('Account created successfully.');
+    } catch (error) {
+      setAuthError(getAuthErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handlePasswordReset = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    clearAuthStatus();
+    if (!ensureFirebaseAuth()) return;
+
+    setIsSubmitting(true);
+    try {
+      await sendPasswordResetEmail(auth, resetEmail.trim());
+      setAuthMessage('Password reset email sent.');
+    } catch (error) {
+      setAuthError(getAuthErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const switchView = (nextView: AuthView) => {
+    clearAuthStatus();
+    setView(nextView);
   };
 
   return (
@@ -99,21 +214,21 @@ export default function LoginTab() {
                 <div className="space-y-3">
                   <button
                     type="button"
-                    onClick={() => setView('sign-in')}
+                    onClick={() => switchView('sign-in')}
                     className={primaryButtonClass}
                   >
                     Sign In
                   </button>
                   <button
                     type="button"
-                    onClick={() => setView('create-account')}
+                    onClick={() => switchView('create-account')}
                     className={secondaryButtonClass}
                   >
                     Create Account
                   </button>
                   <button
                     type="button"
-                    onClick={() => setView('guest')}
+                    onClick={() => switchView('guest')}
                     className={secondaryButtonClass}
                   >
                     Continue as Guest
@@ -126,22 +241,26 @@ export default function LoginTab() {
               <>
                 <AuthHeader title="Sign In" subtitle="Welcome back to your kitchen." />
 
-                <form className="space-y-4" onSubmit={preventAuthSubmit}>
+                <form className="space-y-4" onSubmit={handleSignIn}>
                   <FormField
                     label="Email"
                     type="email"
                     placeholder="chef@example.com"
                     autoComplete="email"
+                    value={signInEmail}
+                    onChange={setSignInEmail}
                   />
                   <FormField
                     label="Password"
                     type="password"
                     placeholder="Enter your password"
                     autoComplete="current-password"
+                    value={signInPassword}
+                    onChange={setSignInPassword}
                   />
 
-                  <button type="submit" className={primaryButtonClass}>
-                    Sign In
+                  <button type="submit" className={primaryButtonClass} disabled={isSubmitting}>
+                    {isSubmitting ? 'Signing In...' : 'Sign In'}
                   </button>
                 </form>
 
@@ -158,14 +277,14 @@ export default function LoginTab() {
                 <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">
                   <button
                     type="button"
-                    onClick={() => setView('forgot-password')}
+                    onClick={() => switchView('forgot-password')}
                     className={linkButtonClass}
                   >
                     Forgot Password
                   </button>
                   <button
                     type="button"
-                    onClick={() => setView('create-account')}
+                    onClick={() => switchView('create-account')}
                     className={linkButtonClass}
                   >
                     Create Account
@@ -178,40 +297,48 @@ export default function LoginTab() {
               <>
                 <AuthHeader title="Create Account" subtitle="Prepare for future cloud sync." />
 
-                <form className="space-y-4" onSubmit={preventAuthSubmit}>
+                <form className="space-y-4" onSubmit={handleCreateAccount}>
                   <FormField
                     label="Full Name"
                     type="text"
                     placeholder="Ce Lim"
                     autoComplete="name"
+                    value={fullName}
+                    onChange={setFullName}
                   />
                   <FormField
                     label="Email"
                     type="email"
                     placeholder="chef@example.com"
                     autoComplete="email"
+                    value={createEmail}
+                    onChange={setCreateEmail}
                   />
                   <FormField
                     label="Password"
                     type="password"
                     placeholder="Create a password"
                     autoComplete="new-password"
+                    value={createPassword}
+                    onChange={setCreatePassword}
                   />
                   <FormField
                     label="Confirm Password"
                     type="password"
                     placeholder="Confirm your password"
                     autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={setConfirmPassword}
                   />
 
-                  <button type="submit" className={primaryButtonClass}>
-                    Create Account
+                  <button type="submit" className={primaryButtonClass} disabled={isSubmitting}>
+                    {isSubmitting ? 'Creating Account...' : 'Create Account'}
                   </button>
                 </form>
 
                 <button
                   type="button"
-                  onClick={() => setView('sign-in')}
+                  onClick={() => switchView('sign-in')}
                   className={`${secondaryButtonClass} !py-3`}
                 >
                   Back to Sign In
@@ -226,22 +353,24 @@ export default function LoginTab() {
                   subtitle="Enter your email to prepare a reset request."
                 />
 
-                <form className="space-y-4" onSubmit={preventAuthSubmit}>
+                <form className="space-y-4" onSubmit={handlePasswordReset}>
                   <FormField
                     label="Email"
                     type="email"
                     placeholder="chef@example.com"
                     autoComplete="email"
+                    value={resetEmail}
+                    onChange={setResetEmail}
                   />
 
-                  <button type="submit" className={primaryButtonClass}>
-                    Send Reset Link
+                  <button type="submit" className={primaryButtonClass} disabled={isSubmitting}>
+                    {isSubmitting ? 'Sending...' : 'Send Reset Link'}
                   </button>
                 </form>
 
                 <button
                   type="button"
-                  onClick={() => setView('sign-in')}
+                  onClick={() => switchView('sign-in')}
                   className={`${secondaryButtonClass} !py-3`}
                 >
                   Back to Sign In
@@ -263,14 +392,14 @@ export default function LoginTab() {
                 <div className="space-y-3">
                   <button
                     type="button"
-                    onClick={() => setView('sign-in')}
+                    onClick={() => switchView('sign-in')}
                     className={primaryButtonClass}
                   >
                     Sign In
                   </button>
                   <button
                     type="button"
-                    onClick={() => setView('welcome')}
+                    onClick={() => switchView('welcome')}
                     className={secondaryButtonClass}
                   >
                     Back to Welcome
@@ -278,6 +407,16 @@ export default function LoginTab() {
                 </div>
               </>
             ) : null}
+
+            {(authMessage || authError) && (
+              <p className={`text-center font-sans text-xs font-extrabold rounded-xl px-4 py-3 ${
+                authError
+                  ? 'text-secondary bg-secondary/10 border border-secondary/20'
+                  : 'text-primary bg-primary/10 border border-primary/15'
+              }`}>
+                {authError || authMessage}
+              </p>
+            )}
           </motion.div>
         </AnimatePresence>
       </section>
