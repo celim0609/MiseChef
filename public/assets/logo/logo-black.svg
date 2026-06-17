@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title>MiseChef logo</title>
+  <g fill="none" stroke="#000000" stroke-linecap="round" stroke-linejoin="round">
+    <path
+      d="M663 289 C566 222 424 221 321 326 C222 426 189 592 257 608 C292 616 329 548 382 488 C430 433 476 421 503 421 C564 421 537 508 483 606"
+      stroke-width="18"
+    />
+    <path
+      d="M483 606 C531 553 586 497 617 499 C645 502 632 546 650 577 C679 626 746 624 802 594 C819 585 834 565 834 565"
+      stroke-width="18"
+    />
+    <path
+      d="M342 709 C462 782 655 782 732 615"
+      stroke-width="8"
+    />
+  </g>
+</svg>
