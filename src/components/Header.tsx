@@ -6,6 +6,7 @@
 import React from 'react';
 import { Menu, ArrowLeft } from 'lucide-react';
 import { RootTab } from '../types';
+import miseChefLogo from '../assets/logo.png';
 
 interface HeaderProps {
   title?: string;
@@ -51,15 +52,24 @@ export default function Header({
             </button>
           )}
           
-          <div className="leading-tight">
-            <h1 className={`text-xl sm:text-2xl text-primary font-semibold tracking-tight ${title === "MiseChef" ? "font-display italic" : "font-display"}`}>
-              {title}
-            </h1>
-            {!isSubpage && (
-              <p className="font-sans text-[10px] sm:text-xs text-secondary font-bold tracking-wide">
-                Everything in its place. · by Ce Lim
-              </p>
+          <div className="flex items-center gap-2.5 min-w-0">
+            {title === "MiseChef" && (
+              <img
+                src={miseChefLogo}
+                alt="MiseChef logo"
+                className="w-8 h-8 sm:w-9 sm:h-9 object-contain shrink-0"
+              />
             )}
+            <div className="leading-tight min-w-0">
+              <h1 className={`text-xl sm:text-2xl text-primary font-semibold tracking-tight ${title === "MiseChef" ? "font-display italic" : "font-display"}`}>
+                {title}
+              </h1>
+              {!isSubpage && (
+                <p className="font-sans text-[10px] sm:text-xs text-secondary font-bold tracking-wide">
+                  Everything in its place. · by Ce Lim
+                </p>
+              )}
+            </div>
           </div>
         </div>
 

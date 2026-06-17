@@ -5,6 +5,7 @@
 
 import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
+import miseChefLogo from '../assets/logo.png';
 
 type AuthView = 'welcome' | 'sign-in' | 'create-account' | 'forgot-password' | 'guest';
 
@@ -28,7 +29,12 @@ function AuthHeader({
   subtitle?: string;
 }) {
   return (
-    <div className="text-center space-y-2">
+    <div className="text-center space-y-3">
+      <img
+        src={miseChefLogo}
+        alt="MiseChef logo"
+        className="w-24 h-24 sm:w-28 sm:h-28 object-contain mx-auto"
+      />
       <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">
         {eyebrow}
       </p>

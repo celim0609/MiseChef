@@ -7,6 +7,7 @@ import React, { useEffect, useState } from 'react';
 import { ChevronDown, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { RecipeCategory, RootTab } from '../types';
+import miseChefLogo from '../assets/logo.png';
 
 interface NavigationDrawerProps {
   isOpen: boolean;
@@ -100,16 +101,23 @@ export default function NavigationDrawer({
             aria-label="Navigation menu"
           >
             <div className="px-5 pt-5 pb-4 border-b border-surface-container-high flex items-start justify-between gap-4">
-              <div>
-                <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">
-                  Menu
-                </p>
-                <h2 className="font-display italic text-2xl text-primary font-semibold">
-                  MiseChef
-                </h2>
-                <p className="font-sans text-xs text-on-surface-variant font-bold">
-                  Everything in its place. · by Ce Lim
-                </p>
+              <div className="flex items-center gap-3 min-w-0">
+                <img
+                  src={miseChefLogo}
+                  alt="MiseChef logo"
+                  className="w-10 h-10 object-contain shrink-0"
+                />
+                <div className="min-w-0">
+                  <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">
+                    Menu
+                  </p>
+                  <h2 className="font-display italic text-2xl text-primary font-semibold">
+                    MiseChef
+                  </h2>
+                  <p className="font-sans text-xs text-on-surface-variant font-bold">
+                    Everything in its place. · by Ce Lim
+                  </p>
+                </div>
               </div>
               <button
                 type="button"

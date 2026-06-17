@@ -18,12 +18,40 @@ import LoginTab from './components/LoginTab';
 import FavoritesTab from './components/FavoritesTab';
 import StatisticsTab from './components/StatisticsTab';
 import { AnimatePresence, motion } from 'motion/react';
+import miseChefLogo from './assets/logo.png';
 
 const STORAGE_RECIPES_KEY = 'my_cookbook_recipes_v2';
 const STORAGE_CATEGORIES_KEY = 'ce_lims_kitchen_categories_v1';
 const STORAGE_APPEARANCE_KEY = 'ce_lims_kitchen_appearance_v1';
 const STORAGE_PROFILE_KEY = 'ce_lims_kitchen_chef_profile_v1';
 const OTHERS_CATEGORY_NAME = 'Others';
+
+function BrandLoadingScreen() {
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center px-6">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.25, ease: 'easeOut' }}
+        className="flex flex-col items-center gap-4 text-center"
+      >
+        <img
+          src={miseChefLogo}
+          alt="MiseChef logo"
+          className="w-24 h-24 sm:w-28 sm:h-28 object-contain"
+        />
+        <div className="space-y-1">
+          <h1 className="font-display italic text-4xl text-primary font-semibold">
+            MiseChef
+          </h1>
+          <p className="font-sans text-xs text-secondary font-bold tracking-wide">
+            Everything in its place. · by Ce Lim
+          </p>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
 
 const createCategoryRecord = (name: string): RecipeCategory => ({
   id: `cat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -60,6 +88,7 @@ export default function App() {
   const [isNavigationDrawerOpen, setIsNavigationDrawerOpen] = useState(false);
   const [selectedHomeCategory, setSelectedHomeCategory] = useState<string | null>(null);
   const [isFavoritesFilterActive, setIsFavoritesFilterActive] = useState(false);
+  const [isAppReady, setIsAppReady] = useState(false);
   
   // Notification states
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
@@ -104,6 +133,8 @@ export default function App() {
       setCategories(initialCategories);
       localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(initialCategories));
     }
+
+    setIsAppReady(true);
   }, []);
 
   // Save changes helper
@@ -428,6 +459,10 @@ export default function App() {
       onMenuClick: () => setIsNavigationDrawerOpen(true)
     };
   };
+
+  if (!isAppReady) {
+    return <BrandLoadingScreen />;
+  }
 
   return (
     <div className="min-h-screen flex flex-col font-sans selection:bg-secondary/20 bg-background relative overflow-x-hidden">
