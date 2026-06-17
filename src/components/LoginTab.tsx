@@ -129,7 +129,7 @@ export default function LoginTab({ currentUser }: LoginTabProps) {
 
   const ensureFirebaseAuth = () => {
     if (!isFirebaseConfigured || !auth) {
-      setAuthError('Firebase is not configured yet. Guest Mode is still available.');
+      setAuthError('Authentication is unavailable right now. Please try again later.');
       return false;
     }
 

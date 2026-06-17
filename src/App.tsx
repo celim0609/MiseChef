@@ -370,7 +370,7 @@ export default function App() {
 
   const handleSignOut = async () => {
     if (!auth) {
-      triggerNotification('Firebase is not configured yet.', 'info');
+      triggerNotification('Authentication is unavailable right now.', 'info');
       return;
     }
 
