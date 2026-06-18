@@ -43,7 +43,10 @@ function BrandLoadingScreen() {
             MiseChef
           </h1>
           <p className="font-sans text-xs text-secondary font-bold tracking-wide">
-            Everything in its place. · by Ce Lim
+            Everything in its place.
+          </p>
+          <p className="font-sans text-[9px] text-outline font-extrabold uppercase tracking-[0.22em]">
+            by Ce Lim
           </p>
         </div>
       </motion.div>
@@ -140,6 +143,12 @@ export default function App() {
     if (!auth) return;
     return onAuthStateChanged(auth, setCurrentUser);
   }, []);
+
+  useEffect(() => {
+    if (currentUser && activeTab === 'login') {
+      setActiveTab('home');
+    }
+  }, [activeTab, currentUser]);
 
   // Save changes helper
   const saveRecipesToStorage = (newList: Recipe[]) => {
@@ -506,6 +515,8 @@ export default function App() {
             setSelectedHomeCategory(null);
             setIsFavoritesFilterActive(true);
           }}
+          currentUser={currentUser}
+          onSignOut={handleSignOut}
         />
       )}
 

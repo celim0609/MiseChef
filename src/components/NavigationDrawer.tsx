@@ -6,6 +6,7 @@
 import React, { useEffect, useState } from 'react';
 import { ChevronDown, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import type { User } from 'firebase/auth';
 import { RecipeCategory, RootTab } from '../types';
 import BrandLogo from './BrandLogo';
 
@@ -19,6 +20,8 @@ interface NavigationDrawerProps {
   onNavigate: (tab: RootTab) => void;
   onSelectCategory: (categoryName: string | null) => void;
   onSelectFavorites: () => void;
+  currentUser: User | null;
+  onSignOut: () => void;
 }
 
 export default function NavigationDrawer({
@@ -30,7 +33,9 @@ export default function NavigationDrawer({
   onClose,
   onNavigate,
   onSelectCategory,
-  onSelectFavorites
+  onSelectFavorites,
+  currentUser,
+  onSignOut
 }: NavigationDrawerProps) {
   const [categoriesOpen, setCategoriesOpen] = useState(true);
 
@@ -71,9 +76,17 @@ export default function NavigationDrawer({
 
   const staticMenuItems: Array<{ label: string; icon: string; tab?: RootTab }> = [
     { label: 'Statistics', icon: '📊', tab: 'statistics' },
-    { label: 'Settings', icon: '⚙️', tab: 'settings' },
-    { label: 'Login', icon: '🔐', tab: 'login' }
+    { label: 'Settings', icon: '⚙️', tab: 'settings' }
   ];
+
+  const displayName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'MiseChef User';
+  const displayEmail = currentUser?.email || 'Sign in to enable Cloud Sync';
+  const avatarInitial = displayName.trim().charAt(0).toUpperCase() || 'M';
+
+  const handleAccountSignOut = () => {
+    onSignOut();
+    onClose();
+  };
 
   return (
     <AnimatePresence>
@@ -111,7 +124,10 @@ export default function NavigationDrawer({
                     MiseChef
                   </h2>
                   <p className="font-sans text-xs text-on-surface-variant font-bold">
-                    Everything in its place. · by Ce Lim
+                    Everything in its place.
+                  </p>
+                  <p className="font-sans text-[8px] text-outline font-extrabold uppercase tracking-[0.18em]">
+                    by Ce Lim
                   </p>
                 </div>
               </div>
@@ -236,6 +252,72 @@ export default function NavigationDrawer({
                 </button>
               ))}
             </nav>
+
+            <div className="border-t border-surface-container-high p-3 space-y-2">
+              <div className="flex items-center gap-3 rounded-2xl bg-surface-container-low px-4 py-3">
+                <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center overflow-hidden shrink-0">
+                  {currentUser?.photoURL ? (
+                    <img
+                      src={currentUser.photoURL}
+                      alt={displayName}
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <span className="font-display text-xl font-semibold">{avatarInitial}</span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="font-sans text-sm font-extrabold text-primary truncate">
+                    {displayName}
+                  </p>
+                  <p className="font-sans text-[11px] font-bold text-on-surface-variant truncate">
+                    {displayEmail}
+                  </p>
+                </div>
+              </div>
+
+              {currentUser ? (
+                <div className="grid grid-cols-1 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleNavigate('settings')}
+                    className="w-full rounded-xl px-4 py-2.5 text-left font-sans text-xs font-bold text-primary hover:bg-surface-container transition-all"
+                  >
+                    My Profile
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleNavigate('settings')}
+                    className="w-full rounded-xl px-4 py-2.5 text-left font-sans text-xs font-bold text-primary hover:bg-surface-container transition-all"
+                  >
+                    Settings
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    className="w-full rounded-xl px-4 py-2.5 text-left font-sans text-xs font-bold text-outline cursor-not-allowed"
+                  >
+                    Billing (Coming Soon)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAccountSignOut}
+                    className="w-full rounded-xl px-4 py-2.5 text-left font-sans text-xs font-bold text-secondary hover:bg-secondary/10 transition-all"
+                  >
+                    Log Out
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleNavigate('login')}
+                  className="w-full rounded-xl px-4 py-3 text-left font-sans text-xs font-bold text-primary hover:bg-surface-container transition-all"
+                >
+                  Sign In
+                </button>
+              )}
+            </div>
           </motion.aside>
         </div>
       )}

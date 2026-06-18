@@ -28,26 +28,28 @@ const linkButtonClass =
   'font-sans text-xs font-extrabold text-primary hover:text-primary-container transition-colors';
 
 function AuthHeader({
-  eyebrow = 'by Ce Lim',
   title,
   subtitle,
+  caption = 'by Ce Lim',
 }: {
-  eyebrow?: string;
   title: string;
   subtitle?: string;
+  caption?: string;
 }) {
   return (
     <div className="text-center space-y-3">
-      <BrandLogo className="h-8 w-auto mx-auto" />
-      <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">
-        {eyebrow}
-      </p>
+      <BrandLogo className="h-20 w-auto mx-auto" />
       <h2 className="font-display text-3xl sm:text-4xl font-bold text-primary leading-tight">
         {title}
       </h2>
       {subtitle ? (
         <p className="font-sans text-sm font-bold text-on-surface-variant">
           {subtitle}
+        </p>
+      ) : null}
+      {caption ? (
+        <p className="font-sans text-[9px] font-extrabold uppercase tracking-[0.22em] text-outline">
+          {caption}
         </p>
       ) : null}
     </div>

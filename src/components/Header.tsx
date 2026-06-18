@@ -61,9 +61,14 @@ export default function Header({
                 {title}
               </h1>
               {!isSubpage && (
-                <p className="font-sans text-[10px] sm:text-xs text-secondary font-bold tracking-wide">
-                  Everything in its place. · by Ce Lim
-                </p>
+                <div className="flex items-baseline gap-1.5 flex-wrap">
+                  <p className="font-sans text-[10px] sm:text-xs text-secondary font-bold tracking-wide">
+                    Everything in its place.
+                  </p>
+                  <p className="font-sans text-[8px] sm:text-[9px] text-outline font-extrabold uppercase tracking-[0.16em]">
+                    by Ce Lim
+                  </p>
+                </div>
               )}
             </div>
           </div>
