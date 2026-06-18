@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Plus, Home } from 'lucide-react';
 import { onAuthStateChanged, signOut, type User } from 'firebase/auth';
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { Recipe, RecipeCategory, RootTab } from './types';
 import { INITIAL_COLLECTIONS, INITIAL_RECIPES } from './data';
 import Header from './components/Header';
@@ -20,13 +21,14 @@ import FavoritesTab from './components/FavoritesTab';
 import StatisticsTab from './components/StatisticsTab';
 import { AnimatePresence, motion } from 'motion/react';
 import BrandLogo from './components/BrandLogo';
-import { auth } from './firebase';
+import { auth, db } from './firebase';
 
 const STORAGE_RECIPES_KEY = 'my_cookbook_recipes_v2';
 const STORAGE_CATEGORIES_KEY = 'ce_lims_kitchen_categories_v1';
 const STORAGE_APPEARANCE_KEY = 'ce_lims_kitchen_appearance_v1';
 const STORAGE_PROFILE_KEY = 'ce_lims_kitchen_chef_profile_v1';
 const OTHERS_CATEGORY_NAME = 'Others';
+const DEFAULT_COVER_IMAGE = 'https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&q=80&w=800';
 
 function BrandLoadingScreen() {
   return (
@@ -76,6 +78,83 @@ const ensureFallbackCategory = (categoryList: RecipeCategory[]) => {
   return categoryList.some(category => category.name === OTHERS_CATEGORY_NAME)
     ? categoryList
     : [...categoryList, createCategoryRecord(OTHERS_CATEGORY_NAME)];
+};
+
+const loadLocalRecipes = () => {
+  const cachedRecipes = localStorage.getItem(STORAGE_RECIPES_KEY);
+
+  if (!cachedRecipes) return INITIAL_RECIPES;
+
+  try {
+    const parsedRecipes = JSON.parse(cachedRecipes);
+    return Array.isArray(parsedRecipes) ? parsedRecipes as Recipe[] : INITIAL_RECIPES;
+  } catch (err) {
+    return INITIAL_RECIPES;
+  }
+};
+
+const removeUndefinedFields = <T,>(value: T): T => {
+  if (Array.isArray(value)) {
+    return value.map(item => removeUndefinedFields(item)) as T;
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>).reduce<Record<string, unknown>>((acc, [key, item]) => {
+      if (item !== undefined) {
+        acc[key] = removeUndefinedFields(item);
+      }
+      return acc;
+    }, {}) as T;
+  }
+
+  return value;
+};
+
+const getFirestoreRecipePayload = (recipe: Recipe, user: User) => {
+  const coverImage = recipe.coverImage?.startsWith('data:')
+    ? DEFAULT_COVER_IMAGE
+    : recipe.coverImage || DEFAULT_COVER_IMAGE;
+
+  return removeUndefinedFields({
+    ...recipe,
+    coverImage,
+    userId: user.uid,
+    updatedAt: new Date().toISOString()
+  });
+};
+
+const createUserDocument = async (user: User) => {
+  if (!db) return;
+
+  const userRef = doc(db, 'users', user.uid);
+  const existingUser = await getDoc(userRef);
+
+  await setDoc(userRef, removeUndefinedFields({
+    uid: user.uid,
+    email: user.email,
+    displayName: user.displayName,
+    photoURL: user.photoURL,
+    authProvider: user.providerData[0]?.providerId || 'password',
+    createdAt: existingUser.exists() ? existingUser.data().createdAt : new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }), { merge: true });
+};
+
+const loadFirestoreRecipes = async (user: User) => {
+  if (!db) return [];
+
+  const recipesQuery = query(collection(db, 'recipes'), where('userId', '==', user.uid));
+  const snapshot = await getDocs(recipesQuery);
+
+  return snapshot.docs
+    .map(recipeDoc => ({ id: recipeDoc.id, ...recipeDoc.data() } as Recipe))
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+};
+
+const saveRecipeToFirestore = async (recipe: Recipe, user: User) => {
+  if (!db) return;
+
+  await setDoc(doc(db, 'recipes', recipe.id), getFirestoreRecipePayload(recipe, user), { merge: true });
 };
 
 export default function App() {
@@ -149,6 +228,33 @@ export default function App() {
       setActiveTab('home');
     }
   }, [activeTab, currentUser]);
+
+  useEffect(() => {
+    if (!currentUser || !db) return;
+
+    let isCancelled = false;
+
+    const initializeFirestoreUser = async () => {
+      try {
+        await createUserDocument(currentUser);
+        const cloudRecipes = await loadFirestoreRecipes(currentUser);
+
+        if (!isCancelled && cloudRecipes.length > 0) {
+          setRecipes(cloudRecipes);
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          triggerNotification('Cloud recipes could not be loaded. Showing local recipes for now.', 'info');
+        }
+      }
+    };
+
+    initializeFirestoreUser();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [currentUser]);
 
   // Save changes helper
   const saveRecipesToStorage = (newList: Recipe[]) => {
@@ -241,13 +347,23 @@ export default function App() {
   };
 
   // Add Recipe
-  const handleSaveNewRecipe = (newRecipe: Recipe) => {
+  const handleSaveNewRecipe = async (newRecipe: Recipe) => {
     const updated = [newRecipe, ...recipes];
     saveRecipesToStorage(updated);
 
     setAddingRecipe(false);
     setActiveTab('home');
-    triggerNotification(`Saved "${newRecipe.title}" to your cookbook.`, 'success');
+
+    if (currentUser && db) {
+      try {
+        await saveRecipeToFirestore(newRecipe, currentUser);
+        triggerNotification(`Saved "${newRecipe.title}" to your cookbook.`, 'success');
+      } catch (err) {
+        triggerNotification(`Saved "${newRecipe.title}" locally. Cloud save failed for now.`, 'info');
+      }
+    } else {
+      triggerNotification(`Saved "${newRecipe.title}" locally. Sign in to save future recipes to cloud.`, 'success');
+    }
   };
 
   const handleSaveEditedRecipe = (updatedRecipe: Recipe) => {
@@ -385,6 +501,7 @@ export default function App() {
 
     try {
       await signOut(auth);
+      setRecipes(loadLocalRecipes());
       triggerNotification('Signed out successfully.', 'info');
     } catch (err) {
       triggerNotification('Unable to sign out. Please try again.', 'error');
