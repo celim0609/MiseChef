@@ -598,6 +598,23 @@ export default function App() {
     window.history.replaceState(null, '', '/');
   };
 
+  const handleAvatarClick = () => {
+    setAddingRecipe(false);
+    setEditingRecipe(null);
+    setSelectedRecipe(null);
+    setIsNavigationDrawerOpen(false);
+
+    if (currentUser) {
+      setActiveTab('settings');
+      window.history.replaceState(null, '', '/settings');
+      return;
+    }
+
+    setIsGuestMode(false);
+    setActiveTab('login');
+    window.history.replaceState(null, '', '/login');
+  };
+
   const renderTabContent = () => {
     if (!currentUser && !isGuestMode) {
       return (
@@ -721,6 +738,7 @@ export default function App() {
       activeTab: activeTab,
       chefAvatarUrl: customAvatarUrl || currentUser?.photoURL || undefined,
       chefName: currentUser?.displayName || currentUser?.email || 'User profile',
+      onAvatarClick: handleAvatarClick,
       onMenuClick: () => setIsNavigationDrawerOpen(true)
     };
   };

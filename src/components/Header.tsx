@@ -17,6 +17,7 @@ interface HeaderProps {
   chefAvatarUrl?: string;
   chefName?: string;
   onMenuClick?: () => void;
+  onAvatarClick?: () => void;
 }
 
 export default function Header({
@@ -27,7 +28,8 @@ export default function Header({
   activeTab,
   chefAvatarUrl = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=120",
   chefName = "User profile",
-  onMenuClick
+  onMenuClick,
+  onAvatarClick
 }: HeaderProps) {
   return (
     <header className="fixed top-0 left-0 w-full z-50 h-16 bg-surface/85 backdrop-blur-md border-b border-surface-container-high transition-all">
@@ -81,14 +83,19 @@ export default function Header({
           {rightAction ? (
             rightAction
           ) : (
-            <div className="w-10 h-10 rounded-full overflow-hidden ring-2 ring-primary-container/20 hover:ring-primary/40 transition-all cursor-pointer">
+            <button
+              type="button"
+              onClick={onAvatarClick}
+              className="w-10 h-10 rounded-full overflow-hidden ring-2 ring-primary-container/20 hover:ring-primary/40 transition-all cursor-pointer"
+              aria-label="Open account settings"
+            >
               <img
                 src={chefAvatarUrl}
                 alt={chefName}
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
               />
-            </div>
+            </button>
           )}
         </div>
       </div>
