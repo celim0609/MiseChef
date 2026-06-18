@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Check, Clock, Heart, Pencil, Play, Scale, Trash2, Users, X } from 'lucide-react';
+import { Check, Clock, Copy, Heart, MoreVertical, Pencil, Play, Scale, Share2, Trash2, Users, X } from 'lucide-react';
 import { Recipe } from '../types';
 import { motion } from 'motion/react';
 
@@ -71,6 +71,8 @@ interface RecipeDetailModalProps {
   recipe: Recipe;
   onClose: () => void;
   onEdit: (recipe: Recipe) => void;
+  onDuplicate: (recipe: Recipe) => void;
+  onShare: (recipe: Recipe) => void;
   onDelete: (recipe: Recipe) => void;
   onToggleFavorite: (recipeId: string) => void;
 }
@@ -79,6 +81,8 @@ export default function RecipeDetailModal({
   recipe,
   onClose,
   onEdit,
+  onDuplicate,
+  onShare,
   onDelete,
   onToggleFavorite
 }: RecipeDetailModalProps) {
@@ -88,6 +92,7 @@ export default function RecipeDetailModal({
   const [showScaleControls, setShowScaleControls] = useState(false);
   const [targetYield, setTargetYield] = useState('');
   const [recipeView, setRecipeView] = useState<'original' | 'scaled'>('original');
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
 
   const originalYield = recipe.yield || `${recipe.servings} servings`;
   const originalParsedYield = parseYield(originalYield);
@@ -136,6 +141,9 @@ export default function RecipeDetailModal({
     );
   };
 
+  const actionButtonClass =
+    'w-12 h-12 rounded-full bg-black/45 text-white border border-white/25 shadow-lg shadow-black/20 backdrop-blur-md hover:bg-black/60 active:scale-95 transition-all outline-none flex items-center justify-center';
+
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex justify-end animate-fade-in backdrop-blur-xs">
       <div className="fixed inset-0" onClick={onClose} />
@@ -150,7 +158,7 @@ export default function RecipeDetailModal({
         <div className="absolute top-4 left-4 right-4 flex justify-between items-center z-50">
           <button
             onClick={onClose}
-            className="p-2.5 rounded-full bg-black/40 text-white backdrop-blur-md hover:bg-black/60 active:scale-95 transition-all outline-none"
+            className={actionButtonClass}
             aria-label="Close recipe"
           >
             <X className="w-5 h-5" />
@@ -158,27 +166,67 @@ export default function RecipeDetailModal({
           <div className="flex items-center gap-2">
             <button
               onClick={() => onToggleFavorite(recipe.id)}
-              className="p-2.5 rounded-full bg-white/95 text-secondary shadow-lg hover:scale-105 active:scale-95 transition-all outline-none"
+              className={actionButtonClass}
               aria-label={recipe.isSaved ? 'Remove from favorites' : 'Add to favorites'}
             >
-              <Heart className={`w-4 h-4 ${recipe.isSaved ? 'fill-secondary text-secondary' : 'text-secondary'}`} />
+              <Heart className={`w-5 h-5 ${recipe.isSaved ? 'fill-white text-white' : 'text-white'}`} />
             </button>
             <button
               onClick={() => onEdit(recipe)}
-              className="px-4 py-2.5 rounded-full bg-white/95 text-primary shadow-lg hover:scale-105 active:scale-95 transition-all outline-none flex items-center gap-2 font-sans font-bold text-xs"
+              className={actionButtonClass}
               aria-label="Edit recipe"
             >
-              <Pencil className="w-4 h-4" />
-              Edit
+              <Pencil className="w-5 h-5" />
             </button>
-            <button
-              onClick={() => onDelete(recipe)}
-              className="px-4 py-2.5 rounded-full bg-white/95 text-error shadow-lg hover:scale-105 active:scale-95 transition-all outline-none flex items-center gap-2 font-sans font-bold text-xs"
-              aria-label="Delete recipe"
-            >
-              <Trash2 className="w-4 h-4" />
-              Delete
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setIsMoreMenuOpen(prev => !prev)}
+                className={actionButtonClass}
+                aria-label="More recipe actions"
+                aria-expanded={isMoreMenuOpen}
+              >
+                <MoreVertical className="w-5 h-5" />
+              </button>
+
+              {isMoreMenuOpen && (
+                <div className="absolute right-0 top-14 w-56 rounded-2xl bg-background border border-surface-container-high shadow-xl shadow-black/20 overflow-hidden py-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onDuplicate(recipe);
+                    }}
+                    className="w-full px-4 py-3 text-left font-sans text-sm font-bold text-on-surface hover:bg-surface-container flex items-center gap-3"
+                  >
+                    <Copy className="w-4 h-4 text-secondary" />
+                    Duplicate Recipe
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onShare(recipe);
+                    }}
+                    className="w-full px-4 py-3 text-left font-sans text-sm font-bold text-on-surface hover:bg-surface-container flex items-center gap-3"
+                  >
+                    <Share2 className="w-4 h-4 text-secondary" />
+                    Share Recipe
+                  </button>
+                  <div className="my-2 border-t border-surface-container-high" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMoreMenuOpen(false);
+                      onDelete(recipe);
+                    }}
+                    className="w-full px-4 py-3 text-left font-sans text-sm font-bold text-error hover:bg-error/10 flex items-center gap-3"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    Delete Recipe
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

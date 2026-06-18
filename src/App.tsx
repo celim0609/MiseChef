@@ -486,6 +486,65 @@ export default function App() {
     setEditingRecipe(recipe);
   };
 
+  const handleDuplicateRecipe = async (recipe: Recipe) => {
+    const duplicatedRecipe: Recipe = {
+      ...recipe,
+      id: `recipe_${Date.now()}`,
+      title: `${recipe.title} Copy`,
+      isSaved: false,
+      createdAt: new Date().toISOString()
+    };
+    const updatedRecipes = [duplicatedRecipe, ...recipes];
+    setRecipes(updatedRecipes);
+    setSelectedRecipe(null);
+    setActiveTab('home');
+
+    if (currentUser && db && !isGuestMode) {
+      try {
+        await saveRecipeToFirestore(duplicatedRecipe, currentUser);
+        triggerNotification(`Duplicated "${recipe.title}".`, 'success');
+      } catch (err) {
+        localStorage.setItem(STORAGE_RECIPES_KEY, JSON.stringify(updatedRecipes));
+        triggerNotification(`Duplicated "${recipe.title}" locally. Cloud save failed for now.`, 'info');
+      }
+      return;
+    }
+
+    localStorage.setItem(STORAGE_RECIPES_KEY, JSON.stringify(updatedRecipes));
+    triggerNotification(`Duplicated "${recipe.title}".`, 'success');
+  };
+
+  const handleShareRecipe = async (recipe: Recipe) => {
+    const shareText = [
+      recipe.title,
+      recipe.yield ? `Yield: ${recipe.yield}` : '',
+      '',
+      'Ingredients:',
+      ...recipe.ingredients.map(ingredient =>
+        [ingredient.qty, ingredient.unit, ingredient.name].filter(Boolean).join(' ')
+      ),
+      '',
+      'Method:',
+      ...recipe.method.map(step => `${step.stepNumber}. ${step.description}`)
+    ].filter(Boolean).join('\n');
+
+    try {
+      if (navigator.share) {
+        await navigator.share({
+          title: recipe.title,
+          text: shareText
+        });
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(shareText);
+        triggerNotification('Recipe copied to clipboard.', 'success');
+      } else {
+        triggerNotification('Sharing is not available in this browser.', 'info');
+      }
+    } catch (err) {
+      triggerNotification('Share was cancelled or could not be completed.', 'info');
+    }
+  };
+
   const handleDeleteRecipe = async (recipe: Recipe) => {
     const confirmed = window.confirm('Delete this recipe? This action cannot be undone.');
     if (!confirmed) return;
@@ -940,6 +999,8 @@ export default function App() {
             recipe={selectedRecipe}
             onClose={() => setSelectedRecipe(null)}
             onEdit={handleStartEditRecipe}
+            onDuplicate={handleDuplicateRecipe}
+            onShare={handleShareRecipe}
             onDelete={handleDeleteRecipe}
             onToggleFavorite={handleToggleFavorite}
           />
