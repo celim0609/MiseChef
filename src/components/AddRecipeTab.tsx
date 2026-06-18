@@ -692,6 +692,7 @@ Rules:
       id: initialRecipe?.id || `recipe_${Date.now()}`,
       title: title.trim(),
       coverImage: coverImage || 'https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&q=80&w=800',
+      imageUrl: initialRecipe?.imageUrl,
       category: selectedCategory || FALLBACK_CATEGORY_NAME,
       prepTime: Number(prepTime) || 30,
       servings: savedServings,

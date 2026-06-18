@@ -22,6 +22,7 @@ export interface Recipe {
   id: string;
   title: string;
   coverImage: string;
+  imageUrl?: string;
   category: string;
   prepTime: number; // in minutes
   servings: number;

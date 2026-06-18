@@ -22,6 +22,7 @@ import StatisticsTab from './components/StatisticsTab';
 import { AnimatePresence, motion } from 'motion/react';
 import BrandLogo from './components/BrandLogo';
 import { auth, authPersistenceReady, db } from './firebase';
+import { deleteRecipeCoverImage, isLocalImageDataUrl, uploadRecipeCoverImage } from './services/storage';
 
 const STORAGE_RECIPES_KEY = 'my_cookbook_recipes_v2';
 const STORAGE_CATEGORIES_KEY = 'ce_lims_kitchen_categories_v1';
@@ -123,13 +124,12 @@ const removeUndefinedFields = <T,>(value: T): T => {
 };
 
 const getFirestoreRecipePayload = (recipe: Recipe, user: User) => {
-  const coverImage = recipe.coverImage?.startsWith('data:')
-    ? DEFAULT_COVER_IMAGE
-    : recipe.coverImage || DEFAULT_COVER_IMAGE;
+  const imageUrl = recipe.imageUrl || recipe.coverImage || DEFAULT_COVER_IMAGE;
 
   return removeUndefinedFields({
     ...recipe,
-    coverImage,
+    coverImage: imageUrl,
+    imageUrl,
     userId: user.uid,
     updatedAt: new Date().toISOString()
   });
@@ -159,7 +159,16 @@ const loadFirestoreRecipes = async (user: User) => {
   const snapshot = await getDocs(recipesQuery);
 
   return snapshot.docs
-    .map(recipeDoc => ({ id: recipeDoc.id, ...recipeDoc.data() } as Recipe))
+    .map(recipeDoc => {
+      const data = recipeDoc.data() as Recipe;
+      const imageUrl = data.imageUrl || data.coverImage || DEFAULT_COVER_IMAGE;
+      return {
+        id: recipeDoc.id,
+        ...data,
+        coverImage: imageUrl,
+        imageUrl
+      } as Recipe;
+    })
     .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 };
 
@@ -177,6 +186,34 @@ const deleteRecipeFromFirestore = async (recipeId: string) => {
   }
 
   await deleteDoc(doc(db, 'recipes', recipeId));
+};
+
+const getCloudReadyRecipe = async (
+  recipe: Recipe,
+  user: User,
+  onUploadProgress?: (progress: number) => void
+) => {
+  if (isLocalImageDataUrl(recipe.coverImage)) {
+    const imageUrl = await uploadRecipeCoverImage({
+      userId: user.uid,
+      recipeId: recipe.id,
+      imageDataUrl: recipe.coverImage,
+      onProgress: onUploadProgress,
+    });
+
+    return {
+      ...recipe,
+      coverImage: imageUrl,
+      imageUrl,
+    };
+  }
+
+  const imageUrl = recipe.imageUrl || recipe.coverImage || DEFAULT_COVER_IMAGE;
+  return {
+    ...recipe,
+    coverImage: imageUrl,
+    imageUrl,
+  };
 };
 
 export default function App() {
@@ -437,45 +474,63 @@ export default function App() {
 
   // Add Recipe
   const handleSaveNewRecipe = async (newRecipe: Recipe) => {
-    const updated = [newRecipe, ...recipes];
-    setRecipes(updated);
-
     setAddingRecipe(false);
     setActiveTab('home');
 
     if (currentUser && db && !isGuestMode) {
       try {
-        await saveRecipeToFirestore(newRecipe, currentUser);
-        triggerNotification(`Saved "${newRecipe.title}" to your cookbook.`, 'success');
+        const cloudRecipe = await getCloudReadyRecipe(newRecipe, currentUser, progress => {
+          triggerNotification(`Uploading cover image... ${progress}%`, 'info');
+        });
+        const updated = [cloudRecipe, ...recipes];
+        setRecipes(updated);
+        await saveRecipeToFirestore(cloudRecipe, currentUser);
+        triggerNotification(`Saved "${cloudRecipe.title}" to your cookbook.`, 'success');
       } catch (err) {
+        const updated = [newRecipe, ...recipes];
+        setRecipes(updated);
         localStorage.setItem(STORAGE_RECIPES_KEY, JSON.stringify(updated));
         triggerNotification(`Saved "${newRecipe.title}" locally. Cloud save failed for now.`, 'info');
       }
     } else {
+      const updated = [newRecipe, ...recipes];
+      setRecipes(updated);
       localStorage.setItem(STORAGE_RECIPES_KEY, JSON.stringify(updated));
       triggerNotification(`Saved "${newRecipe.title}" locally. Sign in to save future recipes to cloud.`, 'success');
     }
   };
 
   const handleSaveEditedRecipe = async (updatedRecipe: Recipe) => {
-    const updated = recipes.map(recipe =>
-      recipe.id === updatedRecipe.id ? updatedRecipe : recipe
-    );
-    setRecipes(updated);
-
     setEditingRecipe(null);
-    setSelectedRecipe(updatedRecipe);
     setActiveTab('home');
 
     if (currentUser && db && !isGuestMode) {
       try {
-        await saveRecipeToFirestore(updatedRecipe, currentUser);
-        triggerNotification(`Updated "${updatedRecipe.title}".`, 'success');
+        const cloudRecipe = await getCloudReadyRecipe(updatedRecipe, currentUser, progress => {
+          triggerNotification(`Uploading cover image... ${progress}%`, 'info');
+        });
+        const updated = recipes.map(recipe =>
+          recipe.id === cloudRecipe.id ? cloudRecipe : recipe
+        );
+        setRecipes(updated);
+        setSelectedRecipe(cloudRecipe);
+        await saveRecipeToFirestore(cloudRecipe, currentUser);
+        triggerNotification(`Updated "${cloudRecipe.title}".`, 'success');
       } catch (err) {
+        const updated = recipes.map(recipe =>
+          recipe.id === updatedRecipe.id ? updatedRecipe : recipe
+        );
+        setRecipes(updated);
+        setSelectedRecipe(updatedRecipe);
         localStorage.setItem(STORAGE_RECIPES_KEY, JSON.stringify(updated));
         triggerNotification(`Updated "${updatedRecipe.title}" locally. Cloud sync failed for now.`, 'info');
       }
     } else {
+      const updated = recipes.map(recipe =>
+        recipe.id === updatedRecipe.id ? updatedRecipe : recipe
+      );
+      setRecipes(updated);
+      setSelectedRecipe(updatedRecipe);
       localStorage.setItem(STORAGE_RECIPES_KEY, JSON.stringify(updated));
       triggerNotification(`Updated "${updatedRecipe.title}".`, 'success');
     }
@@ -501,7 +556,12 @@ export default function App() {
 
     if (currentUser && db && !isGuestMode) {
       try {
-        await saveRecipeToFirestore(duplicatedRecipe, currentUser);
+        const cloudRecipe = await getCloudReadyRecipe(duplicatedRecipe, currentUser, progress => {
+          triggerNotification(`Uploading cover image... ${progress}%`, 'info');
+        });
+        const updated = [cloudRecipe, ...recipes];
+        setRecipes(updated);
+        await saveRecipeToFirestore(cloudRecipe, currentUser);
         triggerNotification(`Duplicated "${recipe.title}".`, 'success');
       } catch (err) {
         localStorage.setItem(STORAGE_RECIPES_KEY, JSON.stringify(updatedRecipes));
@@ -556,6 +616,7 @@ export default function App() {
 
     if (currentUser && db && !isGuestMode) {
       try {
+        await deleteRecipeCoverImage(currentUser.uid, recipe.id);
         await deleteRecipeFromFirestore(recipe.id);
         triggerNotification(`Deleted "${recipe.title}".`, 'info');
       } catch (err) {
