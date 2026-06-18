@@ -7,8 +7,10 @@ import React, { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   createUserWithEmailAndPassword,
+  GoogleAuthProvider,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
+  signInWithPopup,
   updateProfile
 } from 'firebase/auth';
 import type { User } from 'firebase/auth';
@@ -102,6 +104,10 @@ const getAuthErrorMessage = (error: unknown) => {
       return 'Please enter a valid email address.';
     case 'auth/too-many-requests':
       return 'Too many attempts. Please try again later.';
+    case 'auth/popup-closed-by-user':
+      return 'Google sign-in was closed before it finished.';
+    case 'auth/popup-blocked':
+      return 'Please allow popups to continue with Google.';
     default:
       return error instanceof Error ? error.message : 'Authentication failed. Please try again.';
   }
@@ -109,9 +115,10 @@ const getAuthErrorMessage = (error: unknown) => {
 
 interface LoginTabProps {
   currentUser: User | null;
+  onAuthenticated: () => void;
 }
 
-export default function LoginTab({ currentUser }: LoginTabProps) {
+export default function LoginTab({ currentUser, onAuthenticated }: LoginTabProps) {
   const [view, setView] = useState<AuthView>('welcome');
   const [signInEmail, setSignInEmail] = useState('');
   const [signInPassword, setSignInPassword] = useState('');
@@ -147,6 +154,25 @@ export default function LoginTab({ currentUser }: LoginTabProps) {
     try {
       await signInWithEmailAndPassword(auth, signInEmail.trim(), signInPassword);
       setAuthMessage('Signed in successfully.');
+      onAuthenticated();
+    } catch (error) {
+      setAuthError(getAuthErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    clearAuthStatus();
+    if (!ensureFirebaseAuth()) return;
+
+    setIsSubmitting(true);
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      await signInWithPopup(auth, provider);
+      setAuthMessage('Signed in with Google successfully.');
+      onAuthenticated();
     } catch (error) {
       setAuthError(getAuthErrorMessage(error));
     } finally {
@@ -171,6 +197,7 @@ export default function LoginTab({ currentUser }: LoginTabProps) {
         await updateProfile(credential.user, { displayName: fullName.trim() });
       }
       setAuthMessage('Account created successfully.');
+      onAuthenticated();
     } catch (error) {
       setAuthError(getAuthErrorMessage(error));
     } finally {
@@ -277,8 +304,13 @@ export default function LoginTab({ currentUser }: LoginTabProps) {
                   <div className="h-px flex-1 bg-surface-container-high" />
                 </div>
 
-                <button type="button" className={secondaryButtonClass}>
-                  Continue with Google (Coming Soon)
+                <button
+                  type="button"
+                  onClick={handleGoogleSignIn}
+                  className={secondaryButtonClass}
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? 'Opening Google...' : 'Continue with Google'}
                 </button>
 
                 <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2">

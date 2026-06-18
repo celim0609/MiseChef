@@ -452,7 +452,19 @@ export default function App() {
           />
         );
       case 'login':
-        return <LoginTab currentUser={currentUser} />;
+        if (currentUser) {
+          return (
+            <HomeTab
+              recipes={homeRecipes}
+              selectedCategory={selectedHomeCategory}
+              isFavoritesFilter={isFavoritesFilterActive}
+              onSelectRecipe={setSelectedRecipe}
+              onToggleFavorite={handleToggleFavorite}
+            />
+          );
+        }
+
+        return <LoginTab currentUser={currentUser} onAuthenticated={() => setActiveTab('home')} />;
       default:
         return null;
     }
