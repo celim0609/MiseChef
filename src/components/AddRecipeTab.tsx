@@ -828,6 +828,10 @@ Rules:
   const handlePdfFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (isReadingPdf) {
+      e.target.value = '';
+      return;
+    }
 
     setImportError('');
     setDetectedPdfRecipes([]);
@@ -856,6 +860,10 @@ Rules:
   const handleImageImportFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (isReadingPdf) {
+      e.target.value = '';
+      return;
+    }
 
     console.log('Image selected', {
       name: file.name,
@@ -897,6 +905,10 @@ Rules:
   const handleScanRecipeFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (isReadingPdf) {
+      e.target.value = '';
+      return;
+    }
 
     setImportError('');
     setDetectedPdfRecipes([]);
@@ -1444,7 +1456,9 @@ Rules:
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <button
                 type="button"
+                disabled={isReadingPdf}
                 onClick={() => {
+                  if (isReadingPdf) return;
                   setImportMode('text');
                   setImportError('');
                   setDetectedPdfRecipes([]);
@@ -1454,13 +1468,15 @@ Rules:
                   importMode === 'text'
                     ? 'bg-primary text-on-primary border-primary shadow-sm'
                     : 'bg-surface-container-low text-primary border-surface-container-high hover:border-primary'
-                }`}
+                } ${isReadingPdf ? 'opacity-50 cursor-not-allowed hover:border-surface-container-high' : ''}`}
               >
                 Copy & Paste
               </button>
               <button
                 type="button"
+                disabled={isReadingPdf}
                 onClick={() => {
+                  if (isReadingPdf) return;
                   setImportMode('pdf');
                   setImportError('');
                   setDetectedPdfRecipes([]);
@@ -1470,13 +1486,15 @@ Rules:
                   importMode === 'pdf'
                     ? 'bg-primary text-on-primary border-primary shadow-sm'
                     : 'bg-surface-container-low text-primary border-surface-container-high hover:border-primary'
-                }`}
+                } ${isReadingPdf ? 'opacity-50 cursor-not-allowed hover:border-surface-container-high' : ''}`}
               >
                 PDF
               </button>
               <button
                 type="button"
+                disabled={isReadingPdf}
                 onClick={() => {
+                  if (isReadingPdf) return;
                   setImportMode('image');
                   setImportError('');
                   setDetectedPdfRecipes([]);
@@ -1486,13 +1504,15 @@ Rules:
                   importMode === 'image'
                     ? 'bg-primary text-on-primary border-primary shadow-sm'
                     : 'bg-surface-container-low text-primary border-surface-container-high hover:border-primary'
-                }`}
+                } ${isReadingPdf ? 'opacity-50 cursor-not-allowed hover:border-surface-container-high' : ''}`}
               >
                 Image
               </button>
               <button
                 type="button"
+                disabled={isReadingPdf}
                 onClick={() => {
+                  if (isReadingPdf) return;
                   setImportMode('camera');
                   setDetectedPdfRecipes([]);
                   setSelectedPdfRecipeIds([]);
@@ -1502,7 +1522,7 @@ Rules:
                   importMode === 'camera'
                     ? 'bg-primary text-on-primary border-primary shadow-sm'
                     : 'bg-surface-container-low text-primary border-surface-container-high hover:border-primary'
-                }`}
+                } ${isReadingPdf ? 'opacity-50 cursor-not-allowed hover:border-surface-container-high' : ''}`}
               >
                 Camera
               </button>
@@ -1520,10 +1540,19 @@ Rules:
 
             {importMode === 'pdf' && (
               <div className="space-y-4">
-                <label className="block bg-white border-2 border-dashed border-outline-variant rounded-2xl p-5 text-center cursor-pointer hover:border-primary transition-colors">
+                <label className={`block bg-white border-2 border-dashed border-outline-variant rounded-2xl p-5 text-center transition-colors ${
+                  isReadingPdf ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:border-primary'
+                }`}
+                onDragOver={e => {
+                  if (isReadingPdf) e.preventDefault();
+                }}
+                onDrop={e => {
+                  if (isReadingPdf) e.preventDefault();
+                }}>
                   <input
                     type="file"
                     accept="application/pdf,.pdf"
+                    disabled={isReadingPdf}
                     onChange={handlePdfFileChange}
                     className="hidden"
                   />
@@ -1540,10 +1569,19 @@ Rules:
 
             {importMode === 'image' && (
               <div className="space-y-4">
-                <label className="block bg-white border-2 border-dashed border-outline-variant rounded-2xl p-5 text-center cursor-pointer hover:border-primary transition-colors">
+                <label className={`block bg-white border-2 border-dashed border-outline-variant rounded-2xl p-5 text-center transition-colors ${
+                  isReadingPdf ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:border-primary'
+                }`}
+                onDragOver={e => {
+                  if (isReadingPdf) e.preventDefault();
+                }}
+                onDrop={e => {
+                  if (isReadingPdf) e.preventDefault();
+                }}>
                   <input
                     type="file"
                     accept="image/*"
+                    disabled={isReadingPdf}
                     onChange={handleImageImportFileChange}
                     className="hidden"
                   />
@@ -1560,11 +1598,20 @@ Rules:
 
             {importMode === 'camera' && (
               <div className="space-y-4">
-                <label className="block bg-white border-2 border-dashed border-outline-variant rounded-2xl p-5 text-center cursor-pointer hover:border-primary transition-colors">
+                <label className={`block bg-white border-2 border-dashed border-outline-variant rounded-2xl p-5 text-center transition-colors ${
+                  isReadingPdf ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:border-primary'
+                }`}
+                onDragOver={e => {
+                  if (isReadingPdf) e.preventDefault();
+                }}
+                onDrop={e => {
+                  if (isReadingPdf) e.preventDefault();
+                }}>
                   <input
                     type="file"
                     accept="image/*"
                     capture="environment"
+                    disabled={isReadingPdf}
                     onChange={handleScanRecipeFileChange}
                     className="hidden"
                   />
@@ -1716,7 +1763,7 @@ Rules:
                   importMode === 'camera' ||
                   (detectedPdfRecipes.length === 0 && (importMode !== 'text' || !importText.trim()))
                 }
-                className="bg-primary disabled:bg-outline-variant text-on-primary rounded-full px-5 py-3 text-xs font-sans font-bold"
+                className="bg-primary disabled:bg-outline-variant disabled:cursor-not-allowed text-on-primary rounded-full px-5 py-3 text-xs font-sans font-bold"
               >
                 {isReadingPdf ? 'Processing...' : 'Import Recipe'}
               </button>
