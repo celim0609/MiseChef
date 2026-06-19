@@ -18,6 +18,31 @@ const INITIAL_JPEG_QUALITY = 0.75;
 const MAX_SCAN_IMAGE_SIDE = 1600;
 const SCAN_JPEG_QUALITY = 0.8;
 
+type AiImportStage = 'uploading' | 'reading' | 'extracting' | 'building' | 'ready';
+
+const AI_IMPORT_STAGES: Record<AiImportStage, { title: string; description: string }> = {
+  uploading: {
+    title: '📷 Uploading image...',
+    description: 'Preparing your photo for AI analysis.'
+  },
+  reading: {
+    title: '🤖 AI is reading your recipe...',
+    description: 'Recognizing text and recipe structure.'
+  },
+  extracting: {
+    title: '📝 Extracting recipe details...',
+    description: 'Finding title, ingredients, quantities, methods, servings and notes.'
+  },
+  building: {
+    title: '🍳 Building your recipe...',
+    description: 'Populating the Recipe Editor.'
+  },
+  ready: {
+    title: '✅ Recipe ready!',
+    description: 'Please review before importing.'
+  }
+};
+
 type ParsedImportedRecipe = {
   id: string;
   title: string;
@@ -308,8 +333,12 @@ const normalizeAiNumber = (value: number | string | null | undefined, parser = p
   return null;
 };
 
-const extractStructuredRecipeFromScan = async (file: File, scannedImageDataUrl: string): Promise<ParsedImportedRecipe> => {
-  const scannedRecipe = await scanRecipeImageWithGemini({ file, imageDataUrl: scannedImageDataUrl });
+const extractStructuredRecipeFromScan = async (
+  file: File,
+  scannedImageDataUrl: string,
+  onStage?: (stage: 'reading' | 'extracting') => void
+): Promise<ParsedImportedRecipe> => {
+  const scannedRecipe = await scanRecipeImageWithGemini({ file, imageDataUrl: scannedImageDataUrl, onStage });
   const ingredientLines = scannedRecipe.ingredients.map(ingredient =>
     [ingredient.quantity, ingredient.unit, ingredient.name].filter(Boolean).join(' ')
   );
@@ -539,6 +568,7 @@ export default function AddRecipeTab({
   const [importText, setImportText] = useState('');
   const [importError, setImportError] = useState('');
   const [isReadingPdf, setIsReadingPdf] = useState(false);
+  const [aiImportStage, setAiImportStage] = useState<AiImportStage | null>(null);
   const [detectedPdfRecipes, setDetectedPdfRecipes] = useState<ParsedImportedRecipe[]>([]);
   const [selectedPdfRecipeIds, setSelectedPdfRecipeIds] = useState<string[]>([]);
 
@@ -843,14 +873,18 @@ Rules:
 
     try {
       setIsReadingPdf(true);
+      setAiImportStage('uploading');
       const optimizedScanImage = await optimizeScanImageFile(file);
-      const scannedRecipe = await extractStructuredRecipeFromScan(file, optimizedScanImage);
+      const scannedRecipe = await extractStructuredRecipeFromScan(file, optimizedScanImage, setAiImportStage);
+      setAiImportStage('building');
       applyImportedRecipeToForm(scannedRecipe);
       console.log('Recipe editor populated', scannedRecipe);
+      setAiImportStage('ready');
       setImportText(scannedRecipe.sourceText);
       setShowImportModal(false);
       setImportError('');
     } catch (err) {
+      setAiImportStage(null);
       console.error('AI scan caught exception', err);
       setImportError(err instanceof Error ? err.message : 'Unable to scan this recipe image.');
     } finally {
@@ -875,13 +909,17 @@ Rules:
 
     try {
       setIsReadingPdf(true);
+      setAiImportStage('uploading');
       const optimizedScanImage = await optimizeScanImageFile(file);
-      const scannedRecipe = await extractStructuredRecipeFromScan(file, optimizedScanImage);
+      const scannedRecipe = await extractStructuredRecipeFromScan(file, optimizedScanImage, setAiImportStage);
+      setAiImportStage('building');
       setDetectedPdfRecipes([scannedRecipe]);
       setSelectedPdfRecipeIds([scannedRecipe.id]);
       setImportText(scannedRecipe.sourceText);
+      setAiImportStage('ready');
       setImportError('');
     } catch (err) {
+      setAiImportStage(null);
       setImportError(err instanceof Error ? err.message : 'Unable to scan this recipe.');
     } finally {
       setIsReadingPdf(false);
@@ -1511,7 +1549,7 @@ Rules:
                   />
                   <ImageIcon className="w-8 h-8 mx-auto text-outline mb-2" />
                   <span className="block font-sans font-bold text-sm text-primary">
-                    {isReadingPdf ? 'Reading image...' : 'Choose Image'}
+                    {isReadingPdf ? 'Processing...' : 'Choose Image'}
                   </span>
                   <span className="block font-sans font-bold text-[11px] text-on-surface-variant mt-1">
                     Clear photos or screenshots with readable recipe text work best.
@@ -1532,12 +1570,29 @@ Rules:
                   />
                   <Camera className="w-8 h-8 mx-auto text-outline mb-2" />
                   <span className="block font-sans font-bold text-sm text-primary">
-                    {isReadingPdf ? 'Scanning recipe...' : 'Scan Recipe'}
+                    {isReadingPdf ? 'Processing...' : 'Scan Recipe'}
                   </span>
                   <span className="block font-sans font-bold text-[11px] text-on-surface-variant mt-1">
                     Take a clear photo of a handwritten or printed recipe page. MiseChef will extract it for review.
                   </span>
                 </label>
+              </div>
+            )}
+
+            {isReadingPdf && aiImportStage && (importMode === 'image' || importMode === 'camera') && (
+              <div
+                key={aiImportStage}
+                className="animate-fade-in bg-primary/10 border border-primary/20 rounded-2xl p-4 flex items-start gap-3 transition-opacity duration-300"
+              >
+                <span className="mt-1 h-4 w-4 rounded-full border-2 border-primary/30 border-t-primary animate-spin flex-shrink-0" />
+                <div>
+                  <p className="font-sans text-sm font-extrabold text-primary">
+                    {AI_IMPORT_STAGES[aiImportStage].title}
+                  </p>
+                  <p className="font-sans text-xs font-bold text-on-surface-variant mt-1">
+                    {AI_IMPORT_STAGES[aiImportStage].description}
+                  </p>
+                </div>
               </div>
             )}
 
@@ -1663,7 +1718,7 @@ Rules:
                 }
                 className="bg-primary disabled:bg-outline-variant text-on-primary rounded-full px-5 py-3 text-xs font-sans font-bold"
               >
-                Import Recipe
+                {isReadingPdf ? 'Processing...' : 'Import Recipe'}
               </button>
             </div>
           </div>

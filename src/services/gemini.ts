@@ -98,10 +98,12 @@ const parseGeminiRecipeJson = (text: string): GeminiScannedRecipe => {
 
 export const scanRecipeImageWithGemini = async ({
   file,
-  imageDataUrl
+  imageDataUrl,
+  onStage
 }: {
   file: File;
   imageDataUrl?: string;
+  onStage?: (stage: 'reading' | 'extracting') => void;
 }) => {
   const apiKey = getGeminiApiKey();
   if (!apiKey) {
@@ -113,6 +115,7 @@ export const scanRecipeImageWithGemini = async ({
   const imageBase64 = imageDataUrl?.split(',')[1] || await readFileAsBase64(file);
   const mimeType = getDataUrlMimeType(imageDataUrl) || file.type || 'image/jpeg';
   console.log('Upload complete');
+  onStage?.('reading');
   console.log('Sending request to Gemini');
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash',
@@ -168,5 +171,6 @@ export const scanRecipeImageWithGemini = async ({
 
   console.log('Gemini response received', response);
   console.log('Raw Gemini response', response.text || '');
+  onStage?.('extracting');
   return parseGeminiRecipeJson(response.text || '{}');
 };
