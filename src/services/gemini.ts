@@ -53,6 +53,7 @@ const parseGeminiRecipeJson = (text: string): GeminiScannedRecipe => {
   let parsed: unknown;
 
   try {
+    console.log('JSON parsing started');
     parsed = JSON.parse(stripJsonCodeFence(text || '{}'));
   } catch {
     throw new Error('Gemini returned invalid JSON. Please try a clearer image.');
@@ -62,7 +63,7 @@ const parseGeminiRecipeJson = (text: string): GeminiScannedRecipe => {
   const rawIngredients = Array.isArray(source.ingredients) ? source.ingredients : [];
   const rawMethod = Array.isArray(source.method) ? source.method : [];
 
-  return {
+  const scannedRecipe = {
     title: readString(source.title),
     description: readString(source.description),
     yield: readString(source.yield),
@@ -85,6 +86,9 @@ const parseGeminiRecipeJson = (text: string): GeminiScannedRecipe => {
     method: rawMethod.map(step => readString(step)).filter(Boolean),
     notes: readString(source.notes)
   };
+
+  console.log('JSON parsing succeeded', scannedRecipe);
+  return scannedRecipe;
 };
 
 export const scanRecipeImageWithGemini = async ({
@@ -102,6 +106,8 @@ export const scanRecipeImageWithGemini = async ({
   const { GoogleGenAI, Type } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey });
   const imageBase64 = imageDataUrl?.split(',')[1] || await readFileAsBase64(file);
+  console.log('Upload complete');
+  console.log('Sending request to Gemini');
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash',
     contents: [
@@ -154,5 +160,7 @@ export const scanRecipeImageWithGemini = async ({
     }
   });
 
+  console.log('Gemini response received', response);
+  console.log('Raw Gemini response', response.text || '');
   return parseGeminiRecipeJson(response.text || '{}');
 };

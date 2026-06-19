@@ -314,7 +314,7 @@ const extractStructuredRecipeFromScan = async (file: File, scannedImageDataUrl: 
   const methodLines = scannedRecipe.method;
   const title = scannedRecipe.title.trim();
 
-  return {
+  const recipeObject = {
     id: `scan_recipe_${Date.now()}`,
     title,
     description: scannedRecipe.description.trim(),
@@ -349,6 +349,9 @@ const extractStructuredRecipeFromScan = async (file: File, scannedImageDataUrl: 
       scannedRecipe.notes ? `Chef Notes: ${scannedRecipe.notes}` : ''
     ].filter(Boolean).join('\n')
   };
+
+  console.log('Recipe object created', recipeObject);
+  return recipeObject;
 };
 
 const getDataUrlBytes = (dataUrl: string) => {
@@ -770,6 +773,11 @@ Rules:
     const file = e.target.files?.[0];
     if (!file) return;
 
+    console.log('Image selected', {
+      name: file.name,
+      type: file.type,
+      size: file.size
+    });
     setImportError('');
     setDetectedPdfRecipes([]);
     setSelectedPdfRecipeIds([]);
@@ -784,14 +792,17 @@ Rules:
       const optimizedScanImage = await optimizeCoverImageFile(file);
       const scannedRecipe = await extractStructuredRecipeFromScan(file, optimizedScanImage);
       applyImportedRecipeToForm(scannedRecipe);
+      console.log('Recipe editor populated', scannedRecipe);
       setImportText(scannedRecipe.sourceText);
       setShowImportModal(false);
       setImportError('');
     } catch (err) {
+      console.error('AI scan caught exception', err);
       setImportError(err instanceof Error ? err.message : 'Unable to scan this recipe image.');
     } finally {
       setIsReadingPdf(false);
       e.target.value = '';
+      console.log('Loading finished');
     }
   };
 
