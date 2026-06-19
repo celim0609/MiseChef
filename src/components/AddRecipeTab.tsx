@@ -5,12 +5,9 @@
 
 import React, { useState } from 'react';
 import { ArrowDown, ArrowUp, Camera, FileText, Image as ImageIcon, Plus, Trash2, X, Sparkles, Video } from 'lucide-react';
-import * as pdfjsLib from 'pdfjs-dist';
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import * as pdfjsLib from 'pdfjs-dist/webpack.mjs';
 import { Recipe, Ingredient, MethodStep, RecipeCategory } from '../types';
 import { parseIngredientLines } from '../utils/ingredientParser';
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 const CREATE_NEW_CATEGORY_VALUE = '__create_new_category__';
 const FALLBACK_CATEGORY_NAME = 'Others';
