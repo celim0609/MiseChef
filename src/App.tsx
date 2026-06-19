@@ -22,7 +22,7 @@ import StatisticsTab from './components/StatisticsTab';
 import { AnimatePresence, motion } from 'motion/react';
 import BrandLogo from './components/BrandLogo';
 import { auth, authPersistenceReady, db } from './firebase';
-import { deleteRecipeCoverImage, isLocalImageDataUrl, uploadRecipeCoverImage } from './services/storage';
+import { deleteRecipeCoverImage, deleteRecipeScanAttachment, isLocalImageDataUrl, uploadRecipeCoverImage, uploadRecipeScanAttachment } from './services/storage';
 
 const STORAGE_RECIPES_KEY = 'my_cookbook_recipes_v2';
 const STORAGE_CATEGORIES_KEY = 'ce_lims_kitchen_categories_v1';
@@ -125,9 +125,10 @@ const removeUndefinedFields = <T,>(value: T): T => {
 
 const getFirestoreRecipePayload = (recipe: Recipe, user: User) => {
   const imageUrl = recipe.imageUrl || recipe.coverImage || DEFAULT_COVER_IMAGE;
+  const { scannedImageDataUrl, ...recipeForFirestore } = recipe;
 
   return removeUndefinedFields({
-    ...recipe,
+    ...recipeForFirestore,
     coverImage: imageUrl,
     imageUrl,
     userId: user.uid,
@@ -191,28 +192,45 @@ const deleteRecipeFromFirestore = async (recipeId: string) => {
 const getCloudReadyRecipe = async (
   recipe: Recipe,
   user: User,
-  onUploadProgress?: (progress: number) => void
+  onUploadProgress?: (progress: number, phase: 'cover' | 'scan') => void
 ) => {
+  let nextRecipe = { ...recipe };
+
   if (isLocalImageDataUrl(recipe.coverImage)) {
     const imageUrl = await uploadRecipeCoverImage({
       userId: user.uid,
       recipeId: recipe.id,
       imageDataUrl: recipe.coverImage,
-      onProgress: onUploadProgress,
+      onProgress: progress => onUploadProgress?.(progress, 'cover'),
     });
 
-    return {
-      ...recipe,
+    nextRecipe = {
+      ...nextRecipe,
       coverImage: imageUrl,
       imageUrl,
     };
   }
 
-  const imageUrl = recipe.imageUrl || recipe.coverImage || DEFAULT_COVER_IMAGE;
+  if (isLocalImageDataUrl(recipe.scannedImageDataUrl)) {
+    const scanAttachmentUrl = await uploadRecipeScanAttachment({
+      userId: user.uid,
+      recipeId: recipe.id,
+      imageDataUrl: recipe.scannedImageDataUrl,
+      onProgress: progress => onUploadProgress?.(progress, 'scan'),
+    });
+
+    nextRecipe = {
+      ...nextRecipe,
+      scanAttachmentUrl,
+    };
+  }
+
+  const imageUrl = nextRecipe.imageUrl || nextRecipe.coverImage || DEFAULT_COVER_IMAGE;
   return {
-    ...recipe,
+    ...nextRecipe,
     coverImage: imageUrl,
     imageUrl,
+    scannedImageDataUrl: undefined,
   };
 };
 
@@ -479,8 +497,8 @@ export default function App() {
 
     if (currentUser && db && !isGuestMode) {
       try {
-        const cloudRecipe = await getCloudReadyRecipe(newRecipe, currentUser, progress => {
-          triggerNotification(`Uploading cover image... ${progress}%`, 'info');
+        const cloudRecipe = await getCloudReadyRecipe(newRecipe, currentUser, (progress, phase) => {
+          triggerNotification(`Uploading ${phase === 'scan' ? 'recipe scan' : 'cover image'}... ${progress}%`, 'info');
         });
         const updated = [cloudRecipe, ...recipes];
         setRecipes(updated);
@@ -506,8 +524,8 @@ export default function App() {
 
     if (currentUser && db && !isGuestMode) {
       try {
-        const cloudRecipe = await getCloudReadyRecipe(updatedRecipe, currentUser, progress => {
-          triggerNotification(`Uploading cover image... ${progress}%`, 'info');
+        const cloudRecipe = await getCloudReadyRecipe(updatedRecipe, currentUser, (progress, phase) => {
+          triggerNotification(`Uploading ${phase === 'scan' ? 'recipe scan' : 'cover image'}... ${progress}%`, 'info');
         });
         const updated = recipes.map(recipe =>
           recipe.id === cloudRecipe.id ? cloudRecipe : recipe
@@ -546,6 +564,8 @@ export default function App() {
       ...recipe,
       id: `recipe_${Date.now()}`,
       title: `${recipe.title} Copy`,
+      scanAttachmentUrl: undefined,
+      scannedImageDataUrl: undefined,
       isSaved: false,
       createdAt: new Date().toISOString()
     };
@@ -556,8 +576,8 @@ export default function App() {
 
     if (currentUser && db && !isGuestMode) {
       try {
-        const cloudRecipe = await getCloudReadyRecipe(duplicatedRecipe, currentUser, progress => {
-          triggerNotification(`Uploading cover image... ${progress}%`, 'info');
+        const cloudRecipe = await getCloudReadyRecipe(duplicatedRecipe, currentUser, (progress, phase) => {
+          triggerNotification(`Uploading ${phase === 'scan' ? 'recipe scan' : 'cover image'}... ${progress}%`, 'info');
         });
         const updated = [cloudRecipe, ...recipes];
         setRecipes(updated);
@@ -617,6 +637,7 @@ export default function App() {
     if (currentUser && db && !isGuestMode) {
       try {
         await deleteRecipeCoverImage(currentUser.uid, recipe.id);
+        await deleteRecipeScanAttachment(currentUser.uid, recipe.id);
         await deleteRecipeFromFirestore(recipe.id);
         triggerNotification(`Deleted "${recipe.title}".`, 'info');
       } catch (err) {

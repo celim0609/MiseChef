@@ -23,6 +23,8 @@ export interface Recipe {
   title: string;
   coverImage: string;
   imageUrl?: string;
+  scanAttachmentUrl?: string;
+  scannedImageDataUrl?: string;
   category: string;
   prepTime: number; // in minutes
   cookTime?: number;

@@ -22,9 +22,22 @@ type ParsedImportedRecipe = {
   servings: number | null;
   prepTime: number | null;
   cookTime: number | null;
+  chefNotes: string;
+  scannedImageDataUrl?: string;
   ingredients: Ingredient[];
   method: MethodStep[];
   sourceText: string;
+};
+
+type AiScannedRecipe = {
+  title?: string;
+  yield?: string;
+  servings?: number | string | null;
+  prepTime?: number | string | null;
+  cookTime?: number | string | null;
+  chefNotes?: string;
+  ingredients?: string[];
+  method?: string[];
 };
 
 const getGeminiApiKey = () => {
@@ -88,6 +101,7 @@ const parsePastedRecipe = (rawText: string) => {
   let parsedServings: number | null = null;
   let parsedPrepTime: number | null = null;
   let parsedCookTime: number | null = null;
+  let parsedChefNotes = '';
   const ingredientLines: string[] = [];
   const methodLines: string[] = [];
   let activeSection: 'ingredients' | 'method' | null = null;
@@ -98,6 +112,7 @@ const parsePastedRecipe = (rawText: string) => {
     const servingsMatch = line.match(/^(serves|servings)\s*[:：]?\s*(.+)$/i);
     const prepTimeMatch = line.match(/^(prep(?:aration)?\s*time|prep)\s*[:：]?\s*(.+)$/i);
     const cookTimeMatch = line.match(/^(cook(?:ing)?\s*time|cook|bake\s*time|baking\s*time)\s*[:：]?\s*(.+)$/i);
+    const chefNotesMatch = line.match(/^(chef\s*notes?|notes?)\s*[:：]?\s*(.+)$/i);
     const ingredientsMatch = line.match(/^(ingredients?|ingredient list)\s*[:：]?\s*(.*)$/i);
     const methodMatch = line.match(/^(method|steps|instructions|directions|procedure|preparation)\s*[:：]?\s*(.*)$/i);
 
@@ -127,6 +142,11 @@ const parsePastedRecipe = (rawText: string) => {
 
     if (cookTimeMatch) {
       parsedCookTime = parseTimeToMinutes(cookTimeMatch[2].trim());
+      return;
+    }
+
+    if (chefNotesMatch) {
+      parsedChefNotes = chefNotesMatch[2].trim();
       return;
     }
 
@@ -180,6 +200,7 @@ const parsePastedRecipe = (rawText: string) => {
     servings: parsedServings,
     prepTime: parsedPrepTime,
     cookTime: parsedCookTime,
+    chefNotes: parsedChefNotes,
     ingredients: parseIngredientLines(ingredientLines),
     method: methodLines
       .map(cleanImportedLine)
@@ -217,6 +238,7 @@ const toParsedImportedRecipe = (rawText: string, index: number): ParsedImportedR
     servings: parsedRecipe.servings,
     prepTime: parsedRecipe.prepTime,
     cookTime: parsedRecipe.cookTime,
+    chefNotes: '',
     ingredients: parsedRecipe.ingredients,
     method: parsedRecipe.method,
     sourceText: rawText.trim()
@@ -330,6 +352,113 @@ const extractRecipeTextFromImageFile = async (file: File) => {
   return response.text || '';
 };
 
+const parseAiScannedRecipeResponse = (text: string): AiScannedRecipe => {
+  const trimmed = text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '').trim();
+  return JSON.parse(trimmed);
+};
+
+const normalizeAiNumber = (value: number | string | null | undefined, parser = parseTimeToMinutes) => {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.round(value);
+  if (typeof value === 'string') return parser(value);
+  return null;
+};
+
+const extractStructuredRecipeFromScan = async (file: File, scannedImageDataUrl: string): Promise<ParsedImportedRecipe> => {
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) {
+    throw new Error('Scan Recipe needs a Gemini API key. Add VITE_GEMINI_API_KEY or GEMINI_API_KEY to your local environment.');
+  }
+
+  const { GoogleGenAI, Type } = await import('@google/genai');
+  const ai = new GoogleGenAI({ apiKey });
+  const imageBase64 = scannedImageDataUrl.split(',')[1] || await readFileAsBase64(file);
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.0-flash',
+    contents: [
+      {
+        inlineData: {
+          mimeType: 'image/jpeg',
+          data: imageBase64
+        }
+      },
+      {
+        text: [
+          'Extract one recipe from this old recipe book image.',
+          'Return only facts visible in the image.',
+          'Do not invent missing details.',
+          'If handwriting is uncertain, preserve the original visible text as closely as possible.'
+        ].join(' ')
+      }
+    ],
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          yield: { type: Type.STRING },
+          servings: { type: Type.STRING },
+          prepTime: { type: Type.STRING },
+          cookTime: { type: Type.STRING },
+          chefNotes: { type: Type.STRING },
+          ingredients: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING }
+          },
+          method: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING }
+          }
+        }
+      }
+    }
+  });
+
+  const scannedRecipe = parseAiScannedRecipeResponse(response.text || '{}');
+  const ingredientLines = Array.isArray(scannedRecipe.ingredients) ? scannedRecipe.ingredients : [];
+  const methodLines = Array.isArray(scannedRecipe.method) ? scannedRecipe.method : [];
+  const title = String(scannedRecipe.title || '').trim();
+
+  if (!title || ingredientLines.length === 0 || methodLines.length === 0) {
+    throw new Error('Could not confidently extract a complete recipe from this scan.');
+  }
+
+  return {
+    id: `scan_recipe_${Date.now()}`,
+    title,
+    yield: String(scannedRecipe.yield || '').trim(),
+    servings: normalizeAiNumber(scannedRecipe.servings, parseServingsValue),
+    prepTime: normalizeAiNumber(scannedRecipe.prepTime),
+    cookTime: normalizeAiNumber(scannedRecipe.cookTime),
+    chefNotes: String(scannedRecipe.chefNotes || '').trim(),
+    scannedImageDataUrl,
+    ingredients: parseIngredientLines(ingredientLines),
+    method: methodLines
+      .map(line => cleanImportedLine(String(line)))
+      .filter(Boolean)
+      .map((description, index) => ({
+        id: `step_scan_${Date.now()}_${index}`,
+        stepNumber: index + 1,
+        description,
+        image: ''
+      })),
+    sourceText: [
+      title,
+      scannedRecipe.yield ? `Yield: ${scannedRecipe.yield}` : '',
+      scannedRecipe.servings ? `Servings: ${scannedRecipe.servings}` : '',
+      scannedRecipe.prepTime ? `Prep Time: ${scannedRecipe.prepTime}` : '',
+      scannedRecipe.cookTime ? `Cook Time: ${scannedRecipe.cookTime}` : '',
+      '',
+      'Ingredients',
+      ...ingredientLines,
+      '',
+      'Method',
+      ...methodLines,
+      scannedRecipe.chefNotes ? `Chef Notes: ${scannedRecipe.chefNotes}` : ''
+    ].filter(Boolean).join('\n')
+  };
+};
+
 const getDataUrlBytes = (dataUrl: string) => {
   const base64 = dataUrl.split(',')[1] || '';
   return Math.ceil((base64.length * 3) / 4);
@@ -439,6 +568,7 @@ export default function AddRecipeTab({
   // Chef's story
   const [story, setStory] = useState(initialRecipe?.story || '');
   const [chefNotes, setChefNotes] = useState(initialRecipe?.chefNotes || '');
+  const [scannedImageDataUrl, setScannedImageDataUrl] = useState(initialRecipe?.scannedImageDataUrl || '');
 
   // Ingredients state
   const [ingredients, setIngredients] = useState<Ingredient[]>(
@@ -678,6 +808,7 @@ Rules:
     if (parsedRecipe.servings) setServings(parsedRecipe.servings);
     if (parsedRecipe.prepTime) setPrepTime(parsedRecipe.prepTime);
     if (parsedRecipe.cookTime) setCookTime(parsedRecipe.cookTime);
+    if (parsedRecipe.chefNotes) setChefNotes(parsedRecipe.chefNotes);
     setIngredients(parsedRecipe.ingredients);
     setMethodSteps(parsedRecipe.method);
 
@@ -701,13 +832,15 @@ Rules:
   };
 
   const applyImportedRecipeToForm = (
-    recipe: Pick<ParsedImportedRecipe, 'title' | 'yield' | 'servings' | 'prepTime' | 'cookTime' | 'ingredients' | 'method'>
+    recipe: Pick<ParsedImportedRecipe, 'title' | 'yield' | 'servings' | 'prepTime' | 'cookTime' | 'chefNotes' | 'scannedImageDataUrl' | 'ingredients' | 'method'>
   ) => {
     setTitle(recipe.title);
     setRecipeYield(recipe.yield || recipeYield);
     if (recipe.servings) setServings(recipe.servings);
     if (recipe.prepTime) setPrepTime(recipe.prepTime);
     if (recipe.cookTime) setCookTime(recipe.cookTime);
+    if (recipe.chefNotes) setChefNotes(recipe.chefNotes);
+    if (recipe.scannedImageDataUrl) setScannedImageDataUrl(recipe.scannedImageDataUrl);
     setIngredients(recipe.ingredients);
     setMethodSteps(recipe.method);
   };
@@ -760,6 +893,35 @@ Rules:
       handleImportedText(extractedText, 'No recipe text could be extracted from this image.');
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'Unable to extract recipe text from this image.');
+    } finally {
+      setIsReadingPdf(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleScanRecipeFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportError('');
+    setDetectedPdfRecipes([]);
+    setSelectedPdfRecipeIds([]);
+
+    if (!file.type.startsWith('image/')) {
+      setImportError('Please take or choose a recipe photo.');
+      return;
+    }
+
+    try {
+      setIsReadingPdf(true);
+      const optimizedScanImage = await optimizeCoverImageFile(file);
+      const scannedRecipe = await extractStructuredRecipeFromScan(file, optimizedScanImage);
+      setDetectedPdfRecipes([scannedRecipe]);
+      setSelectedPdfRecipeIds([scannedRecipe.id]);
+      setImportText(scannedRecipe.sourceText);
+      setImportError('');
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Unable to scan this recipe.');
     } finally {
       setIsReadingPdf(false);
       e.target.value = '';
@@ -827,6 +989,8 @@ Rules:
       title: title.trim(),
       coverImage: coverImage || 'https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&q=80&w=800',
       imageUrl: initialRecipe?.imageUrl,
+      scanAttachmentUrl: initialRecipe?.scanAttachmentUrl,
+      scannedImageDataUrl: scannedImageDataUrl || undefined,
       category: selectedCategory || FALLBACK_CATEGORY_NAME,
       prepTime: Number(prepTime) || 30,
       cookTime: Number(cookTime) || undefined,
@@ -1333,7 +1497,7 @@ Rules:
                   setImportMode('camera');
                   setDetectedPdfRecipes([]);
                   setSelectedPdfRecipeIds([]);
-                  setImportError('Camera import is planned for a future update.');
+                  setImportError('');
                 }}
                 className={`rounded-2xl px-4 py-3 text-xs font-sans font-bold transition-all border ${
                   importMode === 'camera'
@@ -1396,9 +1560,23 @@ Rules:
             )}
 
             {importMode === 'camera' && (
-              <div className="bg-surface-container-low border border-surface-container-high rounded-2xl p-5 text-center">
-                <Camera className="w-8 h-8 mx-auto text-outline mb-2" />
-                <p className="font-sans text-sm font-bold text-primary">Camera import is coming soon.</p>
+              <div className="space-y-4">
+                <label className="block bg-white border-2 border-dashed border-outline-variant rounded-2xl p-5 text-center cursor-pointer hover:border-primary transition-colors">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleScanRecipeFileChange}
+                    className="hidden"
+                  />
+                  <Camera className="w-8 h-8 mx-auto text-outline mb-2" />
+                  <span className="block font-sans font-bold text-sm text-primary">
+                    {isReadingPdf ? 'Scanning recipe...' : 'Scan Recipe'}
+                  </span>
+                  <span className="block font-sans font-bold text-[11px] text-on-surface-variant mt-1">
+                    Take a clear photo of a handwritten or printed recipe page. MiseChef will extract it for review.
+                  </span>
+                </label>
               </div>
             )}
 
@@ -1448,8 +1626,18 @@ Rules:
                                 {recipe.title}
                               </h5>
                               <p className="font-sans text-[11px] font-bold text-on-surface-variant">
-                                {recipe.yield || 'Yield not found'} • {recipe.servings || 'Servings not found'} servings • {recipe.ingredients.length} ingredients • {recipe.method.length} steps
+                                {recipe.yield || 'Yield not found'} • {recipe.servings || 'Servings not found'} servings • {recipe.prepTime ? `${recipe.prepTime} min prep` : 'Prep not found'} • {recipe.cookTime ? `${recipe.cookTime} min cook` : 'Cook not found'} • {recipe.ingredients.length} ingredients • {recipe.method.length} steps
                               </p>
+                              {recipe.chefNotes && (
+                                <p className="font-sans text-[11px] font-semibold text-on-surface-variant mt-1">
+                                  Notes: {recipe.chefNotes}
+                                </p>
+                              )}
+                              {recipe.scannedImageDataUrl && (
+                                <p className="font-sans text-[10px] font-extrabold text-secondary uppercase mt-1">
+                                  Scan attachment ready
+                                </p>
+                              )}
                             </div>
 
                             {isSelected && (
