@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { ArrowDown, ArrowUp, Camera, FileText, Image as ImageIcon, Plus, Trash2, X, Sparkles, Video } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist/webpack.mjs';
 import { Recipe, Ingredient, MethodStep, RecipeCategory } from '../types';
+import { getGeminiApiKey, scanRecipeImageWithGemini } from '../services/gemini';
 import { parseIngredientLines } from '../utils/ingredientParser';
 
 const CREATE_NEW_CATEGORY_VALUE = '__create_new_category__';
@@ -18,6 +19,7 @@ const INITIAL_JPEG_QUALITY = 0.75;
 type ParsedImportedRecipe = {
   id: string;
   title: string;
+  description: string;
   yield: string;
   servings: number | null;
   prepTime: number | null;
@@ -27,22 +29,6 @@ type ParsedImportedRecipe = {
   ingredients: Ingredient[];
   method: MethodStep[];
   sourceText: string;
-};
-
-type AiScannedRecipe = {
-  title?: string;
-  yield?: string;
-  servings?: number | string | null;
-  prepTime?: number | string | null;
-  cookTime?: number | string | null;
-  chefNotes?: string;
-  ingredients?: string[];
-  method?: string[];
-};
-
-const getGeminiApiKey = () => {
-  const viteEnv = ((import.meta as unknown as { env?: Record<string, string | undefined> }).env) || {};
-  return viteEnv.VITE_GEMINI_API_KEY || viteEnv.GEMINI_API_KEY || process.env.GEMINI_API_KEY;
 };
 
 const parseAiSteps = (text: string) => {
@@ -234,6 +220,7 @@ const toParsedImportedRecipe = (rawText: string, index: number): ParsedImportedR
   return {
     id: `pdf_recipe_${Date.now()}_${index}`,
     title: parsedRecipe.title,
+    description: '',
     yield: parsedRecipe.yield,
     servings: parsedRecipe.servings,
     prepTime: parsedRecipe.prepTime,
@@ -313,50 +300,6 @@ const extractTextFromPdfFile = async (file: File) => {
   return pageTexts.join('\n\n');
 };
 
-const readFileAsBase64 = (file: File) => {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = String(reader.result || '');
-      resolve(result.split(',')[1] || '');
-    };
-    reader.onerror = () => reject(new Error('Unable to read image file.'));
-    reader.readAsDataURL(file);
-  });
-};
-
-const extractRecipeTextFromImageFile = async (file: File) => {
-  const apiKey = getGeminiApiKey();
-  if (!apiKey) {
-    throw new Error('Image text extraction needs a Gemini API key. Use Copy & Paste or a text-based PDF for now.');
-  }
-
-  const { GoogleGenAI } = await import('@google/genai');
-  const ai = new GoogleGenAI({ apiKey });
-  const imageBase64 = await readFileAsBase64(file);
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash',
-    contents: [
-      {
-        inlineData: {
-          mimeType: file.type || 'image/jpeg',
-          data: imageBase64
-        }
-      },
-      {
-        text: 'Transcribe only the visible recipe text from this image. Preserve line breaks. Do not invent missing details.'
-      }
-    ]
-  });
-
-  return response.text || '';
-};
-
-const parseAiScannedRecipeResponse = (text: string): AiScannedRecipe => {
-  const trimmed = text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```$/i, '').trim();
-  return JSON.parse(trimmed);
-};
-
 const normalizeAiNumber = (value: number | string | null | undefined, parser = parseTimeToMinutes) => {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.round(value);
   if (typeof value === 'string') return parser(value);
@@ -364,73 +307,22 @@ const normalizeAiNumber = (value: number | string | null | undefined, parser = p
 };
 
 const extractStructuredRecipeFromScan = async (file: File, scannedImageDataUrl: string): Promise<ParsedImportedRecipe> => {
-  const apiKey = getGeminiApiKey();
-  if (!apiKey) {
-    throw new Error('Scan Recipe needs a Gemini API key. Add VITE_GEMINI_API_KEY or GEMINI_API_KEY to your local environment.');
-  }
-
-  const { GoogleGenAI, Type } = await import('@google/genai');
-  const ai = new GoogleGenAI({ apiKey });
-  const imageBase64 = scannedImageDataUrl.split(',')[1] || await readFileAsBase64(file);
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash',
-    contents: [
-      {
-        inlineData: {
-          mimeType: 'image/jpeg',
-          data: imageBase64
-        }
-      },
-      {
-        text: [
-          'Extract one recipe from this old recipe book image.',
-          'Return only facts visible in the image.',
-          'Do not invent missing details.',
-          'If handwriting is uncertain, preserve the original visible text as closely as possible.'
-        ].join(' ')
-      }
-    ],
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          title: { type: Type.STRING },
-          yield: { type: Type.STRING },
-          servings: { type: Type.STRING },
-          prepTime: { type: Type.STRING },
-          cookTime: { type: Type.STRING },
-          chefNotes: { type: Type.STRING },
-          ingredients: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING }
-          },
-          method: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING }
-          }
-        }
-      }
-    }
-  });
-
-  const scannedRecipe = parseAiScannedRecipeResponse(response.text || '{}');
-  const ingredientLines = Array.isArray(scannedRecipe.ingredients) ? scannedRecipe.ingredients : [];
-  const methodLines = Array.isArray(scannedRecipe.method) ? scannedRecipe.method : [];
-  const title = String(scannedRecipe.title || '').trim();
-
-  if (!title || ingredientLines.length === 0 || methodLines.length === 0) {
-    throw new Error('Could not confidently extract a complete recipe from this scan.');
-  }
+  const scannedRecipe = await scanRecipeImageWithGemini({ file, imageDataUrl: scannedImageDataUrl });
+  const ingredientLines = scannedRecipe.ingredients.map(ingredient =>
+    [ingredient.quantity, ingredient.unit, ingredient.name].filter(Boolean).join(' ')
+  );
+  const methodLines = scannedRecipe.method;
+  const title = scannedRecipe.title.trim();
 
   return {
     id: `scan_recipe_${Date.now()}`,
     title,
-    yield: String(scannedRecipe.yield || '').trim(),
-    servings: normalizeAiNumber(scannedRecipe.servings, parseServingsValue),
+    description: scannedRecipe.description.trim(),
+    yield: scannedRecipe.yield.trim(),
+    servings: normalizeAiNumber(scannedRecipe.yield, parseServingsValue),
     prepTime: normalizeAiNumber(scannedRecipe.prepTime),
     cookTime: normalizeAiNumber(scannedRecipe.cookTime),
-    chefNotes: String(scannedRecipe.chefNotes || '').trim(),
+    chefNotes: scannedRecipe.notes.trim(),
     scannedImageDataUrl,
     ingredients: parseIngredientLines(ingredientLines),
     method: methodLines
@@ -445,7 +337,6 @@ const extractStructuredRecipeFromScan = async (file: File, scannedImageDataUrl: 
     sourceText: [
       title,
       scannedRecipe.yield ? `Yield: ${scannedRecipe.yield}` : '',
-      scannedRecipe.servings ? `Servings: ${scannedRecipe.servings}` : '',
       scannedRecipe.prepTime ? `Prep Time: ${scannedRecipe.prepTime}` : '',
       scannedRecipe.cookTime ? `Cook Time: ${scannedRecipe.cookTime}` : '',
       '',
@@ -454,7 +345,7 @@ const extractStructuredRecipeFromScan = async (file: File, scannedImageDataUrl: 
       '',
       'Method',
       ...methodLines,
-      scannedRecipe.chefNotes ? `Chef Notes: ${scannedRecipe.chefNotes}` : ''
+      scannedRecipe.notes ? `Chef Notes: ${scannedRecipe.notes}` : ''
     ].filter(Boolean).join('\n')
   };
 };
@@ -832,9 +723,10 @@ Rules:
   };
 
   const applyImportedRecipeToForm = (
-    recipe: Pick<ParsedImportedRecipe, 'title' | 'yield' | 'servings' | 'prepTime' | 'cookTime' | 'chefNotes' | 'scannedImageDataUrl' | 'ingredients' | 'method'>
+    recipe: Pick<ParsedImportedRecipe, 'title' | 'description' | 'yield' | 'servings' | 'prepTime' | 'cookTime' | 'chefNotes' | 'scannedImageDataUrl' | 'ingredients' | 'method'>
   ) => {
     setTitle(recipe.title);
+    if (recipe.description) setStory(recipe.description);
     setRecipeYield(recipe.yield || recipeYield);
     if (recipe.servings) setServings(recipe.servings);
     if (recipe.prepTime) setPrepTime(recipe.prepTime);
@@ -888,11 +780,14 @@ Rules:
 
     try {
       setIsReadingPdf(true);
-      const extractedText = await extractRecipeTextFromImageFile(file);
-      setImportText(extractedText);
-      handleImportedText(extractedText, 'No recipe text could be extracted from this image.');
+      const optimizedScanImage = await optimizeCoverImageFile(file);
+      const scannedRecipe = await extractStructuredRecipeFromScan(file, optimizedScanImage);
+      setDetectedPdfRecipes([scannedRecipe]);
+      setSelectedPdfRecipeIds([scannedRecipe.id]);
+      setImportText(scannedRecipe.sourceText);
+      setImportError('');
     } catch (err) {
-      setImportError(err instanceof Error ? err.message : 'Unable to extract recipe text from this image.');
+      setImportError(err instanceof Error ? err.message : 'Unable to scan this recipe image.');
     } finally {
       setIsReadingPdf(false);
       e.target.value = '';
