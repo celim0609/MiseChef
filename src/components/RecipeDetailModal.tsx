@@ -88,7 +88,9 @@ export default function RecipeDetailModal({
 }: RecipeDetailModalProps) {
   const [checkedIngredients, setCheckedIngredients] = useState<string[]>([]);
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 640 : false
+  );
   const [showScaleControls, setShowScaleControls] = useState(false);
   const [targetYield, setTargetYield] = useState('');
   const [recipeView, setRecipeView] = useState<'original' | 'scaled'>('original');
@@ -167,9 +169,9 @@ export default function RecipeDetailModal({
       <div className="fixed inset-0" onClick={onClose} />
 
       <motion.div
-        initial={isMobile ? { y: '100%' } : { opacity: 0, scale: 0.95 }}
-        animate={isMobile ? { y: 0 } : { opacity: 1, scale: 1 }}
-        exit={isMobile ? { y: '100%' } : { opacity: 0, scale: 0.95 }}
+        initial={isMobile ? { y: '100%', opacity: 1, scale: 1 } : { opacity: 0, scale: 0.95 }}
+        animate={isMobile ? { y: 0, opacity: 1, scale: 1 } : { opacity: 1, scale: 1 }}
+        exit={isMobile ? { y: '100%', opacity: 1, scale: 1 } : { opacity: 0, scale: 0.95 }}
         transition={{ type: 'spring', damping: 28, stiffness: 190 }}
         className="relative w-full max-w-[800px] bg-background h-full shadow-2xl flex flex-col z-10"
       >
