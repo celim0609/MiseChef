@@ -15,6 +15,8 @@ const FALLBACK_CATEGORY_NAME = 'Others';
 const MAX_COVER_IMAGE_SIDE = 1200;
 const MAX_COVER_IMAGE_BYTES = 500 * 1024;
 const INITIAL_JPEG_QUALITY = 0.75;
+const MAX_SCAN_IMAGE_SIDE = 1600;
+const SCAN_JPEG_QUALITY = 0.8;
 
 type ParsedImportedRecipe = {
   id: string;
@@ -398,6 +400,58 @@ const drawImageToJpegDataUrl = (
   ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
 
   return canvas.toDataURL('image/jpeg', quality);
+};
+
+const drawImageToCanvas = (image: HTMLImageElement, width: number, height: number) => {
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width));
+  canvas.height = Math.max(1, Math.round(height));
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Unable to optimize image.');
+  }
+
+  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas;
+};
+
+const canvasHasTransparency = (canvas: HTMLCanvasElement) => {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return false;
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  for (let index = 3; index < imageData.length; index += 4) {
+    if (imageData[index] < 255) return true;
+  }
+
+  return false;
+};
+
+const optimizeScanImageFile = async (file: File) => {
+  const image = await loadImageFromFile(file);
+  const longestSide = Math.max(image.width, image.height);
+  const scale = longestSide > MAX_SCAN_IMAGE_SIDE ? MAX_SCAN_IMAGE_SIDE / longestSide : 1;
+  const width = image.width * scale;
+  const height = image.height * scale;
+  const canvas = drawImageToCanvas(image, width, height);
+  const hasTransparency = canvasHasTransparency(canvas);
+  let optimizedDataUrl: string;
+
+  if (hasTransparency) {
+    optimizedDataUrl = canvas.toDataURL('image/png');
+  } else {
+    optimizedDataUrl = canvas.toDataURL('image/jpeg', SCAN_JPEG_QUALITY);
+  }
+
+  const originalSize = file.size;
+  const compressedSize = getDataUrlBytes(optimizedDataUrl);
+  const compressionRatio = originalSize > 0 ? compressedSize / originalSize : 1;
+  console.log('Original size', originalSize);
+  console.log('Compressed size', compressedSize);
+  console.log('Compression ratio', compressionRatio);
+
+  return optimizedDataUrl;
 };
 
 const optimizeCoverImageFile = async (file: File) => {
@@ -789,7 +843,7 @@ Rules:
 
     try {
       setIsReadingPdf(true);
-      const optimizedScanImage = await optimizeCoverImageFile(file);
+      const optimizedScanImage = await optimizeScanImageFile(file);
       const scannedRecipe = await extractStructuredRecipeFromScan(file, optimizedScanImage);
       applyImportedRecipeToForm(scannedRecipe);
       console.log('Recipe editor populated', scannedRecipe);
@@ -821,7 +875,7 @@ Rules:
 
     try {
       setIsReadingPdf(true);
-      const optimizedScanImage = await optimizeCoverImageFile(file);
+      const optimizedScanImage = await optimizeScanImageFile(file);
       const scannedRecipe = await extractStructuredRecipeFromScan(file, optimizedScanImage);
       setDetectedPdfRecipes([scannedRecipe]);
       setSelectedPdfRecipeIds([scannedRecipe.id]);

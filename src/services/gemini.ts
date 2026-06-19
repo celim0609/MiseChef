@@ -49,6 +49,11 @@ const stripJsonCodeFence = (value: string) => {
 
 const readString = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
 
+const getDataUrlMimeType = (dataUrl?: string) => {
+  const match = dataUrl?.match(/^data:([^;,]+)[;,]/);
+  return match?.[1] || '';
+};
+
 const parseGeminiRecipeJson = (text: string): GeminiScannedRecipe => {
   let parsed: unknown;
 
@@ -106,6 +111,7 @@ export const scanRecipeImageWithGemini = async ({
   const { GoogleGenAI, Type } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey });
   const imageBase64 = imageDataUrl?.split(',')[1] || await readFileAsBase64(file);
+  const mimeType = getDataUrlMimeType(imageDataUrl) || file.type || 'image/jpeg';
   console.log('Upload complete');
   console.log('Sending request to Gemini');
   const response = await ai.models.generateContent({
@@ -113,7 +119,7 @@ export const scanRecipeImageWithGemini = async ({
     contents: [
       {
         inlineData: {
-          mimeType: 'image/jpeg',
+          mimeType,
           data: imageBase64
         }
       },

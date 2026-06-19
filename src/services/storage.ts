@@ -24,6 +24,11 @@ const dataUrlToBlob = async (dataUrl: string) => {
   return response.blob();
 };
 
+const getDataUrlMimeType = (dataUrl: string) => {
+  const match = dataUrl.match(/^data:([^;,]+)[;,]/);
+  return match?.[1] || 'image/jpeg';
+};
+
 export const uploadRecipeCoverImage = async ({
   userId,
   recipeId,
@@ -83,7 +88,7 @@ export const uploadRecipeScanAttachment = async ({
   const imageBlob = await dataUrlToBlob(imageDataUrl);
   const scanRef = ref(storage, getRecipeScanAttachmentPath(userId, recipeId));
   const uploadTask = uploadBytesResumable(scanRef, imageBlob, {
-    contentType: 'image/jpeg',
+    contentType: getDataUrlMimeType(imageDataUrl),
     cacheControl: 'private,max-age=31536000',
   });
 
