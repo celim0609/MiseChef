@@ -381,7 +381,6 @@ const extractStructuredRecipeFromScan = async (
     ].filter(Boolean).join('\n')
   };
 
-  console.log('Recipe object created', recipeObject);
   return recipeObject;
 };
 
@@ -531,11 +530,6 @@ export default function AddRecipeTab({
   mode = 'add'
 }: AddRecipeTabProps) {
   const isEditing = mode === 'edit' && initialRecipe;
-  console.log('Recipe Editor render', {
-    mode,
-    isEditing: Boolean(isEditing),
-    initialRecipeTitle: initialRecipe?.title || null
-  });
 
   // Base details state
   const [title, setTitle] = useState(initialRecipe?.title || '');
@@ -787,17 +781,25 @@ Rules:
       return;
     }
 
-    setTitle(parsedRecipe.title);
-    setRecipeYield(parsedRecipe.yield || recipeYield);
-    if (parsedRecipe.servings) setServings(parsedRecipe.servings);
-    if (parsedRecipe.prepTime) setPrepTime(parsedRecipe.prepTime);
-    if (parsedRecipe.cookTime) setCookTime(parsedRecipe.cookTime);
-    if (parsedRecipe.chefNotes) setChefNotes(parsedRecipe.chefNotes);
-    setIngredients(parsedRecipe.ingredients);
-    setMethodSteps(parsedRecipe.method);
-
+    importRecipeToEditor({
+      title: parsedRecipe.title,
+      description: '',
+      yield: parsedRecipe.yield,
+      servings: parsedRecipe.servings,
+      prepTime: parsedRecipe.prepTime,
+      cookTime: parsedRecipe.cookTime,
+      chefNotes: parsedRecipe.chefNotes,
+      ingredients: parsedRecipe.ingredients,
+      method: parsedRecipe.method
+    });
     setShowImportModal(false);
     setImportText('');
+  };
+
+  const showDetectedRecipesForImport = (recipes: ParsedImportedRecipe[]) => {
+    setDetectedPdfRecipes(recipes);
+    setSelectedPdfRecipeIds(recipes.length === 1 ? [recipes[0].id] : []);
+    setImportError('');
   };
 
   const handleImportedText = (rawText: string, emptyMessage = 'No recipe text was found.') => {
@@ -810,19 +812,12 @@ Rules:
       return;
     }
 
-    setDetectedPdfRecipes(detectedRecipes);
-    setSelectedPdfRecipeIds(detectedRecipes.length === 1 ? [detectedRecipes[0].id] : []);
-    setImportError('');
+    showDetectedRecipesForImport(detectedRecipes);
   };
 
-  const applyImportedRecipeToForm = (
+  const importRecipeToEditor = (
     recipe: Pick<ParsedImportedRecipe, 'title' | 'description' | 'yield' | 'servings' | 'prepTime' | 'cookTime' | 'chefNotes' | 'scannedImageDataUrl' | 'ingredients' | 'method'>
   ) => {
-    console.log('onImportRecipe/applyImportedRecipeToForm called', recipe);
-    console.log('Parent receives recipe', {
-      note: 'No parent import callback exists; AddRecipeTab owns and populates the Recipe Editor directly.',
-      recipe
-    });
     setTitle(recipe.title);
     if (recipe.description) setStory(recipe.description);
     setRecipeYield(recipe.yield || recipeYield);
@@ -833,26 +828,6 @@ Rules:
     if (recipe.scannedImageDataUrl) setScannedImageDataUrl(recipe.scannedImageDataUrl);
     setIngredients(recipe.ingredients);
     setMethodSteps(recipe.method);
-    console.log('Recipe Editor state setters called', {
-      title: recipe.title,
-      ingredientsCount: recipe.ingredients.length,
-      methodCount: recipe.method.length
-    });
-    console.log('Recipe Editor populated', {
-      title: recipe.title,
-      ingredientsCount: recipe.ingredients.length,
-      methodCount: recipe.method.length,
-      servings: recipe.servings,
-      yield: recipe.yield,
-      prepTime: recipe.prepTime
-    });
-    window.setTimeout(() => {
-      console.log('Recipe Editor post-state-check', {
-        titleInputValue: (document.querySelector('input[placeholder="e.g., Grandma’s Apple Pie"]') as HTMLInputElement | null)?.value || null,
-        ingredientInputs: Array.from(document.querySelectorAll('#ingredients-section input')).map(input => (input as HTMLInputElement).value),
-        methodTextareas: Array.from(document.querySelectorAll('textarea[placeholder="Describe this step in detail..."]')).map(input => (input as HTMLTextAreaElement).value)
-      });
-    }, 0);
   };
 
   const handlePdfFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -895,11 +870,6 @@ Rules:
       return;
     }
 
-    console.log('Image selected', {
-      name: file.name,
-      type: file.type,
-      size: file.size
-    });
     setImportError('');
     setDetectedPdfRecipes([]);
     setSelectedPdfRecipeIds([]);
@@ -915,20 +885,16 @@ Rules:
       const optimizedScanImage = await optimizeScanImageFile(file);
       const scannedRecipe = await extractStructuredRecipeFromScan(file, optimizedScanImage, setAiImportStage);
       setAiImportStage('building');
-      applyImportedRecipeToForm(scannedRecipe);
-      console.log('Recipe editor populated', scannedRecipe);
+      showDetectedRecipesForImport([scannedRecipe]);
       setAiImportStage('ready');
       setImportText(scannedRecipe.sourceText);
-      setShowImportModal(false);
       setImportError('');
     } catch (err) {
       setAiImportStage(null);
-      console.error('AI scan caught exception', err);
       setImportError(err instanceof Error ? err.message : 'Unable to scan this recipe image.');
     } finally {
       setIsReadingPdf(false);
       e.target.value = '';
-      console.log('Loading finished');
     }
   };
 
@@ -955,8 +921,7 @@ Rules:
       const optimizedScanImage = await optimizeScanImageFile(file);
       const scannedRecipe = await extractStructuredRecipeFromScan(file, optimizedScanImage, setAiImportStage);
       setAiImportStage('building');
-      setDetectedPdfRecipes([scannedRecipe]);
-      setSelectedPdfRecipeIds([scannedRecipe.id]);
+      showDetectedRecipesForImport([scannedRecipe]);
       setImportText(scannedRecipe.sourceText);
       setAiImportStage('ready');
       setImportError('');
@@ -977,46 +942,22 @@ Rules:
     );
   };
 
-  const handleImportSelectedPdfRecipes = () => {
-    console.log('handleImportSelectedPdfRecipes called', {
-      importMode,
-      detectedPdfRecipes,
-      selectedPdfRecipeIds
-    });
+  const handleImportSelectedRecipes = () => {
     setImportError('');
     const selectedRecipes = detectedPdfRecipes.filter(recipe => selectedPdfRecipeIds.includes(recipe.id));
-    console.log('selectedRecipes contains scanned recipe', {
-      selectedRecipes,
-      selectedCount: selectedRecipes.length
-    });
 
     if (selectedRecipes.length === 0) {
-      console.log('Import flow stopped: selectedRecipes is empty');
       setImportError('Select at least one detected recipe to import.');
       return;
     }
 
-    applyImportedRecipeToForm(selectedRecipes[0]);
-    console.log('Dialog closes');
+    importRecipeToEditor(selectedRecipes[0]);
     setShowImportModal(false);
   };
 
   const handleImportButtonClick = () => {
-    console.log('Import button clicked', {
-      importMode,
-      isReadingPdf,
-      detectedRecipesCount: detectedPdfRecipes.length,
-      selectedPdfRecipeIds,
-      importTextLength: importText.trim().length,
-      disabledExpression: {
-        isReadingPdf,
-        cameraModeBlocked: importMode === 'camera',
-        noDetectedRecipesAndNotImportableText: detectedPdfRecipes.length === 0 && (importMode !== 'text' || !importText.trim())
-      }
-    });
-
     if (detectedPdfRecipes.length > 0) {
-      handleImportSelectedPdfRecipes();
+      handleImportSelectedRecipes();
       return;
     }
 
@@ -1823,7 +1764,6 @@ Rules:
                 onClick={handleImportButtonClick}
                 disabled={
                   isReadingPdf ||
-                  importMode === 'camera' ||
                   (detectedPdfRecipes.length === 0 && (importMode !== 'text' || !importText.trim()))
                 }
                 className="bg-primary disabled:bg-outline-variant disabled:cursor-not-allowed text-on-primary rounded-full px-5 py-3 text-xs font-sans font-bold"
