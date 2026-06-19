@@ -813,6 +813,11 @@ Rules:
   const applyImportedRecipeToForm = (
     recipe: Pick<ParsedImportedRecipe, 'title' | 'description' | 'yield' | 'servings' | 'prepTime' | 'cookTime' | 'chefNotes' | 'scannedImageDataUrl' | 'ingredients' | 'method'>
   ) => {
+    console.log('onImportRecipe/applyImportedRecipeToForm called', recipe);
+    console.log('Parent receives recipe', {
+      note: 'No parent import callback exists; AddRecipeTab owns and populates the Recipe Editor directly.',
+      recipe
+    });
     setTitle(recipe.title);
     if (recipe.description) setStory(recipe.description);
     setRecipeYield(recipe.yield || recipeYield);
@@ -823,6 +828,14 @@ Rules:
     if (recipe.scannedImageDataUrl) setScannedImageDataUrl(recipe.scannedImageDataUrl);
     setIngredients(recipe.ingredients);
     setMethodSteps(recipe.method);
+    console.log('Recipe Editor populated', {
+      title: recipe.title,
+      ingredientsCount: recipe.ingredients.length,
+      methodCount: recipe.method.length,
+      servings: recipe.servings,
+      yield: recipe.yield,
+      prepTime: recipe.prepTime
+    });
   };
 
   const handlePdfFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -948,16 +961,44 @@ Rules:
   };
 
   const handleImportSelectedPdfRecipes = () => {
+    console.log('handleImportSelectedPdfRecipes called', {
+      importMode,
+      detectedPdfRecipes,
+      selectedPdfRecipeIds
+    });
     setImportError('');
     const selectedRecipes = detectedPdfRecipes.filter(recipe => selectedPdfRecipeIds.includes(recipe.id));
+    console.log('selectedRecipes contains scanned recipe', {
+      selectedRecipes,
+      selectedCount: selectedRecipes.length
+    });
 
     if (selectedRecipes.length === 0) {
+      console.log('Import flow stopped: selectedRecipes is empty');
       setImportError('Select at least one detected recipe to import.');
       return;
     }
 
     applyImportedRecipeToForm(selectedRecipes[0]);
+    console.log('Dialog closes');
     setShowImportModal(false);
+  };
+
+  const handleImportButtonClick = () => {
+    console.log('Import button clicked', {
+      importMode,
+      isReadingPdf,
+      detectedRecipesCount: detectedPdfRecipes.length,
+      selectedPdfRecipeIds,
+      importTextLength: importText.trim().length
+    });
+
+    if (detectedPdfRecipes.length > 0) {
+      handleImportSelectedPdfRecipes();
+      return;
+    }
+
+    handleImportRecipe();
   };
 
   // Handle Save
@@ -1757,7 +1798,7 @@ Rules:
               </button>
               <button
                 type="button"
-                onClick={detectedPdfRecipes.length > 0 ? handleImportSelectedPdfRecipes : handleImportRecipe}
+                onClick={handleImportButtonClick}
                 disabled={
                   isReadingPdf ||
                   importMode === 'camera' ||
