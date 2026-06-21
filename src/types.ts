@@ -6,6 +6,8 @@
 export interface Ingredient {
   id: string;
   name: string;
+  englishName?: string;
+  chineseName?: string;
   qty: string;
   unit: string;
   notes?: string;

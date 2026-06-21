@@ -24,6 +24,7 @@ import BrandLogo from './components/BrandLogo';
 import { auth, authPersistenceReady, db } from './firebase';
 import { deleteRecipeCoverImage, deleteRecipeScanAttachment, isLocalImageDataUrl, uploadRecipeCoverImage, uploadRecipeScanAttachment } from './services/storage';
 import { FALLBACK_CATEGORY_NAME, getRecipeCategories, normalizeRecipeCategories, recipeHasCategory } from './utils/categoryUtils';
+import { normalizeIngredientForDisplay } from './utils/ingredientParser';
 
 const STORAGE_RECIPES_KEY = 'my_cookbook_recipes_v2';
 const STORAGE_CATEGORIES_KEY = 'ce_lims_kitchen_categories_v1';
@@ -174,6 +175,9 @@ const normalizeLoadedRecipe = (recipe: Recipe) => {
     ...recipe,
     category: categories[0] === FALLBACK_CATEGORY_NAME ? '' : categories[0],
     categories: categories[0] === FALLBACK_CATEGORY_NAME ? [] : categories,
+    ingredients: Array.isArray(recipe.ingredients)
+      ? recipe.ingredients.map(normalizeIngredientForDisplay)
+      : [],
     coverImage: imageUrl,
     imageUrl
   } as Recipe;

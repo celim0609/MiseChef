@@ -8,7 +8,7 @@ import { ArrowDown, ArrowUp, Camera, FileText, Image as ImageIcon, MoreHorizonta
 import * as pdfjsLib from 'pdfjs-dist/webpack.mjs';
 import { Recipe, Ingredient, MethodStep, RecipeCategory } from '../types';
 import { generateRecipeStepsWithAI, scanRecipeImageWithGemini } from '../services/gemini';
-import { parseIngredientLines } from '../utils/ingredientParser';
+import { normalizeIngredientForDisplay, parseIngredientLines } from '../utils/ingredientParser';
 import { FALLBACK_CATEGORY_NAME, getRecipeCategories, normalizeRecipeCategories } from '../utils/categoryUtils';
 
 const MAX_COVER_IMAGE_SIDE = 1200;
@@ -786,7 +786,9 @@ export default function AddRecipeTab({
       return;
     }
 
-    const cleanIngredients = ingredients.filter(ing => ing.name.trim() !== '');
+    const cleanIngredients = ingredients
+      .filter(ing => ing.name.trim() !== '')
+      .map(normalizeIngredientForDisplay);
     if (cleanIngredients.length === 0) {
       setAiStepError('Add at least one ingredient before generating steps.');
       return;
@@ -1029,7 +1031,9 @@ export default function AddRecipeTab({
     }
 
     // Filter empty ingredients
-    const cleanIngredients = ingredients.filter(ing => ing.name.trim() !== '');
+    const cleanIngredients = ingredients
+      .filter(ing => ing.name.trim() !== '')
+      .map(normalizeIngredientForDisplay);
     if (cleanIngredients.length === 0) {
       alert('Please add at least one ingredient name!');
       return;

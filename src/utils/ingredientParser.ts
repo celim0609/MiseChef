@@ -62,34 +62,44 @@ const TRADITIONAL_CHINESE_UNIT_GRAMS: Record<string, number> = {
   '两': 37.5,
   '斤': 600
 };
-const INGREDIENT_NORMALIZATION_ENTRIES: Array<{ standardName: string; aliases: string[] }> = [
-  { standardName: 'Sugar', aliases: ['糖', '白糖', '砂糖'] },
-  { standardName: 'Water', aliases: ['水'] },
-  { standardName: 'Eggs', aliases: ['鸡蛋', '雞蛋', '蛋'] },
-  { standardName: 'Chicken Powder', aliases: ['鸡粉', '雞粉'] },
-  { standardName: 'Salt', aliases: ['盐', '鹽'] },
-  { standardName: 'White Pepper', aliases: ['胡椒粉'] },
-  { standardName: 'Black Pepper', aliases: ['黑胡椒'] },
-  { standardName: 'Evaporated Milk', aliases: ['花奶', '淡奶'] },
-  { standardName: 'Sweetened Condensed Milk', aliases: ['炼奶', '煉奶'] },
-  { standardName: 'Milk', aliases: ['牛奶'] },
-  { standardName: 'Fresh Milk', aliases: ['鲜奶', '鮮奶'] },
-  { standardName: 'White Jelly Powder', aliases: ['白凉粉', '白涼粉'] },
-  { standardName: 'Sago', aliases: ['西米'] },
-  { standardName: 'Mango Juice', aliases: ['芒果汁'] },
-  { standardName: 'Mango Cubes', aliases: ['芒果粒'] },
-  { standardName: 'Pomelo Pulp', aliases: ['柚子肉'] },
-  { standardName: 'Ice Cubes', aliases: ['冰粒'] },
-  { standardName: 'Taro', aliases: ['芋头', '芋頭'] },
-  { standardName: 'Tapioca Starch', aliases: ['薯粉'] },
-  { standardName: 'Corn Starch', aliases: ['粟粉'] }
+type IngredientDictionaryEntry = {
+  englishName: string;
+  chineseName: string;
+  aliases: string[];
+};
+
+const INGREDIENT_NORMALIZATION_ENTRIES: IngredientDictionaryEntry[] = [
+  { englishName: 'Sugar', chineseName: '糖', aliases: ['糖', '白糖', '砂糖'] },
+  { englishName: 'Water', chineseName: '水', aliases: ['水'] },
+  { englishName: 'Eggs', chineseName: '鸡蛋', aliases: ['鸡蛋', '雞蛋', '蛋'] },
+  { englishName: 'Chicken Powder', chineseName: '鸡粉', aliases: ['鸡粉', '雞粉'] },
+  { englishName: 'Salt', chineseName: '盐', aliases: ['盐', '鹽'] },
+  { englishName: 'White Pepper', chineseName: '白胡椒粉', aliases: ['白胡椒粉', '胡椒粉'] },
+  { englishName: 'Black Pepper', chineseName: '黑胡椒', aliases: ['黑胡椒'] },
+  { englishName: 'Evaporated Milk', chineseName: '花奶', aliases: ['花奶', '淡奶'] },
+  { englishName: 'Sweetened Condensed Milk', chineseName: '炼奶', aliases: ['炼奶', '煉奶'] },
+  { englishName: 'Milk', chineseName: '牛奶', aliases: ['牛奶'] },
+  { englishName: 'Fresh Milk', chineseName: '鲜奶', aliases: ['鲜奶', '鮮奶'] },
+  { englishName: 'White Jelly Powder', chineseName: '白凉粉', aliases: ['白凉粉', '白涼粉'] },
+  { englishName: 'Sago', chineseName: '西米', aliases: ['西米'] },
+  { englishName: 'Mango Juice', chineseName: '芒果汁', aliases: ['芒果汁'] },
+  { englishName: 'Mango Cubes', chineseName: '芒果粒', aliases: ['芒果粒'] },
+  { englishName: 'Pomelo Pulp', chineseName: '柚子肉', aliases: ['柚子肉'] },
+  { englishName: 'Ice Cubes', chineseName: '冰粒', aliases: ['冰粒'] },
+  { englishName: 'Black Glutinous Rice', chineseName: '黑糯米', aliases: ['黑糯米'] },
+  { englishName: 'Palm Sugar', chineseName: '椰糖', aliases: ['椰糖'] },
+  { englishName: 'Dried Longan', chineseName: '龙眼干', aliases: ['龙眼干', '龍眼乾'] },
+  { englishName: 'Taro', chineseName: '芋头', aliases: ['芋头', '芋頭'] },
+  { englishName: 'Tapioca Starch', chineseName: '薯粉', aliases: ['薯粉'] },
+  { englishName: 'Corn Starch', chineseName: '粟粉', aliases: ['粟粉'] }
 ];
 
-const INGREDIENT_NORMALIZATION_DICTIONARY = INGREDIENT_NORMALIZATION_ENTRIES.reduce<Record<string, string>>((acc, entry) => {
+const INGREDIENT_NORMALIZATION_DICTIONARY = INGREDIENT_NORMALIZATION_ENTRIES.reduce<Record<string, IngredientDictionaryEntry>>((acc, entry) => {
   entry.aliases.forEach(alias => {
-    acc[alias.trim().toLowerCase()] = entry.standardName;
+    acc[alias.trim().toLowerCase()] = entry;
   });
-  acc[entry.standardName.trim().toLowerCase()] = entry.standardName;
+  acc[entry.englishName.trim().toLowerCase()] = entry;
+  acc[entry.chineseName.trim().toLowerCase()] = entry;
   return acc;
 }, {});
 
@@ -163,17 +173,55 @@ const normalizeUnit = (unit: string) => {
   return trimmed;
 };
 
-const normalizeIngredientName = (value: string) => {
+export const normalizeIngredientNameParts = (value: string) => {
   const trimmed = value
-    .replace(/\s*\(([^)]+)\)\s*$/, (_match, alias) => ` ${alias}`)
     .replace(/\s+/g, ' ')
     .trim();
+  const bilingualMatch = trimmed.match(/^(.+?)\s*\((.+)\)$/);
+  if (bilingualMatch) {
+    return {
+      name: `${bilingualMatch[1].trim()} (${bilingualMatch[2].trim()})`,
+      englishName: bilingualMatch[1].trim(),
+      chineseName: bilingualMatch[2].trim()
+    };
+  }
+
   const pipePrimaryName = trimmed
     .split('|')
     .map(part => part.trim())
     .filter(Boolean)[0] || trimmed;
+  if (!pipePrimaryName) {
+    return {
+      name: '',
+      englishName: '',
+      chineseName: ''
+    };
+  }
+  const entry = INGREDIENT_NORMALIZATION_DICTIONARY[pipePrimaryName.toLowerCase()];
 
-  return INGREDIENT_NORMALIZATION_DICTIONARY[pipePrimaryName.toLowerCase()] || pipePrimaryName;
+  if (entry) {
+    return {
+      name: `${entry.englishName} (${entry.chineseName})`,
+      englishName: entry.englishName,
+      chineseName: entry.chineseName
+    };
+  }
+
+  return {
+    name: `${pipePrimaryName} (${pipePrimaryName})`,
+    englishName: pipePrimaryName,
+    chineseName: pipePrimaryName
+  };
+};
+
+export const normalizeIngredientForDisplay = (ingredient: Ingredient): Ingredient => {
+  const normalized = normalizeIngredientNameParts(ingredient.name);
+  return {
+    ...ingredient,
+    name: normalized.name,
+    englishName: normalized.englishName,
+    chineseName: normalized.chineseName
+  };
 };
 
 const normalizeParsedQuantityUnit = (qty: string, unit: string) => {
@@ -236,7 +284,7 @@ const parseChineseUnitIngredient = (cleaned: string, index: number) => {
   if (grams === null) return null;
 
   return makeIngredient(cleaned, index, {
-    name: normalizeIngredientName(match.name),
+    name: match.name,
     qty: formatQuantity(grams),
     unit: 'g',
     notes: ''
@@ -266,7 +314,7 @@ const splitNotes = (value: string) => {
   }
 
   return {
-    name: normalizeIngredientName(text),
+    name: text.trim(),
     notes: notes.filter(Boolean).join(', ')
   };
 };
@@ -276,15 +324,21 @@ const makeIngredient = (
   index: number,
   fields: Pick<Ingredient, 'name' | 'qty' | 'unit'> & { notes?: string },
   confidence: ParsedIngredient['confidence']
-): ParsedIngredient => ({
-  id: `ing_import_${Date.now()}_${index}`,
-  name: fields.name.trim(),
-  qty: fields.qty.trim(),
-  unit: fields.unit.trim(),
-  notes: fields.notes?.trim() || '',
-  confidence,
-  originalText
-});
+): ParsedIngredient => {
+  const normalizedName = normalizeIngredientNameParts(fields.name.trim());
+
+  return {
+    id: `ing_import_${Date.now()}_${index}`,
+    name: normalizedName.name,
+    englishName: normalizedName.englishName,
+    chineseName: normalizedName.chineseName,
+    qty: fields.qty.trim(),
+    unit: fields.unit.trim(),
+    notes: fields.notes?.trim() || '',
+    confidence,
+    originalText
+  };
+};
 
 const isUnitAsIngredient = (unit: string) => {
   return ['egg', 'eggs'].includes(unit.toLowerCase());
@@ -317,7 +371,7 @@ export const parseIngredientLine = (line: string, index = 0): ParsedIngredient =
 
       if (qualitative) {
         return makeIngredient(cleaned, index, {
-          name: normalizeIngredientName(namePart),
+          name: namePart,
           qty: '',
           unit: qualitative[1],
           notes: pipeParts.filter(part => part !== namePart && part !== quantityPart).join(', ')
@@ -327,7 +381,7 @@ export const parseIngredientLine = (line: string, index = 0): ParsedIngredient =
       if (quantityUnit) {
         const parsed = normalizeParsedQuantityUnit(quantityUnit[1] || '', quantityUnit[2] || '');
         return makeIngredient(cleaned, index, {
-          name: normalizeIngredientName(namePart),
+          name: namePart,
           qty: parsed.qty,
           unit: parsed.unit,
           notes: pipeParts.filter(part => part !== namePart && part !== quantityPart).join(', ')
