@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { Search, Plus, Home } from 'lucide-react';
 import { getRedirectResult, onAuthStateChanged, signOut, type Unsubscribe, type User } from 'firebase/auth';
 import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
-import { Recipe, RecipeCategory, RootTab } from './types';
+import { ChefProfile, DEFAULT_CHEF_PROFILE, Recipe, RecipeCategory, RootTab } from './types';
 import { INITIAL_COLLECTIONS, INITIAL_RECIPES } from './data';
 import Header from './components/Header';
 import HomeTab from './components/HomeTab';
@@ -94,15 +94,26 @@ const loadLocalRecipes = () => {
   }
 };
 
-const loadCustomAvatarUrl = () => {
+const normalizeChefProfile = (profile?: Partial<ChefProfile> | null): ChefProfile => ({
+  ...DEFAULT_CHEF_PROFILE,
+  ...(profile || {}),
+  photo: typeof profile?.photo === 'string' ? profile.photo : DEFAULT_CHEF_PROFILE.photo,
+  name: typeof profile?.name === 'string' ? profile.name : DEFAULT_CHEF_PROFILE.name,
+  jobTitle: typeof profile?.jobTitle === 'string' ? profile.jobTitle : DEFAULT_CHEF_PROFILE.jobTitle,
+  yearsExperience: typeof profile?.yearsExperience === 'string' ? profile.yearsExperience : DEFAULT_CHEF_PROFILE.yearsExperience,
+  bio: typeof profile?.bio === 'string' ? profile.bio : DEFAULT_CHEF_PROFILE.bio,
+  quote: typeof profile?.quote === 'string' ? profile.quote : DEFAULT_CHEF_PROFILE.quote
+});
+
+const loadLocalProfile = () => {
   const cachedProfile = localStorage.getItem(STORAGE_PROFILE_KEY);
-  if (!cachedProfile) return '';
+  if (!cachedProfile) return DEFAULT_CHEF_PROFILE;
 
   try {
     const parsedProfile = JSON.parse(cachedProfile);
-    return typeof parsedProfile?.photo === 'string' ? parsedProfile.photo : '';
+    return normalizeChefProfile(parsedProfile);
   } catch (err) {
-    return '';
+    return DEFAULT_CHEF_PROFILE;
   }
 };
 
@@ -141,16 +152,32 @@ const createUserDocument = async (user: User) => {
 
   const userRef = doc(db, 'users', user.uid);
   const existingUser = await getDoc(userRef);
+  const existingProfile = existingUser.exists()
+    ? normalizeChefProfile(existingUser.data().profile as Partial<ChefProfile> | undefined)
+    : normalizeChefProfile({
+        name: user.displayName || DEFAULT_CHEF_PROFILE.name,
+        photo: user.photoURL || DEFAULT_CHEF_PROFILE.photo
+      });
 
   await setDoc(userRef, removeUndefinedFields({
     uid: user.uid,
     email: user.email,
     displayName: user.displayName,
     photoURL: user.photoURL,
+    profile: existingProfile,
     authProvider: user.providerData[0]?.providerId || 'password',
     createdAt: existingUser.exists() ? existingUser.data().createdAt : new Date().toISOString(),
     updatedAt: new Date().toISOString()
   }), { merge: true });
+};
+
+const loadFirestoreProfile = async (user: User) => {
+  if (!db) return null;
+
+  const userSnapshot = await getDoc(doc(db, 'users', user.uid));
+  if (!userSnapshot.exists()) return null;
+
+  return normalizeChefProfile(userSnapshot.data().profile as Partial<ChefProfile> | undefined);
 };
 
 const loadFirestoreRecipes = async (user: User) => {
@@ -249,6 +276,7 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isGuestMode, setIsGuestMode] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [chefProfile, setChefProfile] = useState<ChefProfile>(DEFAULT_CHEF_PROFILE);
   const [customAvatarUrl, setCustomAvatarUrl] = useState('');
   
   // Notification states
@@ -264,7 +292,9 @@ export default function App() {
 
     const cachedRecipes = localStorage.getItem(STORAGE_RECIPES_KEY);
     const cachedCategories = localStorage.getItem(STORAGE_CATEGORIES_KEY);
-    setCustomAvatarUrl(loadCustomAvatarUrl());
+    const localProfile = loadLocalProfile();
+    setChefProfile(localProfile);
+    setCustomAvatarUrl(localProfile.photo);
     let loadedRecipes = INITIAL_RECIPES;
 
     if (cachedRecipes) {
@@ -381,9 +411,15 @@ export default function App() {
     const initializeFirestoreUser = async () => {
       try {
         await createUserDocument(currentUser);
+        const cloudProfile = await loadFirestoreProfile(currentUser);
         const cloudRecipes = await loadFirestoreRecipes(currentUser);
 
         if (!isCancelled) {
+          if (cloudProfile) {
+            setChefProfile(cloudProfile);
+            setCustomAvatarUrl(cloudProfile.photo);
+            localStorage.setItem(STORAGE_PROFILE_KEY, JSON.stringify(cloudProfile));
+          }
           setRecipes(cloudRecipes);
         }
       } catch (err) {
@@ -804,6 +840,9 @@ export default function App() {
   const handleContinueAsGuest = () => {
     setCurrentUser(null);
     setIsGuestMode(true);
+    const localProfile = loadLocalProfile();
+    setChefProfile(localProfile);
+    setCustomAvatarUrl(localProfile.photo);
     setRecipes(loadLocalRecipes());
     setActiveTab('home');
     window.history.replaceState(null, '', '/');
@@ -847,6 +886,7 @@ export default function App() {
             onSelectRecipe={setSelectedRecipe}
             onToggleFavorite={handleToggleFavorite}
             currentUser={currentUser}
+            profile={chefProfile}
             customAvatarUrl={customAvatarUrl}
           />
         );
@@ -888,8 +928,13 @@ export default function App() {
             onResetApp={handleResetApp}
             onOpenLogin={() => setActiveTab('login')}
             currentUser={currentUser}
+            profile={chefProfile}
             customAvatarUrl={customAvatarUrl}
             onCustomAvatarChange={setCustomAvatarUrl}
+            onProfileChange={nextProfile => {
+              setChefProfile(nextProfile);
+              setCustomAvatarUrl(nextProfile.photo);
+            }}
             onSignOut={handleSignOut}
             onNotify={triggerNotification}
           />
@@ -904,6 +949,7 @@ export default function App() {
               onSelectRecipe={setSelectedRecipe}
               onToggleFavorite={handleToggleFavorite}
               currentUser={currentUser}
+              profile={chefProfile}
               customAvatarUrl={customAvatarUrl}
             />
           );
@@ -948,8 +994,8 @@ export default function App() {
       title: "MiseChef",
       isSubpage: false,
       activeTab: activeTab,
-      chefAvatarUrl: customAvatarUrl || currentUser?.photoURL || undefined,
-      chefName: currentUser?.displayName || currentUser?.email || 'User profile',
+      chefAvatarUrl: customAvatarUrl || chefProfile.photo || currentUser?.photoURL || undefined,
+      chefName: chefProfile.name || currentUser?.displayName || currentUser?.email || 'User profile',
       showAvatar: Boolean(currentUser),
       onAvatarClick: handleAvatarClick,
       onMenuClick: () => setIsNavigationDrawerOpen(true)

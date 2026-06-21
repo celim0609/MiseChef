@@ -6,16 +6,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Heart, Play, Search } from 'lucide-react';
 import type { User } from 'firebase/auth';
-import { Recipe } from '../types';
-
-interface ChefProfile {
-  photo: string;
-  name: string;
-  jobTitle: string;
-  yearsExperience: string;
-  bio: string;
-  quote: string;
-}
+import { ChefProfile, DEFAULT_CHEF_PROFILE, Recipe } from '../types';
 
 interface HomeTabProps {
   recipes: Recipe[];
@@ -24,19 +15,11 @@ interface HomeTabProps {
   onSelectRecipe: (recipe: Recipe) => void;
   onToggleFavorite: (recipeId: string) => void;
   currentUser?: User | null;
+  profile?: ChefProfile;
   customAvatarUrl?: string;
 }
 
 const CHEF_PROFILE_STORAGE_KEY = 'ce_lims_kitchen_chef_profile_v1';
-
-const DEFAULT_CHEF_PROFILE: ChefProfile = {
-  photo: '',
-  name: 'Ce Lim',
-  jobTitle: 'Junior Sous Chef',
-  yearsExperience: '8+',
-  bio: 'Passionate chef specializing in bakery, pastry, school meals, and recipe development.',
-  quote: 'Every recipe tells a story.'
-};
 
 export default function HomeTab({
   recipes,
@@ -45,14 +28,16 @@ export default function HomeTab({
   onSelectRecipe,
   onToggleFavorite,
   currentUser = null,
+  profile: sharedProfile,
   customAvatarUrl = ''
 }: HomeTabProps) {
   // All recipes in the database are user-owned now
   const chefRecipes = recipes;
   const activeFilterLabel = isFavoritesFilter ? 'Favorites' : selectedCategory;
-  const [profile, setProfile] = useState<ChefProfile>(DEFAULT_CHEF_PROFILE);
+  const [localProfile, setLocalProfile] = useState<ChefProfile>(DEFAULT_CHEF_PROFILE);
   const [searchQuery, setSearchQuery] = useState('');
   const authDisplayName = currentUser?.displayName || currentUser?.email?.split('@')[0] || '';
+  const profile = sharedProfile || localProfile;
   const profileAvatarUrl = customAvatarUrl || profile.photo || currentUser?.photoURL || '';
   const profileInitials = (profile.name || authDisplayName || 'CL')
     .split(' ')
@@ -84,7 +69,7 @@ export default function HomeTab({
   useEffect(() => {
     const cachedProfile = localStorage.getItem(CHEF_PROFILE_STORAGE_KEY);
     if (!cachedProfile) {
-      setProfile(DEFAULT_CHEF_PROFILE);
+      setLocalProfile(DEFAULT_CHEF_PROFILE);
       return;
     }
 
@@ -93,9 +78,9 @@ export default function HomeTab({
         ...DEFAULT_CHEF_PROFILE,
         ...JSON.parse(cachedProfile)
       };
-      setProfile(parsedProfile);
+      setLocalProfile(parsedProfile);
     } catch (err) {
-      setProfile(DEFAULT_CHEF_PROFILE);
+      setLocalProfile(DEFAULT_CHEF_PROFILE);
     }
   }, []);
 

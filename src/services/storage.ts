@@ -15,6 +15,10 @@ export const getRecipeScanAttachmentPath = (userId: string, recipeId: string) =>
   return `recipes/${userId}/${recipeId}/scan.jpg`;
 };
 
+export const getUserProfilePhotoPath = (userId: string) => {
+  return `users/${userId}/profile/avatar.jpg`;
+};
+
 export const isLocalImageDataUrl = (value?: string) => {
   return Boolean(value?.startsWith('data:image/'));
 };
@@ -99,6 +103,40 @@ export const uploadRecipeScanAttachment = async ({
         const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
         onProgress?.(progress);
       },
+      reject,
+      async () => {
+        try {
+          resolve(await getDownloadURL(uploadTask.snapshot.ref));
+        } catch (err) {
+          reject(err);
+        }
+      }
+    );
+  });
+};
+
+export const uploadUserProfilePhoto = async ({
+  userId,
+  imageDataUrl,
+}: {
+  userId: string;
+  imageDataUrl: string;
+}) => {
+  if (!storage) {
+    throw new Error('Firebase Storage is not initialized.');
+  }
+
+  const imageBlob = await dataUrlToBlob(imageDataUrl);
+  const avatarRef = ref(storage, getUserProfilePhotoPath(userId));
+  const uploadTask = uploadBytesResumable(avatarRef, imageBlob, {
+    contentType: 'image/jpeg',
+    cacheControl: 'public,max-age=31536000',
+  });
+
+  return new Promise<string>((resolve, reject) => {
+    uploadTask.on(
+      'state_changed',
+      undefined,
       reject,
       async () => {
         try {

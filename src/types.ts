@@ -52,6 +52,24 @@ export interface RecipeCategory {
   updatedAt?: string;
 }
 
+export interface ChefProfile {
+  photo: string;
+  name: string;
+  jobTitle: string;
+  yearsExperience: string;
+  bio: string;
+  quote: string;
+}
+
+export const DEFAULT_CHEF_PROFILE: ChefProfile = {
+  photo: '',
+  name: 'Ce Lim',
+  jobTitle: 'Junior Sous Chef',
+  yearsExperience: '8+',
+  bio: 'Passionate chef specializing in bakery, pastry, school meals, and recipe development.',
+  quote: 'Every recipe tells a story.'
+};
+
 export interface Collection {
   id: string;
   name: string;

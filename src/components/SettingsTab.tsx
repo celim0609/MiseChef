@@ -8,22 +8,14 @@ import { Camera, Download, RotateCcw, Upload } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Recipe, RecipeCategory } from '../types';
+import { ChefProfile, DEFAULT_CHEF_PROFILE, Recipe, RecipeCategory } from '../types';
+import { isLocalImageDataUrl, uploadUserProfilePhoto } from '../services/storage';
 
 const CHEF_PROFILE_STORAGE_KEY = 'ce_lims_kitchen_chef_profile_v1';
 const APPEARANCE_STORAGE_KEY = 'ce_lims_kitchen_appearance_v1';
 const APP_VERSION = '0.0.0';
 
 type AppearanceMode = 'light' | 'dark' | 'system';
-
-interface ChefProfile {
-  photo: string;
-  name: string;
-  jobTitle: string;
-  yearsExperience: string;
-  bio: string;
-  quote: string;
-}
 
 interface SettingsTabProps {
   recipes: Recipe[];
@@ -32,8 +24,10 @@ interface SettingsTabProps {
   onResetApp: () => void;
   onOpenLogin: () => void;
   currentUser: User | null;
+  profile?: ChefProfile;
   customAvatarUrl?: string;
   onCustomAvatarChange?: (avatarUrl: string) => void;
+  onProfileChange?: (profile: ChefProfile) => void;
   onSignOut: () => void;
   onNotify?: (message: string, type?: 'success' | 'info' | 'error') => void;
 }
@@ -44,18 +38,50 @@ export interface ImportedAppData {
   profile?: Partial<ChefProfile>;
 }
 
-const DEFAULT_CHEF_PROFILE: ChefProfile = {
-  photo: '',
-  name: 'Ce Lim',
-  jobTitle: 'Junior Sous Chef',
-  yearsExperience: '8+',
-  bio: 'Passionate chef specializing in bakery, pastry, school meals, and recipe development.',
-  quote: 'Every recipe tells a story.'
-};
-
 const applyAppearanceMode = (mode: AppearanceMode) => {
   document.documentElement.dataset.appearance = mode;
 };
+
+const cropProfileImageDataUrl = (
+  imageDataUrl: string,
+  cropX: number,
+  cropY: number,
+  zoom: number
+) => new Promise<string>((resolve, reject) => {
+  const image = new Image();
+  image.onload = () => {
+    const outputSize = 512;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    if (!ctx) {
+      reject(new Error('Image crop could not be prepared.'));
+      return;
+    }
+
+    canvas.width = outputSize;
+    canvas.height = outputSize;
+    const cropSize = Math.min(image.naturalWidth, image.naturalHeight) / zoom;
+    const sourceX = ((image.naturalWidth - cropSize) * cropX) / 100;
+    const sourceY = ((image.naturalHeight - cropSize) * cropY) / 100;
+
+    ctx.drawImage(
+      image,
+      Math.max(0, sourceX),
+      Math.max(0, sourceY),
+      cropSize,
+      cropSize,
+      0,
+      0,
+      outputSize,
+      outputSize
+    );
+
+    resolve(canvas.toDataURL('image/jpeg', 0.82));
+  };
+  image.onerror = () => reject(new Error('Unable to read selected profile photo.'));
+  image.src = imageDataUrl;
+});
 
 export default function SettingsTab({
   recipes,
@@ -64,8 +90,10 @@ export default function SettingsTab({
   onResetApp,
   onOpenLogin,
   currentUser,
+  profile: sharedProfile,
   customAvatarUrl = '',
   onCustomAvatarChange,
+  onProfileChange,
   onSignOut,
   onNotify
 }: SettingsTabProps) {
@@ -75,6 +103,11 @@ export default function SettingsTab({
   const [dataMessage, setDataMessage] = useState('');
   const [profileMessage, setProfileMessage] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [cropImageDataUrl, setCropImageDataUrl] = useState('');
+  const [cropX, setCropX] = useState(50);
+  const [cropY, setCropY] = useState(50);
+  const [cropZoom, setCropZoom] = useState(1);
+  const [isApplyingCrop, setIsApplyingCrop] = useState(false);
   const authDisplayName = currentUser?.displayName || currentUser?.email?.split('@')[0] || '';
   const authEmail = currentUser?.email || '';
   const profileAvatarUrl = profile.photo || customAvatarUrl || currentUser?.photoURL || '';
@@ -112,6 +145,17 @@ export default function SettingsTab({
     }
   }, []);
 
+  useEffect(() => {
+    if (!sharedProfile) return;
+
+    const nextProfile = {
+      ...DEFAULT_CHEF_PROFILE,
+      ...sharedProfile
+    };
+    setProfile(nextProfile);
+    setSavedProfile(nextProfile);
+  }, [sharedProfile]);
+
   const updateProfile = (field: keyof ChefProfile, value: string) => {
     setProfile(prev => ({ ...prev, [field]: value }));
     setProfileMessage('');
@@ -124,16 +168,37 @@ export default function SettingsTab({
     const reader = new FileReader();
     reader.onload = event => {
       if (event.target?.result) {
-        const nextPhoto = event.target.result as string;
-        updateProfile('photo', nextPhoto);
+        setCropImageDataUrl(event.target.result as string);
+        setCropX(50);
+        setCropY(50);
+        setCropZoom(1);
       }
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleApplyCroppedPhoto = async () => {
+    if (!cropImageDataUrl) return;
+
+    try {
+      setIsApplyingCrop(true);
+      const croppedPhoto = await cropProfileImageDataUrl(cropImageDataUrl, cropX, cropY, cropZoom);
+      updateProfile('photo', croppedPhoto);
+      setCropImageDataUrl('');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to crop profile photo.';
+      setProfileMessage(message);
+      onNotify?.(message, 'error');
+    } finally {
+      setIsApplyingCrop(false);
+    }
   };
 
   const validateProfile = () => {
     if (!profile.name.trim()) return 'Name is required.';
     if (!profile.jobTitle.trim()) return 'Job title is required.';
+    if (!profile.yearsExperience.trim()) return 'Years of experience is required.';
     if (!profile.bio.trim()) return 'Bio is required.';
     return '';
   };
@@ -146,17 +211,26 @@ export default function SettingsTab({
       return;
     }
 
-    const nextProfile: ChefProfile = {
-      photo: profile.photo,
-      name: profile.name.trim(),
-      jobTitle: profile.jobTitle.trim(),
-      yearsExperience: profile.yearsExperience.trim(),
-      bio: profile.bio.trim(),
-      quote: profile.quote.trim()
-    };
-
     try {
       setIsSavingProfile(true);
+      let savedPhoto = profile.photo;
+
+      if (currentUser && db && isLocalImageDataUrl(profile.photo)) {
+        savedPhoto = await uploadUserProfilePhoto({
+          userId: currentUser.uid,
+          imageDataUrl: profile.photo
+        });
+      }
+
+      const nextProfile: ChefProfile = {
+        photo: savedPhoto,
+        name: profile.name.trim(),
+        jobTitle: profile.jobTitle.trim(),
+        yearsExperience: profile.yearsExperience.trim(),
+        bio: profile.bio.trim(),
+        quote: profile.quote.trim()
+      };
+
       localStorage.setItem(CHEF_PROFILE_STORAGE_KEY, JSON.stringify(nextProfile));
 
       if (currentUser && db) {
@@ -172,6 +246,7 @@ export default function SettingsTab({
       setProfile(nextProfile);
       setSavedProfile(nextProfile);
       onCustomAvatarChange?.(nextProfile.photo || '');
+      onProfileChange?.(nextProfile);
       setProfileMessage('Profile updated successfully.');
       onNotify?.('Profile updated successfully.', 'success');
     } catch (err) {
@@ -339,6 +414,10 @@ export default function SettingsTab({
               <input className={inputClass} value={profile.jobTitle} onChange={e => updateProfile('jobTitle', e.target.value)} />
             </div>
             <div className="space-y-1.5 sm:col-span-2">
+              <label className="font-sans font-bold text-xs text-on-surface-variant px-1">Years of Experience</label>
+              <input className={inputClass} value={profile.yearsExperience} onChange={e => updateProfile('yearsExperience', e.target.value)} />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
               <label className="font-sans font-bold text-xs text-on-surface-variant px-1">Bio</label>
               <textarea
                 className={`${inputClass} resize-none`}
@@ -373,6 +452,87 @@ export default function SettingsTab({
           </button>
         </div>
       </section>
+
+      {cropImageDataUrl && (
+        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-xs flex items-center justify-center px-4">
+          <div className="bg-background border border-surface-container-high rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-5">
+            <div>
+              <h3 className={sectionTitleClass}>Crop Profile Photo</h3>
+              <p className="font-sans text-xs font-bold text-on-surface-variant mt-1">
+                Adjust the crop before uploading your profile photo.
+              </p>
+            </div>
+
+            <div className="mx-auto w-64 h-64 max-w-full aspect-square rounded-2xl overflow-hidden bg-surface-container border border-surface-container-high">
+              <img
+                src={cropImageDataUrl}
+                alt="Profile crop preview"
+                className="w-full h-full object-cover"
+                style={{
+                  objectPosition: `${cropX}% ${cropY}%`,
+                  transform: `scale(${cropZoom})`,
+                  transformOrigin: `${cropX}% ${cropY}%`
+                }}
+              />
+            </div>
+
+            <div className="space-y-3">
+              <label className="block space-y-1">
+                <span className="font-sans font-bold text-xs text-on-surface-variant">Horizontal Position</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={cropX}
+                  onChange={e => setCropX(Number(e.target.value))}
+                  className="w-full accent-primary"
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="font-sans font-bold text-xs text-on-surface-variant">Vertical Position</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={cropY}
+                  onChange={e => setCropY(Number(e.target.value))}
+                  className="w-full accent-primary"
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="font-sans font-bold text-xs text-on-surface-variant">Zoom</span>
+                <input
+                  type="range"
+                  min="1"
+                  max="2.5"
+                  step="0.05"
+                  value={cropZoom}
+                  onChange={e => setCropZoom(Number(e.target.value))}
+                  className="w-full accent-primary"
+                />
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-3 border-t border-surface-container pt-4">
+              <button
+                type="button"
+                onClick={() => setCropImageDataUrl('')}
+                className="rounded-full bg-surface-container border border-surface-container-high text-primary px-5 py-3 text-xs font-sans font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyCroppedPhoto}
+                disabled={isApplyingCrop}
+                className="rounded-full bg-primary disabled:bg-outline-variant disabled:cursor-not-allowed text-on-primary px-5 py-3 text-xs font-sans font-bold"
+              >
+                {isApplyingCrop ? 'Cropping...' : 'Use Photo'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className={sectionClass}>
         <h3 className={sectionTitleClass}>Appearance</h3>
