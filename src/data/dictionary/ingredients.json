@@ -1,102 +1,122 @@
 [
   {
-    "englishName": "Sugar",
-    "chineseName": "糖",
-    "aliases": ["糖", "白糖", "砂糖", "Sugar"]
+    "chinese": "糖",
+    "english": "Sugar",
+    "category": "Sweetener",
+    "aliases": ["白糖", "砂糖"]
   },
   {
-    "englishName": "Water",
-    "chineseName": "水",
-    "aliases": ["水", "Water"]
+    "chinese": "水",
+    "english": "Water",
+    "category": "Liquid",
+    "aliases": []
   },
   {
-    "englishName": "Eggs",
-    "chineseName": "鸡蛋",
-    "aliases": ["鸡蛋", "雞蛋", "蛋", "Eggs", "Egg"]
+    "chinese": "鸡蛋",
+    "english": "Eggs",
+    "category": "Dairy",
+    "aliases": ["雞蛋", "蛋"]
   },
   {
-    "englishName": "Chicken Powder",
-    "chineseName": "鸡粉",
-    "aliases": ["鸡粉", "雞粉", "Chicken Powder"]
+    "chinese": "鸡粉",
+    "english": "Chicken Powder",
+    "category": "Seasoning",
+    "aliases": ["雞粉"]
   },
   {
-    "englishName": "Salt",
-    "chineseName": "盐",
-    "aliases": ["盐", "鹽", "Salt"]
+    "chinese": "盐",
+    "english": "Salt",
+    "category": "Seasoning",
+    "aliases": ["鹽"]
   },
   {
-    "englishName": "White Pepper",
-    "chineseName": "白胡椒粉",
-    "aliases": ["白胡椒粉", "胡椒粉", "White Pepper"]
+    "chinese": "白胡椒粉",
+    "english": "White Pepper",
+    "category": "Seasoning",
+    "aliases": ["胡椒粉"]
   },
   {
-    "englishName": "Black Pepper",
-    "chineseName": "黑胡椒",
-    "aliases": ["黑胡椒", "Black Pepper"]
+    "chinese": "黑胡椒",
+    "english": "Black Pepper",
+    "category": "Seasoning",
+    "aliases": []
   },
   {
-    "englishName": "Evaporated Milk",
-    "chineseName": "花奶",
-    "aliases": ["花奶", "淡奶", "Evaporated Milk"]
+    "chinese": "花奶",
+    "english": "Evaporated Milk",
+    "category": "Dairy",
+    "aliases": ["淡奶"]
   },
   {
-    "englishName": "Sweetened Condensed Milk",
-    "chineseName": "炼奶",
-    "aliases": ["炼奶", "煉奶", "Sweetened Condensed Milk", "Condensed Milk"]
+    "chinese": "炼奶",
+    "english": "Sweetened Condensed Milk",
+    "category": "Dairy",
+    "aliases": ["煉奶", "Condensed Milk"]
   },
   {
-    "englishName": "Milk",
-    "chineseName": "牛奶",
-    "aliases": ["牛奶", "Milk"]
+    "chinese": "牛奶",
+    "english": "Milk",
+    "category": "Dairy",
+    "aliases": []
   },
   {
-    "englishName": "Fresh Milk",
-    "chineseName": "鲜奶",
-    "aliases": ["鲜奶", "鮮奶", "Fresh Milk"]
+    "chinese": "鲜奶",
+    "english": "Fresh Milk",
+    "category": "Dairy",
+    "aliases": ["鮮奶"]
   },
   {
-    "englishName": "White Jelly Powder",
-    "chineseName": "白凉粉",
-    "aliases": ["白凉粉", "白涼粉", "White Jelly Powder"]
+    "chinese": "白凉粉",
+    "english": "White Jelly Powder",
+    "category": "Starch & Powder",
+    "aliases": ["白涼粉"]
   },
   {
-    "englishName": "Sago",
-    "chineseName": "西米",
-    "aliases": ["西米", "Sago"]
+    "chinese": "西米",
+    "english": "Sago",
+    "category": "Starch & Powder",
+    "aliases": []
   },
   {
-    "englishName": "Mango Juice",
-    "chineseName": "芒果汁",
-    "aliases": ["芒果汁", "Mango Juice"]
+    "chinese": "芒果汁",
+    "english": "Mango Juice",
+    "category": "Fruit",
+    "aliases": []
   },
   {
-    "englishName": "Mango Cubes",
-    "chineseName": "芒果粒",
-    "aliases": ["芒果粒", "Mango Cubes"]
+    "chinese": "芒果粒",
+    "english": "Mango Cubes",
+    "category": "Fruit",
+    "aliases": []
   },
   {
-    "englishName": "Pomelo Pulp",
-    "chineseName": "柚子肉",
-    "aliases": ["柚子肉", "Pomelo Pulp"]
+    "chinese": "柚子肉",
+    "english": "Pomelo Pulp",
+    "category": "Fruit",
+    "aliases": []
   },
   {
-    "englishName": "Ice Cubes",
-    "chineseName": "冰粒",
-    "aliases": ["冰粒", "Ice Cubes"]
+    "chinese": "冰粒",
+    "english": "Ice Cubes",
+    "category": "Other",
+    "aliases": []
   },
   {
-    "englishName": "Black Glutinous Rice",
-    "chineseName": "黑糯米",
-    "aliases": ["黑糯米", "Black Glutinous Rice"]
+    "chinese": "黑糯米",
+    "english": "Black Glutinous Rice",
+    "category": "Grain",
+    "aliases": []
   },
   {
-    "englishName": "Palm Sugar",
-    "chineseName": "椰糖",
-    "aliases": ["椰糖", "Palm Sugar"]
+    "chinese": "椰糖",
+    "english": "Palm Sugar",
+    "category": "Sweetener",
+    "aliases": []
   },
   {
-    "englishName": "Dried Longan",
-    "chineseName": "龙眼干",
-    "aliases": ["龙眼干", "龍眼乾", "Dried Longan"]
+    "chinese": "龙眼干",
+    "english": "Dried Longan",
+    "category": "Fruit",
+    "aliases": ["龍眼乾"]
   }
 ]
