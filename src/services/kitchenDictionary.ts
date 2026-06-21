@@ -36,6 +36,60 @@ const KITCHEN_DICTIONARY_LOOKUP = KITCHEN_DICTIONARY_INGREDIENTS.reduce<Record<s
   return acc;
 }, {});
 
+const getKitchenDictionaryLookupCandidates = (name: string) => {
+  const trimmed = name.replace(/\s+/g, ' ').trim();
+  const candidates = new Set<string>([trimmed]);
+  const bilingualMatch = trimmed.match(/^(.+?)\s*\((.+)\)$/);
+
+  if (bilingualMatch) {
+    candidates.add(bilingualMatch[1].trim());
+    candidates.add(bilingualMatch[2].trim());
+  }
+
+  trimmed
+    .split('|')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .forEach(part => candidates.add(part));
+
+  return Array.from(candidates);
+};
+
+export const findKitchenDictionaryIngredientByName = (name: string) => {
+  for (const candidate of getKitchenDictionaryLookupCandidates(name)) {
+    const entry = KITCHEN_DICTIONARY_LOOKUP[normalizeDictionaryKey(candidate)];
+    if (entry) return entry;
+  }
+
+  return null;
+};
+
+export const normalizeKitchenDictionaryIngredientName = (name: string) => {
+  const trimmed = name.replace(/\s+/g, ' ').trim();
+  if (!trimmed) {
+    return {
+      name: '',
+      englishName: '',
+      chineseName: ''
+    };
+  }
+
+  const entry = findKitchenDictionaryIngredientByName(trimmed);
+  if (!entry) {
+    return {
+      name: trimmed,
+      englishName: trimmed,
+      chineseName: trimmed
+    };
+  }
+
+  return {
+    name: `${entry.english} (${entry.chinese})`,
+    englishName: entry.english,
+    chineseName: entry.chinese
+  };
+};
+
 export const canReadKitchenDictionary = () => true;
 
 export const canCreateKitchenDictionaryEntry = (role: UserRole) => isAdminRole(role);
@@ -45,7 +99,7 @@ export const canUpdateKitchenDictionaryEntry = (role: UserRole) => isAdminRole(r
 export const canDeleteKitchenDictionaryEntry = (role: UserRole) => isAdminRole(role);
 
 export const isKnownKitchenDictionaryIngredientName = (name: string) => {
-  return Boolean(KITCHEN_DICTIONARY_LOOKUP[normalizeDictionaryKey(name)]);
+  return Boolean(findKitchenDictionaryIngredientByName(name));
 };
 
 export const getKitchenDictionaryIngredients = (): KitchenDictionaryIngredient[] => {

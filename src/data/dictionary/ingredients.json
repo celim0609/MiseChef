@@ -30,6 +30,12 @@
     "aliases": ["黄油", "牛油块"]
   },
   {
+    "chinese": "鸡蛋",
+    "english": "Eggs",
+    "category": "Protein",
+    "aliases": ["Egg", "蛋"]
+  },
+  {
     "chinese": "糖",
     "english": "Sugar",
     "category": "Sweetener",

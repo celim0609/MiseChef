@@ -4,7 +4,7 @@
  */
 
 import { Ingredient } from '../types';
-import ingredientDictionary from '../data/dictionary/ingredients.json';
+import { normalizeKitchenDictionaryIngredientName } from '../services/kitchenDictionary';
 
 export type ParsedIngredient = Ingredient & {
   confidence: 'high' | 'medium' | 'low';
@@ -63,23 +63,6 @@ const TRADITIONAL_CHINESE_UNIT_GRAMS: Record<string, number> = {
   '两': 37.5,
   '斤': 600
 };
-type IngredientDictionaryEntry = {
-  chinese: string;
-  english: string;
-  category: string;
-  aliases: string[];
-};
-
-const INGREDIENT_NORMALIZATION_ENTRIES = ingredientDictionary as IngredientDictionaryEntry[];
-
-const INGREDIENT_NORMALIZATION_DICTIONARY = INGREDIENT_NORMALIZATION_ENTRIES.reduce<Record<string, IngredientDictionaryEntry>>((acc, entry) => {
-  [entry.chinese, entry.english, ...entry.aliases].forEach(alias => {
-    const key = alias.trim().toLowerCase();
-    if (key) acc[key] = entry;
-  });
-  return acc;
-}, {});
-
 const cleanIngredientLine = (line: string) => {
   return line
     .replace(/\u00a0/g, ' ')
@@ -174,21 +157,7 @@ export const normalizeIngredientNameParts = (value: string) => {
       chineseName: ''
     };
   }
-  const entry = INGREDIENT_NORMALIZATION_DICTIONARY[pipePrimaryName.toLowerCase()];
-
-  if (entry) {
-    return {
-      name: `${entry.english} (${entry.chinese})`,
-      englishName: entry.english,
-      chineseName: entry.chinese
-    };
-  }
-
-  return {
-    name: pipePrimaryName,
-    englishName: pipePrimaryName,
-    chineseName: pipePrimaryName
-  };
+  return normalizeKitchenDictionaryIngredientName(pipePrimaryName);
 };
 
 export const normalizeIngredientForDisplay = (ingredient: Ingredient): Ingredient => {
