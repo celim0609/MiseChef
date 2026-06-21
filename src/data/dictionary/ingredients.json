@@ -1,0 +1,102 @@
+[
+  {
+    "englishName": "Sugar",
+    "chineseName": "糖",
+    "aliases": ["糖", "白糖", "砂糖", "Sugar"]
+  },
+  {
+    "englishName": "Water",
+    "chineseName": "水",
+    "aliases": ["水", "Water"]
+  },
+  {
+    "englishName": "Eggs",
+    "chineseName": "鸡蛋",
+    "aliases": ["鸡蛋", "雞蛋", "蛋", "Eggs", "Egg"]
+  },
+  {
+    "englishName": "Chicken Powder",
+    "chineseName": "鸡粉",
+    "aliases": ["鸡粉", "雞粉", "Chicken Powder"]
+  },
+  {
+    "englishName": "Salt",
+    "chineseName": "盐",
+    "aliases": ["盐", "鹽", "Salt"]
+  },
+  {
+    "englishName": "White Pepper",
+    "chineseName": "白胡椒粉",
+    "aliases": ["白胡椒粉", "胡椒粉", "White Pepper"]
+  },
+  {
+    "englishName": "Black Pepper",
+    "chineseName": "黑胡椒",
+    "aliases": ["黑胡椒", "Black Pepper"]
+  },
+  {
+    "englishName": "Evaporated Milk",
+    "chineseName": "花奶",
+    "aliases": ["花奶", "淡奶", "Evaporated Milk"]
+  },
+  {
+    "englishName": "Sweetened Condensed Milk",
+    "chineseName": "炼奶",
+    "aliases": ["炼奶", "煉奶", "Sweetened Condensed Milk", "Condensed Milk"]
+  },
+  {
+    "englishName": "Milk",
+    "chineseName": "牛奶",
+    "aliases": ["牛奶", "Milk"]
+  },
+  {
+    "englishName": "Fresh Milk",
+    "chineseName": "鲜奶",
+    "aliases": ["鲜奶", "鮮奶", "Fresh Milk"]
+  },
+  {
+    "englishName": "White Jelly Powder",
+    "chineseName": "白凉粉",
+    "aliases": ["白凉粉", "白涼粉", "White Jelly Powder"]
+  },
+  {
+    "englishName": "Sago",
+    "chineseName": "西米",
+    "aliases": ["西米", "Sago"]
+  },
+  {
+    "englishName": "Mango Juice",
+    "chineseName": "芒果汁",
+    "aliases": ["芒果汁", "Mango Juice"]
+  },
+  {
+    "englishName": "Mango Cubes",
+    "chineseName": "芒果粒",
+    "aliases": ["芒果粒", "Mango Cubes"]
+  },
+  {
+    "englishName": "Pomelo Pulp",
+    "chineseName": "柚子肉",
+    "aliases": ["柚子肉", "Pomelo Pulp"]
+  },
+  {
+    "englishName": "Ice Cubes",
+    "chineseName": "冰粒",
+    "aliases": ["冰粒", "Ice Cubes"]
+  },
+  {
+    "englishName": "Black Glutinous Rice",
+    "chineseName": "黑糯米",
+    "aliases": ["黑糯米", "Black Glutinous Rice"]
+  },
+  {
+    "englishName": "Palm Sugar",
+    "chineseName": "椰糖",
+    "aliases": ["椰糖", "Palm Sugar"]
+  },
+  {
+    "englishName": "Dried Longan",
+    "chineseName": "龙眼干",
+    "aliases": ["龙眼干", "龍眼乾", "Dried Longan"]
+  }
+]
