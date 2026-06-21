@@ -1189,6 +1189,8 @@ export default function App() {
             mode="edit"
             categories={categories}
             onCreateCategory={handleCreateCategory}
+            onRenameCategory={handleRenameCategory}
+            onDeleteCategory={handleDeleteCategory}
             onSave={handleSaveEditedRecipe}
             onCancel={handleCancelRecipeForm}
           />
@@ -1196,6 +1198,8 @@ export default function App() {
           <AddRecipeTab
             categories={categories}
             onCreateCategory={handleCreateCategory}
+            onRenameCategory={handleRenameCategory}
+            onDeleteCategory={handleDeleteCategory}
             onSave={handleSaveNewRecipe}
             onCancel={handleCancelRecipeForm}
           />

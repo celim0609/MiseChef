@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { ArrowDown, ArrowUp, Camera, FileText, Image as ImageIcon, Plus, Trash2, X, Sparkles, Video } from 'lucide-react';
+import { ArrowDown, ArrowUp, Camera, FileText, Image as ImageIcon, MoreHorizontal, Plus, Trash2, X, Sparkles, Video } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist/webpack.mjs';
 import { Recipe, Ingredient, MethodStep, RecipeCategory } from '../types';
 import { generateRecipeStepsWithAI, scanRecipeImageWithGemini } from '../services/gemini';
@@ -502,6 +502,8 @@ interface AddRecipeTabProps {
   onCancel: () => void;
   categories: RecipeCategory[];
   onCreateCategory: (name: string) => RecipeCategory | null;
+  onRenameCategory: (categoryId: string, nextName: string) => void;
+  onDeleteCategory: (categoryId: string, targetCategoryName: string) => void;
   initialRecipe?: Recipe | null;
   mode?: 'add' | 'edit';
 }
@@ -511,6 +513,8 @@ export default function AddRecipeTab({
   onCancel,
   categories,
   onCreateCategory,
+  onRenameCategory,
+  onDeleteCategory,
   initialRecipe = null,
   mode = 'add'
 }: AddRecipeTabProps) {
@@ -526,6 +530,9 @@ export default function AddRecipeTab({
   );
   const [newCategoryName, setNewCategoryName] = useState('');
   const [showCategoryCreator, setShowCategoryCreator] = useState(false);
+  const [openCategoryMenuId, setOpenCategoryMenuId] = useState<string | null>(null);
+  const [renamingCategory, setRenamingCategory] = useState<RecipeCategory | null>(null);
+  const [renameCategoryName, setRenameCategoryName] = useState('');
   const [prepTime, setPrepTime] = useState<number>(initialRecipe?.prepTime || 30);
   const [cookTime, setCookTime] = useState<number>(initialRecipe?.cookTime || 0);
   const [servings, setServings] = useState<number>(initialRecipe?.servings || 2);
@@ -639,6 +646,38 @@ export default function AddRecipeTab({
       setNewCategoryName('');
       setShowCategoryCreator(false);
     }
+  };
+
+  const startRenameCategory = (category: RecipeCategory) => {
+    setRenamingCategory(category);
+    setRenameCategoryName(category.name);
+    setOpenCategoryMenuId(null);
+  };
+
+  const handleRenameCategoryFromForm = () => {
+    if (!renamingCategory) return;
+    const nextName = renameCategoryName.trim();
+    if (!nextName) return;
+
+    onRenameCategory(renamingCategory.id, nextName);
+    setSelectedCategories(prev =>
+      normalizeRecipeCategories(prev.map(categoryName =>
+        categoryName.toLowerCase() === renamingCategory.name.toLowerCase() ? nextName : categoryName
+      ))
+    );
+    setRenamingCategory(null);
+    setRenameCategoryName('');
+  };
+
+  const handleDeleteCategoryFromForm = (category: RecipeCategory) => {
+    setOpenCategoryMenuId(null);
+    const confirmed = window.confirm(`Delete "${category.name}"?\n\nThis will remove the category from recipes that use it. Recipes will not be deleted.`);
+    if (!confirmed) return;
+
+    onDeleteCategory(category.id, '');
+    setSelectedCategories(prev =>
+      prev.filter(categoryName => categoryName.toLowerCase() !== category.name.toLowerCase())
+    );
   };
 
   const addMethodStepRow = () => {
@@ -1080,18 +1119,57 @@ export default function AddRecipeTab({
                 {categoryOptions.map(item => {
                   const isSelected = selectedCategories.some(categoryName => categoryName.toLowerCase() === item.name.toLowerCase());
                   return (
-                    <button
-                      type="button"
-                      key={item.id}
-                      onClick={() => toggleCategory(item.name)}
-                      className={`rounded-full px-3 py-2 font-sans text-[11px] font-bold border transition-all ${
-                        isSelected
-                          ? 'bg-primary text-on-primary border-primary'
-                          : 'bg-white text-primary border-surface-container-high hover:border-primary'
-                      }`}
-                    >
-                      {item.name}
-                    </button>
+                    <div key={item.id} className="relative">
+                      <div
+                        className={`flex items-center rounded-full border transition-all ${
+                          isSelected
+                            ? 'bg-primary text-on-primary border-primary'
+                            : 'bg-white text-primary border-surface-container-high hover:border-primary'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => toggleCategory(item.name)}
+                          className="rounded-l-full pl-3 pr-1 py-2 font-sans text-[11px] font-bold transition-all"
+                        >
+                          {item.name}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setOpenCategoryMenuId(prev => prev === item.id ? null : item.id);
+                          }}
+                          className={`mr-1 rounded-full p-1 transition-all ${
+                            isSelected
+                              ? 'text-on-primary hover:bg-white/15'
+                              : 'text-outline hover:bg-surface-container-high hover:text-primary'
+                          }`}
+                          aria-label={`Manage ${item.name}`}
+                        >
+                          <MoreHorizontal className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {openCategoryMenuId === item.id && (
+                        <div className="absolute left-0 top-full z-40 mt-1 w-32 rounded-2xl border border-surface-container-high bg-background p-1.5 shadow-xl shadow-primary/10">
+                          <button
+                            type="button"
+                            onClick={() => startRenameCategory(item)}
+                            className="w-full rounded-xl px-3 py-2 text-left font-sans text-xs font-bold text-primary hover:bg-surface-container transition-all"
+                          >
+                            Rename
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCategoryFromForm(item)}
+                            className="w-full rounded-xl px-3 py-2 text-left font-sans text-xs font-bold text-red-600 hover:bg-red-50 transition-all"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
                 <button
@@ -1147,6 +1225,54 @@ export default function AddRecipeTab({
                     >
                       Create
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {renamingCategory && (
+                <div className="fixed inset-0 z-[90] bg-black/45 backdrop-blur-sm flex items-center justify-center p-4">
+                  <div className="w-full max-w-sm rounded-2xl border border-surface-container-high bg-background p-5 shadow-2xl space-y-4">
+                    <div>
+                      <h3 className="font-display text-xl font-semibold text-primary">Rename category</h3>
+                      <p className="font-sans text-xs font-bold text-on-surface-variant">
+                        Recipes using this category will update automatically.
+                      </p>
+                    </div>
+                    <input
+                      type="text"
+                      value={renameCategoryName}
+                      onChange={e => setRenameCategoryName(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleRenameCategoryFromForm();
+                        }
+                        if (e.key === 'Escape') {
+                          setRenamingCategory(null);
+                        }
+                      }}
+                      autoFocus
+                      className="w-full rounded-xl border border-surface-container-high bg-surface-container px-4 py-3 font-sans text-sm font-bold text-on-surface focus:ring-1 focus:ring-primary"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRenamingCategory(null);
+                          setRenameCategoryName('');
+                        }}
+                        className="flex-1 rounded-full bg-surface-container px-4 py-2.5 font-sans text-xs font-bold text-primary active:scale-95 transition-all"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRenameCategoryFromForm}
+                        className="flex-1 rounded-full bg-primary px-4 py-2.5 font-sans text-xs font-bold text-on-primary active:scale-95 transition-all"
+                      >
+                        Save
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
