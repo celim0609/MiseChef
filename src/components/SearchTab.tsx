@@ -6,7 +6,7 @@
 import React, { useMemo, useState } from 'react';
 import { Check, Clock, Heart, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { Recipe, RecipeCategory } from '../types';
-import { FALLBACK_CATEGORY_NAME, getRecipeCategories, recipeHasCategory } from '../utils/categoryUtils';
+import { getRecipeCategories, recipeHasCategory } from '../utils/categoryUtils';
 
 interface SearchTabProps {
   recipes: Recipe[];
@@ -33,7 +33,7 @@ export default function SearchTab({
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editingCategoryName, setEditingCategoryName] = useState('');
   const [deletingCategory, setDeletingCategory] = useState<RecipeCategory | null>(null);
-  const [moveTargetCategory, setMoveTargetCategory] = useState(FALLBACK_CATEGORY_NAME);
+  const [moveTargetCategory, setMoveTargetCategory] = useState('');
 
   const categoryCounts = useMemo(() => {
     return categories.reduce<Record<string, number>>((acc, category) => {
@@ -86,7 +86,7 @@ export default function SearchTab({
 
   const startDeleteCategory = (category: RecipeCategory) => {
     setDeletingCategory(category);
-    const firstAlternative = categories.find(item => item.id !== category.id)?.name || FALLBACK_CATEGORY_NAME;
+    const firstAlternative = categories.find(item => item.id !== category.id)?.name || '';
     setMoveTargetCategory(firstAlternative);
   };
 
@@ -94,7 +94,7 @@ export default function SearchTab({
     if (!deletingCategory) return;
     onDeleteCategory(deletingCategory.id, targetCategoryName);
     if (selectedCategory === deletingCategory.name) {
-      setSelectedCategory(targetCategoryName);
+      setSelectedCategory(targetCategoryName || null);
     }
     setDeletingCategory(null);
   };
@@ -161,7 +161,6 @@ export default function SearchTab({
           {categories.map(category => {
             const isSelected = selectedCategory === category.name;
             const isEditing = editingCategoryId === category.id;
-            const isFallback = category.name === FALLBACK_CATEGORY_NAME;
 
             return (
               <div
@@ -208,26 +207,22 @@ export default function SearchTab({
                   </>
                 ) : (
                   <>
-                    {!isFallback && (
-                      <button
-                        type="button"
-                        onClick={() => startRenameCategory(category)}
-                        className="p-1.5 rounded-full hover:bg-primary/10"
-                        aria-label={`Rename ${category.name}`}
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    {!isFallback && (
-                      <button
-                        type="button"
-                        onClick={() => startDeleteCategory(category)}
-                        className="p-1.5 mr-1 rounded-full hover:bg-red-50 hover:text-red-600"
-                        aria-label={`Delete ${category.name}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => startRenameCategory(category)}
+                      className="p-1.5 rounded-full hover:bg-primary/10"
+                      aria-label={`Rename ${category.name}`}
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => startDeleteCategory(category)}
+                      className="p-1.5 mr-1 rounded-full hover:bg-red-50 hover:text-red-600"
+                      aria-label={`Delete ${category.name}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </>
                 )}
               </div>
@@ -307,7 +302,7 @@ export default function SearchTab({
                 {deletingCategoryCount} recipes currently use this category.
               </p>
               <p className="font-sans text-xs text-on-surface-variant font-semibold">
-                Recipes will be moved to another category. No recipes will be deleted.
+                Recipes can be moved to another category, or left uncategorized. No recipes will be deleted.
               </p>
             </div>
 
@@ -320,6 +315,7 @@ export default function SearchTab({
                 onChange={e => setMoveTargetCategory(e.target.value)}
                 className="w-full bg-surface-container border-none rounded-xl px-4 py-3 text-sm font-sans font-bold"
               >
+                <option value="">Leave uncategorized</option>
                 {movableCategories.map(category => (
                   <option key={category.id} value={category.name}>
                     {category.name}
@@ -335,13 +331,6 @@ export default function SearchTab({
                 className="flex-1 bg-surface-container rounded-full py-3 text-xs font-sans font-bold text-primary"
               >
                 Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => confirmDeleteCategory(FALLBACK_CATEGORY_NAME)}
-                className="flex-1 bg-secondary/10 text-secondary rounded-full py-3 text-xs font-sans font-bold"
-              >
-                Move to Others
               </button>
               <button
                 type="button"

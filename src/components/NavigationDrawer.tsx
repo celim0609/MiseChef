@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { ChevronDown, X } from 'lucide-react';
+import { ChevronDown, MoreHorizontal, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { User } from 'firebase/auth';
 import { RecipeCategory, RootTab } from '../types';
@@ -23,6 +23,8 @@ interface NavigationDrawerProps {
   onSelectFavorites: () => void;
   currentUser: User | null;
   customAvatarUrl?: string;
+  onRenameCategory: (categoryId: string, nextName: string) => void;
+  onDeleteCategory: (categoryId: string, targetCategoryName: string) => void;
   onSignOut: () => void;
 }
 
@@ -39,9 +41,17 @@ export default function NavigationDrawer({
   onSelectFavorites,
   currentUser,
   customAvatarUrl = '',
+  onRenameCategory,
+  onDeleteCategory,
   onSignOut
 }: NavigationDrawerProps) {
   const [categoriesOpen, setCategoriesOpen] = useState(true);
+  const [openCategoryMenuId, setOpenCategoryMenuId] = useState<string | null>(null);
+  const [renamingCategory, setRenamingCategory] = useState<RecipeCategory | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [deletingCategory, setDeletingCategory] = useState<RecipeCategory | null>(null);
+  const [deleteMode, setDeleteMode] = useState<'remove' | 'replace'>('remove');
+  const [replacementCategory, setReplacementCategory] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -69,6 +79,7 @@ export default function NavigationDrawer({
   const handleCategorySelect = (categoryName: string | null) => {
     onSelectCategory(categoryName);
     onNavigate('home');
+    setOpenCategoryMenuId(null);
     onClose();
   };
 
@@ -92,6 +103,43 @@ export default function NavigationDrawer({
     onSignOut();
     onClose();
   };
+
+  const startRenameCategory = (category: RecipeCategory) => {
+    setRenamingCategory(category);
+    setRenameValue(category.name);
+    setOpenCategoryMenuId(null);
+  };
+
+  const submitRenameCategory = () => {
+    if (!renamingCategory) return;
+    onRenameCategory(renamingCategory.id, renameValue);
+    setRenamingCategory(null);
+    setRenameValue('');
+  };
+
+  const startDeleteCategory = (category: RecipeCategory) => {
+    const firstReplacement = categories.find(item => item.id !== category.id)?.name || '';
+    setDeletingCategory(category);
+    setDeleteMode(firstReplacement ? 'replace' : 'remove');
+    setReplacementCategory(firstReplacement);
+    setOpenCategoryMenuId(null);
+  };
+
+  const confirmDeleteCategory = () => {
+    if (!deletingCategory) return;
+    onDeleteCategory(
+      deletingCategory.id,
+      deleteMode === 'replace' ? replacementCategory : ''
+    );
+    setDeletingCategory(null);
+    setDeleteMode('remove');
+    setReplacementCategory('');
+  };
+
+  const replacementOptions = deletingCategory
+    ? categories.filter(category => category.id !== deletingCategory.id)
+    : [];
+  const deletingCategoryCount = deletingCategory ? categoryCounts[deletingCategory.name] || 0 : 0;
 
   return (
     <AnimatePresence>
@@ -203,18 +251,67 @@ export default function NavigationDrawer({
                           categories.map(category => {
                             const isSelected = selectedCategory === category.name && activeTab === 'home';
                             return (
-                              <button
-                                type="button"
-                                key={category.id}
-                                onClick={() => handleCategorySelect(category.name)}
-                                className={`w-full rounded-xl px-3 py-2.5 text-left font-sans text-xs font-bold transition-all ${
-                                  isSelected
-                                    ? 'bg-primary text-on-primary shadow-sm'
-                                    : 'text-on-surface-variant hover:bg-surface-container hover:text-primary'
-                                }`}
-                              >
-                                {category.name} ({categoryCounts[category.name] || 0})
-                              </button>
+                              <div key={category.id} className="relative space-y-1">
+                                <div
+                                  className={`flex items-center rounded-xl transition-all ${
+                                    isSelected
+                                      ? 'bg-primary text-on-primary shadow-sm'
+                                      : 'text-on-surface-variant hover:bg-surface-container hover:text-primary'
+                                  }`}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCategorySelect(category.name)}
+                                    className="min-w-0 flex-1 rounded-xl px-3 py-2.5 text-left font-sans text-xs font-bold transition-all"
+                                  >
+                                    <span className="block truncate">
+                                      {category.name} ({categoryCounts[category.name] || 0})
+                                    </span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setOpenCategoryMenuId(prev => prev === category.id ? null : category.id);
+                                    }}
+                                    className={`mr-1 rounded-full p-1.5 transition-all ${
+                                      isSelected
+                                        ? 'text-on-primary hover:bg-white/15'
+                                        : 'text-outline hover:bg-surface-container-high hover:text-primary'
+                                    }`}
+                                    aria-label={`Manage ${category.name}`}
+                                  >
+                                    <MoreHorizontal className="w-4 h-4" />
+                                  </button>
+                                </div>
+
+                                <AnimatePresence>
+                                  {openCategoryMenuId === category.id && (
+                                    <motion.div
+                                      initial={{ opacity: 0, y: -4 }}
+                                      animate={{ opacity: 1, y: 0 }}
+                                      exit={{ opacity: 0, y: -4 }}
+                                      transition={{ duration: 0.15, ease: 'easeOut' }}
+                                      className="ml-3 rounded-2xl border border-surface-container-high bg-background p-1.5 shadow-lg shadow-primary/10"
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => startRenameCategory(category)}
+                                        className="w-full rounded-xl px-3 py-2 text-left font-sans text-xs font-bold text-primary hover:bg-surface-container transition-all"
+                                      >
+                                        Rename
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => startDeleteCategory(category)}
+                                        className="w-full rounded-xl px-3 py-2 text-left font-sans text-xs font-bold text-red-600 hover:bg-red-50 transition-all"
+                                      >
+                                        Delete
+                                      </button>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </div>
                             );
                           })
                         ) : (
@@ -323,6 +420,169 @@ export default function NavigationDrawer({
                 </button>
               )}
             </div>
+
+            <AnimatePresence>
+              {renamingCategory && (
+                <motion.div
+                  className="fixed inset-0 z-[90] bg-black/45 backdrop-blur-sm flex items-center justify-center p-4"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => setRenamingCategory(null)}
+                >
+                  <motion.div
+                    initial={{ scale: 0.96, y: 8 }}
+                    animate={{ scale: 1, y: 0 }}
+                    exit={{ scale: 0.96, y: 8 }}
+                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                    className="w-full max-w-sm rounded-2xl border border-surface-container-high bg-background p-5 shadow-2xl space-y-4"
+                    onClick={event => event.stopPropagation()}
+                  >
+                    <div>
+                      <h3 className="font-display text-xl font-semibold text-primary">Rename category</h3>
+                      <p className="font-sans text-xs font-bold text-on-surface-variant">
+                        Recipes using this category will update automatically.
+                      </p>
+                    </div>
+                    <input
+                      type="text"
+                      value={renameValue}
+                      onChange={event => setRenameValue(event.target.value)}
+                      onKeyDown={event => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          submitRenameCategory();
+                        }
+                        if (event.key === 'Escape') {
+                          setRenamingCategory(null);
+                        }
+                      }}
+                      autoFocus
+                      className="w-full rounded-xl border border-surface-container-high bg-surface-container px-4 py-3 font-sans text-sm font-bold text-on-surface focus:ring-1 focus:ring-primary"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setRenamingCategory(null)}
+                        className="flex-1 rounded-full bg-surface-container px-4 py-2.5 font-sans text-xs font-bold text-primary active:scale-95 transition-all"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={submitRenameCategory}
+                        className="flex-1 rounded-full bg-primary px-4 py-2.5 font-sans text-xs font-bold text-on-primary active:scale-95 transition-all"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <AnimatePresence>
+              {deletingCategory && (
+                <motion.div
+                  className="fixed inset-0 z-[90] bg-black/45 backdrop-blur-sm flex items-center justify-center p-4"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => setDeletingCategory(null)}
+                >
+                  <motion.div
+                    initial={{ scale: 0.96, y: 8 }}
+                    animate={{ scale: 1, y: 0 }}
+                    exit={{ scale: 0.96, y: 8 }}
+                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                    className="w-full max-w-sm rounded-2xl border border-surface-container-high bg-background p-5 shadow-2xl space-y-4"
+                    onClick={event => event.stopPropagation()}
+                  >
+                    <div>
+                      <h3 className="font-display text-xl font-semibold text-primary">
+                        Delete "{deletingCategory.name}"?
+                      </h3>
+                      <p className="font-sans text-xs font-bold text-on-surface-variant">
+                        {deletingCategoryCount} recipes currently use this category.
+                      </p>
+                    </div>
+
+                    {deletingCategoryCount > 0 && (
+                      <div className="space-y-3">
+                        <label className="flex items-start gap-3 rounded-2xl border border-surface-container-high bg-surface-container-low p-3 cursor-pointer">
+                          <input
+                            type="radio"
+                            checked={deleteMode === 'remove'}
+                            onChange={() => setDeleteMode('remove')}
+                            className="mt-0.5 accent-primary"
+                          />
+                          <span>
+                            <span className="block font-sans text-xs font-extrabold text-primary">
+                              Remove from all recipes
+                            </span>
+                            <span className="block font-sans text-[11px] font-bold text-on-surface-variant">
+                              Recipes stay saved, just without this category.
+                            </span>
+                          </span>
+                        </label>
+
+                        <label className="flex items-start gap-3 rounded-2xl border border-surface-container-high bg-surface-container-low p-3 cursor-pointer">
+                          <input
+                            type="radio"
+                            checked={deleteMode === 'replace'}
+                            onChange={() => setDeleteMode('replace')}
+                            disabled={replacementOptions.length === 0}
+                            className="mt-0.5 accent-primary disabled:opacity-40"
+                          />
+                          <span className="min-w-0 flex-1 space-y-2">
+                            <span className="block font-sans text-xs font-extrabold text-primary">
+                              Replace with another category
+                            </span>
+                            <select
+                              value={replacementCategory}
+                              onChange={event => {
+                                setReplacementCategory(event.target.value);
+                                setDeleteMode('replace');
+                              }}
+                              disabled={replacementOptions.length === 0}
+                              className="w-full rounded-xl border border-surface-container-high bg-surface-container px-3 py-2 font-sans text-xs font-bold text-on-surface disabled:opacity-50"
+                            >
+                              {replacementOptions.length === 0 ? (
+                                <option value="">No other categories</option>
+                              ) : (
+                                replacementOptions.map(category => (
+                                  <option key={category.id} value={category.name}>
+                                    {category.name}
+                                  </option>
+                                ))
+                              )}
+                            </select>
+                          </span>
+                        </label>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDeletingCategory(null)}
+                        className="flex-1 rounded-full bg-surface-container px-4 py-2.5 font-sans text-xs font-bold text-primary active:scale-95 transition-all"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={confirmDeleteCategory}
+                        disabled={deleteMode === 'replace' && !replacementCategory}
+                        className="flex-1 rounded-full bg-red-600 px-4 py-2.5 font-sans text-xs font-bold text-white active:scale-95 transition-all disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.aside>
         </div>
       )}

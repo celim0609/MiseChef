@@ -23,7 +23,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import BrandLogo from './components/BrandLogo';
 import { auth, authPersistenceReady, db } from './firebase';
 import { deleteRecipeCoverImage, deleteRecipeScanAttachment, isLocalImageDataUrl, uploadRecipeCoverImage, uploadRecipeScanAttachment } from './services/storage';
-import { FALLBACK_CATEGORY_NAME, getPrimaryCategory, getRecipeCategories, recipeHasCategory } from './utils/categoryUtils';
+import { FALLBACK_CATEGORY_NAME, getRecipeCategories, normalizeRecipeCategories, recipeHasCategory } from './utils/categoryUtils';
 
 const STORAGE_RECIPES_KEY = 'my_cookbook_recipes_v2';
 const STORAGE_CATEGORIES_KEY = 'ce_lims_kitchen_categories_v1';
@@ -66,17 +66,31 @@ const createCategoryRecord = (name: string): RecipeCategory => ({
 const buildInitialCategories = (recipeList: Recipe[]) => {
   const names = new Set<string>();
   recipeList.forEach(recipe => {
-    getRecipeCategories(recipe).forEach(category => names.add(category));
+    const categories = Array.isArray(recipe.categories) && recipe.categories.length > 0
+      ? recipe.categories
+      : [recipe.category];
+    normalizeRecipeCategories(categories).forEach(category => {
+      if (category !== FALLBACK_CATEGORY_NAME) {
+        names.add(category);
+      }
+    });
   });
-  names.add(FALLBACK_CATEGORY_NAME);
 
   return Array.from(names).map(name => createCategoryRecord(name));
 };
 
-const ensureFallbackCategory = (categoryList: RecipeCategory[]) => {
-  return categoryList.some(category => category.name === FALLBACK_CATEGORY_NAME)
-    ? categoryList
-    : [...categoryList, createCategoryRecord(FALLBACK_CATEGORY_NAME)];
+const sanitizeCategoryList = (categoryList: RecipeCategory[]) => {
+  const seen = new Set<string>();
+
+  return categoryList
+    .map(category => ({ ...category, name: category.name.trim() }))
+    .filter(category => category.name && category.name !== FALLBACK_CATEGORY_NAME)
+    .filter(category => {
+      const key = category.name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 };
 
 const loadLocalRecipes = () => {
@@ -137,11 +151,13 @@ const removeUndefinedFields = <T,>(value: T): T => {
 const getFirestoreRecipePayload = (recipe: Recipe, user: User) => {
   const imageUrl = recipe.imageUrl || recipe.coverImage || DEFAULT_COVER_IMAGE;
   const { scannedImageDataUrl, ...recipeForFirestore } = recipe;
-  const categories = getRecipeCategories(recipe);
+  const categories = normalizeRecipeCategories(
+    Array.isArray(recipe.categories) ? recipe.categories : [recipe.category]
+  );
 
   return removeUndefinedFields({
     ...recipeForFirestore,
-    category: categories[0],
+    category: categories[0] || '',
     categories,
     coverImage: imageUrl,
     imageUrl,
@@ -156,8 +172,8 @@ const normalizeLoadedRecipe = (recipe: Recipe) => {
 
   return {
     ...recipe,
-    category: categories[0],
-    categories,
+    category: categories[0] === FALLBACK_CATEGORY_NAME ? '' : categories[0],
+    categories: categories[0] === FALLBACK_CATEGORY_NAME ? [] : categories,
     coverImage: imageUrl,
     imageUrl
   } as Recipe;
@@ -223,7 +239,7 @@ const loadFirestoreCategories = async (user: User) => {
     .filter(category => category.name?.trim())
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  return ensureFallbackCategory(loadedCategories);
+  return sanitizeCategoryList(loadedCategories);
 };
 
 const saveCategoryToFirestore = async (category: RecipeCategory, user: User) => {
@@ -359,16 +375,16 @@ export default function App() {
     if (cachedCategories) {
       try {
         const parsedCategories = JSON.parse(cachedCategories);
-        const nextCategories = ensureFallbackCategory(parsedCategories);
+        const nextCategories = sanitizeCategoryList(parsedCategories);
         setCategories(nextCategories);
         localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(nextCategories));
       } catch (err) {
-        const initialCategories = [createCategoryRecord(FALLBACK_CATEGORY_NAME)];
+        const initialCategories: RecipeCategory[] = [];
         setCategories(initialCategories);
         localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(initialCategories));
       }
     } else {
-      const initialCategories = [createCategoryRecord(FALLBACK_CATEGORY_NAME)];
+      const initialCategories: RecipeCategory[] = [];
       setCategories(initialCategories);
       localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(initialCategories));
     }
@@ -501,6 +517,10 @@ export default function App() {
   const handleCreateCategory = (name: string) => {
     const trimmedName = name.trim();
     if (!trimmedName) return null;
+    if (trimmedName.toLowerCase() === FALLBACK_CATEGORY_NAME.toLowerCase()) {
+      triggerNotification(`"${FALLBACK_CATEGORY_NAME}" is reserved for uncategorized recipes.`, 'info');
+      return null;
+    }
 
     const existingCategory = categories.find(
       category => category.name.toLowerCase() === trimmedName.toLowerCase()
@@ -521,14 +541,13 @@ export default function App() {
   const handleRenameCategory = (categoryId: string, nextName: string) => {
     const trimmedName = nextName.trim();
     if (!trimmedName) return;
-
-    const category = categories.find(item => item.id === categoryId);
-    if (!category) return;
-    if (category.name === FALLBACK_CATEGORY_NAME) {
-      triggerNotification(`"${FALLBACK_CATEGORY_NAME}" is the fallback category and cannot be renamed.`, 'info');
+    if (trimmedName.toLowerCase() === FALLBACK_CATEGORY_NAME.toLowerCase()) {
+      triggerNotification(`"${FALLBACK_CATEGORY_NAME}" is reserved for uncategorized recipes.`, 'info');
       return;
     }
 
+    const category = categories.find(item => item.id === categoryId);
+    if (!category) return;
     const duplicate = categories.find(
       item => item.id !== categoryId && item.name.toLowerCase() === trimmedName.toLowerCase()
     );
@@ -568,22 +587,26 @@ export default function App() {
 
   const handleDeleteCategory = (categoryId: string, targetCategoryName: string) => {
     const category = categories.find(item => item.id === categoryId);
-    if (!category || category.name === FALLBACK_CATEGORY_NAME) return;
+    if (!category) return;
 
-    const finalTarget = targetCategoryName.trim() || FALLBACK_CATEGORY_NAME;
-    const targetExists = categories.some(item => item.name === finalTarget);
-    const nextCategories = targetExists
+    const finalTarget = targetCategoryName.trim();
+    const targetExists = finalTarget && categories.some(item => item.name === finalTarget);
+    const nextCategories = targetExists || !finalTarget
       ? categories.filter(item => item.id !== categoryId)
       : [...categories.filter(item => item.id !== categoryId), createCategoryRecord(finalTarget)];
+    const affectedRecipeIds = new Set(
+      recipes
+        .filter(recipe => recipeHasCategory(recipe, category.name))
+        .map(recipe => recipe.id)
+    );
 
     const updatedRecipes = recipes.map(recipe => {
       if (!recipeHasCategory(recipe, category.name)) return recipe;
       const withoutDeleted = getRecipeCategories(recipe).filter(recipeCategory => recipeCategory !== category.name);
-      const nextCategories = withoutDeleted.length > 0
-        ? withoutDeleted
-        : [finalTarget];
-      const finalCategories = nextCategories.includes(finalTarget) ? nextCategories : [...nextCategories, finalTarget];
-      return { ...recipe, category: finalCategories[0], categories: finalCategories };
+      const nextCategories = finalTarget
+        ? normalizeRecipeCategories([...withoutDeleted, finalTarget])
+        : withoutDeleted;
+      return { ...recipe, category: nextCategories[0] || '', categories: nextCategories };
     });
 
     saveCategoriesToStorage(nextCategories);
@@ -592,16 +615,21 @@ export default function App() {
       Promise.all([
         deleteCategoryFromFirestore(category.id),
         ...updatedRecipes
-          .filter(recipe => recipeHasCategory(recipe, finalTarget) || recipeHasCategory(recipe, category.name))
+          .filter(recipe => affectedRecipeIds.has(recipe.id))
           .map(recipe => saveRecipeToFirestore(recipe, currentUser))
       ]).catch(() => {
         triggerNotification(`Deleted "${category.name}" locally. Cloud category sync failed for now.`, 'info');
       });
     }
     if (selectedHomeCategory === category.name) {
-      setSelectedHomeCategory(finalTarget === FALLBACK_CATEGORY_NAME ? null : finalTarget);
+      setSelectedHomeCategory(finalTarget || null);
     }
-    triggerNotification(`Deleted "${category.name}" and moved recipes to "${finalTarget}".`, 'info');
+    triggerNotification(
+      finalTarget
+        ? `Deleted "${category.name}" and moved recipes to "${finalTarget}".`
+        : `Deleted "${category.name}" and left recipes uncategorized.`,
+      'info'
+    );
   };
 
   // Trigger brief alert notification banner
@@ -820,7 +848,7 @@ export default function App() {
     }
 
     if (mode === 'replace') {
-      const nextCategories = ensureFallbackCategory(
+      const nextCategories = sanitizeCategoryList(
         validCategories.length > 0 ? validCategories : buildInitialCategories(normalizedValidRecipes)
       );
       saveRecipesToStorage(normalizedValidRecipes);
@@ -855,7 +883,7 @@ export default function App() {
         });
       });
 
-      const nextCategories = ensureFallbackCategory(Array.from(categoryMap.values()));
+      const nextCategories = sanitizeCategoryList(Array.from(categoryMap.values()));
       saveCategoriesToStorage(nextCategories);
     }
 
@@ -874,7 +902,7 @@ export default function App() {
       .filter(key => key.startsWith('ce_lims_kitchen_') || key.startsWith('my_cookbook_'))
       .forEach(key => localStorage.removeItem(key));
 
-    const resetCategories = [createCategoryRecord(FALLBACK_CATEGORY_NAME)];
+    const resetCategories: RecipeCategory[] = [];
     setRecipes([]);
     setCategories(resetCategories);
     setCustomAvatarUrl('');
@@ -1125,6 +1153,8 @@ export default function App() {
           }}
           currentUser={currentUser}
           customAvatarUrl={customAvatarUrl}
+          onRenameCategory={handleRenameCategory}
+          onDeleteCategory={handleDeleteCategory}
           onSignOut={handleSignOut}
         />
       )}
