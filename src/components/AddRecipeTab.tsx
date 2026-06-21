@@ -10,7 +10,7 @@ import { Recipe, Ingredient, MethodStep, RecipeCategory, UserRole } from '../typ
 import { generateRecipeStepsWithAI, scanRecipeImageWithGemini } from '../services/gemini';
 import { normalizeIngredientForDisplay, parseIngredientLines } from '../utils/ingredientParser';
 import { FALLBACK_CATEGORY_NAME, getRecipeCategories, normalizeRecipeCategories } from '../utils/categoryUtils';
-import { canAccessKitchenDictionary, isKnownKitchenDictionaryIngredientName } from '../services/kitchenDictionary';
+import { canCreateKitchenDictionaryEntry, isKnownKitchenDictionaryIngredientName } from '../services/kitchenDictionary';
 
 const MAX_COVER_IMAGE_SIDE = 1200;
 const MAX_COVER_IMAGE_BYTES = 500 * 1024;
@@ -680,7 +680,7 @@ export default function AddRecipeTab({
   };
 
   const shouldShowAddToDictionary = (ingredient: Ingredient) => {
-    return canAccessKitchenDictionary(userRole)
+    return canCreateKitchenDictionaryEntry(userRole)
       && importedIngredientIds.includes(ingredient.id)
       && Boolean(ingredient.name.trim())
       && !isKnownKitchenDictionaryIngredientName(ingredient.name);

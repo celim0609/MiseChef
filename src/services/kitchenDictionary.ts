@@ -36,22 +36,28 @@ const KITCHEN_DICTIONARY_LOOKUP = KITCHEN_DICTIONARY_INGREDIENTS.reduce<Record<s
   return acc;
 }, {});
 
-export const canAccessKitchenDictionary = (role: UserRole) => isAdminRole(role);
+export const canReadKitchenDictionary = () => true;
+
+export const canCreateKitchenDictionaryEntry = (role: UserRole) => isAdminRole(role);
+
+export const canUpdateKitchenDictionaryEntry = (role: UserRole) => isAdminRole(role);
+
+export const canDeleteKitchenDictionaryEntry = (role: UserRole) => isAdminRole(role);
 
 export const isKnownKitchenDictionaryIngredientName = (name: string) => {
   return Boolean(KITCHEN_DICTIONARY_LOOKUP[normalizeDictionaryKey(name)]);
 };
 
-export const getKitchenDictionaryIngredients = (role: UserRole): KitchenDictionaryIngredient[] => {
-  if (!canAccessKitchenDictionary(role)) return [];
+export const getKitchenDictionaryIngredients = (): KitchenDictionaryIngredient[] => {
+  if (!canReadKitchenDictionary()) return [];
   return KITCHEN_DICTIONARY_INGREDIENTS.map(entry => ({
     ...entry,
     aliases: [...entry.aliases]
   }));
 };
 
-export const getKitchenDictionaryCategories = (role: UserRole): string[] => {
-  if (!canAccessKitchenDictionary(role)) return [];
+export const getKitchenDictionaryCategories = (): string[] => {
+  if (!canReadKitchenDictionary()) return [];
 
   return Array.from(new Set(
     KITCHEN_DICTIONARY_INGREDIENTS
