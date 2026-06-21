@@ -73,6 +73,8 @@ export const DEFAULT_CHEF_PROFILE: ChefProfile = {
   quote: 'Every recipe tells a story.'
 };
 
+export type UserRole = 'admin' | 'user';
+
 export interface Collection {
   id: string;
   name: string;

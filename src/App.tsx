@@ -7,7 +7,7 @@ import React, { useState, useEffect } from 'react';
 import { Search, Plus, Home } from 'lucide-react';
 import { getRedirectResult, onAuthStateChanged, signOut, type Unsubscribe, type User } from 'firebase/auth';
 import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
-import { ChefProfile, DEFAULT_CHEF_PROFILE, Recipe, RecipeCategory, RootTab } from './types';
+import { ChefProfile, DEFAULT_CHEF_PROFILE, Recipe, RecipeCategory, RootTab, UserRole } from './types';
 import { INITIAL_COLLECTIONS, INITIAL_RECIPES } from './data';
 import Header from './components/Header';
 import HomeTab from './components/HomeTab';
@@ -25,6 +25,7 @@ import { auth, authPersistenceReady, db } from './firebase';
 import { deleteRecipeCoverImage, deleteRecipeScanAttachment, isLocalImageDataUrl, uploadRecipeCoverImage, uploadRecipeScanAttachment } from './services/storage';
 import { FALLBACK_CATEGORY_NAME, getRecipeCategories, normalizeRecipeCategories, recipeHasCategory } from './utils/categoryUtils';
 import { normalizeIngredientForDisplay } from './utils/ingredientParser';
+import { getConfiguredRoleForUser, resolveUserRole } from './utils/userRoles';
 
 const STORAGE_RECIPES_KEY = 'my_cookbook_recipes_v2';
 const STORAGE_CATEGORIES_KEY = 'ce_lims_kitchen_categories_v1';
@@ -183,13 +184,15 @@ const normalizeLoadedRecipe = (recipe: Recipe) => {
   } as Recipe;
 };
 
-const createUserDocument = async (user: User) => {
-  if (!db) return;
+const createUserDocument = async (user: User): Promise<UserRole> => {
+  if (!db) return getConfiguredRoleForUser(user);
 
   const userRef = doc(db, 'users', user.uid);
   const existingUser = await getDoc(userRef);
+  const existingUserData = existingUser.exists() ? existingUser.data() : null;
+  const role = resolveUserRole(user, existingUserData?.role);
   const existingProfile = existingUser.exists()
-    ? normalizeChefProfile(existingUser.data().profile as Partial<ChefProfile> | undefined)
+    ? normalizeChefProfile(existingUserData?.profile as Partial<ChefProfile> | undefined)
     : normalizeChefProfile({
         name: user.displayName || DEFAULT_CHEF_PROFILE.name,
         photo: user.photoURL || DEFAULT_CHEF_PROFILE.photo
@@ -200,11 +203,14 @@ const createUserDocument = async (user: User) => {
     email: user.email,
     displayName: user.displayName,
     photoURL: user.photoURL,
+    role,
     profile: existingProfile,
     authProvider: user.providerData[0]?.providerId || 'password',
-    createdAt: existingUser.exists() ? existingUser.data().createdAt : new Date().toISOString(),
+    createdAt: existingUser.exists() ? existingUserData?.createdAt : new Date().toISOString(),
     updatedAt: new Date().toISOString()
   }), { merge: true });
+
+  return role;
 };
 
 const loadFirestoreProfile = async (user: User) => {
@@ -339,6 +345,7 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isGuestMode, setIsGuestMode] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUserRole, setCurrentUserRole] = useState<UserRole>('user');
   const [chefProfile, setChefProfile] = useState<ChefProfile>(DEFAULT_CHEF_PROFILE);
   const [customAvatarUrl, setCustomAvatarUrl] = useState('');
   
@@ -424,12 +431,14 @@ export default function App() {
           setIsAuthReady(true);
 
           if (user) {
+            setCurrentUserRole(getConfiguredRoleForUser(user));
             setIsGuestMode(false);
             setActiveTab('home');
             window.history.replaceState(null, '', '/');
             return;
           }
 
+          setCurrentUserRole('user');
           setAddingRecipe(false);
           setEditingRecipe(null);
           setSelectedRecipe(null);
@@ -477,12 +486,13 @@ export default function App() {
 
     const initializeFirestoreUser = async () => {
       try {
-        await createUserDocument(currentUser);
+        const role = await createUserDocument(currentUser);
         const cloudProfile = await loadFirestoreProfile(currentUser);
         const cloudRecipes = await loadFirestoreRecipes(currentUser);
         const cloudCategories = await loadFirestoreCategories(currentUser);
 
         if (!isCancelled) {
+          setCurrentUserRole(role);
           if (cloudProfile) {
             setChefProfile(cloudProfile);
             setCustomAvatarUrl(cloudProfile.photo);
