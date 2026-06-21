@@ -4,6 +4,7 @@
  */
 
 import { Ingredient } from '../types';
+import ingredientDictionary from '../data/dictionary/ingredients.json';
 
 export type ParsedIngredient = Ingredient & {
   confidence: 'high' | 'medium' | 'low';
@@ -63,43 +64,19 @@ const TRADITIONAL_CHINESE_UNIT_GRAMS: Record<string, number> = {
   '斤': 600
 };
 type IngredientDictionaryEntry = {
-  englishName: string;
-  chineseName: string;
+  chinese: string;
+  english: string;
+  category: string;
   aliases: string[];
 };
 
-const INGREDIENT_NORMALIZATION_ENTRIES: IngredientDictionaryEntry[] = [
-  { englishName: 'Sugar', chineseName: '糖', aliases: ['糖', '白糖', '砂糖'] },
-  { englishName: 'Water', chineseName: '水', aliases: ['水'] },
-  { englishName: 'Eggs', chineseName: '鸡蛋', aliases: ['鸡蛋', '雞蛋', '蛋'] },
-  { englishName: 'Chicken Powder', chineseName: '鸡粉', aliases: ['鸡粉', '雞粉'] },
-  { englishName: 'Salt', chineseName: '盐', aliases: ['盐', '鹽'] },
-  { englishName: 'White Pepper', chineseName: '白胡椒粉', aliases: ['白胡椒粉', '胡椒粉'] },
-  { englishName: 'Black Pepper', chineseName: '黑胡椒', aliases: ['黑胡椒'] },
-  { englishName: 'Evaporated Milk', chineseName: '花奶', aliases: ['花奶', '淡奶'] },
-  { englishName: 'Sweetened Condensed Milk', chineseName: '炼奶', aliases: ['炼奶', '煉奶'] },
-  { englishName: 'Milk', chineseName: '牛奶', aliases: ['牛奶'] },
-  { englishName: 'Fresh Milk', chineseName: '鲜奶', aliases: ['鲜奶', '鮮奶'] },
-  { englishName: 'White Jelly Powder', chineseName: '白凉粉', aliases: ['白凉粉', '白涼粉'] },
-  { englishName: 'Sago', chineseName: '西米', aliases: ['西米'] },
-  { englishName: 'Mango Juice', chineseName: '芒果汁', aliases: ['芒果汁'] },
-  { englishName: 'Mango Cubes', chineseName: '芒果粒', aliases: ['芒果粒'] },
-  { englishName: 'Pomelo Pulp', chineseName: '柚子肉', aliases: ['柚子肉'] },
-  { englishName: 'Ice Cubes', chineseName: '冰粒', aliases: ['冰粒'] },
-  { englishName: 'Black Glutinous Rice', chineseName: '黑糯米', aliases: ['黑糯米'] },
-  { englishName: 'Palm Sugar', chineseName: '椰糖', aliases: ['椰糖'] },
-  { englishName: 'Dried Longan', chineseName: '龙眼干', aliases: ['龙眼干', '龍眼乾'] },
-  { englishName: 'Taro', chineseName: '芋头', aliases: ['芋头', '芋頭'] },
-  { englishName: 'Tapioca Starch', chineseName: '薯粉', aliases: ['薯粉'] },
-  { englishName: 'Corn Starch', chineseName: '粟粉', aliases: ['粟粉'] }
-];
+const INGREDIENT_NORMALIZATION_ENTRIES = ingredientDictionary as IngredientDictionaryEntry[];
 
 const INGREDIENT_NORMALIZATION_DICTIONARY = INGREDIENT_NORMALIZATION_ENTRIES.reduce<Record<string, IngredientDictionaryEntry>>((acc, entry) => {
-  entry.aliases.forEach(alias => {
-    acc[alias.trim().toLowerCase()] = entry;
+  [entry.chinese, entry.english, ...entry.aliases].forEach(alias => {
+    const key = alias.trim().toLowerCase();
+    if (key) acc[key] = entry;
   });
-  acc[entry.englishName.trim().toLowerCase()] = entry;
-  acc[entry.chineseName.trim().toLowerCase()] = entry;
   return acc;
 }, {});
 
@@ -201,14 +178,14 @@ export const normalizeIngredientNameParts = (value: string) => {
 
   if (entry) {
     return {
-      name: `${entry.englishName} (${entry.chineseName})`,
-      englishName: entry.englishName,
-      chineseName: entry.chineseName
+      name: `${entry.english} (${entry.chinese})`,
+      englishName: entry.english,
+      chineseName: entry.chinese
     };
   }
 
   return {
-    name: `${pipePrimaryName} (${pipePrimaryName})`,
+    name: pipePrimaryName,
     englishName: pipePrimaryName,
     chineseName: pipePrimaryName
   };
