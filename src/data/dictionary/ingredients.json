@@ -1,39 +1,129 @@
 [
   {
+    "chinese": "花奶",
+    "english": "Evaporated Milk",
+    "category": "Dairy",
+    "aliases": ["淡奶"]
+  },
+  {
+    "chinese": "伊奶",
+    "english": "Sweetened Condensed Milk",
+    "category": "Dairy",
+    "aliases": ["炼奶"]
+  },
+  {
+    "chinese": "纸包奶",
+    "english": "Milk",
+    "category": "Dairy",
+    "aliases": ["牛奶"]
+  },
+  {
+    "chinese": "忌廉",
+    "english": "Whipping Cream",
+    "category": "Dairy",
+    "aliases": ["淡忌廉", "鲜奶油"]
+  },
+  {
+    "chinese": "牛油",
+    "english": "Butter",
+    "category": "Dairy",
+    "aliases": ["黄油", "牛油块"]
+  },
+  {
     "chinese": "糖",
     "english": "Sugar",
     "category": "Sweetener",
     "aliases": ["白糖", "砂糖"]
   },
   {
-    "chinese": "水",
-    "english": "Water",
-    "category": "Liquid",
+    "chinese": "冰糖",
+    "english": "Rock Sugar",
+    "category": "Sweetener",
     "aliases": []
   },
   {
-    "chinese": "鸡蛋",
-    "english": "Eggs",
-    "category": "Dairy",
-    "aliases": ["雞蛋", "蛋"]
+    "chinese": "椰糖",
+    "english": "Palm Sugar",
+    "category": "Sweetener",
+    "aliases": ["耶糖"]
   },
   {
-    "chinese": "鸡粉",
-    "english": "Chicken Powder",
-    "category": "Seasoning",
-    "aliases": ["雞粉"]
+    "chinese": "水",
+    "english": "Water",
+    "category": "Liquid",
+    "aliases": ["清水"]
+  },
+  {
+    "chinese": "水胆",
+    "english": "Brine",
+    "category": "Sauce",
+    "aliases": ["卤水"]
+  },
+  {
+    "chinese": "豆椒酱",
+    "english": "Chilli Bean Sauce",
+    "category": "Sauce",
+    "aliases": []
+  },
+  {
+    "chinese": "生抽",
+    "english": "Light Soy Sauce",
+    "category": "Sauce",
+    "aliases": ["万字油", "生抽王"]
+  },
+  {
+    "chinese": "老抽",
+    "english": "Dark Soy Sauce",
+    "category": "Sauce",
+    "aliases": []
+  },
+  {
+    "chinese": "蚝油",
+    "english": "Oyster Sauce",
+    "category": "Sauce",
+    "aliases": []
+  },
+  {
+    "chinese": "麻油",
+    "english": "Sesame Oil",
+    "category": "Oil",
+    "aliases": ["香油"]
+  },
+  {
+    "chinese": "黑醋",
+    "english": "Black Vinegar",
+    "category": "Sauce",
+    "aliases": []
+  },
+  {
+    "chinese": "绍酒",
+    "english": "Shaoxing Wine",
+    "category": "Sauce",
+    "aliases": []
   },
   {
     "chinese": "盐",
     "english": "Salt",
     "category": "Seasoning",
-    "aliases": ["鹽"]
+    "aliases": []
   },
   {
-    "chinese": "白胡椒粉",
+    "chinese": "味精",
+    "english": "MSG",
+    "category": "Seasoning",
+    "aliases": ["味粉"]
+  },
+  {
+    "chinese": "鸡粉",
+    "english": "Chicken Powder",
+    "category": "Seasoning",
+    "aliases": []
+  },
+  {
+    "chinese": "胡椒粉",
     "english": "White Pepper",
     "category": "Seasoning",
-    "aliases": ["胡椒粉"]
+    "aliases": ["白胡椒"]
   },
   {
     "chinese": "黑胡椒",
@@ -42,39 +132,33 @@
     "aliases": []
   },
   {
-    "chinese": "花奶",
-    "english": "Evaporated Milk",
-    "category": "Dairy",
-    "aliases": ["淡奶"]
+    "chinese": "芋头",
+    "english": "Taro",
+    "category": "Vegetable",
+    "aliases": ["芋"]
   },
   {
-    "chinese": "炼奶",
-    "english": "Sweetened Condensed Milk",
-    "category": "Dairy",
-    "aliases": ["煉奶", "Condensed Milk"]
+    "chinese": "榴莲肉",
+    "english": "Durian Flesh",
+    "category": "Fruit",
+    "aliases": ["Durian Pulp"]
   },
   {
-    "chinese": "牛奶",
-    "english": "Milk",
-    "category": "Dairy",
+    "chinese": "黑糯米",
+    "english": "Black Glutinous Rice",
+    "category": "Grain",
     "aliases": []
   },
   {
-    "chinese": "鲜奶",
-    "english": "Fresh Milk",
-    "category": "Dairy",
-    "aliases": ["鮮奶"]
-  },
-  {
-    "chinese": "白凉粉",
-    "english": "White Jelly Powder",
-    "category": "Starch & Powder",
-    "aliases": ["白涼粉"]
-  },
-  {
     "chinese": "西米",
-    "english": "Sago",
-    "category": "Starch & Powder",
+    "english": "Sago Pearls",
+    "category": "Grain",
+    "aliases": ["Sago"]
+  },
+  {
+    "chinese": "龙眼干",
+    "english": "Dried Longan",
+    "category": "Fruit",
     "aliases": []
   },
   {
@@ -87,7 +171,7 @@
     "chinese": "芒果粒",
     "english": "Mango Cubes",
     "category": "Fruit",
-    "aliases": []
+    "aliases": ["芒果丁"]
   },
   {
     "chinese": "柚子肉",
@@ -102,21 +186,135 @@
     "aliases": []
   },
   {
-    "chinese": "黑糯米",
-    "english": "Black Glutinous Rice",
-    "category": "Grain",
+    "chinese": "白凉粉",
+    "english": "White Jelly Powder",
+    "category": "Powder",
     "aliases": []
   },
   {
-    "chinese": "椰糖",
-    "english": "Palm Sugar",
-    "category": "Sweetener",
+    "chinese": "鱼胶片",
+    "english": "Gelatine Sheets",
+    "category": "Baking",
     "aliases": []
   },
   {
-    "chinese": "龙眼干",
-    "english": "Dried Longan",
-    "category": "Fruit",
-    "aliases": ["龍眼乾"]
+    "chinese": "鱼胶粉",
+    "english": "Gelatine Powder",
+    "category": "Baking",
+    "aliases": []
+  },
+  {
+    "chinese": "粘米粉",
+    "english": "Rice Flour",
+    "category": "Flour",
+    "aliases": []
+  },
+  {
+    "chinese": "糯米粉",
+    "english": "Glutinous Rice Flour",
+    "category": "Flour",
+    "aliases": ["Sweet Rice Flour"]
+  },
+  {
+    "chinese": "澄面",
+    "english": "Wheat Starch",
+    "category": "Flour",
+    "aliases": ["澄粉"]
+  },
+  {
+    "chinese": "生粉",
+    "english": "Corn Starch",
+    "category": "Starch",
+    "aliases": ["粟粉"]
+  },
+  {
+    "chinese": "番薯粉",
+    "english": "Sweet Potato Starch",
+    "category": "Starch",
+    "aliases": ["薯粉"]
+  },
+  {
+    "chinese": "马蹄粉",
+    "english": "Water Chestnut Starch",
+    "category": "Starch",
+    "aliases": []
+  },
+  {
+    "chinese": "叉烧汁",
+    "english": "Char Siu Sauce",
+    "category": "Sauce",
+    "aliases": []
+  },
+  {
+    "chinese": "柱候酱",
+    "english": "Chu Hou Paste",
+    "category": "Sauce",
+    "aliases": []
+  },
+  {
+    "chinese": "凤爪",
+    "english": "Chicken Feet",
+    "category": "Meat",
+    "aliases": ["鸡脚"]
+  },
+  {
+    "chinese": "排骨",
+    "english": "Pork Ribs",
+    "category": "Meat",
+    "aliases": []
+  },
+  {
+    "chinese": "鱼腩",
+    "english": "Fish Belly",
+    "category": "Seafood",
+    "aliases": []
+  },
+  {
+    "chinese": "红花椒",
+    "english": "Red Sichuan Peppercorn",
+    "category": "Spice",
+    "aliases": []
+  },
+  {
+    "chinese": "青花椒",
+    "english": "Green Sichuan Peppercorn",
+    "category": "Spice",
+    "aliases": []
+  },
+  {
+    "chinese": "桂皮",
+    "english": "Cinnamon Stick",
+    "category": "Spice",
+    "aliases": []
+  },
+  {
+    "chinese": "八角",
+    "english": "Star Anise",
+    "category": "Spice",
+    "aliases": []
+  },
+  {
+    "chinese": "姜片",
+    "english": "Ginger Slices",
+    "category": "Aromatic",
+    "aliases": []
+  },
+  {
+    "chinese": "蒜头",
+    "english": "Garlic",
+    "category": "Aromatic",
+    "aliases": ["蒜"]
+  },
+  {
+    "chinese": "蒜茸",
+    "english": "Minced Garlic",
+    "category": "Aromatic",
+    "aliases": ["蒜蓉"]
+  },
+  {
+    "chinese": "姜茸",
+    "english": "Minced Ginger",
+    "category": "Aromatic",
+    "aliases": []
   }
 ]
