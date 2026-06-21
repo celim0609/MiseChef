@@ -16,6 +16,7 @@ interface NavigationDrawerProps {
   activeTab: RootTab;
   selectedCategory: string | null;
   isFavoritesFilterActive: boolean;
+  categoryCounts: Record<string, number>;
   onClose: () => void;
   onNavigate: (tab: RootTab) => void;
   onSelectCategory: (categoryName: string | null) => void;
@@ -31,6 +32,7 @@ export default function NavigationDrawer({
   activeTab,
   selectedCategory,
   isFavoritesFilterActive,
+  categoryCounts,
   onClose,
   onNavigate,
   onSelectCategory,
@@ -211,7 +213,7 @@ export default function NavigationDrawer({
                                     : 'text-on-surface-variant hover:bg-surface-container hover:text-primary'
                                 }`}
                               >
-                                {category.name}
+                                {category.name} ({categoryCounts[category.name] || 0})
                               </button>
                             );
                           })

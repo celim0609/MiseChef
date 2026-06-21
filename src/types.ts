@@ -26,6 +26,7 @@ export interface Recipe {
   scanAttachmentUrl?: string;
   scannedImageDataUrl?: string;
   category: string;
+  categories?: string[];
   prepTime: number; // in minutes
   cookTime?: number;
   servings: number;

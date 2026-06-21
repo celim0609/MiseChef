@@ -6,8 +6,7 @@
 import React, { useMemo, useState } from 'react';
 import { Check, Clock, Heart, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { Recipe, RecipeCategory } from '../types';
-
-const FALLBACK_CATEGORY_NAME = 'Others';
+import { FALLBACK_CATEGORY_NAME, getRecipeCategories, recipeHasCategory } from '../utils/categoryUtils';
 
 interface SearchTabProps {
   recipes: Recipe[];
@@ -38,7 +37,7 @@ export default function SearchTab({
 
   const categoryCounts = useMemo(() => {
     return categories.reduce<Record<string, number>>((acc, category) => {
-      acc[category.name] = recipes.filter(recipe => recipe.category === category.name).length;
+      acc[category.name] = recipes.filter(recipe => recipeHasCategory(recipe, category.name)).length;
       return acc;
     }, {});
   }, [categories, recipes]);
@@ -50,11 +49,11 @@ export default function SearchTab({
       const matchesQuery =
         !query ||
         recipe.title.toLowerCase().includes(query) ||
-        recipe.category.toLowerCase().includes(query) ||
+        getRecipeCategories(recipe).join(' ').toLowerCase().includes(query) ||
         recipe.story.toLowerCase().includes(query) ||
         recipe.ingredients.some(ingredient => ingredient.name.toLowerCase().includes(query));
 
-      const matchesCategory = !selectedCategory || recipe.category === selectedCategory;
+      const matchesCategory = !selectedCategory || recipeHasCategory(recipe, selectedCategory);
 
       return matchesQuery && matchesCategory;
     });
@@ -281,7 +280,7 @@ export default function SearchTab({
                 </div>
                 <div className="p-4 space-y-2">
                   <span className="px-2 py-0.5 rounded-full bg-secondary-fixed text-on-secondary-fixed-variant font-sans text-[10px] font-bold">
-                    {recipe.category}
+                    {getRecipeCategories(recipe).join(', ')}
                   </span>
                   <h3 className="font-display font-semibold text-base text-primary leading-snug group-hover:text-secondary duration-300 transition-colors line-clamp-1">
                     {recipe.title}

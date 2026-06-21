@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Check, Clock, Copy, Heart, MoreVertical, Pencil, Play, Scale, Share2, Trash2, Users, X } from 'lucide-react';
 import { Recipe } from '../types';
 import { motion } from 'motion/react';
+import { getRecipeCategories } from '../utils/categoryUtils';
 
 const normalizeUnit = (unit = '') => {
   const trimmed = unit.trim().toLowerCase();
@@ -264,7 +265,7 @@ export default function RecipeDetailModal({
           <div className="px-5 sm:px-8 -mt-8 sm:-mt-12 relative z-20 space-y-8">
             <div className="bg-white border border-surface-container-high rounded-2xl p-6 shadow-sm shadow-primary/5 space-y-4">
               <span className="bg-secondary/10 border border-secondary/20 text-secondary px-3 py-1 text-xs rounded-full font-bold font-sans">
-                {recipe.category.toUpperCase()}
+                {getRecipeCategories(recipe).join(', ').toUpperCase()}
               </span>
 
               <h2 className="font-display font-semibold text-2xl sm:text-3xl text-primary leading-tight">

@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Heart, Play, Search } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import { ChefProfile, DEFAULT_CHEF_PROFILE, Recipe } from '../types';
+import { getRecipeCategories } from '../utils/categoryUtils';
 
 interface HomeTabProps {
   recipes: Recipe[];
@@ -57,7 +58,7 @@ export default function HomeTab({
       const tagText = recipe.tags?.join(' ') || '';
       const searchableText = [
         recipe.title,
-        recipe.category,
+        getRecipeCategories(recipe).join(' '),
         ingredientText,
         tagText
       ].join(' ').toLowerCase();
@@ -255,7 +256,7 @@ export default function HomeTab({
                     <div className="flex items-center gap-2 mt-2 text-xs text-on-surface-variant font-semibold">
                       <span>{recipe.prepTime} mins</span>
                       <span className="text-outline-variant">•</span>
-                      <span>{recipe.category}</span>
+                      <span>{getRecipeCategories(recipe).join(', ')}</span>
                     </div>
                   </div>
                 </div>

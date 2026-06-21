@@ -23,12 +23,12 @@ import { AnimatePresence, motion } from 'motion/react';
 import BrandLogo from './components/BrandLogo';
 import { auth, authPersistenceReady, db } from './firebase';
 import { deleteRecipeCoverImage, deleteRecipeScanAttachment, isLocalImageDataUrl, uploadRecipeCoverImage, uploadRecipeScanAttachment } from './services/storage';
+import { FALLBACK_CATEGORY_NAME, getPrimaryCategory, getRecipeCategories, recipeHasCategory } from './utils/categoryUtils';
 
 const STORAGE_RECIPES_KEY = 'my_cookbook_recipes_v2';
 const STORAGE_CATEGORIES_KEY = 'ce_lims_kitchen_categories_v1';
 const STORAGE_APPEARANCE_KEY = 'ce_lims_kitchen_appearance_v1';
 const STORAGE_PROFILE_KEY = 'ce_lims_kitchen_chef_profile_v1';
-const OTHERS_CATEGORY_NAME = 'Others';
 const DEFAULT_COVER_IMAGE = 'https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&q=80&w=800';
 
 function BrandLoadingScreen() {
@@ -66,31 +66,31 @@ const createCategoryRecord = (name: string): RecipeCategory => ({
 const buildInitialCategories = (recipeList: Recipe[]) => {
   const names = new Set<string>();
   recipeList.forEach(recipe => {
-    if (recipe.category.trim()) {
-      names.add(recipe.category.trim());
-    }
+    getRecipeCategories(recipe).forEach(category => names.add(category));
   });
-  names.add(OTHERS_CATEGORY_NAME);
+  names.add(FALLBACK_CATEGORY_NAME);
 
   return Array.from(names).map(name => createCategoryRecord(name));
 };
 
 const ensureFallbackCategory = (categoryList: RecipeCategory[]) => {
-  return categoryList.some(category => category.name === OTHERS_CATEGORY_NAME)
+  return categoryList.some(category => category.name === FALLBACK_CATEGORY_NAME)
     ? categoryList
-    : [...categoryList, createCategoryRecord(OTHERS_CATEGORY_NAME)];
+    : [...categoryList, createCategoryRecord(FALLBACK_CATEGORY_NAME)];
 };
 
 const loadLocalRecipes = () => {
   const cachedRecipes = localStorage.getItem(STORAGE_RECIPES_KEY);
 
-  if (!cachedRecipes) return INITIAL_RECIPES;
+  if (!cachedRecipes) return INITIAL_RECIPES.map(normalizeLoadedRecipe);
 
   try {
     const parsedRecipes = JSON.parse(cachedRecipes);
-    return Array.isArray(parsedRecipes) ? parsedRecipes as Recipe[] : INITIAL_RECIPES;
+    return Array.isArray(parsedRecipes)
+      ? (parsedRecipes as Recipe[]).map(normalizeLoadedRecipe)
+      : INITIAL_RECIPES.map(normalizeLoadedRecipe);
   } catch (err) {
-    return INITIAL_RECIPES;
+    return INITIAL_RECIPES.map(normalizeLoadedRecipe);
   }
 };
 
@@ -137,14 +137,30 @@ const removeUndefinedFields = <T,>(value: T): T => {
 const getFirestoreRecipePayload = (recipe: Recipe, user: User) => {
   const imageUrl = recipe.imageUrl || recipe.coverImage || DEFAULT_COVER_IMAGE;
   const { scannedImageDataUrl, ...recipeForFirestore } = recipe;
+  const categories = getRecipeCategories(recipe);
 
   return removeUndefinedFields({
     ...recipeForFirestore,
+    category: categories[0],
+    categories,
     coverImage: imageUrl,
     imageUrl,
     userId: user.uid,
     updatedAt: new Date().toISOString()
   });
+};
+
+const normalizeLoadedRecipe = (recipe: Recipe) => {
+  const categories = getRecipeCategories(recipe);
+  const imageUrl = recipe.imageUrl || recipe.coverImage || DEFAULT_COVER_IMAGE;
+
+  return {
+    ...recipe,
+    category: categories[0],
+    categories,
+    coverImage: imageUrl,
+    imageUrl
+  } as Recipe;
 };
 
 const createUserDocument = async (user: User) => {
@@ -189,15 +205,42 @@ const loadFirestoreRecipes = async (user: User) => {
   return snapshot.docs
     .map(recipeDoc => {
       const data = recipeDoc.data() as Recipe;
-      const imageUrl = data.imageUrl || data.coverImage || DEFAULT_COVER_IMAGE;
-      return {
+      return normalizeLoadedRecipe({
         id: recipeDoc.id,
-        ...data,
-        coverImage: imageUrl,
-        imageUrl
-      } as Recipe;
+        ...data
+      } as Recipe);
     })
     .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+};
+
+const loadFirestoreCategories = async (user: User) => {
+  if (!db) return [];
+
+  const categoriesQuery = query(collection(db, 'categories'), where('userId', '==', user.uid));
+  const snapshot = await getDocs(categoriesQuery);
+  const loadedCategories = snapshot.docs
+    .map(categoryDoc => ({ id: categoryDoc.id, ...categoryDoc.data() } as RecipeCategory))
+    .filter(category => category.name?.trim())
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return ensureFallbackCategory(loadedCategories);
+};
+
+const saveCategoryToFirestore = async (category: RecipeCategory, user: User) => {
+  if (!db) return;
+
+  await setDoc(doc(db, 'categories', category.id), removeUndefinedFields({
+    ...category,
+    name: category.name.trim(),
+    userId: user.uid,
+    updatedAt: new Date().toISOString()
+  }), { merge: true });
+};
+
+const deleteCategoryFromFirestore = async (categoryId: string) => {
+  if (!db) return;
+
+  await deleteDoc(doc(db, 'categories', categoryId));
 };
 
 const saveRecipeToFirestore = async (recipe: Recipe, user: User) => {
@@ -299,14 +342,18 @@ export default function App() {
 
     if (cachedRecipes) {
       try {
-        loadedRecipes = JSON.parse(cachedRecipes);
+        loadedRecipes = (JSON.parse(cachedRecipes) as Recipe[]).map(normalizeLoadedRecipe);
         setRecipes(loadedRecipes);
       } catch (err) {
-        setRecipes(INITIAL_RECIPES);
+        const normalizedInitialRecipes = INITIAL_RECIPES.map(normalizeLoadedRecipe);
+        loadedRecipes = normalizedInitialRecipes;
+        setRecipes(normalizedInitialRecipes);
       }
     } else {
-      setRecipes(INITIAL_RECIPES);
-      localStorage.setItem(STORAGE_RECIPES_KEY, JSON.stringify(INITIAL_RECIPES));
+      const normalizedInitialRecipes = INITIAL_RECIPES.map(normalizeLoadedRecipe);
+      loadedRecipes = normalizedInitialRecipes;
+      setRecipes(normalizedInitialRecipes);
+      localStorage.setItem(STORAGE_RECIPES_KEY, JSON.stringify(normalizedInitialRecipes));
     }
 
     if (cachedCategories) {
@@ -316,12 +363,12 @@ export default function App() {
         setCategories(nextCategories);
         localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(nextCategories));
       } catch (err) {
-        const initialCategories = buildInitialCategories(loadedRecipes);
+        const initialCategories = [createCategoryRecord(FALLBACK_CATEGORY_NAME)];
         setCategories(initialCategories);
         localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(initialCategories));
       }
     } else {
-      const initialCategories = buildInitialCategories(loadedRecipes);
+      const initialCategories = [createCategoryRecord(FALLBACK_CATEGORY_NAME)];
       setCategories(initialCategories);
       localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(initialCategories));
     }
@@ -413,6 +460,7 @@ export default function App() {
         await createUserDocument(currentUser);
         const cloudProfile = await loadFirestoreProfile(currentUser);
         const cloudRecipes = await loadFirestoreRecipes(currentUser);
+        const cloudCategories = await loadFirestoreCategories(currentUser);
 
         if (!isCancelled) {
           if (cloudProfile) {
@@ -421,6 +469,8 @@ export default function App() {
             localStorage.setItem(STORAGE_PROFILE_KEY, JSON.stringify(cloudProfile));
           }
           setRecipes(cloudRecipes);
+          setCategories(cloudCategories);
+          localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(cloudCategories));
         }
       } catch (err) {
         if (!isCancelled) {
@@ -438,8 +488,9 @@ export default function App() {
 
   // Save changes helper
   const saveRecipesToStorage = (newList: Recipe[]) => {
-    setRecipes(newList);
-    localStorage.setItem(STORAGE_RECIPES_KEY, JSON.stringify(newList));
+    const normalizedList = newList.map(normalizeLoadedRecipe);
+    setRecipes(normalizedList);
+    localStorage.setItem(STORAGE_RECIPES_KEY, JSON.stringify(normalizedList));
   };
 
   const saveCategoriesToStorage = (newList: RecipeCategory[]) => {
@@ -458,6 +509,11 @@ export default function App() {
 
     const newCategory = createCategoryRecord(trimmedName);
     saveCategoriesToStorage([...categories, newCategory]);
+    if (currentUser && db && !isGuestMode) {
+      saveCategoryToFirestore(newCategory, currentUser).catch(() => {
+        triggerNotification(`Created "${newCategory.name}" locally. Cloud category sync failed for now.`, 'info');
+      });
+    }
     triggerNotification(`Created category "${newCategory.name}".`, 'success');
     return newCategory;
   };
@@ -468,8 +524,8 @@ export default function App() {
 
     const category = categories.find(item => item.id === categoryId);
     if (!category) return;
-    if (category.name === OTHERS_CATEGORY_NAME) {
-      triggerNotification(`"${OTHERS_CATEGORY_NAME}" is the fallback category and cannot be renamed.`, 'info');
+    if (category.name === FALLBACK_CATEGORY_NAME) {
+      triggerNotification(`"${FALLBACK_CATEGORY_NAME}" is the fallback category and cannot be renamed.`, 'info');
       return;
     }
 
@@ -484,12 +540,26 @@ export default function App() {
     const updatedCategories = categories.map(item =>
       item.id === categoryId ? { ...item, name: trimmedName, updatedAt: new Date().toISOString() } : item
     );
-    const updatedRecipes = recipes.map(recipe =>
-      recipe.category === category.name ? { ...recipe, category: trimmedName } : recipe
-    );
+    const updatedRecipes = recipes.map(recipe => {
+      if (!recipeHasCategory(recipe, category.name)) return recipe;
+      const nextCategories = getRecipeCategories(recipe).map(recipeCategory =>
+        recipeCategory === category.name ? trimmedName : recipeCategory
+      );
+      return { ...recipe, category: nextCategories[0], categories: nextCategories };
+    });
 
     saveCategoriesToStorage(updatedCategories);
     saveRecipesToStorage(updatedRecipes);
+    if (currentUser && db && !isGuestMode) {
+      Promise.all([
+        saveCategoryToFirestore({ ...category, name: trimmedName, updatedAt: new Date().toISOString() }, currentUser),
+        ...updatedRecipes
+          .filter(recipe => recipeHasCategory(recipe, trimmedName))
+          .map(recipe => saveRecipeToFirestore(recipe, currentUser))
+      ]).catch(() => {
+        triggerNotification(`Renamed "${category.name}" locally. Cloud category sync failed for now.`, 'info');
+      });
+    }
     if (selectedHomeCategory === category.name) {
       setSelectedHomeCategory(trimmedName);
     }
@@ -498,22 +568,38 @@ export default function App() {
 
   const handleDeleteCategory = (categoryId: string, targetCategoryName: string) => {
     const category = categories.find(item => item.id === categoryId);
-    if (!category || category.name === OTHERS_CATEGORY_NAME) return;
+    if (!category || category.name === FALLBACK_CATEGORY_NAME) return;
 
-    const finalTarget = targetCategoryName.trim() || OTHERS_CATEGORY_NAME;
+    const finalTarget = targetCategoryName.trim() || FALLBACK_CATEGORY_NAME;
     const targetExists = categories.some(item => item.name === finalTarget);
     const nextCategories = targetExists
       ? categories.filter(item => item.id !== categoryId)
       : [...categories.filter(item => item.id !== categoryId), createCategoryRecord(finalTarget)];
 
-    const updatedRecipes = recipes.map(recipe =>
-      recipe.category === category.name ? { ...recipe, category: finalTarget } : recipe
-    );
+    const updatedRecipes = recipes.map(recipe => {
+      if (!recipeHasCategory(recipe, category.name)) return recipe;
+      const withoutDeleted = getRecipeCategories(recipe).filter(recipeCategory => recipeCategory !== category.name);
+      const nextCategories = withoutDeleted.length > 0
+        ? withoutDeleted
+        : [finalTarget];
+      const finalCategories = nextCategories.includes(finalTarget) ? nextCategories : [...nextCategories, finalTarget];
+      return { ...recipe, category: finalCategories[0], categories: finalCategories };
+    });
 
     saveCategoriesToStorage(nextCategories);
     saveRecipesToStorage(updatedRecipes);
+    if (currentUser && db && !isGuestMode) {
+      Promise.all([
+        deleteCategoryFromFirestore(category.id),
+        ...updatedRecipes
+          .filter(recipe => recipeHasCategory(recipe, finalTarget) || recipeHasCategory(recipe, category.name))
+          .map(recipe => saveRecipeToFirestore(recipe, currentUser))
+      ]).catch(() => {
+        triggerNotification(`Deleted "${category.name}" locally. Cloud category sync failed for now.`, 'info');
+      });
+    }
     if (selectedHomeCategory === category.name) {
-      setSelectedHomeCategory(finalTarget === OTHERS_CATEGORY_NAME ? null : finalTarget);
+      setSelectedHomeCategory(finalTarget === FALLBACK_CATEGORY_NAME ? null : finalTarget);
     }
     triggerNotification(`Deleted "${category.name}" and moved recipes to "${finalTarget}".`, 'info');
   };
@@ -726,21 +812,22 @@ export default function App() {
   const handleImportAppData = (importedData: ImportedAppData, mode: 'merge' | 'replace') => {
     const validRecipes = getValidImportedRecipes(importedData.recipes);
     const validCategories = getValidImportedCategories(importedData.categories);
+    const normalizedValidRecipes = validRecipes.map(normalizeLoadedRecipe);
 
-    if (validRecipes.length === 0) {
+    if (normalizedValidRecipes.length === 0) {
       triggerNotification('No valid recipes found in the selected file.', 'error');
       return;
     }
 
     if (mode === 'replace') {
       const nextCategories = ensureFallbackCategory(
-        validCategories.length > 0 ? validCategories : buildInitialCategories(validRecipes)
+        validCategories.length > 0 ? validCategories : buildInitialCategories(normalizedValidRecipes)
       );
-      saveRecipesToStorage(validRecipes);
+      saveRecipesToStorage(normalizedValidRecipes);
       saveCategoriesToStorage(nextCategories);
     } else {
       const existingIds = new Set(recipes.map(recipe => recipe.id));
-      const normalizedImportedRecipes = validRecipes.map(recipe => ({
+      const normalizedImportedRecipes = normalizedValidRecipes.map(recipe => ({
         ...recipe,
         id: existingIds.has(recipe.id) ? `recipe_${Date.now()}_${Math.random().toString(36).slice(2, 8)}` : recipe.id
       }));
@@ -761,10 +848,11 @@ export default function App() {
       });
 
       normalizedImportedRecipes.forEach(recipe => {
-        const categoryName = recipe.category?.trim();
-        if (categoryName && !categoryMap.has(categoryName.toLowerCase())) {
-          categoryMap.set(categoryName.toLowerCase(), createCategoryRecord(categoryName));
-        }
+        getRecipeCategories(recipe).forEach(categoryName => {
+          if (categoryName && !categoryMap.has(categoryName.toLowerCase())) {
+            categoryMap.set(categoryName.toLowerCase(), createCategoryRecord(categoryName));
+          }
+        });
       });
 
       const nextCategories = ensureFallbackCategory(Array.from(categoryMap.values()));
@@ -776,7 +864,7 @@ export default function App() {
     }
 
     triggerNotification(
-      `${mode === 'replace' ? 'Replaced' : 'Merged'} ${validRecipes.length} recipes and ${validCategories.length} categories.`,
+      `${mode === 'replace' ? 'Replaced' : 'Merged'} ${normalizedValidRecipes.length} recipes and ${validCategories.length} categories.`,
       'success'
     );
   };
@@ -786,7 +874,7 @@ export default function App() {
       .filter(key => key.startsWith('ce_lims_kitchen_') || key.startsWith('my_cookbook_'))
       .forEach(key => localStorage.removeItem(key));
 
-    const resetCategories = [createCategoryRecord(OTHERS_CATEGORY_NAME)];
+    const resetCategories = [createCategoryRecord(FALLBACK_CATEGORY_NAME)];
     setRecipes([]);
     setCategories(resetCategories);
     setCustomAvatarUrl('');
@@ -827,8 +915,12 @@ export default function App() {
   const homeRecipes = isFavoritesFilterActive
     ? recipes.filter(recipe => recipe.isSaved)
     : selectedHomeCategory
-      ? recipes.filter(recipe => recipe.category === selectedHomeCategory)
+      ? recipes.filter(recipe => recipeHasCategory(recipe, selectedHomeCategory))
       : recipes;
+  const categoryCounts = categories.reduce<Record<string, number>>((acc, category) => {
+    acc[category.name] = recipes.filter(recipe => recipeHasCategory(recipe, category.name)).length;
+    return acc;
+  }, {});
 
   // Renders correct active screen body
   const handleAuthenticated = () => {
@@ -1020,6 +1112,7 @@ export default function App() {
           activeTab={activeTab}
           selectedCategory={selectedHomeCategory}
           isFavoritesFilterActive={isFavoritesFilterActive}
+          categoryCounts={categoryCounts}
           onClose={() => setIsNavigationDrawerOpen(false)}
           onNavigate={setActiveTab}
           onSelectCategory={(categoryName) => {

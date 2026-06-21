@@ -6,6 +6,7 @@
 import React, { useState, useMemo } from 'react';
 import { Search, Plus, Grid2X2, AlignJustify, Folder, Heart, Clock, Check, X } from 'lucide-react';
 import { Recipe, Collection } from '../types';
+import { getRecipeCategories } from '../utils/categoryUtils';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface FavoritesTabProps {
@@ -233,7 +234,7 @@ export default function FavoritesTab({
                     <div className="space-y-1.5">
                       <div className="flex flex-wrap gap-1.5">
                         <span className="bg-primary/10 text-primary px-2.5 py-0.5 rounded-full font-sans text-[10px] font-bold">
-                          {recipe.category.toUpperCase()}
+                          {getRecipeCategories(recipe).join(', ').toUpperCase()}
                         </span>
                         {recipe.prepTime <= 15 && (
                           <span className="bg-secondary/10 text-secondary px-2.5 py-0.5 rounded-full font-sans text-[10px] font-bold">

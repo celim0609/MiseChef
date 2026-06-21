@@ -9,9 +9,8 @@ import * as pdfjsLib from 'pdfjs-dist/webpack.mjs';
 import { Recipe, Ingredient, MethodStep, RecipeCategory } from '../types';
 import { generateRecipeStepsWithAI, scanRecipeImageWithGemini } from '../services/gemini';
 import { parseIngredientLines } from '../utils/ingredientParser';
+import { FALLBACK_CATEGORY_NAME, getRecipeCategories, normalizeRecipeCategories } from '../utils/categoryUtils';
 
-const CREATE_NEW_CATEGORY_VALUE = '__create_new_category__';
-const FALLBACK_CATEGORY_NAME = 'Others';
 const MAX_COVER_IMAGE_SIDE = 1200;
 const MAX_COVER_IMAGE_BYTES = 500 * 1024;
 const INITIAL_JPEG_QUALITY = 0.75;
@@ -520,7 +519,11 @@ export default function AddRecipeTab({
   // Base details state
   const [title, setTitle] = useState(initialRecipe?.title || '');
   const [coverImage, setCoverImage] = useState(initialRecipe?.coverImage || '');
-  const [category, setCategory] = useState(initialRecipe?.category || categories[0]?.name || FALLBACK_CATEGORY_NAME);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>(
+    initialRecipe
+      ? getRecipeCategories(initialRecipe)
+      : [categories[0]?.name || FALLBACK_CATEGORY_NAME]
+  );
   const [newCategoryName, setNewCategoryName] = useState('');
   const [prepTime, setPrepTime] = useState<number>(initialRecipe?.prepTime || 30);
   const [cookTime, setCookTime] = useState<number>(initialRecipe?.cookTime || 0);
@@ -608,19 +611,32 @@ export default function AddRecipeTab({
     );
   };
 
-  const handleCategorySelection = (value: string) => {
-    if (value === CREATE_NEW_CATEGORY_VALUE) {
-      setCategory(CREATE_NEW_CATEGORY_VALUE);
-      return;
-    }
-    setCategory(value);
-    setNewCategoryName('');
+  const categoryOptions = categories.length > 0
+    ? categories
+    : [{ id: 'fallback_others', name: FALLBACK_CATEGORY_NAME, createdAt: new Date().toISOString() }];
+
+  const toggleCategory = (categoryName: string) => {
+    setSelectedCategories(prev => {
+      const isSelected = prev.some(item => item.toLowerCase() === categoryName.toLowerCase());
+      const nextCategories = isSelected
+        ? prev.filter(item => item.toLowerCase() !== categoryName.toLowerCase())
+        : [...prev, categoryName];
+
+      return nextCategories.length > 0 ? nextCategories : [FALLBACK_CATEGORY_NAME];
+    });
+  };
+
+  const removeSelectedCategory = (categoryName: string) => {
+    setSelectedCategories(prev => {
+      const nextCategories = prev.filter(item => item.toLowerCase() !== categoryName.toLowerCase());
+      return nextCategories.length > 0 ? nextCategories : [FALLBACK_CATEGORY_NAME];
+    });
   };
 
   const handleCreateCategoryFromForm = () => {
     const newCategory = onCreateCategory(newCategoryName);
     if (newCategory) {
-      setCategory(newCategory.name);
+      setSelectedCategories(prev => normalizeRecipeCategories([...prev.filter(item => item !== FALLBACK_CATEGORY_NAME), newCategory.name]));
       setNewCategoryName('');
     }
   };
@@ -690,7 +706,7 @@ export default function AddRecipeTab({
       setIsGeneratingSteps(true);
       const draftSteps = await generateRecipeStepsWithAI({
         title: title.trim(),
-        category,
+        category: selectedCategories.join(', '),
         yield: recipeYield.trim(),
         ingredients: cleanIngredients.map(ing => ({
           name: ing.name,
@@ -938,17 +954,9 @@ export default function AddRecipeTab({
       return;
     }
 
-    let selectedCategory = category === CREATE_NEW_CATEGORY_VALUE ? newCategoryName.trim() : category.trim();
-    if (category === CREATE_NEW_CATEGORY_VALUE) {
-      const newCategory = onCreateCategory(newCategoryName);
-      if (!newCategory) {
-        alert('Please enter a category name.');
-        return;
-      }
-      selectedCategory = newCategory.name;
-      setCategory(newCategory.name);
-      setNewCategoryName('');
-    }
+    const savedCategories = normalizeRecipeCategories(selectedCategories);
+    const finalCategories = savedCategories.length > 0 ? savedCategories : [FALLBACK_CATEGORY_NAME];
+    const primaryCategory = finalCategories[0] || FALLBACK_CATEGORY_NAME;
 
     const savedServings = Number(servings) || 2;
 
@@ -959,7 +967,8 @@ export default function AddRecipeTab({
       imageUrl: initialRecipe?.imageUrl,
       scanAttachmentUrl: initialRecipe?.scanAttachmentUrl,
       scannedImageDataUrl: scannedImageDataUrl || undefined,
-      category: selectedCategory || FALLBACK_CATEGORY_NAME,
+      category: primaryCategory,
+      categories: finalCategories,
       prepTime: Number(prepTime) || 30,
       cookTime: Number(cookTime) || undefined,
       servings: savedServings,
@@ -1044,39 +1053,59 @@ export default function AddRecipeTab({
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="space-y-1.5">
-            <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Category</label>
+            <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Categories</label>
             <div className="space-y-2">
-              <select
-                value={category}
-                onChange={e => handleCategorySelection(e.target.value)}
-                className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold cursor-pointer transition-all"
-              >
-                {categories.map(item => (
-                  <option key={item.id} value={item.name}>
-                    {item.name}
-                  </option>
-                ))}
-                <option value={CREATE_NEW_CATEGORY_VALUE}>+ Create New Category</option>
-              </select>
-
-              {category === CREATE_NEW_CATEGORY_VALUE && (
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newCategoryName}
-                    onChange={e => setNewCategoryName(e.target.value)}
-                    placeholder="New category name"
-                    className="min-w-0 flex-1 bg-white border border-surface-container-high rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3 focus:ring-1 focus:ring-primary font-bold"
-                  />
+              <div className="min-h-[48px] bg-surface-container rounded-xl px-3 py-2 flex flex-wrap gap-2 border border-transparent focus-within:border-primary">
+                {selectedCategories.map(item => (
                   <button
                     type="button"
-                    onClick={handleCreateCategoryFromForm}
-                    className="bg-primary text-on-primary rounded-xl px-4 py-3 font-sans font-bold text-xs active:scale-95 transition-all"
+                    key={item}
+                    onClick={() => removeSelectedCategory(item)}
+                    className="bg-primary text-on-primary rounded-full px-3 py-1.5 font-sans text-[11px] font-bold flex items-center gap-1.5 active:scale-95 transition-all"
+                    title={`Remove ${item}`}
                   >
-                    Add
+                    {item}
+                    <X className="w-3 h-3" />
                   </button>
-                </div>
-              )}
+                ))}
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {categoryOptions.map(item => {
+                  const isSelected = selectedCategories.some(categoryName => categoryName.toLowerCase() === item.name.toLowerCase());
+                  return (
+                    <button
+                      type="button"
+                      key={item.id}
+                      onClick={() => toggleCategory(item.name)}
+                      className={`rounded-full px-3 py-2 font-sans text-[11px] font-bold border transition-all ${
+                        isSelected
+                          ? 'bg-primary text-on-primary border-primary'
+                          : 'bg-white text-primary border-surface-container-high hover:border-primary'
+                      }`}
+                    >
+                      {item.name}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newCategoryName}
+                  onChange={e => setNewCategoryName(e.target.value)}
+                  placeholder="+ Add Category"
+                  className="min-w-0 flex-1 bg-white border border-surface-container-high rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3 focus:ring-1 focus:ring-primary font-bold"
+                />
+                <button
+                  type="button"
+                  onClick={handleCreateCategoryFromForm}
+                  className="bg-primary text-on-primary rounded-xl px-4 py-3 font-sans font-bold text-xs active:scale-95 transition-all"
+                >
+                  Add
+                </button>
+              </div>
             </div>
           </div>
 
