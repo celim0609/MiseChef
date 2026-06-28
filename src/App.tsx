@@ -22,7 +22,7 @@ import StatisticsTab from './components/StatisticsTab';
 import { AnimatePresence, motion } from 'motion/react';
 import BrandLogo from './components/BrandLogo';
 import { auth, authPersistenceReady, db } from './firebase';
-import { deleteRecipeCoverImage, deleteRecipeScanAttachment, isLocalImageDataUrl, uploadRecipeCoverImage, uploadRecipeScanAttachment } from './services/storage';
+import { deleteRecipeCoverImage, deleteRecipeScanAttachment, isLocalImageDataUrl, uploadRecipeCoverImage, uploadRecipeScanAttachment, uploadRecipeStepImage } from './services/storage';
 import { FALLBACK_CATEGORY_NAME, getRecipeCategories, normalizeRecipeCategories, recipeHasCategory } from './utils/categoryUtils';
 import { normalizeIngredientForDisplay } from './utils/ingredientParser';
 import { getConfiguredRoleForUser, resolveUserRole } from './utils/userRoles';
@@ -288,7 +288,7 @@ const deleteRecipeFromFirestore = async (recipeId: string) => {
 const getCloudReadyRecipe = async (
   recipe: Recipe,
   user: User,
-  onUploadProgress?: (progress: number, phase: 'cover' | 'scan') => void
+  onUploadProgress?: (progress: number, phase: 'cover' | 'scan' | 'step') => void
 ) => {
   let nextRecipe = { ...recipe };
 
@@ -320,6 +320,30 @@ const getCloudReadyRecipe = async (
       scanAttachmentUrl,
     };
   }
+
+  const methodWithUploadedImages = await Promise.all(
+    nextRecipe.method.map(async step => {
+      if (!isLocalImageDataUrl(step.image)) return step;
+
+      const stepImageUrl = await uploadRecipeStepImage({
+        userId: user.uid,
+        recipeId: recipe.id,
+        stepId: step.id,
+        imageDataUrl: step.image,
+        onProgress: progress => onUploadProgress?.(progress, 'step'),
+      });
+
+      return {
+        ...step,
+        image: stepImageUrl,
+      };
+    })
+  );
+
+  nextRecipe = {
+    ...nextRecipe,
+    method: methodWithUploadedImages,
+  };
 
   const imageUrl = nextRecipe.imageUrl || nextRecipe.coverImage || DEFAULT_COVER_IMAGE;
   return {
