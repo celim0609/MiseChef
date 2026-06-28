@@ -8,6 +8,7 @@ import { Heart, Play, Search } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import { ChefProfile, DEFAULT_CHEF_PROFILE, Recipe } from '../types';
 import { getRecipeCategories } from '../utils/categoryUtils';
+import { getRecipeSearchText } from '../utils/recipeSearch';
 
 interface HomeTabProps {
   recipes: Recipe[];
@@ -51,20 +52,7 @@ export default function HomeTab({
     const query = searchQuery.trim().toLowerCase();
     if (!query) return chefRecipes;
 
-    return chefRecipes.filter(recipe => {
-      const ingredientText = recipe.ingredients
-        .map(ingredient => `${ingredient.qty} ${ingredient.unit} ${ingredient.name}`)
-        .join(' ');
-      const tagText = recipe.tags?.join(' ') || '';
-      const searchableText = [
-        recipe.title,
-        getRecipeCategories(recipe).join(' '),
-        ingredientText,
-        tagText
-      ].join(' ').toLowerCase();
-
-      return searchableText.includes(query);
-    });
+    return chefRecipes.filter(recipe => getRecipeSearchText(recipe).includes(query));
   }, [chefRecipes, searchQuery]);
 
   useEffect(() => {

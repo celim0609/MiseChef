@@ -7,6 +7,7 @@ import React, { useMemo, useState } from 'react';
 import { Check, Clock, Heart, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { Recipe, RecipeCategory } from '../types';
 import { getRecipeCategories, recipeHasCategory } from '../utils/categoryUtils';
+import { getRecipeSearchText } from '../utils/recipeSearch';
 
 interface SearchTabProps {
   recipes: Recipe[];
@@ -48,10 +49,7 @@ export default function SearchTab({
     return recipes.filter(recipe => {
       const matchesQuery =
         !query ||
-        recipe.title.toLowerCase().includes(query) ||
-        getRecipeCategories(recipe).join(' ').toLowerCase().includes(query) ||
-        recipe.story.toLowerCase().includes(query) ||
-        recipe.ingredients.some(ingredient => ingredient.name.toLowerCase().includes(query));
+        getRecipeSearchText(recipe).includes(query);
 
       const matchesCategory = !selectedCategory || recipeHasCategory(recipe, selectedCategory);
 

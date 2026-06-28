@@ -7,6 +7,7 @@ import React, { useState, useMemo } from 'react';
 import { Search, Plus, Grid2X2, AlignJustify, Folder, Heart, Clock, Check, X } from 'lucide-react';
 import { Recipe, Collection } from '../types';
 import { getRecipeCategories } from '../utils/categoryUtils';
+import { getRecipeSearchText } from '../utils/recipeSearch';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface FavoritesTabProps {
@@ -40,9 +41,8 @@ export default function FavoritesTab({
   // Filtered by collection & search input
   const filteredSavedRecipes = useMemo(() => {
     return savedRecipes.filter(r => {
-      const matchesSearch = 
-        r.title.toLowerCase().includes(favoriteSearchQuery.toLowerCase()) ||
-        r.chefName.toLowerCase().includes(favoriteSearchQuery.toLowerCase());
+      const query = favoriteSearchQuery.trim().toLowerCase();
+      const matchesSearch = !query || getRecipeSearchText(r).includes(query);
       
       const matchesCollection = !selectedCollectionId || r.collections.includes(selectedCollectionId);
 
