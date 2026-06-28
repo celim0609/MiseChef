@@ -800,9 +800,13 @@ export default function App() {
 
     if (currentUser && db && !isGuestMode) {
       try {
-        await deleteRecipeCoverImage(currentUser.uid, recipe.id);
-        await deleteRecipeScanAttachment(currentUser.uid, recipe.id);
         await deleteRecipeFromFirestore(recipe.id);
+        Promise.all([
+          deleteRecipeCoverImage(currentUser.uid, recipe.id),
+          deleteRecipeScanAttachment(currentUser.uid, recipe.id)
+        ]).catch(err => {
+          console.warn('Recipe storage cleanup failed after recipe deletion.', err);
+        });
         triggerNotification(`Deleted "${recipe.title}".`, 'info');
       } catch (err) {
         setRecipes(recipes);
