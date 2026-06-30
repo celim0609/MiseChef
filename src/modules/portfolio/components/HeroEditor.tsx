@@ -9,7 +9,7 @@ interface HeroEditorProps {
 export default function HeroEditor({ portfolio, onSave }: HeroEditorProps) {
   const [draft, setDraft] = useState<PortfolioBasicProfile>(portfolio.basicProfile);
 
-  const updateDraft = (field: keyof PortfolioBasicProfile, value: string) => {
+  const updateDraft = (field: keyof PortfolioBasicProfile, value: string | string[]) => {
     setDraft(current => ({
       ...current,
       [field]: value
@@ -22,35 +22,23 @@ export default function HeroEditor({ portfolio, onSave }: HeroEditorProps) {
   };
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="bg-surface-container-low border border-surface-container-high rounded-2xl p-6 sm:p-8 shadow-sm space-y-5"
-    >
-      <div>
-        <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">
-          Hero Editor
-        </p>
-        <h2 className="font-display text-2xl sm:text-3xl font-bold text-primary tracking-tight mt-1">
-          Edit Hero
-        </h2>
-      </div>
-
-      <label className="block space-y-2">
-        <span className="font-sans text-xs font-extrabold text-primary">Display Name</span>
-        <input
-          type="text"
-          value={draft.displayName || ''}
-          onChange={event => updateDraft('displayName', event.target.value)}
-          className="w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-on-surface outline-none focus:border-primary"
-        />
-      </label>
-
+    <form onSubmit={handleSubmit} className="space-y-5">
       <label className="block space-y-2">
         <span className="font-sans text-xs font-extrabold text-primary">Professional Title</span>
         <input
           type="text"
           value={draft.professionalTitle || ''}
           onChange={event => updateDraft('professionalTitle', event.target.value)}
+          className="w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-on-surface outline-none focus:border-primary"
+        />
+      </label>
+
+      <label className="block space-y-2">
+        <span className="font-sans text-xs font-extrabold text-primary">Years Experience</span>
+        <input
+          type="text"
+          value={draft.yearsExperience || ''}
+          onChange={event => updateDraft('yearsExperience', event.target.value)}
           className="w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-on-surface outline-none focus:border-primary"
         />
       </label>
@@ -66,6 +54,16 @@ export default function HeroEditor({ portfolio, onSave }: HeroEditorProps) {
       </label>
 
       <label className="block space-y-2">
+        <span className="font-sans text-xs font-extrabold text-primary">Quote</span>
+        <textarea
+          value={draft.quote || ''}
+          onChange={event => updateDraft('quote', event.target.value)}
+          rows={3}
+          className="w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-on-surface outline-none focus:border-primary resize-none"
+        />
+      </label>
+
+      <label className="block space-y-2">
         <span className="font-sans text-xs font-extrabold text-primary">Location</span>
         <input
           type="text"
@@ -76,21 +74,11 @@ export default function HeroEditor({ portfolio, onSave }: HeroEditorProps) {
       </label>
 
       <label className="block space-y-2">
-        <span className="font-sans text-xs font-extrabold text-primary">Profile Photo</span>
+        <span className="font-sans text-xs font-extrabold text-primary">Specialties</span>
         <input
-          type="url"
-          value={draft.profilePhotoUrl || ''}
-          onChange={event => updateDraft('profilePhotoUrl', event.target.value)}
-          className="w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-on-surface outline-none focus:border-primary"
-        />
-      </label>
-
-      <label className="block space-y-2">
-        <span className="font-sans text-xs font-extrabold text-primary">Cover Photo</span>
-        <input
-          type="url"
-          value={draft.coverPhotoUrl || ''}
-          onChange={event => updateDraft('coverPhotoUrl', event.target.value)}
+          type="text"
+          value={(draft.specialties || []).join(', ')}
+          onChange={event => updateDraft('specialties', event.target.value.split(',').map(item => item.trim()).filter(Boolean))}
           className="w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-on-surface outline-none focus:border-primary"
         />
       </label>

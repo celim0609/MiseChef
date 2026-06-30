@@ -10,6 +10,13 @@ import { ChefProfile, DEFAULT_CHEF_PROFILE, Recipe } from '../types';
 import { getRecipeCategories } from '../utils/categoryUtils';
 import { getRecipeSearchText } from '../utils/recipeSearch';
 
+interface HomePortfolioSummary {
+  professionalTitle?: string;
+  yearsExperience?: string;
+  bio?: string;
+  quote?: string;
+}
+
 interface HomeTabProps {
   recipes: Recipe[];
   selectedCategory?: string | null;
@@ -19,6 +26,7 @@ interface HomeTabProps {
   currentUser?: User | null;
   profile?: ChefProfile;
   customAvatarUrl?: string;
+  portfolio?: HomePortfolioSummary;
 }
 
 const CHEF_PROFILE_STORAGE_KEY = 'ce_lims_kitchen_chef_profile_v1';
@@ -31,7 +39,8 @@ export default function HomeTab({
   onToggleFavorite,
   currentUser = null,
   profile: sharedProfile,
-  customAvatarUrl = ''
+  customAvatarUrl = '',
+  portfolio: sharedPortfolio
 }: HomeTabProps) {
   // All recipes in the database are user-owned now
   const chefRecipes = recipes;
@@ -40,8 +49,18 @@ export default function HomeTab({
   const [searchQuery, setSearchQuery] = useState('');
   const authDisplayName = currentUser?.displayName || currentUser?.email?.split('@')[0] || '';
   const profile = sharedProfile || localProfile;
+  const portfolio = sharedPortfolio || {
+    professionalTitle: profile.jobTitle,
+    yearsExperience: profile.yearsExperience,
+    bio: profile.bio,
+    quote: profile.quote
+  };
+  const profileDisplayName = profile.name || authDisplayName || 'Chef';
+  const portfolioTitle = portfolio.professionalTitle?.trim() || 'Complete your Portfolio';
+  const portfolioYears = portfolio.yearsExperience?.trim();
+  const portfolioBio = portfolio.bio?.trim() || 'Add a short bio to introduce your culinary story, signature strengths, and current focus.';
   const profileAvatarUrl = customAvatarUrl || profile.photo || currentUser?.photoURL || '';
-  const profileInitials = (profile.name || authDisplayName || 'CL')
+  const profileInitials = profileDisplayName
     .split(' ')
     .map(part => part.charAt(0))
     .join('')
@@ -82,7 +101,7 @@ export default function HomeTab({
               {profileAvatarUrl ? (
                 <img
                   src={profileAvatarUrl}
-                  alt={profile.name}
+                  alt={profileDisplayName}
                   className="w-full h-full object-cover"
                   referrerPolicy="no-referrer"
                 />
@@ -99,20 +118,20 @@ export default function HomeTab({
                   Chef Profile
                 </span>
                 <h2 className="font-display font-bold text-3xl sm:text-4xl text-primary tracking-tight pt-2">
-                  {profile.name}
+                  {profileDisplayName}
                 </h2>
                 <p className="font-sans text-sm text-secondary font-extrabold">
-                  {profile.jobTitle} • {profile.yearsExperience} years experience
+                  {portfolioYears ? portfolioTitle + ' • ' + portfolioYears + ' years experience' : portfolioTitle}
                 </p>
               </div>
             </div>
 
             <div className="space-y-3 text-center sm:text-left">
               <p className="font-sans text-sm text-on-surface-variant leading-relaxed font-semibold max-w-3xl">
-                {profile.bio}
+                {portfolioBio}
               </p>
               <blockquote className="font-display italic text-lg text-primary">
-                "{profile.quote}"
+                {portfolio.quote}
               </blockquote>
             </div>
           </div>

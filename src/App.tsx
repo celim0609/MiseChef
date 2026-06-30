@@ -1012,6 +1012,21 @@ export default function App() {
     return acc;
   }, {});
 
+  const portfolioProfile = {
+    displayName: chefProfile.name || currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Chef',
+    avatarUrl: customAvatarUrl || chefProfile.photo || currentUser?.photoURL || '',
+    email: currentUser?.email || ''
+  };
+
+  const portfolioData = {
+    basicProfile: {
+      professionalTitle: chefProfile.jobTitle || '',
+      yearsExperience: chefProfile.yearsExperience || '',
+      shortBio: chefProfile.bio || '',
+      quote: chefProfile.quote || ''
+    }
+  };
+
   // Renders correct active screen body
   const handleAuthenticated = () => {
     setIsGuestMode(false);
@@ -1071,6 +1086,12 @@ export default function App() {
             currentUser={currentUser}
             profile={chefProfile}
             customAvatarUrl={customAvatarUrl}
+            portfolio={{
+              professionalTitle: portfolioData.basicProfile.professionalTitle,
+              yearsExperience: portfolioData.basicProfile.yearsExperience,
+              bio: portfolioData.basicProfile.shortBio,
+              quote: portfolioData.basicProfile.quote
+            }}
           />
         );
       case 'favorites':
@@ -1093,8 +1114,8 @@ export default function App() {
       case 'portfolio':
         return (
           <PortfolioPage
-            profile={chefProfile}
-            customAvatarUrl={customAvatarUrl}
+            profile={portfolioProfile}
+            initialPortfolio={portfolioData}
           />
         );
       case 'search':
@@ -1141,6 +1162,12 @@ export default function App() {
               currentUser={currentUser}
               profile={chefProfile}
               customAvatarUrl={customAvatarUrl}
+              portfolio={{
+                professionalTitle: portfolioData.basicProfile.professionalTitle,
+                yearsExperience: portfolioData.basicProfile.yearsExperience,
+                bio: portfolioData.basicProfile.shortBio,
+                quote: portfolioData.basicProfile.quote
+              }}
             />
           );
         }

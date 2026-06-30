@@ -1,42 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import Hero from './components/Hero';
-import HeroEditor from './components/HeroEditor';
-import ExperienceManager from './sections/ExperienceManager';
-import type { Portfolio, PortfolioBasicProfile } from './types';
+import PortfolioStudio from './components/PortfolioStudio';
+import type { Portfolio, PortfolioBasicProfile, PortfolioProfileSource } from './types';
 
-interface PortfolioPageProfile {
-  name?: string;
-  jobTitle?: string;
-  bio?: string;
-  photo?: string;
-}
+type PortfolioTab = 'preview' | 'studio';
 
 interface PortfolioPageProps {
-  profile: PortfolioPageProfile;
-  customAvatarUrl?: string;
+  profile: PortfolioProfileSource;
+  initialPortfolio: Portfolio;
 }
 
-const PROFILE_PLACEHOLDERS = {
-  displayName: 'Your Name',
-  professionalTitle: 'Professional Title',
-  shortBio: 'Add a short bio to introduce your culinary portfolio.'
-};
-
-const getProfileValue = (value: string | undefined, placeholder: string) => {
-  const trimmed = value?.trim();
-  return trimmed || placeholder;
-};
-
-export default function PortfolioPage({ profile, customAvatarUrl = '' }: PortfolioPageProps) {
+export default function PortfolioPage({ profile, initialPortfolio }: PortfolioPageProps) {
+  const [activeTab, setActiveTab] = useState<PortfolioTab>('preview');
   const profilePortfolio = useMemo<Portfolio>(() => ({
-    basicProfile: {
-      displayName: getProfileValue(profile.name, PROFILE_PLACEHOLDERS.displayName),
-      professionalTitle: getProfileValue(profile.jobTitle, PROFILE_PLACEHOLDERS.professionalTitle),
-      shortBio: getProfileValue(profile.bio, PROFILE_PLACEHOLDERS.shortBio),
-      profilePhotoUrl: customAvatarUrl || profile.photo || ''
-    },
+    ...initialPortfolio,
+    basicProfile: initialPortfolio.basicProfile,
     experience: []
-  }), [customAvatarUrl, profile.bio, profile.jobTitle, profile.name, profile.photo]);
+  }), [initialPortfolio]);
 
   const [portfolio, setPortfolio] = useState<Portfolio>(profilePortfolio);
 
@@ -47,7 +27,7 @@ export default function PortfolioPage({ profile, customAvatarUrl = '' }: Portfol
     }));
   }, [profilePortfolio]);
 
-  const handleSaveHero = (basicProfile: PortfolioBasicProfile) => {
+  const handleSaveBasicProfile = (basicProfile: PortfolioBasicProfile) => {
     setPortfolio(current => ({
       ...current,
       basicProfile: {
@@ -57,21 +37,29 @@ export default function PortfolioPage({ profile, customAvatarUrl = '' }: Portfol
     }));
   };
 
-  const handleExperienceChange = (experience: NonNullable<Portfolio['experience']>) => {
-    setPortfolio(current => ({
-      ...current,
-      experience
-    }));
-  };
-
   return (
     <div className="space-y-6">
-      <Hero portfolio={portfolio} />
-      <HeroEditor portfolio={portfolio} onSave={handleSaveHero} />
-      <ExperienceManager
-        experiences={portfolio.experience || []}
-        onChange={handleExperienceChange}
-      />
+      <div className="inline-flex rounded-full bg-surface-container-low border border-surface-container-high p-1 shadow-sm">
+        {(['preview', 'studio'] as PortfolioTab[]).map(tab => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className={`rounded-full px-5 py-2.5 font-sans text-xs font-extrabold capitalize transition-all ${activeTab === tab ? 'bg-primary text-on-primary shadow-sm' : 'text-primary hover:bg-surface-container'}`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'preview' ? (
+        <Hero profile={profile} portfolio={portfolio} />
+      ) : (
+        <PortfolioStudio
+          portfolio={portfolio}
+          onSaveBasicProfile={handleSaveBasicProfile}
+        />
+      )}
     </div>
   );
 }

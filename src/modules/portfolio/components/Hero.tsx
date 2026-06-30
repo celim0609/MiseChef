@@ -1,22 +1,23 @@
-import type { Portfolio } from '../types';
+import type { Portfolio, PortfolioProfileSource } from '../types';
 
 interface HeroProps {
+  profile: PortfolioProfileSource;
   portfolio: Portfolio;
 }
 
-export default function Hero({ portfolio }: HeroProps) {
+export default function Hero({ profile, portfolio }: HeroProps) {
   const {
-    displayName,
     professionalTitle,
-    shortBio,
-    location,
-    profilePhotoUrl,
-    coverPhotoUrl,
     yearsExperience,
+    shortBio,
+    quote,
+    coverPhotoUrl,
+    location,
     specialties = []
   } = portfolio.basicProfile;
-  const profileLabel = displayName || professionalTitle || '';
-  const profileInitial = profileLabel.trim().charAt(0).toUpperCase();
+  const profileInitial = profile.displayName.trim().charAt(0).toUpperCase();
+  const heroTitle = professionalTitle?.trim() || 'Complete your Portfolio';
+  const heroBio = shortBio?.trim() || 'Add a short bio to introduce your culinary story, signature strengths, and current focus.';
 
   return (
     <section className="animate-fade-in pb-10">
@@ -34,10 +35,10 @@ export default function Hero({ portfolio }: HeroProps) {
         <div className="absolute inset-0 bg-surface-container-low/90" />
         <div className="relative flex flex-col md:flex-row md:items-center gap-6">
           <div className="w-24 h-24 rounded-full bg-primary/10 text-primary flex items-center justify-center overflow-hidden shrink-0">
-            {profilePhotoUrl ? (
+            {profile.avatarUrl ? (
               <img
-                src={profilePhotoUrl}
-                alt={profileLabel}
+                src={profile.avatarUrl}
+                alt={profile.displayName}
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
               />
@@ -49,22 +50,22 @@ export default function Hero({ portfolio }: HeroProps) {
           </div>
 
           <div className="min-w-0 space-y-3">
-            {professionalTitle && (
-              <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">
-                {professionalTitle}
-              </p>
-            )}
+            <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">
+              {heroTitle}
+            </p>
 
-            {displayName && (
-              <h2 className="font-display text-3xl sm:text-4xl font-bold text-primary tracking-tight">
-                {displayName}
-              </h2>
-            )}
+            <h2 className="font-display text-3xl sm:text-4xl font-bold text-primary tracking-tight">
+              {profile.displayName}
+            </h2>
 
-            {shortBio && (
-              <p className="font-sans text-sm sm:text-base font-bold text-on-surface-variant max-w-2xl">
-                {shortBio}
-              </p>
+            <p className="font-sans text-sm sm:text-base font-bold text-on-surface-variant max-w-2xl">
+              {heroBio}
+            </p>
+
+            {quote && (
+              <blockquote className="font-display italic text-lg text-primary">
+                {quote}
+              </blockquote>
             )}
 
             <div className="flex flex-wrap gap-2">
