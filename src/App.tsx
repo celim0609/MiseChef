@@ -19,6 +19,7 @@ import SettingsTab, { ImportedAppData } from './components/SettingsTab';
 import LoginTab from './components/LoginTab';
 import FavoritesTab from './components/FavoritesTab';
 import StatisticsTab from './components/StatisticsTab';
+import { PortfolioPage } from './modules/portfolio';
 import { AnimatePresence, motion } from 'motion/react';
 import BrandLogo from './components/BrandLogo';
 import { auth, authPersistenceReady, db } from './firebase';
@@ -1088,6 +1089,10 @@ export default function App() {
             recipes={recipes}
             categories={categories}
           />
+        );
+      case 'portfolio':
+        return (
+          <PortfolioPage />
         );
       case 'search':
         return (
