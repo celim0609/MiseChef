@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Hero from './components/Hero';
 import HeroEditor from './components/HeroEditor';
+import ExperienceManager from './sections/ExperienceManager';
 import type { Portfolio, PortfolioBasicProfile } from './types';
 
 interface PortfolioPageProfile {
@@ -33,13 +34,17 @@ export default function PortfolioPage({ profile, customAvatarUrl = '' }: Portfol
       professionalTitle: getProfileValue(profile.jobTitle, PROFILE_PLACEHOLDERS.professionalTitle),
       shortBio: getProfileValue(profile.bio, PROFILE_PLACEHOLDERS.shortBio),
       profilePhotoUrl: customAvatarUrl || profile.photo || ''
-    }
+    },
+    experience: []
   }), [customAvatarUrl, profile.bio, profile.jobTitle, profile.name, profile.photo]);
 
   const [portfolio, setPortfolio] = useState<Portfolio>(profilePortfolio);
 
   useEffect(() => {
-    setPortfolio(profilePortfolio);
+    setPortfolio(current => ({
+      ...current,
+      basicProfile: profilePortfolio.basicProfile
+    }));
   }, [profilePortfolio]);
 
   const handleSaveHero = (basicProfile: PortfolioBasicProfile) => {
@@ -52,10 +57,21 @@ export default function PortfolioPage({ profile, customAvatarUrl = '' }: Portfol
     }));
   };
 
+  const handleExperienceChange = (experience: NonNullable<Portfolio['experience']>) => {
+    setPortfolio(current => ({
+      ...current,
+      experience
+    }));
+  };
+
   return (
     <div className="space-y-6">
       <Hero portfolio={portfolio} />
       <HeroEditor portfolio={portfolio} onSave={handleSaveHero} />
+      <ExperienceManager
+        experiences={portfolio.experience || []}
+        onChange={handleExperienceChange}
+      />
     </div>
   );
 }
