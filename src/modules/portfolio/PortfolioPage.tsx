@@ -1,21 +1,46 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Hero from './components/Hero';
 import HeroEditor from './components/HeroEditor';
 import type { Portfolio, PortfolioBasicProfile } from './types';
 
-const demoPortfolio: Portfolio = {
-  basicProfile: {
-    displayName: 'Demo Chef',
-    professionalTitle: 'Culinary Professional',
-    shortBio: 'A temporary portfolio preview for the reusable hero template.',
-    location: 'Location',
-    yearsExperience: 'Experience',
-    specialties: ['Specialty']
-  }
+interface PortfolioPageProfile {
+  name?: string;
+  jobTitle?: string;
+  bio?: string;
+  photo?: string;
+}
+
+interface PortfolioPageProps {
+  profile: PortfolioPageProfile;
+  customAvatarUrl?: string;
+}
+
+const PROFILE_PLACEHOLDERS = {
+  displayName: 'Your Name',
+  professionalTitle: 'Professional Title',
+  shortBio: 'Add a short bio to introduce your culinary portfolio.'
 };
 
-export default function PortfolioPage() {
-  const [portfolio, setPortfolio] = useState<Portfolio>(demoPortfolio);
+const getProfileValue = (value: string | undefined, placeholder: string) => {
+  const trimmed = value?.trim();
+  return trimmed || placeholder;
+};
+
+export default function PortfolioPage({ profile, customAvatarUrl = '' }: PortfolioPageProps) {
+  const profilePortfolio = useMemo<Portfolio>(() => ({
+    basicProfile: {
+      displayName: getProfileValue(profile.name, PROFILE_PLACEHOLDERS.displayName),
+      professionalTitle: getProfileValue(profile.jobTitle, PROFILE_PLACEHOLDERS.professionalTitle),
+      shortBio: getProfileValue(profile.bio, PROFILE_PLACEHOLDERS.shortBio),
+      profilePhotoUrl: customAvatarUrl || profile.photo || ''
+    }
+  }), [customAvatarUrl, profile.bio, profile.jobTitle, profile.name, profile.photo]);
+
+  const [portfolio, setPortfolio] = useState<Portfolio>(profilePortfolio);
+
+  useEffect(() => {
+    setPortfolio(profilePortfolio);
+  }, [profilePortfolio]);
 
   const handleSaveHero = (basicProfile: PortfolioBasicProfile) => {
     setPortfolio(current => ({

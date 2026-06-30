@@ -1092,7 +1092,10 @@ export default function App() {
         );
       case 'portfolio':
         return (
-          <PortfolioPage />
+          <PortfolioPage
+            profile={chefProfile}
+            customAvatarUrl={customAvatarUrl}
+          />
         );
       case 'search':
         return (
