@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import { ArrowDown, ArrowUp, Camera, FileText, Image as ImageIcon, MoreHorizontal, Plus, Trash2, X, Sparkles, Video } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist/webpack.mjs';
-import { Recipe, Ingredient, MethodStep, RecipeCategory, UserRole } from '../types';
+import { Recipe, Ingredient, MethodStep, RecipeCategory, RecipeVisibility, UserRole } from '../types';
 import { generateRecipeStepsWithAI, scanRecipeImageWithGemini } from '../services/gemini';
 import type { GeminiScannedIngredient } from '../services/gemini';
 import { normalizeIngredientForDisplay, parseIngredientLines } from '../utils/ingredientParser';
@@ -626,6 +626,9 @@ export default function AddRecipeTab({
   const [servings, setServings] = useState(String(initialRecipe?.servings ?? 2));
   const [recipeYield, setRecipeYield] = useState(initialRecipe?.yield || (initialRecipe ? `${initialRecipe.servings} servings` : ''));
   const [difficulty, setDifficulty] = useState<'Easy' | 'Medium' | 'Hard'>(initialRecipe?.difficulty || 'Easy');
+  const [visibility, setVisibility] = useState<Extract<RecipeVisibility, 'private' | 'public'>>(
+    initialRecipe?.visibility === 'public' ? 'public' : 'private'
+  );
   
   // Chef's story
   const [story, setStory] = useState(initialRecipe?.story || '');
@@ -1158,7 +1161,7 @@ export default function AddRecipeTab({
       createdAt: initialRecipe?.createdAt || new Date().toISOString(),
       tags: initialRecipe?.tags,
       isFeatured: initialRecipe?.isFeatured,
-      visibility: initialRecipe?.visibility || 'private'
+      visibility
     };
 
     onSave(savedRecipe);
@@ -1413,14 +1416,16 @@ export default function AddRecipeTab({
             </div>
           </div>
 
-          <div className="bg-surface-container-low border border-surface-container p-4 rounded-2xl">
-            <p className="font-sans font-bold text-xs text-on-surface-variant/90 mb-2">Visibility</p>
-            <div className="font-sans text-sm font-extrabold text-primary">
-              🔒 Private
-            </div>
-            <p className="font-sans text-xs font-semibold text-on-surface-variant mt-1">
-              Only you can view this recipe.
-            </p>
+          <div className="space-y-1.5">
+            <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Visibility</label>
+            <select
+              value={visibility}
+              onChange={e => setVisibility(e.target.value as Extract<RecipeVisibility, 'private' | 'public'>)}
+              className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold cursor-pointer transition-all"
+            >
+              <option value="private">🔒 Private</option>
+              <option value="public">🌍 Public</option>
+            </select>
           </div>
 
           <div className="space-y-1.5">

@@ -1,0 +1,151 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function ownsUserDocument(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function ownsExistingDocument() {
+      return signedIn() && resource.data.createdBy == request.auth.uid;
+    }
+
+    function ownsIncomingDocument() {
+      return signedIn() && request.resource.data.createdBy == request.auth.uid;
+    }
+
+    function ownsExistingUserData() {
+      return signedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    function ownsIncomingUserData() {
+      return signedIn() && request.resource.data.userId == request.auth.uid;
+    }
+
+    match /users/{userId} {
+      allow read, create, update, delete: if ownsUserDocument(userId);
+
+      match /portfolio/{document=**} {
+        allow read, create, update, delete: if ownsUserDocument(userId);
+      }
+    }
+
+    match /recipes/{recipeId} {
+      allow create: if ownsIncomingUserData();
+      allow read, delete: if ownsExistingUserData();
+      allow update: if ownsExistingUserData()
+        && (!('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId);
+    }
+
+    match /categories/{categoryId} {
+      allow create: if ownsIncomingUserData();
+      allow read, delete: if ownsExistingUserData();
+      allow update: if ownsExistingUserData()
+        && (!('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId);
+    }
+
+    match /invoices/{invoiceId} {
+      allow create: if ownsIncomingDocument()
+        && request.resource.data.id == invoiceId
+        && request.resource.data.processingStatus == 'Pending'
+        && request.resource.data.status == 'Pending';
+      allow read: if ownsExistingDocument();
+      allow update: if ownsExistingDocument()
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.id == resource.data.id;
+      allow delete: if ownsExistingDocument();
+    }
+
+    match /ingredients/{ingredientId} {
+      allow create: if ownsIncomingDocument()
+        && request.resource.data.id == ingredientId
+        && request.resource.data.workspaceId == request.auth.uid
+        && request.resource.data.status == 'Active';
+      allow read: if ownsExistingDocument() && resource.data.workspaceId == request.auth.uid;
+      allow update: if ownsExistingDocument()
+        && resource.data.workspaceId == request.auth.uid
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.workspaceId == resource.data.workspaceId
+        && request.resource.data.id == resource.data.id;
+      allow delete: if false;
+    }
+
+    match /ingredientPriceHistory/{historyId} {
+      allow create: if ownsIncomingDocument()
+        && request.resource.data.id == historyId
+        && request.resource.data.workspaceId == request.auth.uid;
+      allow read: if ownsExistingDocument() && resource.data.workspaceId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /businessSales/{saleId} {
+      allow create: if ownsIncomingDocument()
+        && request.resource.data.id == saleId
+        && request.resource.data.workspaceId == request.auth.uid;
+      allow read: if ownsExistingDocument() && resource.data.workspaceId == request.auth.uid;
+      allow update: if ownsExistingDocument()
+        && resource.data.workspaceId == request.auth.uid
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.workspaceId == resource.data.workspaceId
+        && request.resource.data.id == resource.data.id;
+      allow delete: if false;
+    }
+
+    match /workspaces/{workspaceId} {
+      allow create: if ownsIncomingDocument()
+        && request.resource.data.id == workspaceId
+        && request.resource.data.ownerId == request.auth.uid;
+      allow read: if signedIn()
+        && (resource.data.ownerId == request.auth.uid
+          || exists(/databases/$(database)/documents/workspaceMembers/$(workspaceId + "_" + request.auth.uid)));
+      allow update: if signedIn()
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.ownerId == resource.data.ownerId;
+      allow delete: if false;
+    }
+
+    match /workspaceMembers/{memberId} {
+      allow create: if ownsIncomingDocument()
+        && request.resource.data.id == memberId
+        && request.resource.data.userId == request.auth.uid;
+      allow read: if signedIn()
+        && (resource.data.userId == request.auth.uid
+          || exists(/databases/$(database)/documents/workspaceMembers/$(resource.data.workspaceId + "_" + request.auth.uid)));
+      allow update: if signedIn()
+        && exists(/databases/$(database)/documents/workspaceMembers/$(resource.data.workspaceId + "_" + request.auth.uid))
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.workspaceId == resource.data.workspaceId
+        && request.resource.data.userId == resource.data.userId;
+      allow delete: if false;
+    }
+
+    match /roles/{roleId} {
+      allow create: if ownsIncomingDocument()
+        && request.resource.data.id == roleId;
+      allow read: if signedIn()
+        && exists(/databases/$(database)/documents/workspaceMembers/$(resource.data.workspaceId + "_" + request.auth.uid));
+      allow update: if signedIn()
+        && exists(/databases/$(database)/documents/workspaceMembers/$(resource.data.workspaceId + "_" + request.auth.uid))
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.workspaceId == resource.data.workspaceId;
+      allow delete: if false;
+    }
+
+    match /aiUsage/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /aiRequestLogs/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

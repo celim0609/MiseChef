@@ -1,40 +1,94 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { Recipe } from '../../types';
 import Hero from './components/Hero';
 import PortfolioStudio from './components/PortfolioStudio';
-import type { Portfolio, PortfolioBasicProfile, PortfolioProfileSource } from './types';
+import AboutPreview from './sections/AboutPreview';
+import CertificatesPreview from './sections/CertificatesPreview';
+import ContactPreview from './sections/ContactPreview';
+import ExperiencePreview from './sections/ExperiencePreview';
+import FeaturedRecipesPreview from './sections/FeaturedRecipesPreview';
+import GalleryPreview from './sections/GalleryPreview';
+import ResumePreview from './sections/ResumePreview';
+import SkillsPreview from './sections/SkillsPreview';
+import { portfolioService } from './services/portfolioService';
+import type { Portfolio, PortfolioProfileSource } from './types';
 
 type PortfolioTab = 'preview' | 'studio';
 
 interface PortfolioPageProps {
   profile: PortfolioProfileSource;
   initialPortfolio: Portfolio;
+  recipes: Recipe[];
+  userId?: string;
 }
 
-export default function PortfolioPage({ profile, initialPortfolio }: PortfolioPageProps) {
+const normalizePortfolio = (portfolio: Portfolio): Portfolio => ({
+  ...portfolio,
+  basicProfile: portfolio.basicProfile,
+  hero: portfolio.hero || {},
+  about: portfolio.about || {},
+  experience: portfolio.experience || [],
+  skills: portfolio.skills || [],
+  certificates: portfolio.certificates || [],
+  gallery: portfolio.gallery || [],
+  featuredRecipes: portfolio.featuredRecipes || [],
+  resume: portfolio.resume,
+  contact: portfolio.contact,
+  metadata: portfolio.metadata,
+  visibility: portfolio.visibility || { status: 'private' }
+});
+
+const mergePortfolioWithDefault = (defaultPortfolio: Portfolio, savedPortfolio: Portfolio): Portfolio => normalizePortfolio({
+  ...defaultPortfolio,
+  ...savedPortfolio,
+  basicProfile: {
+    ...defaultPortfolio.basicProfile,
+    ...savedPortfolio.basicProfile
+  },
+  hero: {
+    ...defaultPortfolio.hero,
+    ...savedPortfolio.hero
+  },
+  visibility: {
+    ...defaultPortfolio.visibility,
+    ...savedPortfolio.visibility,
+    status: savedPortfolio.visibility?.status || defaultPortfolio.visibility?.status || 'private'
+  }
+});
+
+export default function PortfolioPage({ profile, initialPortfolio, recipes, userId }: PortfolioPageProps) {
   const [activeTab, setActiveTab] = useState<PortfolioTab>('preview');
-  const profilePortfolio = useMemo<Portfolio>(() => ({
-    ...initialPortfolio,
-    basicProfile: initialPortfolio.basicProfile,
-    experience: []
-  }), [initialPortfolio]);
+  const profilePortfolio = useMemo<Portfolio>(() => normalizePortfolio(initialPortfolio), [initialPortfolio]);
 
   const [portfolio, setPortfolio] = useState<Portfolio>(profilePortfolio);
+  const [previewPortfolio, setPreviewPortfolio] = useState<Portfolio>(profilePortfolio);
 
   useEffect(() => {
-    setPortfolio(current => ({
-      ...current,
-      basicProfile: profilePortfolio.basicProfile
-    }));
-  }, [profilePortfolio]);
+    let isCancelled = false;
 
-  const handleSaveBasicProfile = (basicProfile: PortfolioBasicProfile) => {
-    setPortfolio(current => ({
-      ...current,
-      basicProfile: {
-        ...current.basicProfile,
-        ...basicProfile
+    setPortfolio(profilePortfolio);
+    setPreviewPortfolio(profilePortfolio);
+
+    portfolioService.loadPortfolio(userId).then(savedPortfolio => {
+      if (isCancelled) return;
+      const nextPortfolio = savedPortfolio ? mergePortfolioWithDefault(profilePortfolio, savedPortfolio) : profilePortfolio;
+      setPortfolio(nextPortfolio);
+      setPreviewPortfolio(nextPortfolio);
+    }).catch(() => {
+      if (!isCancelled) {
+        setPortfolio(profilePortfolio);
+        setPreviewPortfolio(profilePortfolio);
       }
-    }));
+    });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [profilePortfolio, userId]);
+
+  const handleSavePortfolio = (savedPortfolio: Portfolio) => {
+    setPortfolio(savedPortfolio);
+    setPreviewPortfolio(savedPortfolio);
   };
 
   return (
@@ -45,7 +99,7 @@ export default function PortfolioPage({ profile, initialPortfolio }: PortfolioPa
             key={tab}
             type="button"
             onClick={() => setActiveTab(tab)}
-            className={`rounded-full px-5 py-2.5 font-sans text-xs font-extrabold capitalize transition-all ${activeTab === tab ? 'bg-primary text-on-primary shadow-sm' : 'text-primary hover:bg-surface-container'}`}
+            className={'rounded-full px-5 py-2.5 font-sans text-xs font-extrabold capitalize transition-all ' + (activeTab === tab ? 'bg-primary text-on-primary shadow-sm' : 'text-primary hover:bg-surface-container')}
           >
             {tab}
           </button>
@@ -53,11 +107,24 @@ export default function PortfolioPage({ profile, initialPortfolio }: PortfolioPa
       </div>
 
       {activeTab === 'preview' ? (
-        <Hero profile={profile} portfolio={portfolio} />
+        <>
+          <Hero profile={profile} portfolio={previewPortfolio} />
+          <AboutPreview about={previewPortfolio.about} />
+          <ExperiencePreview experiences={previewPortfolio.experience || []} />
+          <SkillsPreview skills={previewPortfolio.skills || []} />
+          <CertificatesPreview certificates={previewPortfolio.certificates || []} />
+          <GalleryPreview items={previewPortfolio.gallery || []} />
+          <FeaturedRecipesPreview featuredRecipes={previewPortfolio.featuredRecipes || []} recipes={recipes} />
+          <ResumePreview resume={previewPortfolio.resume} />
+          <ContactPreview contact={previewPortfolio.contact} />
+        </>
       ) : (
         <PortfolioStudio
           portfolio={portfolio}
-          onSaveBasicProfile={handleSaveBasicProfile}
+          recipes={recipes}
+          userId={userId}
+          onDraftPortfolioChange={setPreviewPortfolio}
+          onSavePortfolio={handleSavePortfolio}
         />
       )}
     </div>

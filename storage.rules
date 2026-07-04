@@ -2,9 +2,86 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function ownsPath(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function validImageUpload(maxBytes) {
+      return request.resource != null
+        && request.resource.size <= maxBytes
+        && request.resource.contentType in ['image/jpeg', 'image/png', 'image/webp'];
+    }
+
+    function validInvoiceUpload() {
+      return request.resource != null
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType in [
+          'application/pdf',
+          'image/jpeg',
+          'image/png',
+          'image/webp',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'text/csv'
+        ];
+    }
+
+    function validPdfUpload(maxBytes) {
+      return request.resource != null
+        && request.resource.size <= maxBytes
+        && request.resource.contentType == 'application/pdf';
+    }
+
+    match /recipes/{userId}/{recipeId}/{allPaths=**} {
+      allow read: if ownsPath(userId);
+      allow create, update: if ownsPath(userId) && validImageUpload(10 * 1024 * 1024);
+      allow delete: if ownsPath(userId);
+    }
+
+    match /users/{userId}/profile/{fileName} {
+      allow read: if ownsPath(userId);
+      allow create, update: if ownsPath(userId) && validImageUpload(5 * 1024 * 1024);
+      allow delete: if ownsPath(userId);
+    }
+
+    match /users/{userId}/portfolio/cover/{fileName} {
+      allow read: if ownsPath(userId);
+      allow create, update: if ownsPath(userId) && validImageUpload(10 * 1024 * 1024);
+      allow delete: if ownsPath(userId);
+    }
+
+    match /users/{userId}/portfolio/gallery/{fileName} {
+      allow read: if ownsPath(userId);
+      allow create, update: if ownsPath(userId) && validImageUpload(10 * 1024 * 1024);
+      allow delete: if ownsPath(userId);
+    }
+
+    match /users/{userId}/portfolio/certificates/{certificateId}/{fileName} {
+      allow read: if ownsPath(userId);
+      allow create, update: if ownsPath(userId) && (
+        validImageUpload(10 * 1024 * 1024) || validPdfUpload(15 * 1024 * 1024)
+      );
+      allow delete: if ownsPath(userId);
+    }
+
+    match /users/{userId}/portfolio/resume/{fileName} {
+      allow read: if ownsPath(userId);
+      allow create, update: if ownsPath(userId) && validPdfUpload(15 * 1024 * 1024);
+      allow delete: if ownsPath(userId);
+    }
+
+    match /users/{userId}/costing/invoices/{invoiceId}/{fileName} {
+      allow read: if ownsPath(userId);
+      allow create, update: if ownsPath(userId) && validInvoiceUpload();
+      allow delete: if ownsPath(userId);
+    }
+
     match /{allPaths=**} {
-      allow read: if true;
-      allow write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }

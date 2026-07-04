@@ -23,6 +23,26 @@ export const getUserProfilePhotoPath = (userId: string) => {
   return `users/${userId}/profile/avatar.jpg`;
 };
 
+const getPortfolioHeroBackgroundPath = (userId: string, extension: string) => {
+  return `users/${userId}/portfolio/cover/hero-background.${extension}`;
+};
+
+const getPortfolioGalleryImagePath = (userId: string, galleryItemId: string, extension: string) => {
+  return `users/${userId}/portfolio/gallery/${galleryItemId}.${extension}`;
+};
+
+const getPortfolioCertificatePdfPath = (userId: string, certificateId: string) => {
+  return `users/${userId}/portfolio/certificates/${certificateId}/certificate.pdf`;
+};
+
+const getPortfolioCertificateThumbnailPath = (userId: string, certificateId: string, extension: string) => {
+  return `users/${userId}/portfolio/certificates/${certificateId}/thumbnail.${extension}`;
+};
+
+const getPortfolioResumePath = (userId: string) => {
+  return `users/${userId}/portfolio/resume/resume.pdf`;
+};
+
 export const isLocalImageDataUrl = (value?: string) => {
   return Boolean(value?.startsWith('data:image/'));
 };
@@ -35,6 +55,59 @@ const dataUrlToBlob = async (dataUrl: string) => {
 const getDataUrlMimeType = (dataUrl: string) => {
   const match = dataUrl.match(/^data:([^;,]+)[;,]/);
   return match?.[1] || 'image/jpeg';
+};
+
+const getSupportedImageExtension = (file: File) => {
+  switch (file.type) {
+    case 'image/jpeg':
+      return 'jpg';
+    case 'image/png':
+      return 'png';
+    case 'image/webp':
+      return 'webp';
+    default:
+      return null;
+  }
+};
+
+const uploadFile = async ({
+  path,
+  file,
+  cacheControl,
+  onProgress,
+}: {
+  path: string;
+  file: File;
+  cacheControl: string;
+  onProgress?: (progress: number) => void;
+}) => {
+  if (!storage) {
+    throw new Error('Firebase Storage is not initialized.');
+  }
+
+  const fileRef = ref(storage, path);
+  const uploadTask = uploadBytesResumable(fileRef, file, {
+    contentType: file.type,
+    cacheControl,
+  });
+
+  return new Promise<string>((resolve, reject) => {
+    uploadTask.on(
+      'state_changed',
+      snapshot => {
+        const progress = Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100);
+        onProgress?.(progress);
+      },
+      reject,
+      async () => {
+        try {
+          resolve(await getDownloadURL(uploadTask.snapshot.ref));
+        } catch (err) {
+          reject(err);
+        }
+      }
+    );
+  });
 };
 
 export const uploadRecipeCoverImage = async ({
@@ -193,6 +266,120 @@ export const uploadUserProfilePhoto = async ({
         }
       }
     );
+  });
+};
+
+export const uploadPortfolioHeroBackground = async ({
+  userId,
+  file,
+  onProgress,
+}: {
+  userId: string;
+  file: File;
+  onProgress?: (progress: number) => void;
+}) => {
+  const extension = getSupportedImageExtension(file);
+  if (!extension) {
+    throw new Error('Cover image must be a JPG, PNG, or WEBP file.');
+  }
+
+  return uploadFile({
+    path: getPortfolioHeroBackgroundPath(userId, extension),
+    file,
+    cacheControl: 'public,max-age=31536000',
+    onProgress,
+  });
+};
+
+export const uploadPortfolioGalleryImage = async ({
+  userId,
+  galleryItemId,
+  file,
+  onProgress,
+}: {
+  userId: string;
+  galleryItemId: string;
+  file: File;
+  onProgress?: (progress: number) => void;
+}) => {
+  const extension = getSupportedImageExtension(file);
+  if (!extension) {
+    throw new Error('Gallery image must be a JPG, PNG, or WEBP file.');
+  }
+
+  return uploadFile({
+    path: getPortfolioGalleryImagePath(userId, galleryItemId, extension),
+    file,
+    cacheControl: 'public,max-age=31536000',
+    onProgress,
+  });
+};
+
+export const uploadPortfolioCertificatePdf = async ({
+  userId,
+  certificateId,
+  file,
+  onProgress,
+}: {
+  userId: string;
+  certificateId: string;
+  file: File;
+  onProgress?: (progress: number) => void;
+}) => {
+  if (file.type !== 'application/pdf') {
+    throw new Error('Certificate file must be a PDF.');
+  }
+
+  return uploadFile({
+    path: getPortfolioCertificatePdfPath(userId, certificateId),
+    file,
+    cacheControl: 'private,max-age=31536000',
+    onProgress,
+  });
+};
+
+export const uploadPortfolioCertificateThumbnail = async ({
+  userId,
+  certificateId,
+  file,
+  onProgress,
+}: {
+  userId: string;
+  certificateId: string;
+  file: File;
+  onProgress?: (progress: number) => void;
+}) => {
+  const extension = getSupportedImageExtension(file);
+  if (!extension) {
+    throw new Error('Certificate thumbnail must be a JPG, PNG, or WEBP file.');
+  }
+
+  return uploadFile({
+    path: getPortfolioCertificateThumbnailPath(userId, certificateId, extension),
+    file,
+    cacheControl: 'public,max-age=31536000',
+    onProgress,
+  });
+};
+
+export const uploadPortfolioResume = async ({
+  userId,
+  file,
+  onProgress,
+}: {
+  userId: string;
+  file: File;
+  onProgress?: (progress: number) => void;
+}) => {
+  if (file.type !== 'application/pdf') {
+    throw new Error('Resume file must be a PDF.');
+  }
+
+  return uploadFile({
+    path: getPortfolioResumePath(userId),
+    file,
+    cacheControl: 'private,max-age=31536000',
+    onProgress,
   });
 };
 

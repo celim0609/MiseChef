@@ -4,7 +4,26 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { ChevronDown, MoreHorizontal, X } from 'lucide-react';
+import {
+  BarChart3,
+  BookOpen,
+  BriefcaseBusiness,
+  Calculator,
+  ChevronDown,
+  CreditCard,
+  FileBarChart,
+  Home,
+  PackageSearch,
+  LogIn,
+  LogOut,
+  MoreHorizontal,
+  ReceiptText,
+  Settings,
+  Star,
+  UserRound,
+  UsersRound,
+  X
+} from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { User } from 'firebase/auth';
 import { RecipeCategory, RootTab } from '../types';
@@ -45,7 +64,9 @@ export default function NavigationDrawer({
   onDeleteCategory,
   onSignOut
 }: NavigationDrawerProps) {
-  const [categoriesOpen, setCategoriesOpen] = useState(true);
+  const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [businessOpen, setBusinessOpen] = useState(false);
+  const [costingOpen, setCostingOpen] = useState(false);
   const [openCategoryMenuId, setOpenCategoryMenuId] = useState<string | null>(null);
   const [renamingCategory, setRenamingCategory] = useState<RecipeCategory | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -89,9 +110,21 @@ export default function NavigationDrawer({
     onClose();
   };
 
-  const staticMenuItems: Array<{ label: string; icon: string; tab?: RootTab }> = [
-    { label: 'Statistics', icon: '📊', tab: 'statistics' },
-    { label: 'Settings', icon: '⚙️', tab: 'settings' }
+  const staticMenuItems: Array<{ label: string; icon: React.ReactNode; tab?: RootTab }> = [
+    { label: 'Team', icon: <UsersRound className="w-5 h-5" />, tab: 'team' },
+    { label: 'Portfolio', icon: <BriefcaseBusiness className="w-5 h-5" />, tab: 'portfolio' },
+    { label: 'My Profile', icon: <UserRound className="w-5 h-5" />, tab: 'profile' },
+    { label: 'Statistics', icon: <BarChart3 className="w-5 h-5" />, tab: 'statistics' },
+    { label: 'Settings', icon: <Settings className="w-5 h-5" />, tab: 'settings' }
+  ];
+  const costingMenuItems: Array<{ label: string; icon: React.ReactNode; tab: RootTab }> = [
+    { label: 'Invoices', icon: <ReceiptText className="w-4 h-4" />, tab: 'costing' },
+    { label: 'Ingredients', icon: <PackageSearch className="w-4 h-4" />, tab: 'costingIngredients' },
+    { label: 'Reports', icon: <FileBarChart className="w-4 h-4" />, tab: 'costingReports' }
+  ];
+  const businessMenuItems: Array<{ label: string; icon: React.ReactNode; tab: RootTab }> = [
+    { label: 'Dashboard', icon: <BarChart3 className="w-4 h-4" />, tab: 'business' },
+    { label: 'Sales', icon: <CreditCard className="w-4 h-4" />, tab: 'businessSales' }
   ];
 
   const displayName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'MiseChef User';
@@ -204,7 +237,7 @@ export default function NavigationDrawer({
                     : 'text-primary hover:bg-surface-container'
                 }`}
               >
-                <span className="text-lg leading-none">🏠</span>
+                <Home className="w-5 h-5" />
                 <span>Home</span>
               </button>
 
@@ -219,7 +252,7 @@ export default function NavigationDrawer({
                   }`}
                   aria-expanded={categoriesOpen}
                 >
-                  <span className="text-lg leading-none">📚</span>
+                  <BookOpen className="w-5 h-5" />
                   <span className="flex-1">Categories</span>
                   <ChevronDown
                     className={`w-4 h-4 transition-transform ${categoriesOpen ? 'rotate-180' : ''}`}
@@ -334,9 +367,107 @@ export default function NavigationDrawer({
                     : 'text-primary'
                 }`}
               >
-                <span className="text-lg leading-none">⭐</span>
+                <Star className="w-5 h-5" />
                 <span>Favorites</span>
               </button>
+
+              <div className="rounded-2xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setBusinessOpen(prev => !prev)}
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 text-left font-sans font-extrabold text-sm transition-all ${
+                    activeTab === 'business' || activeTab === 'businessSales'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-primary hover:bg-surface-container'
+                  }`}
+                  aria-expanded={businessOpen}
+                >
+                  <CreditCard className="w-5 h-5" />
+                  <span className="flex-1">Business</span>
+                  <ChevronDown
+                    className={`w-4 h-4 transition-transform ${businessOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+
+                <AnimatePresence initial={false}>
+                  {businessOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2, ease: 'easeOut' }}
+                      className="overflow-hidden"
+                    >
+                      <div className="ml-8 mr-2 mb-2 space-y-1 border-l border-surface-container-high pl-3">
+                        {businessMenuItems.map(item => (
+                          <button
+                            type="button"
+                            key={item.label}
+                            onClick={() => handleNavigate(item.tab)}
+                            className={`w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-left font-sans text-xs font-bold transition-all ${
+                              activeTab === item.tab
+                                ? 'bg-primary text-on-primary shadow-sm'
+                                : 'text-on-surface-variant hover:bg-surface-container hover:text-primary'
+                            }`}
+                          >
+                            {item.icon}
+                            <span>{item.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              <div className="rounded-2xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setCostingOpen(prev => !prev)}
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 text-left font-sans font-extrabold text-sm transition-all ${
+                    activeTab === 'costing' || activeTab === 'costingIngredients' || activeTab === 'costingInvoices' || activeTab === 'costingReports'
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-primary hover:bg-surface-container'
+                  }`}
+                  aria-expanded={costingOpen}
+                >
+                  <Calculator className="w-5 h-5" />
+                  <span className="flex-1">Costing</span>
+                  <ChevronDown
+                    className={`w-4 h-4 transition-transform ${costingOpen ? 'rotate-180' : ''}`}
+                  />
+                </button>
+
+                <AnimatePresence initial={false}>
+                  {costingOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2, ease: 'easeOut' }}
+                      className="overflow-hidden"
+                    >
+                      <div className="ml-8 mr-2 mb-2 space-y-1 border-l border-surface-container-high pl-3">
+                        {costingMenuItems.map(item => (
+                          <button
+                            type="button"
+                            key={item.label}
+                            onClick={() => handleNavigate(item.tab)}
+                            className={`w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-left font-sans text-xs font-bold transition-all ${
+                              activeTab === item.tab
+                                ? 'bg-primary text-on-primary shadow-sm'
+                                : 'text-on-surface-variant hover:bg-surface-container hover:text-primary'
+                            }`}
+                          >
+                            {item.icon}
+                            <span>{item.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
 
               {staticMenuItems.map(item => (
                 <button
@@ -349,7 +480,7 @@ export default function NavigationDrawer({
                       : 'text-primary'
                   }`}
                 >
-                  <span className="text-lg leading-none">{item.icon}</span>
+                  <span className="leading-none">{item.icon}</span>
                   <span>{item.label}</span>
                 </button>
               ))}
@@ -383,40 +514,29 @@ export default function NavigationDrawer({
                 <div className="grid grid-cols-1 gap-1">
                   <button
                     type="button"
-                    onClick={() => handleNavigate('settings')}
-                    className="w-full rounded-xl px-4 py-2.5 text-left font-sans text-xs font-bold text-primary hover:bg-surface-container transition-all"
-                  >
-                    My Profile
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleNavigate('settings')}
-                    className="w-full rounded-xl px-4 py-2.5 text-left font-sans text-xs font-bold text-primary hover:bg-surface-container transition-all"
-                  >
-                    Settings
-                  </button>
-                  <button
-                    type="button"
                     disabled
-                    className="w-full rounded-xl px-4 py-2.5 text-left font-sans text-xs font-bold text-outline cursor-not-allowed"
+                    className="w-full flex items-center gap-2 rounded-xl px-4 py-2.5 text-left font-sans text-xs font-bold text-outline cursor-not-allowed"
                   >
-                    Billing (Coming Soon)
+                    <CreditCard className="w-4 h-4" />
+                    <span>Billing (Coming Soon)</span>
                   </button>
                   <button
                     type="button"
                     onClick={handleAccountSignOut}
-                    className="w-full rounded-xl px-4 py-2.5 text-left font-sans text-xs font-bold text-secondary hover:bg-secondary/10 transition-all"
+                    className="w-full flex items-center gap-2 rounded-xl px-4 py-2.5 text-left font-sans text-xs font-bold text-secondary hover:bg-secondary/10 transition-all"
                   >
-                    Log Out
+                    <LogOut className="w-4 h-4" />
+                    <span>Log Out</span>
                   </button>
                 </div>
               ) : (
                 <button
                   type="button"
                   onClick={() => handleNavigate('login')}
-                  className="w-full rounded-xl px-4 py-3 text-left font-sans text-xs font-bold text-primary hover:bg-surface-container transition-all"
+                  className="w-full flex items-center gap-2 rounded-xl px-4 py-3 text-left font-sans text-xs font-bold text-primary hover:bg-surface-container transition-all"
                 >
-                  Sign In
+                  <LogIn className="w-4 h-4" />
+                  <span>Sign In</span>
                 </button>
               )}
             </div>

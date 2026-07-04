@@ -20,6 +20,9 @@ import LoginTab from './components/LoginTab';
 import FavoritesTab from './components/FavoritesTab';
 import StatisticsTab from './components/StatisticsTab';
 import { PortfolioPage } from './modules/portfolio';
+import { CostingPage } from './modules/costing';
+import { BusinessPage } from './modules/business';
+import { TeamPage } from './modules/team';
 import { AnimatePresence, motion } from 'motion/react';
 import BrandLogo from './components/BrandLogo';
 import { auth, authPersistenceReady, db } from './firebase';
@@ -33,6 +36,67 @@ const STORAGE_CATEGORIES_KEY = 'ce_lims_kitchen_categories_v1';
 const STORAGE_APPEARANCE_KEY = 'ce_lims_kitchen_appearance_v1';
 const STORAGE_PROFILE_KEY = 'ce_lims_kitchen_chef_profile_v1';
 const DEFAULT_COVER_IMAGE = 'https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&q=80&w=800';
+
+const ROOT_TAB_PATHS: Record<RootTab, string> = {
+  home: '/',
+  search: '/search',
+  favorites: '/favorites',
+  portfolio: '/portfolio',
+  profile: '/profile',
+  statistics: '/statistics',
+  settings: '/settings',
+  login: '/login',
+  team: '/team',
+  business: '/business',
+  businessSales: '/business/sales',
+  costing: '/costing',
+  costingIngredients: '/costing/ingredients',
+  costingInvoices: '/costing/invoices',
+  costingInvoiceDetail: '/costing/invoices',
+  costingReports: '/costing/reports'
+};
+
+const getCostingInvoiceIdFromPath = (pathname: string) => {
+  const match = pathname.match(/^\/costing\/invoices\/([^/]+)$/);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+};
+
+const getRootTabFromPath = (pathname: string): RootTab => {
+  if (getCostingInvoiceIdFromPath(pathname)) return 'costingInvoiceDetail';
+
+  switch (pathname) {
+    case '/search':
+      return 'search';
+    case '/favorites':
+      return 'favorites';
+    case '/portfolio':
+      return 'portfolio';
+    case '/profile':
+      return 'profile';
+    case '/statistics':
+      return 'statistics';
+    case '/settings':
+      return 'settings';
+    case '/login':
+      return 'login';
+    case '/team':
+      return 'team';
+    case '/business':
+      return 'business';
+    case '/business/sales':
+      return 'businessSales';
+    case '/costing':
+      return 'costing';
+    case '/costing/ingredients':
+      return 'costingIngredients';
+    case '/costing/invoices':
+      return 'costingInvoices';
+    case '/costing/reports':
+      return 'costingReports';
+    default:
+      return 'home';
+  }
+};
 
 function BrandLoadingScreen() {
   return (
@@ -375,9 +439,24 @@ export default function App() {
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>('user');
   const [chefProfile, setChefProfile] = useState<ChefProfile>(DEFAULT_CHEF_PROFILE);
   const [customAvatarUrl, setCustomAvatarUrl] = useState('');
+  const [selectedCostingInvoiceId, setSelectedCostingInvoiceId] = useState<string | null>(() => getCostingInvoiceIdFromPath(window.location.pathname));
   
   // Notification states
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
+
+  const handleRootNavigate = (tab: RootTab) => {
+    setActiveTab(tab);
+    if (tab !== 'costingInvoiceDetail') {
+      setSelectedCostingInvoiceId(null);
+    }
+    window.history.replaceState(null, '', ROOT_TAB_PATHS[tab]);
+  };
+
+  const handleOpenCostingInvoice = (invoiceId: string) => {
+    setSelectedCostingInvoiceId(invoiceId);
+    setActiveTab('costingInvoiceDetail');
+    window.history.replaceState(null, '', `/costing/invoices/${encodeURIComponent(invoiceId)}`);
+  };
 
   // Load from local storage
   useEffect(() => {
@@ -460,8 +539,12 @@ export default function App() {
           if (user) {
             setCurrentUserRole(getConfiguredRoleForUser(user));
             setIsGuestMode(false);
-            setActiveTab('home');
-            window.history.replaceState(null, '', '/');
+            const nextTab = getRootTabFromPath(window.location.pathname);
+            setSelectedCostingInvoiceId(getCostingInvoiceIdFromPath(window.location.pathname));
+            setActiveTab(nextTab === 'login' ? 'home' : nextTab);
+            if (nextTab !== 'costingInvoiceDetail') {
+              window.history.replaceState(null, '', ROOT_TAB_PATHS[nextTab === 'login' ? 'home' : nextTab]);
+            }
             return;
           }
 
@@ -489,7 +572,7 @@ export default function App() {
 
   useEffect(() => {
     if (currentUser && activeTab === 'login') {
-      setActiveTab('home');
+      handleRootNavigate('home');
     }
   }, [activeTab, currentUser]);
 
@@ -1030,8 +1113,7 @@ export default function App() {
   // Renders correct active screen body
   const handleAuthenticated = () => {
     setIsGuestMode(false);
-    setActiveTab('home');
-    window.history.replaceState(null, '', '/');
+    handleRootNavigate('home');
   };
 
   const handleContinueAsGuest = () => {
@@ -1042,8 +1124,7 @@ export default function App() {
     setChefProfile(localProfile);
     setCustomAvatarUrl(localProfile.photo);
     setRecipes(loadLocalRecipes());
-    setActiveTab('home');
-    window.history.replaceState(null, '', '/');
+    handleRootNavigate('home');
   };
 
   const handleAvatarClick = () => {
@@ -1053,14 +1134,12 @@ export default function App() {
     setIsNavigationDrawerOpen(false);
 
     if (currentUser) {
-      setActiveTab('settings');
-      window.history.replaceState(null, '', '/settings');
+      handleRootNavigate('profile');
       return;
     }
 
     setIsGuestMode(false);
-    setActiveTab('login');
-    window.history.replaceState(null, '', '/login');
+    handleRootNavigate('login');
   };
 
   const renderTabContent = () => {
@@ -1116,6 +1195,25 @@ export default function App() {
           <PortfolioPage
             profile={portfolioProfile}
             initialPortfolio={portfolioData}
+            recipes={recipes}
+            userId={currentUser?.uid}
+          />
+        );
+      case 'costing':
+      case 'costingIngredients':
+      case 'costingInvoices':
+      case 'costingInvoiceDetail':
+      case 'costingReports':
+        return <CostingPage activeTab={activeTab} userId={currentUser?.uid} invoiceId={selectedCostingInvoiceId} onOpenInvoice={handleOpenCostingInvoice} onBackToInvoices={() => handleRootNavigate('costingInvoices')} />;
+      case 'business':
+      case 'businessSales':
+        return <BusinessPage activeTab={activeTab} userId={currentUser?.uid} />;
+      case 'team':
+        return (
+          <TeamPage
+            userId={currentUser?.uid}
+            userEmail={currentUser?.email}
+            displayName={currentUser?.displayName}
           />
         );
       case 'search':
@@ -1133,6 +1231,28 @@ export default function App() {
       case 'settings':
         return (
           <SettingsTab
+            mode="settings"
+            recipes={recipes}
+            categories={categories}
+            onImportAppData={handleImportAppData}
+            onResetApp={handleResetApp}
+            onOpenLogin={() => setActiveTab('login')}
+            currentUser={currentUser}
+            profile={chefProfile}
+            customAvatarUrl={customAvatarUrl}
+            onCustomAvatarChange={setCustomAvatarUrl}
+            onProfileChange={nextProfile => {
+              setChefProfile(nextProfile);
+              setCustomAvatarUrl(nextProfile.photo);
+            }}
+            onSignOut={handleSignOut}
+            onNotify={triggerNotification}
+          />
+        );
+      case 'profile':
+        return (
+          <SettingsTab
+            mode="profile"
             recipes={recipes}
             categories={categories}
             onImportAppData={handleImportAppData}
@@ -1239,7 +1359,7 @@ export default function App() {
           isFavoritesFilterActive={isFavoritesFilterActive}
           categoryCounts={categoryCounts}
           onClose={() => setIsNavigationDrawerOpen(false)}
-          onNavigate={setActiveTab}
+          onNavigate={handleRootNavigate}
           onSelectCategory={(categoryName) => {
             setSelectedHomeCategory(categoryName);
             setIsFavoritesFilterActive(false);
@@ -1314,7 +1434,7 @@ export default function App() {
             onClick={() => {
               setSelectedHomeCategory(null);
               setIsFavoritesFilterActive(false);
-              setActiveTab('home');
+              handleRootNavigate('home');
             }}
             className={`flex flex-col items-center justify-center py-1 transition-all flex-1 ${
               activeTab === 'home' ? 'text-primary font-black scale-103' : 'text-outline hover:text-primary'
@@ -1325,7 +1445,7 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setActiveTab('search')}
+            onClick={() => handleRootNavigate('search')}
             className={`flex flex-col items-center justify-center py-1 transition-all flex-1 ${
               activeTab === 'search' ? 'text-primary font-black scale-103' : 'text-outline hover:text-primary'
             }`}

@@ -1,0 +1,2 @@
+export { teamService } from './teamService';
+

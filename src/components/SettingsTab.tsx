@@ -18,6 +18,7 @@ const APP_VERSION = '0.0.0';
 type AppearanceMode = 'light' | 'dark' | 'system';
 
 interface SettingsTabProps {
+  mode?: 'profile' | 'settings';
   recipes: Recipe[];
   categories: RecipeCategory[];
   onImportAppData: (data: ImportedAppData, mode: 'merge' | 'replace') => void;
@@ -84,6 +85,7 @@ const cropProfileImageDataUrl = (
 });
 
 export default function SettingsTab({
+  mode = 'settings',
   recipes,
   categories,
   onImportAppData,
@@ -364,96 +366,127 @@ export default function SettingsTab({
   const sectionTitleClass = 'font-display text-xl font-bold text-primary';
   const sectionClass = 'bg-surface-container-low border border-surface-container-high rounded-2xl p-5 sm:p-6 shadow-sm space-y-5';
   const inputClass = 'w-full bg-white border border-surface-container-high rounded-xl px-4 py-3 text-sm font-sans font-bold text-on-surface focus:ring-1 focus:ring-primary';
+  const isProfileMode = mode === 'profile';
 
   return (
     <div className="space-y-6 animate-fade-in pb-10">
       <div>
         <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">
-          Personal Cookbook
+          {isProfileMode ? 'Account' : 'Personal Cookbook'}
         </p>
         <h2 className="font-display text-3xl sm:text-4xl font-bold text-primary tracking-tight">
-          Settings
+          {isProfileMode ? 'My Profile' : 'Settings'}
         </h2>
       </div>
 
-      <section className={sectionClass}>
-        <div>
-          <h3 className={sectionTitleClass}>Profile</h3>
-          {authEmail ? (
-            <p className="font-sans text-xs font-bold text-on-surface-variant mt-1">
-              {authDisplayName ? `${authDisplayName} · ` : ''}{authEmail}
-            </p>
-          ) : null}
-        </div>
-        <div className="flex flex-col sm:flex-row gap-5">
-          <label className="relative w-28 h-28 rounded-2xl overflow-hidden bg-primary/10 border border-surface-container-high flex items-center justify-center text-primary cursor-pointer hover:border-primary transition-colors shrink-0">
-            <input
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleProfilePhotoChange}
-            />
-            {profileAvatarUrl ? (
-              <img src={profileAvatarUrl} alt={profile.name || authDisplayName || 'User profile'} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-            ) : (
-              <span className="font-display text-3xl font-bold">{profileInitials}</span>
-            )}
-            <span className="absolute inset-x-0 bottom-0 bg-primary/85 text-white text-[10px] font-sans font-bold py-1 flex items-center justify-center gap-1">
-              <Camera className="w-3 h-3" />
-              Change Photo
-            </span>
-          </label>
+      {isProfileMode && (
+        <>
+          <section className={sectionClass}>
+            <div>
+              <h3 className={sectionTitleClass}>Profile</h3>
+              {authEmail ? (
+                <p className="font-sans text-xs font-bold text-on-surface-variant mt-1">
+                  {authDisplayName ? `${authDisplayName} · ` : ''}{authEmail}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex flex-col sm:flex-row gap-5">
+              <label className="relative w-28 h-28 rounded-2xl overflow-hidden bg-primary/10 border border-surface-container-high flex items-center justify-center text-primary cursor-pointer hover:border-primary transition-colors shrink-0">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleProfilePhotoChange}
+                />
+                {profileAvatarUrl ? (
+                  <img src={profileAvatarUrl} alt={profile.name || authDisplayName || 'User profile'} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  <span className="font-display text-3xl font-bold">{profileInitials}</span>
+                )}
+                <span className="absolute inset-x-0 bottom-0 bg-primary/85 text-white text-[10px] font-sans font-bold py-1 flex items-center justify-center gap-1">
+                  <Camera className="w-3 h-3" />
+                  Change Photo
+                </span>
+              </label>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1">
-            <div className="space-y-1.5">
-              <label className="font-sans font-bold text-xs text-on-surface-variant px-1">Name</label>
-              <input className={inputClass} value={profile.name} onChange={e => updateProfile('name', e.target.value)} />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 flex-1">
+                <div className="space-y-1.5">
+                  <label className="font-sans font-bold text-xs text-on-surface-variant px-1">Name</label>
+                  <input className={inputClass} value={profile.name} onChange={e => updateProfile('name', e.target.value)} />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="font-sans font-bold text-xs text-on-surface-variant px-1">Job Title</label>
+                  <input className={inputClass} value={profile.jobTitle} onChange={e => updateProfile('jobTitle', e.target.value)} />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label className="font-sans font-bold text-xs text-on-surface-variant px-1">Years of Experience</label>
+                  <input className={inputClass} value={profile.yearsExperience} onChange={e => updateProfile('yearsExperience', e.target.value)} />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label className="font-sans font-bold text-xs text-on-surface-variant px-1">Bio</label>
+                  <textarea
+                    className={`${inputClass} resize-none`}
+                    rows={4}
+                    value={profile.bio}
+                    onChange={e => updateProfile('bio', e.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <label className="font-sans font-bold text-xs text-on-surface-variant px-1">Personal Quote</label>
+                  <input
+                    className={inputClass}
+                    value={profile.quote}
+                    onChange={e => updateProfile('quote', e.target.value)}
+                  />
+                </div>
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <label className="font-sans font-bold text-xs text-on-surface-variant px-1">Job Title</label>
-              <input className={inputClass} value={profile.jobTitle} onChange={e => updateProfile('jobTitle', e.target.value)} />
+            <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-3 border-t border-surface-container pt-4">
+              {profileMessage && (
+                <p className="font-sans text-xs font-bold text-secondary sm:mr-auto">
+                  {profileMessage}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={handleSaveProfile}
+                disabled={!isProfileDirty || isSavingProfile}
+                className="rounded-full bg-primary disabled:bg-outline-variant disabled:cursor-not-allowed text-on-primary px-5 py-3 text-xs font-sans font-bold active:scale-95 transition-all"
+              >
+                {isSavingProfile ? 'Saving...' : 'Save Changes'}
+              </button>
             </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <label className="font-sans font-bold text-xs text-on-surface-variant px-1">Years of Experience</label>
-              <input className={inputClass} value={profile.yearsExperience} onChange={e => updateProfile('yearsExperience', e.target.value)} />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <label className="font-sans font-bold text-xs text-on-surface-variant px-1">Bio</label>
-              <textarea
-                className={`${inputClass} resize-none`}
-                rows={4}
-                value={profile.bio}
-                onChange={e => updateProfile('bio', e.target.value)}
-              />
-            </div>
-            <div className="space-y-1.5 sm:col-span-2">
-              <label className="font-sans font-bold text-xs text-on-surface-variant px-1">Personal Quote</label>
-              <input
-                className={inputClass}
-                value={profile.quote}
-                onChange={e => updateProfile('quote', e.target.value)}
-              />
-            </div>
-          </div>
-        </div>
-        <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-3 border-t border-surface-container pt-4">
-          {profileMessage && (
-            <p className="font-sans text-xs font-bold text-secondary sm:mr-auto">
-              {profileMessage}
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={handleSaveProfile}
-            disabled={!isProfileDirty || isSavingProfile}
-            className="rounded-full bg-primary disabled:bg-outline-variant disabled:cursor-not-allowed text-on-primary px-5 py-3 text-xs font-sans font-bold active:scale-95 transition-all"
-          >
-            {isSavingProfile ? 'Saving...' : 'Save Changes'}
-          </button>
-        </div>
-      </section>
+          </section>
 
-      {cropImageDataUrl && (
+          <section className={sectionClass}>
+            <h3 className={sectionTitleClass}>Account</h3>
+            <p className="font-sans text-xs font-bold text-on-surface-variant">
+              {authEmail
+                ? `Signed in as ${authDisplayName ? `${authDisplayName} · ` : ''}${authEmail}`
+                : 'Cloud Sync is available after signing in.'}
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={onOpenLogin}
+                className="rounded-full bg-surface-container text-primary px-5 py-3 text-xs font-sans font-bold"
+              >
+                {currentUser ? 'Manage Login' : 'Login'}
+              </button>
+              <button
+                type="button"
+                onClick={onSignOut}
+                disabled={!currentUser}
+                className="rounded-full bg-surface-container-high text-outline px-5 py-3 text-xs font-sans font-bold disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                Sign Out
+              </button>
+            </div>
+          </section>
+        </>
+      )}
+
+      {isProfileMode && cropImageDataUrl && (
         <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-xs flex items-center justify-center px-4">
           <div className="bg-background border border-surface-container-high rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-5">
             <div>
@@ -534,6 +567,8 @@ export default function SettingsTab({
         </div>
       )}
 
+      {!isProfileMode && (
+        <>
       <section className={sectionClass}>
         <h3 className={sectionTitleClass}>Appearance</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -607,32 +642,8 @@ export default function SettingsTab({
           </button>
         </div>
       </section>
-
-      <section className={sectionClass}>
-        <h3 className={sectionTitleClass}>Account</h3>
-        <p className="font-sans text-xs font-bold text-on-surface-variant">
-          {authEmail
-            ? `Signed in as ${authDisplayName ? `${authDisplayName} · ` : ''}${authEmail}`
-            : 'Cloud Sync is available after signing in.'}
-        </p>
-        <div className="flex flex-col sm:flex-row gap-3">
-          <button
-            type="button"
-            onClick={onOpenLogin}
-            className="rounded-full bg-surface-container text-primary px-5 py-3 text-xs font-sans font-bold"
-          >
-            {currentUser ? 'Manage Login' : 'Login'}
-          </button>
-          <button
-            type="button"
-            onClick={onSignOut}
-            disabled={!currentUser}
-            className="rounded-full bg-surface-container-high text-outline px-5 py-3 text-xs font-sans font-bold disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            Sign Out
-          </button>
-        </div>
-      </section>
+        </>
+      )}
     </div>
   );
 }

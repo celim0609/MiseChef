@@ -12,6 +12,13 @@ const geminiApiKey = defineSecret('GEMINI_API_KEY');
 const MODEL = 'gemini-2.5-flash';
 const DAILY_LIMIT = 30;
 const REGION = 'us-central1';
+const MAX_INVOICE_OCR_BYTES = 10 * 1024 * 1024;
+const ALLOWED_INVOICE_OCR_MIME_TYPES = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp'
+]);
 
 const recipeResponseSchema = {
   type: Type.OBJECT,
@@ -46,11 +53,160 @@ const stepsResponseSchema = {
   items: { type: Type.STRING }
 };
 
+const portfolioResumeResponseSchema = {
+  type: Type.OBJECT,
+  properties: {
+    basicProfile: {
+      type: Type.OBJECT,
+      properties: {
+        professionalTitle: { type: Type.STRING },
+        yearsExperience: { type: Type.STRING },
+        shortBio: { type: Type.STRING },
+        quote: { type: Type.STRING },
+        location: { type: Type.STRING },
+        specialties: { type: Type.ARRAY, items: { type: Type.STRING } }
+      }
+    },
+    about: {
+      type: Type.OBJECT,
+      properties: {
+        title: { type: Type.STRING },
+        body: { type: Type.STRING },
+        quote: { type: Type.STRING },
+        highlights: { type: Type.ARRAY, items: { type: Type.STRING } }
+      }
+    },
+    experience: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          role: { type: Type.STRING },
+          organization: { type: Type.STRING },
+          location: { type: Type.STRING },
+          employmentType: { type: Type.STRING },
+          startDate: { type: Type.STRING },
+          endDate: { type: Type.STRING },
+          isCurrent: { type: Type.BOOLEAN },
+          description: { type: Type.STRING },
+          achievements: { type: Type.ARRAY, items: { type: Type.STRING } }
+        }
+      }
+    },
+    skills: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          category: { type: Type.STRING },
+          level: { type: Type.STRING },
+          description: { type: Type.STRING }
+        }
+      }
+    },
+    certificates: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          title: { type: Type.STRING },
+          issuer: { type: Type.STRING },
+          issueDate: { type: Type.STRING },
+          expiryDate: { type: Type.STRING },
+          credentialId: { type: Type.STRING },
+          credentialUrl: { type: Type.STRING },
+          description: { type: Type.STRING },
+          skillsCertified: { type: Type.ARRAY, items: { type: Type.STRING } }
+        }
+      }
+    },
+    contact: {
+      type: Type.OBJECT,
+      properties: {
+        email: { type: Type.STRING },
+        phone: { type: Type.STRING },
+        location: { type: Type.STRING },
+        message: { type: Type.STRING }
+      }
+    }
+  }
+};
+
+const invoiceOcrResponseSchema = {
+  type: Type.OBJECT,
+  properties: {
+    supplier: { type: Type.STRING },
+    invoiceNumber: { type: Type.STRING },
+    invoiceDate: { type: Type.STRING },
+    currency: { type: Type.STRING },
+    subtotal: { type: Type.NUMBER },
+    gst: { type: Type.NUMBER },
+    total: { type: Type.NUMBER },
+    items: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          name: { type: Type.STRING },
+          quantity: { type: Type.NUMBER },
+          unit: { type: Type.STRING },
+          unitPrice: { type: Type.NUMBER },
+          total: { type: Type.NUMBER }
+        }
+      }
+    }
+  }
+};
+
 const getRequesterId = request => request.auth?.uid || `anon_${request.rawRequest.ip || 'unknown'}`;
+
+const requireAuthenticatedUser = request => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError('unauthenticated', 'Sign in to use AI invoice OCR.');
+  }
+  return uid;
+};
 
 const getDateKey = () => new Date().toISOString().slice(0, 10);
 
 const readString = value => (typeof value === 'string' ? value.trim() : '');
+
+const readNumber = value => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value.replace(/[^0-9.-]/g, ''));
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
+
+const isFirebaseStorageUrl = value => {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && (
+      url.hostname === 'firebasestorage.googleapis.com' ||
+      url.hostname.endsWith('.firebasestorage.app') ||
+      url.hostname.endsWith('.appspot.com') ||
+      url.hostname === 'storage.googleapis.com'
+    );
+  } catch (err) {
+    return false;
+  }
+};
+
+const getInvoiceMimeType = (invoice, contentType) => {
+  const cleanContentType = readString(contentType).split(';')[0].trim().toLowerCase();
+  if (ALLOWED_INVOICE_OCR_MIME_TYPES.has(cleanContentType)) return cleanContentType;
+
+  const fileName = readString(invoice.fileName).toLowerCase();
+  if (fileName.endsWith('.pdf')) return 'application/pdf';
+  if (fileName.endsWith('.jpg') || fileName.endsWith('.jpeg')) return 'image/jpeg';
+  if (fileName.endsWith('.png')) return 'image/png';
+  if (fileName.endsWith('.webp')) return 'image/webp';
+  return cleanContentType || 'application/octet-stream';
+};
 
 const stripJsonCodeFence = value => readString(value)
   .replace(/^```json\s*/i, '')
@@ -103,6 +259,104 @@ const sanitizeSteps = value => {
   }
 
   return steps.map(step => readString(step)).filter(Boolean);
+};
+
+const readStringArray = value => Array.isArray(value)
+  ? value.map(item => readString(item)).filter(Boolean)
+  : [];
+
+const sanitizeResumePortfolio = value => {
+  const source = value && typeof value === 'object' ? value : {};
+  const basicProfile = source.basicProfile && typeof source.basicProfile === 'object' ? source.basicProfile : {};
+  const about = source.about && typeof source.about === 'object' ? source.about : {};
+  const contact = source.contact && typeof source.contact === 'object' ? source.contact : {};
+  const experience = Array.isArray(source.experience) ? source.experience : [];
+  const skills = Array.isArray(source.skills) ? source.skills : [];
+  const certificates = Array.isArray(source.certificates) ? source.certificates : [];
+
+  return {
+    basicProfile: {
+      professionalTitle: readString(basicProfile.professionalTitle),
+      yearsExperience: readString(basicProfile.yearsExperience),
+      shortBio: readString(basicProfile.shortBio),
+      quote: readString(basicProfile.quote),
+      location: readString(basicProfile.location),
+      specialties: readStringArray(basicProfile.specialties)
+    },
+    about: {
+      title: readString(about.title),
+      body: readString(about.body),
+      quote: readString(about.quote),
+      highlights: readStringArray(about.highlights)
+    },
+    experience: experience.map(item => {
+      const exp = item && typeof item === 'object' ? item : {};
+      return {
+        role: readString(exp.role),
+        organization: readString(exp.organization),
+        location: readString(exp.location),
+        employmentType: readString(exp.employmentType),
+        startDate: readString(exp.startDate),
+        endDate: readString(exp.endDate),
+        isCurrent: exp.isCurrent === true,
+        description: readString(exp.description),
+        achievements: readStringArray(exp.achievements)
+      };
+    }).filter(item => item.role || item.organization || item.description),
+    skills: skills.map(item => {
+      const skill = item && typeof item === 'object' ? item : {};
+      return {
+        name: readString(skill.name),
+        category: readString(skill.category),
+        level: readString(skill.level),
+        description: readString(skill.description)
+      };
+    }).filter(item => item.name),
+    certificates: certificates.map(item => {
+      const certificate = item && typeof item === 'object' ? item : {};
+      return {
+        title: readString(certificate.title),
+        issuer: readString(certificate.issuer),
+        issueDate: readString(certificate.issueDate),
+        expiryDate: readString(certificate.expiryDate),
+        credentialId: readString(certificate.credentialId),
+        credentialUrl: readString(certificate.credentialUrl),
+        description: readString(certificate.description),
+        skillsCertified: readStringArray(certificate.skillsCertified)
+      };
+    }).filter(item => item.title),
+    contact: {
+      email: readString(contact.email),
+      phone: readString(contact.phone),
+      location: readString(contact.location),
+      message: readString(contact.message)
+    }
+  };
+};
+
+const sanitizeInvoiceOcr = value => {
+  const source = value && typeof value === 'object' ? value : {};
+  const items = Array.isArray(source.items) ? source.items : [];
+
+  return {
+    supplier: readString(source.supplier),
+    invoiceNumber: readString(source.invoiceNumber),
+    invoiceDate: readString(source.invoiceDate),
+    currency: readString(source.currency),
+    subtotal: readNumber(source.subtotal),
+    gst: readNumber(source.gst),
+    total: readNumber(source.total),
+    items: items.map(item => {
+      const invoiceItem = item && typeof item === 'object' ? item : {};
+      return {
+        name: readString(invoiceItem.name),
+        quantity: readNumber(invoiceItem.quantity),
+        unit: readString(invoiceItem.unit),
+        unitPrice: readNumber(invoiceItem.unitPrice),
+        total: readNumber(invoiceItem.total)
+      };
+    }).filter(item => item.name || item.quantity || item.unit || item.unitPrice || item.total)
+  };
 };
 
 const enforceDailyLimit = async ({ requesterId, action }) => {
@@ -264,6 +518,104 @@ export const scanRecipeImage = onCall({
   }
 });
 
+export const parseInvoiceToJson = onCall({
+  region: REGION,
+  invoker: 'public',
+  secrets: [geminiApiKey],
+  timeoutSeconds: 120,
+  memory: '512MiB'
+}, async request => {
+  const requesterId = requireAuthenticatedUser(request);
+  const action = 'parseInvoiceToJson';
+  const includeDiagnostics = request.data?.debug === true;
+  let attempts = 0;
+
+  try {
+    await enforceDailyLimit({ requesterId, action });
+
+    const invoiceId = readString(request.data?.invoiceId);
+    if (!invoiceId) {
+      throw new HttpsError('invalid-argument', 'Invoice ID is required.');
+    }
+
+    const invoiceSnapshot = await db.collection('invoices').doc(invoiceId).get();
+    if (!invoiceSnapshot.exists) {
+      throw new HttpsError('not-found', 'Invoice not found.');
+    }
+
+    const invoiceRecord = invoiceSnapshot.data() || {};
+    if (invoiceRecord.createdBy !== requesterId) {
+      throw new HttpsError('permission-denied', 'You can only process your own invoices.');
+    }
+
+    const fileUrl = readString(invoiceRecord.fileUrl);
+    if (!fileUrl || !isFirebaseStorageUrl(fileUrl)) {
+      throw new HttpsError('failed-precondition', 'Invoice file is not available for OCR.');
+    }
+
+    const fileResponse = await fetch(fileUrl);
+    if (!fileResponse.ok) {
+      throw new HttpsError('failed-precondition', 'Unable to read the invoice file for OCR.');
+    }
+
+    const mimeType = getInvoiceMimeType(invoiceRecord, fileResponse.headers.get('content-type'));
+    if (!ALLOWED_INVOICE_OCR_MIME_TYPES.has(mimeType)) {
+      throw new HttpsError('invalid-argument', 'AI invoice OCR currently supports PDF, JPG, PNG, and WEBP invoices.');
+    }
+
+    const fileBuffer = Buffer.from(await fileResponse.arrayBuffer());
+    if (!fileBuffer.length || fileBuffer.length > MAX_INVOICE_OCR_BYTES) {
+      throw new HttpsError('invalid-argument', 'Invoice file must be 10 MB or smaller.');
+    }
+
+    logger.info('AI invoice OCR requested', { requesterId, action, invoiceId, mimeType, fileBytes: fileBuffer.length });
+    const ai = getAi();
+    const { response, attempts: usedAttempts } = await callGeminiWithRetry(() => ai.models.generateContent({
+      model: MODEL,
+      contents: [
+        {
+          inlineData: {
+            mimeType,
+            data: fileBuffer.toString('base64')
+          }
+        },
+        {
+          text: [
+            'Extract structured data from this supplier invoice for chef costing review.',
+            'Return ONLY valid JSON with this exact shape:',
+            '{"supplier":"","invoiceNumber":"","invoiceDate":"","currency":"","subtotal":0,"gst":0,"total":0,"items":[{"name":"","quantity":0,"unit":"","unitPrice":0,"total":0}]}',
+            'Rules:',
+            '- Do not invent values that are not visible in the invoice.',
+            '- Keep item names as written on the invoice, cleaned only for obvious OCR spacing issues.',
+            '- Use numbers only for quantity, unitPrice, subtotal, gst, and total.',
+            '- Use the invoice currency code or visible symbol text when clear.',
+            '- If a field is missing or unreadable, return an empty string or 0.',
+            '- Do not create ingredients, match recipes, calculate costs, add notes, markdown, or commentary.'
+          ].join(' ')
+        }
+      ],
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: invoiceOcrResponseSchema
+      }
+    }));
+    attempts = usedAttempts;
+
+    const invoice = sanitizeInvoiceOcr(parseJsonResponse(response.text, {}, includeDiagnostics));
+    logger.info('AI invoice OCR parsed', { requesterId, action, attempts, supplierPresent: Boolean(invoice.supplier), itemCount: invoice.items.length });
+    await logRequest({ requesterId, action, status: 'success', attempts });
+    return { invoice };
+  } catch (err) {
+    attempts = attempts || 1;
+    const errorCode = err instanceof HttpsError ? err.code : 'internal';
+    logger.error('AI invoice OCR failed', { requesterId, action, attempts, errorCode, ...getErrorDiagnostics(err) });
+    await logRequest({ requesterId, action, status: 'failed', attempts, errorCode }).catch(() => undefined);
+
+    if (err instanceof HttpsError) throw err;
+    throw wrapInternalError('AI invoice OCR failed. Please try again.', err, includeDiagnostics);
+  }
+});
+
 export const generateRecipeSteps = onCall({
   region: REGION,
   invoker: 'public',
@@ -340,5 +692,79 @@ Rules:
 
     if (err instanceof HttpsError) throw err;
     throw wrapInternalError('AI method draft failed. Please try again.', err, includeDiagnostics);
+  }
+});
+
+export const parseResumeToPortfolio = onCall({
+  region: REGION,
+  invoker: 'public',
+  secrets: [geminiApiKey],
+  timeoutSeconds: 90,
+  memory: '256MiB'
+}, async request => {
+  const requesterId = getRequesterId(request);
+  const action = 'parseResumeToPortfolio';
+  const includeDiagnostics = request.data?.debug === true;
+  let attempts = 0;
+
+  try {
+    await enforceDailyLimit({ requesterId, action });
+
+    const resumeText = readString(request.data?.resumeText);
+    if (!resumeText || resumeText.length < 80) {
+      throw new HttpsError('invalid-argument', 'Resume text is too short to import.');
+    }
+    if (resumeText.length > 50_000) {
+      throw new HttpsError('invalid-argument', 'Resume text is too long to import.');
+    }
+
+    const prompt = `
+Convert this resume into an editable chef portfolio draft.
+
+Return ONLY valid JSON with this exact top-level shape:
+{
+  "basicProfile": {"professionalTitle":"", "yearsExperience":"", "shortBio":"", "quote":"", "location":"", "specialties":[]},
+  "about": {"title":"", "body":"", "quote":"", "highlights":[]},
+  "experience": [{"role":"", "organization":"", "location":"", "employmentType":"", "startDate":"", "endDate":"", "isCurrent":false, "description":"", "achievements":[]}],
+  "skills": [{"name":"", "category":"", "level":"", "description":""}],
+  "certificates": [{"title":"", "issuer":"", "issueDate":"", "expiryDate":"", "credentialId":"", "credentialUrl":"", "description":"", "skillsCertified":[]}],
+  "contact": {"email":"", "phone":"", "location":"", "message":""}
+}
+
+Rules:
+- Do not invent details that are not present in the resume.
+- Keep professional culinary language when the resume relates to food, hospitality, or chef work.
+- Preserve dates as written.
+- Use concise editable text.
+- If a field is not present, return an empty string or empty array.
+- Do not include markdown, notes, commentary, or confidence scores.
+
+Resume text:
+${resumeText}
+`;
+
+    logger.info('AI resume import requested', { requesterId, action, textLength: resumeText.length });
+    const ai = getAi();
+    const { response, attempts: usedAttempts } = await callGeminiWithRetry(() => ai.models.generateContent({
+      model: MODEL,
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: portfolioResumeResponseSchema
+      }
+    }));
+    attempts = usedAttempts;
+
+    const portfolio = sanitizeResumePortfolio(parseJsonResponse(response.text, {}, includeDiagnostics));
+    await logRequest({ requesterId, action, status: 'success', attempts });
+    return { portfolio };
+  } catch (err) {
+    attempts = attempts || 1;
+    const errorCode = err instanceof HttpsError ? err.code : 'internal';
+    logger.error('AI resume import failed', { requesterId, action, attempts, errorCode, ...getErrorDiagnostics(err) });
+    await logRequest({ requesterId, action, status: 'failed', attempts, errorCode }).catch(() => undefined);
+
+    if (err instanceof HttpsError) throw err;
+    throw wrapInternalError('AI resume import failed. Please try again.', err, includeDiagnostics);
   }
 });

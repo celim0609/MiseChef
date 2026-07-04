@@ -1,33 +1,25 @@
-import { useState, type FormEvent } from 'react';
-import type { Portfolio, PortfolioBasicProfile } from '../types';
+import type { PortfolioBasicProfile } from '../types';
 
 interface HeroEditorProps {
-  portfolio: Portfolio;
-  onSave: (basicProfile: PortfolioBasicProfile) => void;
+  basicProfile: PortfolioBasicProfile;
+  onChange: (basicProfile: PortfolioBasicProfile) => void;
 }
 
-export default function HeroEditor({ portfolio, onSave }: HeroEditorProps) {
-  const [draft, setDraft] = useState<PortfolioBasicProfile>(portfolio.basicProfile);
-
+export default function HeroEditor({ basicProfile, onChange }: HeroEditorProps) {
   const updateDraft = (field: keyof PortfolioBasicProfile, value: string | string[]) => {
-    setDraft(current => ({
-      ...current,
+    onChange({
+      ...basicProfile,
       [field]: value
-    }));
-  };
-
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    onSave(draft);
+    });
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       <label className="block space-y-2">
         <span className="font-sans text-xs font-extrabold text-primary">Professional Title</span>
         <input
           type="text"
-          value={draft.professionalTitle || ''}
+          value={basicProfile.professionalTitle || ''}
           onChange={event => updateDraft('professionalTitle', event.target.value)}
           className="w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-on-surface outline-none focus:border-primary"
         />
@@ -37,26 +29,26 @@ export default function HeroEditor({ portfolio, onSave }: HeroEditorProps) {
         <span className="font-sans text-xs font-extrabold text-primary">Years Experience</span>
         <input
           type="text"
-          value={draft.yearsExperience || ''}
+          value={basicProfile.yearsExperience || ''}
           onChange={event => updateDraft('yearsExperience', event.target.value)}
           className="w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-on-surface outline-none focus:border-primary"
         />
       </label>
 
-      <label className="block space-y-2">
+      <label className="block space-y-2 md:col-span-2">
         <span className="font-sans text-xs font-extrabold text-primary">Short Bio</span>
         <textarea
-          value={draft.shortBio || ''}
+          value={basicProfile.shortBio || ''}
           onChange={event => updateDraft('shortBio', event.target.value)}
           rows={4}
           className="w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-on-surface outline-none focus:border-primary resize-none"
         />
       </label>
 
-      <label className="block space-y-2">
+      <label className="block space-y-2 md:col-span-2">
         <span className="font-sans text-xs font-extrabold text-primary">Quote</span>
         <textarea
-          value={draft.quote || ''}
+          value={basicProfile.quote || ''}
           onChange={event => updateDraft('quote', event.target.value)}
           rows={3}
           className="w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-on-surface outline-none focus:border-primary resize-none"
@@ -67,7 +59,7 @@ export default function HeroEditor({ portfolio, onSave }: HeroEditorProps) {
         <span className="font-sans text-xs font-extrabold text-primary">Location</span>
         <input
           type="text"
-          value={draft.location || ''}
+          value={basicProfile.location || ''}
           onChange={event => updateDraft('location', event.target.value)}
           className="w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-on-surface outline-none focus:border-primary"
         />
@@ -77,18 +69,11 @@ export default function HeroEditor({ portfolio, onSave }: HeroEditorProps) {
         <span className="font-sans text-xs font-extrabold text-primary">Specialties</span>
         <input
           type="text"
-          value={(draft.specialties || []).join(', ')}
+          value={(basicProfile.specialties || []).join(', ')}
           onChange={event => updateDraft('specialties', event.target.value.split(',').map(item => item.trim()).filter(Boolean))}
           className="w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-on-surface outline-none focus:border-primary"
         />
       </label>
-
-      <button
-        type="submit"
-        className="rounded-full bg-primary px-6 py-3 font-sans text-xs font-extrabold text-on-primary active:scale-95 transition-all"
-      >
-        Save
-      </button>
-    </form>
+    </div>
   );
 }

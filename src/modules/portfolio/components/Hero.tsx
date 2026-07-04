@@ -11,10 +11,10 @@ export default function Hero({ profile, portfolio }: HeroProps) {
     yearsExperience,
     shortBio,
     quote,
-    coverPhotoUrl,
     location,
     specialties = []
   } = portfolio.basicProfile;
+  const backgroundImageUrl = portfolio.hero?.backgroundImageUrl || portfolio.basicProfile.coverPhotoUrl;
   const profileInitial = profile.displayName.trim().charAt(0).toUpperCase();
   const heroTitle = professionalTitle?.trim() || 'Complete your Portfolio';
   const heroBio = shortBio?.trim() || 'Add a short bio to introduce your culinary story, signature strengths, and current focus.';
@@ -22,10 +22,10 @@ export default function Hero({ profile, portfolio }: HeroProps) {
   return (
     <section className="animate-fade-in pb-10">
       <div className="bg-surface-container-low border border-surface-container-high rounded-2xl p-6 sm:p-8 shadow-sm overflow-hidden relative">
-        {coverPhotoUrl && (
+        {backgroundImageUrl && (
           <div className="absolute inset-0 opacity-20">
             <img
-              src={coverPhotoUrl}
+              src={backgroundImageUrl}
               alt=""
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"

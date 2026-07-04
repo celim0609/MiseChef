@@ -98,4 +98,20 @@ export interface Collection {
   description?: string;
 }
 
-export type RootTab = 'home' | 'search' | 'favorites' | 'statistics' | 'settings' | 'login';
+export type RootTab =
+  | 'home'
+  | 'search'
+  | 'favorites'
+  | 'portfolio'
+  | 'profile'
+  | 'statistics'
+  | 'settings'
+  | 'login'
+  | 'team'
+  | 'business'
+  | 'businessSales'
+  | 'costing'
+  | 'costingIngredients'
+  | 'costingInvoices'
+  | 'costingInvoiceDetail'
+  | 'costingReports';
