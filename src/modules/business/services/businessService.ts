@@ -31,7 +31,7 @@ const getInvoiceTotal = (invoice: CostingInvoice) => Number(invoice.total ?? inv
 const getInvoiceDate = (invoice: CostingInvoice) => getDateKey(invoice.invoiceDate || invoice.processingCompletedAt || invoice.uploadDate);
 const getInvoiceSupplier = (invoice: CostingInvoice) => invoice.supplier || invoice.extractedData?.supplier || 'Unknown Supplier';
 
-const isApprovedInvoiceProxy = (invoice: CostingInvoice) => invoice.processingStatus === 'Processed' && !invoice.errorMessage;
+const isApprovedInvoiceProxy = (invoice: CostingInvoice) => invoice.processingStatus === 'Imported' && !invoice.errorMessage;
 
 const getMonthDateKeys = (today: Date) => {
   const keys: string[] = [];
@@ -59,7 +59,7 @@ export const businessService = {
   },
 
   async createSale({ date, amount, notes }: { date: string; amount: number; notes: string }, userId: string, workspaceId = userId): Promise<BusinessSale> {
-    if (!db) throw new Error('Firestore is not initialized.');
+    if (!db) throw new Error("We couldn't connect to your workspace. Please refresh the page or try again.");
 
     const saleRef = doc(collection(db, 'businessSales'));
     const now = new Date().toISOString();
@@ -78,15 +78,15 @@ export const businessService = {
     return sale;
   },
 
-  async getDashboardSummary(userId?: string): Promise<BusinessDashboardSummary> {
-    if (!userId) {
+  async getDashboardSummary(userId?: string, workspaceId = userId): Promise<BusinessDashboardSummary> {
+    if (!userId || !workspaceId) {
       return { todaySales: 0, todayPurchases: 0, monthSales: 0, monthPurchases: 0, purchaseCostPercentage: null, monthlyTrend: [], topSuppliers: [], alerts: [] };
     }
 
     const today = new Date();
     const [sales, invoices] = await Promise.all([
-      this.listSales(userId),
-      invoiceService.listInvoices(userId)
+      this.listSales(workspaceId),
+      invoiceService.listInvoices(userId, { workspaceId })
     ]);
 
     const todaySales = sales

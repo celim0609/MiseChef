@@ -1,4 +1,4 @@
-export type CostingInvoiceStatus = 'Pending' | 'Processing' | 'Processed' | 'Failed' | 'Imported';
+export type CostingInvoiceStatus = 'Pending' | 'Processing' | 'Processed' | 'Failed' | 'Imported' | 'Archived';
 export type CostingInvoiceFileType = 'PDF' | 'Image' | 'Excel';
 export type CostingIngredientStatus = 'Active' | 'Archived';
 
@@ -58,11 +58,20 @@ export interface CostingInvoice {
   processingStatus: CostingInvoiceStatus;
   processingStartedAt?: string;
   processingCompletedAt?: string;
-  approvedAt?: string;
-  approvedBy?: string;
+  approvedAt?: string | null;
+  approvedBy?: string | null;
+  archivedAt?: string;
+  archivedBy?: string;
+  restoredAt?: string;
+  restoredBy?: string;
+  rollbackAt?: string;
+  rollbackBy?: string;
+  rollbackReason?: string;
+  previousStatus?: CostingInvoiceStatus;
   extractedData: CostingInvoiceExtractedData | null;
   errorMessage: string | null;
   createdBy: string;
+  workspaceId?: string;
   size: number;
 }
 
@@ -71,10 +80,29 @@ export interface CostingIngredientPriceHistory {
   ingredientId: string;
   supplierId: string;
   invoiceId: string;
+  previousCost: number | null;
+  newCost: number;
   unitPrice: number;
   currency: string;
   effectiveDate: string;
   createdAt: string;
+  createdBy: string;
+  workspaceId: string;
+  rollbackStatus?: 'Active' | 'RolledBack';
+  rolledBackAt?: string;
+  rolledBackBy?: string;
+}
+
+export interface PendingRecipeCostRecalculation {
+  id: string;
+  recipeId: string;
+  invoiceId: string;
+  ingredientIds: string[];
+  ingredientNames: string[];
+  status: 'Pending';
+  reason: 'IngredientCostChanged';
+  createdAt: string;
+  updatedAt: string;
   createdBy: string;
   workspaceId: string;
 }

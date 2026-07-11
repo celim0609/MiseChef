@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   BarChart3,
   BookOpen,
@@ -11,23 +11,43 @@ import {
   Calculator,
   ChevronDown,
   CreditCard,
+  Gauge,
   FileBarChart,
   Home,
   PackageSearch,
   LogIn,
   LogOut,
+  LockKeyhole,
   MoreHorizontal,
   ReceiptText,
   Settings,
+  ShieldCheck,
   Star,
-  UserRound,
+  Truck,
   UsersRound,
   X
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { User } from 'firebase/auth';
-import { RecipeCategory, RootTab } from '../types';
+import { RecipeCategory, RootTab, SubscriptionPlan, UserRole, WorkspaceMemberRole } from '../types';
+import { canAccessRootTab } from '../modules/team/permissions';
 import BrandLogo from './BrandLogo';
+import { subscriptionService, type PlanFeature } from '../services/subscriptionService';
+
+const PRODUCT_TAB_FEATURES: Partial<Record<RootTab, PlanFeature>> = {
+  search: 'recipes',
+  favorites: 'recipes',
+  business: 'reports',
+  businessSales: 'reports',
+  businessSuppliers: 'suppliers',
+  costing: 'invoiceOcr',
+  costingInvoices: 'invoiceOcr',
+  costingInvoiceDetail: 'invoiceOcr',
+  costingIngredients: 'ingredients',
+  costingReports: 'reports'
+};
+
+const PRODUCT_TABS = new Set<RootTab>(Object.keys(PRODUCT_TAB_FEATURES) as RootTab[]);
 
 interface NavigationDrawerProps {
   isOpen: boolean;
@@ -41,6 +61,9 @@ interface NavigationDrawerProps {
   onSelectCategory: (categoryName: string | null) => void;
   onSelectFavorites: () => void;
   currentUser: User | null;
+  currentUserRole?: UserRole;
+  workspaceRole?: WorkspaceMemberRole | null;
+  workspaceId?: string;
   customAvatarUrl?: string;
   onRenameCategory: (categoryId: string, nextName: string) => void;
   onDeleteCategory: (categoryId: string, targetCategoryName: string) => void;
@@ -59,11 +82,15 @@ export default function NavigationDrawer({
   onSelectCategory,
   onSelectFavorites,
   currentUser,
+  currentUserRole = 'user',
+  workspaceRole = null,
+  workspaceId = '',
   customAvatarUrl = '',
   onRenameCategory,
   onDeleteCategory,
   onSignOut
 }: NavigationDrawerProps) {
+  const [recipesOpen, setRecipesOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [businessOpen, setBusinessOpen] = useState(false);
   const [costingOpen, setCostingOpen] = useState(false);
@@ -73,6 +100,7 @@ export default function NavigationDrawer({
   const [deletingCategory, setDeletingCategory] = useState<RecipeCategory | null>(null);
   const [deleteMode, setDeleteMode] = useState<'remove' | 'replace'>('remove');
   const [replacementCategory, setReplacementCategory] = useState('');
+  const [subscriptionPlan, setSubscriptionPlan] = useState<SubscriptionPlan>('free');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -92,14 +120,53 @@ export default function NavigationDrawer({
     };
   }, [isOpen, onClose]);
 
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadSubscriptionPlan = async () => {
+      if (!workspaceId) {
+        setSubscriptionPlan('free');
+        return;
+      }
+
+      try {
+        const subscription = await subscriptionService.getCompanySubscription(workspaceId);
+        if (!isCancelled) setSubscriptionPlan(subscription.subscriptionPlan);
+      } catch (err) {
+        if (!isCancelled) setSubscriptionPlan('free');
+      }
+    };
+
+    loadSubscriptionPlan();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [workspaceId]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (activeTab === 'search' || activeTab === 'favorites') setRecipesOpen(true);
+    if (activeTab === 'business' || activeTab === 'businessSales') setBusinessOpen(true);
+    if (activeTab === 'costing' || activeTab === 'costingIngredients' || activeTab === 'costingInvoices' || activeTab === 'costingInvoiceDetail' || activeTab === 'costingReports' || activeTab === 'businessSuppliers') setCostingOpen(true);
+  }, [activeTab, isOpen]);
+
   const handleNavigate = (tab: RootTab) => {
     onNavigate(tab);
     onClose();
   };
 
+  const handleHomeSelect = () => {
+    onSelectCategory(null);
+    onNavigate('home');
+    setOpenCategoryMenuId(null);
+    onClose();
+  };
+
   const handleCategorySelect = (categoryName: string | null) => {
     onSelectCategory(categoryName);
-    onNavigate('home');
+    onNavigate('search');
     setOpenCategoryMenuId(null);
     onClose();
   };
@@ -110,25 +177,49 @@ export default function NavigationDrawer({
     onClose();
   };
 
+  const isSuperAdmin = currentUserRole === 'super_admin';
+  const activePlan = useMemo(() => subscriptionService.getPlanDefinition(subscriptionPlan), [subscriptionPlan]);
+  const canUsePlanFeature = (feature: PlanFeature) => subscriptionService.canPlanUseFeature(subscriptionPlan, feature);
+  const canUseTabFeature = (tab: RootTab) => {
+    const feature = PRODUCT_TAB_FEATURES[tab];
+    return feature ? canUsePlanFeature(feature) : true;
+  };
+  const canAccessByRole = (tab: RootTab) => canAccessRootTab(tab, workspaceRole, isSuperAdmin);
+  const canAccess = (tab: RootTab) => {
+    if (!canUseTabFeature(tab)) return false;
+    return PRODUCT_TABS.has(tab) || canAccessByRole(tab);
+  };
+  const canAccessRecipes = canUsePlanFeature('recipes');
+  const getLockedAccessLabel = (feature: PlanFeature) => {
+    if (!workspaceId) return 'Select a workspace';
+
+    const requiredPlan = subscriptionService.getRequiredPlanForFeature(feature);
+    if (requiredPlan === activePlan.id) return `Included in ${activePlan.name}`;
+
+    const requiredPlanDefinition = subscriptionService.getPlanDefinition(requiredPlan);
+    return activePlan.id === 'free'
+      ? `Upgrade to ${requiredPlanDefinition.name}`
+      : `Available in ${requiredPlanDefinition.name}`;
+  };
   const staticMenuItems: Array<{ label: string; icon: React.ReactNode; tab?: RootTab }> = [
-    { label: 'Team', icon: <UsersRound className="w-5 h-5" />, tab: 'team' },
-    { label: 'Portfolio', icon: <BriefcaseBusiness className="w-5 h-5" />, tab: 'portfolio' },
-    { label: 'My Profile', icon: <UserRound className="w-5 h-5" />, tab: 'profile' },
-    { label: 'Statistics', icon: <BarChart3 className="w-5 h-5" />, tab: 'statistics' },
-    { label: 'Settings', icon: <Settings className="w-5 h-5" />, tab: 'settings' }
-  ];
+    { label: 'Team', icon: <UsersRound className="w-5 h-5" />, tab: 'team' as RootTab },
+    { label: 'Portfolio', icon: <BriefcaseBusiness className="w-5 h-5" />, tab: 'portfolio' as RootTab },
+    { label: 'Settings', icon: <Settings className="w-5 h-5" />, tab: 'settings' as RootTab }
+  ].filter(item => !item.tab || canAccess(item.tab));
   const costingMenuItems: Array<{ label: string; icon: React.ReactNode; tab: RootTab }> = [
-    { label: 'Invoices', icon: <ReceiptText className="w-4 h-4" />, tab: 'costing' },
-    { label: 'Ingredients', icon: <PackageSearch className="w-4 h-4" />, tab: 'costingIngredients' },
-    { label: 'Reports', icon: <FileBarChart className="w-4 h-4" />, tab: 'costingReports' }
-  ];
+    { label: 'Dashboard', icon: <Gauge className="w-4 h-4" />, tab: 'costing' as RootTab },
+    { label: 'Ingredients', icon: <PackageSearch className="w-4 h-4" />, tab: 'costingIngredients' as RootTab },
+    { label: 'Suppliers', icon: <Truck className="w-4 h-4" />, tab: 'businessSuppliers' as RootTab },
+    { label: 'Invoices', icon: <ReceiptText className="w-4 h-4" />, tab: 'costingInvoices' as RootTab },
+    { label: 'Reports', icon: <FileBarChart className="w-4 h-4" />, tab: 'costingReports' as RootTab }
+  ].filter(item => canUseTabFeature(item.tab));
   const businessMenuItems: Array<{ label: string; icon: React.ReactNode; tab: RootTab }> = [
-    { label: 'Dashboard', icon: <BarChart3 className="w-4 h-4" />, tab: 'business' },
-    { label: 'Sales', icon: <CreditCard className="w-4 h-4" />, tab: 'businessSales' }
-  ];
+    { label: 'Dashboard', icon: <BarChart3 className="w-4 h-4" />, tab: 'business' as RootTab },
+    { label: 'Sales', icon: <CreditCard className="w-4 h-4" />, tab: 'businessSales' as RootTab }
+  ].filter(item => canUseTabFeature(item.tab));
 
   const displayName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'MiseChef User';
-  const displayEmail = currentUser?.email || 'Sign in to enable Cloud Sync';
+  const displayEmail = currentUser?.email || 'Sign in to access your workspace';
   const avatarUrl = customAvatarUrl || currentUser?.photoURL || '';
   const avatarInitial = displayName.trim().charAt(0).toUpperCase() || 'M';
 
@@ -136,6 +227,18 @@ export default function NavigationDrawer({
     onSignOut();
     onClose();
   };
+
+
+  const LockedNavItem = ({ label, icon, feature }: { label: string; icon: React.ReactNode; feature: PlanFeature }) => (
+    <div className="w-full rounded-2xl border border-surface-container-high/70 bg-surface-container-low/70 px-4 py-3 text-left" aria-disabled="true">
+      <div className="flex items-center gap-3 font-sans text-sm font-extrabold text-on-surface-variant">
+        {icon}
+        <span className="flex-1">{label}</span>
+        <LockKeyhole className="h-4 w-4 text-outline" />
+      </div>
+      <p className="mt-1 pl-8 font-sans text-[10px] font-extrabold uppercase tracking-[0.12em] text-outline">{getLockedAccessLabel(feature)}</p>
+    </div>
+  );
 
   const startRenameCategory = (category: RecipeCategory) => {
     setRenamingCategory(category);
@@ -230,9 +333,9 @@ export default function NavigationDrawer({
             <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
               <button
                 type="button"
-                onClick={() => handleCategorySelect(null)}
+                onClick={handleHomeSelect}
                 className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-sans font-extrabold text-sm transition-all ${
-                  activeTab === 'home' && !selectedCategory && !isFavoritesFilterActive
+                  activeTab === 'home'
                     ? 'bg-primary text-on-primary shadow-sm'
                     : 'text-primary hover:bg-surface-container'
                 }`}
@@ -241,18 +344,61 @@ export default function NavigationDrawer({
                 <span>Home</span>
               </button>
 
-              <div className="rounded-2xl overflow-hidden">
+              {!canAccessRecipes && currentUser && (
+                <LockedNavItem label="Recipes" icon={<BookOpen className="w-5 h-5" />} feature="recipes" />
+              )}
+
+              {canAccessRecipes && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setRecipesOpen(prev => !prev)}
+                    className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-sans font-extrabold text-sm transition-all ${
+                      activeTab === 'search' || activeTab === 'favorites'
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-primary hover:bg-surface-container'
+                    }`}
+                    aria-expanded={recipesOpen}
+                  >
+                    <BookOpen className="w-5 h-5" />
+                    <span className="flex-1">Recipes</span>
+                    <ChevronDown className={`w-4 h-4 transition-transform ${recipesOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  <AnimatePresence initial={false}>
+                    {recipesOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: 'easeOut' }}
+                        className="ml-8 mr-2 mb-2 space-y-1 overflow-hidden border-l border-surface-container-high pl-3"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleCategorySelect(null)}
+                          className={`w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-left font-sans text-xs font-bold transition-all ${
+                            activeTab === 'search' && !selectedCategory
+                              ? 'bg-primary text-on-primary shadow-sm'
+                              : 'text-on-surface-variant hover:bg-surface-container hover:text-primary'
+                          }`}
+                        >
+                          <BookOpen className="w-4 h-4" />
+                          <span>All Recipes</span>
+                        </button>
+
+                  <div className="rounded-xl overflow-hidden">
                 <button
                   type="button"
                   onClick={() => setCategoriesOpen(prev => !prev)}
                   className={`w-full flex items-center gap-3 px-4 py-3.5 text-left font-sans font-extrabold text-sm transition-all ${
-                    activeTab === 'search'
+                    activeTab === 'search' && selectedCategory
                       ? 'bg-primary/10 text-primary'
                       : 'text-primary hover:bg-surface-container'
                   }`}
                   aria-expanded={categoriesOpen}
                 >
-                  <BookOpen className="w-5 h-5" />
+                  <BookOpen className="w-4 h-4" />
                   <span className="flex-1">Categories</span>
                   <ChevronDown
                     className={`w-4 h-4 transition-transform ${categoriesOpen ? 'rotate-180' : ''}`}
@@ -268,21 +414,10 @@ export default function NavigationDrawer({
                       transition={{ duration: 0.2, ease: 'easeOut' }}
                       className="overflow-hidden"
                     >
-                      <div className="ml-8 mr-2 mb-2 space-y-1 border-l border-surface-container-high pl-3">
-                        <button
-                          type="button"
-                          onClick={() => handleCategorySelect(null)}
-                          className={`w-full rounded-xl px-3 py-2.5 text-left font-sans text-xs font-bold transition-all ${
-                            !selectedCategory && !isFavoritesFilterActive && activeTab === 'home'
-                              ? 'bg-primary text-on-primary shadow-sm'
-                              : 'text-on-surface-variant hover:bg-surface-container hover:text-primary'
-                          }`}
-                        >
-                          All Recipes
-                        </button>
+                      <div className="ml-4 mr-1 mb-2 space-y-1 border-l border-surface-container-high pl-3">
                         {categories.length > 0 ? (
                           categories.map(category => {
-                            const isSelected = selectedCategory === category.name && activeTab === 'home';
+                            const isSelected = selectedCategory === category.name && activeTab === 'search';
                             return (
                               <div key={category.id} className="relative space-y-1">
                                 <div
@@ -357,24 +492,48 @@ export default function NavigationDrawer({
                   )}
                 </AnimatePresence>
               </div>
-
-              <button
-                type="button"
-                onClick={handleFavoritesSelect}
-                className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-sans font-extrabold text-sm hover:bg-surface-container active:scale-[0.99] transition-all ${
-                  (isFavoritesFilterActive && activeTab === 'home') || activeTab === 'favorites'
-                    ? 'bg-primary text-on-primary shadow-sm'
-                    : 'text-primary'
-                }`}
-              >
-                <Star className="w-5 h-5" />
-                <span>Favorites</span>
-              </button>
-
-              <div className="rounded-2xl overflow-hidden">
                 <button
                   type="button"
-                  onClick={() => setBusinessOpen(prev => !prev)}
+                  onClick={handleFavoritesSelect}
+                className={`w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-left font-sans text-xs font-bold transition-all ${
+                  (isFavoritesFilterActive && activeTab === 'home') || activeTab === 'favorites'
+                    ? 'bg-primary text-on-primary shadow-sm'
+                    : 'text-on-surface-variant hover:bg-surface-container hover:text-primary'
+                }`}
+              >
+                <Star className="w-4 h-4" />
+                <span>Favorites</span>
+                </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </>
+              )}
+
+              {isSuperAdmin && (
+                <button
+                  type="button"
+                  onClick={() => handleNavigate('admin')}
+                  className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-sans font-extrabold text-sm hover:bg-surface-container active:scale-[0.99] transition-all ${
+                    activeTab === 'admin'
+                      ? 'bg-primary text-on-primary shadow-sm'
+                      : 'text-primary'
+                  }`}
+                >
+                  <ShieldCheck className="w-5 h-5" />
+                  <span>Admin</span>
+                </button>
+              )}
+
+              {businessMenuItems.length === 0 && currentUser && (
+                <LockedNavItem label="Business" icon={<CreditCard className="w-5 h-5" />} feature="reports" />
+              )}
+
+              {businessMenuItems.length > 0 && (
+                <div className="rounded-2xl overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setBusinessOpen(prev => !prev)}
                   className={`w-full flex items-center gap-3 px-4 py-3.5 text-left font-sans font-extrabold text-sm transition-all ${
                     activeTab === 'business' || activeTab === 'businessSales'
                       ? 'bg-primary/10 text-primary'
@@ -418,14 +577,20 @@ export default function NavigationDrawer({
                     </motion.div>
                   )}
                 </AnimatePresence>
-              </div>
+                </div>
+              )}
 
-              <div className="rounded-2xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setCostingOpen(prev => !prev)}
+              {costingMenuItems.length === 0 && currentUser && (
+                <LockedNavItem label="Costing" icon={<Calculator className="w-5 h-5" />} feature="invoiceOcr" />
+              )}
+
+              {costingMenuItems.length > 0 && (
+                <div className="rounded-2xl overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setCostingOpen(prev => !prev)}
                   className={`w-full flex items-center gap-3 px-4 py-3.5 text-left font-sans font-extrabold text-sm transition-all ${
-                    activeTab === 'costing' || activeTab === 'costingIngredients' || activeTab === 'costingInvoices' || activeTab === 'costingReports'
+                    activeTab === 'costing' || activeTab === 'costingIngredients' || activeTab === 'costingInvoices' || activeTab === 'costingInvoiceDetail' || activeTab === 'costingReports' || activeTab === 'businessSuppliers'
                       ? 'bg-primary/10 text-primary'
                       : 'text-primary hover:bg-surface-container'
                   }`}
@@ -463,11 +628,20 @@ export default function NavigationDrawer({
                             <span>{item.label}</span>
                           </button>
                         ))}
+                        <button
+                          type="button"
+                          disabled
+                          className="w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-left font-sans text-xs font-bold text-outline cursor-not-allowed"
+                        >
+                          <ReceiptText className="w-4 h-4" />
+                          <span>Quotation (Reserved)</span>
+                        </button>
                       </div>
                     </motion.div>
                   )}
                 </AnimatePresence>
-              </div>
+                </div>
+              )}
 
               {staticMenuItems.map(item => (
                 <button
@@ -484,6 +658,15 @@ export default function NavigationDrawer({
                   <span>{item.label}</span>
                 </button>
               ))}
+
+              <button
+                type="button"
+                disabled
+                className="w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-sans font-extrabold text-sm text-outline cursor-not-allowed"
+              >
+                <CreditCard className="w-5 h-5" />
+                <span>Billing</span>
+              </button>
             </nav>
 
             <div className="border-t border-surface-container-high p-3 space-y-2">
@@ -512,14 +695,6 @@ export default function NavigationDrawer({
 
               {currentUser ? (
                 <div className="grid grid-cols-1 gap-1">
-                  <button
-                    type="button"
-                    disabled
-                    className="w-full flex items-center gap-2 rounded-xl px-4 py-2.5 text-left font-sans text-xs font-bold text-outline cursor-not-allowed"
-                  >
-                    <CreditCard className="w-4 h-4" />
-                    <span>Billing (Coming Soon)</span>
-                  </button>
                   <button
                     type="button"
                     onClick={handleAccountSignOut}

@@ -8,9 +8,35 @@ export interface Ingredient {
   name: string;
   englishName?: string;
   chineseName?: string;
+  ingredientId?: string;
   qty: string;
   unit: string;
+  unitCost?: number;
+  ingredientCost?: number;
+  costingUnit?: string;
+  costLastCalculatedAt?: string;
   notes?: string;
+}
+
+export interface RecipeCostBreakdownItem {
+  recipeIngredientId: string;
+  ingredientId?: string;
+  ingredientName: string;
+  quantity: number;
+  unit: string;
+  unitCost: number;
+  ingredientCost: number;
+  percentageOfTotalRecipeCost: number;
+}
+
+export interface RecipeCosting {
+  totalRecipeCost: number;
+  costPerPortion: number;
+  sellingPrice: number;
+  foodCostPercentage: number;
+  grossProfitPercentage: number;
+  breakdown: RecipeCostBreakdownItem[];
+  lastCalculatedAt: string;
 }
 
 export interface MethodStep {
@@ -46,6 +72,9 @@ export interface Recipe {
   ingredients: Ingredient[];
   method: MethodStep[];
   videoLink: string;
+  sellingPrice?: number;
+  costing?: RecipeCosting;
+  recipeCostLastCalculatedAt?: string;
   chefName: string;
   chefAvatar?: string;
   isSaved: boolean;
@@ -81,7 +110,84 @@ export const DEFAULT_CHEF_PROFILE: ChefProfile = {
   quote: 'Every recipe tells a story.'
 };
 
-export type UserRole = 'admin' | 'user';
+export type UserRole = 'super_admin' | 'admin' | 'user';
+
+export type CompanyRole = 'super_admin' | 'owner' | 'manager' | 'chef' | 'staff';
+
+export type SubscriptionPlan = 'free' | 'starter' | 'professional' | 'business' | 'enterprise';
+export type SubscriptionStatus = 'active' | 'trialing' | 'past_due' | 'cancelled' | 'suspended';
+export type BillingCycle = 'monthly' | 'yearly';
+
+export interface Company {
+  companyId: string;
+  name: string;
+  ownerId: string;
+  subscriptionPlan: SubscriptionPlan;
+  subscriptionStatus: SubscriptionStatus;
+  billingCycle: BillingCycle;
+  subscriptionStartedAt: string;
+  subscriptionRenewalAt: string;
+  subscriptionCancelledAt: string | null;
+  status: 'Active' | 'Suspended' | 'Cancelled';
+  createdAt: string;
+  updatedAt: string;
+}
+
+
+export type WorkspaceType = 'real' | 'demo';
+export type WorkspaceMemberRole = 'Owner' | 'Manager' | 'Head Chef' | 'Sous Chef' | 'Chef' | 'Purchasing' | 'Finance' | 'Viewer';
+export type WorkspaceMemberStatus = 'Active' | 'Disabled' | 'Invited' | 'Removed';
+
+export interface WorkspaceMemberSummary {
+  userId: string;
+  email: string;
+  displayName: string;
+  role: WorkspaceMemberRole;
+  status: WorkspaceMemberStatus;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  type: WorkspaceType;
+  ownerId: string;
+  members: WorkspaceMemberSummary[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkspaceMembership {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  email: string;
+  displayName: string;
+  role: WorkspaceMemberRole;
+  status: WorkspaceMemberStatus;
+  workspaceName: string;
+  workspaceType: WorkspaceType;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlanLimits {
+  aiCreditsMonthly: number;
+  monthlyAiRequests: number;
+  monthlyAiTokens: number;
+  monthlyAiCostBudgetUSD: number;
+  teamMemberLimit: number;
+  storageLimitMB: number;
+  recipeLimit: number;
+  ingredientLimit: number;
+  invoiceLimit: number;
+  supplierLimit: number;
+  workspaceLimit: number;
+  canExportPDF: boolean;
+  canUseAdvancedReports: boolean;
+  canUseTeamManagement: boolean;
+  canUseInventory: boolean;
+  canUseMultipleWorkspaces: boolean;
+}
 
 export interface KitchenDictionaryIngredient {
   chinese: string;
@@ -108,8 +214,10 @@ export type RootTab =
   | 'settings'
   | 'login'
   | 'team'
+  | 'admin'
   | 'business'
   | 'businessSales'
+  | 'businessSuppliers'
   | 'costing'
   | 'costingIngredients'
   | 'costingInvoices'

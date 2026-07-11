@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Check, Clock, Heart, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { Recipe, RecipeCategory } from '../types';
 import { getRecipeCategories, recipeHasCategory } from '../utils/categoryUtils';
@@ -17,6 +17,7 @@ interface SearchTabProps {
   onRenameCategory: (categoryId: string, nextName: string) => void;
   onDeleteCategory: (categoryId: string, targetCategoryName: string) => void;
   onToggleFavorite: (recipeId: string) => void;
+  selectedCategory?: string | null;
 }
 
 export default function SearchTab({
@@ -26,10 +27,11 @@ export default function SearchTab({
   onCreateCategory,
   onRenameCategory,
   onDeleteCategory,
-  onToggleFavorite
+  onToggleFavorite,
+  selectedCategory: drawerSelectedCategory = null
 }: SearchTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(drawerSelectedCategory);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editingCategoryName, setEditingCategoryName] = useState('');
@@ -101,6 +103,10 @@ export default function SearchTab({
   const movableCategories = deletingCategory
     ? categories.filter(category => category.id !== deletingCategory.id)
     : categories;
+
+  useEffect(() => {
+    setSelectedCategory(drawerSelectedCategory);
+  }, [drawerSelectedCategory]);
 
   return (
     <div className="space-y-8 animate-fade-in relative pb-10">

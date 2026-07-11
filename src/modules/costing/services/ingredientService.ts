@@ -41,7 +41,7 @@ export const ingredientService = {
     userId: string,
     workspaceId = userId
   ): Promise<CostingIngredient> {
-    if (!db) throw new Error('Firestore is not initialized.');
+    if (!db) throw new Error("We couldn't connect to your workspace. Please refresh the page or try again.");
 
     const ingredientRef = doc(collection(db, 'ingredients'));
     const now = new Date().toISOString();
@@ -59,7 +59,7 @@ export const ingredientService = {
   },
 
   async updateIngredient(ingredient: CostingIngredient): Promise<CostingIngredient> {
-    if (!db) throw new Error('Firestore is not initialized.');
+    if (!db) throw new Error("We couldn't connect to your workspace. Please refresh the page or try again.");
 
     const nextIngredient = normalizeIngredient({
       ...ingredient,

@@ -146,7 +146,7 @@ const normalizeScannedRecipe = (parsed: unknown): GeminiScannedRecipe => {
 const parseScannedRecipeResponse = (value: unknown) => {
   const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
   if (!source.recipe || typeof source.recipe !== 'object') {
-    throw new Error('AI scan returned an unexpected response shape.');
+    throw new Error("We couldn't read the result. Please try again.");
   }
 
   return normalizeScannedRecipe(source.recipe);
@@ -237,7 +237,7 @@ export const generateRecipeStepsWithAI = async ({
   ingredients: Array<{ name: string; qty: string; unit: string }>;
 }) => {
   if (!functions) {
-    throw new Error('AI backend is unavailable. Please check Firebase configuration.');
+    throw new Error('AI is temporarily unavailable. Please try again shortly.');
   }
 
   const generateSteps = httpsCallable<
@@ -274,7 +274,7 @@ export const scanRecipeImageWithGemini = async ({
   onStage?: (stage: 'reading' | 'extracting') => void;
 }) => {
   if (!functions) {
-    throw new Error('AI backend is unavailable. Please check Firebase configuration.');
+    throw new Error('AI is temporarily unavailable. Please try again shortly.');
   }
 
   const imageBase64 = imageDataUrl?.split(',')[1] || await readFileAsBase64(file);
@@ -312,13 +312,13 @@ export const scanRecipeImageWithGemini = async ({
     return recipe;
   } catch (err) {
     console.error('[AI Scan] Callable failed', err);
-    throw new Error(getCallableErrorMessage(err, 'AI recipe scan failed. Please try again.'));
+    throw new Error(getCallableErrorMessage(err, 'We could not read this recipe. Please try again.'));
   }
 };
 
 export const parseResumeToPortfolioWithAI = async (resumeText: string) => {
   if (!functions) {
-    throw new Error('AI backend is unavailable. Please check Firebase configuration.');
+    throw new Error('AI is temporarily unavailable. Please try again shortly.');
   }
 
   const parseResume = httpsCallable<
@@ -334,6 +334,6 @@ export const parseResumeToPortfolioWithAI = async (resumeText: string) => {
 
     return normalizeResumePortfolioDraft(response.data?.portfolio);
   } catch (err) {
-    throw new Error(getCallableErrorMessage(err, 'AI resume import failed. Please try again.'));
+    throw new Error(getCallableErrorMessage(err, 'We could not import this resume. Please try again.'));
   }
 };

@@ -82,7 +82,7 @@ const uploadFile = async ({
   onProgress?: (progress: number) => void;
 }) => {
   if (!storage) {
-    throw new Error('Firebase Storage is not initialized.');
+    throw new Error('Uploads are temporarily unavailable. Please refresh the page or try again.');
   }
 
   const fileRef = ref(storage, path);
@@ -122,7 +122,7 @@ export const uploadRecipeCoverImage = async ({
   onProgress?: (progress: number) => void;
 }) => {
   if (!storage) {
-    throw new Error('Firebase Storage is not initialized.');
+    throw new Error('Uploads are temporarily unavailable. Please refresh the page or try again.');
   }
 
   const imageBlob = await dataUrlToBlob(imageDataUrl);
@@ -163,7 +163,7 @@ export const uploadRecipeScanAttachment = async ({
   onProgress?: (progress: number) => void;
 }) => {
   if (!storage) {
-    throw new Error('Firebase Storage is not initialized.');
+    throw new Error('Uploads are temporarily unavailable. Please refresh the page or try again.');
   }
 
   const imageBlob = await dataUrlToBlob(imageDataUrl);
@@ -206,7 +206,7 @@ export const uploadRecipeStepImage = async ({
   onProgress?: (progress: number) => void;
 }) => {
   if (!storage) {
-    throw new Error('Firebase Storage is not initialized.');
+    throw new Error('Uploads are temporarily unavailable. Please refresh the page or try again.');
   }
 
   const imageBlob = await dataUrlToBlob(imageDataUrl);
@@ -243,7 +243,7 @@ export const uploadUserProfilePhoto = async ({
   imageDataUrl: string;
 }) => {
   if (!storage) {
-    throw new Error('Firebase Storage is not initialized.');
+    throw new Error('Uploads are temporarily unavailable. Please refresh the page or try again.');
   }
 
   const imageBlob = await dataUrlToBlob(imageDataUrl);

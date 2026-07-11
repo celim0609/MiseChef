@@ -59,7 +59,7 @@ const normalizeExtractedData = (value: unknown): CostingInvoiceExtractedData => 
 export const invoiceOcrService = {
   async extractInvoice(invoice: CostingInvoice): Promise<CostingInvoiceExtractedData> {
     if (!functions) {
-      throw new Error('AI backend is unavailable. Please check Firebase configuration.');
+      throw new Error('AI is temporarily unavailable. Please try again shortly.');
     }
 
     const parseInvoice = httpsCallable<
@@ -75,7 +75,7 @@ export const invoiceOcrService = {
 
       return normalizeExtractedData(result.data?.invoice);
     } catch (err) {
-      throw new Error(getCallableErrorMessage(err, 'AI invoice OCR failed. Please try again.'));
+      throw new Error(getCallableErrorMessage(err, 'We could not read this invoice. Please try again.'));
     }
   }
 };

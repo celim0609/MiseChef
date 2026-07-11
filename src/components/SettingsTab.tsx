@@ -351,7 +351,7 @@ export default function SettingsTab({
   };
 
   const handleResetApp = () => {
-    if (!window.confirm("Reset MiseChef? This will clear all local recipes, categories, profile, and settings.")) {
+    if (!window.confirm("Reset MiseChef on this device? This will clear recipes, categories, profile, and settings saved here.")) {
       return;
     }
 
@@ -463,7 +463,7 @@ export default function SettingsTab({
             <p className="font-sans text-xs font-bold text-on-surface-variant">
               {authEmail
                 ? `Signed in as ${authDisplayName ? `${authDisplayName} · ` : ''}${authEmail}`
-                : 'Cloud Sync is available after signing in.'}
+                : 'Sign in to keep your work available across devices.'}
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
               <button

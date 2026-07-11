@@ -1,16 +1,22 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Plus, ReceiptText } from 'lucide-react';
 import { businessService } from '../../services';
+import { getCustomerFriendlyErrorMessage } from '../../../../utils/customerErrorMessages';
 import type { BusinessSale } from '../../types';
 
 interface BusinessSalesPageProps {
   userId?: string;
+  workspaceId?: string;
 }
 
 const todayDate = () => new Date().toISOString().slice(0, 10);
 const formatMoney = (value: number) => `SGD ${Number(value || 0).toFixed(2)}`;
 
-export default function BusinessSalesPage({ userId }: BusinessSalesPageProps) {
+const notifySalesChanged = () => {
+  window.dispatchEvent(new CustomEvent('misechef:sales-changed'));
+};
+
+export default function BusinessSalesPage({ userId, workspaceId }: BusinessSalesPageProps) {
   const [sales, setSales] = useState<BusinessSale[]>([]);
   const [date, setDate] = useState(todayDate());
   const [amount, setAmount] = useState('');
@@ -27,10 +33,10 @@ export default function BusinessSalesPage({ userId }: BusinessSalesPageProps) {
       setIsLoading(true);
       setErrorMessage('');
       try {
-        const loadedSales = await businessService.listSales(userId);
+        const loadedSales = await businessService.listSales(workspaceId || userId);
         if (!isCancelled) setSales(loadedSales);
       } catch (err) {
-        if (!isCancelled) setErrorMessage(err instanceof Error ? err.message : 'Unable to load sales.');
+        if (!isCancelled) setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to load sales.'));
       } finally {
         if (!isCancelled) setIsLoading(false);
       }
@@ -41,7 +47,7 @@ export default function BusinessSalesPage({ userId }: BusinessSalesPageProps) {
     return () => {
       isCancelled = true;
     };
-  }, [userId]);
+  }, [userId, workspaceId]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -61,13 +67,14 @@ export default function BusinessSalesPage({ userId }: BusinessSalesPageProps) {
     setMessage('');
     setErrorMessage('');
     try {
-      const sale = await businessService.createSale({ date, amount: numericAmount, notes }, userId);
+      const sale = await businessService.createSale({ date, amount: numericAmount, notes }, userId, workspaceId || userId);
       setSales(current => [sale, ...current]);
       setAmount('');
       setNotes('');
+      notifySalesChanged();
       setMessage('Daily sales recorded.');
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Unable to record sales.');
+      setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to record sales.'));
     } finally {
       setIsSaving(false);
     }

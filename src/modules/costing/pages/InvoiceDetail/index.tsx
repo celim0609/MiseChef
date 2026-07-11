@@ -1,12 +1,15 @@
 import { useEffect, useState, type ChangeEvent } from 'react';
-import { ArrowLeft, CheckCircle2, Download, FileJson, FileSpreadsheet, Loader2, RotateCw, Sparkles, XCircle, ZoomIn, ZoomOut } from 'lucide-react';
-import { ingredientService, invoiceImportService, invoiceProcessor, invoiceService, matchInvoiceItemsToIngredients } from '../../services';
+import { Archive, ArrowLeft, CheckCircle2, Download, FileJson, FileSpreadsheet, Loader2, RotateCcw, RotateCw, Sparkles, Trash2, XCircle, ZoomIn, ZoomOut } from 'lucide-react';
+import { ingredientService, invoiceImportService, invoiceLifecycleService, invoiceProcessor, invoiceService, matchInvoiceItemsToIngredients } from '../../services';
+import { getCustomerFriendlyErrorMessage } from '../../../../utils/customerErrorMessages';
 import type { InvoiceImportMatch } from '../../services';
 import type { CostingIngredient, CostingInvoice, CostingInvoiceExtractedItem, CostingInvoiceStatus } from '../../types';
 
 interface InvoiceDetailPageProps {
   invoiceId?: string | null;
   userId?: string;
+  workspaceId?: string;
+  canManageInvoices?: boolean;
   onBack: () => void;
 }
 
@@ -15,7 +18,8 @@ const statusClassName: Record<CostingInvoiceStatus, string> = {
   Processing: 'bg-blue-100 text-blue-800',
   Processed: 'bg-green-100 text-green-800',
   Imported: 'bg-primary/10 text-primary',
-  Failed: 'bg-red-100 text-red-800'
+  Failed: 'bg-red-100 text-red-800',
+  Archived: 'bg-surface-container-high text-on-surface-variant'
 };
 
 const formatDate = (value?: string) => value ? new Date(value).toLocaleString() : 'Not set';
@@ -57,7 +61,11 @@ const getOcrConfidence = (invoice: CostingInvoice, itemCount: number): OcrConfid
   return 'Low';
 };
 
-export default function InvoiceDetailPage({ invoiceId, userId, onBack }: InvoiceDetailPageProps) {
+const notifyInvoiceLifecycleChanged = () => {
+  window.dispatchEvent(new CustomEvent('misechef:invoice-lifecycle-changed'));
+};
+
+export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canManageInvoices = false, onBack }: InvoiceDetailPageProps) {
   const [invoice, setInvoice] = useState<CostingInvoice | null>(null);
   const [ingredients, setIngredients] = useState<CostingIngredient[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -68,6 +76,7 @@ export default function InvoiceDetailPage({ invoiceId, userId, onBack }: Invoice
   const [reviewItems, setReviewItems] = useState<CostingInvoiceExtractedItem[]>([]);
   const [ingredientMatches, setIngredientMatches] = useState<InvoiceImportMatch[]>([]);
   const [reviewMessage, setReviewMessage] = useState('');
+  const [lifecycleAction, setLifecycleAction] = useState<'archive' | 'restore' | 'delete' | 'rollback' | null>(null);
 
   useEffect(() => {
     let isCancelled = false;
@@ -78,7 +87,7 @@ export default function InvoiceDetailPage({ invoiceId, userId, onBack }: Invoice
       try {
         const [loadedInvoice, loadedIngredients] = await Promise.all([
           invoiceService.getInvoice(invoiceId || undefined),
-          ingredientService.listIngredients(userId)
+          ingredientService.listIngredients(workspaceId || userId)
         ]);
         if (!isCancelled) {
           setInvoice(loadedInvoice);
@@ -88,7 +97,7 @@ export default function InvoiceDetailPage({ invoiceId, userId, onBack }: Invoice
           setIngredientMatches(matchInvoiceItemsToIngredients(items, loadedIngredients));
         }
       } catch (err) {
-        if (!isCancelled) setErrorMessage(err instanceof Error ? err.message : 'Unable to load invoice.');
+        if (!isCancelled) setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to load invoice.'));
       } finally {
         if (!isCancelled) setIsLoading(false);
       }
@@ -99,7 +108,7 @@ export default function InvoiceDetailPage({ invoiceId, userId, onBack }: Invoice
     return () => {
       isCancelled = true;
     };
-  }, [invoiceId, userId]);
+  }, [invoiceId, userId, workspaceId]);
 
   const processInvoice = async (action: 'process' | 'reprocess') => {
     if (!invoice || processingAction) return;
@@ -155,7 +164,7 @@ export default function InvoiceDetailPage({ invoiceId, userId, onBack }: Invoice
       setReviewMessage('OCR complete. Review the extracted items before approving import.');
     } catch (err) {
       const processingCompletedAt = new Date().toISOString();
-      const errorText = err instanceof Error ? err.message : 'Unable to process invoice.';
+      const errorText = getCustomerFriendlyErrorMessage(err, 'Unable to process invoice.');
       const failedUpdates: Partial<CostingInvoice> = {
         processingStatus: 'Failed',
         status: 'Failed',
@@ -214,16 +223,131 @@ export default function InvoiceDetailPage({ invoiceId, userId, onBack }: Invoice
         invoice,
         matches,
         ingredients,
-        userId
+        userId,
+        workspaceId: workspaceId || userId
       });
-      const loadedIngredients = await ingredientService.listIngredients(userId);
+      const loadedIngredients = await ingredientService.listIngredients(workspaceId || userId);
       setIngredients(loadedIngredients);
       setInvoice(current => current ? { ...current, ...result.invoiceUpdates } : current);
+      notifyInvoiceLifecycleChanged();
       setReviewMessage('Import approved. Ingredients and price history were updated.');
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Unable to approve import.');
+      setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to approve import.'));
     } finally {
       setIsImporting(false);
+    }
+  };
+
+  const handleRollbackImport = async () => {
+    if (!invoice || !userId || !canManageInvoices || lifecycleAction) return;
+
+    setLifecycleAction('rollback');
+    setErrorMessage('');
+    setReviewMessage('');
+
+    try {
+      const impact = await invoiceLifecycleService.getImportImpact(invoice.id);
+      const confirmed = window.confirm([
+        'Rollback this imported invoice?',
+        '',
+        `Affected price history records: ${impact.historyCount}`,
+        `Ingredient prices to restore: ${impact.updatedIngredientCount}`,
+        `New ingredients eligible for deletion: ${impact.newIngredientCount}`,
+        '',
+        'Affected recipes will be queued for recalculation and dashboard totals will refresh.'
+      ].join('\n'));
+      if (!confirmed) return;
+
+      const result = await invoiceLifecycleService.rollbackImport({ invoice, userId, workspaceId: workspaceId || userId });
+      const loadedIngredients = await ingredientService.listIngredients(workspaceId || userId);
+      setIngredients(loadedIngredients);
+      setInvoice(current => current ? { ...current, ...result.invoiceUpdates } : current);
+      notifyInvoiceLifecycleChanged();
+      setReviewMessage(`Import rolled back. ${result.restoredIngredients} ingredients restored, ${result.deletedIngredients} new ingredients deleted.`);
+    } catch (err) {
+      setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to roll back invoice import.'));
+    } finally {
+      setLifecycleAction(null);
+    }
+  };
+
+  const handleArchiveInvoice = async () => {
+    if (!invoice || !userId || !canManageInvoices || lifecycleAction) return;
+
+    setLifecycleAction('archive');
+    setErrorMessage('');
+    setReviewMessage('');
+
+    try {
+      const updates = await invoiceService.archiveInvoice(invoice, userId);
+      setInvoice(current => current ? { ...current, ...updates } : current);
+      notifyInvoiceLifecycleChanged();
+      setReviewMessage('Invoice archived. It is hidden from the default invoice history.');
+    } catch (err) {
+      setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to archive invoice.'));
+    } finally {
+      setLifecycleAction(null);
+    }
+  };
+
+  const handleRestoreInvoice = async () => {
+    if (!invoice || !userId || !canManageInvoices || lifecycleAction) return;
+
+    setLifecycleAction('restore');
+    setErrorMessage('');
+    setReviewMessage('');
+
+    try {
+      const updates = await invoiceService.restoreInvoice(invoice, userId);
+      setInvoice(current => current ? { ...current, ...updates } : current);
+      notifyInvoiceLifecycleChanged();
+      setReviewMessage('Invoice restored.');
+    } catch (err) {
+      setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to restore invoice.'));
+    } finally {
+      setLifecycleAction(null);
+    }
+  };
+
+  const handleDeleteInvoice = async () => {
+    if (!invoice || !userId || !canManageInvoices || lifecycleAction) return;
+
+    const isImportedInvoice = invoice.processingStatus === 'Imported' || Boolean(invoice.approvedAt);
+    setLifecycleAction('delete');
+    setErrorMessage('');
+    setReviewMessage('');
+
+    try {
+      let confirmed = false;
+      if (isImportedInvoice) {
+        const impact = await invoiceLifecycleService.getImportImpact(invoice.id);
+        confirmed = window.confirm([
+          'This invoice has already updated ingredients and price history.',
+          '',
+          'Deleting it will rollback all imported changes.',
+          '',
+          `Affected price history records: ${impact.historyCount}`,
+          `Ingredient prices to restore: ${impact.updatedIngredientCount}`,
+          `New ingredients eligible for deletion: ${impact.newIngredientCount}`,
+          '',
+          'Choose OK for Rollback & Delete, or Cancel.'
+        ].join('\n'));
+      } else {
+        confirmed = window.confirm('Delete this invoice?\n\nThis will remove the invoice, uploaded file, extracted details, and history entry.');
+      }
+
+      if (!confirmed) return;
+
+      if (isImportedInvoice) {
+        await invoiceLifecycleService.rollbackImport({ invoice, userId, workspaceId: workspaceId || userId });
+      }
+      await invoiceService.deleteInvoice(invoice, userId);
+      notifyInvoiceLifecycleChanged();
+      onBack();
+    } catch (err) {
+      setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to delete invoice.'));
+    } finally {
+      setLifecycleAction(null);
     }
   };
 
@@ -250,6 +374,8 @@ export default function InvoiceDetailPage({ invoiceId, userId, onBack }: Invoice
   const hasOcrData = Boolean(invoice.extractedData);
   const rawOcrJson = invoice.extractedData ? JSON.stringify(invoice.extractedData, null, 2) : '';
   const isImported = invoice.processingStatus === 'Imported' || Boolean(invoice.approvedAt);
+  const isArchived = invoice.processingStatus === 'Archived';
+  const isLifecycleBusy = lifecycleAction !== null;
 
   return (
     <div className="space-y-6">
@@ -275,6 +401,40 @@ export default function InvoiceDetailPage({ invoiceId, userId, onBack }: Invoice
           OCR Confidence: {confidence}
         </span>
       </div>
+
+      {canManageInvoices && (
+        <section className="rounded-2xl border border-surface-container-high bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.18em] text-secondary">Lifecycle Management</p>
+              <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Owner/Manager actions for archive, restore, rollback, and delete.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {isImported && !isArchived && (
+                <button type="button" onClick={handleRollbackImport} disabled={isProcessing || isLifecycleBusy} className="inline-flex items-center gap-2 rounded-full border border-secondary/30 bg-secondary/5 px-4 py-2.5 font-sans text-xs font-extrabold text-secondary disabled:opacity-50">
+                  <RotateCcw className="h-4 w-4" />
+                  {lifecycleAction === 'rollback' ? 'Rolling Back...' : 'Rollback Import'}
+                </button>
+              )}
+              {!isArchived ? (
+                <button type="button" onClick={handleArchiveInvoice} disabled={isProcessing || isLifecycleBusy} className="inline-flex items-center gap-2 rounded-full border border-surface-container-high px-4 py-2.5 font-sans text-xs font-extrabold text-primary disabled:opacity-50">
+                  <Archive className="h-4 w-4" />
+                  {lifecycleAction === 'archive' ? 'Archiving...' : 'Archive'}
+                </button>
+              ) : (
+                <button type="button" onClick={handleRestoreInvoice} disabled={isLifecycleBusy} className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/5 px-4 py-2.5 font-sans text-xs font-extrabold text-primary disabled:opacity-50">
+                  <RotateCcw className="h-4 w-4" />
+                  {lifecycleAction === 'restore' ? 'Restoring...' : 'Restore'}
+                </button>
+              )}
+              <button type="button" onClick={handleDeleteInvoice} disabled={isProcessing || isLifecycleBusy} className="inline-flex items-center gap-2 rounded-full border border-error/30 bg-error/5 px-4 py-2.5 font-sans text-xs font-extrabold text-error disabled:opacity-50">
+                <Trash2 className="h-4 w-4" />
+                {lifecycleAction === 'delete' ? 'Deleting...' : 'Delete Invoice'}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <section className="rounded-2xl border border-surface-container-high bg-surface-container-low p-4 sm:p-6 shadow-sm space-y-4">
@@ -358,7 +518,7 @@ export default function InvoiceDetailPage({ invoiceId, userId, onBack }: Invoice
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row xl:flex-col 2xl:flex-row">
-            <button type="button" onClick={handleApproveImport} disabled={isProcessing || isImporting || isImported || extractedItems.length === 0} className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="button" onClick={handleApproveImport} disabled={isProcessing || isImporting || isImported || isArchived || extractedItems.length === 0} className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-50">
               <CheckCircle2 className="h-4 w-4" />
               {isImporting ? 'Approving...' : isImported ? 'Imported' : 'Approve Import'}
             </button>
@@ -367,7 +527,7 @@ export default function InvoiceDetailPage({ invoiceId, userId, onBack }: Invoice
               Cancel
             </button>
           </div>
-          <button type="button" onClick={() => processInvoice(invoice.processingStatus === 'Pending' ? 'process' : 'reprocess')} disabled={isProcessing} className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-primary/30 bg-primary/5 px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" onClick={() => processInvoice(invoice.processingStatus === 'Pending' ? 'process' : 'reprocess')} disabled={isProcessing || isArchived} className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-primary/30 bg-primary/5 px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:cursor-not-allowed disabled:opacity-50">
             {isProcessing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
             {isProcessing ? 'Processing Invoice...' : invoice.processingStatus === 'Pending' ? 'Process Invoice' : 'Reprocess'}
           </button>

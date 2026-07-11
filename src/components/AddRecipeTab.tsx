@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowDown, ArrowUp, Camera, FileText, Image as ImageIcon, MoreHorizontal, Plus, Trash2, X, Sparkles, Video } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist/webpack.mjs';
 import { Recipe, Ingredient, MethodStep, RecipeCategory, RecipeVisibility, UserRole } from '../types';
@@ -12,6 +12,8 @@ import type { GeminiScannedIngredient } from '../services/gemini';
 import { normalizeIngredientForDisplay, parseIngredientLines } from '../utils/ingredientParser';
 import { FALLBACK_CATEGORY_NAME, getRecipeCategories, normalizeRecipeCategories } from '../utils/categoryUtils';
 import { canCreateKitchenDictionaryEntry, createKitchenDictionaryEntry, isKnownKitchenDictionaryIngredientName } from '../services/kitchenDictionary';
+import { ingredientService } from '../modules/costing/services';
+import type { CostingIngredient } from '../modules/costing/types';
 
 const MAX_COVER_IMAGE_SIDE = 1200;
 const MAX_COVER_IMAGE_BYTES = 500 * 1024;
@@ -593,6 +595,7 @@ interface AddRecipeTabProps {
   initialRecipe?: Recipe | null;
   mode?: 'add' | 'edit';
   userRole?: UserRole;
+  userId?: string;
 }
 
 export default function AddRecipeTab({
@@ -604,7 +607,8 @@ export default function AddRecipeTab({
   onDeleteCategory,
   initialRecipe = null,
   mode = 'add',
-  userRole = 'user'
+  userRole = 'user',
+  userId
 }: AddRecipeTabProps) {
   const isEditing = mode === 'edit' && initialRecipe;
 
@@ -626,6 +630,7 @@ export default function AddRecipeTab({
   const [servings, setServings] = useState(String(initialRecipe?.servings ?? 2));
   const [recipeYield, setRecipeYield] = useState(initialRecipe?.yield || (initialRecipe ? `${initialRecipe.servings} servings` : ''));
   const [difficulty, setDifficulty] = useState<'Easy' | 'Medium' | 'Hard'>(initialRecipe?.difficulty || 'Easy');
+  const [sellingPrice, setSellingPrice] = useState(String(initialRecipe?.sellingPrice ?? initialRecipe?.costing?.sellingPrice ?? ''));
   const [visibility, setVisibility] = useState<Extract<RecipeVisibility, 'private' | 'public'>>(
     initialRecipe?.visibility === 'public' ? 'public' : 'private'
   );
@@ -641,6 +646,7 @@ export default function AddRecipeTab({
       ? initialRecipe.ingredients
       : [{ id: 'ing_1', name: '', qty: '', unit: '' }]
   );
+  const [libraryIngredients, setLibraryIngredients] = useState<CostingIngredient[]>([]);
   const [importedIngredientIds, setImportedIngredientIds] = useState<string[]>([]);
 
   // Method steps state
@@ -662,6 +668,31 @@ export default function AddRecipeTab({
 
   // Media
   const [videoLink, setVideoLink] = useState(initialRecipe?.videoLink || '');
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!userId) {
+      setLibraryIngredients([]);
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    ingredientService.listIngredients(userId)
+      .then(loadedIngredients => {
+        if (isMounted) {
+          setLibraryIngredients(loadedIngredients.filter(ingredient => ingredient.status === 'Active'));
+        }
+      })
+      .catch(error => {
+        console.warn('Ingredient details were unavailable for recipe costing.', error);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [userId]);
 
   // Local helper for cover photo selection
   const handleCoverPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -709,6 +740,32 @@ export default function AddRecipeTab({
     setIngredients(prev =>
       prev.map(ing => (ing.id === id ? { ...ing, [field]: value } : ing))
     );
+  };
+
+  const handleIngredientLibrarySelect = (id: string, ingredientId: string) => {
+    const matchedIngredient = libraryIngredients.find(ingredient => ingredient.id === ingredientId);
+
+    setIngredients(prev => prev.map(ing => {
+      if (ing.id !== id) return ing;
+      if (!matchedIngredient) {
+        return {
+          id: ing.id,
+          name: ing.name,
+          englishName: ing.englishName,
+          chineseName: ing.chineseName,
+          qty: ing.qty,
+          unit: ing.unit,
+          notes: ing.notes
+        };
+      }
+
+      return {
+        ...ing,
+        ingredientId: matchedIngredient.id,
+        name: ing.name.trim() || matchedIngredient.name,
+        unit: ing.unit.trim() || matchedIngredient.recipeUnit || matchedIngredient.purchaseUnit
+      };
+    }));
   };
 
   const shouldShowAddToDictionary = (ingredient: Ingredient) => {
@@ -1133,6 +1190,12 @@ export default function AddRecipeTab({
       return;
     }
 
+    const savedSellingPrice = sellingPrice.trim() ? Number(sellingPrice) : 0;
+    if (!Number.isFinite(savedSellingPrice) || savedSellingPrice < 0) {
+      alert('Selling Price must be a valid positive number.');
+      return;
+    }
+
     const savedServings = validatedServings;
 
     const savedRecipe: Recipe = {
@@ -1154,6 +1217,7 @@ export default function AddRecipeTab({
       ingredients: cleanIngredients,
       method: cleanSteps,
       videoLink: videoLink.trim(),
+      sellingPrice: savedSellingPrice,
       chefName: initialRecipe?.chefName || 'User Log',
       chefAvatar: initialRecipe?.chefAvatar,
       isSaved: initialRecipe?.isSaved || false,
@@ -1498,6 +1562,19 @@ export default function AddRecipeTab({
             className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold"
           />
         </div>
+
+        <div className="space-y-1.5">
+          <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Selling Price</label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={sellingPrice}
+            onChange={e => setSellingPrice(e.target.value)}
+            placeholder="0.00"
+            className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold"
+          />
+        </div>
       </section>
 
       {/* Chef's Story Section */}
@@ -1534,7 +1611,7 @@ export default function AddRecipeTab({
         
         <div className="space-y-2.5" id="ingredient-list">
           {ingredients.map((ing) => (
-            <div key={ing.id} className="grid grid-cols-2 sm:grid-cols-[1fr_80px_100px_1fr_40px] gap-2 items-center animate-fade-in">
+            <div key={ing.id} className="grid grid-cols-2 sm:grid-cols-[1fr_80px_100px_1fr_1fr_40px] gap-2 items-center animate-fade-in">
               <input
                 type="text"
                 placeholder="Ingredient name (e.g., Fresh Basil)"
@@ -1564,6 +1641,19 @@ export default function AddRecipeTab({
                 onChange={e => updateIngredient(ing.id, 'notes', e.target.value)}
                 className="bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold col-span-2 sm:col-span-1"
               />
+              <select
+                value={ing.ingredientId || ''}
+                onChange={e => handleIngredientLibrarySelect(ing.id, e.target.value)}
+                className="bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold col-span-2 sm:col-span-1"
+                aria-label={`Link ${ing.name || 'ingredient'} to Ingredient Library`}
+              >
+                <option value="">Link Ingredient Library</option>
+                {libraryIngredients.map(libraryIngredient => (
+                  <option key={libraryIngredient.id} value={libraryIngredient.id}>
+                    {libraryIngredient.name}
+                  </option>
+                ))}
+              </select>
               <button
                 type="button"
                 onClick={() => removeIngredientRow(ing.id)}

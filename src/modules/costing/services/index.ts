@@ -1,6 +1,10 @@
 export { ingredientService } from './ingredientService';
+export { costIntelligenceService } from './costIntelligenceService';
+export type { IngredientCostChange } from './costIntelligenceService';
 export { invoiceImportService, matchInvoiceItemsToIngredients } from './invoiceImportService';
 export type { InvoiceImportMatch } from './invoiceImportService';
+export { invoiceLifecycleService } from './invoiceLifecycleService';
+export { recipeCostService } from './recipeCostService';
 export { invoiceService } from './invoiceService';
 export { invoiceOcrService } from './invoiceOcrService';
 export { invoiceProcessor, AiInvoiceOcrProcessingProvider, SimulatedInvoiceProcessingProvider } from './invoiceProcessor';

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, BarChart3, ReceiptText, TrendingUp, WalletCards } from 'lucide-react';
 import { businessService } from '../../services';
+import { getCustomerFriendlyErrorMessage } from '../../../../utils/customerErrorMessages';
 import type { BusinessDashboardSummary } from '../../types';
 
 interface BusinessDashboardPageProps {
   userId?: string;
+  workspaceId?: string;
 }
 
 const emptySummary: BusinessDashboardSummary = {
@@ -34,7 +36,7 @@ const alertClassName = {
   danger: 'border-red-200 bg-red-50 text-red-800'
 };
 
-export default function BusinessDashboardPage({ userId }: BusinessDashboardPageProps) {
+export default function BusinessDashboardPage({ userId, workspaceId }: BusinessDashboardPageProps) {
   const [summary, setSummary] = useState<BusinessDashboardSummary>(emptySummary);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -46,21 +48,23 @@ export default function BusinessDashboardPage({ userId }: BusinessDashboardPageP
       setIsLoading(true);
       setErrorMessage('');
       try {
-        const dashboardSummary = await businessService.getDashboardSummary(userId);
+        const dashboardSummary = await businessService.getDashboardSummary(userId, workspaceId || userId);
         if (!isCancelled) setSummary(dashboardSummary);
       } catch (err) {
-        if (!isCancelled) setErrorMessage(err instanceof Error ? err.message : 'Unable to load business dashboard.');
+        if (!isCancelled) setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to load business dashboard.'));
       } finally {
         if (!isCancelled) setIsLoading(false);
       }
     };
 
     loadSummary();
+    window.addEventListener('misechef:invoice-lifecycle-changed', loadSummary);
 
     return () => {
       isCancelled = true;
+      window.removeEventListener('misechef:invoice-lifecycle-changed', loadSummary);
     };
-  }, [userId]);
+  }, [userId, workspaceId]);
 
   const maxTrendValue = useMemo(() => Math.max(1, ...summary.monthlyTrend.flatMap(day => [day.sales, day.purchases])), [summary.monthlyTrend]);
 

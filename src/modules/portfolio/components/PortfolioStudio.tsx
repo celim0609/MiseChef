@@ -18,6 +18,7 @@ interface PortfolioStudioProps {
   portfolio: Portfolio;
   recipes: Recipe[];
   userId?: string;
+  workspaceId?: string;
   onDraftPortfolioChange: (portfolio: Portfolio) => void;
   onSavePortfolio: (portfolio: Portfolio) => void;
 }
@@ -38,7 +39,7 @@ const normalizePortfolio = (portfolio: Portfolio): Portfolio => ({
   visibility: portfolio.visibility || { status: 'private' }
 });
 
-export default function PortfolioStudio({ portfolio, recipes, userId, onDraftPortfolioChange, onSavePortfolio }: PortfolioStudioProps) {
+export default function PortfolioStudio({ portfolio, recipes, userId, workspaceId, onDraftPortfolioChange, onSavePortfolio }: PortfolioStudioProps) {
   const normalizedPortfolio = useMemo(() => normalizePortfolio(portfolio), [portfolio]);
   const [draftPortfolio, setDraftPortfolio] = useState<Portfolio>(normalizedPortfolio);
   const [lastSavedPortfolio, setLastSavedPortfolio] = useState<Portfolio>(normalizedPortfolio);
@@ -132,7 +133,7 @@ export default function PortfolioStudio({ portfolio, recipes, userId, onDraftPor
     setIsSaving(true);
     setSaveMessage('Saving changes...');
     try {
-      const savedPortfolio = await portfolioService.savePortfolio(draftPortfolio, userId);
+      const savedPortfolio = await portfolioService.savePortfolio(draftPortfolio, userId, workspaceId || userId);
       setDraftPortfolio(savedPortfolio);
       setLastSavedPortfolio(savedPortfolio);
       onSavePortfolio(savedPortfolio);

@@ -1,20 +1,13 @@
-export type TeamRoleName =
-  | 'Owner'
-  | 'Manager'
-  | 'Head Chef'
-  | 'Sous Chef'
-  | 'Chef'
-  | 'Purchasing'
-  | 'Finance'
-  | 'Viewer';
+import type { WorkspaceMemberRole, WorkspaceMemberStatus } from '../../../types';
 
-export type WorkspaceMemberStatus = 'Active' | 'Invited' | 'Disabled' | 'Removed';
+export type TeamRoleName = WorkspaceMemberRole;
+export type { WorkspaceMemberRole, WorkspaceMemberStatus };
 
 export interface Workspace {
   id: string;
   name: string;
   ownerId: string;
-  createdBy: string;
+  createdBy?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -34,6 +27,24 @@ export interface WorkspaceMember {
   joinedAt?: string;
   disabledAt?: string;
   removedAt?: string;
+  invitationId?: string;
+}
+
+export interface TeamInvitation {
+  id: string;
+  workspaceId: string;
+  workspaceName: string;
+  email: string;
+  role: TeamRoleName;
+  status: 'Pending' | 'Accepted' | 'Declined' | 'Cancelled';
+  invitedBy: string;
+  invitedByEmail: string;
+  createdAt: string;
+  updatedAt: string;
+  acceptedAt?: string;
+  acceptedBy?: string;
+  declinedAt?: string;
+  declinedBy?: string;
 }
 
 export interface TeamRole {
@@ -52,5 +63,6 @@ export interface TeamData {
   workspace: Workspace | null;
   members: WorkspaceMember[];
   roles: TeamRole[];
+  invitations: TeamInvitation[];
+  pendingInvitations: TeamInvitation[];
 }
-

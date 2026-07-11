@@ -35,26 +35,35 @@ const removeUndefinedFields = (value: unknown): unknown => {
   return value;
 };
 
-const getPortfolioRef = (userId: string) => {
+const getUserPortfolioRef = (userId: string) => {
   if (!db) return null;
   return doc(db, 'users', userId, 'portfolio', 'profile');
 };
 
+const getWorkspacePortfolioRef = (workspaceId: string) => {
+  if (!db) return null;
+  return doc(db, 'workspaces', workspaceId, 'portfolio', 'profile');
+};
+
 export const portfolioService = {
-  async loadPortfolio(userId?: string): Promise<Portfolio | null> {
+  async loadPortfolio(userId?: string, workspaceId = userId): Promise<Portfolio | null> {
     if (!userId) return null;
 
-    const portfolioRef = getPortfolioRef(userId);
-    if (!portfolioRef) return null;
+    const workspacePortfolioRef = workspaceId ? getWorkspacePortfolioRef(workspaceId) : null;
+    const workspaceSnapshot = workspacePortfolioRef ? await getDoc(workspacePortfolioRef) : null;
+    if (workspaceSnapshot?.exists()) return clonePortfolio(workspaceSnapshot.data() as Portfolio);
 
-    const snapshot = await getDoc(portfolioRef);
+    const userPortfolioRef = getUserPortfolioRef(userId);
+    if (!userPortfolioRef) return null;
+
+    const snapshot = await getDoc(userPortfolioRef);
     if (!snapshot.exists()) return null;
 
     return clonePortfolio(snapshot.data() as Portfolio);
   },
 
-  async savePortfolio(portfolio: Portfolio, userId?: string): Promise<Portfolio> {
-    const portfolioRef = userId ? getPortfolioRef(userId) : null;
+  async savePortfolio(portfolio: Portfolio, userId?: string, workspaceId = userId): Promise<Portfolio> {
+    const portfolioRef = workspaceId ? getWorkspacePortfolioRef(workspaceId) : null;
     const now = new Date().toISOString();
     const existingPortfolio = portfolioRef ? await getDoc(portfolioRef) : null;
     const existingData = existingPortfolio?.exists() ? existingPortfolio.data() as Portfolio : null;

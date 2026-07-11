@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Archive, ChevronLeft, ChevronRight, Edit3, Plus, Search, X } from 'lucide-react';
-import { ingredientService } from '../../services';
+import { ingredientService, recipeCostService } from '../../services';
+import { getCustomerFriendlyErrorMessage } from '../../../../utils/customerErrorMessages';
+import { usageLimitService } from '../../../../services/usageLimitService';
 import type { CostingIngredient } from '../../types';
 
 interface CostingIngredientsPageProps {
   userId?: string;
+  workspaceId?: string;
 }
 
 type SortKey = 'name' | 'category' | 'currentPrice' | 'updatedAt';
@@ -50,7 +53,7 @@ const toFormState = (ingredient?: CostingIngredient | null): IngredientFormState
   notes: ingredient.notes
 } : emptyForm;
 
-export default function CostingIngredientsPage({ userId }: CostingIngredientsPageProps) {
+export default function CostingIngredientsPage({ userId, workspaceId }: CostingIngredientsPageProps) {
   const [ingredients, setIngredients] = useState<CostingIngredient[]>([]);
   const [selectedIngredient, setSelectedIngredient] = useState<CostingIngredient | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -71,10 +74,10 @@ export default function CostingIngredientsPage({ userId }: CostingIngredientsPag
       setIsLoading(true);
       setErrorMessage('');
       try {
-        const loadedIngredients = await ingredientService.listIngredients(userId);
+        const loadedIngredients = await ingredientService.listIngredients(workspaceId || userId);
         if (!isCancelled) setIngredients(loadedIngredients);
       } catch (err) {
-        if (!isCancelled) setErrorMessage(err instanceof Error ? err.message : 'Unable to load ingredients.');
+        if (!isCancelled) setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to load ingredients.'));
       } finally {
         if (!isCancelled) setIsLoading(false);
       }
@@ -85,7 +88,7 @@ export default function CostingIngredientsPage({ userId }: CostingIngredientsPag
     return () => {
       isCancelled = true;
     };
-  }, [userId]);
+  }, [userId, workspaceId]);
 
   const categories = useMemo(() => {
     const categorySet = new Set<string>(ingredients.map(ingredient => ingredient.category).filter(Boolean));
@@ -168,22 +171,45 @@ export default function CostingIngredientsPage({ userId }: CostingIngredientsPag
           name: formState.name.trim(),
           category: formState.category.trim()
         });
+        const previousCost = Number(selectedIngredient.currentPrice || 0);
+        const nextCost = Number(updatedIngredient.currentPrice || 0);
+        if (previousCost !== nextCost) {
+          recipeCostService.recalculateRecipesForCostChanges({
+            costChanges: [{
+              ingredientId: updatedIngredient.id,
+              ingredientName: updatedIngredient.name,
+              previousCost,
+              newCost: nextCost
+            }],
+            userId,
+            workspaceId: workspaceId || userId
+          }).catch(error => {
+            console.warn('Recipe costs could not be recalculated after ingredient update.', error);
+          });
+        }
         setIngredients(current => current.map(ingredient => ingredient.id === updatedIngredient.id ? updatedIngredient : ingredient));
         setMessage('Ingredient updated.');
       } else {
+        const currentIngredientCount = ingredients.filter(ingredient => ingredient.status === 'Active').length;
+        const limitCheck = await usageLimitService.canCreateResource(workspaceId || userId, 'ingredient', currentIngredientCount);
+        if (!limitCheck.allowed) {
+          setErrorMessage(limitCheck.message);
+          return;
+        }
+
         const createdIngredient = await ingredientService.createIngredient({
           ...formState,
           name: formState.name.trim(),
           category: formState.category.trim(),
           status: 'Active'
-        }, userId);
+        }, userId, workspaceId || userId);
         setIngredients(current => [createdIngredient, ...current]);
         setMessage('Ingredient created.');
       }
 
       setIsDrawerOpen(false);
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Unable to save ingredient.');
+      setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to save ingredient.'));
     } finally {
       setIsSaving(false);
     }
@@ -202,7 +228,7 @@ export default function CostingIngredientsPage({ userId }: CostingIngredientsPag
       setIsDrawerOpen(false);
       setMessage('Ingredient archived.');
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Unable to archive ingredient.');
+      setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to archive ingredient.'));
     } finally {
       setIsSaving(false);
     }

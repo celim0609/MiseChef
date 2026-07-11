@@ -10,6 +10,67 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == userId;
     }
 
+    function isSuperAdmin() {
+      return signedIn()
+        && (
+          request.auth.token.email == 'celim0609@gmail.com'
+          || (
+            exists(/databases/$(database)/documents/users/$(request.auth.uid))
+            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'super_admin'
+          )
+        );
+    }
+
+    function currentCompanyId() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId
+        : null;
+    }
+
+    function currentCompanyRole() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyRole
+        : null;
+    }
+
+    function isCurrentCompany(companyId) {
+      return signedIn() && currentCompanyId() == companyId;
+    }
+
+    function isCompanyOwnerOrManager(companyId) {
+      return isSuperAdmin()
+        || (isCurrentCompany(companyId) && currentCompanyRole() in ['owner', 'manager']);
+    }
+
+    function preservesOrBackfillsDefaultSubscriptionFields() {
+      return (
+          ('subscriptionPlan' in resource.data && request.resource.data.subscriptionPlan == resource.data.subscriptionPlan)
+          || (!('subscriptionPlan' in resource.data) && request.resource.data.subscriptionPlan == 'free')
+        )
+        && (
+          ('subscriptionStatus' in resource.data && request.resource.data.subscriptionStatus == resource.data.subscriptionStatus)
+          || (!('subscriptionStatus' in resource.data) && request.resource.data.subscriptionStatus == 'active')
+        )
+        && (
+          ('billingCycle' in resource.data && request.resource.data.billingCycle == resource.data.billingCycle)
+          || (!('billingCycle' in resource.data) && request.resource.data.billingCycle == 'monthly')
+        )
+        && (
+          ('subscriptionStartedAt' in resource.data && request.resource.data.subscriptionStartedAt == resource.data.subscriptionStartedAt)
+          || !('subscriptionStartedAt' in resource.data)
+        )
+        && (
+          ('subscriptionRenewalAt' in resource.data && request.resource.data.subscriptionRenewalAt == resource.data.subscriptionRenewalAt)
+          || (!('subscriptionRenewalAt' in resource.data) && request.resource.data.subscriptionRenewalAt == '')
+        )
+        && (
+          ('subscriptionCancelledAt' in resource.data && request.resource.data.subscriptionCancelledAt == resource.data.subscriptionCancelledAt)
+          || (!('subscriptionCancelledAt' in resource.data) && request.resource.data.subscriptionCancelledAt == null)
+        );
+    }
+
     function ownsExistingDocument() {
       return signedIn() && resource.data.createdBy == request.auth.uid;
     }
@@ -26,69 +87,226 @@ service cloud.firestore {
       return signedIn() && request.resource.data.userId == request.auth.uid;
     }
 
+    function existingWorkspaceId() {
+      return ('workspaceId' in resource.data)
+        ? resource.data.workspaceId
+        : (('createdBy' in resource.data) ? resource.data.createdBy : resource.data.userId);
+    }
+
+    function incomingWorkspaceId() {
+      return ('workspaceId' in request.resource.data)
+        ? request.resource.data.workspaceId
+        : (('createdBy' in request.resource.data) ? request.resource.data.createdBy : request.resource.data.userId);
+    }
+
+    function workspaceMemberId(workspaceId) {
+      return workspaceId + "_" + request.auth.uid;
+    }
+
+    function isWorkspaceMember(workspaceId) {
+      return isSuperAdmin()
+        || (signedIn()
+          && (workspaceId == request.auth.uid
+            || (exists(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId)))
+              && get(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId))).data.status == 'Active')));
+    }
+
+    function currentWorkspaceRole(workspaceId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId)))
+        ? get(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId))).data.role
+        : null;
+    }
+
+    function hasWorkspaceRole(workspaceId, roles) {
+      return isSuperAdmin()
+        || (isWorkspaceMember(workspaceId) && currentWorkspaceRole(workspaceId) in roles);
+    }
+
+    function isWorkspaceOwner(workspaceId) {
+      return isSuperAdmin() || hasWorkspaceRole(workspaceId, ['Owner']);
+    }
+
+    function isWorkspaceOwnerOrManager(workspaceId) {
+      return isSuperAdmin() || hasWorkspaceRole(workspaceId, ['Owner', 'Manager']);
+    }
+
+    function isWorkspaceManagerLevel(workspaceId) {
+      return isSuperAdmin() || hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef']);
+    }
+
+    function canAccessRecipes(workspaceId) {
+      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef']);
+    }
+
+    function canAccessInvoices(workspaceId) {
+      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Purchasing']);
+    }
+
+    function canAccessSuppliers(workspaceId) {
+      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Purchasing']);
+    }
+
+    function canAccessBusiness(workspaceId) {
+      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Finance']);
+    }
+
+    function canInviteTeam(workspaceId) {
+      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef']);
+    }
+
+    function isArchivedInvoiceWrite() {
+      return request.resource.data.processingStatus == 'Archived'
+        || request.resource.data.status == 'Archived';
+    }
+
     match /users/{userId} {
-      allow read, create, update, delete: if ownsUserDocument(userId);
+      allow read: if ownsUserDocument(userId) || isSuperAdmin();
+      allow create, update, delete: if ownsUserDocument(userId);
 
       match /portfolio/{document=**} {
         allow read, create, update, delete: if ownsUserDocument(userId);
       }
     }
 
+    match /companies/{companyId} {
+      allow create: if signedIn()
+        && request.resource.data.companyId == companyId
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.subscriptionPlan == 'free'
+        && request.resource.data.subscriptionStatus == 'active'
+        && request.resource.data.billingCycle == 'monthly';
+      allow read: if isSuperAdmin() || isCurrentCompany(companyId) || resource.data.ownerId == request.auth.uid;
+      allow update: if (isSuperAdmin() || ((isCompanyOwnerOrManager(companyId) || resource.data.ownerId == request.auth.uid) && preservesOrBackfillsDefaultSubscriptionFields()))
+        && request.resource.data.companyId == resource.data.companyId
+        && request.resource.data.ownerId == resource.data.ownerId;
+      allow delete: if false;
+    }
+
     match /recipes/{recipeId} {
-      allow create: if ownsIncomingUserData();
-      allow read, delete: if ownsExistingUserData();
-      allow update: if ownsExistingUserData()
-        && (!('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId);
+      allow create: if ownsIncomingUserData() && canAccessRecipes(incomingWorkspaceId());
+      allow read: if canAccessRecipes(existingWorkspaceId());
+      allow delete: if canAccessRecipes(existingWorkspaceId());
+      allow update: if canAccessRecipes(existingWorkspaceId())
+        && (!('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId)
+        && incomingWorkspaceId() == existingWorkspaceId();
     }
 
     match /categories/{categoryId} {
-      allow create: if ownsIncomingUserData();
-      allow read, delete: if ownsExistingUserData();
-      allow update: if ownsExistingUserData()
-        && (!('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId);
+      allow create: if ownsIncomingUserData() && canAccessRecipes(incomingWorkspaceId());
+      allow read, delete: if canAccessRecipes(existingWorkspaceId());
+      allow update: if canAccessRecipes(existingWorkspaceId())
+        && (!('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId)
+        && incomingWorkspaceId() == existingWorkspaceId();
     }
 
     match /invoices/{invoiceId} {
       allow create: if ownsIncomingDocument()
         && request.resource.data.id == invoiceId
+        && canAccessInvoices(incomingWorkspaceId())
         && request.resource.data.processingStatus == 'Pending'
         && request.resource.data.status == 'Pending';
-      allow read: if ownsExistingDocument();
-      allow update: if ownsExistingDocument()
+      allow read: if canAccessInvoices(existingWorkspaceId());
+      allow update: if canAccessInvoices(existingWorkspaceId())
         && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.id == resource.data.id;
-      allow delete: if ownsExistingDocument();
+        && request.resource.data.id == resource.data.id
+        && incomingWorkspaceId() == existingWorkspaceId()
+        && (!isArchivedInvoiceWrite() || isWorkspaceOwnerOrManager(existingWorkspaceId()));
+      allow delete: if isWorkspaceOwnerOrManager(existingWorkspaceId());
     }
 
     match /ingredients/{ingredientId} {
       allow create: if ownsIncomingDocument()
         && request.resource.data.id == ingredientId
-        && request.resource.data.workspaceId == request.auth.uid
+        && canAccessInvoices(incomingWorkspaceId())
         && request.resource.data.status == 'Active';
-      allow read: if ownsExistingDocument() && resource.data.workspaceId == request.auth.uid;
-      allow update: if ownsExistingDocument()
-        && resource.data.workspaceId == request.auth.uid
+      allow read: if canAccessInvoices(existingWorkspaceId());
+      allow update: if canAccessInvoices(existingWorkspaceId())
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.workspaceId == resource.data.workspaceId
+        && request.resource.data.id == resource.data.id;
+      allow delete: if isWorkspaceOwnerOrManager(existingWorkspaceId());
+    }
+
+    match /ingredientPriceHistory/{historyId} {
+      allow create: if ownsIncomingDocument()
+        && request.resource.data.id == historyId
+        && canAccessInvoices(incomingWorkspaceId());
+      allow read: if canAccessInvoices(existingWorkspaceId());
+      allow update: if canAccessInvoices(existingWorkspaceId())
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.workspaceId == resource.data.workspaceId
         && request.resource.data.id == resource.data.id;
       allow delete: if false;
     }
 
-    match /ingredientPriceHistory/{historyId} {
+    match /invoiceAuditLogs/{auditId} {
       allow create: if ownsIncomingDocument()
-        && request.resource.data.id == historyId
-        && request.resource.data.workspaceId == request.auth.uid;
-      allow read: if ownsExistingDocument() && resource.data.workspaceId == request.auth.uid;
+        && request.resource.data.id == auditId
+        && isWorkspaceMember(incomingWorkspaceId());
+      allow read: if isWorkspaceMember(existingWorkspaceId());
       allow update, delete: if false;
+    }
+
+    match /recipeCostRecalculations/{recalculationId} {
+      allow create: if ownsIncomingDocument()
+        && request.resource.data.id == recalculationId
+        && canAccessInvoices(incomingWorkspaceId())
+        && request.resource.data.status == 'Pending';
+      allow read: if canAccessInvoices(existingWorkspaceId());
+      allow update: if canAccessInvoices(existingWorkspaceId())
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.workspaceId == resource.data.workspaceId
+        && request.resource.data.id == resource.data.id;
+      allow delete: if false;
+    }
+
+
+    match /suppliers/{supplierId} {
+      allow create: if ownsIncomingDocument()
+        && request.resource.data.id == supplierId
+        && canAccessSuppliers(incomingWorkspaceId())
+        && request.resource.data.status == 'Active';
+      allow read: if canAccessSuppliers(existingWorkspaceId());
+      allow update: if canAccessSuppliers(existingWorkspaceId())
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.workspaceId == resource.data.workspaceId
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.status in ['Active', 'Archived'];
+      allow delete: if false;
+    }
+
+
+    match /supplierQuotations/{quotationId} {
+      allow create: if ownsIncomingDocument()
+        && request.resource.data.id == quotationId
+        && canAccessSuppliers(incomingWorkspaceId());
+      allow read: if canAccessSuppliers(existingWorkspaceId());
+      allow update: if canAccessSuppliers(existingWorkspaceId())
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.workspaceId == resource.data.workspaceId
+        && request.resource.data.id == resource.data.id;
+      allow delete: if false;
+    }
+
+    match /quotations/{quotationId} {
+      allow create: if ownsIncomingDocument()
+        && request.resource.data.id == quotationId
+        && canAccessSuppliers(incomingWorkspaceId());
+      allow read: if canAccessSuppliers(existingWorkspaceId());
+      allow update: if canAccessSuppliers(existingWorkspaceId())
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.workspaceId == resource.data.workspaceId
+        && request.resource.data.id == resource.data.id;
+      allow delete: if false;
     }
 
     match /businessSales/{saleId} {
       allow create: if ownsIncomingDocument()
         && request.resource.data.id == saleId
-        && request.resource.data.workspaceId == request.auth.uid;
-      allow read: if ownsExistingDocument() && resource.data.workspaceId == request.auth.uid;
-      allow update: if ownsExistingDocument()
-        && resource.data.workspaceId == request.auth.uid
+        && canAccessBusiness(incomingWorkspaceId());
+      allow read: if canAccessBusiness(existingWorkspaceId());
+      allow update: if canAccessBusiness(existingWorkspaceId())
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.workspaceId == resource.data.workspaceId
         && request.resource.data.id == resource.data.id;
@@ -96,44 +314,152 @@ service cloud.firestore {
     }
 
     match /workspaces/{workspaceId} {
-      allow create: if ownsIncomingDocument()
+      allow create: if signedIn()
         && request.resource.data.id == workspaceId
         && request.resource.data.ownerId == request.auth.uid;
-      allow read: if signedIn()
-        && (resource.data.ownerId == request.auth.uid
-          || exists(/databases/$(database)/documents/workspaceMembers/$(workspaceId + "_" + request.auth.uid)));
-      allow update: if signedIn()
-        && resource.data.ownerId == request.auth.uid
-        && request.resource.data.id == resource.data.id
-        && request.resource.data.ownerId == resource.data.ownerId;
+      allow read: if isWorkspaceMember(workspaceId);
+      allow update: if (isWorkspaceOwner(workspaceId) || (isWorkspaceOwnerOrManager(workspaceId) && request.resource.data.ownerId == resource.data.ownerId))
+        && request.resource.data.id == resource.data.id;
       allow delete: if false;
+
+      match /portfolio/{portfolioId} {
+        allow read, create, update: if isWorkspaceMember(workspaceId);
+        allow delete: if false;
+      }
     }
 
     match /workspaceMembers/{memberId} {
-      allow create: if ownsIncomingDocument()
+      allow create: if signedIn()
         && request.resource.data.id == memberId
-        && request.resource.data.userId == request.auth.uid;
-      allow read: if signedIn()
-        && (resource.data.userId == request.auth.uid
-          || exists(/databases/$(database)/documents/workspaceMembers/$(resource.data.workspaceId + "_" + request.auth.uid)));
-      allow update: if signedIn()
-        && exists(/databases/$(database)/documents/workspaceMembers/$(resource.data.workspaceId + "_" + request.auth.uid))
+        && request.resource.data.status == 'Active'
+        && (
+          (request.resource.data.userId == request.auth.uid
+            && request.resource.data.role == 'Owner'
+            && exists(/databases/$(database)/documents/workspaces/$(request.resource.data.workspaceId))
+            && get(/databases/$(database)/documents/workspaces/$(request.resource.data.workspaceId)).data.ownerId == request.auth.uid)
+          || (canInviteTeam(request.resource.data.workspaceId) && request.resource.data.userId != request.auth.uid)
+          || (request.resource.data.userId == request.auth.uid
+            && 'invitationId' in request.resource.data
+            && exists(/databases/$(database)/documents/teamInvitations/$(request.resource.data.invitationId))
+            && get(/databases/$(database)/documents/teamInvitations/$(request.resource.data.invitationId)).data.workspaceId == request.resource.data.workspaceId
+            && get(/databases/$(database)/documents/teamInvitations/$(request.resource.data.invitationId)).data.email == request.auth.token.email
+            && get(/databases/$(database)/documents/teamInvitations/$(request.resource.data.invitationId)).data.status == 'Pending'
+            && request.resource.data.role == get(/databases/$(database)/documents/teamInvitations/$(request.resource.data.invitationId)).data.role)
+        );
+      allow read: if isWorkspaceManagerLevel(resource.data.workspaceId) || resource.data.userId == request.auth.uid;
+      allow update: if isWorkspaceManagerLevel(resource.data.workspaceId)
         && request.resource.data.id == resource.data.id
         && request.resource.data.workspaceId == resource.data.workspaceId
-        && request.resource.data.userId == resource.data.userId;
+        && request.resource.data.userId == resource.data.userId
+        && (resource.data.role != 'Owner' || isWorkspaceOwner(resource.data.workspaceId));
       allow delete: if false;
     }
 
     match /roles/{roleId} {
       allow create: if ownsIncomingDocument()
         && request.resource.data.id == roleId;
-      allow read: if signedIn()
-        && exists(/databases/$(database)/documents/workspaceMembers/$(resource.data.workspaceId + "_" + request.auth.uid));
-      allow update: if signedIn()
-        && exists(/databases/$(database)/documents/workspaceMembers/$(resource.data.workspaceId + "_" + request.auth.uid))
+      allow read: if isWorkspaceManagerLevel(resource.data.workspaceId);
+      allow update: if isWorkspaceOwner(resource.data.workspaceId)
         && request.resource.data.id == resource.data.id
         && request.resource.data.workspaceId == resource.data.workspaceId;
       allow delete: if false;
+    }
+
+
+    match /teamInvitations/{invitationId} {
+      allow create: if signedIn()
+        && request.resource.data.id == invitationId
+        && request.resource.data.invitedBy == request.auth.uid
+        && request.resource.data.status == 'Pending'
+        && canInviteTeam(request.resource.data.workspaceId)
+        && request.resource.data.role in ['Manager', 'Head Chef', 'Sous Chef', 'Chef', 'Purchasing', 'Finance', 'Viewer'];
+      allow read: if isWorkspaceManagerLevel(resource.data.workspaceId) || resource.data.email == request.auth.token.email;
+      allow update: if isWorkspaceManagerLevel(resource.data.workspaceId)
+        || (signedIn()
+          && resource.data.email == request.auth.token.email
+          && resource.data.status == 'Pending'
+          && request.resource.data.workspaceId == resource.data.workspaceId
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.role == resource.data.role
+          && (
+            (request.resource.data.status == 'Accepted'
+              && request.resource.data.acceptedBy == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'acceptedAt', 'acceptedBy', 'updatedAt']))
+            || (request.resource.data.status == 'Declined'
+              && request.resource.data.declinedBy == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'declinedAt', 'declinedBy', 'updatedAt']))
+          ));
+      allow delete: if false;
+    }
+
+    match /teamAuditLogs/{auditId} {
+      allow create: if signedIn()
+        && request.resource.data.performedBy == request.auth.uid
+        && isWorkspaceMember(request.resource.data.workspaceId);
+      allow read: if isWorkspaceManagerLevel(resource.data.workspaceId) || isSuperAdmin();
+      allow update, delete: if false;
+    }
+
+    match /enquiries/{enquiryId} {
+      allow create: if request.resource.data.keys().hasOnly([
+          'name',
+          'company',
+          'email',
+          'phone',
+          'country',
+          'businessType',
+          'outletCount',
+          'message',
+          'createdAt'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.company is string
+        && request.resource.data.email is string
+        && request.resource.data.createdAt is string;
+      allow read: if isSuperAdmin() || isWorkspaceMember(resource.data.companyId);
+      allow update, delete: if false;
+    }
+
+    match /ai_usage/{usageId} {
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'userId',
+          'companyId',
+          'feature',
+          'provider',
+          'model',
+          'promptTokens',
+          'completionTokens',
+          'totalTokens',
+          'estimatedCostUSD',
+          'responseTime',
+          'status',
+          'createdAt'
+        ]);
+      allow read: if isSuperAdmin();
+      allow update, delete: if false;
+    }
+
+    match /audit_logs/{auditId} {
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'timestamp',
+          'userId',
+          'companyId',
+          'userRole',
+          'action',
+          'module',
+          'resourceType',
+          'resourceId',
+          'description',
+          'ipAddress',
+          'userAgent',
+          'status'
+        ]);
+      allow read: if isSuperAdmin();
+      allow update, delete: if false;
     }
 
     match /aiUsage/{document=**} {

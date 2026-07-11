@@ -20,6 +20,7 @@ interface PortfolioPageProps {
   initialPortfolio: Portfolio;
   recipes: Recipe[];
   userId?: string;
+  workspaceId?: string;
 }
 
 const normalizePortfolio = (portfolio: Portfolio): Portfolio => ({
@@ -56,7 +57,7 @@ const mergePortfolioWithDefault = (defaultPortfolio: Portfolio, savedPortfolio: 
   }
 });
 
-export default function PortfolioPage({ profile, initialPortfolio, recipes, userId }: PortfolioPageProps) {
+export default function PortfolioPage({ profile, initialPortfolio, recipes, userId, workspaceId }: PortfolioPageProps) {
   const [activeTab, setActiveTab] = useState<PortfolioTab>('preview');
   const profilePortfolio = useMemo<Portfolio>(() => normalizePortfolio(initialPortfolio), [initialPortfolio]);
 
@@ -69,7 +70,7 @@ export default function PortfolioPage({ profile, initialPortfolio, recipes, user
     setPortfolio(profilePortfolio);
     setPreviewPortfolio(profilePortfolio);
 
-    portfolioService.loadPortfolio(userId).then(savedPortfolio => {
+    portfolioService.loadPortfolio(userId, workspaceId || userId).then(savedPortfolio => {
       if (isCancelled) return;
       const nextPortfolio = savedPortfolio ? mergePortfolioWithDefault(profilePortfolio, savedPortfolio) : profilePortfolio;
       setPortfolio(nextPortfolio);
@@ -84,7 +85,7 @@ export default function PortfolioPage({ profile, initialPortfolio, recipes, user
     return () => {
       isCancelled = true;
     };
-  }, [profilePortfolio, userId]);
+  }, [profilePortfolio, userId, workspaceId]);
 
   const handleSavePortfolio = (savedPortfolio: Portfolio) => {
     setPortfolio(savedPortfolio);
@@ -123,6 +124,7 @@ export default function PortfolioPage({ profile, initialPortfolio, recipes, user
           portfolio={portfolio}
           recipes={recipes}
           userId={userId}
+          workspaceId={workspaceId || userId}
           onDraftPortfolioChange={setPreviewPortfolio}
           onSavePortfolio={handleSavePortfolio}
         />

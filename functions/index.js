@@ -4,6 +4,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
 import { logger } from 'firebase-functions';
+import { recordAiUsage } from './aiUsageTracker.js';
 
 initializeApp();
 
@@ -160,6 +161,21 @@ const invoiceOcrResponseSchema = {
 };
 
 const getRequesterId = request => request.auth?.uid || `anon_${request.rawRequest.ip || 'unknown'}`;
+
+const resolveCompanyId = async ({ request, requesterId }) => {
+  const dataCompanyId = readString(request.data?.companyId || request.data?.workspaceId);
+  if (dataCompanyId) return dataCompanyId;
+  if (!request.auth?.uid || requesterId.startsWith('anon_')) return requesterId;
+
+  try {
+    const userSnapshot = await db.collection('users').doc(request.auth.uid).get();
+    const user = userSnapshot.exists ? userSnapshot.data() || {} : {};
+    return readString(user.companyId || user.workspaceId || user.currentWorkspaceId) || request.auth.uid;
+  } catch (err) {
+    logger.warn('Unable to resolve AI usage company id', { requesterId, ...getErrorDiagnostics(err) });
+    return request.auth.uid;
+  }
+};
 
 const requireAuthenticatedUser = request => {
   const uid = request.auth?.uid;
@@ -383,8 +399,8 @@ const enforceDailyLimit = async ({ requesterId, action }) => {
   });
 };
 
-const logRequest = async ({ requesterId, action, status, attempts, errorCode }) => {
-  await db.collection('aiRequestLogs').add({
+const logRequest = async ({ requesterId, companyId, action, status, attempts, errorCode, response, responseTime }) => {
+  const legacyLog = db.collection('aiRequestLogs').add({
     requesterId,
     action,
     status,
@@ -393,6 +409,23 @@ const logRequest = async ({ requesterId, action, status, attempts, errorCode }) 
     model: MODEL,
     createdAt: FieldValue.serverTimestamp()
   });
+
+  const usageLog = recordAiUsage({
+    db,
+    userId: requesterId,
+    companyId,
+    feature: action,
+    provider: 'gemini',
+    model: MODEL,
+    response,
+    responseTime,
+    status
+  });
+
+  await Promise.all([
+    legacyLog.catch(err => logger.warn('AI request legacy log failed', { requesterId, action, ...getErrorDiagnostics(err) })),
+    usageLog.catch(err => logger.warn('AI usage tracking failed', { requesterId, action, ...getErrorDiagnostics(err) }))
+  ]);
 };
 
 const shouldRetry = err => {
@@ -441,9 +474,12 @@ export const scanRecipeImage = onCall({
   const requesterId = getRequesterId(request);
   const action = 'scanRecipeImage';
   const includeDiagnostics = request.data?.debug === true;
+  const startedAt = Date.now();
+  let companyId = requesterId;
   let attempts = 0;
 
   try {
+    companyId = await resolveCompanyId({ request, requesterId });
     await enforceDailyLimit({ requesterId, action });
 
     const imageBase64 = readString(request.data?.imageBase64);
@@ -505,13 +541,13 @@ export const scanRecipeImage = onCall({
       ingredientCount: recipe.ingredients.length,
       methodStepCount: recipe.method.length
     });
-    await logRequest({ requesterId, action, status: 'success', attempts });
+    await logRequest({ requesterId, companyId, action, status: 'success', attempts, response, responseTime: Date.now() - startedAt });
     return { recipe };
   } catch (err) {
     attempts = attempts || 1;
     const errorCode = err instanceof HttpsError ? err.code : 'internal';
     logger.error('AI recipe scan failed', { requesterId, action, attempts, errorCode, ...getErrorDiagnostics(err) });
-    await logRequest({ requesterId, action, status: 'failed', attempts, errorCode }).catch(() => undefined);
+    await logRequest({ requesterId, companyId, action, status: 'failed', attempts, errorCode, responseTime: Date.now() - startedAt }).catch(() => undefined);
 
     if (err instanceof HttpsError) throw err;
     throw wrapInternalError('AI recipe scan failed. Please try again.', err, includeDiagnostics);
@@ -528,9 +564,12 @@ export const parseInvoiceToJson = onCall({
   const requesterId = requireAuthenticatedUser(request);
   const action = 'parseInvoiceToJson';
   const includeDiagnostics = request.data?.debug === true;
+  const startedAt = Date.now();
+  let companyId = requesterId;
   let attempts = 0;
 
   try {
+    companyId = await resolveCompanyId({ request, requesterId });
     await enforceDailyLimit({ requesterId, action });
 
     const invoiceId = readString(request.data?.invoiceId);
@@ -603,13 +642,13 @@ export const parseInvoiceToJson = onCall({
 
     const invoice = sanitizeInvoiceOcr(parseJsonResponse(response.text, {}, includeDiagnostics));
     logger.info('AI invoice OCR parsed', { requesterId, action, attempts, supplierPresent: Boolean(invoice.supplier), itemCount: invoice.items.length });
-    await logRequest({ requesterId, action, status: 'success', attempts });
+    await logRequest({ requesterId, companyId, action, status: 'success', attempts, response, responseTime: Date.now() - startedAt });
     return { invoice };
   } catch (err) {
     attempts = attempts || 1;
     const errorCode = err instanceof HttpsError ? err.code : 'internal';
     logger.error('AI invoice OCR failed', { requesterId, action, attempts, errorCode, ...getErrorDiagnostics(err) });
-    await logRequest({ requesterId, action, status: 'failed', attempts, errorCode }).catch(() => undefined);
+    await logRequest({ requesterId, companyId, action, status: 'failed', attempts, errorCode, responseTime: Date.now() - startedAt }).catch(() => undefined);
 
     if (err instanceof HttpsError) throw err;
     throw wrapInternalError('AI invoice OCR failed. Please try again.', err, includeDiagnostics);
@@ -626,9 +665,12 @@ export const generateRecipeSteps = onCall({
   const requesterId = getRequesterId(request);
   const action = 'generateRecipeSteps';
   const includeDiagnostics = request.data?.debug === true;
+  const startedAt = Date.now();
+  let companyId = requesterId;
   let attempts = 0;
 
   try {
+    companyId = await resolveCompanyId({ request, requesterId });
     await enforceDailyLimit({ requesterId, action });
 
     const title = readString(request.data?.title);
@@ -682,13 +724,13 @@ Rules:
     attempts = usedAttempts;
 
     const steps = sanitizeSteps(parseJsonResponse(response.text, [], includeDiagnostics));
-    await logRequest({ requesterId, action, status: 'success', attempts });
+    await logRequest({ requesterId, companyId, action, status: 'success', attempts, response, responseTime: Date.now() - startedAt });
     return { steps };
   } catch (err) {
     attempts = attempts || 1;
     const errorCode = err instanceof HttpsError ? err.code : 'internal';
     logger.error('AI method draft failed', { requesterId, action, attempts, errorCode, ...getErrorDiagnostics(err) });
-    await logRequest({ requesterId, action, status: 'failed', attempts, errorCode }).catch(() => undefined);
+    await logRequest({ requesterId, companyId, action, status: 'failed', attempts, errorCode, responseTime: Date.now() - startedAt }).catch(() => undefined);
 
     if (err instanceof HttpsError) throw err;
     throw wrapInternalError('AI method draft failed. Please try again.', err, includeDiagnostics);
@@ -705,9 +747,12 @@ export const parseResumeToPortfolio = onCall({
   const requesterId = getRequesterId(request);
   const action = 'parseResumeToPortfolio';
   const includeDiagnostics = request.data?.debug === true;
+  const startedAt = Date.now();
+  let companyId = requesterId;
   let attempts = 0;
 
   try {
+    companyId = await resolveCompanyId({ request, requesterId });
     await enforceDailyLimit({ requesterId, action });
 
     const resumeText = readString(request.data?.resumeText);
@@ -756,13 +801,13 @@ ${resumeText}
     attempts = usedAttempts;
 
     const portfolio = sanitizeResumePortfolio(parseJsonResponse(response.text, {}, includeDiagnostics));
-    await logRequest({ requesterId, action, status: 'success', attempts });
+    await logRequest({ requesterId, companyId, action, status: 'success', attempts, response, responseTime: Date.now() - startedAt });
     return { portfolio };
   } catch (err) {
     attempts = attempts || 1;
     const errorCode = err instanceof HttpsError ? err.code : 'internal';
     logger.error('AI resume import failed', { requesterId, action, attempts, errorCode, ...getErrorDiagnostics(err) });
-    await logRequest({ requesterId, action, status: 'failed', attempts, errorCode }).catch(() => undefined);
+    await logRequest({ requesterId, companyId, action, status: 'failed', attempts, errorCode, responseTime: Date.now() - startedAt }).catch(() => undefined);
 
     if (err instanceof HttpsError) throw err;
     throw wrapInternalError('AI resume import failed. Please try again.', err, includeDiagnostics);

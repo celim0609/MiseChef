@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, Clock, Copy, Heart, MoreVertical, Pencil, Play, Scale, Share2, Trash2, Users, X } from 'lucide-react';
+import { Check, Clock, Copy, DollarSign, Heart, MoreVertical, Pencil, Play, Scale, Share2, Trash2, Users, X } from 'lucide-react';
 import { Recipe } from '../types';
 import { motion } from 'motion/react';
 import { getRecipeCategories } from '../utils/categoryUtils';
@@ -68,6 +68,21 @@ const scaleQuantity = (quantity: string, ratio: number) => {
   return formatScaledQuantity(amount * ratio);
 };
 
+const formatCurrency = (value: number | undefined) => `$${Number(value || 0).toFixed(2)}`;
+
+const formatDateTime = (value?: string) => {
+  if (!value) return 'Not calculated yet';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
 interface RecipeDetailModalProps {
   recipe: Recipe;
   onClose: () => void;
@@ -127,6 +142,8 @@ export default function RecipeDetailModal({
   }, [canScale, recipe, scaleRatio, targetParsedYield, targetYield]);
   const displayedRecipe = isScaledView ? scaledRecipe : recipe;
   const displayedYield = displayedRecipe.yield || `${displayedRecipe.servings} servings`;
+  const recipeCosting = recipe.costing;
+  const hasCostBreakdown = Boolean(recipeCosting?.breakdown?.length);
 
   useEffect(() => {
     if (!targetYield) {
@@ -409,6 +426,72 @@ export default function RecipeDetailModal({
                   </li>
                 ))}
               </ul>
+            </section>
+
+            <section className="bg-white border border-surface-container-high rounded-2xl p-5 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 border-b border-surface-container pb-3">
+                <div>
+                  <h3 className="font-display text-xl font-bold text-primary flex items-center gap-2">
+                    <DollarSign className="w-5 h-5 text-secondary" />
+                    Cost Breakdown
+                  </h3>
+                  <p className="font-sans text-xs text-on-surface-variant font-bold mt-1">
+                    Last Calculated: {formatDateTime(recipeCosting?.lastCalculatedAt || recipe.recipeCostLastCalculatedAt)}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full sm:w-auto">
+                  <div className="rounded-xl bg-surface-container-low border border-surface-container px-3 py-2">
+                    <span className="block text-[10px] uppercase tracking-wider text-outline font-sans font-bold">Total Cost</span>
+                    <span className="font-sans font-extrabold text-primary text-sm">{formatCurrency(recipeCosting?.totalRecipeCost)}</span>
+                  </div>
+                  <div className="rounded-xl bg-surface-container-low border border-surface-container px-3 py-2">
+                    <span className="block text-[10px] uppercase tracking-wider text-outline font-sans font-bold">Per Portion</span>
+                    <span className="font-sans font-extrabold text-primary text-sm">{formatCurrency(recipeCosting?.costPerPortion)}</span>
+                  </div>
+                  <div className="rounded-xl bg-surface-container-low border border-surface-container px-3 py-2">
+                    <span className="block text-[10px] uppercase tracking-wider text-outline font-sans font-bold">Food Cost</span>
+                    <span className="font-sans font-extrabold text-primary text-sm">{recipeCosting?.foodCostPercentage || 0}%</span>
+                  </div>
+                  <div className="rounded-xl bg-surface-container-low border border-surface-container px-3 py-2">
+                    <span className="block text-[10px] uppercase tracking-wider text-outline font-sans font-bold">Gross Profit</span>
+                    <span className="font-sans font-extrabold text-primary text-sm">{recipeCosting?.grossProfitPercentage || 0}%</span>
+                  </div>
+                </div>
+              </div>
+
+              {hasCostBreakdown ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[620px] text-left font-sans text-xs">
+                    <thead className="text-[10px] uppercase tracking-wider text-outline border-b border-surface-container">
+                      <tr>
+                        <th className="py-2 pr-3 font-extrabold">Ingredient</th>
+                        <th className="py-2 px-3 font-extrabold">Quantity</th>
+                        <th className="py-2 px-3 font-extrabold">Unit Cost</th>
+                        <th className="py-2 px-3 font-extrabold">Ingredient Cost</th>
+                        <th className="py-2 pl-3 font-extrabold">% of Total</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-surface-container-high/60">
+                      {recipeCosting?.breakdown.map(item => (
+                        <tr key={item.recipeIngredientId} className="text-on-surface-variant font-bold">
+                          <td className="py-3 pr-3 text-primary">{item.ingredientName}</td>
+                          <td className="py-3 px-3">{item.quantity} {item.unit}</td>
+                          <td className="py-3 px-3">{formatCurrency(item.unitCost)}</td>
+                          <td className="py-3 px-3">{formatCurrency(item.ingredientCost)}</td>
+                          <td className="py-3 pl-3">{item.percentageOfTotalRecipeCost}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-surface-container-high bg-surface-container-low/50 p-5 text-center">
+                  <p className="font-sans text-sm font-bold text-primary">No recipe cost calculated yet.</p>
+                  <p className="font-sans text-xs font-semibold text-on-surface-variant mt-1">
+                    Link recipe ingredients to the Ingredient Library and save the recipe to calculate costs automatically.
+                  </p>
+                </div>
+              )}
             </section>
 
             <section className="space-y-5">

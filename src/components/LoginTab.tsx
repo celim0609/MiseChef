@@ -140,7 +140,7 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
 
   const ensureFirebaseAuth = () => {
     if (!isFirebaseConfigured || !auth) {
-      setAuthError('Authentication is unavailable right now. Please try again later.');
+      setAuthError('Sign-in is temporarily unavailable. Please try again later.');
       return false;
     }
 
@@ -354,7 +354,7 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
 
             {view === 'create-account' ? (
               <>
-                <AuthHeader title="Create Account" subtitle="Prepare for future cloud sync." />
+                <AuthHeader title="Create Account" subtitle="Create your MiseChef workspace." />
 
                 <form className="space-y-4" onSubmit={handleCreateAccount}>
                   <FormField
@@ -445,7 +445,7 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
                 />
 
                 <p className="text-center font-sans text-xs font-extrabold text-secondary bg-secondary/10 border border-secondary/20 rounded-full px-4 py-2">
-                  Cloud Sync is available after signing in.
+                  Sign in to keep your work available across devices.
                 </p>
 
                 <div className="space-y-3">
