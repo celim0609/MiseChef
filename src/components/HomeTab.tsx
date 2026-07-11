@@ -28,6 +28,7 @@ import type { User } from 'firebase/auth';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { ChefProfile, DEFAULT_CHEF_PROFILE, Recipe, RootTab, WorkspaceMemberRole } from '../types';
 import ChefHome from './home/ChefHome';
+import TodaysTasks from './home/TodaysTasks';
 import { db } from '../firebase';
 import { ingredientService, invoiceService } from '../modules/costing/services';
 import type { CostingIngredient, CostingInvoice } from '../modules/costing/types';
@@ -308,16 +309,7 @@ export default function HomeTab({
 
     try {
       if (isChefHome) {
-        const [invoices, ingredients, pendingRecalculations] = await Promise.all([
-          safeLoad(() => invoiceService.listInvoices(userId, { includeArchived: false, workspaceId: activeWorkspaceId }), [] as CostingInvoice[]),
-          safeLoad(() => ingredientService.listIngredients(activeWorkspaceId), [] as CostingIngredient[]),
-          safeLoad(() => safeGetPendingRecalculations(activeWorkspaceId), 0)
-        ]);
-
-        setDashboard({ ...emptyDashboard, invoices, ingredients, pendingRecalculations });
-        if (firstNonPermissionError) {
-          setDashboardError(getCustomerFriendlyErrorMessage(firstNonPermissionError, "We couldn't refresh today's tasks. Please refresh the page or try again."));
-        }
+        setDashboard(emptyDashboard);
         return;
       }
 
@@ -530,33 +522,6 @@ export default function HomeTab({
     { label: 'Invoices', value: dashboard.invoices.length }
   ];
 
-  const chefTasks = [
-    pendingOcrReview > 0 ? {
-      id: 'invoice-review',
-      label: `Review ${pendingOcrReview} processed invoice${pendingOcrReview === 1 ? '' : 's'}`,
-      detail: 'Check the extracted invoice details before import.',
-      onClick: () => onNavigate?.('costingInvoices')
-    } : null,
-    pendingInvoices > 0 ? {
-      id: 'pending-invoices',
-      label: `Review ${pendingInvoices} pending invoice${pendingInvoices === 1 ? '' : 's'}`,
-      detail: 'Follow up on invoices still waiting for processing.',
-      onClick: () => onNavigate?.('costingInvoices')
-    } : null,
-    dashboard.pendingRecalculations > 0 ? {
-      id: 'ingredient-price-changes',
-      label: 'Review ingredient price changes',
-      detail: `${dashboard.pendingRecalculations} recipe cost update${dashboard.pendingRecalculations === 1 ? '' : 's'} need review.`,
-      onClick: () => onNavigate?.('costingIngredients')
-    } : null,
-    missingIngredientPrices > 0 ? {
-      id: 'missing-ingredient-prices',
-      label: `Add ${missingIngredientPrices} missing ingredient price${missingIngredientPrices === 1 ? '' : 's'}`,
-      detail: 'Complete ingredient pricing to keep recipe costs accurate.',
-      onClick: () => onNavigate?.('costingIngredients')
-    } : null
-  ].filter(item => item !== null).slice(0, 5);
-
   if (isChefHome) {
     return (
       <ChefHome
@@ -566,8 +531,8 @@ export default function HomeTab({
         onToggleFavorite={onToggleFavorite}
         onCreateRecipe={onCreateRecipe}
         onNavigate={onNavigate}
-        tasks={chefTasks}
-        isLoadingTasks={isLoading}
+        workspaceId={activeWorkspaceId}
+        userId={userId}
       />
     );
   }
@@ -575,6 +540,8 @@ export default function HomeTab({
   return (
     <div className="mx-auto w-full max-w-6xl space-y-5 animate-fade-in">
       <OwnerHomeHeader date={formatDate()} greeting={getGreeting()} displayName={displayName} purchaseRatio={purchaseRatio === null ? '-' : `${purchaseRatio.toFixed(1)}%`} purchaseRatioLabel={purchaseRatioStatus.label} purchaseRatioClassName={purchaseRatioStatus.className} />
+
+      <TodaysTasks workspaceId={activeWorkspaceId} userId={userId} />
 
       {dashboardError && (
         <p className="rounded-2xl border border-error/30 bg-error/10 p-4 font-sans text-sm font-bold text-error">{dashboardError}</p>

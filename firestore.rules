@@ -313,6 +313,38 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /tasks/{taskId} {
+      allow read: if isWorkspaceMember(resource.data.workspaceId);
+      allow create: if signedIn()
+        && isWorkspaceMember(request.resource.data.workspaceId)
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.type == 'personal'
+        && request.resource.data.completed == false
+        && request.resource.data.completedAt == null
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.keys().hasOnly([
+          'type',
+          'title',
+          'completed',
+          'workspaceId',
+          'createdBy',
+          'createdAt',
+          'completedAt'
+        ]);
+      allow update: if isWorkspaceMember(resource.data.workspaceId)
+        && request.resource.data.workspaceId == resource.data.workspaceId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.type == resource.data.type
+        && request.resource.data.title == resource.data.title
+        && request.resource.data.createdAt == resource.data.createdAt
+        && resource.data.completed == false
+        && request.resource.data.completed == true
+        && request.resource.data.completedAt is string
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['completed', 'completedAt']);
+      allow delete: if false;
+    }
+
     match /workspaces/{workspaceId} {
       allow create: if signedIn()
         && request.resource.data.id == workspaceId

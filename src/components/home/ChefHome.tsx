@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
-import { Bot, CheckCircle2, ChevronRight, FolderOpen, Heart, Plus, Search, Sparkles } from 'lucide-react';
+import { Bot, FolderOpen, Heart, Plus, Search, Sparkles } from 'lucide-react';
 import type { Recipe, RootTab } from '../../types';
 import { getRecipeCategories } from '../../utils/categoryUtils';
+import TodaysTasks from './TodaysTasks';
 
 interface ChefHomeProps {
   recipes: Recipe[];
@@ -10,15 +11,8 @@ interface ChefHomeProps {
   onToggleFavorite: (recipeId: string) => void;
   onCreateRecipe?: () => void;
   onNavigate?: (tab: RootTab) => void;
-  tasks: ChefTask[];
-  isLoadingTasks: boolean;
-}
-
-export interface ChefTask {
-  id: string;
-  label: string;
-  detail: string;
-  onClick?: () => void;
+  workspaceId?: string;
+  userId?: string;
 }
 
 const recipeTimestamp = (recipe: Recipe) => {
@@ -67,7 +61,7 @@ function RecipeList({
   );
 }
 
-export default function ChefHome({ recipes, displayName, onSelectRecipe, onToggleFavorite, onCreateRecipe, onNavigate, tasks, isLoadingTasks }: ChefHomeProps) {
+export default function ChefHome({ recipes, displayName, onSelectRecipe, onToggleFavorite, onCreateRecipe, onNavigate, workspaceId, userId }: ChefHomeProps) {
   const recentRecipes = recipes.slice(0, 4);
   const favoriteRecipes = recipes.filter(recipe => recipe.isSaved).slice(0, 4);
   const recentlyEditedRecipes = useMemo(
@@ -87,30 +81,7 @@ export default function ChefHome({ recipes, displayName, onSelectRecipe, onToggl
         <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">Your recipes, favorites, and kitchen tools for today.</p>
       </section>
 
-      <section className="rounded-2xl border border-surface-container-high bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-primary">Today's Tasks</p>
-            <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">Actionable items for today’s kitchen work.</p>
-          </div>
-          <CheckCircle2 className="h-5 w-5 text-outline" />
-        </div>
-        <div className="mt-4 space-y-2">
-          {isLoadingTasks ? (
-            <p className="rounded-xl bg-surface-container-low p-4 font-sans text-sm font-bold text-on-surface-variant">Checking today’s work...</p>
-          ) : tasks.length > 0 ? tasks.slice(0, 5).map(task => (
-            <button key={task.id} type="button" onClick={task.onClick} className="flex w-full items-center gap-3 rounded-xl border border-surface-container-high bg-surface-container-low p-4 text-left transition-colors hover:bg-primary/5">
-              <span className="min-w-0 flex-1">
-                <span className="block font-sans text-sm font-extrabold text-primary">{task.label}</span>
-                <span className="mt-1 block font-sans text-xs font-bold text-on-surface-variant">{task.detail}</span>
-              </span>
-              <ChevronRight className="h-4 w-4 shrink-0 text-outline" />
-            </button>
-          )) : (
-            <p className="rounded-xl border border-green-200 bg-green-50 p-4 font-sans text-sm font-extrabold text-green-900">Nothing needs your attention today.</p>
-          )}
-        </div>
-      </section>
+      <TodaysTasks workspaceId={workspaceId} userId={userId} />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <RecipeList title="Recent Recipes" recipes={recentRecipes} emptyMessage="No recipes yet." onSelectRecipe={onSelectRecipe} onToggleFavorite={onToggleFavorite} />
