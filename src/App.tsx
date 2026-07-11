@@ -1505,6 +1505,8 @@ export default function App() {
         return (
           <HomeTab
             recipes={homeRecipes}
+            allRecipes={recipes}
+            workspaceRole={currentWorkspaceRole}
             selectedCategory={selectedHomeCategory}
             isFavoritesFilter={isFavoritesFilterActive}
             onSelectRecipe={setSelectedRecipe}
@@ -1653,6 +1655,8 @@ export default function App() {
           return (
             <HomeTab
               recipes={homeRecipes}
+              allRecipes={recipes}
+              workspaceRole={currentWorkspaceRole}
               selectedCategory={selectedHomeCategory}
               isFavoritesFilter={isFavoritesFilterActive}
               onSelectRecipe={setSelectedRecipe}

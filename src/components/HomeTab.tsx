@@ -26,7 +26,8 @@ import {
 } from './home/OwnerHomeWidgets';
 import type { User } from 'firebase/auth';
 import { collection, getDocs, query, where } from 'firebase/firestore';
-import { ChefProfile, DEFAULT_CHEF_PROFILE, Recipe, RootTab } from '../types';
+import { ChefProfile, DEFAULT_CHEF_PROFILE, Recipe, RootTab, WorkspaceMemberRole } from '../types';
+import ChefHome from './home/ChefHome';
 import { db } from '../firebase';
 import { ingredientService, invoiceService } from '../modules/costing/services';
 import type { CostingIngredient, CostingInvoice } from '../modules/costing/types';
@@ -58,6 +59,8 @@ interface HomeTabProps {
   portfolio?: HomePortfolioSummary;
   onCreateRecipe?: () => void;
   onNavigate?: (tab: RootTab) => void;
+  workspaceRole?: WorkspaceMemberRole | null;
+  allRecipes?: Recipe[];
 }
 
 interface AiUsageQuotaSummary {
@@ -245,12 +248,16 @@ const safeGetPendingRecalculations = async (workspaceId: string) => {
 
 export default function HomeTab({
   recipes,
+  allRecipes = recipes,
   currentUser = null,
   workspaceId,
   profile: sharedProfile,
   customAvatarUrl = '',
   onCreateRecipe,
-  onNavigate
+  onNavigate,
+  onSelectRecipe,
+  onToggleFavorite,
+  workspaceRole = null
 }: HomeTabProps) {
   const [localProfile, setLocalProfile] = useState<ChefProfile>(DEFAULT_CHEF_PROFILE);
   const [dashboard, setDashboard] = useState<DashboardState>(emptyDashboard);
@@ -262,6 +269,7 @@ export default function HomeTab({
   const displayName = profile.name || currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Chef';
   const userId = currentUser?.uid;
   const activeWorkspaceId = workspaceId || userId;
+  const isChefHome = workspaceRole === 'Chef';
 
   useEffect(() => {
     const cachedProfile = localStorage.getItem(CHEF_PROFILE_STORAGE_KEY);
@@ -278,6 +286,12 @@ export default function HomeTab({
   }, []);
 
   const loadDashboard = useCallback(async () => {
+    if (isChefHome) {
+      setDashboard(emptyDashboard);
+      setDashboardError('');
+      setIsLoading(false);
+      return;
+    }
     if (!userId || !activeWorkspaceId) {
       setDashboard(emptyDashboard);
       return;
@@ -316,7 +330,7 @@ export default function HomeTab({
     } finally {
       setIsLoading(false);
     }
-  }, [activeWorkspaceId, userId]);
+  }, [activeWorkspaceId, isChefHome, userId]);
 
   useEffect(() => {
     loadDashboard();
@@ -507,6 +521,19 @@ export default function HomeTab({
     { label: 'Suppliers', value: dashboard.suppliers.length },
     { label: 'Invoices', value: dashboard.invoices.length }
   ];
+
+  if (isChefHome) {
+    return (
+      <ChefHome
+        recipes={allRecipes}
+        displayName={displayName}
+        onSelectRecipe={onSelectRecipe}
+        onToggleFavorite={onToggleFavorite}
+        onCreateRecipe={onCreateRecipe}
+        onNavigate={onNavigate}
+      />
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-5 animate-fade-in">
