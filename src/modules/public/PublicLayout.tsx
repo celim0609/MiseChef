@@ -7,6 +7,7 @@ import PublicHomePage from './PublicHomePage';
 import { PublicSectionState, type PublicChefSummary, type PublicSectionStatus } from './PublicContent';
 import { resolvePublicRoute, toPublicSlug } from './publicRoutes';
 import { publicRecipeService } from './services';
+import PublicChefProfilePage from './PublicChefProfilePage';
 
 const publicNavigation = [
   { label: 'Home', href: '/' },
@@ -135,15 +136,7 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
       );
     }
 
-    const chef = publicChefs.find(item => item.username === route.username);
-    const chefRecipes = chef ? publicRecipes.filter(recipe => toPublicSlug(recipe.chefName) === chef.username) : [];
-    return chef ? (
-      <div>
-        <p className="font-sans text-xs font-extrabold uppercase tracking-[0.2em] text-secondary">Public chef</p>
-        <h1 className="mt-2 font-display text-4xl font-bold text-primary">{chef.name}</h1>
-        <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Public chef profile foundation · {chefRecipes.length} public recipe{chefRecipes.length === 1 ? '' : 's'}</p>
-      </div>
-    ) : <EmptyPublicState title="Chef not available" message="This public chef profile could not be found." icon={<ChefHat className="h-5 w-5" />} />;
+    return <PublicChefProfilePage username={route.username} />;
   };
 
   return (

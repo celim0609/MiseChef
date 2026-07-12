@@ -16,7 +16,7 @@ export default function ContactManager({ contact, onChange }: ContactManagerProp
   return (
     <section className="bg-surface-container-low border border-surface-container-high rounded-2xl p-6 sm:p-8 shadow-sm space-y-6">
       <div>
-        <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Portfolio Studio</p>
+        <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Chef Profile Studio</p>
         <h3 className="font-display text-2xl font-bold text-primary tracking-tight mt-1">Contact</h3>
       </div>
 

@@ -100,7 +100,7 @@ export default function ResumeManager({ resume, userId, onChange, onImportFromRe
   return (
     <section className="bg-surface-container-low border border-surface-container-high rounded-2xl p-6 sm:p-8 shadow-sm space-y-6">
       <div>
-        <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Portfolio Studio</p>
+        <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Chef Profile Studio</p>
         <h3 className="font-display text-2xl font-bold text-primary tracking-tight mt-1">Resume</h3>
       </div>
 
@@ -108,7 +108,7 @@ export default function ResumeManager({ resume, userId, onChange, onImportFromRe
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="font-sans text-xs font-extrabold text-primary">Resume Auto Fill</p>
-            <p className="font-sans text-sm font-bold text-on-surface-variant mt-1">Import PDF or DOCX resume text into your Portfolio draft.</p>
+            <p className="font-sans text-sm font-bold text-on-surface-variant mt-1">Import PDF or DOCX resume text into your Chef Profile draft.</p>
           </div>
           <button
             type="button"
@@ -128,7 +128,7 @@ export default function ResumeManager({ resume, userId, onChange, onImportFromRe
           className="hidden"
         />
 
-        {isImporting && <p className="font-sans text-xs font-extrabold text-secondary">Reading resume and preparing Portfolio draft...</p>}
+        {isImporting && <p className="font-sans text-xs font-extrabold text-secondary">Reading resume and preparing Chef Profile draft...</p>}
         {importError && <p className="font-sans text-xs font-extrabold text-error">{importError}</p>}
         {importSummary && (
           <div className="rounded-xl bg-surface-container-low p-4">

@@ -118,6 +118,14 @@ export interface PortfolioPublishingVisibility {
   status: PortfolioPublishStatus;
 }
 
+export interface PortfolioPublicProfile {
+  enabled: boolean;
+  username: string;
+  ownerId: string;
+  displayName: string;
+  avatarUrl?: string;
+}
+
 export interface Portfolio {
   basicProfile: PortfolioBasicProfile;
   hero?: PortfolioHero;
@@ -131,4 +139,5 @@ export interface Portfolio {
   contact?: PortfolioContact;
   metadata?: PortfolioMetadata;
   visibility?: PortfolioPublishingVisibility;
+  publicProfile?: PortfolioPublicProfile;
 }

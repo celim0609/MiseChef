@@ -114,7 +114,7 @@ export default function SkillsManager({ skills, onChange }: SkillsManagerProps) 
     <section className="bg-surface-container-low border border-surface-container-high rounded-2xl p-6 sm:p-8 shadow-sm space-y-6">
       <div>
         <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">
-          Portfolio Studio
+          Chef Profile Studio
         </p>
         <h3 className="font-display text-2xl font-bold text-primary tracking-tight mt-1">
           Skills

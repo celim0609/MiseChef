@@ -16,7 +16,7 @@ export default function Hero({ profile, portfolio }: HeroProps) {
   } = portfolio.basicProfile;
   const backgroundImageUrl = portfolio.hero?.backgroundImageUrl || portfolio.basicProfile.coverPhotoUrl;
   const profileInitial = profile.displayName.trim().charAt(0).toUpperCase();
-  const heroTitle = professionalTitle?.trim() || 'Complete your Portfolio';
+  const heroTitle = professionalTitle?.trim() || 'Complete your Chef Profile';
   const heroBio = shortBio?.trim() || 'Add a short bio to introduce your culinary story, signature strengths, and current focus.';
 
   return (

@@ -24,6 +24,9 @@ export const resolvePublicRoute = (pathname: string): PublicRoute | null => {
   const chefMatch = pathname.match(/^\/chef\/([^/]+)\/?$/);
   if (chefMatch?.[1]) return { page: 'chef', username: readSegment(chefMatch[1]) };
 
+  const usernameMatch = pathname.match(/^\/@([^/]+)\/?$/);
+  if (usernameMatch?.[1]) return { page: 'chef', username: readSegment(usernameMatch[1]) };
+
   return null;
 };
 

@@ -203,7 +203,7 @@ export default function NavigationDrawer({
   };
   const staticMenuItems: Array<{ label: string; icon: React.ReactNode; tab?: RootTab }> = [
     { label: 'Team', icon: <UsersRound className="w-5 h-5" />, tab: 'team' as RootTab },
-    { label: 'Portfolio', icon: <BriefcaseBusiness className="w-5 h-5" />, tab: 'portfolio' as RootTab },
+    { label: 'Chef Profile', icon: <BriefcaseBusiness className="w-5 h-5" />, tab: 'portfolio' as RootTab },
     { label: 'Settings', icon: <Settings className="w-5 h-5" />, tab: 'settings' as RootTab },
     { label: 'Subscription', icon: <CreditCard className="w-5 h-5" />, tab: 'billing' as RootTab }
   ].filter(item => !item.tab || canAccess(item.tab));

@@ -36,7 +36,8 @@ const normalizePortfolio = (portfolio: Portfolio): Portfolio => ({
   resume: portfolio.resume,
   contact: portfolio.contact,
   metadata: portfolio.metadata,
-  visibility: portfolio.visibility || { status: 'private' }
+  visibility: portfolio.visibility || { status: 'private' },
+  publicProfile: portfolio.publicProfile
 });
 
 const mergePortfolioWithDefault = (defaultPortfolio: Portfolio, savedPortfolio: Portfolio): Portfolio => normalizePortfolio({
@@ -59,7 +60,16 @@ const mergePortfolioWithDefault = (defaultPortfolio: Portfolio, savedPortfolio: 
 
 export default function PortfolioPage({ profile, initialPortfolio, recipes, userId, workspaceId }: PortfolioPageProps) {
   const [activeTab, setActiveTab] = useState<PortfolioTab>('preview');
-  const profilePortfolio = useMemo<Portfolio>(() => normalizePortfolio(initialPortfolio), [initialPortfolio]);
+  const profilePortfolio = useMemo<Portfolio>(() => normalizePortfolio({
+    ...initialPortfolio,
+    publicProfile: {
+      enabled: initialPortfolio.publicProfile?.enabled ?? initialPortfolio.visibility?.status === 'published',
+      username: initialPortfolio.publicProfile?.username || profile.displayName.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 30),
+      ownerId: userId || initialPortfolio.publicProfile?.ownerId || '',
+      displayName: profile.displayName,
+      avatarUrl: profile.avatarUrl
+    }
+  }), [initialPortfolio, profile, userId]);
 
   const [portfolio, setPortfolio] = useState<Portfolio>(profilePortfolio);
   const [previewPortfolio, setPreviewPortfolio] = useState<Portfolio>(profilePortfolio);

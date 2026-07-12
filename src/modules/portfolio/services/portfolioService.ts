@@ -15,7 +15,8 @@ const clonePortfolio = (portfolio: Portfolio): Portfolio => ({
   resume: portfolio.resume ? { ...portfolio.resume } : undefined,
   contact: portfolio.contact ? { ...portfolio.contact } : undefined,
   metadata: portfolio.metadata ? { ...portfolio.metadata } : undefined,
-  visibility: portfolio.visibility ? { ...portfolio.visibility } : { status: 'private' }
+  visibility: portfolio.visibility ? { ...portfolio.visibility } : { status: 'private' },
+  publicProfile: portfolio.publicProfile ? { ...portfolio.publicProfile } : undefined
 });
 
 const removeUndefinedFields = (value: unknown): unknown => {

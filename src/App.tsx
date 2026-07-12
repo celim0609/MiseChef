@@ -77,7 +77,7 @@ const ROOT_TAB_PATHS: Record<RootTab, string> = {
   home: '/app',
   search: '/app/recipes',
   favorites: '/app/favorites',
-  portfolio: '/app/portfolio',
+  portfolio: '/app/chef-profile',
   profile: '/app/profile',
   statistics: '/app/statistics',
   settings: '/app/settings',
@@ -114,6 +114,7 @@ const getRootTabFromPath = (pathname: string): RootTab => {
     case '/favorites':
       return 'favorites';
     case '/app/portfolio':
+    case '/app/chef-profile':
     case '/portfolio':
       return 'portfolio';
     case '/app/profile':

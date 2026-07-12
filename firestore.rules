@@ -360,6 +360,31 @@ service cloud.firestore {
       }
     }
 
+    match /{path=**}/portfolio/{portfolioId} {
+      allow read: if resource.data.publicProfile.enabled == true;
+    }
+
+    match /chefEnquiries/{enquiryId} {
+      allow create: if request.resource.data.keys().hasOnly([
+          'profileOwnerId',
+          'username',
+          'name',
+          'email',
+          'message',
+          'createdAt',
+          'status'
+        ])
+        && request.resource.data.profileOwnerId is string
+        && request.resource.data.username is string
+        && request.resource.data.name is string
+        && request.resource.data.email is string
+        && request.resource.data.message is string
+        && request.resource.data.createdAt is string
+        && request.resource.data.status == 'New';
+      allow read: if signedIn() && resource.data.profileOwnerId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
     match /workspaceMembers/{memberId} {
       allow create: if signedIn()
         && request.resource.data.id == memberId

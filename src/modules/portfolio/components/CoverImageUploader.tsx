@@ -60,7 +60,7 @@ export default function CoverImageUploader({ backgroundImageUrl, userId, onChang
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="font-sans text-xs font-extrabold text-primary uppercase tracking-[0.16em]">Cover Image</p>
-          <p className="font-sans text-sm font-bold text-on-surface-variant mt-2">Upload a JPG, PNG, or WEBP image for the Portfolio Hero background.</p>
+          <p className="font-sans text-sm font-bold text-on-surface-variant mt-2">Upload a JPG, PNG, or WEBP image for the Chef Profile Hero background.</p>
         </div>
 
         <div className="flex flex-wrap gap-2">
