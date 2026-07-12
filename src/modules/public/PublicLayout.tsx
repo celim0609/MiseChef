@@ -1,16 +1,12 @@
-import { useMemo, type ReactNode } from 'react';
-import { ChefHat, Search, Utensils } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { ChefHat, Search } from 'lucide-react';
 import BrandLogo from '../../components/BrandLogo';
 import type { Recipe } from '../../types';
 import { getRecipeCategories } from '../../utils/categoryUtils';
 import PublicHomePage from './PublicHomePage';
-import type { PublicChefSummary } from './PublicContent';
+import { PublicSectionState, type PublicChefSummary, type PublicSectionStatus } from './PublicContent';
 import { resolvePublicRoute, toPublicSlug } from './publicRoutes';
-
-interface PublicLayoutProps {
-  pathname: string;
-  recipes: Recipe[];
-}
+import { publicRecipeService } from './services';
 
 const publicNavigation = [
   { label: 'Home', href: '/' },
@@ -27,9 +23,31 @@ const EmptyPublicState = ({ title, message, icon }: { title: string; message: st
   </section>
 );
 
-export default function PublicLayout({ pathname, recipes }: PublicLayoutProps) {
+export default function PublicLayout({ pathname }: { pathname: string }) {
   const route = resolvePublicRoute(pathname) || { page: 'home' as const };
-  const publicRecipes = useMemo(() => recipes.filter(recipe => recipe.visibility === 'public'), [recipes]);
+  const [publicRecipes, setPublicRecipes] = useState<Recipe[]>([]);
+  const [recipeStatus, setRecipeStatus] = useState<PublicSectionStatus>('loading');
+
+  useEffect(() => {
+    let isCancelled = false;
+    setRecipeStatus('loading');
+
+    publicRecipeService.listPublicRecipes()
+      .then(recipes => {
+        if (isCancelled) return;
+        setPublicRecipes(recipes);
+        setRecipeStatus('ready');
+      })
+      .catch(() => {
+        if (isCancelled) return;
+        setPublicRecipes([]);
+        setRecipeStatus('error');
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
   const publicChefs = useMemo(() => {
     const chefs = new Map<string, PublicChefSummary>();
     publicRecipes.filter(recipe => recipe.chefName).forEach(recipe => {
@@ -47,7 +65,7 @@ export default function PublicLayout({ pathname, recipes }: PublicLayoutProps) {
 
   const renderPage = () => {
     if (route.page === 'home') {
-      return <PublicHomePage publicRecipes={publicRecipes} publicChefs={publicChefs} />;
+      return <PublicHomePage publicRecipes={publicRecipes} publicChefs={publicChefs} status={recipeStatus} />;
     }
 
     if (route.page === 'recipes') {
@@ -56,8 +74,9 @@ export default function PublicLayout({ pathname, recipes }: PublicLayoutProps) {
           <p className="font-sans text-xs font-extrabold uppercase tracking-[0.2em] text-secondary">Public recipes</p>
           <h1 className="mt-2 font-display text-4xl font-bold text-primary">Recipes</h1>
           <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Only recipes shared publicly appear here.</p>
-          {publicRecipes.length > 0 ? (
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-6">
+            <PublicSectionState status={recipeStatus} isEmpty={publicRecipes.length === 0} emptyTitle="No public recipes yet" emptyMessage="Recipes marked public will appear here. Private and workspace recipes remain hidden.">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {publicRecipes.map(recipe => (
                 <a key={recipe.id} href={`/recipes/${toPublicSlug(recipe.title) || recipe.id}`} className="overflow-hidden rounded-3xl border border-surface-container-high bg-background shadow-sm">
                   <img src={recipe.coverImage} alt={recipe.title} className="h-44 w-full object-cover" referrerPolicy="no-referrer" />
@@ -68,13 +87,20 @@ export default function PublicLayout({ pathname, recipes }: PublicLayoutProps) {
                   </div>
                 </a>
               ))}
-            </div>
-          ) : <div className="mt-6"><EmptyPublicState title="No public recipes yet" message="Recipes marked public will appear here. Private and workspace recipes remain hidden." icon={<Utensils className="h-5 w-5" />} /></div>}
+              </div>
+            </PublicSectionState>
+          </div>
         </div>
       );
     }
 
     if (route.page === 'recipe') {
+      if (recipeStatus === 'loading') {
+        return <div className="h-80 animate-pulse rounded-3xl bg-surface-container-low" aria-label="Loading public recipe" />;
+      }
+      if (recipeStatus === 'error') {
+        return <EmptyPublicState title="Recipe temporarily unavailable" message="This public recipe could not be loaded. Please try again later." icon={<Search className="h-5 w-5" />} />;
+      }
       const recipe = publicRecipes.find(item => toPublicSlug(item.title) === route.slug || item.id === route.slug);
       return recipe ? (
         <article className="mx-auto max-w-3xl overflow-hidden rounded-3xl border border-surface-container-high bg-background shadow-sm">

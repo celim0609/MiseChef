@@ -1746,7 +1746,7 @@ export default function App() {
   }
 
   if (isPublicExperiencePath(window.location.pathname)) {
-    return <PublicLayout pathname={window.location.pathname} recipes={recipes} />;
+    return <PublicLayout pathname={window.location.pathname} />;
   }
 
   if (isMarketingPath(window.location.pathname)) {

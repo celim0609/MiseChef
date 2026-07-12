@@ -185,7 +185,7 @@ service cloud.firestore {
 
     match /recipes/{recipeId} {
       allow create: if ownsIncomingUserData() && canAccessRecipes(incomingWorkspaceId());
-      allow read: if canAccessRecipes(existingWorkspaceId());
+      allow read: if resource.data.visibility == 'public' || canAccessRecipes(existingWorkspaceId());
       allow delete: if canAccessRecipes(existingWorkspaceId());
       allow update: if canAccessRecipes(existingWorkspaceId())
         && (!('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId)
