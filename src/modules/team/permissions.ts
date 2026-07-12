@@ -65,6 +65,8 @@ export const canAccessRootTab = (tab: RootTab, role?: WorkspaceMemberRole | null
       return INVOICE_ROLES.includes(role) || role === 'Finance';
     case 'team':
       return canManageTeam(role);
+    case 'billing':
+      return true;
     case 'settings':
       return canAccessSettings(role);
     case 'login':

@@ -204,7 +204,8 @@ export default function NavigationDrawer({
   const staticMenuItems: Array<{ label: string; icon: React.ReactNode; tab?: RootTab }> = [
     { label: 'Team', icon: <UsersRound className="w-5 h-5" />, tab: 'team' as RootTab },
     { label: 'Portfolio', icon: <BriefcaseBusiness className="w-5 h-5" />, tab: 'portfolio' as RootTab },
-    { label: 'Settings', icon: <Settings className="w-5 h-5" />, tab: 'settings' as RootTab }
+    { label: 'Settings', icon: <Settings className="w-5 h-5" />, tab: 'settings' as RootTab },
+    { label: 'Subscription', icon: <CreditCard className="w-5 h-5" />, tab: 'billing' as RootTab }
   ].filter(item => !item.tab || canAccess(item.tab));
   const costingMenuItems: Array<{ label: string; icon: React.ReactNode; tab: RootTab }> = [
     { label: 'Dashboard', icon: <Gauge className="w-4 h-4" />, tab: 'costing' as RootTab },
@@ -659,14 +660,6 @@ export default function NavigationDrawer({
                 </button>
               ))}
 
-              <button
-                type="button"
-                disabled
-                className="w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-sans font-extrabold text-sm text-outline cursor-not-allowed"
-              >
-                <CreditCard className="w-5 h-5" />
-                <span>Billing</span>
-              </button>
             </nav>
 
             <div className="border-t border-surface-container-high p-3 space-y-2">

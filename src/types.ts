@@ -213,6 +213,7 @@ export type RootTab =
   | 'profile'
   | 'statistics'
   | 'settings'
+  | 'billing'
   | 'login'
   | 'team'
   | 'admin'

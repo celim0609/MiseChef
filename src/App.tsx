@@ -25,6 +25,7 @@ import { CostingPage } from './modules/costing';
 import { recipeCostService } from './modules/costing/services';
 import { BusinessPage } from './modules/business';
 import { TeamPage } from './modules/team';
+import { SubscriptionCenterPage } from './modules/subscription';
 import { teamService } from './modules/team/services';
 import type { TeamInvitation } from './modules/team/types';
 import { MarketingPage } from './modules/marketing';
@@ -79,6 +80,7 @@ const ROOT_TAB_PATHS: Record<RootTab, string> = {
   profile: '/app/profile',
   statistics: '/app/statistics',
   settings: '/app/settings',
+  billing: '/app/billing',
   login: '/login',
   team: '/app/team',
   admin: '/app/admin',
@@ -122,6 +124,9 @@ const getRootTabFromPath = (pathname: string): RootTab => {
     case '/app/settings':
     case '/settings':
       return 'settings';
+    case '/app/billing':
+    case '/billing':
+      return 'billing';
     case '/login':
       return 'login';
     case '/app/team':
@@ -1627,6 +1632,14 @@ export default function App() {
             }}
             onSignOut={handleSignOut}
             onNotify={triggerNotification}
+          />
+        );
+      case 'billing':
+        return (
+          <SubscriptionCenterPage
+            workspaceId={activeWorkspaceId}
+            currentWorkspace={currentWorkspace}
+            recipeCount={recipes.length}
           />
         );
       case 'profile':
