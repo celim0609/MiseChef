@@ -13,8 +13,10 @@ export interface PublicChefProfileSummary {
   username: string;
   name: string;
   avatar?: string;
+  cover?: string;
   professionalTitle?: string;
-  location?: string;
+  country?: string;
+  skills: string[];
   publicRecipeCount: number;
 }
 
@@ -38,8 +40,10 @@ const listPublicProfiles = async (): Promise<PublicChefProfileSummary[]> => {
       username: profile.username,
       name: profile.displayName,
       avatar: profile.avatarUrl,
+      cover: portfolio.hero?.backgroundImageUrl || portfolio.basicProfile.coverPhotoUrl,
       professionalTitle: portfolio.basicProfile.professionalTitle,
-      location: portfolio.basicProfile.location,
+      country: portfolio.basicProfile.location?.split(',').map(part => part.trim()).filter(Boolean).pop(),
+      skills: (portfolio.skills || []).filter(skill => skill.visibility === 'public' && skill.name.trim()).sort((a, b) => a.sortOrder - b.sortOrder).slice(0, 3).map(skill => skill.name),
       publicRecipeCount
     }];
   });

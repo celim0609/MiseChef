@@ -4,7 +4,7 @@ import BrandLogo from '../../components/BrandLogo';
 import type { Recipe } from '../../types';
 import { getRecipeCategories } from '../../utils/categoryUtils';
 import PublicHomePage from './PublicHomePage';
-import { PublicSectionState, type PublicChefSummary, type PublicSectionStatus } from './PublicContent';
+import { PublicChefCard, PublicSectionState, type PublicChefSummary, type PublicSectionStatus } from './PublicContent';
 import { resolvePublicRoute, toPublicSlug } from './publicRoutes';
 import { publicChefProfileService, publicRecipeService } from './services';
 import PublicChefProfilePage from './PublicChefProfilePage';
@@ -122,14 +122,7 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
           <h1 className="mt-2 font-display text-4xl font-bold text-primary">Chefs</h1>
           <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Discover chefs through their publicly shared recipes.</p>
           {publicChefs.length > 0 ? (
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {publicChefs.map(chef => (
-                <a key={chef.username} href={`/chef/${chef.username}`} className="flex items-center gap-4 rounded-3xl border border-surface-container-high bg-background p-5 shadow-sm">
-                  {chef.avatar ? <img src={chef.avatar} alt="" className="h-14 w-14 rounded-full object-cover" referrerPolicy="no-referrer" /> : <span className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary"><ChefHat className="h-6 w-6" /></span>}
-                  <h2 className="font-display text-xl font-semibold text-primary">{chef.name}</h2>
-                </a>
-              ))}
-            </div>
+            <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{publicChefs.map(chef => <PublicChefCard key={chef.username} chef={chef} />)}</div>
           ) : <div className="mt-6"><EmptyPublicState title="No public chefs yet" message="Chef profiles will appear when they have publicly shared recipes." icon={<ChefHat className="h-5 w-5" />} /></div>}
         </div>
       );
