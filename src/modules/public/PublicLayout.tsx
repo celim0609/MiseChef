@@ -3,6 +3,8 @@ import { ChefHat, Search, Utensils } from 'lucide-react';
 import BrandLogo from '../../components/BrandLogo';
 import type { Recipe } from '../../types';
 import { getRecipeCategories } from '../../utils/categoryUtils';
+import PublicHomePage from './PublicHomePage';
+import type { PublicChefSummary } from './PublicContent';
 import { resolvePublicRoute, toPublicSlug } from './publicRoutes';
 
 interface PublicLayoutProps {
@@ -28,25 +30,24 @@ const EmptyPublicState = ({ title, message, icon }: { title: string; message: st
 export default function PublicLayout({ pathname, recipes }: PublicLayoutProps) {
   const route = resolvePublicRoute(pathname) || { page: 'home' as const };
   const publicRecipes = useMemo(() => recipes.filter(recipe => recipe.visibility === 'public'), [recipes]);
-  const publicChefs = useMemo(() => Array.from(new Map(
-    publicRecipes
-      .filter(recipe => recipe.chefName)
-      .map(recipe => [toPublicSlug(recipe.chefName), { username: toPublicSlug(recipe.chefName), name: recipe.chefName, avatar: recipe.chefAvatar }])
-  ).values()), [publicRecipes]);
+  const publicChefs = useMemo(() => {
+    const chefs = new Map<string, PublicChefSummary>();
+    publicRecipes.filter(recipe => recipe.chefName).forEach(recipe => {
+      const username = toPublicSlug(recipe.chefName);
+      const existing = chefs.get(username);
+      chefs.set(username, {
+        username,
+        name: recipe.chefName,
+        avatar: recipe.chefAvatar || existing?.avatar,
+        publicRecipeCount: (existing?.publicRecipeCount || 0) + 1
+      });
+    });
+    return Array.from(chefs.values());
+  }, [publicRecipes]);
 
   const renderPage = () => {
     if (route.page === 'home') {
-      return (
-        <section className="rounded-3xl border border-surface-container-high bg-surface-container-low px-6 py-12 shadow-sm sm:px-10 sm:py-16">
-          <p className="font-sans text-xs font-extrabold uppercase tracking-[0.2em] text-secondary">Public MiseChef</p>
-          <h1 className="mt-4 max-w-3xl font-display text-5xl font-bold tracking-tight text-primary sm:text-6xl">Discover recipes and the chefs behind them.</h1>
-          <p className="mt-5 max-w-2xl font-sans text-base font-bold leading-relaxed text-on-surface-variant">The public platform foundation is ready for recipe and chef discovery.</p>
-          <div className="mt-7 flex flex-wrap gap-3">
-            <a href="/recipes" className="rounded-full bg-primary px-5 py-3 font-sans text-sm font-extrabold text-on-primary">Browse Recipes</a>
-            <a href="/chefs" className="rounded-full border border-primary/20 bg-background px-5 py-3 font-sans text-sm font-extrabold text-primary">Discover Chefs</a>
-          </div>
-        </section>
-      );
+      return <PublicHomePage publicRecipes={publicRecipes} publicChefs={publicChefs} />;
     }
 
     if (route.page === 'recipes') {
@@ -138,6 +139,20 @@ export default function PublicLayout({ pathname, recipes }: PublicLayoutProps) {
         </div>
       </header>
       <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">{renderPage()}</main>
+      <footer className="border-t border-surface-container-high bg-surface-container-low">
+        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-8 sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8">
+          <p className="font-display text-xl font-bold italic text-primary">MiseChef</p>
+          <nav className="flex flex-wrap gap-x-5 gap-y-3" aria-label="Public footer">
+            {[
+              { label: 'Recipes', href: '/recipes' },
+              { label: 'Chefs', href: '/chefs' },
+              { label: 'Pricing', href: '/pricing' },
+              { label: 'Login', href: '/login' },
+              { label: 'Contact', href: '/contact' }
+            ].map(item => <a key={item.href} href={item.href} className="font-sans text-xs font-extrabold text-on-surface-variant hover:text-primary">{item.label}</a>)}
+          </nav>
+        </div>
+      </footer>
     </div>
   );
 }
