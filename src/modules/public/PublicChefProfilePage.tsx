@@ -1,12 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { Portfolio, PortfolioProfileSource } from '../portfolio/types';
-import Hero from '../portfolio/components/Hero';
 import AboutPreview from '../portfolio/sections/AboutPreview';
-import ExperiencePreview from '../portfolio/sections/ExperiencePreview';
-import SkillsPreview from '../portfolio/sections/SkillsPreview';
-import GalleryPreview from '../portfolio/sections/GalleryPreview';
 import PartnerSpotlightPreview from '../portfolio/sections/PartnerSpotlightPreview';
-import { PublicRecipeCard } from './PublicContent';
+import { PublicExperienceSection, PublicGallerySection, PublicProfileHero, PublicProfileRecipeCard, PublicSkillsSection } from './PublicChefProfilePresentation';
 import { publicChefProfileService } from './services/publicChefProfileService';
 import type { Recipe } from '../../types';
 
@@ -51,18 +47,19 @@ export default function PublicChefProfilePage({ username }: { username: string }
     }
   };
 
-  return <div className="mx-auto max-w-6xl">
-    <Hero profile={profile} portfolio={portfolio} />
+  return <div className="mx-auto max-w-6xl pb-8">
+    <PublicProfileHero profile={profile} portfolio={portfolio} recipeCount={recipes.length} />
     <AboutPreview about={portfolio.about} />
-    <ExperiencePreview experiences={portfolio.experience || []} />
-    <SkillsPreview skills={portfolio.skills || []} />
-    <section className="pb-10">
+    <PublicExperienceSection experiences={portfolio.experience || []} />
+    <PublicSkillsSection skills={portfolio.skills || []} />
+    <section className="mb-16">
+      <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Recipes</p>
       <h2 className="font-display text-3xl font-bold text-primary">Public Recipes</h2>
-      {recipes.length ? <div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{recipes.map(recipe => <PublicRecipeCard key={recipe.id} recipe={recipe} />)}</div> : <p className="mt-4 rounded-2xl bg-surface-container-low p-6 font-sans text-sm font-bold text-on-surface-variant">No public recipes yet.</p>}
+      {recipes.length ? <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{recipes.map(recipe => <PublicProfileRecipeCard key={recipe.id} recipe={recipe} />)}</div> : <p className="mt-4 rounded-2xl bg-surface-container-low p-6 font-sans text-sm font-bold text-on-surface-variant">No public recipes yet.</p>}
     </section>
     <PartnerSpotlightPreview spotlight={portfolio.partnerSpotlight} />
-    <GalleryPreview items={portfolio.gallery || []} />
-    <section className="rounded-3xl border border-surface-container-high bg-surface-container-low p-6 sm:p-8">
+    <PublicGallerySection items={portfolio.gallery || []} />
+    <section id="contact-chef" className="scroll-mt-24 rounded-3xl border border-surface-container-high bg-surface-container-low p-6 sm:p-8">
       <h2 className="font-display text-3xl font-bold text-primary">Contact Chef</h2>
       <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Send a private enquiry without exposing personal contact details.</p>
       <form onSubmit={submit} className="mt-6 grid gap-4 sm:grid-cols-2">
