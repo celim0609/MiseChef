@@ -55,6 +55,9 @@ export default function PortfolioStudio({ portfolio, recipes, userId, workspaceI
 
   const hasUnsavedChanges = JSON.stringify(draftPortfolio) !== JSON.stringify(lastSavedPortfolio);
   const statusMessage = hasUnsavedChanges ? 'Unsaved changes' : saveMessage;
+  const publicUsername = draftPortfolio.publicProfile?.username?.trim() || '';
+  const publicUrl = publicUsername ? `https://misechef.ai/@${publicUsername}` : '';
+  const canCopyPublicUrl = Boolean(draftPortfolio.publicProfile?.enabled && publicUrl);
   const markDraftChanged = () => setSaveMessage('Unsaved changes');
 
   const updateBasicProfile = (basicProfile: PortfolioBasicProfile) => {
@@ -173,8 +176,8 @@ export default function PortfolioStudio({ portfolio, recipes, userId, workspaceI
         </label>
         <div className="rounded-2xl bg-white p-4">
           <p className="font-sans text-xs font-extrabold text-outline">Public URL</p>
-          <p className="mt-1 break-all font-sans text-sm font-bold text-primary">https://misechef.ai/@{draftPortfolio.publicProfile?.username || 'username'}</p>
-          <button type="button" onClick={() => navigator.clipboard?.writeText(`https://misechef.ai/@${draftPortfolio.publicProfile?.username || ''}`)} className="mt-3 rounded-full border border-primary/20 px-4 py-2 font-sans text-xs font-extrabold text-primary">Copy Link</button>
+          <p className="mt-1 break-all font-sans text-sm font-bold text-primary">{publicUrl || 'Choose a username to create your public URL.'}</p>
+          <button type="button" disabled={!canCopyPublicUrl} onClick={() => publicUrl && navigator.clipboard?.writeText(publicUrl)} className="mt-3 rounded-full border border-primary/20 px-4 py-2 font-sans text-xs font-extrabold text-primary disabled:cursor-not-allowed disabled:opacity-40">Copy Link</button>
         </div>
 
         <div>

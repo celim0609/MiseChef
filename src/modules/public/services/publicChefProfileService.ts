@@ -9,6 +9,42 @@ export interface PublicChefProfileResult {
   recipes: Recipe[];
 }
 
+export interface PublicChefProfileSummary {
+  username: string;
+  name: string;
+  avatar?: string;
+  professionalTitle?: string;
+  location?: string;
+  publicRecipeCount: number;
+}
+
+const listPublicProfiles = async (): Promise<PublicChefProfileSummary[]> => {
+  if (!db) return [];
+  const snapshot = await getDocs(query(
+    collectionGroup(db, 'portfolio'),
+    where('publicProfile.enabled', '==', true)
+  ));
+  const publicRecipes = await publicRecipeService.listPublicRecipes();
+
+  return snapshot.docs.flatMap(document => {
+    const portfolio = document.data() as Portfolio;
+    const profile = portfolio.publicProfile;
+    if (!profile?.username || !profile.ownerId) return [];
+    const publicRecipeCount = publicRecipes.filter(recipe => {
+      const ownership = recipe as Recipe & { createdBy?: string; userId?: string };
+      return ownership.createdBy === profile.ownerId || ownership.userId === profile.ownerId;
+    }).length;
+    return [{
+      username: profile.username,
+      name: profile.displayName,
+      avatar: profile.avatarUrl,
+      professionalTitle: portfolio.basicProfile.professionalTitle,
+      location: portfolio.basicProfile.location,
+      publicRecipeCount
+    }];
+  });
+};
+
 const getByUsername = async (username: string): Promise<PublicChefProfileResult | null> => {
   if (!db) return null;
   const normalizedUsername = username.trim().toLowerCase();
@@ -41,4 +77,4 @@ const sendEnquiry = async (input: { profileOwnerId: string; username: string; na
   });
 };
 
-export const publicChefProfileService = { getByUsername, sendEnquiry };
+export const publicChefProfileService = { getByUsername, listPublicProfiles, sendEnquiry };

@@ -1,0 +1,21 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "portfolio",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "publicProfile.enabled", "order": "ASCENDING" },
+        { "fieldPath": "publicProfile.username", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "portfolio",
+      "fieldPath": "publicProfile.enabled",
+      "indexes": [
+        { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
+  ]
+}

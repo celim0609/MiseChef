@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ChefHat, Search } from 'lucide-react';
 import BrandLogo from '../../components/BrandLogo';
 import type { Recipe } from '../../types';
@@ -6,7 +6,7 @@ import { getRecipeCategories } from '../../utils/categoryUtils';
 import PublicHomePage from './PublicHomePage';
 import { PublicSectionState, type PublicChefSummary, type PublicSectionStatus } from './PublicContent';
 import { resolvePublicRoute, toPublicSlug } from './publicRoutes';
-import { publicRecipeService } from './services';
+import { publicChefProfileService, publicRecipeService } from './services';
 import PublicChefProfilePage from './PublicChefProfilePage';
 
 const publicNavigation = [
@@ -27,6 +27,7 @@ const EmptyPublicState = ({ title, message, icon }: { title: string; message: st
 export default function PublicLayout({ pathname }: { pathname: string }) {
   const route = resolvePublicRoute(pathname) || { page: 'home' as const };
   const [publicRecipes, setPublicRecipes] = useState<Recipe[]>([]);
+  const [publicChefs, setPublicChefs] = useState<PublicChefSummary[]>([]);
   const [recipeStatus, setRecipeStatus] = useState<PublicSectionStatus>('loading');
 
   useEffect(() => {
@@ -49,20 +50,18 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
       isCancelled = true;
     };
   }, []);
-  const publicChefs = useMemo(() => {
-    const chefs = new Map<string, PublicChefSummary>();
-    publicRecipes.filter(recipe => recipe.chefName).forEach(recipe => {
-      const username = toPublicSlug(recipe.chefName);
-      const existing = chefs.get(username);
-      chefs.set(username, {
-        username,
-        name: recipe.chefName,
-        avatar: recipe.chefAvatar || existing?.avatar,
-        publicRecipeCount: (existing?.publicRecipeCount || 0) + 1
+
+  useEffect(() => {
+    let isCancelled = false;
+    publicChefProfileService.listPublicProfiles()
+      .then(profiles => {
+        if (!isCancelled) setPublicChefs(profiles);
+      })
+      .catch(() => {
+        if (!isCancelled) setPublicChefs([]);
       });
-    });
-    return Array.from(chefs.values());
-  }, [publicRecipes]);
+    return () => { isCancelled = true; };
+  }, []);
 
   const renderPage = () => {
     if (route.page === 'home') {
