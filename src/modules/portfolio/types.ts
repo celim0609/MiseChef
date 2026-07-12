@@ -126,6 +126,11 @@ export interface PortfolioPublicProfile {
   avatarUrl?: string;
 }
 
+export interface PortfolioPartnerSpotlight {
+  enabled: boolean;
+  partners: string[];
+}
+
 export interface Portfolio {
   basicProfile: PortfolioBasicProfile;
   hero?: PortfolioHero;
@@ -140,4 +145,5 @@ export interface Portfolio {
   metadata?: PortfolioMetadata;
   visibility?: PortfolioPublishingVisibility;
   publicProfile?: PortfolioPublicProfile;
+  partnerSpotlight?: PortfolioPartnerSpotlight;
 }

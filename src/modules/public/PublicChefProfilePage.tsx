@@ -5,6 +5,7 @@ import AboutPreview from '../portfolio/sections/AboutPreview';
 import ExperiencePreview from '../portfolio/sections/ExperiencePreview';
 import SkillsPreview from '../portfolio/sections/SkillsPreview';
 import GalleryPreview from '../portfolio/sections/GalleryPreview';
+import PartnerSpotlightPreview from '../portfolio/sections/PartnerSpotlightPreview';
 import { PublicRecipeCard } from './PublicContent';
 import { publicChefProfileService } from './services/publicChefProfileService';
 import type { Recipe } from '../../types';
@@ -55,11 +56,12 @@ export default function PublicChefProfilePage({ username }: { username: string }
     <AboutPreview about={portfolio.about} />
     <ExperiencePreview experiences={portfolio.experience || []} />
     <SkillsPreview skills={portfolio.skills || []} />
-    <GalleryPreview items={portfolio.gallery || []} />
     <section className="pb-10">
       <h2 className="font-display text-3xl font-bold text-primary">Public Recipes</h2>
       {recipes.length ? <div className="mt-5 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{recipes.map(recipe => <PublicRecipeCard key={recipe.id} recipe={recipe} />)}</div> : <p className="mt-4 rounded-2xl bg-surface-container-low p-6 font-sans text-sm font-bold text-on-surface-variant">No public recipes yet.</p>}
     </section>
+    <PartnerSpotlightPreview spotlight={portfolio.partnerSpotlight} />
+    <GalleryPreview items={portfolio.gallery || []} />
     <section className="rounded-3xl border border-surface-container-high bg-surface-container-low p-6 sm:p-8">
       <h2 className="font-display text-3xl font-bold text-primary">Contact Chef</h2>
       <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Send a private enquiry without exposing personal contact details.</p>
