@@ -69,5 +69,6 @@ export default function PublicChefProfilePage({ username }: { username: string }
         <div className="flex items-center gap-4 sm:col-span-2"><button className="rounded-full bg-primary px-5 py-3 font-sans text-sm font-extrabold text-on-primary">Contact Chef</button>{formStatus && <p className="font-sans text-xs font-bold text-on-surface-variant">{formStatus}</p>}</div>
       </form>
     </section>
+    {recipes.length > 0 && <section className="mt-16"><h2 className="font-display text-3xl font-bold text-primary">More Recipes from this Chef</h2><div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{recipes.slice(0, 4).map(recipe => <PublicProfileRecipeCard key={recipe.id} recipe={recipe} />)}</div></section>}
   </div>;
 }

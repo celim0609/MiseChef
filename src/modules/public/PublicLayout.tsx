@@ -8,6 +8,7 @@ import { PublicChefCard, PublicSectionState, type PublicChefSummary, type Public
 import { resolvePublicRoute, toPublicSlug } from './publicRoutes';
 import { publicChefProfileService, publicRecipeService } from './services';
 import PublicChefProfilePage from './PublicChefProfilePage';
+import PublicRecipeDiscoveryPage from './PublicRecipeDiscoveryPage';
 
 const publicNavigation = [
   { label: 'Home', href: '/' },
@@ -115,17 +116,7 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
         return <EmptyPublicState title="Recipe temporarily unavailable" message="This public recipe could not be loaded. Please try again later." icon={<Search className="h-5 w-5" />} />;
       }
       const recipe = publicRecipes.find(item => toPublicSlug(item.title) === route.slug || item.id === route.slug);
-      return recipe ? (
-        <article className="mx-auto max-w-3xl overflow-hidden rounded-3xl border border-surface-container-high bg-background shadow-sm">
-          <img src={recipe.coverImage} alt={recipe.title} className="max-h-96 w-full object-cover" referrerPolicy="no-referrer" />
-          <div className="p-6 sm:p-8">
-            <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Public recipe</p>
-            <h1 className="mt-3 font-display text-4xl font-bold text-primary">{recipe.title}</h1>
-            <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">By {recipe.chefName || 'MiseChef'}</p>
-            <p className="mt-6 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{recipe.story}</p>
-          </div>
-        </article>
-      ) : <EmptyPublicState title="Recipe not available" message="This recipe is not public or could not be found." icon={<Search className="h-5 w-5" />} />;
+      return recipe ? <PublicRecipeDiscoveryPage recipe={recipe} publicRecipes={publicRecipes} publicChefs={publicChefs} /> : <EmptyPublicState title="Recipe not available" message="This recipe is not public or could not be found." icon={<Search className="h-5 w-5" />} />;
     }
 
     if (route.page === 'chefs') {

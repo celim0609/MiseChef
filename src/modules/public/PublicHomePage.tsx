@@ -20,7 +20,6 @@ const SectionHeading = ({ title, description, link, linkLabel }: { title: string
 
 export default function PublicHomePage({ publicRecipes, publicChefs, status = 'ready' }: PublicHomePageProps) {
   const featuredRecipes = [...publicRecipes].sort((a, b) => Number(Boolean(b.isFeatured)) - Number(Boolean(a.isFeatured))).slice(0, 4);
-  const trendingRecipes = [...publicRecipes].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).slice(0, 4);
   const featuredChefs = publicChefs.slice(0, 4);
 
   return (
@@ -55,25 +54,16 @@ export default function PublicHomePage({ publicRecipes, publicChefs, status = 'r
       </section>
 
       <section>
-        <SectionHeading title="Trending Recipes" description="Recipes getting attention from the community." />
-        <PublicSectionState status={status} isEmpty={trendingRecipes.length === 0} emptyTitle="No trending recipes yet" emptyMessage="Recently published recipes will appear here.">
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{trendingRecipes.map(recipe => <PublicRecipeCard key={recipe.id} recipe={recipe} />)}</div>
-        </PublicSectionState>
+        <SectionHeading title="Why MiseChef" description="One place for culinary work to be discovered and shared." />
+        <div className="grid gap-5 md:grid-cols-3">
+          {[['Discover Original Recipes', 'Explore public recipes shared directly by professional chefs.'], ['Meet the People Behind the Food', 'Move naturally from every recipe to the chef who created it.'], ['Build a Professional Presence', 'Give your recipes, experience and culinary work a home.']].map(([title, description]) => <article key={title} className="rounded-3xl border border-surface-container-high bg-surface-container-low p-6 shadow-sm"><h3 className="font-display text-2xl font-bold text-primary">{title}</h3><p className="mt-3 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{description}</p></article>)}
+        </div>
       </section>
 
-      <section className="grid gap-5 lg:grid-cols-2">
-        <div className="rounded-3xl border border-surface-container-high bg-surface-container-low p-7 sm:p-9">
-          <p className="font-sans text-xs font-extrabold uppercase tracking-[0.18em] text-secondary">For Chefs</p>
-          <h2 className="mt-3 font-display text-3xl font-bold text-primary">Build your professional chef profile.</h2>
-          <p className="mt-4 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">Showcase your recipes, portfolio, experience, and make it easier for restaurants and brands to discover you.</p>
-          <a href="/login" className="mt-6 inline-flex rounded-full bg-primary px-5 py-3 font-sans text-sm font-extrabold text-on-primary">Create Your Chef Profile</a>
-        </div>
-        <div className="rounded-3xl border border-surface-container-high bg-background p-7 shadow-sm sm:p-9">
-          <p className="font-sans text-xs font-extrabold uppercase tracking-[0.18em] text-secondary">For Restaurants</p>
-          <h2 className="mt-3 font-display text-3xl font-bold text-primary">Run your kitchen with MiseChef.</h2>
-          <p className="mt-4 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">Manage recipes, costing, ingredients, suppliers, invoices, and your team in one workspace.</p>
-          <a href="/pricing" className="mt-6 inline-flex rounded-full border border-primary/20 px-5 py-3 font-sans text-sm font-extrabold text-primary">Explore Workspace Plans</a>
-        </div>
+      <section className="rounded-3xl bg-primary px-6 py-10 text-on-primary sm:px-10 sm:py-12">
+        <p className="font-sans text-xs font-extrabold uppercase tracking-[0.2em] text-secondary-container">Join MiseChef</p>
+        <h2 className="mt-3 max-w-3xl font-display text-4xl font-bold">Create your culinary profile and share the work behind your food.</h2>
+        <div className="mt-6 flex flex-wrap gap-3"><a href="/login" className="rounded-full bg-secondary px-5 py-3 font-sans text-sm font-extrabold text-on-secondary">Create Free Account</a><a href="/chefs" className="rounded-full border border-on-primary/25 px-5 py-3 font-sans text-sm font-extrabold text-on-primary">Explore Chefs</a></div>
       </section>
     </div>
   );

@@ -10,6 +10,7 @@ export interface PublicChefProfileResult {
 }
 
 export interface PublicChefProfileSummary {
+  ownerId: string;
   username: string;
   name: string;
   avatar?: string;
@@ -37,6 +38,7 @@ const listPublicProfiles = async (): Promise<PublicChefProfileSummary[]> => {
       return ownership.createdBy === profile.ownerId || ownership.userId === profile.ownerId;
     }).length;
     return [{
+      ownerId: profile.ownerId,
       username: profile.username,
       name: profile.displayName,
       avatar: profile.avatarUrl,
