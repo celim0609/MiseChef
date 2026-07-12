@@ -48,6 +48,7 @@ export interface MethodStep {
 
 export type RecipeVisibility =
   | "private"
+  | "workspace"
   | "team"
   | "organization"
   | "public"

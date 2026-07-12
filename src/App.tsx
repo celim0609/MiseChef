@@ -29,6 +29,7 @@ import { SubscriptionCenterPage } from './modules/subscription';
 import { teamService } from './modules/team/services';
 import type { TeamInvitation } from './modules/team/types';
 import { MarketingPage } from './modules/marketing';
+import { isPublicExperiencePath, PublicLayout } from './modules/public';
 import { AnimatePresence, motion } from 'motion/react';
 import BrandLogo from './components/BrandLogo';
 import { auth, authPersistenceReady, db } from './firebase';
@@ -688,7 +689,7 @@ export default function App() {
     if (!auth) {
       setCurrentUser(null);
       setIsAuthReady(true);
-      if (isMarketingPath(window.location.pathname)) {
+      if (isPublicExperiencePath(window.location.pathname) || isMarketingPath(window.location.pathname)) {
         setActiveTab('home');
       } else {
         setActiveTab('login');
@@ -720,7 +721,7 @@ export default function App() {
             setIsGuestMode(false);
             const pathname = window.location.pathname;
 
-            if (isMarketingPath(pathname)) {
+            if (isPublicExperiencePath(pathname) || isMarketingPath(pathname)) {
               setSelectedCostingInvoiceId(null);
               setActiveTab('home');
               return;
@@ -746,7 +747,7 @@ export default function App() {
           setSelectedHomeCategory(null);
           setIsFavoritesFilterActive(false);
           setIsGuestMode(false);
-          if (isMarketingPath(window.location.pathname)) {
+          if (isPublicExperiencePath(window.location.pathname) || isMarketingPath(window.location.pathname)) {
             setActiveTab('home');
           } else {
             setActiveTab('login');
@@ -808,7 +809,7 @@ export default function App() {
 
   useEffect(() => {
     const pathname = window.location.pathname;
-    if (!isAuthReady || currentUser || isGuestMode || activeTab === 'login' || isMarketingPath(pathname) || pathname === '/login') return;
+    if (!isAuthReady || currentUser || isGuestMode || activeTab === 'login' || isPublicExperiencePath(pathname) || isMarketingPath(pathname) || pathname === '/login') return;
     if (!isAppPath(pathname) && getRootTabFromPath(pathname) === 'home') return;
 
     setAddingRecipe(false);
@@ -1742,6 +1743,10 @@ export default function App() {
 
   if (!isAppReady || !isAuthReady) {
     return <BrandLoadingScreen />;
+  }
+
+  if (isPublicExperiencePath(window.location.pathname)) {
+    return <PublicLayout pathname={window.location.pathname} recipes={recipes} />;
   }
 
   if (isMarketingPath(window.location.pathname)) {
