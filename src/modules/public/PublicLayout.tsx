@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChefHat, Search } from 'lucide-react';
 import BrandLogo from '../../components/BrandLogo';
 import type { Recipe } from '../../types';
@@ -28,6 +28,7 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
   const route = resolvePublicRoute(pathname) || { page: 'home' as const };
   const [publicRecipes, setPublicRecipes] = useState<Recipe[]>([]);
   const [publicChefs, setPublicChefs] = useState<PublicChefSummary[]>([]);
+  const [chefSearch, setChefSearch] = useState('');
   const [recipeStatus, setRecipeStatus] = useState<PublicSectionStatus>('loading');
 
   useEffect(() => {
@@ -50,6 +51,18 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
       isCancelled = true;
     };
   }, []);
+
+  const filteredPublicChefs = useMemo(() => {
+    const searchTerm = chefSearch.trim().toLowerCase();
+    if (!searchTerm) return publicChefs;
+
+    return publicChefs.filter(chef => [
+      chef.name,
+      chef.professionalTitle,
+      chef.country,
+      ...chef.skills
+    ].filter(Boolean).join(' ').toLowerCase().includes(searchTerm));
+  }, [chefSearch, publicChefs]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -121,8 +134,15 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
           <p className="font-sans text-xs font-extrabold uppercase tracking-[0.2em] text-secondary">Chef discovery</p>
           <h1 className="mt-2 font-display text-4xl font-bold text-primary">Chefs</h1>
           <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Discover chefs through their publicly shared recipes.</p>
-          {publicChefs.length > 0 ? (
-            <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{publicChefs.map(chef => <PublicChefCard key={chef.username} chef={chef} />)}</div>
+          <label className="relative mt-6 block w-full">
+            <span className="sr-only">Search chefs</span>
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-outline" />
+            <input type="search" value={chefSearch} onChange={event => setChefSearch(event.target.value)} placeholder="Search chefs..." className="w-full rounded-2xl border border-surface-container-high bg-background py-4 pl-12 pr-4 font-sans text-sm font-bold text-on-surface outline-none transition focus:border-primary" />
+          </label>
+          {filteredPublicChefs.length > 0 ? (
+            <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{filteredPublicChefs.map(chef => <PublicChefCard key={chef.username} chef={chef} />)}</div>
+          ) : chefSearch.trim() ? (
+            <div className="mt-6"><EmptyPublicState title="No chefs found." message="Try searching by name, professional title, skill or country." icon={<Search className="h-5 w-5" />} /></div>
           ) : <div className="mt-6"><EmptyPublicState title="No public chefs yet" message="Chef profiles will appear when they have publicly shared recipes." icon={<ChefHat className="h-5 w-5" />} /></div>}
         </div>
       );
