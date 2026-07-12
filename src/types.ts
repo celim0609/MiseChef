@@ -175,6 +175,7 @@ export interface PlanLimits {
   monthlyAiRequests: number;
   monthlyAiTokens: number;
   monthlyAiCostBudgetUSD: number;
+  invoiceOcrLimit: number;
   teamMemberLimit: number;
   storageLimitMB: number;
   recipeLimit: number;

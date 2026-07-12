@@ -3,6 +3,7 @@ import { db } from '../firebase';
 import type { BillingCycle, Company, PlanLimits, SubscriptionPlan, SubscriptionStatus } from '../types';
 import {
   canPlanUseFeature,
+  formatSubscriptionPlanName,
   getAllPlanDefinitions,
   getLimitValue,
   getPlanDefinition,
@@ -66,6 +67,8 @@ const normalizeSubscriptionFeature = (feature: SubscriptionFeature): PlanFeature
   return feature;
 };
 
+export const isSubscriptionStatusActive = (status: SubscriptionStatus) => status === 'active' || status === 'trialing';
+
 export const subscriptionService = {
   getPlanDefinition,
   getAllPlanDefinitions,
@@ -74,6 +77,8 @@ export const subscriptionService = {
   getLimitValue,
   getRequiredPlanForFeature,
   getRequiredPlanForLimit,
+  formatSubscriptionPlanName,
+  isSubscriptionStatusActive,
 
   async getCompanySubscription(companyId: string): Promise<CompanySubscription> {
     if (SAMPLE_WORKSPACE_IDS.has(companyId)) {
@@ -94,7 +99,7 @@ export const subscriptionService = {
 
   async canUseFeature(companyId: string, feature: SubscriptionFeature): Promise<boolean> {
     const subscription = await this.getCompanySubscription(companyId);
-    return ['active', 'trialing'].includes(subscription.subscriptionStatus) && canPlanUseFeature(subscription.subscriptionPlan, normalizeSubscriptionFeature(feature));
+    return isSubscriptionStatusActive(subscription.subscriptionStatus) && canPlanUseFeature(subscription.subscriptionPlan, normalizeSubscriptionFeature(feature));
   },
 
   async isWithinLimit(companyId: string, limitType: SubscriptionLimitType, currentUsage = 0): Promise<boolean> {
@@ -104,5 +109,5 @@ export const subscriptionService = {
   }
 };
 
-export { getAllPlanDefinitions, getLimitValue, getPlanDefinition, getPlanLimits, getRequiredPlanForFeature, getRequiredPlanForLimit, normalizeSubscriptionPlan };
+export { formatSubscriptionPlanName, getAllPlanDefinitions, getLimitValue, getPlanDefinition, getPlanLimits, getRequiredPlanForFeature, getRequiredPlanForLimit, normalizeSubscriptionPlan };
 export type { PlanFeature, PlanLimit };

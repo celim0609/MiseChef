@@ -1,4 +1,4 @@
-import { subscriptionService, type CompanySubscription, type PlanFeature } from './subscriptionService';
+import { formatSubscriptionPlanName, isSubscriptionStatusActive, subscriptionService, type CompanySubscription, type PlanFeature } from './subscriptionService';
 import { usageLimitService, type UsageLimitedResource } from './usageLimitService';
 
 export interface PermissionResult {
@@ -18,13 +18,8 @@ const allowed = (): PermissionResult => ({
   requiredPlan: null
 });
 
-const formatPlanName = (plan: string) => plan
-  .split(/[_-]/g)
-  .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-  .join(' ');
-
 const subscriptionInactive = (subscription: CompanySubscription): PermissionResult | null => {
-  if (subscription.subscriptionStatus === 'active' || subscription.subscriptionStatus === 'trialing') return null;
+  if (isSubscriptionStatusActive(subscription.subscriptionStatus)) return null;
 
   return {
     allowed: false,
@@ -49,7 +44,7 @@ const checkFeature = async (companyId: string, { feature, label }: FeatureCheck)
   const requiredPlan = subscriptionService.getRequiredPlanForFeature(feature);
   return {
     allowed: false,
-    reason: `${label} is not available on the ${formatPlanName(subscription.subscriptionPlan)} plan.`,
+    reason: `${label} is not available on the ${formatSubscriptionPlanName(subscription.subscriptionPlan)} plan.`,
     requiredPlan
   };
 };

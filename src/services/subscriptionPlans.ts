@@ -229,6 +229,8 @@ export const normalizeSubscriptionPlan = (plan: unknown): SubscriptionPlan => {
   return 'free';
 };
 
+export const formatSubscriptionPlanName = (plan: unknown) => getPlanDefinition(plan).name;
+
 export const getPlanDefinition = (plan: unknown): SubscriptionPlanDefinition => SUBSCRIPTION_PLANS[normalizeSubscriptionPlan(plan)];
 
 export const getAllPlanDefinitions = (): SubscriptionPlanDefinition[] => SUBSCRIPTION_PLAN_ORDER.map(plan => SUBSCRIPTION_PLANS[plan]);
@@ -241,6 +243,7 @@ export const getPlanLimits = (plan: unknown): PlanLimits => {
     monthlyAiRequests: definition.limits.aiRequests,
     monthlyAiTokens: definition.limits.aiTokens,
     monthlyAiCostBudgetUSD: definition.limits.aiCostBudgetUSD,
+    invoiceOcrLimit: definition.limits.invoiceOcr,
     teamMemberLimit: definition.limits.teamMembers,
     storageLimitMB: definition.limits.storageMB,
     recipeLimit: definition.limits.recipes,

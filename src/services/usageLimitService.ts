@@ -1,4 +1,4 @@
-import { subscriptionService, type PlanLimit } from './subscriptionService';
+import { formatSubscriptionPlanName, subscriptionService, type PlanLimit } from './subscriptionService';
 import { UNLIMITED_PLAN_LIMIT } from './subscriptionPlans';
 
 export type UsageLimitedResource = 'recipe' | 'ingredient' | 'supplier' | 'invoice' | 'teamMember' | 'workspace';
@@ -19,12 +19,6 @@ const RESOURCE_LIMITS: Record<UsageLimitedResource, { limit: PlanLimit; label: s
   teamMember: { limit: 'teamMember', label: 'team member' },
   workspace: { limit: 'workspaces', label: 'workspace' }
 };
-
-const formatPlanName = (plan: string) => plan
-  .split(/[_-]/g)
-  .filter(Boolean)
-  .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-  .join(' ');
 
 const allowed = (currentUsage: number, limit = UNLIMITED_PLAN_LIMIT): UsageLimitResult => ({
   allowed: true,
@@ -49,8 +43,8 @@ export const usageLimitService = {
       }
 
       const requiredPlan = subscriptionService.getRequiredPlanForLimit(config.limit, currentUsage + 1);
-      const currentPlanName = formatPlanName(subscription.subscriptionPlan);
-      const requiredPlanName = formatPlanName(requiredPlan);
+      const currentPlanName = formatSubscriptionPlanName(subscription.subscriptionPlan);
+      const requiredPlanName = formatSubscriptionPlanName(requiredPlan);
 
       return {
         allowed: false,
