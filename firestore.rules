@@ -365,13 +365,17 @@ service cloud.firestore {
       }
     }
 
-    match /{path=**}/portfolio/{portfolioId} {
-      allow read: if resource.data.publicProfile.enabled == true;
+    match /publicChefProfiles/{username} {
+      allow read: if true;
+      allow create, update, delete: if false;
+    }
+
+    match /publicChefProfileOwnership/{username} {
+      allow read, create, update, delete: if false;
     }
 
     match /chefEnquiries/{enquiryId} {
       allow create: if request.resource.data.keys().hasOnly([
-          'profileOwnerId',
           'username',
           'name',
           'email',
@@ -379,14 +383,15 @@ service cloud.firestore {
           'createdAt',
           'status'
         ])
-        && request.resource.data.profileOwnerId is string
         && request.resource.data.username is string
+        && exists(/databases/$(database)/documents/publicChefProfileOwnership/$(request.resource.data.username))
         && request.resource.data.name is string
         && request.resource.data.email is string
         && request.resource.data.message is string
         && request.resource.data.createdAt is string
         && request.resource.data.status == 'New';
-      allow read: if signedIn() && resource.data.profileOwnerId == request.auth.uid;
+      allow read: if signedIn()
+        && get(/databases/$(database)/documents/publicChefProfileOwnership/$(resource.data.username)).data.ownerId == request.auth.uid;
       allow update, delete: if false;
     }
 

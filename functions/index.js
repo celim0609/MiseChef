@@ -6,6 +6,8 @@ import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { defineSecret } from 'firebase-functions/params';
 import { logger } from 'firebase-functions';
 import { recordAiUsage } from './aiUsageTracker.js';
+import { deletePublicChefProfileAssets, getPublicChefAssetPrefix, publishPublicChefProfileAssets } from './publicChefProfileAssets.js';
+import { buildPublicChefProfileProjection, normalizePublicUsername } from './publicChefProfileProjection.js';
 import { deletePublicRecipeAssets, publishPublicRecipeAssets } from './publicRecipeAssets.js';
 import { buildPublicRecipeProjection } from './publicRecipeProjection.js';
 
@@ -77,6 +79,77 @@ export const syncPublicRecipe = onDocumentWritten({
   const obsoleteAssets = (previousAssetManifest.exists ? previousAssetManifest.data()?.assets : [])
     .filter(asset => !currentAssetKeys.has(`${asset?.bucketName}/${asset?.objectPath}`));
   await deletePublicRecipeAssets(obsoleteAssets);
+});
+
+const deletePublishedChefProfile = async ({ username, sourceKey, assets }) => {
+  if (username) {
+    const ownershipReference = db.collection('publicChefProfileOwnership').doc(username);
+    const ownership = await ownershipReference.get();
+    if (!ownership.exists || ownership.data()?.sourceKey === sourceKey) {
+      const batch = db.batch();
+      batch.delete(db.collection('publicChefProfiles').doc(username));
+      batch.delete(ownershipReference);
+      await batch.commit();
+    }
+  }
+  await deletePublicChefProfileAssets(assets);
+};
+
+export const syncPublicChefProfile = onDocumentWritten({
+  document: '{scope}/{scopeId}/portfolio/{profileId}',
+  region: REGION
+}, async event => {
+  const { scope, scopeId, profileId } = event.params;
+  if (!['users', 'workspaces'].includes(scope) || profileId !== 'profile') return;
+
+  const sourcePath = `${scope}/${scopeId}/portfolio/${profileId}`;
+  const sourceKey = getPublicChefAssetPrefix(sourcePath).split('/').pop();
+  const manifestReference = db.collection('publicChefProfileManifests').doc(sourceKey);
+  const previousManifest = await manifestReference.get();
+  const previousData = previousManifest.exists ? previousManifest.data() || {} : {};
+  const profileSnapshot = event.data?.after;
+  const profile = profileSnapshot?.exists ? profileSnapshot.data() || {} : {};
+  const projection = buildPublicChefProfileProjection(profile);
+  const nextUsername = projection?.username || '';
+  const previousUsername = normalizePublicUsername(previousData.username);
+
+  if (!projection) {
+    await deletePublishedChefProfile({
+      username: previousUsername,
+      sourceKey,
+      assets: previousData.assets
+    });
+    await manifestReference.delete();
+    return;
+  }
+
+  if (previousUsername && previousUsername !== nextUsername) {
+    await deletePublishedChefProfile({
+      username: previousUsername,
+      sourceKey,
+      assets: previousData.assets
+    });
+  }
+
+  const publishedAssets = await publishPublicChefProfileAssets({ sourcePath, profile });
+  const publicProjection = buildPublicChefProfileProjection(publishedAssets.profile);
+  const ownerId = readString(profile.publicProfile?.ownerId || (scope === 'users' ? scopeId : ''));
+  const publicReference = db.collection('publicChefProfiles').doc(nextUsername);
+  const ownershipReference = db.collection('publicChefProfileOwnership').doc(nextUsername);
+  const batch = db.batch();
+  batch.set(publicReference, publicProjection);
+  batch.set(ownershipReference, { ownerId, sourceKey });
+  batch.set(manifestReference, {
+    username: nextUsername,
+    assets: publishedAssets.assets,
+    updatedAt: FieldValue.serverTimestamp()
+  });
+  await batch.commit();
+
+  const currentAssetKeys = new Set(publishedAssets.assets.map(asset => `${asset.bucketName}/${asset.objectPath}`));
+  const obsoleteAssets = (Array.isArray(previousData.assets) ? previousData.assets : [])
+    .filter(asset => !currentAssetKeys.has(`${asset?.bucketName}/${asset?.objectPath}`));
+  await deletePublicChefProfileAssets(obsoleteAssets);
 });
 
 const recipeResponseSchema = {

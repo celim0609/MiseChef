@@ -3,18 +3,20 @@ import type { Recipe } from '../../types';
 import { getRecipeCategories } from '../../utils/categoryUtils';
 import { PublicChefCard, PublicRecipeCard, type PublicChefSummary } from './PublicContent';
 
-const readOwnerId = (recipe: Recipe) => {
-  const ownership = recipe as Recipe & { createdBy?: string; userId?: string };
-  return ownership.createdBy || ownership.userId || '';
-};
+type RecipeWithChefUsername = Recipe & { chefUsername?: string };
+
+const readChefUsername = (recipe: Recipe) =>
+  (recipe as RecipeWithChefUsername).chefUsername || '';
 
 export default function PublicRecipeDiscoveryPage({ recipe, publicRecipes, publicChefs }: { recipe: Recipe; publicRecipes: Recipe[]; publicChefs: PublicChefSummary[] }) {
-  const ownerId = readOwnerId(recipe);
-  const chef = publicChefs.find(profile => profile.ownerId === ownerId);
-  const moreRecipes = publicRecipes.filter(item => item.id !== recipe.id && readOwnerId(item) === ownerId).slice(0, 4);
+  const chefUsername = readChefUsername(recipe);
+  const chef = chefUsername ? publicChefs.find(profile => profile.username === chefUsername) : undefined;
+  const moreRecipes = chefUsername
+    ? publicRecipes.filter(item => item.id !== recipe.id && readChefUsername(item) === chefUsername).slice(0, 4)
+    : [];
   const moreChefs = [
-    ...publicChefs.filter(profile => profile.ownerId !== ownerId),
-    ...publicChefs.filter(profile => profile.ownerId === ownerId)
+    ...publicChefs.filter(profile => profile.username !== chefUsername),
+    ...publicChefs.filter(profile => profile.username === chefUsername)
   ].slice(0, 4);
   const ingredients = (recipe.ingredients || []).map(item => item.name?.trim()).filter(Boolean);
   const cuisines = getRecipeCategories(recipe);

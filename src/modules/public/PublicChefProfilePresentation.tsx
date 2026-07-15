@@ -1,7 +1,7 @@
 import type { Key } from 'react';
 import { Clock3, Copy, MapPin, MessageCircle, UserRound, Utensils } from 'lucide-react';
 import type { Recipe } from '../../types';
-import type { Portfolio, PortfolioExperience, PortfolioGalleryItem, PortfolioProfileSource, PortfolioSkill } from '../portfolio/types';
+import type { PublicChefExperience, PublicChefGalleryItem, PublicChefProfile } from './publicChefProfileTypes';
 import { toPublicSlug } from './publicRoutes';
 
 const meaningful = (value?: string) => {
@@ -9,12 +9,12 @@ const meaningful = (value?: string) => {
   return trimmed && !['undefined', 'null', 'user log'].includes(trimmed.toLowerCase()) ? trimmed : '';
 };
 
-export function PublicProfileHero({ profile, portfolio, recipeCount }: { profile: PortfolioProfileSource; portfolio: Portfolio; recipeCount: number }) {
-  const cover = meaningful(portfolio.hero?.backgroundImageUrl) || meaningful(portfolio.basicProfile.coverPhotoUrl);
+export function PublicProfileHero({ profile, recipeCount }: { profile: PublicChefProfile; recipeCount: number }) {
+  const cover = meaningful(profile.coverImageUrl);
   const name = meaningful(profile.displayName) || 'MiseChef Chef';
-  const title = meaningful(portfolio.basicProfile.professionalTitle);
-  const location = meaningful(portfolio.basicProfile.location);
-  const introduction = meaningful(portfolio.basicProfile.shortBio);
+  const title = meaningful(profile.professionalTitle);
+  const location = meaningful(profile.location);
+  const introduction = meaningful(profile.shortBio);
   const avatar = meaningful(profile.avatarUrl);
 
   return <section className="mb-16 overflow-hidden rounded-3xl border border-surface-container-high bg-surface-container-low shadow-sm">
@@ -43,22 +43,22 @@ export function PublicProfileHero({ profile, portfolio, recipeCount }: { profile
   </section>;
 }
 
-export function PublicExperienceSection({ experiences }: { experiences: PortfolioExperience[] }) {
-  const items = experiences.filter(item => item.visibility === 'public' && meaningful(item.role)).sort((a, b) => a.sortOrder - b.sortOrder);
+export function PublicExperienceSection({ experiences }: { experiences: PublicChefExperience[] }) {
+  const items = experiences.filter(item => meaningful(item.role));
   if (!items.length) return null;
-  return <section className="mb-16"><p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Experience</p><h2 className="mt-1 font-display text-3xl font-bold text-primary">Professional Experience</h2><div className="mt-6 space-y-4 border-l border-surface-container-high pl-5 sm:pl-7">{items.map(item => <article key={item.id} className="relative rounded-2xl border border-surface-container-high bg-surface-container-low p-5 shadow-sm"><span className="absolute -left-[1.65rem] top-7 h-3 w-3 rounded-full bg-secondary sm:-left-[2.15rem]" /><h3 className="font-display text-2xl font-bold text-primary">{item.role}</h3>{meaningful(item.organization) && <p className="mt-1 font-sans text-sm font-extrabold text-on-surface-variant">{item.organization}</p>}<div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 font-sans text-xs font-bold text-outline">{meaningful(item.location) && <span>{item.location}</span>}{(meaningful(item.startDate) || meaningful(item.endDate) || item.isCurrent) && <span>{[item.startDate, item.isCurrent ? 'Current' : item.endDate].filter(Boolean).join(' – ')}</span>}</div>{meaningful(item.description) && <p className="mt-4 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{item.description}</p>}</article>)}</div></section>;
+  return <section className="mb-16"><p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Experience</p><h2 className="mt-1 font-display text-3xl font-bold text-primary">Professional Experience</h2><div className="mt-6 space-y-4 border-l border-surface-container-high pl-5 sm:pl-7">{items.map((item, index) => <article key={`${item.role}-${item.organization}-${index}`} className="relative rounded-2xl border border-surface-container-high bg-surface-container-low p-5 shadow-sm"><span className="absolute -left-[1.65rem] top-7 h-3 w-3 rounded-full bg-secondary sm:-left-[2.15rem]" /><h3 className="font-display text-2xl font-bold text-primary">{item.role}</h3>{meaningful(item.organization) && <p className="mt-1 font-sans text-sm font-extrabold text-on-surface-variant">{item.organization}</p>}<div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 font-sans text-xs font-bold text-outline">{meaningful(item.location) && <span>{item.location}</span>}{(meaningful(item.startDate) || meaningful(item.endDate) || item.isCurrent) && <span>{[item.startDate, item.isCurrent ? 'Current' : item.endDate].filter(Boolean).join(' – ')}</span>}</div>{meaningful(item.description) && <p className="mt-4 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{item.description}</p>}</article>)}</div></section>;
 }
 
-export function PublicSkillsSection({ skills }: { skills: PortfolioSkill[] }) {
-  const items = skills.filter(item => item.visibility === 'public' && meaningful(item.name)).sort((a, b) => a.sortOrder - b.sortOrder);
+export function PublicSkillsSection({ skills }: { skills: string[] }) {
+  const items = skills.filter(item => meaningful(item));
   if (!items.length) return null;
-  return <section className="mb-16"><p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Skills</p><h2 className="mt-1 font-display text-3xl font-bold text-primary">Culinary Skills</h2><div className="mt-5 flex flex-wrap gap-2">{items.map(item => <span key={item.id} className="rounded-full border border-surface-container-high bg-surface-container-low px-4 py-2 font-sans text-sm font-extrabold text-primary">{item.name}</span>)}</div></section>;
+  return <section className="mb-16"><p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Skills</p><h2 className="mt-1 font-display text-3xl font-bold text-primary">Culinary Skills</h2><div className="mt-5 flex flex-wrap gap-2">{items.map(item => <span key={item} className="rounded-full border border-surface-container-high bg-surface-container-low px-4 py-2 font-sans text-sm font-extrabold text-primary">{item}</span>)}</div></section>;
 }
 
-export function PublicGallerySection({ items }: { items: PortfolioGalleryItem[] }) {
-  const images = items.filter(item => item.visibility === 'public' && meaningful(item.imageUrl)).sort((a, b) => a.sortOrder - b.sortOrder);
+export function PublicGallerySection({ items }: { items: PublicChefGalleryItem[] }) {
+  const images = items.filter(item => meaningful(item.imageUrl));
   if (!images.length) return null;
-  return <section className="mb-16"><p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Gallery</p><h2 className="mt-1 font-display text-3xl font-bold text-primary">Culinary Gallery</h2><div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{images.map(item => <figure key={item.id} className="overflow-hidden rounded-2xl border border-surface-container-high bg-surface-container-low shadow-sm"><img src={item.imageUrl} alt={meaningful(item.title) || 'Chef gallery'} className="aspect-[4/3] w-full object-cover" referrerPolicy="no-referrer" />{meaningful(item.title) && <figcaption className="p-4 font-display text-lg font-bold text-primary">{item.title}</figcaption>}</figure>)}</div></section>;
+  return <section className="mb-16"><p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Gallery</p><h2 className="mt-1 font-display text-3xl font-bold text-primary">Culinary Gallery</h2><div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{images.map((item, index) => <figure key={`${item.imageUrl}-${index}`} className="overflow-hidden rounded-2xl border border-surface-container-high bg-surface-container-low shadow-sm"><img src={item.imageUrl} alt={meaningful(item.title) || 'Chef gallery'} className="aspect-[4/3] w-full object-cover" referrerPolicy="no-referrer" />{meaningful(item.title) && <figcaption className="p-4 font-display text-lg font-bold text-primary">{item.title}</figcaption>}</figure>)}</div></section>;
 }
 
 export function PublicProfileRecipeCard({ recipe }: { recipe: Recipe; key?: Key }) {

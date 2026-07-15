@@ -5,7 +5,6 @@ import { getRecipeCategories } from '../../utils/categoryUtils';
 import { toPublicSlug } from './publicRoutes';
 
 export interface PublicChefSummary {
-  ownerId: string;
   username: string;
   name: string;
   avatar?: string;

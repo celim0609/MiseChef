@@ -104,7 +104,7 @@ const getInternalIdentifiers = recipe => [
 const containsInternalIdentifier = (value, identifiers) =>
   identifiers.some(identifier => value.includes(identifier));
 
-const publishAsset = async ({ sourceUrl, destinationPath, identifiers }) => {
+export const publishPublicAsset = async ({ sourceUrl, destinationPath, internalIdentifiers = [] }) => {
   const normalizedUrl = readString(sourceUrl);
   if (!normalizedUrl) return { url: '', asset: null };
 
@@ -112,7 +112,7 @@ const publishAsset = async ({ sourceUrl, destinationPath, identifiers }) => {
   if (copiedAsset) return { url: copiedAsset.url, asset: copiedAsset };
 
   return {
-    url: containsInternalIdentifier(normalizedUrl, identifiers) ? '' : normalizedUrl,
+    url: containsInternalIdentifier(normalizedUrl, internalIdentifiers) ? '' : normalizedUrl,
     asset: null
   };
 };
@@ -121,18 +121,18 @@ export const publishPublicRecipeAssets = async ({ recipeId, recipe }) => {
   const prefix = getPublicRecipeAssetPrefix(recipeId);
   const identifiers = getInternalIdentifiers(recipe);
   const assets = [];
-  const cover = await publishAsset({
+  const cover = await publishPublicAsset({
     sourceUrl: recipe.coverImage || recipe.imageUrl,
     destinationPath: `${prefix}/cover`,
-    identifiers
+    internalIdentifiers: identifiers
   });
   if (cover.asset) assets.push(cover.asset);
 
   const method = await Promise.all((Array.isArray(recipe.method) ? recipe.method : []).map(async (step, index) => {
-    const publicStepImage = await publishAsset({
+    const publicStepImage = await publishPublicAsset({
       sourceUrl: step?.image,
       destinationPath: `${prefix}/step-${index + 1}`,
-      identifiers
+      internalIdentifiers: identifiers
     });
     if (publicStepImage.asset) assets.push(publicStepImage.asset);
     return { ...step, image: publicStepImage.url };
@@ -144,7 +144,7 @@ export const publishPublicRecipeAssets = async ({ recipeId, recipe }) => {
   };
 };
 
-export const deletePublicRecipeAssets = async assets => {
+export const deletePublicAssets = async assets => {
   await Promise.all((Array.isArray(assets) ? assets : []).map(async asset => {
     const bucketName = readString(asset?.bucketName);
     const objectPath = readString(asset?.objectPath);
@@ -152,3 +152,5 @@ export const deletePublicRecipeAssets = async assets => {
     await getStorage().bucket(bucketName).file(objectPath).delete({ ignoreNotFound: true });
   }));
 };
+
+export const deletePublicRecipeAssets = deletePublicAssets;

@@ -1,13 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import type { Portfolio, PortfolioProfileSource } from '../portfolio/types';
+import type { Recipe } from '../../types';
 import AboutPreview from '../portfolio/sections/AboutPreview';
 import PartnerSpotlightPreview from '../portfolio/sections/PartnerSpotlightPreview';
 import { PublicExperienceSection, PublicGallerySection, PublicProfileHero, PublicProfileRecipeCard, PublicSkillsSection } from './PublicChefProfilePresentation';
+import type { PublicChefProfile } from './publicChefProfileTypes';
 import { publicChefProfileService } from './services/publicChefProfileService';
-import type { Recipe } from '../../types';
 
 export default function PublicChefProfilePage({ username }: { username: string }) {
-  const [portfolio, setPortfolio] = useState<Portfolio | null>(null);
+  const [profile, setProfile] = useState<PublicChefProfile | null>(null);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'missing'>('loading');
   const [form, setForm] = useState({ name: '', email: '', message: '' });
@@ -21,7 +21,7 @@ export default function PublicChefProfilePage({ username }: { username: string }
         setStatus('missing');
         return;
       }
-      setPortfolio(result.portfolio);
+      setProfile(result.profile);
       setRecipes(result.recipes);
       setStatus('ready');
     }).catch(() => !cancelled && setStatus('missing'));
@@ -29,17 +29,12 @@ export default function PublicChefProfilePage({ username }: { username: string }
   }, [username]);
 
   if (status === 'loading') return <div className="h-96 animate-pulse rounded-3xl bg-surface-container-low" aria-label="Loading chef profile" />;
-  if (!portfolio || status === 'missing' || !portfolio.publicProfile?.enabled) return <section className="rounded-3xl border border-dashed border-outline-variant p-12 text-center"><h1 className="font-display text-4xl font-bold text-primary">404</h1><p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">Chef profile not found.</p></section>;
-
-  const profile: PortfolioProfileSource = {
-    displayName: portfolio.publicProfile.displayName,
-    avatarUrl: portfolio.publicProfile.avatarUrl
-  };
+  if (!profile || status === 'missing') return <section className="rounded-3xl border border-dashed border-outline-variant p-12 text-center"><h1 className="font-display text-4xl font-bold text-primary">404</h1><p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">Chef profile not found.</p></section>;
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setFormStatus('Sending...');
     try {
-      await publicChefProfileService.sendEnquiry({ profileOwnerId: portfolio.publicProfile!.ownerId, username: portfolio.publicProfile!.username, ...form });
+      await publicChefProfileService.sendEnquiry({ username: profile.username, ...form });
       setForm({ name: '', email: '', message: '' });
       setFormStatus('Message sent.');
     } catch {
@@ -48,17 +43,17 @@ export default function PublicChefProfilePage({ username }: { username: string }
   };
 
   return <div className="mx-auto max-w-6xl pb-8">
-    <PublicProfileHero profile={profile} portfolio={portfolio} recipeCount={recipes.length} />
-    <AboutPreview about={portfolio.about} />
-    <PublicExperienceSection experiences={portfolio.experience || []} />
-    <PublicSkillsSection skills={portfolio.skills || []} />
+    <PublicProfileHero profile={profile} recipeCount={recipes.length} />
+    <AboutPreview about={profile.about} />
+    <PublicExperienceSection experiences={profile.experience} />
+    <PublicSkillsSection skills={profile.skills} />
     <section className="mb-16">
       <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Recipes</p>
       <h2 className="font-display text-3xl font-bold text-primary">Public Recipes</h2>
       {recipes.length ? <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">{recipes.map(recipe => <PublicProfileRecipeCard key={recipe.id} recipe={recipe} />)}</div> : <p className="mt-4 rounded-2xl bg-surface-container-low p-6 font-sans text-sm font-bold text-on-surface-variant">No public recipes yet.</p>}
     </section>
-    <PartnerSpotlightPreview spotlight={portfolio.partnerSpotlight} />
-    <PublicGallerySection items={portfolio.gallery || []} />
+    <PartnerSpotlightPreview spotlight={profile.partnerSpotlight} />
+    <PublicGallerySection items={profile.gallery} />
     <section id="contact-chef" className="scroll-mt-24 rounded-3xl border border-surface-container-high bg-surface-container-low p-6 sm:p-8">
       <h2 className="font-display text-3xl font-bold text-primary">Contact Chef</h2>
       <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Send a private enquiry without exposing personal contact details.</p>
