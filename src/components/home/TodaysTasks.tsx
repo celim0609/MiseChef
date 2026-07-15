@@ -77,11 +77,14 @@ export default function TodaysTasks({ workspaceId, userId }: TodaysTasksProps) {
         <CheckCircle2 className="h-5 w-5 text-outline" />
       </div>
 
-      {error && <p className="mt-4 rounded-xl border border-error/30 bg-error/10 p-3 font-sans text-xs font-bold text-error">{error}</p>}
-
       <div className="mt-4 space-y-2">
         {isLoading ? (
           <p className="rounded-xl bg-surface-container-low p-4 font-sans text-sm font-bold text-on-surface-variant">Loading tasks...</p>
+        ) : error ? (
+          <div className="rounded-xl border border-error/30 bg-error/10 p-4">
+            <p className="font-sans text-sm font-bold text-error">{error}</p>
+            <button type="button" onClick={loadTasks} className="mt-3 rounded-full border border-error/30 bg-white px-4 py-2 font-sans text-xs font-extrabold text-error">Retry</button>
+          </div>
         ) : tasks.length > 0 ? tasks.map(task => (
           <label key={task.id} className="flex cursor-pointer items-center gap-3 rounded-xl border border-surface-container-high bg-surface-container-low p-4">
             <input type="checkbox" checked={false} onChange={() => handleComplete(task)} className="h-5 w-5 rounded border-outline accent-primary" />

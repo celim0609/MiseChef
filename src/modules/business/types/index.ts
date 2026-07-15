@@ -18,6 +18,14 @@ export interface BusinessDashboardSummary {
   monthlyTrend: BusinessDailyTrend[];
   topSuppliers: BusinessTopSupplier[];
   alerts: BusinessAlert[];
+  availability: {
+    todaySales: boolean;
+    todayPurchases: boolean;
+    monthSales: boolean;
+    monthPurchases: boolean;
+    sales: boolean;
+    invoices: boolean;
+  };
 }
 
 export interface BusinessDailyTrend {

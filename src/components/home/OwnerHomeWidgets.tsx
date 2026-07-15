@@ -1,6 +1,8 @@
 import React from 'react';
 import { AlertTriangle, CalendarDays, TrendingUp } from 'lucide-react';
 
+export type OwnerMetricState = 'loading' | 'ready' | 'no-data' | 'permission-denied' | 'error';
+
 export interface OwnerMetricCard {
   label: string;
   value: string;
@@ -8,6 +10,7 @@ export interface OwnerMetricCard {
   helper: string;
   tone: string;
   statusClassName?: string;
+  state?: OwnerMetricState;
 }
 
 export interface OwnerQuickAction {
@@ -32,8 +35,25 @@ export interface OwnerActivityItem {
 
 export interface OwnerSnapshotItem {
   label: string;
-  value: number;
+  value: string;
+  state: OwnerMetricState;
 }
+
+const getStateValue = (state: OwnerMetricState | undefined, value: string) => {
+  if (state === 'loading') return '...';
+  if (state === 'no-data') return 'No data available';
+  if (state === 'permission-denied') return 'Access unavailable';
+  if (state === 'error') return 'Unable to load';
+  return value;
+};
+
+const getStateHelper = (state: OwnerMetricState | undefined, helper: string) => {
+  if (state === 'loading') return 'Loading production data...';
+  if (state === 'no-data') return 'No records exist for this period.';
+  if (state === 'permission-denied') return 'Permission denied for this workspace data.';
+  if (state === 'error') return 'Data could not be loaded. Use Retry above.';
+  return helper;
+};
 
 export function OwnerHomeHeader({
   date,
@@ -105,11 +125,11 @@ export function OwnerMetricSection({
               {card.icon}
             </span>
             <p className="mt-5 font-sans text-[10px] font-extrabold uppercase tracking-[0.16em] text-outline">{card.label}</p>
-            <p className="mt-2 font-display text-2xl font-bold text-primary">{isLoading ? '...' : card.value}</p>
-            {card.statusClassName ? (
+            <p className="mt-2 font-display text-2xl font-bold text-primary">{getStateValue(card.state, card.value)}</p>
+            {card.statusClassName && (!card.state || card.state === 'ready') ? (
               <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 font-sans text-[10px] font-extrabold ${card.statusClassName}`}>{card.helper}</span>
             ) : (
-              <p className="mt-2 font-sans text-xs font-bold text-on-surface-variant">{card.helper}</p>
+              <p className="mt-2 font-sans text-xs font-bold text-on-surface-variant">{getStateHelper(card.state, card.helper)}</p>
             )}
           </article>
         ))}
@@ -137,7 +157,7 @@ export function OwnerQuickActions({ actions }: { actions: OwnerQuickAction[] }) 
   );
 }
 
-export function OwnerNeedsAttention({ items }: { items: OwnerAttentionItem[] }) {
+export function OwnerNeedsAttention({ items, isIncomplete = false }: { items: OwnerAttentionItem[]; isIncomplete?: boolean }) {
   return (
     <article className="rounded-2xl border border-surface-container-high bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
@@ -148,27 +168,38 @@ export function OwnerNeedsAttention({ items }: { items: OwnerAttentionItem[] }) 
         <AlertTriangle className="h-5 w-5 text-outline" />
       </div>
       <div className="mt-4 space-y-3">
+        {isIncomplete && (
+          <div className="rounded-xl border border-error/30 bg-error/10 p-4">
+            <p className="font-sans text-sm font-extrabold text-error">Some alert sources are unavailable.</p>
+            <p className="mt-1 font-sans text-xs font-bold text-error">Retry the dashboard before treating this list as complete.</p>
+          </div>
+        )}
         {items.length > 0 ? items.map(item => (
           <div key={item.id} className="rounded-xl border border-yellow-200 bg-yellow-50 p-4">
             <p className="font-sans text-sm font-extrabold text-yellow-900">{item.title}</p>
             <p className="mt-1 font-sans text-xs font-bold text-yellow-800">{item.detail}</p>
           </div>
-        )) : (
+        )) : !isIncomplete ? (
           <div className="rounded-xl border border-green-200 bg-green-50 p-4">
             <p className="font-sans text-sm font-extrabold text-green-900">Nothing urgent right now.</p>
-            <p className="mt-1 font-sans text-xs font-bold text-green-800">Invoices, supplier pricing, ingredient prices, and recipe cost queues look clear.</p>
+            <p className="mt-1 font-sans text-xs font-bold text-green-800">All available operational checks completed with zero alerts.</p>
           </div>
-        )}
+        ) : null}
       </div>
     </article>
   );
 }
 
-export function OwnerRecentActivity({ items, formatTimestamp }: { items: OwnerActivityItem[]; formatTimestamp: (timestamp: string) => string }) {
+export function OwnerRecentActivity({ items, formatTimestamp, isIncomplete = false }: { items: OwnerActivityItem[]; formatTimestamp: (timestamp: string) => string; isIncomplete?: boolean }) {
   return (
     <article className="rounded-2xl border border-surface-container-high bg-white p-5 shadow-sm">
       <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-primary">Recent Activity</p>
       <div className="mt-4 space-y-3">
+        {isIncomplete && (
+          <div className="rounded-xl border border-error/30 bg-error/10 p-4">
+            <p className="font-sans text-sm font-extrabold text-error">Some activity sources could not be loaded.</p>
+          </div>
+        )}
         {items.length > 0 ? items.map(item => (
           <div key={item.id} className="flex items-start justify-between gap-4 rounded-xl border border-surface-container-high bg-surface-container-low p-4">
             <div>
@@ -177,18 +208,18 @@ export function OwnerRecentActivity({ items, formatTimestamp }: { items: OwnerAc
             </div>
             <span className="shrink-0 rounded-full bg-white px-3 py-1 font-sans text-[10px] font-extrabold text-outline">{formatTimestamp(item.timestamp)}</span>
           </div>
-        )) : (
+        )) : !isIncomplete ? (
           <div className="rounded-xl border border-surface-container-high bg-surface-container-low p-4">
             <p className="font-sans text-sm font-extrabold text-primary">No business activity recorded yet.</p>
             <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Use quick actions to start today’s work.</p>
           </div>
-        )}
+        ) : null}
       </div>
     </article>
   );
 }
 
-export function OwnerBusinessSnapshot({ items, isLoading }: { items: OwnerSnapshotItem[]; isLoading: boolean }) {
+export function OwnerBusinessSnapshot({ items }: { items: OwnerSnapshotItem[] }) {
   return (
     <article className="rounded-2xl border border-surface-container-high bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between gap-3">
@@ -201,7 +232,7 @@ export function OwnerBusinessSnapshot({ items, isLoading }: { items: OwnerSnapsh
       <div className="mt-5 grid grid-cols-2 gap-3">
         {items.map(item => (
           <div key={item.label} className="rounded-xl border border-surface-container-high bg-surface-container-low p-4 text-center">
-            <p className="font-display text-2xl font-bold text-primary">{isLoading ? '...' : item.value}</p>
+            <p className="font-display text-2xl font-bold text-primary">{getStateValue(item.state, item.value)}</p>
             <p className="mt-1 font-sans text-[10px] font-extrabold uppercase tracking-[0.14em] text-outline">{item.label}</p>
           </div>
         ))}

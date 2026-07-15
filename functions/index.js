@@ -618,6 +618,71 @@ export const cancelInvoiceUpload = onCall({
   return { cancelled: true };
 });
 
+const readDashboardBoundary = (value, label) => {
+  const parsed = new Date(readString(value));
+  if (Number.isNaN(parsed.getTime())) {
+    throw new HttpsError('invalid-argument', `${label} is required.`);
+  }
+  return parsed;
+};
+
+const readUsageDate = value => {
+  if (value?.toDate instanceof Function) return value.toDate();
+  const parsed = new Date(readString(value));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+export const getDashboardAiUsage = onCall({
+  region: REGION,
+  invoker: 'public'
+}, async request => {
+  const requesterId = requireAuthenticatedUser(request);
+  const entitlements = await requireWorkspaceEntitlements({
+    db,
+    uid: requesterId,
+    workspaceId: request.data?.workspaceId
+  });
+  const todayStart = readDashboardBoundary(request.data?.todayStart, 'Today start');
+  const tomorrowStart = readDashboardBoundary(request.data?.tomorrowStart, 'Tomorrow start');
+  const monthStart = readDashboardBoundary(request.data?.monthStart, 'Month start');
+  const nextMonthStart = readDashboardBoundary(request.data?.nextMonthStart, 'Next month start');
+
+  if (tomorrowStart <= todayStart || nextMonthStart <= monthStart) {
+    throw new HttpsError('invalid-argument', 'Dashboard date range is invalid.');
+  }
+
+  let usageSnapshot;
+  try {
+    usageSnapshot = await db.collection('ai_usage')
+      .where('companyId', '==', entitlements.workspaceId)
+      .select('createdAt', 'timestamp', 'status')
+      .get();
+  } catch (err) {
+    throw new HttpsError('unavailable', 'AI usage is temporarily unavailable.', {
+      reason: 'dashboard-ai-usage-lookup-failed'
+    });
+  }
+
+  const monthRecords = usageSnapshot.docs
+    .map(document => document.data() || {})
+    .filter(record => {
+      const createdAt = readUsageDate(record.createdAt || record.timestamp);
+      return createdAt && createdAt >= monthStart && createdAt < nextMonthStart;
+    });
+  const successfulRecords = monthRecords.filter(record => readString(record.status).toLowerCase() === 'success');
+  const todayRequests = successfulRecords.filter(record => {
+    const createdAt = readUsageDate(record.createdAt || record.timestamp);
+    return createdAt && createdAt >= todayStart && createdAt < tomorrowStart;
+  }).length;
+
+  return {
+    todayRequests,
+    monthRequests: successfulRecords.length,
+    monthFailures: monthRecords.length - successfulRecords.length,
+    recordCount: monthRecords.length
+  };
+});
+
 export const scanRecipeImage = onCall({
   region: REGION,
   invoker: 'public',

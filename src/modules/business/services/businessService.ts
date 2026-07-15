@@ -31,7 +31,7 @@ const getInvoiceTotal = (invoice: CostingInvoice) => Number(invoice.total ?? inv
 const getInvoiceDate = (invoice: CostingInvoice) => getDateKey(invoice.invoiceDate || invoice.processingCompletedAt || invoice.uploadDate);
 const getInvoiceSupplier = (invoice: CostingInvoice) => invoice.supplier || invoice.extractedData?.supplier || 'Unknown Supplier';
 
-const isApprovedInvoiceProxy = (invoice: CostingInvoice) => invoice.processingStatus === 'Imported' && !invoice.errorMessage;
+const isApprovedInvoiceProxy = (invoice: CostingInvoice) => invoice.processingStatus === 'Imported' && Boolean(invoice.approvedAt) && !invoice.errorMessage;
 
 const getMonthDateKeys = (today: Date) => {
   const keys: string[] = [];
@@ -80,7 +80,17 @@ export const businessService = {
 
   async getDashboardSummary(userId?: string, workspaceId = userId): Promise<BusinessDashboardSummary> {
     if (!userId || !workspaceId) {
-      return { todaySales: 0, todayPurchases: 0, monthSales: 0, monthPurchases: 0, purchaseCostPercentage: null, monthlyTrend: [], topSuppliers: [], alerts: [] };
+      return {
+        todaySales: 0,
+        todayPurchases: 0,
+        monthSales: 0,
+        monthPurchases: 0,
+        purchaseCostPercentage: null,
+        monthlyTrend: [],
+        topSuppliers: [],
+        alerts: [],
+        availability: { todaySales: false, todayPurchases: false, monthSales: false, monthPurchases: false, sales: false, invoices: false }
+      };
     }
 
     const today = new Date();
@@ -89,18 +99,18 @@ export const businessService = {
       invoiceService.listInvoices(userId, { workspaceId })
     ]);
 
-    const todaySales = sales
-      .filter(sale => isSameDay(sale.date, today))
+    const todaySalesRecords = sales.filter(sale => isSameDay(sale.date, today));
+    const todaySales = todaySalesRecords
       .reduce((sum, sale) => sum + sale.amount, 0);
 
     const approvedInvoices = invoices.filter(invoice => isApprovedInvoiceProxy(invoice));
 
-    const todayPurchases = approvedInvoices
-      .filter(invoice => isSameDay(getInvoiceDate(invoice), today))
+    const todayPurchaseInvoices = approvedInvoices.filter(invoice => isSameDay(getInvoiceDate(invoice), today));
+    const todayPurchases = todayPurchaseInvoices
       .reduce((sum, invoice) => sum + getInvoiceTotal(invoice), 0);
 
-    const monthSales = sales
-      .filter(sale => isSameMonth(sale.date, today))
+    const monthSalesRecords = sales.filter(sale => isSameMonth(sale.date, today));
+    const monthSales = monthSalesRecords
       .reduce((sum, sale) => sum + sale.amount, 0);
 
     const monthInvoices = approvedInvoices
@@ -148,8 +158,8 @@ export const businessService = {
         : purchaseCostPercentage !== null && purchaseCostPercentage > 30
           ? { id: 'purchase-cost-watch', severity: 'warning' as const, message: `Purchase cost is approaching target at ${purchaseCostPercentage.toFixed(1)}%.` }
           : null,
-      todaySales <= 0 ? { id: 'no-sales-today', severity: 'warning' as const, message: 'No sales entered today.' } : null,
-      !hasInvoiceThisWeek ? { id: 'no-invoices-week', severity: 'info' as const, message: 'No invoices uploaded this week.' } : null
+      sales.length > 0 && todaySalesRecords.length === 0 ? { id: 'no-sales-today', severity: 'warning' as const, message: 'No sales entered today.' } : null,
+      invoices.length > 0 && !hasInvoiceThisWeek ? { id: 'no-invoices-week', severity: 'info' as const, message: 'No invoices uploaded this week.' } : null
     ].filter(Boolean);
 
     return {
@@ -160,7 +170,15 @@ export const businessService = {
       purchaseCostPercentage,
       monthlyTrend,
       topSuppliers,
-      alerts
+      alerts,
+      availability: {
+        todaySales: todaySalesRecords.length > 0,
+        todayPurchases: todayPurchaseInvoices.length > 0,
+        monthSales: monthSalesRecords.length > 0,
+        monthPurchases: monthInvoices.length > 0,
+        sales: sales.length > 0,
+        invoices: invoices.length > 0
+      }
     };
   }
 };
