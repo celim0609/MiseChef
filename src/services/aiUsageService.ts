@@ -1,4 +1,4 @@
-import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore';
+import { collection, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { db } from '../firebase';
 
 export interface AiUsageRecord {
@@ -79,6 +79,14 @@ const normalizeAiUsageRecord = (id: string, data: Record<string, unknown>): AiUs
 };
 
 export const aiUsageService = {
+  async listWorkspaceUsage(companyId: string): Promise<AiUsageRecord[]> {
+    if (!db || !companyId) return [];
+
+    const usageQuery = query(collection(db, 'ai_usage'), where('companyId', '==', companyId));
+    const snapshot = await getDocs(usageQuery);
+    return snapshot.docs.map(docSnapshot => normalizeAiUsageRecord(docSnapshot.id, docSnapshot.data() as Record<string, unknown>));
+  },
+
   async listUsage(): Promise<AiUsageRecord[]> {
     if (!db) return [];
 

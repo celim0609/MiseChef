@@ -2,9 +2,12 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { defineSecret } from 'firebase-functions/params';
 import { logger } from 'firebase-functions';
 import { recordAiUsage } from './aiUsageTracker.js';
+import { deletePublicRecipeAssets, publishPublicRecipeAssets } from './publicRecipeAssets.js';
+import { buildPublicRecipeProjection } from './publicRecipeProjection.js';
 
 initializeApp();
 
@@ -20,6 +23,61 @@ const ALLOWED_INVOICE_OCR_MIME_TYPES = new Set([
   'image/png',
   'image/webp'
 ]);
+
+const readPublicProfileUsername = snapshot => {
+  if (!snapshot.exists) return '';
+  const publicProfile = snapshot.data()?.publicProfile;
+  return publicProfile?.enabled === true ? readString(publicProfile.username).toLowerCase() : '';
+};
+
+const resolvePublicChefUsername = async recipe => {
+  const workspaceId = readString(recipe.workspaceId);
+  const ownerId = readString(recipe.userId || recipe.createdBy);
+  const profileReferences = [];
+
+  if (workspaceId) profileReferences.push(db.doc(`workspaces/${workspaceId}/portfolio/profile`));
+  if (ownerId) profileReferences.push(db.doc(`users/${ownerId}/portfolio/profile`));
+
+  for (const profileReference of profileReferences) {
+    const snapshot = await profileReference.get();
+    const publicProfile = snapshot.exists ? snapshot.data()?.publicProfile : null;
+    if (publicProfile?.ownerId && ownerId && publicProfile.ownerId !== ownerId) continue;
+    const username = readPublicProfileUsername(snapshot);
+    if (username) return username;
+  }
+
+  return '';
+};
+
+export const syncPublicRecipe = onDocumentWritten({
+  document: 'recipes/{recipeId}',
+  region: REGION
+}, async event => {
+  const recipeId = event.params.recipeId;
+  const publicRecipeReference = db.collection('publicRecipes').doc(recipeId);
+  const assetManifestReference = db.collection('publicRecipeAssetManifests').doc(recipeId);
+  const recipeSnapshot = event.data?.after;
+
+  if (!recipeSnapshot?.exists || recipeSnapshot.data()?.visibility !== 'public') {
+    await publicRecipeReference.delete();
+    const assetManifest = await assetManifestReference.get();
+    await deletePublicRecipeAssets(assetManifest.exists ? assetManifest.data()?.assets : []);
+    await assetManifestReference.delete();
+    return;
+  }
+
+  const recipe = recipeSnapshot.data() || {};
+  const chefUsername = await resolvePublicChefUsername(recipe);
+  const previousAssetManifest = await assetManifestReference.get();
+  const publishedAssets = await publishPublicRecipeAssets({ recipeId, recipe });
+  await publicRecipeReference.set(buildPublicRecipeProjection(publishedAssets.recipe, chefUsername));
+  await assetManifestReference.set({ assets: publishedAssets.assets, updatedAt: FieldValue.serverTimestamp() });
+
+  const currentAssetKeys = new Set(publishedAssets.assets.map(asset => `${asset.bucketName}/${asset.objectPath}`));
+  const obsoleteAssets = (previousAssetManifest.exists ? previousAssetManifest.data()?.assets : [])
+    .filter(asset => !currentAssetKeys.has(`${asset?.bucketName}/${asset?.objectPath}`));
+  await deletePublicRecipeAssets(obsoleteAssets);
+});
 
 const recipeResponseSchema = {
   type: Type.OBJECT,
