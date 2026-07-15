@@ -589,12 +589,10 @@ export default function App() {
   const currentWorkspaceRole: WorkspaceMemberRole | null = currentUserRole === 'super_admin'
     ? 'Owner'
     : currentUser && currentWorkspace
-      ? currentWorkspace.type === 'demo'
-        ? 'Owner'
-        : normalizeTeamRole(
-          currentWorkspace.members.find(member => member.userId === currentUser.uid && member.status === 'Active')?.role
-            || (currentWorkspace.ownerId === currentUser.uid ? 'Owner' : undefined)
-        )
+      ? normalizeTeamRole(
+        currentWorkspace.members.find(member => member.userId === currentUser.uid && member.status === 'Active')?.role
+          || (currentWorkspace.ownerId === currentUser.uid ? 'Owner' : undefined)
+      )
       : isGuestMode
         ? 'Viewer'
         : null;

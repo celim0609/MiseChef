@@ -24,10 +24,9 @@ interface HeaderProps {
   onWorkspaceChange?: (workspaceId: string) => void;
 }
 
-type WorkspaceGroup = 'Personal' | 'Company' | 'Sample';
+type WorkspaceGroup = 'Personal' | 'Company';
 
 const getWorkspaceGroup = (workspace: Workspace): WorkspaceGroup => {
-  if (workspace.type === 'demo') return 'Sample';
   return workspace.id === workspace.ownerId ? 'Personal' : 'Company';
 };
 
@@ -39,7 +38,7 @@ const getWorkspaceInitials = (workspace: Workspace) => workspace.name
   .slice(0, 2)
   .toUpperCase() || 'MC';
 
-const groupOrder: WorkspaceGroup[] = ['Personal', 'Company', 'Sample'];
+const groupOrder: WorkspaceGroup[] = ['Personal', 'Company'];
 
 export default function Header({
   title = "MiseChef",
@@ -170,11 +169,6 @@ export default function Header({
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2">
                     <span className="truncate font-sans text-xs font-extrabold text-primary">{currentWorkspace.name}</span>
-                    {currentWorkspace.type === 'demo' && (
-                      <span className="shrink-0 rounded-full bg-secondary/10 px-2 py-0.5 font-sans text-[8px] font-extrabold uppercase tracking-[0.12em] text-secondary">
-                        Sample
-                      </span>
-                    )}
                   </span>
                   <span className="block truncate font-sans text-[10px] font-bold text-on-surface-variant">
                     {getWorkspaceGroup(currentWorkspace)} workspace
@@ -211,17 +205,12 @@ export default function Header({
                                     : 'text-primary hover:bg-surface-container-low'
                                 }`}
                               >
-                                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl font-display text-xs font-bold ${workspace.type === 'demo' ? 'bg-secondary text-on-secondary' : 'bg-primary text-on-primary'}`}>
+                                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary font-display text-xs font-bold text-on-primary">
                                   {getWorkspaceInitials(workspace)}
                                 </span>
                                 <span className="min-w-0 flex-1">
                                   <span className="flex items-center gap-2">
                                     <span className="truncate font-sans text-sm font-extrabold">{workspace.name}</span>
-                                    {workspace.type === 'demo' && (
-                                      <span className="shrink-0 rounded-full bg-secondary/10 px-2 py-0.5 font-sans text-[8px] font-extrabold uppercase tracking-[0.12em] text-secondary">
-                                        Sample
-                                      </span>
-                                    )}
                                   </span>
                                   <span className="block truncate font-sans text-[11px] font-bold text-on-surface-variant">
                                     {getWorkspaceGroup(workspace)} workspace

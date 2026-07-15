@@ -1,7 +1,7 @@
 import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '../firebase';
-import type { Workspace, WorkspaceMembership, WorkspaceMemberRole, WorkspaceMemberSummary, WorkspaceType } from '../types';
+import type { Workspace, WorkspaceMembership, WorkspaceMemberRole, WorkspaceMemberSummary } from '../types';
 import { normalizeTeamRole } from '../modules/team/permissions';
 
 const WORKSPACE_SELECTION_STORAGE_KEY = 'misechef_selected_workspace_id';
@@ -37,7 +37,6 @@ const toMemberSummary = (user: User, role: WorkspaceMemberSummary['role']): Work
 const normalizeWorkspace = (id: string, data: Partial<Workspace> | Record<string, unknown>): Workspace => ({
   id,
   name: typeof data.name === 'string' && data.name.trim() ? data.name : id,
-  type: data.type === 'demo' ? 'demo' : 'real',
   ownerId: typeof data.ownerId === 'string' ? data.ownerId : '',
   members: Array.isArray(data.members) ? data.members as WorkspaceMemberSummary[] : [],
   createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
@@ -53,7 +52,6 @@ const normalizeMembership = (id: string, data: Partial<WorkspaceMembership> | Re
   role: normalizeTeamRole(data.role) as WorkspaceMemberRole,
   status: data.status === 'Disabled' || data.status === 'Invited' || data.status === 'Removed' ? data.status : 'Active',
   workspaceName: typeof data.workspaceName === 'string' ? data.workspaceName : '',
-  workspaceType: data.workspaceType === 'demo' ? 'demo' : 'real',
   createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
   updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString()
 });
@@ -80,7 +78,6 @@ const createWorkspaceMembership = async ({
     role,
     status: 'Active',
     workspaceName: workspace.name,
-    workspaceType: workspace.type,
     createdAt: now,
     updatedAt: now
   };
@@ -91,14 +88,12 @@ const createWorkspaceMembership = async ({
 const upsertWorkspace = async ({
   id,
   name,
-  type,
   ownerId,
   user,
   role = 'Owner'
 }: {
   id: string;
   name: string;
-  type: WorkspaceType;
   ownerId: string;
   user: User;
   role?: WorkspaceMemberSummary['role'];
@@ -116,7 +111,6 @@ const upsertWorkspace = async ({
   const workspace: Workspace = {
     id,
     name: existing?.name || name,
-    type: existing?.type || type,
     ownerId: existing?.ownerId || ownerId,
     members,
     createdAt: existing?.createdAt || now,
@@ -143,7 +137,6 @@ export const workspaceService = {
     return upsertWorkspace({
       id: user.uid,
       name: getDefaultWorkspaceName(user),
-      type: 'real',
       ownerId: user.uid,
       user,
       role: 'Owner'
@@ -194,7 +187,7 @@ export const workspaceService = {
     const hasCanonicalPersonalWorkspace = dedupedWorkspaces.some(workspace => workspace.id === user.uid);
     const duplicatePersonalWorkspaceIds = hasCanonicalPersonalWorkspace
       ? dedupedWorkspaces
-        .filter(workspace => workspace.type !== 'demo' && workspace.ownerId === user.uid && workspace.id !== user.uid)
+        .filter(workspace => workspace.ownerId === user.uid && workspace.id !== user.uid)
         .map(workspace => workspace.id)
       : [];
 
@@ -219,7 +212,6 @@ export const workspaceService = {
       });
 
     const workspaceRank = (workspace: Workspace) => {
-      if (workspace.type === 'demo') return 3;
       if (workspace.id === workspace.ownerId) return 1;
       return 2;
     };

@@ -31,8 +31,6 @@ export interface CompanySubscription {
   limits: PlanLimits;
 }
 
-const SAMPLE_WORKSPACE_IDS = new Set(['demo_bella_bistro']);
-
 const readString = (value: unknown, fallback = '') => typeof value === 'string' && value.trim() ? value.trim() : fallback;
 
 const normalizeSubscriptionStatus = (status: unknown): SubscriptionStatus => {
@@ -81,14 +79,6 @@ export const subscriptionService = {
   isSubscriptionStatusActive,
 
   async getCompanySubscription(companyId: string): Promise<CompanySubscription> {
-    if (SAMPLE_WORKSPACE_IDS.has(companyId)) {
-      return normalizeCompanySubscription(companyId, {
-        subscriptionPlan: 'professional',
-        subscriptionStatus: 'active',
-        billingCycle: 'monthly'
-      });
-    }
-
     if (!db || !companyId) {
       return normalizeCompanySubscription(companyId, {});
     }

@@ -135,7 +135,6 @@ export interface Company {
 }
 
 
-export type WorkspaceType = 'real' | 'demo';
 export type WorkspaceMemberRole = 'Owner' | 'Manager' | 'Head Chef' | 'Sous Chef' | 'Chef' | 'Purchasing' | 'Finance' | 'Viewer';
 export type WorkspaceMemberStatus = 'Active' | 'Disabled' | 'Invited' | 'Removed';
 
@@ -150,7 +149,6 @@ export interface WorkspaceMemberSummary {
 export interface Workspace {
   id: string;
   name: string;
-  type: WorkspaceType;
   ownerId: string;
   members: WorkspaceMemberSummary[];
   createdAt: string;
@@ -166,7 +164,6 @@ export interface WorkspaceMembership {
   role: WorkspaceMemberRole;
   status: WorkspaceMemberStatus;
   workspaceName: string;
-  workspaceType: WorkspaceType;
   createdAt: string;
   updatedAt: string;
 }
