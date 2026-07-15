@@ -10,6 +10,9 @@
     "rules": "storage.rules"
   },
   "hosting": {
+    "predeploy": [
+      "npm run validate:firebase-env"
+    ],
     "public": "dist",
     "ignore": [
       "firebase.json",

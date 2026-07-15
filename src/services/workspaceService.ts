@@ -4,7 +4,6 @@ import { db } from '../firebase';
 import type { Workspace, WorkspaceMembership, WorkspaceMemberRole, WorkspaceMemberSummary, WorkspaceType } from '../types';
 import { normalizeTeamRole } from '../modules/team/permissions';
 
-const BELLA_BISTRO_WORKSPACE_ID = 'demo_bella_bistro';
 const WORKSPACE_SELECTION_STORAGE_KEY = 'misechef_selected_workspace_id';
 
 const removeUndefinedFields = <T,>(value: T): T => {
@@ -37,7 +36,7 @@ const toMemberSummary = (user: User, role: WorkspaceMemberSummary['role']): Work
 
 const normalizeWorkspace = (id: string, data: Partial<Workspace> | Record<string, unknown>): Workspace => ({
   id,
-  name: id === BELLA_BISTRO_WORKSPACE_ID ? 'Bella Bistro' : typeof data.name === 'string' && data.name.trim() ? data.name : id,
+  name: typeof data.name === 'string' && data.name.trim() ? data.name : id,
   type: data.type === 'demo' ? 'demo' : 'real',
   ownerId: typeof data.ownerId === 'string' ? data.ownerId : '',
   members: Array.isArray(data.members) ? data.members as WorkspaceMemberSummary[] : [],
@@ -116,7 +115,7 @@ const upsertWorkspace = async ({
     : [...(existing?.members || []), member];
   const workspace: Workspace = {
     id,
-    name: id === BELLA_BISTRO_WORKSPACE_ID ? 'Bella Bistro' : existing?.name || name,
+    name: existing?.name || name,
     type: existing?.type || type,
     ownerId: existing?.ownerId || ownerId,
     members,
@@ -131,7 +130,6 @@ const upsertWorkspace = async ({
 
 export const workspaceService = {
   storageKey: WORKSPACE_SELECTION_STORAGE_KEY,
-  bellaBistroWorkspaceId: BELLA_BISTRO_WORKSPACE_ID,
 
   getStoredWorkspaceId(userId: string) {
     return localStorage.getItem(`${WORKSPACE_SELECTION_STORAGE_KEY}_${userId}`) || '';
@@ -150,23 +148,6 @@ export const workspaceService = {
       user,
       role: 'Owner'
     });
-  },
-
-  async ensureBellaBistroDemoWorkspace(user: User) {
-    return upsertWorkspace({
-      id: BELLA_BISTRO_WORKSPACE_ID,
-      name: 'Bella Bistro',
-      type: 'demo',
-      ownerId: user.uid,
-      user,
-      role: 'Owner'
-    });
-  },
-
-  async ensureDefaultWorkspaces(user: User) {
-    const primary = await this.ensurePrimaryWorkspace(user);
-    const demo = await this.ensureBellaBistroDemoWorkspace(user);
-    return [primary, demo];
   },
 
   async listAccessibleWorkspaces(user: User): Promise<Workspace[]> {
@@ -253,7 +234,7 @@ export const workspaceService = {
     const accessibleWorkspaces = await this.listAccessibleWorkspaces(user);
     if (accessibleWorkspaces.length > 0) return accessibleWorkspaces;
 
-    await this.ensureDefaultWorkspaces(user);
+    await this.ensurePrimaryWorkspace(user);
     return this.listAccessibleWorkspaces(user);
   },
 
