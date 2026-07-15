@@ -30,6 +30,12 @@ service firebase.storage {
         ];
     }
 
+    function hasAuthorizedInvoiceUpload(invoiceId, fileName) {
+      return firestore.exists(/databases/(default)/documents/invoices/$(invoiceId))
+        && firestore.get(/databases/(default)/documents/invoices/$(invoiceId)).data.createdBy == request.auth.uid
+        && firestore.get(/databases/(default)/documents/invoices/$(invoiceId)).data.storageFileName == fileName;
+    }
+
     function validPdfUpload(maxBytes) {
       return request.resource != null
         && request.resource.size <= maxBytes
@@ -76,7 +82,9 @@ service firebase.storage {
 
     match /users/{userId}/costing/invoices/{invoiceId}/{fileName} {
       allow read: if ownsPath(userId);
-      allow create, update: if ownsPath(userId) && validInvoiceUpload();
+      allow create, update: if ownsPath(userId)
+        && validInvoiceUpload()
+        && hasAuthorizedInvoiceUpload(invoiceId, fileName);
       allow delete: if ownsPath(userId);
     }
 

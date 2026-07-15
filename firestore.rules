@@ -135,6 +135,13 @@ service cloud.firestore {
       return isSuperAdmin() || hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef']);
     }
 
+    function hasProfessionalWorkspaceEntitlement(workspaceId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/companies/$(workspaceId))
+        && get(/databases/$(database)/documents/companies/$(workspaceId)).data.subscriptionStatus in ['active', 'trialing']
+        && get(/databases/$(database)/documents/companies/$(workspaceId)).data.subscriptionPlan in ['professional', 'business', 'enterprise'];
+    }
+
     function canAccessRecipes(workspaceId) {
       return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef']);
     }
@@ -148,11 +155,13 @@ service cloud.firestore {
     }
 
     function canAccessBusiness(workspaceId) {
-      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Finance']);
+      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Finance'])
+        && hasProfessionalWorkspaceEntitlement(workspaceId);
     }
 
     function canInviteTeam(workspaceId) {
-      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef']);
+      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef'])
+        && hasProfessionalWorkspaceEntitlement(workspaceId);
     }
 
     function isArchivedInvoiceWrite() {
@@ -176,7 +185,7 @@ service cloud.firestore {
         && request.resource.data.subscriptionPlan == 'free'
         && request.resource.data.subscriptionStatus == 'active'
         && request.resource.data.billingCycle == 'monthly';
-      allow read: if isSuperAdmin() || isCurrentCompany(companyId) || resource.data.ownerId == request.auth.uid;
+      allow read: if isSuperAdmin() || isCurrentCompany(companyId) || resource.data.ownerId == request.auth.uid || isWorkspaceMember(companyId);
       allow update: if (isSuperAdmin() || ((isCompanyOwnerOrManager(companyId) || resource.data.ownerId == request.auth.uid) && preservesOrBackfillsDefaultSubscriptionFields()))
         && request.resource.data.companyId == resource.data.companyId
         && request.resource.data.ownerId == resource.data.ownerId;
@@ -206,15 +215,19 @@ service cloud.firestore {
     }
 
     match /invoices/{invoiceId} {
-      allow create: if ownsIncomingDocument()
-        && request.resource.data.id == invoiceId
-        && canAccessInvoices(incomingWorkspaceId())
-        && request.resource.data.processingStatus == 'Pending'
-        && request.resource.data.status == 'Pending';
+      allow create: if false;
       allow read: if canAccessInvoices(existingWorkspaceId());
       allow update: if canAccessInvoices(existingWorkspaceId())
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.id == resource.data.id
+        && request.resource.data.fileName == resource.data.fileName
+        && request.resource.data.fileType == resource.data.fileType
+        && request.resource.data.size == resource.data.size
+        && request.resource.data.uploadDate == resource.data.uploadDate
+        && (
+          ('storageFileName' in resource.data && request.resource.data.storageFileName == resource.data.storageFileName)
+          || (!('storageFileName' in resource.data) && !('storageFileName' in request.resource.data))
+        )
         && incomingWorkspaceId() == existingWorkspaceId()
         && (!isArchivedInvoiceWrite() || isWorkspaceOwnerOrManager(existingWorkspaceId()));
       allow delete: if isWorkspaceOwnerOrManager(existingWorkspaceId());
@@ -407,14 +420,17 @@ service cloud.firestore {
           || (canInviteTeam(request.resource.data.workspaceId) && request.resource.data.userId != request.auth.uid)
           || (request.resource.data.userId == request.auth.uid
             && 'invitationId' in request.resource.data
+            && hasProfessionalWorkspaceEntitlement(request.resource.data.workspaceId)
             && exists(/databases/$(database)/documents/teamInvitations/$(request.resource.data.invitationId))
             && get(/databases/$(database)/documents/teamInvitations/$(request.resource.data.invitationId)).data.workspaceId == request.resource.data.workspaceId
             && get(/databases/$(database)/documents/teamInvitations/$(request.resource.data.invitationId)).data.email == request.auth.token.email
             && get(/databases/$(database)/documents/teamInvitations/$(request.resource.data.invitationId)).data.status == 'Pending'
             && request.resource.data.role == get(/databases/$(database)/documents/teamInvitations/$(request.resource.data.invitationId)).data.role)
         );
-      allow read: if isWorkspaceManagerLevel(resource.data.workspaceId) || resource.data.userId == request.auth.uid;
+      allow read: if resource.data.userId == request.auth.uid
+        || (isWorkspaceManagerLevel(resource.data.workspaceId) && hasProfessionalWorkspaceEntitlement(resource.data.workspaceId));
       allow update: if isWorkspaceManagerLevel(resource.data.workspaceId)
+        && hasProfessionalWorkspaceEntitlement(resource.data.workspaceId)
         && request.resource.data.id == resource.data.id
         && request.resource.data.workspaceId == resource.data.workspaceId
         && request.resource.data.userId == resource.data.userId
@@ -424,9 +440,12 @@ service cloud.firestore {
 
     match /roles/{roleId} {
       allow create: if ownsIncomingDocument()
-        && request.resource.data.id == roleId;
-      allow read: if isWorkspaceManagerLevel(resource.data.workspaceId);
+        && request.resource.data.id == roleId
+        && hasProfessionalWorkspaceEntitlement(request.resource.data.workspaceId);
+      allow read: if isWorkspaceManagerLevel(resource.data.workspaceId)
+        && hasProfessionalWorkspaceEntitlement(resource.data.workspaceId);
       allow update: if isWorkspaceOwner(resource.data.workspaceId)
+        && hasProfessionalWorkspaceEntitlement(resource.data.workspaceId)
         && request.resource.data.id == resource.data.id
         && request.resource.data.workspaceId == resource.data.workspaceId;
       allow delete: if false;
@@ -440,8 +459,11 @@ service cloud.firestore {
         && request.resource.data.status == 'Pending'
         && canInviteTeam(request.resource.data.workspaceId)
         && request.resource.data.role in ['Manager', 'Head Chef', 'Sous Chef', 'Chef', 'Purchasing', 'Finance', 'Viewer'];
-      allow read: if isWorkspaceManagerLevel(resource.data.workspaceId) || resource.data.email == request.auth.token.email;
-      allow update: if isWorkspaceManagerLevel(resource.data.workspaceId)
+      allow read: if (isWorkspaceManagerLevel(resource.data.workspaceId)
+          && hasProfessionalWorkspaceEntitlement(resource.data.workspaceId))
+        || resource.data.email == request.auth.token.email;
+      allow update: if (isWorkspaceManagerLevel(resource.data.workspaceId)
+        && hasProfessionalWorkspaceEntitlement(resource.data.workspaceId))
         || (signedIn()
           && resource.data.email == request.auth.token.email
           && resource.data.status == 'Pending'

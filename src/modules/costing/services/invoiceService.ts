@@ -1,6 +1,7 @@
 import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
-import { db, storage } from '../../../firebase';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions, storage } from '../../../firebase';
 import type { CostingInvoice, CostingInvoiceFileType } from '../types';
 
 const normalizeInvoice = (invoice: CostingInvoice): CostingInvoice => ({
@@ -28,19 +29,20 @@ const removeUndefinedFields = <T,>(value: T): T => {
   return value;
 };
 
-const getInvoiceStoragePath = (userId: string, invoiceId: string, fileName: string) => {
-  const safeFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
-  return `users/${userId}/costing/invoices/${invoiceId}/${safeFileName}`;
+const getInvoiceStoragePath = (userId: string, invoiceId: string, storageFileName: string) => {
+  return `users/${userId}/costing/invoices/${invoiceId}/${storageFileName}`;
 };
 
 const uploadInvoiceFile = ({
   userId,
   invoiceId,
+  storageFileName,
   file,
   onProgress,
 }: {
   userId: string;
   invoiceId: string;
+  storageFileName: string;
   file: File;
   onProgress?: (progress: number) => void;
 }) => {
@@ -48,7 +50,7 @@ const uploadInvoiceFile = ({
     throw new Error('Uploads are temporarily unavailable. Please refresh the page or try again.');
   }
 
-  const invoiceRef = ref(storage, getInvoiceStoragePath(userId, invoiceId, file.name));
+  const invoiceRef = ref(storage, getInvoiceStoragePath(userId, invoiceId, storageFileName));
   const uploadTask = uploadBytesResumable(invoiceRef, file, {
     contentType: file.type || 'application/octet-stream',
     cacheControl: 'private,max-age=31536000',
@@ -109,29 +111,39 @@ export const invoiceService = {
     workspaceId?: string;
     onProgress?: (progress: number) => void;
   }): Promise<CostingInvoice> {
-    if (!db) {
+    if (!db || !functions) {
       throw new Error("We couldn't connect to your workspace. Please refresh the page or try again.");
     }
 
-    const invoiceRef = doc(collection(db, 'invoices'));
-    const fileUrl = await uploadInvoiceFile({ userId, invoiceId: invoiceRef.id, file, onProgress });
-    const invoice: CostingInvoice = {
-      id: invoiceRef.id,
-      fileName: file.name,
-      fileUrl,
-      fileType,
-      uploadDate: new Date().toISOString(),
-      status: 'Pending',
-      processingStatus: 'Pending',
-      extractedData: null,
-      errorMessage: null,
-      createdBy: userId,
-      workspaceId,
-      size: file.size
-    };
+    const createUpload = httpsCallable<
+      { workspaceId: string; fileName: string; fileType: CostingInvoiceFileType; size: number },
+      { invoice: CostingInvoice }
+    >(functions, 'createInvoiceUpload');
+    const cancelUpload = httpsCallable<{ invoiceId: string }, { cancelled: boolean }>(functions, 'cancelInvoiceUpload');
+    const reservation = await createUpload({ workspaceId, fileName: file.name, fileType, size: file.size });
+    const invoice = normalizeInvoice(reservation.data.invoice);
+    const storageFileName = invoice.storageFileName || file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const invoiceStorageReference = storage
+      ? ref(storage, getInvoiceStoragePath(userId, invoice.id, storageFileName))
+      : null;
 
-    await setDoc(invoiceRef, removeUndefinedFields(invoice));
-    return invoice;
+    try {
+      const fileUrl = await uploadInvoiceFile({
+        userId,
+        invoiceId: invoice.id,
+        storageFileName,
+        file,
+        onProgress
+      });
+      await updateDoc(doc(db, 'invoices', invoice.id), { fileUrl });
+      return { ...invoice, fileUrl };
+    } catch (err) {
+      if (invoiceStorageReference) {
+        await deleteObject(invoiceStorageReference).catch(() => undefined);
+      }
+      await cancelUpload({ invoiceId: invoice.id }).catch(() => undefined);
+      throw err;
+    }
   },
 
   async updateInvoice(invoiceId: string, updates: Partial<CostingInvoice>): Promise<void> {

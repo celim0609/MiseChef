@@ -124,7 +124,7 @@ export default function PortfolioStudio({ portfolio, recipes, userId, workspaceI
   };
 
   const handleResumeImport = async (file: File): Promise<ResumeImportSummary> => {
-    const { portfolio: importedPortfolio, summary } = await importResumeToPortfolioDraft(draftPortfolio, file);
+    const { portfolio: importedPortfolio, summary } = await importResumeToPortfolioDraft(draftPortfolio, file, workspaceId || userId || '');
     markDraftChanged();
     setDraftPortfolio(importedPortfolio);
     onDraftPortfolioChange(importedPortfolio);

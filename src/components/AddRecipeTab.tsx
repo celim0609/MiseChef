@@ -407,9 +407,10 @@ const mapScannedIngredientToEditorIngredient = (
 const extractStructuredRecipeFromScan = async (
   file: File,
   scannedImageDataUrl: string,
+  workspaceId: string,
   onStage?: (stage: 'reading' | 'extracting') => void
 ): Promise<ParsedImportedRecipe> => {
-  const scannedRecipe = await scanRecipeImageWithGemini({ file, imageDataUrl: scannedImageDataUrl, onStage });
+  const scannedRecipe = await scanRecipeImageWithGemini({ workspaceId, file, imageDataUrl: scannedImageDataUrl, onStage });
   const scannedIngredients = scannedRecipe.ingredients
     .map(mapScannedIngredientToEditorIngredient)
     .filter(ingredient => ingredient.name || ingredient.qty || ingredient.unit);
@@ -596,6 +597,7 @@ interface AddRecipeTabProps {
   mode?: 'add' | 'edit';
   userRole?: UserRole;
   userId?: string;
+  workspaceId?: string;
 }
 
 export default function AddRecipeTab({
@@ -608,7 +610,8 @@ export default function AddRecipeTab({
   initialRecipe = null,
   mode = 'add',
   userRole = 'user',
-  userId
+  userId,
+  workspaceId
 }: AddRecipeTabProps) {
   const isEditing = mode === 'edit' && initialRecipe;
 
@@ -922,6 +925,7 @@ export default function AddRecipeTab({
     try {
       setIsGeneratingSteps(true);
       const draftSteps = await generateRecipeStepsWithAI({
+        workspaceId: workspaceId || userId || '',
         title: title.trim(),
         category: selectedCategories.join(', '),
         yield: recipeYield.trim(),
@@ -1064,7 +1068,7 @@ export default function AddRecipeTab({
       setIsReadingPdf(true);
       setAiImportStage('uploading');
       const optimizedScanImage = await optimizeScanImageFile(file);
-      const scannedRecipe = await extractStructuredRecipeFromScan(file, optimizedScanImage, setAiImportStage);
+      const scannedRecipe = await extractStructuredRecipeFromScan(file, optimizedScanImage, workspaceId || userId || '', setAiImportStage);
       setAiImportStage('building');
       showDetectedRecipesForImport([scannedRecipe]);
       setAiImportStage('ready');
@@ -1100,7 +1104,7 @@ export default function AddRecipeTab({
       setIsReadingPdf(true);
       setAiImportStage('uploading');
       const optimizedScanImage = await optimizeScanImageFile(file);
-      const scannedRecipe = await extractStructuredRecipeFromScan(file, optimizedScanImage, setAiImportStage);
+      const scannedRecipe = await extractStructuredRecipeFromScan(file, optimizedScanImage, workspaceId || userId || '', setAiImportStage);
       setAiImportStage('building');
       showDetectedRecipesForImport([scannedRecipe]);
       setImportText(scannedRecipe.sourceText);

@@ -1893,6 +1893,7 @@ export default function App() {
             onCancel={handleCancelRecipeForm}
             userRole={currentUserRole}
             userId={currentUser?.uid}
+            workspaceId={activeWorkspaceId}
           />
         ) : addingRecipe ? (
           <AddRecipeTab
@@ -1904,6 +1905,7 @@ export default function App() {
             onCancel={handleCancelRecipeForm}
             userRole={currentUserRole}
             userId={currentUser?.uid}
+            workspaceId={activeWorkspaceId}
           />
         ) : (
           renderTabContent()

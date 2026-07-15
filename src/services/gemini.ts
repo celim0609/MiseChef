@@ -226,11 +226,13 @@ const normalizeResumePortfolioDraft = (value: unknown): GeminiResumePortfolioDra
 };
 
 export const generateRecipeStepsWithAI = async ({
+  workspaceId,
   title,
   category,
   yield: recipeYield,
   ingredients
 }: {
+  workspaceId: string;
   title: string;
   category: string;
   yield: string;
@@ -242,6 +244,7 @@ export const generateRecipeStepsWithAI = async ({
 
   const generateSteps = httpsCallable<
     {
+      workspaceId: string;
       title: string;
       category: string;
       yield: string;
@@ -252,6 +255,7 @@ export const generateRecipeStepsWithAI = async ({
   >(functions, 'generateRecipeSteps');
 
   const response = await generateSteps({
+    workspaceId,
     title,
     category,
     yield: recipeYield,
@@ -265,10 +269,12 @@ export const generateRecipeStepsWithAI = async ({
 };
 
 export const scanRecipeImageWithGemini = async ({
+  workspaceId,
   file,
   imageDataUrl,
   onStage
 }: {
+  workspaceId: string;
   file: File;
   imageDataUrl?: string;
   onStage?: (stage: 'reading' | 'extracting') => void;
@@ -287,12 +293,13 @@ export const scanRecipeImageWithGemini = async ({
   });
 
   const scanImage = httpsCallable<
-    { imageBase64: string; mimeType: string; debug?: boolean },
+    { workspaceId: string; imageBase64: string; mimeType: string; debug?: boolean },
     { recipe: GeminiScannedRecipe }
   >(functions, 'scanRecipeImage');
 
   try {
     const response = await scanImage({
+      workspaceId,
       imageBase64,
       mimeType,
       debug: import.meta.env.DEV
@@ -316,18 +323,19 @@ export const scanRecipeImageWithGemini = async ({
   }
 };
 
-export const parseResumeToPortfolioWithAI = async (resumeText: string) => {
+export const parseResumeToPortfolioWithAI = async (resumeText: string, workspaceId: string) => {
   if (!functions) {
     throw new Error('AI is temporarily unavailable. Please try again shortly.');
   }
 
   const parseResume = httpsCallable<
-    { resumeText: string; debug?: boolean },
+    { workspaceId: string; resumeText: string; debug?: boolean },
     { portfolio: GeminiResumePortfolioDraft }
   >(functions, 'parseResumeToPortfolio');
 
   try {
     const response = await parseResume({
+      workspaceId,
       resumeText,
       debug: import.meta.env.DEV
     });

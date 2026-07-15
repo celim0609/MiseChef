@@ -235,12 +235,12 @@ export const mergeResumeImportIntoPortfolio = (portfolio: Portfolio, imported: G
   return { portfolio: nextPortfolio, summary };
 };
 
-export const importResumeToPortfolioDraft = async (portfolio: Portfolio, file: File) => {
+export const importResumeToPortfolioDraft = async (portfolio: Portfolio, file: File, workspaceId: string) => {
   const resumeText = await extractResumeText(file);
   if (resumeText.length < 80) {
     throw new Error('Could not find enough readable resume text to import.');
   }
 
-  const imported = await parseResumeToPortfolioWithAI(resumeText.slice(0, 50_000));
+  const imported = await parseResumeToPortfolioWithAI(resumeText.slice(0, 50_000), workspaceId);
   return mergeResumeImportIntoPortfolio(portfolio, imported);
 };

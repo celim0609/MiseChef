@@ -10,13 +10,19 @@ import { deletePublicChefProfileAssets, getPublicChefAssetPrefix, publishPublicC
 import { buildPublicChefProfileProjection, normalizePublicUsername } from './publicChefProfileProjection.js';
 import { deletePublicRecipeAssets, publishPublicRecipeAssets } from './publicRecipeAssets.js';
 import { buildPublicRecipeProjection } from './publicRecipeProjection.js';
+import {
+  cancelInvoiceUploadReservation,
+  createInvoiceUploadReservation,
+  releaseMonthlySubscriptionUsage,
+  requireWorkspaceEntitlements,
+  reserveMonthlySubscriptionUsage
+} from './subscriptionEnforcement.js';
 
 initializeApp();
 
 const db = getFirestore();
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
 const MODEL = 'gemini-2.5-flash';
-const DAILY_LIMIT = 30;
 const REGION = 'us-central1';
 const MAX_INVOICE_OCR_BYTES = 10 * 1024 * 1024;
 const ALLOWED_INVOICE_OCR_MIME_TYPES = new Set([
@@ -291,32 +297,13 @@ const invoiceOcrResponseSchema = {
   }
 };
 
-const getRequesterId = request => request.auth?.uid || `anon_${request.rawRequest.ip || 'unknown'}`;
-
-const resolveCompanyId = async ({ request, requesterId }) => {
-  const dataCompanyId = readString(request.data?.companyId || request.data?.workspaceId);
-  if (dataCompanyId) return dataCompanyId;
-  if (!request.auth?.uid || requesterId.startsWith('anon_')) return requesterId;
-
-  try {
-    const userSnapshot = await db.collection('users').doc(request.auth.uid).get();
-    const user = userSnapshot.exists ? userSnapshot.data() || {} : {};
-    return readString(user.companyId || user.workspaceId || user.currentWorkspaceId) || request.auth.uid;
-  } catch (err) {
-    logger.warn('Unable to resolve AI usage company id', { requesterId, ...getErrorDiagnostics(err) });
-    return request.auth.uid;
-  }
-};
-
 const requireAuthenticatedUser = request => {
   const uid = request.auth?.uid;
   if (!uid) {
-    throw new HttpsError('unauthenticated', 'Sign in to use AI invoice OCR.');
+    throw new HttpsError('unauthenticated', 'Sign in to use this feature.');
   }
   return uid;
 };
-
-const getDateKey = () => new Date().toISOString().slice(0, 10);
 
 const readString = value => (typeof value === 'string' ? value.trim() : '');
 
@@ -506,30 +493,6 @@ const sanitizeInvoiceOcr = value => {
   };
 };
 
-const enforceDailyLimit = async ({ requesterId, action }) => {
-  const dateKey = getDateKey();
-  const usageRef = db.collection('aiUsage').doc(`${dateKey}_${requesterId}_${action}`);
-
-  await db.runTransaction(async transaction => {
-    const snapshot = await transaction.get(usageRef);
-    const count = snapshot.exists ? Number(snapshot.data().count || 0) : 0;
-
-    if (count >= DAILY_LIMIT) {
-      throw new HttpsError('resource-exhausted', 'Daily AI request limit reached. Please try again tomorrow.');
-    }
-
-    transaction.set(usageRef, {
-      requesterId,
-      action,
-      dateKey,
-      count: count + 1,
-      limit: DAILY_LIMIT,
-      updatedAt: FieldValue.serverTimestamp(),
-      createdAt: snapshot.exists ? snapshot.data().createdAt : FieldValue.serverTimestamp()
-    }, { merge: true });
-  });
-};
-
 const logRequest = async ({ requesterId, companyId, action, status, attempts, errorCode, response, responseTime }) => {
   const legacyLog = db.collection('aiRequestLogs').add({
     requesterId,
@@ -595,6 +558,66 @@ const wrapInternalError = (friendlyMessage, err, includeDiagnostics = false) => 
   diagnostics: includeDiagnostics ? getErrorDiagnostics(err) : undefined
 });
 
+const sanitizeInvoiceStorageFileName = fileName => {
+  const sanitized = readString(fileName).replace(/[^a-zA-Z0-9._-]/g, '_').slice(-180);
+  return sanitized || 'invoice';
+};
+
+export const createInvoiceUpload = onCall({
+  region: REGION,
+  invoker: 'public'
+}, async request => {
+  const requesterId = requireAuthenticatedUser(request);
+  const workspaceId = readString(request.data?.workspaceId);
+  const fileName = readString(request.data?.fileName).slice(0, 240);
+  const fileType = readString(request.data?.fileType);
+  const size = Number(request.data?.size);
+
+  if (!fileName || !['PDF', 'Image', 'Excel'].includes(fileType)) {
+    throw new HttpsError('invalid-argument', 'Valid invoice file details are required.');
+  }
+  if (!Number.isFinite(size) || size <= 0 || size > MAX_INVOICE_OCR_BYTES) {
+    throw new HttpsError('invalid-argument', 'Invoice file must be 10 MB or smaller.');
+  }
+
+  const entitlements = await requireWorkspaceEntitlements({ db, uid: requesterId, workspaceId });
+  if (!['Owner', 'Manager', 'Head Chef', 'Purchasing'].includes(entitlements.role)) {
+    throw new HttpsError('permission-denied', 'Your workspace role cannot upload invoices.');
+  }
+  const uploadDate = new Date().toISOString();
+  const invoice = await createInvoiceUploadReservation({
+    db,
+    entitlements,
+    invoice: {
+      fileName,
+      storageFileName: sanitizeInvoiceStorageFileName(fileName),
+      fileUrl: '',
+      fileType,
+      uploadDate,
+      status: 'Pending',
+      processingStatus: 'Pending',
+      extractedData: null,
+      errorMessage: null,
+      createdBy: requesterId,
+      workspaceId: entitlements.workspaceId,
+      size
+    }
+  });
+
+  return { invoice };
+});
+
+export const cancelInvoiceUpload = onCall({
+  region: REGION,
+  invoker: 'public'
+}, async request => {
+  const requesterId = requireAuthenticatedUser(request);
+  const invoiceId = readString(request.data?.invoiceId);
+  if (!invoiceId) throw new HttpsError('invalid-argument', 'Invoice ID is required.');
+  await cancelInvoiceUploadReservation({ db, uid: requesterId, invoiceId });
+  return { cancelled: true };
+});
+
 export const scanRecipeImage = onCall({
   region: REGION,
   invoker: 'public',
@@ -602,16 +625,24 @@ export const scanRecipeImage = onCall({
   timeoutSeconds: 120,
   memory: '512MiB'
 }, async request => {
-  const requesterId = getRequesterId(request);
+  const requesterId = requireAuthenticatedUser(request);
   const action = 'scanRecipeImage';
   const includeDiagnostics = request.data?.debug === true;
   const startedAt = Date.now();
   let companyId = requesterId;
   let attempts = 0;
+  let usageReservation;
 
   try {
-    companyId = await resolveCompanyId({ request, requesterId });
-    await enforceDailyLimit({ requesterId, action });
+    const entitlements = await requireWorkspaceEntitlements({
+      db,
+      uid: requesterId,
+      workspaceId: request.data?.workspaceId
+    });
+    if (!['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef'].includes(entitlements.role)) {
+      throw new HttpsError('permission-denied', 'Your workspace role cannot use recipe tools.');
+    }
+    companyId = entitlements.workspaceId;
 
     const imageBase64 = readString(request.data?.imageBase64);
     const mimeType = readString(request.data?.mimeType) || 'image/jpeg';
@@ -623,6 +654,12 @@ export const scanRecipeImage = onCall({
     if (!mimeType.startsWith('image/')) {
       throw new HttpsError('invalid-argument', 'Only image uploads are supported.');
     }
+
+    usageReservation = await reserveMonthlySubscriptionUsage({
+      db,
+      entitlements,
+      increments: { aiRequests: 1 }
+    });
 
     logger.info('AI recipe scan requested', { requesterId, action, mimeType, imageBytesApprox: Math.round(imageBase64.length * 0.75) });
     const ai = getAi();
@@ -675,6 +712,9 @@ export const scanRecipeImage = onCall({
     await logRequest({ requesterId, companyId, action, status: 'success', attempts, response, responseTime: Date.now() - startedAt });
     return { recipe };
   } catch (err) {
+    await releaseMonthlySubscriptionUsage({ db, reservation: usageReservation }).catch(releaseError => {
+      logger.warn('Unable to release recipe scan subscription usage', { requesterId, ...getErrorDiagnostics(releaseError) });
+    });
     attempts = attempts || 1;
     const errorCode = err instanceof HttpsError ? err.code : 'internal';
     logger.error('AI recipe scan failed', { requesterId, action, attempts, errorCode, ...getErrorDiagnostics(err) });
@@ -698,11 +738,9 @@ export const parseInvoiceToJson = onCall({
   const startedAt = Date.now();
   let companyId = requesterId;
   let attempts = 0;
+  let usageReservation;
 
   try {
-    companyId = await resolveCompanyId({ request, requesterId });
-    await enforceDailyLimit({ requesterId, action });
-
     const invoiceId = readString(request.data?.invoiceId);
     if (!invoiceId) {
       throw new HttpsError('invalid-argument', 'Invoice ID is required.');
@@ -717,6 +755,16 @@ export const parseInvoiceToJson = onCall({
     if (invoiceRecord.createdBy !== requesterId) {
       throw new HttpsError('permission-denied', 'You can only process your own invoices.');
     }
+
+    const entitlements = await requireWorkspaceEntitlements({
+      db,
+      uid: requesterId,
+      workspaceId: invoiceRecord.workspaceId
+    });
+    if (!['Owner', 'Manager', 'Head Chef', 'Purchasing'].includes(entitlements.role)) {
+      throw new HttpsError('permission-denied', 'Your workspace role cannot process invoices.');
+    }
+    companyId = entitlements.workspaceId;
 
     const fileUrl = readString(invoiceRecord.fileUrl);
     if (!fileUrl || !isFirebaseStorageUrl(fileUrl)) {
@@ -737,6 +785,12 @@ export const parseInvoiceToJson = onCall({
     if (!fileBuffer.length || fileBuffer.length > MAX_INVOICE_OCR_BYTES) {
       throw new HttpsError('invalid-argument', 'Invoice file must be 10 MB or smaller.');
     }
+
+    usageReservation = await reserveMonthlySubscriptionUsage({
+      db,
+      entitlements,
+      increments: { aiRequests: 1, invoiceOcr: 1 }
+    });
 
     logger.info('AI invoice OCR requested', { requesterId, action, invoiceId, mimeType, fileBytes: fileBuffer.length });
     const ai = getAi();
@@ -776,6 +830,9 @@ export const parseInvoiceToJson = onCall({
     await logRequest({ requesterId, companyId, action, status: 'success', attempts, response, responseTime: Date.now() - startedAt });
     return { invoice };
   } catch (err) {
+    await releaseMonthlySubscriptionUsage({ db, reservation: usageReservation }).catch(releaseError => {
+      logger.warn('Unable to release invoice OCR subscription usage', { requesterId, ...getErrorDiagnostics(releaseError) });
+    });
     attempts = attempts || 1;
     const errorCode = err instanceof HttpsError ? err.code : 'internal';
     logger.error('AI invoice OCR failed', { requesterId, action, attempts, errorCode, ...getErrorDiagnostics(err) });
@@ -793,16 +850,24 @@ export const generateRecipeSteps = onCall({
   timeoutSeconds: 60,
   memory: '256MiB'
 }, async request => {
-  const requesterId = getRequesterId(request);
+  const requesterId = requireAuthenticatedUser(request);
   const action = 'generateRecipeSteps';
   const includeDiagnostics = request.data?.debug === true;
   const startedAt = Date.now();
   let companyId = requesterId;
   let attempts = 0;
+  let usageReservation;
 
   try {
-    companyId = await resolveCompanyId({ request, requesterId });
-    await enforceDailyLimit({ requesterId, action });
+    const entitlements = await requireWorkspaceEntitlements({
+      db,
+      uid: requesterId,
+      workspaceId: request.data?.workspaceId
+    });
+    if (!['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef'].includes(entitlements.role)) {
+      throw new HttpsError('permission-denied', 'Your workspace role cannot use recipe tools.');
+    }
+    companyId = entitlements.workspaceId;
 
     const title = readString(request.data?.title);
     const category = readString(request.data?.category);
@@ -812,6 +877,12 @@ export const generateRecipeSteps = onCall({
     if (!title || ingredients.length === 0) {
       throw new HttpsError('invalid-argument', 'Recipe title and ingredients are required.');
     }
+
+    usageReservation = await reserveMonthlySubscriptionUsage({
+      db,
+      entitlements,
+      increments: { aiRequests: 1 }
+    });
 
     const ingredientLines = ingredients
       .map(item => {
@@ -858,6 +929,9 @@ Rules:
     await logRequest({ requesterId, companyId, action, status: 'success', attempts, response, responseTime: Date.now() - startedAt });
     return { steps };
   } catch (err) {
+    await releaseMonthlySubscriptionUsage({ db, reservation: usageReservation }).catch(releaseError => {
+      logger.warn('Unable to release recipe method subscription usage', { requesterId, ...getErrorDiagnostics(releaseError) });
+    });
     attempts = attempts || 1;
     const errorCode = err instanceof HttpsError ? err.code : 'internal';
     logger.error('AI method draft failed', { requesterId, action, attempts, errorCode, ...getErrorDiagnostics(err) });
@@ -875,16 +949,21 @@ export const parseResumeToPortfolio = onCall({
   timeoutSeconds: 90,
   memory: '256MiB'
 }, async request => {
-  const requesterId = getRequesterId(request);
+  const requesterId = requireAuthenticatedUser(request);
   const action = 'parseResumeToPortfolio';
   const includeDiagnostics = request.data?.debug === true;
   const startedAt = Date.now();
   let companyId = requesterId;
   let attempts = 0;
+  let usageReservation;
 
   try {
-    companyId = await resolveCompanyId({ request, requesterId });
-    await enforceDailyLimit({ requesterId, action });
+    const entitlements = await requireWorkspaceEntitlements({
+      db,
+      uid: requesterId,
+      workspaceId: request.data?.workspaceId
+    });
+    companyId = entitlements.workspaceId;
 
     const resumeText = readString(request.data?.resumeText);
     if (!resumeText || resumeText.length < 80) {
@@ -893,6 +972,12 @@ export const parseResumeToPortfolio = onCall({
     if (resumeText.length > 50_000) {
       throw new HttpsError('invalid-argument', 'Resume text is too long to import.');
     }
+
+    usageReservation = await reserveMonthlySubscriptionUsage({
+      db,
+      entitlements,
+      increments: { aiRequests: 1 }
+    });
 
     const prompt = `
 Convert this resume into an editable chef portfolio draft.
@@ -935,6 +1020,9 @@ ${resumeText}
     await logRequest({ requesterId, companyId, action, status: 'success', attempts, response, responseTime: Date.now() - startedAt });
     return { portfolio };
   } catch (err) {
+    await releaseMonthlySubscriptionUsage({ db, reservation: usageReservation }).catch(releaseError => {
+      logger.warn('Unable to release resume import subscription usage', { requesterId, ...getErrorDiagnostics(releaseError) });
+    });
     attempts = attempts || 1;
     const errorCode = err instanceof HttpsError ? err.code : 'internal';
     logger.error('AI resume import failed', { requesterId, action, attempts, errorCode, ...getErrorDiagnostics(err) });
