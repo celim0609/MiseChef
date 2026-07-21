@@ -53,7 +53,7 @@ export default function PublicRecipeDiscoveryPage({ recipe, publicRecipes, publi
 
     {recommendedProducts.length > 0 && <section className="mx-auto max-w-4xl"><h2 className="font-display text-3xl font-bold text-primary">Chef Recommended Products</h2><ul className="mt-5 divide-y divide-surface-container-high border-y border-surface-container-high">{recommendedProducts.map((product, index) => <li key={`${product.name}-${index}`} className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
       <span className="flex min-w-0 items-center gap-3 font-sans text-base font-extrabold text-primary"><span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-secondary" />{product.name}</span>
-      <a href={product.url} target="_blank" rel="noopener noreferrer sponsored" className="ml-4 w-fit rounded-full bg-primary px-4 py-2 font-sans text-sm font-extrabold text-on-primary sm:ml-0">View Product</a>
+      <a href={`/go/recipes/${encodeURIComponent(recipe.id)}/products/${index}`} target="_blank" rel="noopener noreferrer sponsored" className="ml-4 w-fit rounded-full bg-primary px-4 py-2 font-sans text-sm font-extrabold text-on-primary sm:ml-0">View Product</a>
     </li>)}</ul></section>}
 
     {instructions.length > 0 && <section className="mx-auto max-w-4xl"><h2 className="font-display text-3xl font-bold text-primary">Instructions</h2><ol className="mt-8">{instructions.map((step, index) => {
