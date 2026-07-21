@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Home } from 'lucide-react';
 import { getRedirectResult, onAuthStateChanged, signOut, type Unsubscribe, type User } from 'firebase/auth';
 import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
@@ -566,6 +566,10 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<RootTab>('login');
   const [addingRecipe, setAddingRecipe] = useState(false);
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
+  const [isRecipeSaving, setIsRecipeSaving] = useState(false);
+  const [recipeSaveError, setRecipeSaveError] = useState('');
+  const [hasUnsavedRecipeChanges, setHasUnsavedRecipeChanges] = useState(false);
+  const recipeSaveInFlightRef = useRef(false);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [isNavigationDrawerOpen, setIsNavigationDrawerOpen] = useState(false);
   const [selectedHomeCategory, setSelectedHomeCategory] = useState<string | null>(null);
@@ -598,6 +602,21 @@ export default function App() {
         : null;
 
   const handleRootNavigate = (tab: RootTab) => {
+    if (addingRecipe || editingRecipe) {
+      if (
+        hasUnsavedRecipeChanges
+        && !isRecipeSaving
+        && !window.confirm('Discard your unsaved recipe changes?')
+      ) {
+        return;
+      }
+      if (isRecipeSaving) return;
+      setAddingRecipe(false);
+      setEditingRecipe(null);
+      setHasUnsavedRecipeChanges(false);
+      setRecipeSaveError('');
+    }
+
     if (tab === 'admin' && currentUserRole !== 'super_admin') {
       setActiveTab('home');
       setSelectedCostingInvoiceId(null);
@@ -626,6 +645,27 @@ export default function App() {
     }
     window.history.replaceState(null, '', ROOT_TAB_PATHS[tab]);
   };
+
+  useEffect(() => {
+    const recipeEditorKey = editingRecipe?.id || (addingRecipe ? 'new' : '');
+    if (!recipeEditorKey) return;
+
+    setRecipeSaveError('');
+    setHasUnsavedRecipeChanges(false);
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [addingRecipe, editingRecipe?.id]);
+
+  useEffect(() => {
+    if ((!addingRecipe && !editingRecipe) || !hasUnsavedRecipeChanges || isRecipeSaving) return;
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [addingRecipe, editingRecipe, hasUnsavedRecipeChanges, isRecipeSaving]);
 
   const handleOpenCostingInvoice = (invoiceId: string) => {
     setSelectedCostingInvoiceId(invoiceId);
@@ -1043,75 +1083,91 @@ export default function App() {
 
   // Add Recipe
   const handleSaveNewRecipe = async (newRecipe: Recipe) => {
-    if (currentUser && db && !isGuestMode) {
-      const limitCheck = await usageLimitService.canCreateResource(activeWorkspaceId, 'recipe', recipes.length);
-      if (!limitCheck.allowed) {
-        triggerNotification(limitCheck.message, 'info');
-        return;
-      }
-    }
+    if (recipeSaveInFlightRef.current) return;
+    recipeSaveInFlightRef.current = true;
+    setIsRecipeSaving(true);
+    setRecipeSaveError('');
 
-    setAddingRecipe(false);
-    setActiveTab('home');
+    try {
+      if (currentUser && db && !isGuestMode) {
+        const limitCheck = await usageLimitService.canCreateResource(activeWorkspaceId, 'recipe', recipes.length);
+        if (!limitCheck.allowed) {
+          setRecipeSaveError(limitCheck.message);
+          triggerNotification(limitCheck.message, 'info');
+          return;
+        }
 
-    if (currentUser && db && !isGuestMode) {
-      try {
         const cloudRecipe = await getCloudReadyRecipe(newRecipe, currentUser, (progress, phase) => {
           triggerNotification(`Uploading ${phase === 'scan' ? 'recipe scan' : 'cover image'}... ${progress}%`, 'info');
         });
         const costedRecipe = await recipeCostService.applyCosting(cloudRecipe, currentUser.uid, activeWorkspaceId);
+        await saveRecipeToFirestore(costedRecipe, currentUser, activeWorkspaceId);
         const updated = [costedRecipe, ...recipes];
         setRecipes(updated);
-        await saveRecipeToFirestore(costedRecipe, currentUser, activeWorkspaceId);
         triggerNotification(`Saved "${costedRecipe.title}" to your cookbook.`, 'success');
-      } catch (err) {
+      } else {
         const updated = [newRecipe, ...recipes];
         setRecipes(updated);
         localStorage.setItem(STORAGE_RECIPES_KEY, JSON.stringify(updated));
-        triggerNotification(`Saved "${newRecipe.title}" on this device. Please try again if it does not appear everywhere.`, 'info');
+        triggerNotification(`Saved "${newRecipe.title}" on this device. Sign in to keep future recipes available across your workspace.`, 'success');
       }
-    } else {
-      const updated = [newRecipe, ...recipes];
-      setRecipes(updated);
-      localStorage.setItem(STORAGE_RECIPES_KEY, JSON.stringify(updated));
-      triggerNotification(`Saved "${newRecipe.title}" on this device. Sign in to keep future recipes available across your workspace.`, 'success');
+
+      setHasUnsavedRecipeChanges(false);
+      setAddingRecipe(false);
+      setActiveTab('home');
+    } catch (err) {
+      const message = err instanceof Error
+        ? err.message
+        : 'The recipe could not be saved. Please try again.';
+      setRecipeSaveError(message);
+      triggerNotification('The recipe could not be saved. Your changes are still in the editor.', 'error');
+    } finally {
+      recipeSaveInFlightRef.current = false;
+      setIsRecipeSaving(false);
     }
   };
 
   const handleSaveEditedRecipe = async (updatedRecipe: Recipe) => {
-    setEditingRecipe(null);
-    setActiveTab('home');
+    if (recipeSaveInFlightRef.current) return;
+    recipeSaveInFlightRef.current = true;
+    setIsRecipeSaving(true);
+    setRecipeSaveError('');
 
-    if (currentUser && db && !isGuestMode) {
-      try {
+    try {
+      if (currentUser && db && !isGuestMode) {
         const cloudRecipe = await getCloudReadyRecipe(updatedRecipe, currentUser, (progress, phase) => {
           triggerNotification(`Uploading ${phase === 'scan' ? 'recipe scan' : 'cover image'}... ${progress}%`, 'info');
         });
         const costedRecipe = await recipeCostService.applyCosting(cloudRecipe, currentUser.uid, activeWorkspaceId);
+        await saveRecipeToFirestore(costedRecipe, currentUser, activeWorkspaceId);
         const updated = recipes.map(recipe =>
           recipe.id === costedRecipe.id ? costedRecipe : recipe
         );
         setRecipes(updated);
         setSelectedRecipe(costedRecipe);
-        await saveRecipeToFirestore(costedRecipe, currentUser, activeWorkspaceId);
         triggerNotification(`Updated "${costedRecipe.title}".`, 'success');
-      } catch (err) {
+      } else {
         const updated = recipes.map(recipe =>
           recipe.id === updatedRecipe.id ? updatedRecipe : recipe
         );
         setRecipes(updated);
         setSelectedRecipe(updatedRecipe);
         localStorage.setItem(STORAGE_RECIPES_KEY, JSON.stringify(updated));
-        triggerNotification(`Updated "${updatedRecipe.title}" on this device. Please try again if it does not appear everywhere.`, 'info');
+        triggerNotification(`Updated "${updatedRecipe.title}".`, 'success');
       }
-    } else {
-      const updated = recipes.map(recipe =>
-        recipe.id === updatedRecipe.id ? updatedRecipe : recipe
-      );
-      setRecipes(updated);
-      setSelectedRecipe(updatedRecipe);
-      localStorage.setItem(STORAGE_RECIPES_KEY, JSON.stringify(updated));
-      triggerNotification(`Updated "${updatedRecipe.title}".`, 'success');
+
+      setHasUnsavedRecipeChanges(false);
+      setEditingRecipe(null);
+      setActiveTab('home');
+    } catch (err) {
+      const message = err instanceof Error
+        ? err.message
+        : 'The recipe could not be updated. Please try again.';
+      setRecipeSaveError(message);
+      triggerNotification('The recipe could not be updated. Your changes are still in the editor.', 'error');
+    } finally {
+      recipeSaveInFlightRef.current = false;
+      setIsRecipeSaving(false);
     }
   };
 
@@ -1226,8 +1282,14 @@ export default function App() {
   };
 
   const handleCancelRecipeForm = () => {
+    if (isRecipeSaving) return;
+    if (hasUnsavedRecipeChanges && !window.confirm('Discard your unsaved recipe changes?')) {
+      return;
+    }
     setAddingRecipe(false);
     setEditingRecipe(null);
+    setHasUnsavedRecipeChanges(false);
+    setRecipeSaveError('');
   };
 
   const handleToggleFavorite = async (recipeId: string) => {
@@ -1408,6 +1470,28 @@ export default function App() {
     setIsFavoritesFilterActive(false);
   };
 
+  const handleFounderWorkspaceCreated = async (workspaceId: string) => {
+    if (!currentUser || currentUserRole !== 'super_admin') {
+      throw new Error('Only MiseChef super admins can use the founder workspace QA tool.');
+    }
+
+    const accessibleWorkspaces = await workspaceService.listAccessibleWorkspaces(currentUser);
+    const createdWorkspace = accessibleWorkspaces.find(workspace => workspace.id === workspaceId);
+    if (!createdWorkspace) {
+      throw new Error('The workspace was created, but it could not be loaded. Please refresh and try again.');
+    }
+
+    setWorkspaces(accessibleWorkspaces);
+    workspaceService.setStoredWorkspaceId(currentUser.uid, createdWorkspace.id);
+    setCurrentWorkspace(createdWorkspace);
+    setAddingRecipe(false);
+    setEditingRecipe(null);
+    setSelectedRecipe(null);
+    setSelectedCostingInvoiceId(null);
+    setSelectedHomeCategory(null);
+    setIsFavoritesFilterActive(false);
+  };
+
   const portfolioProfile = {
     displayName: chefProfile.name || currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Chef',
     avatarUrl: customAvatarUrl || chefProfile.photo || currentUser?.photoURL || '',
@@ -1579,7 +1663,13 @@ export default function App() {
           );
         }
 
-        return <AdminPage />;
+        return (
+          <AdminPage
+            currentUser={currentUser}
+            currentUserRole={currentUserRole}
+            onWorkspaceCreated={handleFounderWorkspaceCreated}
+          />
+        );
       case 'costing':
       case 'costingIngredients':
       case 'costingInvoices':
@@ -1713,10 +1803,11 @@ export default function App() {
               // Click the hidden submit button on child form
               document.getElementById('add-recipe-hidden-save-btn')?.click();
             }}
+            disabled={isRecipeSaving}
             id="app-bar-save-recipe-btn"
-            className="bg-primary text-on-primary font-sans font-extrabold text-xs px-6 py-2 rounded-full hover:opacity-90 active:scale-95 transition-all outline-none"
+            className="bg-primary text-on-primary font-sans font-extrabold text-xs px-6 py-2 rounded-full hover:opacity-90 active:scale-95 transition-all outline-none disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Save
+            {isRecipeSaving ? 'Saving...' : 'Save'}
           </button>
         )
       };
@@ -1889,6 +1980,9 @@ export default function App() {
             onDeleteCategory={handleDeleteCategory}
             onSave={handleSaveEditedRecipe}
             onCancel={handleCancelRecipeForm}
+            onDirtyChange={setHasUnsavedRecipeChanges}
+            isSaving={isRecipeSaving}
+            saveError={recipeSaveError}
             userRole={currentUserRole}
             userId={currentUser?.uid}
             workspaceId={activeWorkspaceId}
@@ -1901,6 +1995,9 @@ export default function App() {
             onDeleteCategory={handleDeleteCategory}
             onSave={handleSaveNewRecipe}
             onCancel={handleCancelRecipeForm}
+            onDirtyChange={setHasUnsavedRecipeChanges}
+            isSaving={isRecipeSaving}
+            saveError={recipeSaveError}
             userRole={currentUserRole}
             userId={currentUser?.uid}
             workspaceId={activeWorkspaceId}

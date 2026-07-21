@@ -34,6 +34,18 @@ const getFileType = (file: File): CostingInvoiceFileType => {
 };
 
 const isDirectDeleteStatus = (status: CostingInvoiceStatus) => ['Pending', 'Processed', 'Failed'].includes(status);
+const invoiceStatuses: CostingInvoiceStatus[] = ['Pending', 'Processing', 'Processed', 'Imported', 'Failed', 'Archived'];
+
+const getInitialStatusFilter = (): CostingInvoiceStatus | null => {
+  const requestedStatus = new URLSearchParams(window.location.search).get('status');
+  return invoiceStatuses.includes(requestedStatus as CostingInvoiceStatus)
+    ? requestedStatus as CostingInvoiceStatus
+    : null;
+};
+
+const getStatusFilterLabel = (status: CostingInvoiceStatus) => (
+  status === 'Processed' ? 'Pending approval' : status
+);
 
 const notifyInvoiceLifecycleChanged = () => {
   window.dispatchEvent(new CustomEvent('misechef:invoice-lifecycle-changed'));
@@ -50,6 +62,7 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
   const [activeLifecycleInvoiceId, setActiveLifecycleInvoiceId] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<CostingInvoiceStatus | null>(getInitialStatusFilter);
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -269,6 +282,8 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
   };
 
   const visibleInvoices = invoiceHistory.filter(invoice => {
+    if (statusFilter && invoice.processingStatus !== statusFilter) return false;
+
     const query = searchQuery.trim().toLowerCase();
     if (!query) return true;
 
@@ -280,6 +295,11 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
       invoice.status
     ].some(value => String(value || '').toLowerCase().includes(query));
   });
+
+  const clearStatusFilter = () => {
+    setStatusFilter(null);
+    window.history.replaceState(null, '', window.location.pathname);
+  };
 
   return (
     <div className="space-y-6">
@@ -329,15 +349,27 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
           </div>
         </div>
 
-        <label className="relative block max-w-xl">
-          <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-outline" />
-          <input
-            value={searchQuery}
-            onChange={event => setSearchQuery(event.target.value)}
-            placeholder="Search invoices, suppliers, numbers, status..."
-            className="w-full rounded-full border border-surface-container-high bg-white py-3 pl-11 pr-4 font-sans text-sm font-bold text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-          />
-        </label>
+        <div className="flex max-w-xl flex-col gap-3 sm:flex-row sm:items-center">
+          <label className="relative block flex-1">
+            <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-outline" />
+            <input
+              value={searchQuery}
+              onChange={event => setSearchQuery(event.target.value)}
+              placeholder="Search invoices, suppliers, numbers, status..."
+              className="w-full rounded-full border border-surface-container-high bg-white py-3 pl-11 pr-4 font-sans text-sm font-bold text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+            />
+          </label>
+          {statusFilter && (
+            <button
+              type="button"
+              onClick={clearStatusFilter}
+              className="w-fit rounded-full border border-primary/20 bg-primary/10 px-4 py-2 font-sans text-xs font-extrabold text-primary transition-colors hover:bg-primary/15"
+              aria-label={`Clear ${getStatusFilterLabel(statusFilter)} filter`}
+            >
+              {getStatusFilterLabel(statusFilter)} ×
+            </button>
+          )}
+        </div>
 
         <div className="overflow-x-auto rounded-2xl border border-surface-container-high bg-white">
           <table className="w-full min-w-[640px] text-left font-sans text-sm">
@@ -397,7 +429,9 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
                 <tr>
                   <td colSpan={4} className="px-4 py-10 text-center">
                     <Upload className="mx-auto h-8 w-8 text-outline" />
-                    <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">{searchQuery ? 'No invoices match your search.' : 'No invoices uploaded yet.'}</p>
+                    <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">
+                      {searchQuery || statusFilter ? 'No invoices match your filters.' : 'No invoices uploaded yet.'}
+                    </p>
                   </td>
                 </tr>
               )}

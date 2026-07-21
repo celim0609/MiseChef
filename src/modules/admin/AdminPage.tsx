@@ -1,22 +1,32 @@
 import { useRef, useState } from 'react';
+import type { User } from 'firebase/auth';
+import type { UserRole } from '../../types';
 import { adminPageDefinitions } from './pages';
 import { AdminAIUsagePage } from './pages/AIUsagePage';
 import { AdminCompaniesPage } from './pages/CompaniesPage';
 import { AdminOverviewPage } from './pages/OverviewPage';
 import { AdminSubscriptionsPage } from './pages/SubscriptionsPage';
 import { AdminUsersPage } from './pages/UsersPage';
+import { AdminWorkspaceQaPage } from './pages/WorkspaceQaPage';
 
 const liveSectionDetails: Record<string, { status: string; subtitle: string }> = {
   Overview: { status: 'Status: LIVE', subtitle: 'Platform Dashboard' },
   Users: { status: 'Status: LIVE', subtitle: 'Manage Platform Users' },
   Companies: { status: 'Status: LIVE', subtitle: 'Manage Companies' },
   'AI Usage': { status: 'Status: LIVE', subtitle: 'AI Usage Dashboard' },
-  Subscriptions: { status: 'Status: LIVE', subtitle: 'Subscription Management' }
+  Subscriptions: { status: 'Status: LIVE', subtitle: 'Subscription Management' },
+  'Workspace QA': { status: 'Founder Tool', subtitle: 'Test Multi-Workspace Behaviour' }
 };
 
 const getSectionDetails = (title: string) => liveSectionDetails[title] || { status: 'Coming Soon', subtitle: 'Coming Soon' };
 
-export function AdminPage() {
+interface AdminPageProps {
+  currentUser: User;
+  currentUserRole: UserRole;
+  onWorkspaceCreated: (workspaceId: string) => Promise<void>;
+}
+
+export function AdminPage({ currentUser, currentUserRole, onWorkspaceCreated }: AdminPageProps) {
   const [activeSection, setActiveSection] = useState('Overview');
   const activeSectionRef = useRef<HTMLDivElement>(null);
 
@@ -76,6 +86,12 @@ export function AdminPage() {
         <AdminAIUsagePage />
       ) : activeSection === 'Subscriptions' ? (
         <AdminSubscriptionsPage />
+      ) : activeSection === 'Workspace QA' ? (
+        <AdminWorkspaceQaPage
+          currentUser={currentUser}
+          currentUserRole={currentUserRole}
+          onWorkspaceCreated={onWorkspaceCreated}
+        />
       ) : (
         <section className="rounded-2xl border border-surface-container-high bg-white p-6 shadow-sm">
           <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">{activeSection}</p>

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, Camera, FileText, Image as ImageIcon, MoreHorizontal, Plus, Trash2, X, Sparkles, Video } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist/webpack.mjs';
 import { Recipe, Ingredient, MethodStep, RecipeCategory, RecipeVisibility, UserRole } from '../types';
@@ -449,7 +449,7 @@ const extractStructuredRecipeFromScan = async (
         [ingredient.name, ingredient.quantity, ingredient.unit].filter(Boolean).join(' ')
       ),
       '',
-      'Method',
+      'Instructions',
       ...methodLines,
       scannedRecipe.notes ? `Chef Notes: ${scannedRecipe.notes}` : ''
     ].filter(Boolean).join('\n')
@@ -587,8 +587,11 @@ const optimizeCoverImageFile = async (file: File) => {
 };
 
 interface AddRecipeTabProps {
-  onSave: (recipe: Recipe) => void;
+  onSave: (recipe: Recipe) => Promise<void> | void;
   onCancel: () => void;
+  onDirtyChange?: (isDirty: boolean) => void;
+  isSaving?: boolean;
+  saveError?: string;
   categories: RecipeCategory[];
   onCreateCategory: (name: string) => RecipeCategory | null;
   onRenameCategory: (categoryId: string, nextName: string) => void;
@@ -611,7 +614,10 @@ export default function AddRecipeTab({
   mode = 'add',
   userRole = 'user',
   userId,
-  workspaceId
+  workspaceId,
+  onDirtyChange,
+  isSaving = false,
+  saveError = ''
 }: AddRecipeTabProps) {
   const isEditing = mode === 'edit' && initialRecipe;
 
@@ -668,9 +674,55 @@ export default function AddRecipeTab({
   const [aiImportStage, setAiImportStage] = useState<AiImportStage | null>(null);
   const [detectedPdfRecipes, setDetectedPdfRecipes] = useState<ParsedImportedRecipe[]>([]);
   const [selectedPdfRecipeIds, setSelectedPdfRecipeIds] = useState<string[]>([]);
+  const [coverImageError, setCoverImageError] = useState('');
+  const [validationErrors, setValidationErrors] = useState<Partial<Record<
+    'title' | 'ingredients' | 'instructions' | 'servings' | 'prepTime' | 'cookTime' | 'sellingPrice',
+    string
+  >>>({});
 
   // Media
   const [videoLink, setVideoLink] = useState(initialRecipe?.videoLink || '');
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const prepTimeInputRef = useRef<HTMLInputElement>(null);
+  const cookTimeInputRef = useRef<HTMLInputElement>(null);
+  const servingsInputRef = useRef<HTMLInputElement>(null);
+  const sellingPriceInputRef = useRef<HTMLInputElement>(null);
+  const ingredientNameRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const instructionRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const initialEditorSnapshotRef = useRef('');
+
+  const editorSnapshot = JSON.stringify({
+    title,
+    coverImage,
+    selectedCategories,
+    prepTime,
+    cookTime,
+    servings,
+    recipeYield,
+    difficulty,
+    sellingPrice,
+    visibility,
+    story,
+    chefNotes,
+    scannedImageDataUrl,
+    ingredients,
+    methodSteps,
+    videoLink
+  });
+
+  if (!initialEditorSnapshotRef.current) {
+    initialEditorSnapshotRef.current = editorSnapshot;
+  }
+
+  const isDirty = editorSnapshot !== initialEditorSnapshotRef.current;
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+  }, [isDirty, onDirtyChange]);
+
+  useEffect(() => () => {
+    onDirtyChange?.(false);
+  }, [onDirtyChange]);
 
   useEffect(() => {
     let isMounted = true;
@@ -701,11 +753,12 @@ export default function AddRecipeTab({
   const handleCoverPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      setCoverImageError('');
       try {
         const optimizedImage = await optimizeCoverImageFile(file);
         setCoverImage(optimizedImage);
       } catch (err) {
-        alert(err instanceof Error ? err.message : 'Unable to optimize uploaded image.');
+        setCoverImageError(err instanceof Error ? err.message : 'Unable to optimize uploaded image.');
       }
     }
   };
@@ -936,7 +989,7 @@ export default function AddRecipeTab({
         }))
       });
       if (draftSteps.length === 0) {
-        throw new Error('AI returned no method steps.');
+        throw new Error('AI returned no instruction steps.');
       }
 
       setMethodSteps(draftSteps.map((description, idx) => ({
@@ -946,7 +999,7 @@ export default function AddRecipeTab({
         image: ''
       })));
     } catch (err) {
-      setAiStepError(err instanceof Error ? err.message : 'Unable to generate method steps.');
+      setAiStepError(err instanceof Error ? err.message : 'Unable to generate instruction steps.');
     } finally {
       setIsGeneratingSteps(false);
     }
@@ -958,6 +1011,10 @@ export default function AddRecipeTab({
 
     if (parsedRecipe.ingredients.length === 0) {
       setImportError(buildImportIngredientError(parsedRecipe));
+      return;
+    }
+
+    if ((isEditing || isDirty) && !window.confirm('Replace the current recipe with the imported recipe? Unsaved recipe fields will be replaced.')) {
       return;
     }
 
@@ -998,6 +1055,7 @@ export default function AddRecipeTab({
   const importRecipeToEditor = (
     recipe: Pick<ParsedImportedRecipe, 'title' | 'description' | 'yield' | 'servings' | 'prepTime' | 'cookTime' | 'chefNotes' | 'scannedImageDataUrl' | 'ingredients' | 'method'>
   ) => {
+    setValidationErrors({});
     setTitle(recipe.title);
     if (recipe.description) setStory(recipe.description);
     setRecipeYield(recipe.yield || recipeYield);
@@ -1037,7 +1095,7 @@ export default function AddRecipeTab({
       const extractedText = await extractTextFromPdfFile(file);
       handleImportedText(
         extractedText,
-        'No complete recipes were detected. The PDF needs selectable text with title, ingredients, and method sections.'
+        'No complete recipes were detected. The PDF needs selectable text with title, ingredients, and instructions sections.'
       );
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'Unable to read this PDF.');
@@ -1136,6 +1194,10 @@ export default function AddRecipeTab({
       return;
     }
 
+    if ((isEditing || isDirty) && !window.confirm('Replace the current recipe with the imported recipe? Unsaved recipe fields will be replaced.')) {
+      return;
+    }
+
     importRecipeToEditor(selectedRecipes[0]);
     setShowImportModal(false);
   };
@@ -1150,57 +1212,85 @@ export default function AddRecipeTab({
   };
 
   // Handle Save
-  const handleSaveClick = () => {
+  const focusInvalidField = (field: keyof typeof validationErrors) => {
+    let target: HTMLElement | null = null;
+    if (field === 'title') target = titleInputRef.current;
+    if (field === 'ingredients') target = ingredientNameRefs.current[ingredients[0]?.id];
+    if (field === 'instructions') target = instructionRefs.current[methodSteps[0]?.id];
+    if (field === 'servings') target = servingsInputRef.current;
+    if (field === 'prepTime') target = prepTimeInputRef.current;
+    if (field === 'cookTime') target = cookTimeInputRef.current;
+    if (field === 'sellingPrice') target = sellingPriceInputRef.current;
+
+    window.requestAnimationFrame(() => {
+      target?.focus();
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  };
+
+  const clearValidationError = (field: keyof typeof validationErrors) => {
+    setValidationErrors(current => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const handleSaveClick = async () => {
+    if (isSaving) return;
+
+    const nextErrors: typeof validationErrors = {};
+
     if (!title.trim()) {
-      alert('Please give your recipe a title!');
-      return;
+      nextErrors.title = 'Enter a recipe title.';
     }
 
-    // Filter empty ingredients
     const cleanIngredients = ingredients
       .filter(ing => ing.name.trim() !== '')
       .map(normalizeIngredientForDisplay);
     if (cleanIngredients.length === 0) {
-      alert('Please add at least one ingredient name!');
-      return;
+      nextErrors.ingredients = 'Add at least one ingredient.';
     }
 
-    // Filter empty steps
     const cleanSteps = methodSteps.filter(step => step.description.trim() !== '');
     if (cleanSteps.length === 0) {
-      alert('Please describe at least one cooking step!');
+      nextErrors.instructions = 'Add at least one instruction.';
+    }
+
+    const validatedServings = parseRequiredNumberField(servings, 'Servings', { allowZero: false, integer: true });
+    if (typeof validatedServings === 'string') {
+      nextErrors.servings = validatedServings;
+    }
+
+    const validatedPrepTime = parseRequiredNumberField(prepTime, 'Prep Time', { allowZero: false });
+    if (typeof validatedPrepTime === 'string') {
+      nextErrors.prepTime = validatedPrepTime;
+    }
+
+    const validatedCookTime = parseRequiredNumberField(cookTime, 'Cook Time', { allowZero: true });
+    if (typeof validatedCookTime === 'string') {
+      nextErrors.cookTime = validatedCookTime;
+    }
+
+    const savedSellingPrice = sellingPrice.trim() ? Number(sellingPrice) : 0;
+    if (!Number.isFinite(savedSellingPrice) || savedSellingPrice < 0) {
+      nextErrors.sellingPrice = 'Selling Price must be zero or a positive number.';
+    }
+
+    setValidationErrors(nextErrors);
+    const firstInvalidField = (
+      ['title', 'prepTime', 'cookTime', 'servings', 'sellingPrice', 'ingredients', 'instructions'] as const
+    ).find(field => nextErrors[field]);
+    if (firstInvalidField) {
+      focusInvalidField(firstInvalidField);
       return;
     }
 
     const savedCategories = normalizeRecipeCategories(selectedCategories);
     const finalCategories = savedCategories;
     const primaryCategory = finalCategories[0] || '';
-
-    const validatedServings = parseRequiredNumberField(servings, 'Servings', { allowZero: false, integer: true });
-    if (typeof validatedServings === 'string') {
-      alert(validatedServings);
-      return;
-    }
-
-    const validatedPrepTime = parseRequiredNumberField(prepTime, 'Prep Time', { allowZero: false });
-    if (typeof validatedPrepTime === 'string') {
-      alert(validatedPrepTime);
-      return;
-    }
-
-    const validatedCookTime = parseRequiredNumberField(cookTime, 'Cook Time', { allowZero: true });
-    if (typeof validatedCookTime === 'string') {
-      alert(validatedCookTime);
-      return;
-    }
-
-    const savedSellingPrice = sellingPrice.trim() ? Number(sellingPrice) : 0;
-    if (!Number.isFinite(savedSellingPrice) || savedSellingPrice < 0) {
-      alert('Selling Price must be a valid positive number.');
-      return;
-    }
-
-    const savedServings = validatedServings;
+    const savedServings = validatedServings as number;
 
     const savedRecipe: Recipe = {
       id: initialRecipe?.id || `recipe_${Date.now()}`,
@@ -1211,8 +1301,8 @@ export default function AddRecipeTab({
       scannedImageDataUrl: scannedImageDataUrl || undefined,
       category: primaryCategory,
       categories: finalCategories,
-      prepTime: validatedPrepTime,
-      cookTime: validatedCookTime || undefined,
+      prepTime: validatedPrepTime as number,
+      cookTime: (validatedCookTime as number) || undefined,
       servings: savedServings,
       yield: recipeYield.trim() || `${savedServings} servings`,
       difficulty,
@@ -1232,11 +1322,32 @@ export default function AddRecipeTab({
       visibility
     };
 
-    onSave(savedRecipe);
+    await onSave(savedRecipe);
   };
 
   return (
-    <div className="space-y-8 animate-fade-in pb-20">
+    <div
+      className={`space-y-8 animate-fade-in pb-20 ${isSaving ? 'pointer-events-none' : ''}`}
+      aria-busy={isSaving}
+    >
+      {isSaving && (
+        <div
+          role="status"
+          className="rounded-2xl border border-primary/20 bg-primary/10 px-4 py-3 font-sans text-sm font-bold text-primary"
+        >
+          Saving your recipe. Please keep this page open while images finish uploading.
+        </div>
+      )}
+
+      {saveError && (
+        <div
+          role="alert"
+          className="rounded-2xl border border-error/25 bg-error/10 px-4 py-3 font-sans text-sm font-bold text-error"
+        >
+          {saveError}
+        </div>
+      )}
+
       <section className="bg-surface-container-low border border-surface-container-high p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
         <div>
           <h2 className="font-display text-xl font-bold text-primary">Recipe Entry</h2>
@@ -1259,7 +1370,7 @@ export default function AddRecipeTab({
 
       {/* Photo Upload Area */}
       <section>
-        <label className="block group relative w-full aspect-[16/9] md:aspect-[21/9] rounded-2xl border-2 border-dashed border-outline-variant bg-surface-container-low overflow-hidden cursor-pointer hover:border-primary transition-all">
+        <label className="block group relative w-full h-40 sm:h-48 md:h-56 rounded-2xl border-2 border-dashed border-outline-variant bg-surface-container-low overflow-hidden cursor-pointer hover:border-primary transition-all">
           <input
             className="hidden"
             type="file"
@@ -1280,19 +1391,35 @@ export default function AddRecipeTab({
             </div>
           )}
         </label>
+        {coverImageError && (
+          <p role="alert" className="mt-2 px-1 font-sans text-xs font-bold text-error">
+            {coverImageError}
+          </p>
+        )}
       </section>
 
       {/* Basic Title Info */}
       <section className="space-y-6">
         <div>
           <input
+            ref={titleInputRef}
             type="text"
             required
             value={title}
-            onChange={e => setTitle(e.target.value)}
+            onChange={e => {
+              setTitle(e.target.value);
+              clearValidationError('title');
+            }}
+            aria-invalid={Boolean(validationErrors.title)}
+            aria-describedby={validationErrors.title ? 'recipe-title-error' : undefined}
             placeholder="Give your recipe a title..."
             className="w-full bg-transparent border-none p-0 font-display font-bold text-3xl sm:text-4.5xl text-primary placeholder:text-outline-variant focus:ring-0 leading-tight"
           />
+          {validationErrors.title && (
+            <p id="recipe-title-error" role="alert" className="mt-2 font-sans text-xs font-bold text-error">
+              {validationErrors.title}
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1500,10 +1627,15 @@ export default function AddRecipeTab({
             <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Prep Time</label>
             <div className="relative">
               <input
+                ref={prepTimeInputRef}
                 type="number"
                 min="5"
                 value={prepTime}
-                onChange={e => setPrepTime(e.target.value)}
+                onChange={e => {
+                  setPrepTime(e.target.value);
+                  clearValidationError('prepTime');
+                }}
+                aria-invalid={Boolean(validationErrors.prepTime)}
                 placeholder="30"
                 className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface pl-4 pr-12 py-3.5 focus:ring-1 focus:ring-primary font-bold"
               />
@@ -1511,16 +1643,26 @@ export default function AddRecipeTab({
                 MIN
               </span>
             </div>
+            {validationErrors.prepTime && (
+              <p role="alert" className="px-1 font-sans text-[11px] font-bold text-error">
+                {validationErrors.prepTime}
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">
             <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Cook Time</label>
             <div className="relative">
               <input
+                ref={cookTimeInputRef}
                 type="number"
                 min="0"
                 value={cookTime}
-                onChange={e => setCookTime(e.target.value)}
+                onChange={e => {
+                  setCookTime(e.target.value);
+                  clearValidationError('cookTime');
+                }}
+                aria-invalid={Boolean(validationErrors.cookTime)}
                 placeholder="0"
                 className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface pl-4 pr-12 py-3.5 focus:ring-1 focus:ring-primary font-bold"
               />
@@ -1528,18 +1670,33 @@ export default function AddRecipeTab({
                 MIN
               </span>
             </div>
+            {validationErrors.cookTime && (
+              <p role="alert" className="px-1 font-sans text-[11px] font-bold text-error">
+                {validationErrors.cookTime}
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">
             <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Servings</label>
             <input
+              ref={servingsInputRef}
               type="number"
               min="1"
               value={servings}
-              onChange={e => setServings(e.target.value)}
+              onChange={e => {
+                setServings(e.target.value);
+                clearValidationError('servings');
+              }}
+              aria-invalid={Boolean(validationErrors.servings)}
               placeholder="2"
               className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold"
             />
+            {validationErrors.servings && (
+              <p role="alert" className="px-1 font-sans text-[11px] font-bold text-error">
+                {validationErrors.servings}
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -1570,14 +1727,24 @@ export default function AddRecipeTab({
         <div className="space-y-1.5">
           <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Selling Price</label>
           <input
+            ref={sellingPriceInputRef}
             type="number"
             min="0"
             step="0.01"
             value={sellingPrice}
-            onChange={e => setSellingPrice(e.target.value)}
+            onChange={e => {
+              setSellingPrice(e.target.value);
+              clearValidationError('sellingPrice');
+            }}
+            aria-invalid={Boolean(validationErrors.sellingPrice)}
             placeholder="0.00"
             className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold"
           />
+          {validationErrors.sellingPrice && (
+            <p role="alert" className="px-1 font-sans text-[11px] font-bold text-error">
+              {validationErrors.sellingPrice}
+            </p>
+          )}
         </div>
       </section>
 
@@ -1612,57 +1779,85 @@ export default function AddRecipeTab({
       {/* Ingredients List */}
       <section className="space-y-4" id="ingredients-section">
         <h3 className="font-display text-2xl font-bold text-primary tracking-tight">Ingredients</h3>
+        {validationErrors.ingredients && (
+          <p role="alert" className="font-sans text-xs font-bold text-error">
+            {validationErrors.ingredients}
+          </p>
+        )}
         
-        <div className="space-y-2.5" id="ingredient-list">
+        <div className="space-y-4" id="ingredient-list">
           {ingredients.map((ing) => (
-            <div key={ing.id} className="grid grid-cols-2 sm:grid-cols-[1fr_80px_100px_1fr_1fr_40px] gap-2 items-center animate-fade-in">
-              <input
-                type="text"
-                placeholder="Ingredient name (e.g., Fresh Basil)"
-                value={ing.name}
-                onChange={e => updateIngredient(ing.id, 'name', e.target.value)}
-                className="bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold col-span-2 sm:col-span-1"
-              />
-              <input
-                type="text"
-                placeholder="Qty"
-                value={ing.qty}
-                onChange={e => updateIngredient(ing.id, 'qty', e.target.value)}
-                className="bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold text-center"
-              />
-              <input
-                type="text"
-                placeholder="Unit"
-                list="ingredient-unit-options"
-                value={ing.unit}
-                onChange={e => updateIngredient(ing.id, 'unit', e.target.value)}
-                className="bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold text-center"
-              />
-              <input
-                type="text"
-                placeholder="Notes"
-                value={ing.notes || ''}
-                onChange={e => updateIngredient(ing.id, 'notes', e.target.value)}
-                className="bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold col-span-2 sm:col-span-1"
-              />
-              <select
-                value={ing.ingredientId || ''}
-                onChange={e => handleIngredientLibrarySelect(ing.id, e.target.value)}
-                className="bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold col-span-2 sm:col-span-1"
-                aria-label={`Link ${ing.name || 'ingredient'} to Ingredient Library`}
-              >
-                <option value="">Link Ingredient Library</option>
-                {libraryIngredients.map(libraryIngredient => (
-                  <option key={libraryIngredient.id} value={libraryIngredient.id}>
-                    {libraryIngredient.name}
-                  </option>
-                ))}
-              </select>
+            <div key={ing.id} className="grid grid-cols-2 sm:grid-cols-[minmax(180px,1.2fr)_90px_110px_minmax(160px,1fr)_minmax(170px,0.9fr)_40px] gap-2 items-end animate-fade-in">
+              <label className="col-span-2 space-y-1.5 sm:col-span-1">
+                <span className="px-1 font-sans text-[11px] font-bold text-on-surface-variant">Ingredient</span>
+                <input
+                  ref={element => {
+                    ingredientNameRefs.current[ing.id] = element;
+                  }}
+                  type="text"
+                  placeholder="e.g. Fresh Basil"
+                  value={ing.name}
+                  onChange={e => {
+                    updateIngredient(ing.id, 'name', e.target.value);
+                    clearValidationError('ingredients');
+                  }}
+                  aria-invalid={Boolean(validationErrors.ingredients)}
+                  className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="px-1 font-sans text-[11px] font-bold text-on-surface-variant">Quantity</span>
+                <input
+                  type="text"
+                  placeholder="e.g. 2"
+                  value={ing.qty}
+                  onChange={e => updateIngredient(ing.id, 'qty', e.target.value)}
+                  className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold text-center"
+                />
+              </label>
+              <label className="space-y-1.5">
+                <span className="px-1 font-sans text-[11px] font-bold text-on-surface-variant">Unit</span>
+                <input
+                  type="text"
+                  placeholder="e.g. g"
+                  list="ingredient-unit-options"
+                  value={ing.unit}
+                  onChange={e => updateIngredient(ing.id, 'unit', e.target.value)}
+                  className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold text-center"
+                />
+              </label>
+              <label className="col-span-2 space-y-1.5 sm:col-span-1">
+                <span className="px-1 font-sans text-[11px] font-bold text-on-surface-variant">Preparation</span>
+                <input
+                  type="text"
+                  placeholder="e.g. finely chopped"
+                  value={ing.notes || ''}
+                  onChange={e => updateIngredient(ing.id, 'notes', e.target.value)}
+                  className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold"
+                />
+              </label>
+              <label className="col-span-2 space-y-1.5 sm:col-span-1">
+                <span className="px-1 font-sans text-[11px] font-bold text-outline">Ingredient Library (optional)</span>
+                <select
+                  value={ing.ingredientId || ''}
+                  onChange={e => handleIngredientLibrarySelect(ing.id, e.target.value)}
+                  className="w-full rounded-xl border border-outline-variant/40 bg-transparent p-4 font-sans text-xs font-semibold text-on-surface-variant sm:text-sm"
+                  aria-label={`Link ${ing.name || 'ingredient'} to Ingredient Library`}
+                >
+                  <option value="">Not linked</option>
+                  {libraryIngredients.map(libraryIngredient => (
+                    <option key={libraryIngredient.id} value={libraryIngredient.id}>
+                      {libraryIngredient.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button
                 type="button"
                 onClick={() => removeIngredientRow(ing.id)}
                 disabled={ingredients.length === 1}
-                className="text-outline hover:text-error transition-colors p-2 flex items-center justify-center disabled:opacity-30 col-span-2 sm:col-span-1"
+                className="col-span-2 flex h-12 items-center justify-center p-2 text-outline transition-colors hover:text-error disabled:opacity-30 sm:col-span-1"
+                aria-label={`Remove ${ing.name || 'ingredient'} row`}
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -1700,10 +1895,10 @@ export default function AddRecipeTab({
         </button>
       </section>
 
-      {/* Method Section */}
+      {/* Instructions Section */}
       <section className="space-y-4" id="method-section">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <h3 className="font-display text-2xl font-bold text-primary tracking-tight">Method</h3>
+          <h3 className="font-display text-2xl font-bold text-primary tracking-tight">Instructions</h3>
           <button
             type="button"
             onClick={handleAutoWriteSteps}
@@ -1718,6 +1913,11 @@ export default function AddRecipeTab({
           <div className="bg-secondary/10 border border-secondary/20 text-secondary rounded-xl p-3 font-sans text-xs font-bold">
             {aiStepError}
           </div>
+        )}
+        {validationErrors.instructions && (
+          <p role="alert" className="font-sans text-xs font-bold text-error">
+            {validationErrors.instructions}
+          </p>
         )}
         
         <div className="space-y-5" id="steps-list">
@@ -1780,9 +1980,16 @@ export default function AddRecipeTab({
                   )}
                 </label>
                 <textarea
+                  ref={element => {
+                    instructionRefs.current[step.id] = element;
+                  }}
                   placeholder="Describe this step in detail..."
                   value={step.description}
-                  onChange={e => updateMethodStep(step.id, e.target.value)}
+                  onChange={e => {
+                    updateMethodStep(step.id, e.target.value);
+                    clearValidationError('instructions');
+                  }}
+                  aria-invalid={Boolean(validationErrors.instructions)}
                   rows={3}
                   className="flex-1 bg-surface-container-lowest border-none rounded-xl font-sans text-sm p-4 focus:ring-1 focus:ring-primary resize-none placeholder:text-outline-variant font-medium leading-relaxed"
                 />
@@ -1825,21 +2032,23 @@ export default function AddRecipeTab({
         <button
           type="button"
           onClick={onCancel}
-          className="flex-1 py-3.5 bg-surface-container hover:bg-surface-container-high rounded-full font-sans font-bold text-xs text-primary transition-colors"
+          disabled={isSaving}
+          className="flex-1 py-3.5 bg-surface-container hover:bg-surface-container-high rounded-full font-sans font-bold text-xs text-primary transition-colors disabled:cursor-not-allowed disabled:opacity-50"
         >
           Cancel
         </button>
         <button
           type="button"
           onClick={handleSaveClick}
-          className="flex-1 py-3.5 bg-primary hover:bg-primary-container text-on-primary rounded-full font-sans font-bold text-xs transition-colors shadow-md shadow-primary/25"
+          disabled={isSaving}
+          className="flex-1 py-3.5 bg-primary hover:bg-primary-container text-on-primary rounded-full font-sans font-bold text-xs transition-colors shadow-md shadow-primary/25 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isEditing ? 'Save Changes' : 'Save Recipe'}
+          {isSaving ? 'Saving...' : isEditing ? 'Save Changes' : 'Save Recipe'}
         </button>
       </div>
 
       {/* Hidden button for App.tsx trigger */}
-      <button id="add-recipe-hidden-save-btn" onClick={handleSaveClick} className="hidden" />
+      <button id="add-recipe-hidden-save-btn" onClick={handleSaveClick} disabled={isSaving} className="hidden" />
 
       {showImportModal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1940,7 +2149,7 @@ export default function AddRecipeTab({
               <textarea
                 value={importText}
                 onChange={e => setImportText(e.target.value)}
-                placeholder={`Example:\nChocolate Buns\nYield: 12 pcs\n\nIngredients\n500 g flour\n60 g sugar\n300 ml milk\n\nMethod\n1. Mix dry ingredients.\n2. Add milk and knead.\n3. Proof, shape, and bake.`}
+                placeholder={`Example:\nChocolate Buns\nYield: 12 pcs\n\nIngredients\n500 g flour\n60 g sugar\n300 ml milk\n\nInstructions\n1. Mix dry ingredients.\n2. Add milk and knead.\n3. Proof, shape, and bake.`}
                 rows={14}
                 className="w-full bg-white border border-surface-container-high rounded-xl p-4 text-sm font-sans text-on-surface resize-none focus:ring-1 focus:ring-primary"
               />
@@ -2128,7 +2337,7 @@ export default function AddRecipeTab({
                                 </div>
                                 <div className="bg-surface-container-low rounded-xl p-3">
                                   <p className="font-sans text-[10px] font-extrabold text-secondary uppercase mb-2">
-                                    Method Preview
+                                    Instructions Preview
                                   </p>
                                   <ol className="space-y-1">
                                     {recipe.method.slice(0, 4).map(step => (

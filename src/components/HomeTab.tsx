@@ -28,6 +28,7 @@ import type { OwnerMetricState } from './home/OwnerHomeWidgets';
 import type { User } from 'firebase/auth';
 import { ChefProfile, DEFAULT_CHEF_PROFILE, Recipe, RootTab, WorkspaceMemberRole } from '../types';
 import ChefHome from './home/ChefHome';
+import FirstTimeHome from './home/FirstTimeHome';
 import TodaysTasks from './home/TodaysTasks';
 import type { CostingInvoice } from '../modules/costing/types';
 import { dashboardService, type DashboardSource, type OwnerDashboardData } from '../services/dashboardService';
@@ -226,7 +227,13 @@ export default function HomeTab({
     .filter(invoice => isSameMonth(getInvoiceBusinessDate(invoice), now));
   const monthPurchases = approvedMonthInvoices.reduce((sum, invoice) => sum + getInvoiceTotal(invoice), 0);
   const pendingOcr = invoices.filter(invoice => ['Pending', 'Processing'].includes(getInvoiceStatus(invoice))).length;
-  const pendingInvoices = invoices.filter(invoice => getInvoiceStatus(invoice) === 'Processed').length;
+  const pendingInvoiceRecords = invoices.filter(invoice => getInvoiceStatus(invoice) === 'Processed');
+  const pendingInvoices = pendingInvoiceRecords.length;
+  const pendingInvoiceSuppliers = Array.from(new Set(
+    pendingInvoiceRecords
+      .map(invoice => invoice.supplier || invoice.extractedData?.supplier || '')
+      .filter(Boolean)
+  )).slice(0, 2);
   const ocrFailures = invoices.filter(invoice => getInvoiceStatus(invoice) === 'Failed').length;
   const invoiceImportFailures = invoices.filter(invoice => getInvoiceStatus(invoice) === 'Processed' && Boolean(invoice.errorMessage)).length;
 
@@ -297,7 +304,20 @@ export default function HomeTab({
 
   const dailyOperationCards = [
     { label: 'Pending OCR', value: String(pendingOcr), icon: <ClipboardList className="h-5 w-5" />, helper: pendingOcr ? 'Waiting for OCR processing' : 'Actual pending count: 0', tone: pendingOcr ? 'warning' : 'primary', state: invoiceCountState },
-    { label: 'Pending Invoices', value: String(pendingInvoices), icon: <PackageSearch className="h-5 w-5" />, helper: pendingInvoices ? 'Waiting for import or approval' : 'Actual pending count: 0', tone: pendingInvoices ? 'warning' : 'primary', state: invoiceCountState },
+    {
+      label: 'Pending Invoices',
+      value: String(pendingInvoices),
+      icon: <PackageSearch className="h-5 w-5" />,
+      helper: pendingInvoices
+        ? `Waiting for import or approval${pendingInvoiceSuppliers.length ? ` • ${pendingInvoiceSuppliers.join(', ')}` : ''}`
+        : 'Actual pending count: 0',
+      tone: pendingInvoices ? 'warning' : 'primary',
+      state: invoiceCountState,
+      onClick: () => {
+        onNavigate?.('costingInvoices');
+        window.history.replaceState(null, '', '/app/costing/invoices?status=Processed');
+      }
+    },
     { label: 'AI Usage', value: String(aiUsage.monthRequests), icon: <Bot className="h-5 w-5" />, helper: `Today ${aiUsage.todayRequests} • Successful requests this month`, tone: aiUsage.monthFailures ? 'warning' : 'secondary', state: aiUsageState },
     { label: 'Alerts', value: String(needsAttention.length), icon: <AlertTriangle className="h-5 w-5" />, helper: needsAttention.length ? 'Operational items need attention' : 'Actual alert count: 0', tone: needsAttention.length ? 'warning' : 'secondary', state: alertState }
   ];
@@ -387,6 +407,24 @@ export default function HomeTab({
         onNavigate={onNavigate}
         workspaceId={activeWorkspaceId}
         userId={userId}
+      />
+    );
+  }
+
+  const hasReliableOnboardingCounts = dashboard?.recipes.status === 'ready'
+    && dashboard.invoices.status === 'ready'
+    && dashboard.ingredients.status === 'ready';
+  const shouldShowFirstTimeHome = hasReliableOnboardingCounts
+    && dashboardRecipes.length === 0
+    && invoices.length === 0
+    && ingredients.length === 0;
+
+  if (shouldShowFirstTimeHome) {
+    return (
+      <FirstTimeHome
+        displayName={displayName}
+        onCreateRecipe={onCreateRecipe}
+        onCompleteProfile={() => onNavigate?.('profile')}
       />
     );
   }

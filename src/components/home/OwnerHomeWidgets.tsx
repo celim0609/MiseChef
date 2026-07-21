@@ -11,6 +11,7 @@ export interface OwnerMetricCard {
   tone: string;
   statusClassName?: string;
   state?: OwnerMetricState;
+  onClick?: () => void;
 }
 
 export interface OwnerQuickAction {
@@ -119,8 +120,9 @@ export function OwnerMetricSection({
         {controls || (isLoading && <p className="font-sans text-xs font-extrabold text-outline">Refreshing...</p>)}
       </div>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {cards.map(card => (
-          <article key={card.label} className="rounded-2xl border border-surface-container-high bg-white p-5 shadow-sm">
+        {cards.map(card => {
+          const content = (
+            <>
             <span className={`inline-flex rounded-full p-2 ${card.tone === 'warning' ? 'bg-yellow-100 text-yellow-800' : card.tone === 'secondary' ? 'bg-secondary/10 text-secondary' : 'bg-primary/10 text-primary'}`}>
               {card.icon}
             </span>
@@ -131,8 +133,24 @@ export function OwnerMetricSection({
             ) : (
               <p className="mt-2 font-sans text-xs font-bold text-on-surface-variant">{getStateHelper(card.state, card.helper)}</p>
             )}
-          </article>
-        ))}
+            </>
+          );
+
+          return card.onClick ? (
+            <button
+              key={card.label}
+              type="button"
+              onClick={card.onClick}
+              className="w-full rounded-2xl border border-surface-container-high bg-white p-5 text-left shadow-sm transition-all hover:border-primary/30 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-[0.99]"
+            >
+              {content}
+            </button>
+          ) : (
+            <article key={card.label} className="rounded-2xl border border-surface-container-high bg-white p-5 shadow-sm">
+              {content}
+            </article>
+          );
+        })}
       </div>
     </section>
   );

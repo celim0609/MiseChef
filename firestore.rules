@@ -366,7 +366,8 @@ service cloud.firestore {
     match /workspaces/{workspaceId} {
       allow create: if signedIn()
         && request.resource.data.id == workspaceId
-        && request.resource.data.ownerId == request.auth.uid;
+        && request.resource.data.ownerId == request.auth.uid
+        && (workspaceId == request.auth.uid || isSuperAdmin());
       allow read: if isWorkspaceMember(workspaceId);
       allow update: if (isWorkspaceOwner(workspaceId) || (isWorkspaceOwnerOrManager(workspaceId) && request.resource.data.ownerId == resource.data.ownerId))
         && request.resource.data.id == resource.data.id;
@@ -415,8 +416,8 @@ service cloud.firestore {
         && (
           (request.resource.data.userId == request.auth.uid
             && request.resource.data.role == 'Owner'
-            && exists(/databases/$(database)/documents/workspaces/$(request.resource.data.workspaceId))
-            && get(/databases/$(database)/documents/workspaces/$(request.resource.data.workspaceId)).data.ownerId == request.auth.uid)
+            && existsAfter(/databases/$(database)/documents/workspaces/$(request.resource.data.workspaceId))
+            && getAfter(/databases/$(database)/documents/workspaces/$(request.resource.data.workspaceId)).data.ownerId == request.auth.uid)
           || (canInviteTeam(request.resource.data.workspaceId) && request.resource.data.userId != request.auth.uid)
           || (request.resource.data.userId == request.auth.uid
             && 'invitationId' in request.resource.data

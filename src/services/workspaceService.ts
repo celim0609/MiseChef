@@ -1,7 +1,7 @@
-import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '../firebase';
-import type { Workspace, WorkspaceMembership, WorkspaceMemberRole, WorkspaceMemberSummary } from '../types';
+import type { UserRole, Workspace, WorkspaceMembership, WorkspaceMemberRole, WorkspaceMemberSummary, WorkspaceType } from '../types';
 import { normalizeTeamRole } from '../modules/team/permissions';
 
 const WORKSPACE_SELECTION_STORAGE_KEY = 'misechef_selected_workspace_id';
@@ -38,6 +38,14 @@ const normalizeWorkspace = (id: string, data: Partial<Workspace> | Record<string
   id,
   name: typeof data.name === 'string' && data.name.trim() ? data.name : id,
   ownerId: typeof data.ownerId === 'string' ? data.ownerId : '',
+  type: data.type === 'Restaurant'
+    || data.type === 'Cafe'
+    || data.type === 'Bakery'
+    || data.type === 'Hotel'
+    || data.type === 'Cloud Kitchen'
+    || data.type === 'Other'
+    ? data.type
+    : undefined,
   members: Array.isArray(data.members) ? data.members as WorkspaceMemberSummary[] : [],
   createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
   updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString()
@@ -143,6 +151,63 @@ export const workspaceService = {
     });
   },
 
+  async createFounderQaWorkspace({
+    user,
+    platformRole,
+    name,
+    type
+  }: {
+    user: User;
+    platformRole: UserRole;
+    name: string;
+    type?: WorkspaceType;
+  }) {
+    if (platformRole !== 'super_admin') {
+      throw new Error('Only MiseChef super admins can use the founder workspace QA tool.');
+    }
+    if (!db) {
+      throw new Error("We couldn't connect to Firestore. Please try again.");
+    }
+
+    const workspaceName = name.trim();
+    if (!workspaceName) {
+      throw new Error('Workspace name is required.');
+    }
+
+    const workspaceRef = doc(collection(db, 'workspaces'));
+    const now = new Date().toISOString();
+    const member = toMemberSummary(user, 'Owner');
+    const workspace: Workspace = {
+      id: workspaceRef.id,
+      name: workspaceName,
+      ownerId: user.uid,
+      type,
+      members: [member],
+      createdAt: now,
+      updatedAt: now
+    };
+    const membershipId = `${workspace.id}_${user.uid}`;
+    const membership: WorkspaceMembership = {
+      id: membershipId,
+      workspaceId: workspace.id,
+      userId: user.uid,
+      email: user.email || '',
+      displayName: user.displayName || user.email?.split('@')[0] || 'User',
+      role: 'Owner',
+      status: 'Active',
+      workspaceName: workspace.name,
+      createdAt: now,
+      updatedAt: now
+    };
+    const batch = writeBatch(db);
+
+    batch.set(workspaceRef, removeUndefinedFields(workspace));
+    batch.set(doc(db, 'workspaceMembers', membershipId), removeUndefinedFields(membership));
+    await batch.commit();
+
+    return workspace;
+  },
+
   async listAccessibleWorkspaces(user: User): Promise<Workspace[]> {
     if (!db) return [];
 
@@ -184,15 +249,7 @@ export const workspaceService = {
         }, new Map()).values()
     );
 
-    const hasCanonicalPersonalWorkspace = dedupedWorkspaces.some(workspace => workspace.id === user.uid);
-    const duplicatePersonalWorkspaceIds = hasCanonicalPersonalWorkspace
-      ? dedupedWorkspaces
-        .filter(workspace => workspace.ownerId === user.uid && workspace.id !== user.uid)
-        .map(workspace => workspace.id)
-      : [];
-
     const displayWorkspaces = dedupedWorkspaces
-      .filter(workspace => !duplicatePersonalWorkspaceIds.includes(workspace.id))
       .map(workspace => {
         const membership = canonicalMemberships.find(item => item.workspaceId === workspace.id);
         if (!membership) return workspace;
