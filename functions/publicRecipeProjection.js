@@ -9,6 +9,18 @@ const readStringArray = value => Array.isArray(value)
   ? value.map(readString).filter(Boolean)
   : [];
 
+const readExternalUrl = value => {
+  const url = readString(value);
+  if (!url) return '';
+
+  try {
+    const parsedUrl = new URL(url);
+    return parsedUrl.protocol === 'https:' || parsedUrl.protocol === 'http:' ? parsedUrl.toString() : '';
+  } catch {
+    return '';
+  }
+};
+
 const sanitizeIngredients = value => Array.isArray(value)
   ? value.flatMap(ingredient => {
       if (!ingredient || typeof ingredient !== 'object') return [];
@@ -42,6 +54,17 @@ const sanitizeMethod = value => Array.isArray(value)
     })
   : [];
 
+const sanitizeRecommendedProducts = value => Array.isArray(value)
+  ? value.flatMap(product => {
+      if (!product || typeof product !== 'object') return [];
+      const name = readString(product.name);
+      const url = readExternalUrl(product.url);
+      if (!name || !url) return [];
+
+      return [{ name, url }];
+    })
+  : [];
+
 export const buildPublicRecipeProjection = (source, chefUsername = '') => {
   const categories = readStringArray(source.categories);
   const category = readString(source.category) || categories[0] || '';
@@ -57,6 +80,7 @@ export const buildPublicRecipeProjection = (source, chefUsername = '') => {
     yield: readString(source.yield),
     story: readString(source.story),
     ingredients: sanitizeIngredients(source.ingredients),
+    recommendedProducts: sanitizeRecommendedProducts(source.recommendedProducts),
     method: sanitizeMethod(source.method),
     chefName: readString(source.chefName),
     createdAt: readString(source.createdAt),

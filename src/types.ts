@@ -46,6 +46,11 @@ export interface MethodStep {
   description: string;
 }
 
+export interface RecommendedProduct {
+  name: string;
+  url: string;
+}
+
 export type RecipeVisibility =
   | "private"
   | "workspace"
@@ -72,6 +77,7 @@ export interface Recipe {
   chefNotes?: string;
   ingredients: Ingredient[];
   method: MethodStep[];
+  recommendedProducts?: RecommendedProduct[];
   videoLink: string;
   sellingPrice?: number;
   costing?: RecipeCosting;

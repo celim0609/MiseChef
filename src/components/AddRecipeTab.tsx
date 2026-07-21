@@ -4,9 +4,9 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, Camera, FileText, Image as ImageIcon, MoreHorizontal, Plus, Trash2, X, Sparkles, Video } from 'lucide-react';
+import { ArrowDown, ArrowUp, Camera, ChevronDown, ChevronRight, FileText, Image as ImageIcon, MoreHorizontal, Plus, Trash2, X, Sparkles, Video } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist/webpack.mjs';
-import { Recipe, Ingredient, MethodStep, RecipeCategory, RecipeVisibility, UserRole } from '../types';
+import { Recipe, Ingredient, MethodStep, RecipeCategory, RecipeVisibility, RecommendedProduct, UserRole } from '../types';
 import { generateRecipeStepsWithAI, scanRecipeImageWithGemini } from '../services/gemini';
 import type { GeminiScannedIngredient } from '../services/gemini';
 import { normalizeIngredientForDisplay, parseIngredientLines } from '../utils/ingredientParser';
@@ -22,6 +22,18 @@ const MAX_SCAN_IMAGE_SIDE = 1600;
 const SCAN_JPEG_QUALITY = 0.8;
 
 type AiImportStage = 'uploading' | 'reading' | 'extracting' | 'building' | 'ready';
+
+type EditorRecommendedProduct = RecommendedProduct & { id: string };
+type RecommendedProductErrors = Record<string, { name?: string; url?: string }>;
+
+const isValidExternalProductUrl = (value: string) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' || url.protocol === 'http:';
+  } catch {
+    return false;
+  }
+};
 
 const AI_IMPORT_STAGES: Record<AiImportStage, { title: string; description: string }> = {
   uploading: {
@@ -664,6 +676,15 @@ export default function AddRecipeTab({
       ? initialRecipe.method
       : [{ id: 'step_1', stepNumber: 1, description: '', image: '' }]
   );
+  const [recommendedProducts, setRecommendedProducts] = useState<EditorRecommendedProduct[]>(
+    (initialRecipe?.recommendedProducts || []).map((product, index) => ({
+      id: `product_${initialRecipe?.id || 'recipe'}_${index}`,
+      name: product.name || '',
+      url: product.url || ''
+    }))
+  );
+  const [isRecommendedProductsOpen, setIsRecommendedProductsOpen] = useState(false);
+  const [recommendedProductErrors, setRecommendedProductErrors] = useState<RecommendedProductErrors>({});
   const [isGeneratingSteps, setIsGeneratingSteps] = useState(false);
   const [aiStepError, setAiStepError] = useState('');
   const [showImportModal, setShowImportModal] = useState(false);
@@ -689,6 +710,8 @@ export default function AddRecipeTab({
   const sellingPriceInputRef = useRef<HTMLInputElement>(null);
   const ingredientNameRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const instructionRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const recommendedProductNameRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const recommendedProductUrlRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const initialEditorSnapshotRef = useRef('');
 
   const editorSnapshot = JSON.stringify({
@@ -707,6 +730,7 @@ export default function AddRecipeTab({
     scannedImageDataUrl,
     ingredients,
     methodSteps,
+    recommendedProducts,
     videoLink
   });
 
@@ -951,6 +975,37 @@ export default function AddRecipeTab({
       reordered.splice(targetIndex, 0, movedStep);
 
       return reordered.map((step, idx) => ({ ...step, stepNumber: idx + 1 }));
+    });
+  };
+
+  const addRecommendedProduct = () => {
+    setIsRecommendedProductsOpen(true);
+    setRecommendedProducts(current => [
+      ...current,
+      { id: `product_${Date.now()}_${Math.random()}`, name: '', url: '' }
+    ]);
+  };
+
+  const updateRecommendedProduct = (id: string, field: 'name' | 'url', value: string) => {
+    setRecommendedProducts(current =>
+      current.map(product => product.id === id ? { ...product, [field]: value } : product)
+    );
+    setRecommendedProductErrors(current => {
+      if (!current[id]?.[field]) return current;
+      const next = { ...current, [id]: { ...current[id] } };
+      delete next[id][field];
+      if (!next[id].name && !next[id].url) delete next[id];
+      return next;
+    });
+  };
+
+  const removeRecommendedProduct = (id: string) => {
+    setRecommendedProducts(current => current.filter(product => product.id !== id));
+    setRecommendedProductErrors(current => {
+      if (!current[id]) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
     });
   };
 
@@ -1278,12 +1333,50 @@ export default function AddRecipeTab({
       nextErrors.sellingPrice = 'Selling Price must be zero or a positive number.';
     }
 
+    const nextRecommendedProductErrors: RecommendedProductErrors = {};
+    const cleanRecommendedProducts = recommendedProducts.flatMap(product => {
+      const name = product.name.trim();
+      const url = product.url.trim();
+      if (!name && !url) return [];
+
+      if (!name) {
+        nextRecommendedProductErrors[product.id] = { name: 'Enter a product name.' };
+      }
+      if (!url) {
+        nextRecommendedProductErrors[product.id] = {
+          ...nextRecommendedProductErrors[product.id],
+          url: 'Enter an external URL.'
+        };
+      } else if (!isValidExternalProductUrl(url)) {
+        nextRecommendedProductErrors[product.id] = {
+          ...nextRecommendedProductErrors[product.id],
+          url: 'Enter a valid HTTP or HTTPS URL.'
+        };
+      }
+
+      return name && isValidExternalProductUrl(url) ? [{ name, url }] : [];
+    });
+    setRecommendedProductErrors(nextRecommendedProductErrors);
+
     setValidationErrors(nextErrors);
     const firstInvalidField = (
       ['title', 'prepTime', 'cookTime', 'servings', 'sellingPrice', 'ingredients', 'instructions'] as const
     ).find(field => nextErrors[field]);
     if (firstInvalidField) {
       focusInvalidField(firstInvalidField);
+      return;
+    }
+    const firstInvalidProductId = recommendedProducts.find(product => nextRecommendedProductErrors[product.id]);
+    if (firstInvalidProductId) {
+      setIsRecommendedProductsOpen(true);
+      const productErrors = nextRecommendedProductErrors[firstInvalidProductId.id];
+      window.requestAnimationFrame(() => {
+        const target = productErrors.name
+          ? recommendedProductNameRefs.current[firstInvalidProductId.id]
+          : recommendedProductUrlRefs.current[firstInvalidProductId.id];
+        target?.focus();
+        target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
       return;
     }
 
@@ -1310,6 +1403,11 @@ export default function AddRecipeTab({
       chefNotes: chefNotes.trim(),
       ingredients: cleanIngredients,
       method: cleanSteps,
+      recommendedProducts: cleanRecommendedProducts.length > 0
+        ? cleanRecommendedProducts
+        : initialRecipe?.recommendedProducts?.length
+          ? []
+          : undefined,
       videoLink: videoLink.trim(),
       sellingPrice: savedSellingPrice,
       chefName: initialRecipe?.chefName || 'User Log',
@@ -2006,6 +2104,112 @@ export default function AddRecipeTab({
           <Plus className="w-4 h-4" />
           Add Step
         </button>
+      </section>
+
+      <section className="overflow-hidden rounded-2xl border border-surface-container-high bg-surface-container-low shadow-sm">
+        <button
+          type="button"
+          onClick={() => setIsRecommendedProductsOpen(current => !current)}
+          aria-expanded={isRecommendedProductsOpen}
+          aria-controls="recommended-products-editor"
+          className="flex w-full items-center justify-between gap-4 p-5 text-left"
+        >
+          <span>
+            <span className="block font-display text-lg font-semibold text-primary">
+              Recommended Products (Optional)
+            </span>
+            <span className="mt-1 block font-sans text-xs font-semibold text-on-surface-variant">
+              Add products used or recommended for this recipe.
+            </span>
+          </span>
+          <span className="flex shrink-0 items-center gap-2 text-outline">
+            {recommendedProducts.length > 0 && (
+              <span className="font-sans text-xs font-bold">
+                {recommendedProducts.length}
+              </span>
+            )}
+            {isRecommendedProductsOpen
+              ? <ChevronDown className="h-5 w-5" aria-hidden="true" />
+              : <ChevronRight className="h-5 w-5" aria-hidden="true" />}
+          </span>
+        </button>
+
+        {isRecommendedProductsOpen && (
+          <div id="recommended-products-editor" className="space-y-4 border-t border-surface-container-high p-5">
+            {recommendedProducts.map(product => {
+              const productErrors = recommendedProductErrors[product.id] || {};
+              return (
+                <div key={product.id} className="grid gap-3 rounded-2xl border border-surface-container-high bg-background p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-start">
+                  <label className="space-y-1.5">
+                    <span className="px-1 font-sans text-[11px] font-bold text-on-surface-variant">
+                      Product Name
+                    </span>
+                    <input
+                      ref={element => {
+                        recommendedProductNameRefs.current[product.id] = element;
+                      }}
+                      type="text"
+                      value={product.name}
+                      onChange={event => updateRecommendedProduct(product.id, 'name', event.target.value)}
+                      aria-invalid={Boolean(productErrors.name)}
+                      aria-describedby={productErrors.name ? `${product.id}-name-error` : undefined}
+                      placeholder="e.g. Radish Cake Flour"
+                      className="w-full rounded-xl border border-outline-variant/20 bg-surface-container px-4 py-3 font-sans text-sm font-semibold text-on-surface focus:ring-1 focus:ring-primary"
+                    />
+                    {productErrors.name && (
+                      <span id={`${product.id}-name-error`} role="alert" className="block px-1 font-sans text-[11px] font-bold text-error">
+                        {productErrors.name}
+                      </span>
+                    )}
+                  </label>
+
+                  <label className="space-y-1.5">
+                    <span className="px-1 font-sans text-[11px] font-bold text-on-surface-variant">
+                      External URL
+                    </span>
+                    <input
+                      ref={element => {
+                        recommendedProductUrlRefs.current[product.id] = element;
+                      }}
+                      type="url"
+                      inputMode="url"
+                      value={product.url}
+                      onChange={event => updateRecommendedProduct(product.id, 'url', event.target.value)}
+                      aria-invalid={Boolean(productErrors.url)}
+                      aria-describedby={productErrors.url ? `${product.id}-url-error` : undefined}
+                      placeholder="https://..."
+                      className="w-full rounded-xl border border-outline-variant/20 bg-surface-container px-4 py-3 font-sans text-sm font-semibold text-on-surface focus:ring-1 focus:ring-primary"
+                    />
+                    {productErrors.url && (
+                      <span id={`${product.id}-url-error`} role="alert" className="block px-1 font-sans text-[11px] font-bold text-error">
+                        {productErrors.url}
+                      </span>
+                    )}
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => removeRecommendedProduct(product.id)}
+                    className="flex h-11 items-center justify-center gap-2 rounded-full px-3 font-sans text-xs font-bold text-outline transition-colors hover:bg-error/10 hover:text-error sm:mt-6"
+                    aria-label={`Remove ${product.name || 'recommended product'}`}
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    <span className="sm:hidden">Remove</span>
+                  </button>
+                </div>
+              );
+            })}
+
+            <button
+              type="button"
+              onClick={addRecommendedProduct}
+              className="flex items-center gap-2 rounded-full bg-primary/10 px-4 py-2.5 font-sans text-sm font-bold text-primary transition-colors hover:bg-primary/15"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Add Product
+            </button>
+          </div>
+        )}
       </section>
 
       {/* Video URL section */}
