@@ -21,6 +21,12 @@ export const readPublicExternalUrl = value => {
   }
 };
 
+const readPublicProductImage = value => {
+  const image = readString(value);
+  if (!image || image.includes('..')) return '';
+  return /^\/assets\/products\/[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(image) ? image : '';
+};
+
 const sanitizeIngredients = value => Array.isArray(value)
   ? value.flatMap(ingredient => {
       if (!ingredient || typeof ingredient !== 'object') return [];
@@ -61,7 +67,10 @@ export const sanitizePublicRecommendedProducts = value => Array.isArray(value)
       const url = readPublicExternalUrl(product.url);
       if (!name || !url) return [];
 
-      return [{ name, url }];
+      const publicProduct = { name, url };
+      const image = readPublicProductImage(product.image);
+      if (image) publicProduct.image = image;
+      return [publicProduct];
     })
   : [];
 
