@@ -1,5 +1,5 @@
 import { MapPin, UserRound, UsersRound } from 'lucide-react';
-import type { Recipe } from '../../types';
+import type { Recipe, RecommendedProduct } from '../../types';
 import { getRecipeCategories } from '../../utils/categoryUtils';
 import { PublicChefCard, PublicRecipeCard, type PublicChefSummary } from './PublicContent';
 
@@ -7,6 +7,20 @@ type RecipeWithChefUsername = Recipe & { chefUsername?: string };
 
 const readChefUsername = (recipe: Recipe) =>
   (recipe as RecipeWithChefUsername).chefUsername || '';
+
+export const RecommendedProductsSection = ({ recipeId, products }: { recipeId: string; products: RecommendedProduct[] }) => {
+  if (products.length === 0) return null;
+
+  return <section className="mx-auto w-full max-w-4xl"><h2 className="font-display text-3xl font-bold text-primary">Chef Recommended Products</h2><ul className="mt-5 divide-y divide-surface-container-high border-y border-surface-container-high">{products.map((product, index) => <li key={`${product.name}-${index}`} className="flex w-full flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
+    <span className="flex w-full min-w-0 items-center gap-4 font-sans text-base font-extrabold text-primary sm:flex-1">
+      {product.image
+        ? <img src={product.image} alt={`${product.name} product`} width="80" height="80" loading="lazy" decoding="async" className="h-20 w-20 shrink-0 rounded-xl border border-surface-container-high bg-white object-contain p-1" />
+        : <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-secondary" />}
+      <span className="min-w-0 flex-1 break-words">{product.name}</span>
+    </span>
+    <a href={`/go/recipes/${encodeURIComponent(recipeId)}/products/${index}`} target="_blank" rel="noopener noreferrer sponsored" className="w-fit rounded-full bg-primary px-4 py-2 font-sans text-sm font-extrabold text-on-primary">View Product</a>
+  </li>)}</ul></section>;
+};
 
 export default function PublicRecipeDiscoveryPage({ recipe, publicRecipes, publicChefs }: { recipe: Recipe; publicRecipes: Recipe[]; publicChefs: PublicChefSummary[] }) {
   const chefUsername = readChefUsername(recipe);
@@ -51,10 +65,7 @@ export default function PublicRecipeDiscoveryPage({ recipe, publicRecipes, publi
       </li>;
     })}</ul></section>}
 
-    {recommendedProducts.length > 0 && <section className="mx-auto max-w-4xl"><h2 className="font-display text-3xl font-bold text-primary">Chef Recommended Products</h2><ul className="mt-5 divide-y divide-surface-container-high border-y border-surface-container-high">{recommendedProducts.map((product, index) => <li key={`${product.name}-${index}`} className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
-      <span className="flex min-w-0 items-center gap-3 font-sans text-base font-extrabold text-primary"><span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-secondary" />{product.name}</span>
-      <a href={`/go/recipes/${encodeURIComponent(recipe.id)}/products/${index}`} target="_blank" rel="noopener noreferrer sponsored" className="ml-4 w-fit rounded-full bg-primary px-4 py-2 font-sans text-sm font-extrabold text-on-primary sm:ml-0">View Product</a>
-    </li>)}</ul></section>}
+    <RecommendedProductsSection recipeId={recipe.id} products={recommendedProducts} />
 
     {instructions.length > 0 && <section className="mx-auto max-w-4xl"><h2 className="font-display text-3xl font-bold text-primary">Instructions</h2><ol className="mt-8">{instructions.map((step, index) => {
       const stepNumber = step.stepNumber || index + 1;

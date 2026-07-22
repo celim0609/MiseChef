@@ -680,7 +680,8 @@ export default function AddRecipeTab({
     (initialRecipe?.recommendedProducts || []).map((product, index) => ({
       id: `product_${initialRecipe?.id || 'recipe'}_${index}`,
       name: product.name || '',
-      url: product.url || ''
+      url: product.url || '',
+      image: product.image
     }))
   );
   const [isRecommendedProductsOpen, setIsRecommendedProductsOpen] = useState(false);
@@ -1354,7 +1355,8 @@ export default function AddRecipeTab({
         };
       }
 
-      return name && isValidExternalProductUrl(url) ? [{ name, url }] : [];
+      if (!name || !isValidExternalProductUrl(url)) return [];
+      return [{ name, url, ...(product.image ? { image: product.image } : {}) }];
     });
     setRecommendedProductErrors(nextRecommendedProductErrors);
 

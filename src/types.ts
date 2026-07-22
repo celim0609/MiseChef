@@ -49,6 +49,7 @@ export interface MethodStep {
 export interface RecommendedProduct {
   name: string;
   url: string;
+  image?: string;
 }
 
 export type RecipeVisibility =

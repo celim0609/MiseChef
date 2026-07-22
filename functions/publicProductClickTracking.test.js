@@ -6,6 +6,7 @@ import {
   isApprovedMerchantHostname,
   normalizeProductIdentifier
 } from './publicProductClickTracking.js';
+import { sanitizePublicRecommendedProducts } from './publicRecipeProjection.js';
 
 const APPROVED_DOMAINS = ['merchant.example'];
 
@@ -15,6 +16,24 @@ test('production allowlist contains only the approved Shopee redirect domain', (
   assert.equal(isApprovedMerchantHostname('offers.s.shopee.sg'), true);
   assert.equal(isApprovedMerchantHostname('s.shopee.sg.evil.test'), false);
   assert.equal(isApprovedMerchantHostname('not-s.shopee.sg'), false);
+});
+
+test('public recommendations preserve safe optional product images', () => {
+  assert.deepEqual(sanitizePublicRecommendedProducts([
+    { name: 'Bread Flour', url: 'https://s.shopee.sg/example', image: '/assets/products/redman-bread-flour-1kg.jpg' },
+    { name: 'Milk Powder', url: 'https://s.shopee.sg/another' }
+  ]), [
+    { name: 'Bread Flour', url: 'https://s.shopee.sg/example', image: '/assets/products/redman-bread-flour-1kg.jpg' },
+    { name: 'Milk Powder', url: 'https://s.shopee.sg/another' }
+  ]);
+});
+
+test('unsafe product image paths are omitted without removing the product', () => {
+  assert.deepEqual(sanitizePublicRecommendedProducts([
+    { name: 'Bread Flour', url: 'https://s.shopee.sg/example', image: 'https://evil.test/tracker.gif' }
+  ]), [
+    { name: 'Bread Flour', url: 'https://s.shopee.sg/example' }
+  ]);
 });
 
 const createResponse = () => ({
