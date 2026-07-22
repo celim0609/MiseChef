@@ -10,6 +10,17 @@ service firebase.storage {
       return signedIn() && request.auth.uid == userId;
     }
 
+    function isSuperAdmin() {
+      return signedIn()
+        && (
+          request.auth.token.email == 'celim0609@gmail.com'
+          || (
+            firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
+            && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'super_admin'
+          )
+        );
+    }
+
     function validImageUpload(maxBytes) {
       return request.resource != null
         && request.resource.size <= maxBytes
@@ -46,6 +57,15 @@ service firebase.storage {
       allow read: if ownsPath(userId);
       allow create, update: if ownsPath(userId) && validImageUpload(10 * 1024 * 1024);
       allow delete: if ownsPath(userId);
+    }
+
+    match /approved-products/{productId}/{fileName} {
+      allow read: if signedIn();
+      allow create, update: if isSuperAdmin()
+        && request.resource != null
+        && request.resource.size <= 2 * 1024 * 1024
+        && request.resource.contentType == 'image/jpeg';
+      allow delete: if isSuperAdmin();
     }
 
     match /users/{userId}/profile/{fileName} {

@@ -11,6 +11,7 @@ import { buildPublicChefProfileProjection, normalizePublicUsername } from './pub
 import { deletePublicRecipeAssets, publishPublicRecipeAssets } from './publicRecipeAssets.js';
 import { buildPublicRecipeProjection } from './publicRecipeProjection.js';
 import { APPROVED_MERCHANT_DOMAINS, createPublicProductClickHandler } from './publicProductClickTracking.js';
+import { combineRecommendedProducts, resolveApprovedCatalogProducts, toApprovedProductSummary } from './approvedProductCatalog.js';
 import {
   cancelInvoiceUploadReservation,
   createInvoiceUploadReservation,
@@ -58,16 +59,16 @@ const resolvePublicChefUsername = async recipe => {
   return '';
 };
 
-export const syncPublicRecipe = onDocumentWritten({
-  document: 'recipes/{recipeId}',
-  region: REGION
-}, async event => {
-  const recipeId = event.params.recipeId;
+const loadApprovedProduct = async productId => {
+  const snapshot = await db.collection('approvedProducts').doc(productId).get();
+  return snapshot.exists ? snapshot.data() : null;
+};
+
+const syncPublicRecipeProjection = async (recipeId, recipe) => {
   const publicRecipeReference = db.collection('publicRecipes').doc(recipeId);
   const assetManifestReference = db.collection('publicRecipeAssetManifests').doc(recipeId);
-  const recipeSnapshot = event.data?.after;
 
-  if (!recipeSnapshot?.exists || recipeSnapshot.data()?.visibility !== 'public') {
+  if (!recipe || recipe.visibility !== 'public') {
     await publicRecipeReference.delete();
     const assetManifest = await assetManifestReference.get();
     await deletePublicRecipeAssets(assetManifest.exists ? assetManifest.data()?.assets : []);
@@ -75,10 +76,17 @@ export const syncPublicRecipe = onDocumentWritten({
     return;
   }
 
-  const recipe = recipeSnapshot.data() || {};
   const chefUsername = await resolvePublicChefUsername(recipe);
+  const catalogProducts = await resolveApprovedCatalogProducts(recipe.recommendedProductIds, loadApprovedProduct);
+  const legacyProducts = Array.isArray(recipe.recommendedProducts) ? recipe.recommendedProducts : [];
+  const recipeWithResolvedProducts = {
+    ...recipe,
+    // Deterministic public order: legacy recommendations first in their saved
+    // order, followed by catalog products in recommendedProductIds order.
+    recommendedProducts: combineRecommendedProducts(legacyProducts, catalogProducts)
+  };
   const previousAssetManifest = await assetManifestReference.get();
-  const publishedAssets = await publishPublicRecipeAssets({ recipeId, recipe });
+  const publishedAssets = await publishPublicRecipeAssets({ recipeId, recipe: recipeWithResolvedProducts });
   await publicRecipeReference.set(buildPublicRecipeProjection(publishedAssets.recipe, chefUsername));
   await assetManifestReference.set({ assets: publishedAssets.assets, updatedAt: FieldValue.serverTimestamp() });
 
@@ -86,6 +94,40 @@ export const syncPublicRecipe = onDocumentWritten({
   const obsoleteAssets = (previousAssetManifest.exists ? previousAssetManifest.data()?.assets : [])
     .filter(asset => !currentAssetKeys.has(`${asset?.bucketName}/${asset?.objectPath}`));
   await deletePublicRecipeAssets(obsoleteAssets);
+};
+
+export const syncPublicRecipe = onDocumentWritten({
+  document: 'recipes/{recipeId}',
+  region: REGION
+}, async event => {
+  const recipeSnapshot = event.data?.after;
+  await syncPublicRecipeProjection(
+    event.params.recipeId,
+    recipeSnapshot?.exists ? recipeSnapshot.data() : null
+  );
+});
+
+export const syncApprovedProductRecipes = onDocumentWritten({
+  document: 'approvedProducts/{productId}',
+  region: REGION
+}, async event => {
+  const recipes = await db.collection('recipes')
+    .where('recommendedProductIds', 'array-contains', event.params.productId)
+    .get();
+  for (const recipe of recipes.docs) {
+    await syncPublicRecipeProjection(recipe.id, recipe.data());
+  }
+});
+
+export const listApprovedProducts = onCall({ region: REGION }, async request => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in to view approved products.');
+  const snapshot = await db.collection('approvedProducts').orderBy('name').get();
+  return {
+    products: snapshot.docs.flatMap(product => {
+      const summary = toApprovedProductSummary(product.id, product.data());
+      return summary ? [summary] : [];
+    })
+  };
 });
 
 const publicProductClickHandler = createPublicProductClickHandler({

@@ -52,6 +52,22 @@ export interface RecommendedProduct {
   image?: string;
 }
 
+export interface ApprovedProductSummary {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  active: boolean;
+}
+
+export interface ApprovedProduct extends ApprovedProductSummary {
+  affiliateUrl: string;
+  merchantHostname: 's.shopee.sg';
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  createdBy: string;
+  updatedBy: string;
+}
+
 export type RecipeVisibility =
   | "private"
   | "workspace"
@@ -79,6 +95,7 @@ export interface Recipe {
   ingredients: Ingredient[];
   method: MethodStep[];
   recommendedProducts?: RecommendedProduct[];
+  recommendedProductIds?: string[];
   videoLink: string;
   sellingPrice?: number;
   costing?: RecipeCosting;
