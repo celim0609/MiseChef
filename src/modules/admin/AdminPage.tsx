@@ -3,6 +3,7 @@ import type { User } from 'firebase/auth';
 import type { UserRole } from '../../types';
 import { adminPageDefinitions } from './pages';
 import { AdminAIUsagePage } from './pages/AIUsagePage';
+import { AdminApprovedProductsPage } from './pages/ApprovedProductsPage';
 import { AdminCompaniesPage } from './pages/CompaniesPage';
 import { AdminOverviewPage } from './pages/OverviewPage';
 import { AdminSubscriptionsPage } from './pages/SubscriptionsPage';
@@ -15,6 +16,7 @@ const liveSectionDetails: Record<string, { status: string; subtitle: string }> =
   Companies: { status: 'Status: LIVE', subtitle: 'Manage Companies' },
   'AI Usage': { status: 'Status: LIVE', subtitle: 'AI Usage Dashboard' },
   Subscriptions: { status: 'Status: LIVE', subtitle: 'Subscription Management' },
+  'Approved Products': { status: 'Status: LIVE', subtitle: 'Manage Chef Recommendations' },
   'Workspace QA': { status: 'Founder Tool', subtitle: 'Test Multi-Workspace Behaviour' }
 };
 
@@ -86,6 +88,8 @@ export function AdminPage({ currentUser, currentUserRole, onWorkspaceCreated }: 
         <AdminAIUsagePage />
       ) : activeSection === 'Subscriptions' ? (
         <AdminSubscriptionsPage />
+      ) : activeSection === 'Approved Products' ? (
+        <AdminApprovedProductsPage currentUser={currentUser} />
       ) : activeSection === 'Workspace QA' ? (
         <AdminWorkspaceQaPage
           currentUser={currentUser}

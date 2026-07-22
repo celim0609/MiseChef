@@ -7,6 +7,12 @@ import {
   normalizeProductIdentifier
 } from './publicProductClickTracking.js';
 import { sanitizePublicRecommendedProducts } from './publicRecipeProjection.js';
+import {
+  combineRecommendedProducts,
+  normalizeRecommendedProductIds,
+  resolveApprovedCatalogProducts,
+  toApprovedProductSummary
+} from './approvedProductCatalog.js';
 
 const APPROVED_DOMAINS = ['merchant.example'];
 
@@ -33,6 +39,65 @@ test('unsafe product image paths are omitted without removing the product', () =
     { name: 'Bread Flour', url: 'https://s.shopee.sg/example', image: 'https://evil.test/tracker.gif' }
   ]), [
     { name: 'Bread Flour', url: 'https://s.shopee.sg/example' }
+  ]);
+});
+
+test('catalog product ids are deduplicated without changing saved order', () => {
+  assert.deepEqual(normalizeRecommendedProductIds(['catalog_b', 'catalog_a', 'catalog_b', '', '../unsafe']), [
+    'catalog_b',
+    'catalog_a'
+  ]);
+});
+
+test('catalog products resolve from server data in recipe order and omit inactive entries', async () => {
+  const products = new Map([
+    ['catalog_a', { name: 'Bread Flour', affiliateUrl: 'https://s.shopee.sg/flour', merchantHostname: 's.shopee.sg', imageUrl: 'https://firebasestorage.googleapis.com/image-a', active: true }],
+    ['catalog_b', { name: 'Dry Yeast', affiliateUrl: 'https://s.shopee.sg/yeast', merchantHostname: 's.shopee.sg', active: true }],
+    ['catalog_c', { name: 'Inactive', affiliateUrl: 'https://s.shopee.sg/inactive', merchantHostname: 's.shopee.sg', active: false }]
+  ]);
+
+  assert.deepEqual(await resolveApprovedCatalogProducts(
+    ['catalog_b', 'catalog_c', 'catalog_a', 'catalog_b'],
+    async id => products.get(id)
+  ), [
+    { name: 'Dry Yeast', url: 'https://s.shopee.sg/yeast' },
+    { name: 'Bread Flour', url: 'https://s.shopee.sg/flour', image: 'https://firebasestorage.googleapis.com/image-a' }
+  ]);
+});
+
+test('public ordering is legacy first followed by catalog selection order', () => {
+  const legacy = [{ name: 'Legacy Flour', url: 'https://s.shopee.sg/legacy' }];
+  const catalog = [
+    { name: 'Dry Yeast', url: 'https://s.shopee.sg/yeast' },
+    { name: 'Bread Flour', url: 'https://s.shopee.sg/flour' }
+  ];
+  assert.deepEqual(combineRecommendedProducts(legacy, catalog), [...legacy, ...catalog]);
+});
+
+test('chef catalog summaries never contain affiliate destinations', () => {
+  assert.deepEqual(toApprovedProductSummary('catalog_a', {
+    name: 'Bread Flour',
+    affiliateUrl: 'https://s.shopee.sg/flour',
+    merchantHostname: 's.shopee.sg',
+    imageUrl: 'https://firebasestorage.googleapis.com/image-a',
+    active: true
+  }), {
+    id: 'catalog_a',
+    name: 'Bread Flour',
+    imageUrl: 'https://firebasestorage.googleapis.com/image-a',
+    active: true
+  });
+});
+
+test('public projections accept only hashed public product asset URLs', () => {
+  const safeImage = 'https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/public-recipe-assets%2F0123456789abcdef0123456789abcdef%2Fproduct-2?alt=media&token=public';
+  const internalImage = 'https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/approved-products%2Finternal-id%2Fimage.jpg?alt=media&token=private';
+  assert.deepEqual(sanitizePublicRecommendedProducts([
+    { name: 'Safe', url: 'https://s.shopee.sg/safe', image: safeImage },
+    { name: 'Internal', url: 'https://s.shopee.sg/internal', image: internalImage }
+  ]), [
+    { name: 'Safe', url: 'https://s.shopee.sg/safe', image: safeImage },
+    { name: 'Internal', url: 'https://s.shopee.sg/internal' }
   ]);
 });
 

@@ -24,7 +24,17 @@ export const readPublicExternalUrl = value => {
 const readPublicProductImage = value => {
   const image = readString(value);
   if (!image || image.includes('..')) return '';
-  return /^\/assets\/products\/[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(image) ? image : '';
+  if (/^\/assets\/products\/[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(image)) return image;
+
+  try {
+    const parsed = new URL(image);
+    if (parsed.protocol !== 'https:' || parsed.hostname !== 'firebasestorage.googleapis.com') return '';
+    const match = parsed.pathname.match(/^\/v0\/b\/[^/]+\/o\/(.+)$/);
+    const objectPath = match ? decodeURIComponent(match[1]) : '';
+    return /^public-recipe-assets\/[a-f0-9]{32}\/product-[1-9]\d*$/.test(objectPath) ? parsed.toString() : '';
+  } catch {
+    return '';
+  }
 };
 
 const sanitizeIngredients = value => Array.isArray(value)

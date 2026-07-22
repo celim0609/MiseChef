@@ -138,8 +138,18 @@ export const publishPublicRecipeAssets = async ({ recipeId, recipe }) => {
     return { ...step, image: publicStepImage.url };
   }));
 
+  const recommendedProducts = await Promise.all((Array.isArray(recipe.recommendedProducts) ? recipe.recommendedProducts : []).map(async (product, index) => {
+    const publicProductImage = await publishPublicAsset({
+      sourceUrl: product?.image,
+      destinationPath: `${prefix}/product-${index + 1}`,
+      internalIdentifiers: identifiers
+    });
+    if (publicProductImage.asset) assets.push(publicProductImage.asset);
+    return { ...product, image: publicProductImage.url };
+  }));
+
   return {
-    recipe: { ...recipe, coverImage: cover.url, imageUrl: cover.url, method },
+    recipe: { ...recipe, coverImage: cover.url, imageUrl: cover.url, method, recommendedProducts },
     assets
   };
 };

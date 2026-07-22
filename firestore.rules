@@ -164,6 +164,52 @@ service cloud.firestore {
         && hasProfessionalWorkspaceEntitlement(workspaceId);
     }
 
+    function hasValidRecommendedProductIds() {
+      return !('recommendedProductIds' in request.resource.data)
+        || (request.resource.data.recommendedProductIds is list
+          && request.resource.data.recommendedProductIds.size() <= 100);
+    }
+
+    function doesNotCreateLegacyRecommendations() {
+      return !('recommendedProducts' in request.resource.data);
+    }
+
+    function preservesOrRemovesLegacyRecommendations() {
+      return !('recommendedProducts' in resource.data)
+        ? !('recommendedProducts' in request.resource.data)
+        : (!('recommendedProducts' in request.resource.data)
+          || (request.resource.data.recommendedProducts is list
+            && request.resource.data.recommendedProducts.toSet().hasOnly(resource.data.recommendedProducts.toSet())));
+    }
+
+    function isValidApprovedProduct() {
+      return request.resource.data.keys().hasOnly([
+          'name',
+          'imageUrl',
+          'affiliateUrl',
+          'merchantHostname',
+          'active',
+          'createdAt',
+          'updatedAt',
+          'createdBy',
+          'updatedBy'
+        ])
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 160
+        && request.resource.data.affiliateUrl is string
+        && request.resource.data.affiliateUrl.matches('^https://s[.]shopee[.]sg/.*$')
+        && request.resource.data.affiliateUrl.size() <= 2048
+        && request.resource.data.merchantHostname == 's.shopee.sg'
+        && request.resource.data.active is bool
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.createdBy is string
+        && request.resource.data.updatedBy is string
+        && (!('imageUrl' in request.resource.data)
+          || (request.resource.data.imageUrl is string && request.resource.data.imageUrl.size() <= 2048));
+    }
+
     function isArchivedInvoiceWrite() {
       return request.resource.data.processingStatus == 'Archived'
         || request.resource.data.status == 'Archived';
@@ -193,12 +239,31 @@ service cloud.firestore {
     }
 
     match /recipes/{recipeId} {
-      allow create: if ownsIncomingUserData() && canAccessRecipes(incomingWorkspaceId());
+      allow create: if ownsIncomingUserData()
+        && canAccessRecipes(incomingWorkspaceId())
+        && hasValidRecommendedProductIds()
+        && doesNotCreateLegacyRecommendations();
       allow read: if canAccessRecipes(existingWorkspaceId());
       allow delete: if canAccessRecipes(existingWorkspaceId());
       allow update: if canAccessRecipes(existingWorkspaceId())
         && (!('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId)
-        && incomingWorkspaceId() == existingWorkspaceId();
+        && incomingWorkspaceId() == existingWorkspaceId()
+        && hasValidRecommendedProductIds()
+        && preservesOrRemovesLegacyRecommendations();
+    }
+
+    match /approvedProducts/{productId} {
+      allow read: if isSuperAdmin();
+      allow create: if isSuperAdmin()
+        && isValidApprovedProduct()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow update: if isSuperAdmin()
+        && isValidApprovedProduct()
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
     }
 
     match /publicRecipes/{recipeId} {
