@@ -1,12 +1,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  APPROVED_MERCHANT_DOMAINS,
   createPublicProductClickHandler,
   isApprovedMerchantHostname,
   normalizeProductIdentifier
 } from './publicProductClickTracking.js';
 
 const APPROVED_DOMAINS = ['merchant.example'];
+
+test('production allowlist contains only the approved Shopee redirect domain', () => {
+  assert.deepEqual(APPROVED_MERCHANT_DOMAINS, ['s.shopee.sg']);
+  assert.equal(isApprovedMerchantHostname('s.shopee.sg'), true);
+  assert.equal(isApprovedMerchantHostname('offers.s.shopee.sg'), true);
+  assert.equal(isApprovedMerchantHostname('s.shopee.sg.evil.test'), false);
+  assert.equal(isApprovedMerchantHostname('not-s.shopee.sg'), false);
+});
 
 const createResponse = () => ({
   headers: {},

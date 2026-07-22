@@ -3,7 +3,7 @@ import { readPublicExternalUrl, sanitizePublicRecommendedProducts } from './publ
 
 // Add approved registrable merchant domains here. Exact domains and their
 // subdomains are accepted; lookalike suffixes are not.
-export const APPROVED_MERCHANT_DOMAINS = Object.freeze([]);
+export const APPROVED_MERCHANT_DOMAINS = Object.freeze(['s.shopee.sg']);
 
 const RECIPE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const PRODUCT_INDEX_PATTERN = /^(0|[1-9]\d?)$/;
