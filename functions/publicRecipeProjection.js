@@ -9,7 +9,7 @@ const readStringArray = value => Array.isArray(value)
   ? value.map(readString).filter(Boolean)
   : [];
 
-const readExternalUrl = value => {
+export const readPublicExternalUrl = value => {
   const url = readString(value);
   if (!url) return '';
 
@@ -54,11 +54,11 @@ const sanitizeMethod = value => Array.isArray(value)
     })
   : [];
 
-const sanitizeRecommendedProducts = value => Array.isArray(value)
+export const sanitizePublicRecommendedProducts = value => Array.isArray(value)
   ? value.flatMap(product => {
       if (!product || typeof product !== 'object') return [];
       const name = readString(product.name);
-      const url = readExternalUrl(product.url);
+      const url = readPublicExternalUrl(product.url);
       if (!name || !url) return [];
 
       return [{ name, url }];
@@ -80,7 +80,7 @@ export const buildPublicRecipeProjection = (source, chefUsername = '') => {
     yield: readString(source.yield),
     story: readString(source.story),
     ingredients: sanitizeIngredients(source.ingredients),
-    recommendedProducts: sanitizeRecommendedProducts(source.recommendedProducts),
+    recommendedProducts: sanitizePublicRecommendedProducts(source.recommendedProducts),
     method: sanitizeMethod(source.method),
     chefName: readString(source.chefName),
     createdAt: readString(source.createdAt),

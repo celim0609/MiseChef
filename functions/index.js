@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { defineSecret } from 'firebase-functions/params';
 import { logger } from 'firebase-functions';
@@ -10,6 +10,7 @@ import { deletePublicChefProfileAssets, getPublicChefAssetPrefix, publishPublicC
 import { buildPublicChefProfileProjection, normalizePublicUsername } from './publicChefProfileProjection.js';
 import { deletePublicRecipeAssets, publishPublicRecipeAssets } from './publicRecipeAssets.js';
 import { buildPublicRecipeProjection } from './publicRecipeProjection.js';
+import { APPROVED_MERCHANT_DOMAINS, createPublicProductClickHandler } from './publicProductClickTracking.js';
 import {
   cancelInvoiceUploadReservation,
   createInvoiceUploadReservation,
@@ -86,6 +87,23 @@ export const syncPublicRecipe = onDocumentWritten({
     .filter(asset => !currentAssetKeys.has(`${asset?.bucketName}/${asset?.objectPath}`));
   await deletePublicRecipeAssets(obsoleteAssets);
 });
+
+const publicProductClickHandler = createPublicProductClickHandler({
+  approvedDomains: APPROVED_MERCHANT_DOMAINS,
+  loadPublicRecipe: async recipeId => {
+    const snapshot = await db.collection('publicRecipes').doc(recipeId).get();
+    return snapshot.exists ? snapshot.data() : null;
+  },
+  recordClick: click => db.collection('publicProductClicks').add(click),
+  serverTimestamp: () => FieldValue.serverTimestamp()
+});
+
+export const trackPublicProductClick = onRequest({
+  region: REGION,
+  timeoutSeconds: 10,
+  maxInstances: 5,
+  concurrency: 40
+}, publicProductClickHandler);
 
 const deletePublishedChefProfile = async ({ username, sourceKey, assets }) => {
   if (username) {

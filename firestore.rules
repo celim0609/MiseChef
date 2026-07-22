@@ -206,6 +206,10 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    match /publicProductClicks/{clickId} {
+      allow read, write: if false;
+    }
+
     match /categories/{categoryId} {
       allow create: if ownsIncomingUserData() && canAccessRecipes(incomingWorkspaceId());
       allow read, delete: if canAccessRecipes(existingWorkspaceId());
