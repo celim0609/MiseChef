@@ -48,7 +48,7 @@ export interface MethodStep {
 
 export interface RecommendedProduct {
   name: string;
-  url: string;
+  url?: string;
   image?: string;
 }
 
@@ -62,6 +62,30 @@ export interface ApprovedProductSummary {
 export interface ApprovedProduct extends ApprovedProductSummary {
   affiliateUrl: string;
   merchantHostname: 's.shopee.sg';
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  createdBy: string;
+  updatedBy: string;
+}
+
+export interface CreatorAffiliateProfile {
+  creatorCode: string;
+  userId: string;
+  active: boolean;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  createdBy: string;
+  updatedBy: string;
+}
+
+export interface CreatorAffiliateProductLink {
+  creatorCode: string;
+  productId: string;
+  affiliateUrl: string;
+  merchantHostname: 's.shopee.sg';
+  active: boolean;
+  verifiedAt?: unknown;
+  verifiedBy?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
   createdBy: string;
@@ -96,6 +120,7 @@ export interface Recipe {
   method: MethodStep[];
   recommendedProducts?: RecommendedProduct[];
   recommendedProductIds?: string[];
+  affiliateCreatorCode?: string;
   videoLink: string;
   sellingPrice?: number;
   costing?: RecipeCosting;

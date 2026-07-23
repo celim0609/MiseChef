@@ -52,8 +52,8 @@ export function ApprovedProductSelector({
               <article key={productId} className="flex items-center gap-3 rounded-2xl border border-surface-container-high bg-background p-3">
                 <ProductImage imageUrl={product?.imageUrl} />
                 <div className="min-w-0 flex-1">
-                  <p className="break-words font-sans text-sm font-extrabold text-primary">{product?.name || 'Approved product unavailable'}</p>
-                  {!product?.active && <p className="mt-1 font-sans text-[11px] font-bold text-outline">Inactive — remove or keep for later</p>}
+                  <p className="break-words font-sans text-sm font-extrabold text-primary">{product?.name || 'Product unavailable'}</p>
+                  {!product?.active && <p className="mt-1 font-sans text-[11px] font-bold text-outline">This product is not currently available.</p>}
                 </div>
                 <button type="button" onClick={() => onSelectedIdsChange(selectedIds.filter(id => id !== productId))} aria-label={`Remove ${product?.name || 'approved product'}`} className="rounded-full p-2 text-outline hover:bg-error/10 hover:text-error"><Trash2 className="h-4 w-4" /></button>
               </article>
@@ -73,7 +73,13 @@ export function ApprovedProductSelector({
         ) : isLoading ? (
           <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">Loading approved products…</p>
         ) : availableProducts.length === 0 ? (
-          <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">{normalizedSearch ? 'No approved products found.' : 'No additional approved products available.'}</p>
+          <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">
+            {normalizedSearch
+              ? 'No approved products found.'
+              : products.length === 0
+                ? 'No approved products are available for your account yet.'
+                : 'No additional approved products available.'}
+          </p>
         ) : (
           <div className="mt-3 grid gap-3 sm:grid-cols-2" data-testid="available-products">
             {availableProducts.map(product => (

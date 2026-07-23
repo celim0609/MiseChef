@@ -43,7 +43,22 @@ test('keeps inactive selected products removable and excludes them from availabl
   );
 
   assert.match(markup, /Inactive Product/);
-  assert.match(markup, /Inactive — remove or keep for later/);
+  assert.match(markup, /This product is not currently available\./);
   assert.match(markup, /aria-label="Remove Inactive Product"/);
   assert.match(markup, /Active Product/);
+});
+
+test('shows a simple account-level empty state without affiliate details', () => {
+  const markup = renderToStaticMarkup(<ApprovedProductSelector
+    products={[]}
+    selectedIds={[]}
+    legacyProducts={[]}
+    isLoading={false}
+    error=""
+    onSelectedIdsChange={() => undefined}
+    onRemoveLegacyProduct={() => undefined}
+  />);
+
+  assert.match(markup, /No approved products are available for your account yet\./);
+  assert.doesNotMatch(markup, /affiliate|Sub_id|Shopee|creator code/i);
 });

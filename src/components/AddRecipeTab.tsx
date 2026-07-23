@@ -16,6 +16,7 @@ import { ingredientService } from '../modules/costing/services';
 import type { CostingIngredient } from '../modules/costing/types';
 import { ApprovedProductSelector } from '../modules/products/components/ApprovedProductSelector';
 import { approvedProductService } from '../modules/products/services/approvedProductService';
+import { resolveNextAffiliateCreatorCode } from '../modules/products/services/creatorAttributionSelection';
 
 const MAX_COVER_IMAGE_SIDE = 1200;
 const MAX_COVER_IMAGE_BYTES = 500 * 1024;
@@ -676,6 +677,8 @@ export default function AddRecipeTab({
   const [recommendedProductIds, setRecommendedProductIds] = useState<string[]>(
     dedupeProductIds(initialRecipe?.recommendedProductIds)
   );
+  const [affiliateCreatorCode, setAffiliateCreatorCode] = useState(initialRecipe?.affiliateCreatorCode || '');
+  const [availableCreatorCode, setAvailableCreatorCode] = useState('');
   const [approvedProducts, setApprovedProducts] = useState<ApprovedProductSummary[]>([]);
   const [isApprovedProductsLoading, setIsApprovedProductsLoading] = useState(true);
   const [approvedProductsError, setApprovedProductsError] = useState('');
@@ -725,6 +728,7 @@ export default function AddRecipeTab({
     methodSteps,
     legacyRecommendedProducts,
     recommendedProductIds,
+    affiliateCreatorCode,
     videoLink
   });
 
@@ -742,9 +746,15 @@ export default function AddRecipeTab({
     let isMounted = true;
     setIsApprovedProductsLoading(true);
     setApprovedProductsError('');
-    approvedProductService.listChefProducts()
-      .then(products => {
-        if (isMounted) setApprovedProducts(products);
+    approvedProductService.listChefProducts(workspaceId || '')
+      .then(result => {
+        if (!isMounted) return;
+        setAvailableCreatorCode(result.creatorCode);
+        setApprovedProducts(
+          affiliateCreatorCode && affiliateCreatorCode !== result.creatorCode
+            ? []
+            : result.products
+        );
       })
       .catch(error => {
         if (isMounted) setApprovedProductsError(error instanceof Error ? error.message : 'Unable to load approved products.');
@@ -755,7 +765,18 @@ export default function AddRecipeTab({
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [affiliateCreatorCode, workspaceId]);
+
+  const handleRecommendedProductIdsChange = (nextIds: string[]) => {
+    const normalizedIds = dedupeProductIds(nextIds);
+    setAffiliateCreatorCode(resolveNextAffiliateCreatorCode({
+      currentCode: affiliateCreatorCode,
+      availableCode: availableCreatorCode,
+      currentProductIds: recommendedProductIds,
+      nextProductIds: normalizedIds
+    }));
+    setRecommendedProductIds(normalizedIds);
+  };
 
   useEffect(() => () => {
     onDirtyChange?.(false);
@@ -1356,6 +1377,7 @@ export default function AddRecipeTab({
         : initialRecipe?.recommendedProductIds?.length
           ? []
           : undefined,
+      affiliateCreatorCode: affiliateCreatorCode || undefined,
       videoLink: videoLink.trim(),
       sellingPrice: savedSellingPrice,
       chefName: initialRecipe?.chefName || 'User Log',
@@ -2090,7 +2112,7 @@ export default function AddRecipeTab({
               legacyProducts={legacyRecommendedProducts}
               isLoading={isApprovedProductsLoading}
               error={approvedProductsError}
-              onSelectedIdsChange={setRecommendedProductIds}
+              onSelectedIdsChange={handleRecommendedProductIdsChange}
               onRemoveLegacyProduct={index => setLegacyRecommendedProducts(current => current.filter((_, productIndex) => productIndex !== index))}
             />
           </div>

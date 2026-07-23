@@ -9,9 +9,15 @@ import { recordAiUsage } from './aiUsageTracker.js';
 import { deletePublicChefProfileAssets, getPublicChefAssetPrefix, publishPublicChefProfileAssets } from './publicChefProfileAssets.js';
 import { buildPublicChefProfileProjection, normalizePublicUsername } from './publicChefProfileProjection.js';
 import { deletePublicRecipeAssets, publishPublicRecipeAssets } from './publicRecipeAssets.js';
-import { buildPublicRecipeProjection } from './publicRecipeProjection.js';
+import { buildPublicRecipeProjection, sanitizePublicRecommendedProducts } from './publicRecipeProjection.js';
 import { APPROVED_MERCHANT_DOMAINS, createPublicProductClickHandler } from './publicProductClickTracking.js';
-import { combineRecommendedProducts, resolveApprovedCatalogProducts, toApprovedProductSummary } from './approvedProductCatalog.js';
+import { combineRecommendedProducts, toApprovedProductSummary } from './approvedProductCatalog.js';
+import {
+  normalizeCreatorCode,
+  resolveCreatorCatalogProducts,
+  sanitizeVerifiedCreatorProductLink
+} from './creatorAffiliateAttribution.js';
+import { createPublicProductIntegrityRevision } from './publicProductIntegrity.js';
 import {
   cancelInvoiceUploadReservation,
   createInvoiceUploadReservation,
@@ -64,31 +70,87 @@ const loadApprovedProduct = async productId => {
   return snapshot.exists ? snapshot.data() : null;
 };
 
+const loadCreatorProfile = async creatorCode => {
+  const snapshot = await db.collection('creatorAffiliateProfiles').doc(creatorCode).get();
+  return snapshot.exists ? snapshot.data() : null;
+};
+
+const loadCreatorProductLink = async (creatorCode, productId) => {
+  const snapshot = await db.collection('creatorAffiliateProfiles')
+    .doc(creatorCode)
+    .collection('productLinks')
+    .doc(productId)
+    .get();
+  return snapshot.exists ? snapshot.data() : null;
+};
+
 const syncPublicRecipeProjection = async (recipeId, recipe) => {
   const publicRecipeReference = db.collection('publicRecipes').doc(recipeId);
+  const redirectManifestReference = db.collection('publicRecipeProductRedirects').doc(recipeId);
   const assetManifestReference = db.collection('publicRecipeAssetManifests').doc(recipeId);
 
   if (!recipe || recipe.visibility !== 'public') {
-    await publicRecipeReference.delete();
     const assetManifest = await assetManifestReference.get();
+    const batch = db.batch();
+    batch.delete(publicRecipeReference);
+    batch.delete(redirectManifestReference);
+    batch.delete(assetManifestReference);
+    await batch.commit();
     await deletePublicRecipeAssets(assetManifest.exists ? assetManifest.data()?.assets : []);
-    await assetManifestReference.delete();
     return;
   }
 
   const chefUsername = await resolvePublicChefUsername(recipe);
-  const catalogProducts = await resolveApprovedCatalogProducts(recipe.recommendedProductIds, loadApprovedProduct);
-  const legacyProducts = Array.isArray(recipe.recommendedProducts) ? recipe.recommendedProducts : [];
+  const legacyProducts = sanitizePublicRecommendedProducts(recipe.recommendedProducts)
+    .filter(product => product.url);
+  const creatorProducts = await resolveCreatorCatalogProducts({
+    creatorCode: recipe.affiliateCreatorCode,
+    productIds: recipe.recommendedProductIds,
+    loadCreatorProfile,
+    loadProduct: loadApprovedProduct,
+    loadCreatorProductLink
+  });
   const recipeWithResolvedProducts = {
     ...recipe,
     // Deterministic public order: legacy recommendations first in their saved
     // order, followed by catalog products in recommendedProductIds order.
-    recommendedProducts: combineRecommendedProducts(legacyProducts, catalogProducts)
+    recommendedProducts: combineRecommendedProducts(
+      legacyProducts,
+      creatorProducts.map(product => product.publicProduct)
+    )
   };
   const previousAssetManifest = await assetManifestReference.get();
   const publishedAssets = await publishPublicRecipeAssets({ recipeId, recipe: recipeWithResolvedProducts });
-  await publicRecipeReference.set(buildPublicRecipeProjection(publishedAssets.recipe, chefUsername));
-  await assetManifestReference.set({ assets: publishedAssets.assets, updatedAt: FieldValue.serverTimestamp() });
+  const publicProjection = buildPublicRecipeProjection(publishedAssets.recipe, chefUsername);
+  const legacyRedirects = legacyProducts.map((product, productIndex) => ({
+    attributionType: 'legacy',
+    productIndex,
+    productName: product.name,
+    destinationUrl: product.url,
+    destinationHostname: new URL(product.url).hostname.toLowerCase()
+  }));
+  const creatorRedirects = creatorProducts.map((product, creatorIndex) => ({
+    ...product.redirect,
+    productIndex: legacyProducts.length + creatorIndex
+  }));
+  const redirectProducts = [...legacyRedirects, ...creatorRedirects];
+  const revision = createPublicProductIntegrityRevision({
+    recipeId,
+    publicRecipe: publicProjection,
+    redirectProducts
+  });
+  const batch = db.batch();
+  batch.set(publicRecipeReference, { ...publicProjection, revision });
+  batch.set(redirectManifestReference, {
+    revision,
+    products: redirectProducts,
+    updatedAt: FieldValue.serverTimestamp()
+  });
+  batch.set(assetManifestReference, {
+    assets: publishedAssets.assets,
+    updatedAt: FieldValue.serverTimestamp()
+  });
+  await batch.commit();
 
   const currentAssetKeys = new Set(publishedAssets.assets.map(asset => `${asset.bucketName}/${asset.objectPath}`));
   const obsoleteAssets = (previousAssetManifest.exists ? previousAssetManifest.data()?.assets : [])
@@ -119,14 +181,64 @@ export const syncApprovedProductRecipes = onDocumentWritten({
   }
 });
 
+const reprojectCreatorRecipes = async (creatorCode, productId = '') => {
+  const normalizedCreatorCode = normalizeCreatorCode(creatorCode);
+  if (!normalizedCreatorCode) return;
+  const recipes = await db.collection('recipes')
+    .where('affiliateCreatorCode', '==', normalizedCreatorCode)
+    .get();
+  for (const recipe of recipes.docs) {
+    if (productId && !Array.isArray(recipe.data()?.recommendedProductIds)) continue;
+    if (productId && !recipe.data().recommendedProductIds.includes(productId)) continue;
+    await syncPublicRecipeProjection(recipe.id, recipe.data());
+  }
+};
+
+export const syncCreatorAffiliateProfileRecipes = onDocumentWritten({
+  document: 'creatorAffiliateProfiles/{creatorCode}',
+  region: REGION
+}, async event => {
+  await reprojectCreatorRecipes(event.params.creatorCode);
+});
+
+export const syncCreatorAffiliateProductLinkRecipes = onDocumentWritten({
+  document: 'creatorAffiliateProfiles/{creatorCode}/productLinks/{productId}',
+  region: REGION
+}, async event => {
+  await reprojectCreatorRecipes(event.params.creatorCode, event.params.productId);
+});
+
 export const listApprovedProducts = onCall({ region: REGION }, async request => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in to view approved products.');
-  const snapshot = await db.collection('approvedProducts').orderBy('name').get();
+  const workspaceId = readString(request.data?.workspaceId);
+  if (!workspaceId) return { creatorCode: '', products: [] };
+  const membership = await db.collection('workspaceMembers').doc(`${workspaceId}_${request.auth.uid}`).get();
+  if (!membership.exists || membership.data()?.status !== 'Active' || membership.data()?.role !== 'Chef') {
+    return { creatorCode: '', products: [] };
+  }
+  const profileSnapshot = await db.collection('creatorAffiliateProfiles')
+    .where('userId', '==', request.auth.uid)
+    .limit(2)
+    .get();
+  const activeProfiles = profileSnapshot.docs.filter(profile => profile.data()?.active === true);
+  if (activeProfiles.length !== 1) return { creatorCode: '', products: [] };
+
+  const profile = activeProfiles[0];
+  const creatorCode = normalizeCreatorCode(profile.id);
+  if (!creatorCode || normalizeCreatorCode(profile.data()?.creatorCode) !== creatorCode) {
+    return { creatorCode: '', products: [] };
+  }
+  const links = await profile.ref.collection('productLinks').get();
+  const products = await Promise.all(links.docs.map(async link => {
+    const verifiedLink = sanitizeVerifiedCreatorProductLink(link.data(), creatorCode, link.id);
+    if (!verifiedLink) return null;
+    const productSnapshot = await db.collection('approvedProducts').doc(link.id).get();
+    if (!productSnapshot.exists || productSnapshot.data()?.active !== true) return null;
+    return toApprovedProductSummary(productSnapshot.id, productSnapshot.data());
+  }));
   return {
-    products: snapshot.docs.flatMap(product => {
-      const summary = toApprovedProductSummary(product.id, product.data());
-      return summary ? [summary] : [];
-    })
+    creatorCode,
+    products: products.filter(Boolean).sort((a, b) => a.name.localeCompare(b.name))
   };
 });
 
@@ -134,6 +246,10 @@ const publicProductClickHandler = createPublicProductClickHandler({
   approvedDomains: APPROVED_MERCHANT_DOMAINS,
   loadPublicRecipe: async recipeId => {
     const snapshot = await db.collection('publicRecipes').doc(recipeId).get();
+    return snapshot.exists ? snapshot.data() : null;
+  },
+  loadRedirectManifest: async recipeId => {
+    const snapshot = await db.collection('publicRecipeProductRedirects').doc(recipeId).get();
     return snapshot.exists ? snapshot.data() : null;
   },
   recordClick: click => db.collection('publicProductClicks').add(click),

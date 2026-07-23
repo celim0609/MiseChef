@@ -13,6 +13,7 @@ import {
   resolveApprovedCatalogProducts,
   toApprovedProductSummary
 } from './approvedProductCatalog.js';
+import { createPublicProductIntegrityRevision } from './publicProductIntegrity.js';
 
 const APPROVED_DOMAINS = ['merchant.example'];
 
@@ -138,6 +139,7 @@ const runHandler = async ({
     recommendedProducts: [{ name: 'Radish Cake Flour', url: 'https://shop.merchant.example/flour?affiliate=abc' }]
   },
   recordClick = async () => undefined,
+  redirectManifest = null,
   approvedDomains = APPROVED_DOMAINS
 } = {}) => {
   const clicks = [];
@@ -145,6 +147,7 @@ const runHandler = async ({
   const handler = createPublicProductClickHandler({
     approvedDomains,
     loadPublicRecipe: async () => recipe,
+    loadRedirectManifest: async () => redirectManifest,
     recordClick: async click => {
       clicks.push(click);
       return recordClick(click);
@@ -219,6 +222,95 @@ test('redirects a valid product when the tracking write fails', async () => {
 
   assert.equal(response.statusCode, 302);
   assert.equal(response.redirectLocation, 'https://shop.merchant.example/flour?affiliate=abc');
+});
+
+test('uses a revision-matched private creator manifest without exposing the URL publicly', async () => {
+  const publicRecipe = {
+    title: 'Bread',
+    visibility: 'public',
+    recommendedProducts: [{ name: 'Bread Flour' }]
+  };
+  const products = [{
+      attributionType: 'creator_affiliate',
+      productIndex: 0,
+      productName: 'Bread Flour',
+      creatorCode: 'MC002',
+      catalogProductId: 'bread_flour',
+      destinationUrl: 'https://shop.merchant.example/creator',
+      destinationHostname: 'shop.merchant.example'
+    }];
+  const revision = createPublicProductIntegrityRevision({
+    recipeId: 'recipe_123',
+    publicRecipe,
+    redirectProducts: products
+  });
+  const recipe = { ...publicRecipe, revision };
+  const redirectManifest = {
+    revision,
+    products
+  };
+  const { response, clicks } = await runHandler({ recipe, redirectManifest });
+  assert.equal(response.statusCode, 302);
+  assert.equal(response.redirectLocation, 'https://shop.merchant.example/creator');
+  assert.deepEqual(clicks[0], {
+    recipeId: 'recipe_123',
+    recipeSlug: 'bread',
+    productId: 'bread-flour',
+    productName: 'Bread Flour',
+    destinationHostname: 'shop.merchant.example',
+    clickedAt: 'SERVER_TIMESTAMP',
+    source: 'public_recipe',
+    creatorCode: 'MC002',
+    catalogProductId: 'bread_flour',
+    attributionType: 'creator_affiliate'
+  });
+  assert.equal(JSON.stringify(recipe).includes('creator'), false);
+  assert.equal(JSON.stringify(recipe).includes('merchant.example'), false);
+});
+
+test('fails closed when revision, index, name, or manifest length does not match', async () => {
+  const publicRecipe = {
+    title: 'Bread',
+    visibility: 'public',
+    recommendedProducts: [{ name: 'Bread Flour' }]
+  };
+  const validEntry = {
+    attributionType: 'creator_affiliate',
+    productIndex: 0,
+    productName: 'Bread Flour',
+    creatorCode: 'MC002',
+    catalogProductId: 'bread_flour',
+    destinationUrl: 'https://shop.merchant.example/creator'
+  };
+  const revision = createPublicProductIntegrityRevision({
+    recipeId: 'recipe_123',
+    publicRecipe,
+    redirectProducts: [validEntry]
+  });
+  const recipe = { ...publicRecipe, revision };
+  const cases = [
+    { revision: 'other', products: [validEntry] },
+    { revision, products: [{ ...validEntry, productIndex: 1 }] },
+    { revision, products: [{ ...validEntry, productName: 'Yeast' }] },
+    { revision, products: [validEntry, { ...validEntry, productIndex: 1 }] }
+  ];
+  for (const redirectManifest of cases) {
+    const { response, clicks } = await runHandler({ recipe, redirectManifest });
+    assert.equal(response.statusCode, 404);
+    assert.equal(clicks.length, 0);
+  }
+});
+
+test('fails closed when a revised public recipe has no private manifest', async () => {
+  const { response } = await runHandler({
+    recipe: {
+      title: 'Bread',
+      visibility: 'public',
+      revision: 'revision-1',
+      recommendedProducts: [{ name: 'Bread Flour' }]
+    }
+  });
+  assert.equal(response.statusCode, 404);
 });
 
 test('rejects non-public recipes, credentialed URLs, and non-GET requests', async () => {

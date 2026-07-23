@@ -44,8 +44,18 @@ export const sanitizeApprovedCatalogProduct = product => {
   return sanitized;
 };
 
+export const sanitizeApprovedCatalogDisplay = product => {
+  if (!product || typeof product !== 'object') return null;
+  const name = readString(product.name);
+  if (!name || readString(product.merchantHostname).toLowerCase() !== APPROVED_CATALOG_HOSTNAME) return null;
+  const sanitized = { name };
+  const image = readString(product.imageUrl);
+  if (image) sanitized.image = image;
+  return sanitized;
+};
+
 export const toApprovedProductSummary = (id, product) => {
-  const sanitized = sanitizeApprovedCatalogProduct(product);
+  const sanitized = sanitizeApprovedCatalogDisplay(product);
   if (!sanitized) return null;
   return {
     id,

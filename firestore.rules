@@ -170,6 +170,101 @@ service cloud.firestore {
           && request.resource.data.recommendedProductIds.size() <= 100);
     }
 
+    function isValidCreatorCode(code) {
+      return code is string && code.matches('^MC[0-9]{3,6}$');
+    }
+
+    function activeCreatorProfileExists(code) {
+      return isValidCreatorCode(code)
+        && exists(/databases/$(database)/documents/creatorAffiliateProfiles/$(code))
+        && get(/databases/$(database)/documents/creatorAffiliateProfiles/$(code)).data.active == true;
+    }
+
+    function authenticatedCreatorMatches(code, workspaceId) {
+      return signedIn()
+        && activeCreatorProfileExists(code)
+        && get(/databases/$(database)/documents/creatorAffiliateProfiles/$(code)).data.userId == request.auth.uid
+        && currentWorkspaceRole(workspaceId) == 'Chef';
+    }
+
+    function sameRecommendedProductIds() {
+      return (
+          !('recommendedProductIds' in resource.data)
+          && !('recommendedProductIds' in request.resource.data)
+        )
+        || (
+          'recommendedProductIds' in resource.data
+          && 'recommendedProductIds' in request.resource.data
+          && request.resource.data.recommendedProductIds == resource.data.recommendedProductIds
+        );
+    }
+
+    function onlyRemovesRecommendedProductIds() {
+      return 'recommendedProductIds' in resource.data
+        && 'recommendedProductIds' in request.resource.data
+        && resource.data.recommendedProductIds is list
+        && request.resource.data.recommendedProductIds is list
+        && request.resource.data.recommendedProductIds.size() < resource.data.recommendedProductIds.size()
+        && request.resource.data.recommendedProductIds.toSet().hasOnly(resource.data.recommendedProductIds.toSet());
+    }
+
+    function sameAffiliateCreatorCode() {
+      return (
+          !('affiliateCreatorCode' in resource.data)
+          && !('affiliateCreatorCode' in request.resource.data)
+        )
+        || (
+          'affiliateCreatorCode' in resource.data
+          && 'affiliateCreatorCode' in request.resource.data
+          && request.resource.data.affiliateCreatorCode == resource.data.affiliateCreatorCode
+        );
+    }
+
+    function hasValidCreatorAttributionOnCreate() {
+      return (
+          (
+            !('recommendedProductIds' in request.resource.data)
+            || request.resource.data.recommendedProductIds.size() == 0
+          )
+          && !('affiliateCreatorCode' in request.resource.data)
+        )
+        || (
+          'recommendedProductIds' in request.resource.data
+          && request.resource.data.recommendedProductIds.size() > 0
+          && 'affiliateCreatorCode' in request.resource.data
+          && (
+            authenticatedCreatorMatches(request.resource.data.affiliateCreatorCode, incomingWorkspaceId())
+            || (isSuperAdmin() && activeCreatorProfileExists(request.resource.data.affiliateCreatorCode))
+          )
+        );
+    }
+
+    function hasValidCreatorAttributionOnUpdate() {
+      return (
+          sameRecommendedProductIds()
+          && sameAffiliateCreatorCode()
+        )
+        || (
+          onlyRemovesRecommendedProductIds()
+          && sameAffiliateCreatorCode()
+        )
+        || (
+          !sameRecommendedProductIds()
+          && !onlyRemovesRecommendedProductIds()
+          && 'affiliateCreatorCode' in request.resource.data
+          && authenticatedCreatorMatches(request.resource.data.affiliateCreatorCode, existingWorkspaceId())
+          && (
+            !('affiliateCreatorCode' in resource.data)
+            || request.resource.data.affiliateCreatorCode == resource.data.affiliateCreatorCode
+          )
+        )
+        || (
+          isSuperAdmin()
+          && 'affiliateCreatorCode' in request.resource.data
+          && activeCreatorProfileExists(request.resource.data.affiliateCreatorCode)
+        );
+    }
+
     function doesNotCreateLegacyRecommendations() {
       return !('recommendedProducts' in request.resource.data);
     }
@@ -210,6 +305,62 @@ service cloud.firestore {
           || (request.resource.data.imageUrl is string && request.resource.data.imageUrl.size() <= 2048));
     }
 
+    function isValidCreatorProfile(creatorCode) {
+      return isValidCreatorCode(creatorCode)
+        && request.resource.data.keys().hasOnly([
+          'creatorCode',
+          'userId',
+          'active',
+          'createdAt',
+          'updatedAt',
+          'createdBy',
+          'updatedBy'
+        ])
+        && request.resource.data.creatorCode == creatorCode
+        && request.resource.data.userId is string
+        && request.resource.data.userId.size() > 0
+        && request.resource.data.active is bool
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.createdBy is string
+        && request.resource.data.updatedBy is string;
+    }
+
+    function isValidCreatorProductLink(creatorCode, productId) {
+      return request.resource.data.keys().hasOnly([
+          'creatorCode',
+          'productId',
+          'affiliateUrl',
+          'merchantHostname',
+          'active',
+          'verifiedAt',
+          'verifiedBy',
+          'createdAt',
+          'updatedAt',
+          'createdBy',
+          'updatedBy'
+        ])
+        && request.resource.data.creatorCode == creatorCode
+        && request.resource.data.productId == productId
+        && request.resource.data.affiliateUrl is string
+        && request.resource.data.affiliateUrl.matches('^https://s[.]shopee[.]sg/.*$')
+        && request.resource.data.affiliateUrl.size() <= 2048
+        && request.resource.data.merchantHostname == 's.shopee.sg'
+        && request.resource.data.active is bool
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.createdBy is string
+        && request.resource.data.updatedBy is string
+        && (
+          request.resource.data.active == false
+          || (
+            request.resource.data.verifiedAt is timestamp
+            && request.resource.data.verifiedBy is string
+            && request.resource.data.verifiedBy.size() > 0
+          )
+        );
+    }
+
     function isArchivedInvoiceWrite() {
       return request.resource.data.processingStatus == 'Archived'
         || request.resource.data.status == 'Archived';
@@ -242,6 +393,7 @@ service cloud.firestore {
       allow create: if ownsIncomingUserData()
         && canAccessRecipes(incomingWorkspaceId())
         && hasValidRecommendedProductIds()
+        && hasValidCreatorAttributionOnCreate()
         && doesNotCreateLegacyRecommendations();
       allow read: if canAccessRecipes(existingWorkspaceId());
       allow delete: if canAccessRecipes(existingWorkspaceId());
@@ -249,6 +401,7 @@ service cloud.firestore {
         && (!('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId)
         && incomingWorkspaceId() == existingWorkspaceId()
         && hasValidRecommendedProductIds()
+        && hasValidCreatorAttributionOnUpdate()
         && preservesOrRemovesLegacyRecommendations();
     }
 
@@ -266,12 +419,66 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /creatorAffiliateProfiles/{creatorCode} {
+      allow read: if isSuperAdmin();
+      allow create: if isSuperAdmin()
+        && isValidCreatorProfile(creatorCode)
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow update: if isSuperAdmin()
+        && isValidCreatorProfile(creatorCode)
+        && request.resource.data.creatorCode == resource.data.creatorCode
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
+
+      match /productLinks/{productId} {
+        allow read: if isSuperAdmin();
+        allow create: if isSuperAdmin()
+          && isValidCreatorProductLink(creatorCode, productId)
+          && request.resource.data.active == false
+          && !('verifiedAt' in request.resource.data)
+          && !('verifiedBy' in request.resource.data)
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.updatedBy == request.auth.uid;
+        allow update: if isSuperAdmin()
+          && isValidCreatorProductLink(creatorCode, productId)
+          && request.resource.data.creatorCode == resource.data.creatorCode
+          && request.resource.data.productId == resource.data.productId
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.updatedBy == request.auth.uid
+          && (
+            request.resource.data.affiliateUrl == resource.data.affiliateUrl
+            || (
+              request.resource.data.active == false
+              && !('verifiedAt' in request.resource.data)
+              && !('verifiedBy' in request.resource.data)
+            )
+          )
+          && (
+            request.resource.data.active == false
+            || (
+              request.resource.data.verifiedBy == request.auth.uid
+              && request.resource.data.verifiedAt is timestamp
+            )
+          );
+        allow delete: if false;
+      }
+    }
+
     match /publicRecipes/{recipeId} {
       allow read: if true;
       allow create, update, delete: if false;
     }
 
     match /publicProductClicks/{clickId} {
+      allow read, write: if false;
+    }
+
+    match /publicRecipeProductRedirects/{recipeId} {
       allow read, write: if false;
     }
 

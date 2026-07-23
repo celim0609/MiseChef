@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { readPublicExternalUrl, sanitizePublicRecommendedProducts } from './publicRecipeProjection.js';
+import { createPublicProductIntegrityRevision } from './publicProductIntegrity.js';
 
 // Add approved registrable merchant domains here. Exact domains and their
 // subdomains are accepted; lookalike suffixes are not.
@@ -72,6 +73,7 @@ const sendNotFound = response => response.status(404).type('text/plain').send('N
 
 export const createPublicProductClickHandler = ({
   loadPublicRecipe,
+  loadRedirectManifest = async () => null,
   recordClick,
   serverTimestamp,
   approvedDomains = APPROVED_MERCHANT_DOMAINS
@@ -96,7 +98,49 @@ export const createPublicProductClickHandler = ({
   const [product] = sanitizePublicRecommendedProducts(rawProduct ? [rawProduct] : []);
   if (!product) return sendNotFound(response);
 
-  const destinationUrl = readPublicExternalUrl(product.url);
+  let redirectManifest;
+  try {
+    redirectManifest = await loadRedirectManifest(route.recipeId);
+  } catch {
+    return sendNotFound(response);
+  }
+
+  const recipeRevision = String(recipe.revision || '').trim();
+  const manifestRevision = String(redirectManifest?.revision || '').trim();
+  const hasIntegrityState = Boolean(recipeRevision || manifestRevision || redirectManifest);
+  let destinationUrl = '';
+  let manifestEntry = null;
+
+  if (hasIntegrityState) {
+    const manifestProducts = Array.isArray(redirectManifest?.products) ? redirectManifest.products : [];
+    manifestEntry = manifestProducts[route.productIndex];
+    if (
+      !recipeRevision
+      || !manifestRevision
+      || recipeRevision !== manifestRevision
+      || manifestProducts.length !== rawProducts.length
+      || !manifestEntry
+      || typeof manifestEntry !== 'object'
+      || manifestEntry.productIndex !== route.productIndex
+      || String(manifestEntry.productName || '').trim() !== product.name
+    ) {
+      return sendNotFound(response);
+    }
+    const publicRecipeForIntegrity = { ...recipe };
+    delete publicRecipeForIntegrity.revision;
+    const computedRevision = createPublicProductIntegrityRevision({
+      recipeId: route.recipeId,
+      publicRecipe: publicRecipeForIntegrity,
+      redirectProducts: manifestProducts
+    });
+    if (computedRevision !== recipeRevision) return sendNotFound(response);
+    destinationUrl = readPublicExternalUrl(manifestEntry.destinationUrl);
+  } else {
+    // Preserve the pre-44G legacy projection path exactly. New creator-specific
+    // products always use the private revision-matched redirect manifest.
+    destinationUrl = readPublicExternalUrl(product.url);
+  }
+
   if (!destinationUrl) return sendNotFound(response);
 
   const parsedDestination = new URL(destinationUrl);
@@ -113,6 +157,16 @@ export const createPublicProductClickHandler = ({
   };
   const recipeSlug = toPublicRecipeSlug(recipe.title);
   if (recipeSlug) click.recipeSlug = recipeSlug;
+  if (manifestEntry?.attributionType === 'creator_affiliate') {
+    const creatorCode = String(manifestEntry.creatorCode || '').trim();
+    const catalogProductId = String(manifestEntry.catalogProductId || '').trim();
+    if (!/^MC[0-9]{3,6}$/.test(creatorCode) || !/^[A-Za-z0-9_-]{1,128}$/.test(catalogProductId)) {
+      return sendNotFound(response);
+    }
+    click.creatorCode = creatorCode;
+    click.catalogProductId = catalogProductId;
+    click.attributionType = 'creator_affiliate';
+  }
 
   try {
     await recordClick(click);

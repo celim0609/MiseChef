@@ -1,0 +1,14 @@
+import { createHash } from 'node:crypto';
+
+const stableValue = value => {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map(key => [key, stableValue(value[key])]));
+  }
+  return value;
+};
+
+export const createPublicProductIntegrityRevision = ({ recipeId, publicRecipe, redirectProducts }) =>
+  createHash('sha256')
+    .update(JSON.stringify(stableValue({ recipeId, publicRecipe, redirectProducts })))
+    .digest('hex');

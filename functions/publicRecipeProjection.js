@@ -75,9 +75,10 @@ export const sanitizePublicRecommendedProducts = value => Array.isArray(value)
       if (!product || typeof product !== 'object') return [];
       const name = readString(product.name);
       const url = readPublicExternalUrl(product.url);
-      if (!name || !url) return [];
+      if (!name) return [];
 
-      const publicProduct = { name, url };
+      const publicProduct = { name };
+      if (url) publicProduct.url = url;
       const image = readPublicProductImage(product.image);
       if (image) publicProduct.image = image;
       return [publicProduct];

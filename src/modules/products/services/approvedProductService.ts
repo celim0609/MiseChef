@@ -95,11 +95,14 @@ export const approvedProductService = {
     return snapshot.docs.map(product => mapApprovedProduct(product.id, product.data()));
   },
 
-  async listChefProducts(): Promise<ApprovedProductSummary[]> {
-    if (!functions) return [];
-    const listProducts = httpsCallable<Record<string, never>, { products: ApprovedProductSummary[] }>(functions, 'listApprovedProducts');
-    const result = await listProducts({});
-    return Array.isArray(result.data.products) ? result.data.products : [];
+  async listChefProducts(workspaceId: string): Promise<{ creatorCode: string; products: ApprovedProductSummary[] }> {
+    if (!functions) return { creatorCode: '', products: [] };
+    const listProducts = httpsCallable<{ workspaceId: string }, { creatorCode: string; products: ApprovedProductSummary[] }>(functions, 'listApprovedProducts');
+    const result = await listProducts({ workspaceId });
+    return {
+      creatorCode: typeof result.data.creatorCode === 'string' ? result.data.creatorCode : '',
+      products: Array.isArray(result.data.products) ? result.data.products : []
+    };
   },
 
   async createProduct({

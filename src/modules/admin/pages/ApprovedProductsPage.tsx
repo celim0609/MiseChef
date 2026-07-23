@@ -7,6 +7,7 @@ import {
   approvedProductService,
   normalizeApprovedAffiliateUrl
 } from '../../products/services/approvedProductService';
+import { CreatorAffiliatePilotPanel } from '../components/CreatorAffiliatePilotPanel';
 
 interface ProductDraft {
   name: string;
@@ -143,6 +144,7 @@ export function AdminApprovedProductsPage({
   };
 
   return (
+    <>
     <section className="rounded-2xl border border-surface-container-high bg-white p-6 shadow-sm sm:p-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
@@ -223,5 +225,7 @@ export function AdminApprovedProductsPage({
         ))}
       </div>
     </section>
+    <CreatorAffiliatePilotPanel currentUser={currentUser} />
+    </>
   );
 }
