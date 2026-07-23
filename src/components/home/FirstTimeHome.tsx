@@ -1,7 +1,7 @@
 import { BookOpen, CheckCircle2, Circle, UserRound } from 'lucide-react';
 
 interface FirstTimeHomeProps {
-  displayName?: string;
+  greeting: string;
   onCreateRecipe?: () => void;
   onCompleteProfile?: () => void;
 }
@@ -13,7 +13,7 @@ const checklistItems = [
 ];
 
 export default function FirstTimeHome({
-  displayName,
+  greeting,
   onCreateRecipe,
   onCompleteProfile
 }: FirstTimeHomeProps) {
@@ -26,7 +26,7 @@ export default function FirstTimeHome({
             Getting Started
           </span>
           <h1 className="mt-5 font-display text-4xl font-bold tracking-tight text-primary sm:text-5xl">
-            Welcome to MiseChef{displayName ? `, ${displayName}` : ''}
+            {greeting}
           </h1>
           <p className="mt-4 font-sans text-sm font-bold leading-relaxed text-on-surface-variant sm:text-base">
             Start with your first recipe. MiseChef will grow into your daily workspace as you add your kitchen information.

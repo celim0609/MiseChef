@@ -26,13 +26,13 @@ import {
 } from './home/OwnerHomeWidgets';
 import type { OwnerMetricState } from './home/OwnerHomeWidgets';
 import type { User } from 'firebase/auth';
-import { ChefProfile, DEFAULT_CHEF_PROFILE, Recipe, RootTab, WorkspaceMemberRole } from '../types';
+import { ChefProfile, Recipe, RootTab, WorkspaceMemberRole } from '../types';
 import ChefHome from './home/ChefHome';
 import FirstTimeHome from './home/FirstTimeHome';
 import TodaysTasks from './home/TodaysTasks';
 import type { CostingInvoice } from '../modules/costing/types';
 import { dashboardService, type DashboardSource, type OwnerDashboardData } from '../services/dashboardService';
-import { getAuthenticatedDisplayName, getChefProfileStorageKey } from '../utils/authenticatedUser';
+import { getAuthenticatedGreeting } from '../utils/authenticatedUser';
 
 interface HomePortfolioSummary {
   professionalTitle?: string;
@@ -131,39 +131,22 @@ export default function HomeTab({
   allRecipes = recipes,
   currentUser = null,
   workspaceId,
-  profile: sharedProfile,
-  customAvatarUrl = '',
   onCreateRecipe,
   onNavigate,
   onSelectRecipe,
   onToggleFavorite,
   workspaceRole = null
 }: HomeTabProps) {
-  const [localProfile, setLocalProfile] = useState<ChefProfile>(DEFAULT_CHEF_PROFILE);
   const [dashboard, setDashboard] = useState<OwnerDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [dashboardError, setDashboardError] = useState('');
 
-  const profile = sharedProfile || localProfile;
-  const displayName = profile.name || currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Chef';
-  const onboardingDisplayName = getAuthenticatedDisplayName(currentUser);
   const userId = currentUser?.uid;
   const activeWorkspaceId = workspaceId || userId;
   const isChefHome = workspaceRole === 'Chef';
-
-  useEffect(() => {
-    const cachedProfile = localStorage.getItem(getChefProfileStorageKey(userId));
-    if (!cachedProfile) {
-      setLocalProfile(DEFAULT_CHEF_PROFILE);
-      return;
-    }
-
-    try {
-      setLocalProfile({ ...DEFAULT_CHEF_PROFILE, ...JSON.parse(cachedProfile) });
-    } catch (err) {
-      setLocalProfile(DEFAULT_CHEF_PROFILE);
-    }
-  }, [userId]);
+  const firstTimeGreeting = getAuthenticatedGreeting('Welcome to MiseChef', currentUser);
+  const chefHomeGreeting = getAuthenticatedGreeting('Welcome back', currentUser);
+  const ownerHomeGreeting = getAuthenticatedGreeting(getGreeting(), currentUser);
 
   const loadDashboard = useCallback(async () => {
     if (!userId || !activeWorkspaceId) {
@@ -400,7 +383,7 @@ export default function HomeTab({
     return (
       <ChefHome
         recipes={allRecipes}
-        displayName={displayName}
+        greeting={chefHomeGreeting}
         onSelectRecipe={onSelectRecipe}
         onToggleFavorite={onToggleFavorite}
         onCreateRecipe={onCreateRecipe}
@@ -422,7 +405,7 @@ export default function HomeTab({
   if (shouldShowFirstTimeHome) {
     return (
       <FirstTimeHome
-        displayName={onboardingDisplayName}
+        greeting={firstTimeGreeting}
         onCreateRecipe={onCreateRecipe}
         onCompleteProfile={() => onNavigate?.('profile')}
       />
@@ -431,7 +414,7 @@ export default function HomeTab({
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-5 animate-fade-in">
-      <OwnerHomeHeader date={formatDate()} greeting={getGreeting()} displayName={displayName} purchaseRatio={purchaseRatioHeader.value} purchaseRatioLabel={purchaseRatioHeader.label} purchaseRatioClassName={purchaseRatioHeader.className} />
+      <OwnerHomeHeader date={formatDate()} greeting={ownerHomeGreeting} purchaseRatio={purchaseRatioHeader.value} purchaseRatioLabel={purchaseRatioHeader.label} purchaseRatioClassName={purchaseRatioHeader.className} />
 
       <TodaysTasks workspaceId={activeWorkspaceId} userId={userId} />
 

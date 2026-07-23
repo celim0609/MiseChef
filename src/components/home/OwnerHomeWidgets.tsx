@@ -59,14 +59,12 @@ const getStateHelper = (state: OwnerMetricState | undefined, helper: string) => 
 export function OwnerHomeHeader({
   date,
   greeting,
-  displayName,
   purchaseRatio,
   purchaseRatioLabel,
   purchaseRatioClassName
 }: {
   date: string;
   greeting: string;
-  displayName: string;
   purchaseRatio: string;
   purchaseRatioLabel: string;
   purchaseRatioClassName: string;
@@ -80,7 +78,7 @@ export function OwnerHomeHeader({
           </div>
           <div>
             <h1 className="font-display text-4xl font-bold tracking-tight text-primary sm:text-5xl">
-              {greeting}, {displayName}
+              {greeting}
             </h1>
             <p className="mt-3 max-w-2xl font-sans text-sm font-bold leading-relaxed text-on-surface-variant">
               Your daily restaurant command center: sales, invoice workflow, purchasing trends, and alerts without misleading food-cost shortcuts.

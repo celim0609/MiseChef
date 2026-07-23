@@ -6,7 +6,7 @@ import TodaysTasks from './TodaysTasks';
 
 interface ChefHomeProps {
   recipes: Recipe[];
-  displayName: string;
+  greeting: string;
   onSelectRecipe: (recipe: Recipe) => void;
   onToggleFavorite: (recipeId: string) => void;
   onCreateRecipe?: () => void;
@@ -61,7 +61,7 @@ function RecipeList({
   );
 }
 
-export default function ChefHome({ recipes, displayName, onSelectRecipe, onToggleFavorite, onCreateRecipe, onNavigate, workspaceId, userId }: ChefHomeProps) {
+export default function ChefHome({ recipes, greeting, onSelectRecipe, onToggleFavorite, onCreateRecipe, onNavigate, workspaceId, userId }: ChefHomeProps) {
   const recentRecipes = recipes.slice(0, 4);
   const favoriteRecipes = recipes.filter(recipe => recipe.isSaved).slice(0, 4);
   const recentlyEditedRecipes = useMemo(
@@ -77,7 +77,7 @@ export default function ChefHome({ recipes, displayName, onSelectRecipe, onToggl
     <div className="mx-auto w-full max-w-6xl space-y-5 animate-fade-in">
       <section className="rounded-3xl border border-surface-container-high bg-surface-container-low p-6 shadow-sm sm:p-8">
         <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Chef Home</p>
-        <h1 className="mt-2 font-display text-4xl font-bold tracking-tight text-primary sm:text-5xl">Welcome back, {displayName}</h1>
+        <h1 className="mt-2 font-display text-4xl font-bold tracking-tight text-primary sm:text-5xl">{greeting}</h1>
         <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">Your recipes, favorites, and kitchen tools for today.</p>
       </section>
 
