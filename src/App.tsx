@@ -40,11 +40,11 @@ import { getConfiguredRoleForUser, resolveUserRole } from './utils/userRoles';
 import { workspaceService } from './services/workspaceService';
 import { usageLimitService } from './services/usageLimitService';
 import { canAccessRootTab, normalizeTeamRole } from './modules/team/permissions';
+import { getAuthenticatedDisplayName, getChefProfileStorageKey } from './utils/authenticatedUser';
 
 const STORAGE_RECIPES_KEY = 'my_cookbook_recipes_v2';
 const STORAGE_CATEGORIES_KEY = 'ce_lims_kitchen_categories_v1';
 const STORAGE_APPEARANCE_KEY = 'ce_lims_kitchen_appearance_v1';
-const STORAGE_PROFILE_KEY = 'ce_lims_kitchen_chef_profile_v1';
 const DEFAULT_COVER_IMAGE = 'https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&q=80&w=800';
 
 const MARKETING_PATHS = new Set(['/', '/features', '/pricing', '/book-demo', '/contact']);
@@ -251,15 +251,21 @@ const normalizeChefProfile = (profile?: Partial<ChefProfile> | null): ChefProfil
   quote: typeof profile?.quote === 'string' ? profile.quote : DEFAULT_CHEF_PROFILE.quote
 });
 
-const loadLocalProfile = () => {
-  const cachedProfile = localStorage.getItem(STORAGE_PROFILE_KEY);
-  if (!cachedProfile) return DEFAULT_CHEF_PROFILE;
+const getAuthenticatedProfileFallback = (user: User) => normalizeChefProfile({
+  name: getAuthenticatedDisplayName(user),
+  photo: user.photoURL || ''
+});
+
+const loadLocalProfile = (user?: User | null) => {
+  const fallbackProfile = user ? getAuthenticatedProfileFallback(user) : DEFAULT_CHEF_PROFILE;
+  const cachedProfile = localStorage.getItem(getChefProfileStorageKey(user?.uid));
+  if (!cachedProfile) return fallbackProfile;
 
   try {
     const parsedProfile = JSON.parse(cachedProfile);
     return normalizeChefProfile(parsedProfile);
   } catch (err) {
-    return DEFAULT_CHEF_PROFILE;
+    return fallbackProfile;
   }
 };
 
@@ -374,12 +380,10 @@ const createUserDocument = async (user: User): Promise<UserRole> => {
     ? existingUserData.companyId.trim()
     : getDefaultCompanyId(user);
   const companyRole = resolveCompanyRole(role, existingUserData?.companyRole);
-  const existingProfile = existingUser.exists()
-    ? normalizeChefProfile(existingUserData?.profile as Partial<ChefProfile> | undefined)
-    : normalizeChefProfile({
-        name: user.displayName || DEFAULT_CHEF_PROFILE.name,
-        photo: user.photoURL || DEFAULT_CHEF_PROFILE.photo
-      });
+  const storedProfile = existingUserData?.profile;
+  const existingProfile = storedProfile && typeof storedProfile === 'object'
+    ? normalizeChefProfile(storedProfile as Partial<ChefProfile>)
+    : getAuthenticatedProfileFallback(user);
 
   await ensureDefaultCompany({
     user,
@@ -409,7 +413,10 @@ const loadFirestoreProfile = async (user: User) => {
   const userSnapshot = await getDoc(doc(db, 'users', user.uid));
   if (!userSnapshot.exists()) return null;
 
-  return normalizeChefProfile(userSnapshot.data().profile as Partial<ChefProfile> | undefined);
+  const profile = userSnapshot.data().profile;
+  return profile && typeof profile === 'object'
+    ? normalizeChefProfile(profile as Partial<ChefProfile>)
+    : null;
 };
 
 const loadFirestoreRecipes = async (user: User, workspaceId = user.uid) => {
@@ -756,6 +763,9 @@ export default function App() {
           setIsAuthReady(true);
 
           if (user) {
+            const localProfile = loadLocalProfile(user);
+            setChefProfile(localProfile);
+            setCustomAvatarUrl(localProfile.photo);
             setCurrentUserRole(getConfiguredRoleForUser(user));
             setIsGuestMode(false);
             const pathname = window.location.pathname;
@@ -777,6 +787,9 @@ export default function App() {
           }
 
           setCurrentUserRole('user');
+          const guestProfile = loadLocalProfile();
+          setChefProfile(guestProfile);
+          setCustomAvatarUrl(guestProfile.photo);
           setWorkspaces([]);
           setCurrentWorkspace(null);
           setAddingRecipe(false);
@@ -897,7 +910,7 @@ export default function App() {
         if (cloudProfile) {
           setChefProfile(cloudProfile);
           setCustomAvatarUrl(cloudProfile.photo);
-          localStorage.setItem(STORAGE_PROFILE_KEY, JSON.stringify(cloudProfile));
+          localStorage.setItem(getChefProfileStorageKey(currentUser.uid), JSON.stringify(cloudProfile));
         }
       }
     };
@@ -1389,7 +1402,7 @@ export default function App() {
     }
 
     if (importedData.profile) {
-      localStorage.setItem(STORAGE_PROFILE_KEY, JSON.stringify(importedData.profile));
+      localStorage.setItem(getChefProfileStorageKey(currentUser?.uid), JSON.stringify(importedData.profile));
     }
 
     triggerNotification(
@@ -1426,6 +1439,9 @@ export default function App() {
       await signOut(auth);
       setCurrentUser(null);
       setCurrentUserRole('user');
+      const guestProfile = loadLocalProfile();
+      setChefProfile(guestProfile);
+      setCustomAvatarUrl(guestProfile.photo);
       setWorkspaces([]);
       setCurrentWorkspace(null);
       setIsGuestMode(false);

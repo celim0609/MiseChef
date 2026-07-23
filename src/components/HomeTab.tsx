@@ -32,6 +32,7 @@ import FirstTimeHome from './home/FirstTimeHome';
 import TodaysTasks from './home/TodaysTasks';
 import type { CostingInvoice } from '../modules/costing/types';
 import { dashboardService, type DashboardSource, type OwnerDashboardData } from '../services/dashboardService';
+import { getAuthenticatedDisplayName, getChefProfileStorageKey } from '../utils/authenticatedUser';
 
 interface HomePortfolioSummary {
   professionalTitle?: string;
@@ -64,8 +65,6 @@ interface ActivityItem {
   timestamp: string;
   tone: 'primary' | 'secondary' | 'warning';
 }
-
-const CHEF_PROFILE_STORAGE_KEY = 'ce_lims_kitchen_chef_profile_v1';
 
 const formatDate = (date = new Date()) => new Intl.DateTimeFormat('en-SG', {
   weekday: 'long',
@@ -147,12 +146,13 @@ export default function HomeTab({
 
   const profile = sharedProfile || localProfile;
   const displayName = profile.name || currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Chef';
+  const onboardingDisplayName = getAuthenticatedDisplayName(currentUser);
   const userId = currentUser?.uid;
   const activeWorkspaceId = workspaceId || userId;
   const isChefHome = workspaceRole === 'Chef';
 
   useEffect(() => {
-    const cachedProfile = localStorage.getItem(CHEF_PROFILE_STORAGE_KEY);
+    const cachedProfile = localStorage.getItem(getChefProfileStorageKey(userId));
     if (!cachedProfile) {
       setLocalProfile(DEFAULT_CHEF_PROFILE);
       return;
@@ -163,7 +163,7 @@ export default function HomeTab({
     } catch (err) {
       setLocalProfile(DEFAULT_CHEF_PROFILE);
     }
-  }, []);
+  }, [userId]);
 
   const loadDashboard = useCallback(async () => {
     if (!userId || !activeWorkspaceId) {
@@ -422,7 +422,7 @@ export default function HomeTab({
   if (shouldShowFirstTimeHome) {
     return (
       <FirstTimeHome
-        displayName={displayName}
+        displayName={onboardingDisplayName}
         onCreateRecipe={onCreateRecipe}
         onCompleteProfile={() => onNavigate?.('profile')}
       />

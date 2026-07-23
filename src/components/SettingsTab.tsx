@@ -10,8 +10,8 @@ import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { ChefProfile, DEFAULT_CHEF_PROFILE, Recipe, RecipeCategory } from '../types';
 import { isLocalImageDataUrl, uploadUserProfilePhoto } from '../services/storage';
+import { getChefProfileStorageKey } from '../utils/authenticatedUser';
 
-const CHEF_PROFILE_STORAGE_KEY = 'ce_lims_kitchen_chef_profile_v1';
 const APPEARANCE_STORAGE_KEY = 'ce_lims_kitchen_appearance_v1';
 const APP_VERSION = '0.0.0';
 
@@ -122,7 +122,7 @@ export default function SettingsTab({
     .toUpperCase() || 'CL';
 
   useEffect(() => {
-    const cachedProfile = localStorage.getItem(CHEF_PROFILE_STORAGE_KEY);
+    const cachedProfile = localStorage.getItem(getChefProfileStorageKey(currentUser?.uid));
     const cachedAppearance = localStorage.getItem(APPEARANCE_STORAGE_KEY) as AppearanceMode | null;
 
     if (cachedProfile) {
@@ -145,7 +145,7 @@ export default function SettingsTab({
       setAppearanceMode(cachedAppearance);
       applyAppearanceMode(cachedAppearance);
     }
-  }, []);
+  }, [currentUser?.uid]);
 
   useEffect(() => {
     if (!sharedProfile) return;
@@ -233,7 +233,7 @@ export default function SettingsTab({
         quote: profile.quote.trim()
       };
 
-      localStorage.setItem(CHEF_PROFILE_STORAGE_KEY, JSON.stringify(nextProfile));
+      localStorage.setItem(getChefProfileStorageKey(currentUser?.uid), JSON.stringify(nextProfile));
 
       if (currentUser && db) {
         await setDoc(doc(db, 'users', currentUser.uid), {
@@ -332,7 +332,7 @@ export default function SettingsTab({
           };
           setProfile(nextProfile);
           setSavedProfile(nextProfile);
-          localStorage.setItem(CHEF_PROFILE_STORAGE_KEY, JSON.stringify(nextProfile));
+          localStorage.setItem(getChefProfileStorageKey(currentUser?.uid), JSON.stringify(nextProfile));
           onCustomAvatarChange?.(nextProfile.photo || '');
           importedData.profile = nextProfile;
         }
