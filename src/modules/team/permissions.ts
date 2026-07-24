@@ -27,6 +27,7 @@ const RECIPE_ROLES: WorkspaceMemberRole[] = ['Owner', 'Manager', 'Head Chef', 'S
 const INVOICE_ROLES: WorkspaceMemberRole[] = ['Owner', 'Manager', 'Head Chef', 'Purchasing'];
 const SUPPLIER_ROLES: WorkspaceMemberRole[] = ['Owner', 'Manager', 'Head Chef', 'Purchasing'];
 const BUSINESS_ROLES: WorkspaceMemberRole[] = ['Owner', 'Manager', 'Head Chef', 'Finance'];
+const STORE_MANAGER_ROLES: WorkspaceMemberRole[] = ['Owner', 'Manager'];
 
 export const normalizeTeamRole = (role: unknown): WorkspaceMemberRole => {
   return TEAM_ROLE_ORDER.includes(role as WorkspaceMemberRole) ? role as WorkspaceMemberRole : 'Viewer';
@@ -56,6 +57,8 @@ export const canAccessRootTab = (tab: RootTab, role?: WorkspaceMemberRole | null
       return BUSINESS_ROLES.includes(role) || MANAGER_LEVEL_ROLES.includes(role);
     case 'businessSuppliers':
       return SUPPLIER_ROLES.includes(role);
+    case 'store':
+      return STORE_MANAGER_ROLES.includes(role);
     case 'costing':
     case 'costingInvoices':
     case 'costingInvoiceDetail':

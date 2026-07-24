@@ -245,6 +245,7 @@ export type RootTab =
   | 'login'
   | 'team'
   | 'admin'
+  | 'store'
   | 'business'
   | 'businessSales'
   | 'businessSuppliers'

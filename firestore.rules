@@ -168,6 +168,92 @@ service cloud.firestore {
       return data.country in ['MY', 'SG'];
     }
 
+    function hasValidStoreRegion(data) {
+      return (data.country == 'MY' && data.currency == 'MYR')
+        || (data.country == 'SG' && data.currency == 'SGD');
+    }
+
+    function storeMatchesWorkspaceCountry(data, workspaceId) {
+      return exists(/databases/$(database)/documents/workspaces/$(workspaceId))
+        && (
+          (('country' in get(/databases/$(database)/documents/workspaces/$(workspaceId)).data)
+            && data.country == get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.country)
+          || (!('country' in get(/databases/$(database)/documents/workspaces/$(workspaceId)).data)
+            && data.country == 'SG')
+        );
+    }
+
+    function isValidStoreSettings(data, workspaceId) {
+      return data.keys().hasOnly([
+          'id',
+          'workspaceId',
+          'slug',
+          'name',
+          'logoUrl',
+          'coverImageUrl',
+          'description',
+          'businessHours',
+          'pickupEnabled',
+          'deliveryEnabled',
+          'country',
+          'currency',
+          'createdBy',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.id == workspaceId
+        && data.workspaceId == workspaceId
+        && data.slug is string
+        && data.slug.size() > 0
+        && data.slug.size() <= 100
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 120
+        && data.logoUrl is string
+        && data.coverImageUrl is string
+        && data.description is string
+        && data.description.size() <= 1200
+        && data.businessHours is string
+        && data.businessHours.size() <= 300
+        && data.pickupEnabled is bool
+        && data.deliveryEnabled is bool
+        && hasValidStoreRegion(data)
+        && data.createdBy is string
+        && data.createdAt is string
+        && data.updatedAt is string;
+    }
+
+    function isValidStoreProduct(data, productId) {
+      return data.keys().hasOnly([
+          'id',
+          'storeId',
+          'workspaceId',
+          'photoUrl',
+          'name',
+          'description',
+          'price',
+          'available',
+          'createdBy',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.id == productId
+        && data.storeId == data.workspaceId
+        && data.photoUrl is string
+        && data.photoUrl.size() > 0
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 160
+        && data.description is string
+        && data.description.size() <= 1200
+        && data.price is number
+        && data.price >= 0
+        && data.available is bool
+        && data.createdBy is string
+        && data.createdAt is string
+        && data.updatedAt is string;
+    }
+
     function hasValidRecommendedProductIds() {
       return !('recommendedProductIds' in request.resource.data)
         || (request.resource.data.recommendedProductIds is list
@@ -463,6 +549,62 @@ service cloud.firestore {
     match /publicChefProfiles/{username} {
       allow read: if true;
       allow create, update, delete: if false;
+    }
+
+    match /stores/{workspaceId} {
+      allow read: if true;
+      allow create: if isWorkspaceOwnerOrManager(workspaceId)
+        && isValidStoreSettings(request.resource.data, workspaceId)
+        && storeMatchesWorkspaceCountry(request.resource.data, workspaceId)
+        && request.resource.data.createdBy == request.auth.uid
+        && existsAfter(/databases/$(database)/documents/storeSlugs/$(request.resource.data.slug))
+        && getAfter(/databases/$(database)/documents/storeSlugs/$(request.resource.data.slug)).data.workspaceId == workspaceId;
+      allow update: if isWorkspaceOwnerOrManager(workspaceId)
+        && isValidStoreSettings(request.resource.data, workspaceId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name',
+          'logoUrl',
+          'coverImageUrl',
+          'description',
+          'businessHours',
+          'pickupEnabled',
+          'deliveryEnabled',
+          'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    match /storeSlugs/{slug} {
+      allow read: if true;
+      allow create: if isWorkspaceOwnerOrManager(request.resource.data.workspaceId)
+        && request.resource.data.keys().hasOnly(['slug', 'workspaceId', 'createdAt'])
+        && request.resource.data.slug == slug
+        && request.resource.data.slug is string
+        && request.resource.data.workspaceId is string
+        && request.resource.data.createdAt is string
+        && existsAfter(/databases/$(database)/documents/stores/$(request.resource.data.workspaceId))
+        && getAfter(/databases/$(database)/documents/stores/$(request.resource.data.workspaceId)).data.slug == slug;
+      allow update, delete: if false;
+    }
+
+    match /storeProducts/{productId} {
+      allow read: if resource.data.available == true
+        || isWorkspaceOwnerOrManager(resource.data.workspaceId);
+      allow create: if isWorkspaceOwnerOrManager(request.resource.data.workspaceId)
+        && isValidStoreProduct(request.resource.data, productId)
+        && request.resource.data.createdBy == request.auth.uid
+        && exists(/databases/$(database)/documents/stores/$(request.resource.data.workspaceId));
+      allow update: if isWorkspaceOwnerOrManager(resource.data.workspaceId)
+        && isValidStoreProduct(request.resource.data, productId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'photoUrl',
+          'name',
+          'description',
+          'price',
+          'available',
+          'updatedAt'
+        ]);
+      allow delete: if false;
     }
 
     match /publicChefProfileOwnership/{username} {

@@ -110,6 +110,57 @@ const uploadFile = async ({
   });
 };
 
+const requireSupportedImageExtension = (file: File) => {
+  if (file.size > 10 * 1024 * 1024) {
+    throw new Error('Choose an image smaller than 10 MB.');
+  }
+  const extension = getSupportedImageExtension(file);
+  if (!extension) {
+    throw new Error('Choose a JPG, PNG, or WebP image.');
+  }
+  return extension;
+};
+
+export const uploadStoreBrandImage = async ({
+  workspaceId,
+  kind,
+  file,
+  onProgress
+}: {
+  workspaceId: string;
+  kind: 'logo' | 'cover';
+  file: File;
+  onProgress?: (progress: number) => void;
+}) => {
+  const extension = requireSupportedImageExtension(file);
+  return uploadFile({
+    path: `stores/${workspaceId}/branding/${kind}.${extension}`,
+    file,
+    cacheControl: 'public,max-age=31536000',
+    onProgress
+  });
+};
+
+export const uploadStoreProductPhoto = async ({
+  workspaceId,
+  productId,
+  file,
+  onProgress
+}: {
+  workspaceId: string;
+  productId: string;
+  file: File;
+  onProgress?: (progress: number) => void;
+}) => {
+  const extension = requireSupportedImageExtension(file);
+  return uploadFile({
+    path: `stores/${workspaceId}/products/${productId}/photo.${extension}`,
+    file,
+    cacheControl: 'public,max-age=31536000',
+    onProgress
+  });
+};
+
 export const uploadRecipeCoverImage = async ({
   userId,
   recipeId,

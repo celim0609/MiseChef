@@ -42,6 +42,7 @@ import { usageLimitService } from './services/usageLimitService';
 import { canAccessRootTab, normalizeTeamRole } from './modules/team/permissions';
 import { getAuthenticatedDisplayName, getChefProfileStorageKey } from './utils/authenticatedUser';
 import { WorkspaceRegionProvider } from './regions';
+import { StorePage, storeService } from './modules/store';
 
 const STORAGE_RECIPES_KEY = 'my_cookbook_recipes_v2';
 const STORAGE_CATEGORIES_KEY = 'ce_lims_kitchen_categories_v1';
@@ -86,6 +87,7 @@ const ROOT_TAB_PATHS: Record<RootTab, string> = {
   login: '/login',
   team: '/app/team',
   admin: '/app/admin',
+  store: '/app/store',
   business: '/app/business',
   businessSales: '/app/business/sales',
   businessSuppliers: '/app/business/suppliers',
@@ -138,6 +140,9 @@ const getRootTabFromPath = (pathname: string): RootTab => {
     case '/app/admin':
     case '/admin':
       return 'admin';
+    case '/app/store':
+    case '/store':
+      return 'store';
     case '/app/business':
     case '/business':
       return 'business';
@@ -608,6 +613,18 @@ export default function App() {
       : isGuestMode
         ? 'Viewer'
         : null;
+
+  useEffect(() => {
+    if (
+      !currentUser
+      || !currentWorkspace
+      || (currentWorkspaceRole !== 'Owner' && currentWorkspaceRole !== 'Manager')
+    ) {
+      return;
+    }
+
+    storeService.ensureWorkspaceStore(currentWorkspace, currentUser.uid).catch(() => undefined);
+  }, [currentUser, currentWorkspace, currentWorkspaceRole]);
 
   const handleRootNavigate = (tab: RootTab) => {
     if (addingRecipe || editingRecipe) {
@@ -1687,6 +1704,9 @@ export default function App() {
             onWorkspaceCreated={handleFounderWorkspaceCreated}
           />
         );
+      case 'store':
+        if (!currentUser || !currentWorkspace) return null;
+        return <StorePage currentUser={currentUser} workspace={currentWorkspace} />;
       case 'costing':
       case 'costingIngredients':
       case 'costingInvoices':
