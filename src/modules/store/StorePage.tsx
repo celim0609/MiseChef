@@ -5,6 +5,7 @@ import type { Workspace } from '../../types';
 import { formatRegionCurrency, useWorkspaceRegion } from '../../regions';
 import { uploadStoreBrandImage, uploadStoreProductPhoto } from '../../services/storage';
 import { storeService } from './services';
+import OptionGroupManager from './OptionGroupManager';
 import {
   validateStoreProduct,
   validateStoreSettings
@@ -12,6 +13,7 @@ import {
 import type {
   StoreProduct,
   StoreProductDraft,
+  StoreOptionGroup,
   StoreSettingsDraft,
   WorkspaceStore
 } from './types';
@@ -26,7 +28,8 @@ const emptyProductDraft = (): StoreProductDraft => ({
   name: '',
   description: '',
   price: 0,
-  available: true
+  available: true,
+  optionGroupIds: []
 });
 
 const toSettingsDraft = (store: WorkspaceStore): StoreSettingsDraft => ({
@@ -36,7 +39,8 @@ const toSettingsDraft = (store: WorkspaceStore): StoreSettingsDraft => ({
   description: store.description,
   businessHours: store.businessHours,
   pickupEnabled: store.pickupEnabled,
-  deliveryEnabled: store.deliveryEnabled
+  deliveryEnabled: store.deliveryEnabled,
+  pickupSessions: [...store.pickupSessions]
 });
 
 const toProductDraft = (product: StoreProduct): StoreProductDraft => ({
@@ -44,7 +48,8 @@ const toProductDraft = (product: StoreProduct): StoreProductDraft => ({
   name: product.name,
   description: product.description,
   price: product.price,
-  available: product.available
+  available: product.available,
+  optionGroupIds: [...product.optionGroupIds]
 });
 
 export default function StorePage({ currentUser, workspace }: StorePageProps) {
@@ -52,6 +57,7 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
   const [store, setStore] = useState<WorkspaceStore | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<StoreSettingsDraft | null>(null);
   const [products, setProducts] = useState<StoreProduct[]>([]);
+  const [optionGroups, setOptionGroups] = useState<StoreOptionGroup[]>([]);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
   const [productDraft, setProductDraft] = useState<StoreProductDraft>(emptyProductDraft);
@@ -70,14 +76,16 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
       setIsLoading(true);
       setErrorMessage('');
       try {
-        const [loadedStore, loadedProducts] = await Promise.all([
+        const [loadedStore, loadedProducts, loadedOptionGroups] = await Promise.all([
           storeService.ensureWorkspaceStore(workspace, currentUser.uid),
-          storeService.listProducts(workspace.id)
+          storeService.listProducts(workspace.id),
+          storeService.listOptionGroups(workspace.id)
         ]);
         if (isCancelled) return;
         setStore(loadedStore);
         setSettingsDraft(toSettingsDraft(loadedStore));
         setProducts(loadedProducts);
+        setOptionGroups(loadedOptionGroups);
       } catch (error) {
         if (!isCancelled) {
           setErrorMessage(error instanceof Error ? error.message : 'Unable to load this Store.');
@@ -245,7 +253,7 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
             <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Chef Store</p>
             <h1 className="mt-1 font-display text-4xl font-bold text-primary">Store</h1>
             <p className="mt-3 max-w-2xl font-sans text-sm font-bold leading-relaxed text-on-surface-variant">
-              Manage public Store information and simple products for {workspace.name}. Ordering is not enabled yet.
+              Manage Store information, pickup sessions, reusable product options, and products for {workspace.name}.
             </p>
           </div>
           <a
@@ -312,6 +320,17 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
             <span className="font-sans text-xs font-extrabold text-primary">Description</span>
             <textarea rows={4} value={settingsDraft.description} onChange={event => updateSettings('description', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
           </label>
+          <label className="block md:col-span-2">
+            <span className="font-sans text-xs font-extrabold text-primary">Pickup Sessions</span>
+            <textarea
+              rows={4}
+              value={settingsDraft.pickupSessions.join('\n')}
+              onChange={event => updateSettings('pickupSessions', event.target.value.split('\n'))}
+              placeholder="One session per line"
+              className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary"
+            />
+            <span className="mt-1 block font-sans text-[11px] font-bold text-outline">Customers choose one of these sessions at checkout. No sessions are created automatically.</span>
+          </label>
           <label className="flex items-center justify-between gap-4 rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-4">
             <span className="font-sans text-sm font-extrabold text-primary">Pickup</span>
             <input type="checkbox" checked={settingsDraft.pickupEnabled} onChange={event => updateSettings('pickupEnabled', event.target.checked)} className="h-5 w-5 rounded border-surface-container-high text-primary" />
@@ -328,6 +347,17 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
           </button>
         </div>
       </form>
+
+      <OptionGroupManager
+        currentUser={currentUser}
+        store={store}
+        groups={optionGroups}
+        onGroupsChange={setOptionGroups}
+        onMessage={(nextMessage, isError = false) => {
+          setMessage(isError ? '' : nextMessage);
+          setErrorMessage(isError ? nextMessage : '');
+        }}
+      />
 
       <section className="rounded-3xl border border-surface-container-high bg-white p-5 shadow-sm sm:p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -365,6 +395,29 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
                 <span className="font-sans text-sm font-extrabold text-primary">Available</span>
                 <input type="checkbox" checked={productDraft.available} onChange={event => updateProduct('available', event.target.checked)} className="h-5 w-5 rounded border-surface-container-high text-primary" />
               </label>
+              {optionGroups.length > 0 && (
+                <fieldset className="md:col-span-2">
+                  <legend className="font-sans text-xs font-extrabold text-primary">Product Options</legend>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    {optionGroups.map(group => (
+                      <label key={group.id} className="flex items-center gap-3 rounded-2xl border border-surface-container-high bg-white px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={productDraft.optionGroupIds.includes(group.id)}
+                          onChange={event => updateProduct(
+                            'optionGroupIds',
+                            event.target.checked
+                              ? [...productDraft.optionGroupIds, group.id]
+                              : productDraft.optionGroupIds.filter(groupId => groupId !== group.id)
+                          )}
+                          className="h-5 w-5 rounded border-surface-container-high text-primary"
+                        />
+                        <span className="font-sans text-sm font-extrabold text-primary">{group.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              )}
             </div>
             <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <button type="button" onClick={() => setIsProductFormOpen(false)} className="rounded-full bg-surface-container px-5 py-3 font-sans text-xs font-extrabold text-primary">Cancel</button>
@@ -388,6 +441,11 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
                   </span>
                 </div>
                 {product.description && <p className="mt-3 line-clamp-3 font-sans text-xs font-bold leading-relaxed text-on-surface-variant">{product.description}</p>}
+                {product.optionGroupIds.length > 0 && (
+                  <p className="mt-3 font-sans text-[11px] font-extrabold text-on-surface-variant">
+                    Options: {product.optionGroupIds.map(groupId => optionGroups.find(group => group.id === groupId)?.name).filter(Boolean).join(', ')}
+                  </p>
+                )}
                 <button type="button" onClick={() => openProductEditor(product)} className="mt-4 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 font-sans text-xs font-extrabold text-primary shadow-sm">
                   <Pencil className="h-3.5 w-3.5" /> Edit
                 </button>

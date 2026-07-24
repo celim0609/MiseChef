@@ -1,9 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  buildStoreOrderItems,
   createDefaultWorkspaceStore,
+  normalizeStoreOptionGroup,
   normalizeWorkspaceStore,
   toStoreSlug,
+  validateStoreOptionGroup,
+  validateStoreOrder,
   validateStoreProduct
 } from './storeModel';
 import { resolvePublicRoute } from '../public/publicRoutes';
@@ -27,6 +31,8 @@ test('every workspace receives exactly one region-aware Store identity', () => {
   assert.equal(singaporeStore.id, 'workspace-sg');
   assert.equal(singaporeStore.workspaceId, 'workspace-sg');
   assert.equal(singaporeStore.currency, 'SGD');
+  assert.equal(malaysiaStore.pickupEnabled, false);
+  assert.deepEqual(malaysiaStore.pickupSessions, []);
 });
 
 test('public Store slugs are stable and URL safe', () => {
@@ -53,24 +59,95 @@ test('simple products require only the milestone fields', () => {
     name: 'Signature Tart',
     description: 'Freshly baked.',
     price: 12.5,
-    available: true
+    available: true,
+    optionGroupIds: []
   }), '');
   assert.equal(validateStoreProduct({
     photoUrl: '',
     name: 'Signature Tart',
     description: '',
     price: 12.5,
-    available: true
+    available: true,
+    optionGroupIds: []
   }), 'Product photo is required.');
 });
 
-test('public Store routes resolve without enabling ordering routes', () => {
+test('public Store route contains the ordering flow without exposing order tracking routes', () => {
   assert.deepEqual(resolvePublicRoute('/store/ce-lim-kitchen'), {
     page: 'store',
     slug: 'ce-lim-kitchen'
   });
   assert.equal(resolvePublicRoute('/store/ce-lim-kitchen/orders'), null);
   assert.equal(resolvePublicRoute('/store/ce-lim-kitchen/checkout'), null);
+});
+
+test('reusable option groups require owner-provided choices', () => {
+  const group = normalizeStoreOptionGroup('drink', {
+    storeId: 'workspace-my',
+    workspaceId: 'workspace-my',
+    name: 'Drink',
+    options: [
+      { id: 'kopi', name: 'Kopi', priceAdjustment: 0 },
+      { id: 'none', name: 'No Drink', priceAdjustment: -1 }
+    ]
+  });
+  assert.equal(validateStoreOptionGroup({ name: group.name, options: group.options }), '');
+  assert.equal(validateStoreOptionGroup({ name: 'Drink', options: [] }), 'Add at least one option.');
+});
+
+test('order snapshots use current available products and owner-defined option pricing', () => {
+  const products = [{
+    id: 'set-a',
+    storeId: 'workspace-my',
+    workspaceId: 'workspace-my',
+    photoUrl: 'https://example.test/set.jpg',
+    name: 'Breakfast Set',
+    description: '',
+    price: 10,
+    available: true,
+    optionGroupIds: ['drink'],
+    createdBy: 'owner',
+    createdAt: '2026-07-25T00:00:00.000Z',
+    updatedAt: '2026-07-25T00:00:00.000Z'
+  }];
+  const groups = [normalizeStoreOptionGroup('drink', {
+    storeId: 'workspace-my',
+    workspaceId: 'workspace-my',
+    name: 'Drink',
+    options: [{ id: 'none', name: 'No Drink', priceAdjustment: -1 }]
+  })];
+  const items = buildStoreOrderItems([{
+    productId: 'set-a',
+    quantity: 2,
+    selectedOptions: [{ groupId: 'drink', optionId: 'none' }]
+  }], products, groups);
+
+  assert.equal(items[0].unitPrice, 9);
+  assert.equal(items[0].lineTotal, 18);
+  assert.equal(items[0].selectedOptions[0].optionName, 'No Drink');
+});
+
+test('guest checkout requires pickup availability, valid sessions, and no account', () => {
+  const validDraft = {
+    customerName: 'Customer',
+    phone: '+60123456789',
+    pickupDate: '2099-01-01',
+    pickupSession: '12:00–12:30',
+    notes: '',
+    selections: [{ productId: 'set-a', quantity: 1, selectedOptions: [] }]
+  };
+  assert.equal(validateStoreOrder(validDraft, {
+    pickupEnabled: true,
+    pickupSessions: ['12:00–12:30']
+  }), '');
+  assert.equal(validateStoreOrder(validDraft, {
+    pickupEnabled: false,
+    pickupSessions: ['12:00–12:30']
+  }), 'Pickup ordering is not available.');
+  assert.equal(validateStoreOrder({ ...validDraft, pickupSession: '13:00–13:30' }, {
+    pickupEnabled: true,
+    pickupSessions: ['12:00–12:30']
+  }), 'Choose a valid pickup session.');
 });
 
 test('only workspace owners and managers can manage Store settings and products', () => {

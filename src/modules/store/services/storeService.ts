@@ -13,14 +13,22 @@ import { db } from '../../../firebase';
 import type { Workspace } from '../../../types';
 import {
   createDefaultWorkspaceStore,
+  buildStoreOrderItems,
+  normalizeStoreOptionGroup,
   normalizeStoreProduct,
   normalizeWorkspaceStore,
   toStoreSlug,
+  validateStoreOptionGroup,
+  validateStoreOrder,
   validateStoreProduct,
   validateStoreSettings
 } from '../storeModel';
 import type {
   PublicStoreData,
+  StoreOptionGroup,
+  StoreOptionGroupDraft,
+  StoreOrder,
+  StoreOrderDraft,
   StoreProduct,
   StoreProductDraft,
   StoreSettingsDraft,
@@ -118,6 +126,7 @@ export const storeService = {
       name: draft.name.trim(),
       description: draft.description.trim(),
       businessHours: draft.businessHours.trim(),
+      pickupSessions: [...new Set(draft.pickupSessions.map(session => session.trim()).filter(Boolean))],
       updatedAt: new Date().toISOString()
     };
 
@@ -128,6 +137,84 @@ export const storeService = {
   createProductId() {
     if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
     return doc(collection(db, 'storeProducts')).id;
+  },
+
+  createOptionGroupId() {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    return doc(collection(db, 'storeOptionGroups')).id;
+  },
+
+  createOptionId() {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    return doc(collection(db, 'storeOptionIds')).id;
+  },
+
+  async listOptionGroups(workspaceId: string): Promise<StoreOptionGroup[]> {
+    if (!db || !workspaceId) return [];
+    const groupsQuery = query(
+      collection(db, 'storeOptionGroups'),
+      where('workspaceId', '==', workspaceId)
+    );
+    const snapshot = await getDocs(groupsQuery);
+    return snapshot.docs
+      .map(groupDoc => normalizeStoreOptionGroup(groupDoc.id, groupDoc.data() as Record<string, unknown>))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  },
+
+  async createOptionGroup({
+    id,
+    workspaceId,
+    draft,
+    createdBy
+  }: {
+    id: string;
+    workspaceId: string;
+    draft: StoreOptionGroupDraft;
+    createdBy: string;
+  }): Promise<StoreOptionGroup> {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    const validationError = validateStoreOptionGroup(draft);
+    if (validationError) throw new Error(validationError);
+
+    const now = new Date().toISOString();
+    const group: StoreOptionGroup = {
+      id,
+      storeId: workspaceId,
+      workspaceId,
+      name: draft.name.trim(),
+      options: draft.options.map(option => ({
+        id: option.id || this.createOptionId(),
+        name: option.name.trim(),
+        priceAdjustment: option.priceAdjustment
+      })),
+      createdBy,
+      createdAt: now,
+      updatedAt: now
+    };
+    await setDoc(doc(db, 'storeOptionGroups', id), removeUndefinedFields(group));
+    return group;
+  },
+
+  async updateOptionGroup(
+    group: StoreOptionGroup,
+    draft: StoreOptionGroupDraft
+  ): Promise<StoreOptionGroup> {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    const validationError = validateStoreOptionGroup(draft);
+    if (validationError) throw new Error(validationError);
+
+    const updatedGroup: StoreOptionGroup = {
+      ...group,
+      name: draft.name.trim(),
+      options: draft.options.map(option => ({
+        id: option.id || this.createOptionId(),
+        name: option.name.trim(),
+        priceAdjustment: option.priceAdjustment
+      })),
+      updatedAt: new Date().toISOString()
+    };
+    await setDoc(doc(db, 'storeOptionGroups', group.id), removeUndefinedFields(updatedGroup), { merge: true });
+    return updatedGroup;
   },
 
   async listProducts(workspaceId: string): Promise<StoreProduct[]> {
@@ -167,6 +254,7 @@ export const storeService = {
       description: draft.description.trim(),
       price: draft.price,
       available: draft.available,
+      optionGroupIds: [...draft.optionGroupIds],
       createdBy,
       createdAt: now,
       updatedAt: now
@@ -188,6 +276,7 @@ export const storeService = {
       description: draft.description.trim(),
       price: draft.price,
       available: draft.available,
+      optionGroupIds: [...draft.optionGroupIds],
       updatedAt: new Date().toISOString()
     };
 
@@ -216,11 +305,54 @@ export const storeService = {
       where('storeId', '==', store.id),
       where('available', '==', true)
     );
-    const productSnapshot = await getDocs(productsQuery);
+    const optionGroupsQuery = query(
+      collection(db, 'storeOptionGroups'),
+      where('storeId', '==', store.id)
+    );
+    const [productSnapshot, optionGroupSnapshot] = await Promise.all([
+      getDocs(productsQuery),
+      getDocs(optionGroupsQuery)
+    ]);
     const products = productSnapshot.docs
       .map(productDoc => normalizeStoreProduct(productDoc.id, productDoc.data() as Record<string, unknown>))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const referencedGroupIds = new Set(products.flatMap(product => product.optionGroupIds));
+    const optionGroups = optionGroupSnapshot.docs
+      .map(groupDoc => normalizeStoreOptionGroup(groupDoc.id, groupDoc.data() as Record<string, unknown>))
+      .filter(group => referencedGroupIds.has(group.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
 
-    return { store, products };
+    return { store, products, optionGroups };
+  },
+
+  async placeOrder(slug: string, draft: StoreOrderDraft): Promise<StoreOrder> {
+    if (!db) throw new Error("We couldn't connect to this Store. Please refresh the page or try again.");
+    const currentData = await this.getPublicStore(slug);
+    if (!currentData) throw new Error('This Store is no longer available.');
+
+    const validationError = validateStoreOrder(draft, currentData.store);
+    if (validationError) throw new Error(validationError);
+
+    const items = buildStoreOrderItems(draft.selections, currentData.products, currentData.optionGroups);
+    const orderRef = doc(collection(db, 'storeOrders'));
+    const order: StoreOrder = {
+      id: orderRef.id,
+      storeId: currentData.store.id,
+      workspaceId: currentData.store.workspaceId,
+      storeName: currentData.store.name,
+      currency: currentData.store.currency,
+      customerName: draft.customerName.trim(),
+      phone: draft.phone.trim(),
+      pickupDate: draft.pickupDate,
+      pickupSession: draft.pickupSession,
+      notes: draft.notes.trim(),
+      items,
+      itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
+      total: Math.round(items.reduce((sum, item) => sum + item.lineTotal, 0) * 100) / 100,
+      status: 'Placed',
+      createdAt: new Date().toISOString()
+    };
+    await setDoc(orderRef, removeUndefinedFields(order));
+    return order;
   }
 };
