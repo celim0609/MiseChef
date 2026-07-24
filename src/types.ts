@@ -3,6 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import type { RegionCode } from './regions/types';
+export type { RegionCode } from './regions/types';
+
 export interface Ingredient {
   id: string;
   name: string;
@@ -175,6 +178,7 @@ export interface Workspace {
   id: string;
   name: string;
   ownerId: string;
+  country: RegionCode;
   type?: WorkspaceType;
   members: WorkspaceMemberSummary[];
   createdAt: string;

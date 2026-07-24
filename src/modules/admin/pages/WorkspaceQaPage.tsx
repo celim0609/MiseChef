@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from 'react';
 import type { User } from 'firebase/auth';
 import { Building2 } from 'lucide-react';
-import type { UserRole, WorkspaceType } from '../../../types';
+import type { RegionCode, UserRole, WorkspaceType } from '../../../types';
 import { workspaceService } from '../../../services/workspaceService';
+import { DEFAULT_REGION_CODE, REGION_CONFIGURATIONS } from '../../../regions';
 
 const workspaceTypes: WorkspaceType[] = [
   'Restaurant',
@@ -26,6 +27,7 @@ export function AdminWorkspaceQaPage({
 }: AdminWorkspaceQaPageProps) {
   const [workspaceName, setWorkspaceName] = useState('');
   const [workspaceType, setWorkspaceType] = useState<WorkspaceType | ''>('');
+  const [country, setCountry] = useState<RegionCode>(DEFAULT_REGION_CODE);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -50,11 +52,13 @@ export function AdminWorkspaceQaPage({
         user: currentUser,
         platformRole: currentUserRole,
         name,
-        type: workspaceType || undefined
+        type: workspaceType || undefined,
+        country
       });
       await onWorkspaceCreated(workspace.id);
       setWorkspaceName('');
       setWorkspaceType('');
+      setCountry(DEFAULT_REGION_CODE);
       setSuccess(`${workspace.name} was created and selected.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to create the workspace. Please try again.');
@@ -79,6 +83,22 @@ export function AdminWorkspaceQaPage({
       </div>
 
       <form onSubmit={handleSubmit} className="mt-6 max-w-xl space-y-5">
+        <label className="block">
+          <span className="font-sans text-xs font-extrabold text-primary">Operating Country</span>
+          <select
+            value={country}
+            onChange={event => setCountry(event.target.value as RegionCode)}
+            disabled={isCreating}
+            className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-60"
+          >
+            {Object.values(REGION_CONFIGURATIONS).map(region => (
+              <option key={region.country} value={region.country}>
+                {region.countryName} ({region.country})
+              </option>
+            ))}
+          </select>
+        </label>
+
         <label className="block">
           <span className="font-sans text-xs font-extrabold text-primary">Workspace Name</span>
           <input

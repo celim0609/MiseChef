@@ -41,6 +41,7 @@ import { workspaceService } from './services/workspaceService';
 import { usageLimitService } from './services/usageLimitService';
 import { canAccessRootTab, normalizeTeamRole } from './modules/team/permissions';
 import { getAuthenticatedDisplayName, getChefProfileStorageKey } from './utils/authenticatedUser';
+import { WorkspaceRegionProvider } from './regions';
 
 const STORAGE_RECIPES_KEY = 'my_cookbook_recipes_v2';
 const STORAGE_CATEGORIES_KEY = 'ce_lims_kitchen_categories_v1';
@@ -1870,7 +1871,8 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col font-sans selection:bg-secondary/20 bg-background relative overflow-x-hidden">
+    <WorkspaceRegionProvider workspace={currentWorkspace}>
+      <div className="min-h-screen flex flex-col font-sans selection:bg-secondary/20 bg-background relative overflow-x-hidden">
       {/* Dynamic Header */}
       <Header {...getHeaderProps()} />
 
@@ -2078,6 +2080,7 @@ export default function App() {
           />
         )}
       </AnimatePresence>
-    </div>
+      </div>
+    </WorkspaceRegionProvider>
   );
 }

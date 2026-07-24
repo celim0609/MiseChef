@@ -4,6 +4,7 @@ import { ingredientService, invoiceImportService, invoiceLifecycleService, invoi
 import { getCustomerFriendlyErrorMessage } from '../../../../utils/customerErrorMessages';
 import type { InvoiceImportMatch } from '../../services';
 import type { CostingIngredient, CostingInvoice, CostingInvoiceExtractedItem, CostingInvoiceStatus } from '../../types';
+import { useWorkspaceRegion } from '../../../../regions';
 
 interface InvoiceDetailPageProps {
   invoiceId?: string | null;
@@ -66,6 +67,7 @@ const notifyInvoiceLifecycleChanged = () => {
 };
 
 export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canManageInvoices = false, onBack }: InvoiceDetailPageProps) {
+  const region = useWorkspaceRegion();
   const [invoice, setInvoice] = useState<CostingInvoice | null>(null);
   const [ingredients, setIngredients] = useState<CostingIngredient[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -224,7 +226,8 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
         matches,
         ingredients,
         userId,
-        workspaceId: workspaceId || userId
+        workspaceId: workspaceId || userId,
+        defaultCurrency: region.currency
       });
       const loadedIngredients = await ingredientService.listIngredients(workspaceId || userId);
       setIngredients(loadedIngredients);

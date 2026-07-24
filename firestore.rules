@@ -164,6 +164,10 @@ service cloud.firestore {
         && hasProfessionalWorkspaceEntitlement(workspaceId);
     }
 
+    function hasValidWorkspaceCountry(data) {
+      return data.country in ['MY', 'SG'];
+    }
+
     function hasValidRecommendedProductIds() {
       return !('recommendedProductIds' in request.resource.data)
         || (request.resource.data.recommendedProductIds is list
@@ -436,10 +440,18 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.id == workspaceId
         && request.resource.data.ownerId == request.auth.uid
+        && hasValidWorkspaceCountry(request.resource.data)
         && (workspaceId == request.auth.uid || isSuperAdmin());
       allow read: if isWorkspaceMember(workspaceId);
       allow update: if (isWorkspaceOwner(workspaceId) || (isWorkspaceOwnerOrManager(workspaceId) && request.resource.data.ownerId == resource.data.ownerId))
-        && request.resource.data.id == resource.data.id;
+        && request.resource.data.id == resource.data.id
+        && (
+          (('country' in resource.data)
+            && request.resource.data.country == resource.data.country)
+          || (!('country' in resource.data)
+            && (hasValidWorkspaceCountry(request.resource.data)
+              || !('country' in request.resource.data)))
+        );
       allow delete: if false;
 
       match /portfolio/{portfolioId} {

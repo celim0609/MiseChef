@@ -1,8 +1,9 @@
 import { collection, doc, getDoc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '../firebase';
-import type { UserRole, Workspace, WorkspaceMembership, WorkspaceMemberRole, WorkspaceMemberSummary, WorkspaceType } from '../types';
+import type { RegionCode, UserRole, Workspace, WorkspaceMembership, WorkspaceMemberRole, WorkspaceMemberSummary, WorkspaceType } from '../types';
 import { normalizeTeamRole } from '../modules/team/permissions';
+import { DEFAULT_REGION_CODE, LEGACY_WORKSPACE_REGION_CODE, normalizeRegionCode } from '../regions';
 
 const WORKSPACE_SELECTION_STORAGE_KEY = 'misechef_selected_workspace_id';
 
@@ -38,6 +39,7 @@ const normalizeWorkspace = (id: string, data: Partial<Workspace> | Record<string
   id,
   name: typeof data.name === 'string' && data.name.trim() ? data.name : id,
   ownerId: typeof data.ownerId === 'string' ? data.ownerId : '',
+  country: normalizeRegionCode(data.country, LEGACY_WORKSPACE_REGION_CODE),
   type: data.type === 'Restaurant'
     || data.type === 'Cafe'
     || data.type === 'Bakery'
@@ -98,13 +100,15 @@ const upsertWorkspace = async ({
   name,
   ownerId,
   user,
-  role = 'Owner'
+  role = 'Owner',
+  country = DEFAULT_REGION_CODE
 }: {
   id: string;
   name: string;
   ownerId: string;
   user: User;
   role?: WorkspaceMemberSummary['role'];
+  country?: RegionCode;
 }) => {
   if (!db) throw new Error("We couldn't connect to your workspace. Please refresh the page or try again.");
 
@@ -120,6 +124,7 @@ const upsertWorkspace = async ({
     id,
     name: existing?.name || name,
     ownerId: existing?.ownerId || ownerId,
+    country: existing?.country || country,
     members,
     createdAt: existing?.createdAt || now,
     updatedAt: now
@@ -141,13 +146,14 @@ export const workspaceService = {
     localStorage.setItem(`${WORKSPACE_SELECTION_STORAGE_KEY}_${userId}`, workspaceId);
   },
 
-  async ensurePrimaryWorkspace(user: User) {
+  async ensurePrimaryWorkspace(user: User, country: RegionCode = DEFAULT_REGION_CODE) {
     return upsertWorkspace({
       id: user.uid,
       name: getDefaultWorkspaceName(user),
       ownerId: user.uid,
       user,
-      role: 'Owner'
+      role: 'Owner',
+      country
     });
   },
 
@@ -155,12 +161,14 @@ export const workspaceService = {
     user,
     platformRole,
     name,
-    type
+    type,
+    country
   }: {
     user: User;
     platformRole: UserRole;
     name: string;
     type?: WorkspaceType;
+    country: RegionCode;
   }) {
     if (platformRole !== 'super_admin') {
       throw new Error('Only MiseChef super admins can use the founder workspace QA tool.');
@@ -181,6 +189,7 @@ export const workspaceService = {
       id: workspaceRef.id,
       name: workspaceName,
       ownerId: user.uid,
+      country: normalizeRegionCode(country),
       type,
       members: [member],
       createdAt: now,

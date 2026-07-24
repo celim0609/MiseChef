@@ -9,6 +9,7 @@ import type { CostingIngredient, CostingInvoice, PendingRecipeCostRecalculation 
 import { supplierService } from '../modules/suppliers/services';
 import type { Supplier, SupplierQuotation } from '../modules/suppliers/types';
 import { isPermissionError } from '../utils/customerErrorMessages';
+import { DEFAULT_REGION_CONFIGURATION } from '../regions';
 
 export type DashboardSourceStatus = 'ready' | 'permission-denied' | 'error';
 
@@ -64,7 +65,7 @@ const normalizeQuotation = (id: string, data: Record<string, unknown>): Supplier
   packSize: readString(data.packSize),
   unit: readString(data.unit),
   unitPrice: readNumber(data.unitPrice),
-  currency: readString(data.currency) || 'SGD',
+  currency: readString(data.currency) || DEFAULT_REGION_CONFIGURATION.currency,
   gstIncluded: Boolean(data.gstIncluded),
   effectiveDate: readString(data.effectiveDate),
   expiryDate: readString(data.expiryDate) || undefined,

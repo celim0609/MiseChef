@@ -33,6 +33,7 @@ import TodaysTasks from './home/TodaysTasks';
 import type { CostingInvoice } from '../modules/costing/types';
 import { dashboardService, type DashboardSource, type OwnerDashboardData } from '../services/dashboardService';
 import { getAuthenticatedGreeting } from '../utils/authenticatedUser';
+import { formatRegionCurrency, useWorkspaceRegion } from '../regions';
 
 interface HomePortfolioSummary {
   professionalTitle?: string;
@@ -66,7 +67,7 @@ interface ActivityItem {
   tone: 'primary' | 'secondary' | 'warning';
 }
 
-const formatDate = (date = new Date()) => new Intl.DateTimeFormat('en-SG', {
+const formatDate = (locale: string, date = new Date()) => new Intl.DateTimeFormat(locale, {
   weekday: 'long',
   day: 'numeric',
   month: 'long',
@@ -137,6 +138,7 @@ export default function HomeTab({
   onToggleFavorite,
   workspaceRole = null
 }: HomeTabProps) {
+  const region = useWorkspaceRegion();
   const [dashboard, setDashboard] = useState<OwnerDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [dashboardError, setDashboardError] = useState('');
@@ -306,10 +308,10 @@ export default function HomeTab({
   ];
 
   const businessPerformanceCards = [
-    { label: "Today's Sales", value: `SGD ${todaySales.toFixed(2)}`, icon: <TrendingUp className="h-5 w-5" />, helper: 'Recorded sales for today', tone: 'secondary', state: todaySalesState },
-    { label: 'Yesterday Sales', value: `SGD ${yesterdaySales.toFixed(2)}`, icon: <TrendingUp className="h-5 w-5" />, helper: 'Recorded sales for yesterday', tone: 'secondary', state: yesterdaySalesState },
-    { label: 'This Month Sales', value: `SGD ${monthSales.toFixed(2)}`, icon: <TrendingUp className="h-5 w-5" />, helper: 'Recorded sales this month', tone: 'secondary', state: monthSalesState },
-    { label: 'Total Purchases', value: `SGD ${monthPurchases.toFixed(2)}`, icon: <ReceiptText className="h-5 w-5" />, helper: 'Approved imported invoices this month', tone: 'primary', state: purchaseState },
+    { label: "Today's Sales", value: formatRegionCurrency(todaySales, region.currency), icon: <TrendingUp className="h-5 w-5" />, helper: 'Recorded sales for today', tone: 'secondary', state: todaySalesState },
+    { label: 'Yesterday Sales', value: formatRegionCurrency(yesterdaySales, region.currency), icon: <TrendingUp className="h-5 w-5" />, helper: 'Recorded sales for yesterday', tone: 'secondary', state: yesterdaySalesState },
+    { label: 'This Month Sales', value: formatRegionCurrency(monthSales, region.currency), icon: <TrendingUp className="h-5 w-5" />, helper: 'Recorded sales this month', tone: 'secondary', state: monthSalesState },
+    { label: 'Total Purchases', value: formatRegionCurrency(monthPurchases, region.currency), icon: <ReceiptText className="h-5 w-5" />, helper: 'Approved imported invoices this month', tone: 'primary', state: purchaseState },
     { label: 'Purchase Ratio', value: purchaseRatio === null ? 'Not available' : `${purchaseRatio.toFixed(1)}%`, icon: <ClipboardList className="h-5 w-5" />, helper: purchaseRatioState === 'ready' && monthSales === 0 ? 'Sales total is an actual zero' : 'Total purchases divided by total sales', tone: 'secondary', state: purchaseRatioState }
   ];
 
@@ -414,7 +416,7 @@ export default function HomeTab({
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-5 animate-fade-in">
-      <OwnerHomeHeader date={formatDate()} greeting={ownerHomeGreeting} purchaseRatio={purchaseRatioHeader.value} purchaseRatioLabel={purchaseRatioHeader.label} purchaseRatioClassName={purchaseRatioHeader.className} />
+      <OwnerHomeHeader date={formatDate(region.locale)} greeting={ownerHomeGreeting} purchaseRatio={purchaseRatioHeader.value} purchaseRatioLabel={purchaseRatioHeader.label} purchaseRatioClassName={purchaseRatioHeader.className} />
 
       <TodaysTasks workspaceId={activeWorkspaceId} userId={userId} />
 
