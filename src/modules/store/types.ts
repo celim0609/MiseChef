@@ -1,5 +1,17 @@
 import type { RegionCode, RegionCurrency } from '../../regions';
 
+export type StoreOrderDay =
+  | 'monday'
+  | 'tuesday'
+  | 'wednesday'
+  | 'thursday'
+  | 'friday'
+  | 'saturday'
+  | 'sunday';
+
+export type StoreEarliestPickupDays = 0 | 1;
+export type StoreMaximumAdvanceDays = 7 | 14 | 30;
+
 export interface WorkspaceStore {
   id: string;
   workspaceId: string;
@@ -14,6 +26,10 @@ export interface WorkspaceStore {
   deliveryEnabled: boolean;
   pickupSessions: string[];
   pickupLocations: StorePickupLocation[];
+  orderDays: StoreOrderDay[];
+  earliestPickupDays: StoreEarliestPickupDays;
+  maximumAdvanceDays: StoreMaximumAdvanceDays;
+  unavailableDates: string[];
   country: RegionCode;
   currency: RegionCurrency;
   createdBy: string;
@@ -32,6 +48,10 @@ export interface StoreSettingsDraft {
   deliveryEnabled: boolean;
   pickupSessions: string[];
   pickupLocations: StorePickupLocation[];
+  orderDays: StoreOrderDay[];
+  earliestPickupDays: StoreEarliestPickupDays;
+  maximumAdvanceDays: StoreMaximumAdvanceDays;
+  unavailableDates: string[];
 }
 
 export interface StorePickupLocation {

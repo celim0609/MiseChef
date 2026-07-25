@@ -8,11 +8,22 @@ import type {
   StoreOptionGroupDraft,
   StoreOrderItem,
   StoreOrderDraft,
+  StoreOrderDay,
   StoreSettingsDraft,
   WorkspaceStore
 } from './types';
 
 export const DEFAULT_STORE_BUSINESS_HOURS = 'Monday–Sunday, 9:00 AM–9:00 PM';
+export const STORE_ORDER_DAYS: Array<{ id: StoreOrderDay; label: string; dayIndex: number }> = [
+  { id: 'monday', label: 'Monday', dayIndex: 1 },
+  { id: 'tuesday', label: 'Tuesday', dayIndex: 2 },
+  { id: 'wednesday', label: 'Wednesday', dayIndex: 3 },
+  { id: 'thursday', label: 'Thursday', dayIndex: 4 },
+  { id: 'friday', label: 'Friday', dayIndex: 5 },
+  { id: 'saturday', label: 'Saturday', dayIndex: 6 },
+  { id: 'sunday', label: 'Sunday', dayIndex: 0 }
+];
+export const DEFAULT_STORE_ORDER_DAYS = STORE_ORDER_DAYS.map(day => day.id);
 
 const readString = (value: unknown, fallback = '') => (
   typeof value === 'string' && value.trim() ? value.trim() : fallback
@@ -25,6 +36,68 @@ const readBoolean = (value: unknown, fallback = false) => (
 const readPrice = (value: unknown) => {
   const price = Number(value);
   return Number.isFinite(price) && price >= 0 ? price : 0;
+};
+
+const readEarliestPickupDays = (value: unknown): 0 | 1 => (
+  value === 1 ? 1 : 0
+);
+
+const readMaximumAdvanceDays = (value: unknown): 7 | 14 | 30 => (
+  value === 7 || value === 30 ? value : 14
+);
+
+const toLocalDateKey = (date: Date) => {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+};
+
+const addLocalDays = (date: Date, days: number) => {
+  const next = new Date(date);
+  next.setHours(12, 0, 0, 0);
+  next.setDate(next.getDate() + days);
+  return next;
+};
+
+export const getValidPickupDates = (
+  store: Pick<WorkspaceStore, 'orderDays' | 'earliestPickupDays' | 'maximumAdvanceDays' | 'unavailableDates'>,
+  currentDate = new Date()
+) => {
+  const enabledDays = new Set(store.orderDays);
+  const unavailableDates = new Set(store.unavailableDates);
+  const dayByIndex = new Map(STORE_ORDER_DAYS.map(day => [day.dayIndex, day.id]));
+  const dates: string[] = [];
+
+  for (
+    let offset = store.earliestPickupDays;
+    offset <= store.maximumAdvanceDays;
+    offset += 1
+  ) {
+    const candidate = addLocalDays(currentDate, offset);
+    const dateKey = toLocalDateKey(candidate);
+    const orderDay = dayByIndex.get(candidate.getDay());
+    if (orderDay && enabledDays.has(orderDay) && !unavailableDates.has(dateKey)) {
+      dates.push(dateKey);
+    }
+  }
+
+  return dates;
+};
+
+export const formatPickupDateLabel = (dateKey: string, currentDate = new Date()) => {
+  const date = new Date(`${dateKey}T12:00:00`);
+  const tomorrowKey = toLocalDateKey(addLocalDays(currentDate, 1));
+  const prefix = dateKey === toLocalDateKey(currentDate)
+    ? 'Today'
+    : dateKey === tomorrowKey
+      ? 'Tomorrow'
+      : '';
+  const formatted = new Intl.DateTimeFormat('en', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short'
+  }).format(date);
+  return prefix ? `${prefix} · ${formatted}` : formatted;
 };
 
 export const toStoreSlug = (value: string) => value
@@ -55,6 +128,10 @@ export const createDefaultWorkspaceStore = (
     deliveryEnabled: false,
     pickupSessions: [],
     pickupLocations: [],
+    orderDays: [...DEFAULT_STORE_ORDER_DAYS],
+    earliestPickupDays: 0,
+    maximumAdvanceDays: 14,
+    unavailableDates: [],
     country: region.country,
     currency: region.currency,
     createdBy,
@@ -69,6 +146,7 @@ export const normalizeWorkspaceStore = (
 ): WorkspaceStore => {
   const country = normalizeRegionCode(data.country);
   const region = getWorkspaceRegionConfiguration({ country });
+  const rawOrderDays = Array.isArray(data.orderDays) ? data.orderDays : null;
 
   return {
     id,
@@ -98,6 +176,18 @@ export const normalizeWorkspaceStore = (
           };
         })
         .filter(location => location.id && location.name && location.address)
+      : [],
+    orderDays: rawOrderDays
+      ? STORE_ORDER_DAYS
+        .map(day => day.id)
+        .filter(day => rawOrderDays.includes(day))
+      : [...DEFAULT_STORE_ORDER_DAYS],
+    earliestPickupDays: readEarliestPickupDays(data.earliestPickupDays),
+    maximumAdvanceDays: readMaximumAdvanceDays(data.maximumAdvanceDays),
+    unavailableDates: Array.isArray(data.unavailableDates)
+      ? [...new Set(data.unavailableDates.filter((date): date is string => (
+        typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
+      )))].sort()
       : [],
     country: region.country,
     currency: region.currency,
@@ -147,6 +237,14 @@ export const validateStoreSettings = (draft: StoreSettingsDraft) => {
     return 'Pickup location details are too long.';
   }
   if (new Set(draft.pickupLocations.map(location => location.id)).size !== draft.pickupLocations.length) return 'Pickup locations must be unique.';
+  if (draft.orderDays.length === 0) return 'Choose at least one order day.';
+  if (new Set(draft.orderDays).size !== draft.orderDays.length) return 'Order days must be unique.';
+  if (draft.orderDays.some(day => !DEFAULT_STORE_ORDER_DAYS.includes(day))) return 'Choose valid order days.';
+  if (draft.earliestPickupDays !== 0 && draft.earliestPickupDays !== 1) return 'Choose a valid earliest pickup option.';
+  if (![7, 14, 30].includes(draft.maximumAdvanceDays)) return 'Choose a valid advance booking window.';
+  if (draft.unavailableDates.length > 60) return 'Use 60 unavailable dates or fewer.';
+  if (draft.unavailableDates.some(date => !/^\d{4}-\d{2}-\d{2}$/.test(date))) return 'Choose valid unavailable dates.';
+  if (new Set(draft.unavailableDates).size !== draft.unavailableDates.length) return 'Unavailable dates must be unique.';
   return '';
 };
 
@@ -203,7 +301,8 @@ export const validateStoreOptionGroup = (draft: StoreOptionGroupDraft) => {
 
 export const validateStoreOrder = (
   draft: StoreOrderDraft,
-  store: Pick<WorkspaceStore, 'pickupEnabled' | 'pickupSessions' | 'pickupLocations'>
+  store: Pick<WorkspaceStore, 'pickupEnabled' | 'pickupSessions' | 'pickupLocations' | 'orderDays' | 'earliestPickupDays' | 'maximumAdvanceDays' | 'unavailableDates'>,
+  currentDate = new Date()
 ) => {
   if (!store.pickupEnabled) return 'Pickup ordering is not available.';
   if (!draft.customerName.trim()) return 'Name is required.';
@@ -212,7 +311,7 @@ export const validateStoreOrder = (
   if (draft.phone.trim().length > 40) return 'Phone number must be 40 characters or fewer.';
   if (!draft.pickupDate) return 'Pickup date is required.';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.pickupDate)) return 'Choose a valid pickup date.';
-  if (draft.pickupDate < new Date().toISOString().slice(0, 10)) return 'Pickup date cannot be in the past.';
+  if (!getValidPickupDates(store, currentDate).includes(draft.pickupDate)) return 'Choose an available pickup date.';
   if (!store.pickupSessions.includes(draft.pickupSession)) return 'Choose a valid pickup session.';
   if (!store.pickupLocations.some(location => location.id === draft.pickupLocationId)) return 'Choose a valid pickup location.';
   if (draft.notes.trim().length > 500) return 'Notes must be 500 characters or fewer.';

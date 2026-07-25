@@ -24,6 +24,8 @@ import {
   getStoreQrFileName
 } from './customerEntry';
 import {
+  formatPickupDateLabel,
+  STORE_ORDER_DAYS,
   validateStoreOptionGroup,
   validateStoreProduct,
   validateStoreSettings
@@ -68,8 +70,19 @@ const toSettingsDraft = (store: WorkspaceStore): StoreSettingsDraft => ({
   pickupEnabled: store.pickupEnabled,
   deliveryEnabled: store.deliveryEnabled,
   pickupSessions: [...store.pickupSessions],
-  pickupLocations: store.pickupLocations.map(location => ({ ...location }))
+  pickupLocations: store.pickupLocations.map(location => ({ ...location })),
+  orderDays: [...store.orderDays],
+  earliestPickupDays: store.earliestPickupDays,
+  maximumAdvanceDays: store.maximumAdvanceDays,
+  unavailableDates: [...store.unavailableDates]
 });
+
+const localToday = () => {
+  const date = new Date();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+};
 
 const toProductDraft = (product: StoreProduct): StoreProductDraft => ({
   photoUrl: product.photoUrl,
@@ -109,6 +122,7 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [shareMessage, setShareMessage] = useState('');
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
+  const [unavailableDateDraft, setUnavailableDateDraft] = useState('');
 
   useEffect(() => {
     let isCancelled = false;
@@ -182,6 +196,23 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
     value: StoreSettingsDraft[K]
   ) => {
     setSettingsDraft(current => current ? { ...current, [field]: value } : current);
+  };
+
+  const toggleOrderDay = (dayId: StoreSettingsDraft['orderDays'][number]) => {
+    if (!settingsDraft) return;
+    const selected = settingsDraft.orderDays.includes(dayId);
+    const nextDays = selected
+      ? settingsDraft.orderDays.filter(day => day !== dayId)
+      : STORE_ORDER_DAYS
+        .map(day => day.id)
+        .filter(day => [...settingsDraft.orderDays, dayId].includes(day));
+    updateSettings('orderDays', nextDays);
+  };
+
+  const addUnavailableDate = () => {
+    if (!settingsDraft || !unavailableDateDraft || settingsDraft.unavailableDates.includes(unavailableDateDraft)) return;
+    updateSettings('unavailableDates', [...settingsDraft.unavailableDates, unavailableDateDraft].sort());
+    setUnavailableDateDraft('');
   };
 
   const updateProduct = <K extends keyof StoreProductDraft>(
@@ -652,6 +683,71 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
                 </div>
               ))}
               {settingsDraft.pickupSessions.length === 0 && <p className="rounded-3xl border border-dashed border-outline-variant px-5 py-10 text-center font-sans text-sm font-bold text-on-surface-variant sm:col-span-2">No pickup sessions yet.</p>}
+            </div>
+          </section>
+
+          <section>
+            <div>
+              <h2 className="font-display text-2xl font-bold text-primary">Pre-order Settings</h2>
+              <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Which pickup dates can customers choose?</p>
+            </div>
+            <div className="mt-5 space-y-6 rounded-3xl bg-white p-5 shadow-sm sm:p-6">
+              <fieldset>
+                <legend className="font-sans text-xs font-extrabold text-primary">Order Days</legend>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {STORE_ORDER_DAYS.map(day => {
+                    const isSelected = settingsDraft.orderDays.includes(day.id);
+                    return (
+                      <button
+                        key={day.id}
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={() => toggleOrderDay(day.id)}
+                        className={`rounded-full px-4 py-2.5 font-sans text-xs font-extrabold transition-colors ${isSelected ? 'bg-primary text-on-primary' : 'bg-surface-container-low text-on-surface-variant'}`}
+                      >
+                        {day.label.slice(0, 3)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="font-sans text-xs font-extrabold text-primary">Earliest Pickup</span>
+                  <select aria-label="Earliest pickup" value={settingsDraft.earliestPickupDays} onChange={event => updateSettings('earliestPickupDays', Number(event.target.value) as 0 | 1)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                    <option value={0}>Same Day</option>
+                    <option value={1}>Next Day</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="font-sans text-xs font-extrabold text-primary">Maximum Advance Booking</span>
+                  <select aria-label="Maximum advance booking" value={settingsDraft.maximumAdvanceDays} onChange={event => updateSettings('maximumAdvanceDays', Number(event.target.value) as 7 | 14 | 30)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                    <option value={7}>7 Days</option>
+                    <option value={14}>14 Days</option>
+                    <option value={30}>30 Days</option>
+                  </select>
+                </label>
+              </div>
+
+              <div>
+                <span className="font-sans text-xs font-extrabold text-primary">Unavailable Dates</span>
+                <p className="mt-1 font-sans text-[11px] font-bold text-on-surface-variant">Block holidays, closed days, or fully booked dates.</p>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <input aria-label="Unavailable date" type="date" min={localToday()} value={unavailableDateDraft} onInput={event => setUnavailableDateDraft(event.currentTarget.value)} className="min-w-0 flex-1 rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                  <button type="button" disabled={!unavailableDateDraft || settingsDraft.unavailableDates.includes(unavailableDateDraft)} onClick={addUnavailableDate} className="rounded-full bg-surface-container px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-40">Block Date</button>
+                </div>
+                {settingsDraft.unavailableDates.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {settingsDraft.unavailableDates.map(date => (
+                      <span key={date} className="inline-flex items-center gap-2 rounded-full bg-surface-container-low px-3 py-2 font-sans text-xs font-bold text-primary">
+                        {formatPickupDateLabel(date)}
+                        <button type="button" aria-label={`Remove unavailable date ${date}`} onClick={() => updateSettings('unavailableDates', settingsDraft.unavailableDates.filter(item => item !== date))} className="text-error"><X className="h-3.5 w-3.5" /></button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </section>
 

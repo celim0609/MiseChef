@@ -15,18 +15,12 @@ import {
 } from 'lucide-react';
 import { formatRegionCurrency, getRegionConfiguration } from '../../regions';
 import { storeService } from './services';
+import { formatPickupDateLabel, getValidPickupDates } from './storeModel';
 import type { CartSelection, PublicStoreData, StoreOrder, StoreProduct } from './types';
 
 interface CartLine extends CartSelection {
   key: string;
 }
-
-const today = () => {
-  const date = new Date();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${date.getFullYear()}-${month}-${day}`;
-};
 
 const selectionKey = (productId: string, selectedOptions: CartSelection['selectedOptions']) => (
   `${productId}:${selectedOptions.map(option => `${option.groupId}=${option.optionId}`).sort().join('|')}`
@@ -41,7 +35,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customerName, setCustomerName] = useState('');
   const [phone, setPhone] = useState('');
-  const [pickupDate, setPickupDate] = useState(today);
+  const [pickupDate, setPickupDate] = useState('');
   const [pickupSession, setPickupSession] = useState('');
   const [pickupLocationId, setPickupLocationId] = useState('');
   const [notes, setNotes] = useState('');
@@ -58,6 +52,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
       .then(storeData => {
         if (isCancelled) return;
         setData(storeData);
+        setPickupDate(storeData ? getValidPickupDates(storeData.store)[0] || '' : '');
         setPickupSession(storeData?.store.pickupSessions[0] || '');
         setPickupLocationId(storeData?.store.pickupLocations[0]?.id || '');
       })
@@ -94,6 +89,10 @@ export default function PublicStorePage({ slug }: { slug: string }) {
 
   const cartTotal = cartDetails.reduce((sum, item) => sum + item.lineTotal, 0);
   const cartCount = cart.reduce((sum, line) => sum + line.quantity, 0);
+  const validPickupDates = useMemo(
+    () => data ? getValidPickupDates(data.store) : [],
+    [data]
+  );
   const selectedPickupLocation = data?.store.pickupLocations.find(
     location => location.id === pickupLocationId
   );
@@ -175,7 +174,8 @@ export default function PublicStorePage({ slug }: { slug: string }) {
   const region = getRegionConfiguration(store.country);
   const canOrderPickup = store.pickupEnabled
     && store.pickupLocations.length > 0
-    && store.pickupSessions.length > 0;
+    && store.pickupSessions.length > 0
+    && validPickupDates.length > 0;
 
   return (
     <div className="space-y-8">
@@ -251,7 +251,11 @@ export default function PublicStorePage({ slug }: { slug: string }) {
           </div>
 
           {!canOrderPickup && (
-            <p className="mt-5 rounded-2xl bg-surface-container-low p-4 font-sans text-sm font-bold text-on-surface-variant">This Store is currently browse-only. Pickup ordering is not available.</p>
+            <p className="mt-5 rounded-2xl bg-surface-container-low p-4 font-sans text-sm font-bold text-on-surface-variant">
+              {store.pickupEnabled && store.pickupLocations.length > 0 && store.pickupSessions.length > 0
+                ? 'No pickup dates are currently available.'
+                : 'This Store is currently browse-only. Pickup ordering is not available.'}
+            </p>
           )}
 
           {placedOrder && (
@@ -295,7 +299,9 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                 <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup</p>
                 <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Date</span>
-                  <input aria-label="Pickup date" required type="date" min={today()} value={pickupDate} onChange={event => setPickupDate(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                  <select aria-label="Pickup date" required value={pickupDate} onChange={event => setPickupDate(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                    {validPickupDates.map(date => <option key={date} value={date}>{formatPickupDateLabel(date)}</option>)}
+                  </select>
                 </label>
                 <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Location</span>

@@ -134,6 +134,10 @@ export const storeService = {
         address: location.address.trim(),
         notes: location.notes.trim()
       })),
+      orderDays: [...draft.orderDays],
+      earliestPickupDays: draft.earliestPickupDays,
+      maximumAdvanceDays: draft.maximumAdvanceDays,
+      unavailableDates: [...new Set(draft.unavailableDates)].sort(),
       pickupEnabled: draft.pickupLocations.length > 0
         && draft.pickupSessions.some(session => Boolean(session.trim())),
       updatedAt: new Date().toISOString()

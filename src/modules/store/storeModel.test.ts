@@ -3,6 +3,8 @@ import test from 'node:test';
 import {
   buildStoreOrderItems,
   createDefaultWorkspaceStore,
+  DEFAULT_STORE_ORDER_DAYS,
+  getValidPickupDates,
   normalizeStoreOptionGroup,
   normalizeWorkspaceStore,
   toStoreSlug,
@@ -13,6 +15,7 @@ import {
 } from './storeModel';
 import { resolvePublicRoute } from '../public/publicRoutes';
 import { canAccessRootTab } from '../team/permissions';
+import type { StoreOrderDay } from './types';
 
 test('every workspace receives exactly one region-aware Store identity', () => {
   const malaysiaStore = createDefaultWorkspaceStore(
@@ -53,7 +56,11 @@ test('pickup stays simple and requires owner-defined locations and sessions', ()
       name: 'Main Counter',
       address: '1 Main Street',
       notes: ''
-    }]
+    }],
+    orderDays: [...DEFAULT_STORE_ORDER_DAYS],
+    earliestPickupDays: 0 as const,
+    maximumAdvanceDays: 14 as const,
+    unavailableDates: []
   };
 
   assert.equal(validateStoreSettings(baseSettings), '');
@@ -156,10 +163,17 @@ test('order snapshots use current available products and owner-defined option pr
 });
 
 test('guest checkout requires pickup availability, valid sessions, and no account', () => {
+  const currentDate = new Date('2026-07-25T12:00:00');
+  const preorderRules = {
+    orderDays: [...DEFAULT_STORE_ORDER_DAYS],
+    earliestPickupDays: 0 as const,
+    maximumAdvanceDays: 14 as const,
+    unavailableDates: []
+  };
   const validDraft = {
     customerName: 'Customer',
     phone: '+60123456789',
-    pickupDate: '2099-01-01',
+    pickupDate: '2026-07-28',
     pickupSession: '12:00–12:30',
     pickupLocationId: 'front-counter',
     notes: '',
@@ -168,23 +182,91 @@ test('guest checkout requires pickup availability, valid sessions, and no accoun
   assert.equal(validateStoreOrder(validDraft, {
     pickupEnabled: true,
     pickupSessions: ['12:00–12:30'],
-    pickupLocations: [{ id: 'front-counter', name: 'Front Counter', address: '1 Main Street', notes: '' }]
-  }), '');
+    pickupLocations: [{ id: 'front-counter', name: 'Front Counter', address: '1 Main Street', notes: '' }],
+    ...preorderRules
+  }, currentDate), '');
   assert.equal(validateStoreOrder(validDraft, {
     pickupEnabled: false,
     pickupSessions: ['12:00–12:30'],
-    pickupLocations: [{ id: 'front-counter', name: 'Front Counter', address: '1 Main Street', notes: '' }]
-  }), 'Pickup ordering is not available.');
+    pickupLocations: [{ id: 'front-counter', name: 'Front Counter', address: '1 Main Street', notes: '' }],
+    ...preorderRules
+  }, currentDate), 'Pickup ordering is not available.');
   assert.equal(validateStoreOrder({ ...validDraft, pickupSession: '13:00–13:30' }, {
     pickupEnabled: true,
     pickupSessions: ['12:00–12:30'],
-    pickupLocations: [{ id: 'front-counter', name: 'Front Counter', address: '1 Main Street', notes: '' }]
-  }), 'Choose a valid pickup session.');
+    pickupLocations: [{ id: 'front-counter', name: 'Front Counter', address: '1 Main Street', notes: '' }],
+    ...preorderRules
+  }, currentDate), 'Choose a valid pickup session.');
   assert.equal(validateStoreOrder({ ...validDraft, pickupLocationId: 'unknown' }, {
     pickupEnabled: true,
     pickupSessions: ['12:00–12:30'],
-    pickupLocations: [{ id: 'front-counter', name: 'Front Counter', address: '1 Main Street', notes: '' }]
-  }), 'Choose a valid pickup location.');
+    pickupLocations: [{ id: 'front-counter', name: 'Front Counter', address: '1 Main Street', notes: '' }],
+    ...preorderRules
+  }, currentDate), 'Choose a valid pickup location.');
+});
+
+test('pre-order rules give customers only enabled, in-window, unblocked dates', () => {
+  const currentDate = new Date('2026-07-25T12:00:00');
+  const storeRules = {
+    orderDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'] as StoreOrderDay[],
+    earliestPickupDays: 1 as const,
+    maximumAdvanceDays: 14 as const,
+    unavailableDates: ['2026-07-27', '2026-08-04']
+  };
+
+  assert.deepEqual(getValidPickupDates(storeRules, currentDate), [
+    '2026-07-28',
+    '2026-07-29',
+    '2026-07-30',
+    '2026-07-31',
+    '2026-08-03',
+    '2026-08-05',
+    '2026-08-06',
+    '2026-08-07'
+  ]);
+});
+
+test('checkout rejects disabled, blocked, too-early, and out-of-window pickup dates', () => {
+  const currentDate = new Date('2026-07-25T12:00:00');
+  const store = {
+    pickupEnabled: true,
+    pickupSessions: ['Lunch'],
+    pickupLocations: [{ id: 'counter', name: 'Counter', address: '1 Main Street', notes: '' }],
+    orderDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'] as StoreOrderDay[],
+    earliestPickupDays: 1 as const,
+    maximumAdvanceDays: 14 as const,
+    unavailableDates: ['2026-07-27']
+  };
+  const draft = {
+    customerName: 'Customer',
+    phone: '+60123456789',
+    pickupDate: '2026-07-28',
+    pickupSession: 'Lunch',
+    pickupLocationId: 'counter',
+    notes: '',
+    selections: [{ productId: 'set-a', quantity: 1, selectedOptions: [] }]
+  };
+
+  for (const invalidDate of ['2026-07-25', '2026-07-26', '2026-07-27', '2026-08-10']) {
+    assert.equal(
+      validateStoreOrder({ ...draft, pickupDate: invalidDate }, store, currentDate),
+      'Choose an available pickup date.'
+    );
+  }
+  assert.equal(validateStoreOrder(draft, store, currentDate), '');
+});
+
+test('legacy Stores receive safe default pre-order rules', () => {
+  const store = normalizeWorkspaceStore('workspace-my', {
+    workspaceId: 'workspace-my',
+    name: 'Legacy Store',
+    country: 'MY'
+  });
+
+  assert.deepEqual(store.orderDays, DEFAULT_STORE_ORDER_DAYS);
+  assert.equal(store.earliestPickupDays, 0);
+  assert.equal(store.maximumAdvanceDays, 14);
+  assert.deepEqual(store.unavailableDates, []);
 });
 
 test('only workspace owners and managers can manage Store settings and products', () => {
