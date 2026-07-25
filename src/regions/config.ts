@@ -11,10 +11,9 @@ export const REGION_CONFIGURATIONS = {
     timeZone: 'Asia/Kuala_Lumpur',
     currency: 'MYR',
     paymentMethods: [
-      { id: 'touch-n-go', name: "Touch 'n Go" },
-      { id: 'grabpay-my', name: 'GrabPay MY' },
+      { id: 'touch-n-go', name: "Touch 'n Go eWallet" },
       { id: 'fpx', name: 'FPX' },
-      { id: 'card', name: 'Card' }
+      { id: 'card', name: 'Debit / Credit Card' }
     ],
     // Provider catalogs stay empty until product-approved integrations are configured.
     deliveryProviders: [],
@@ -28,8 +27,7 @@ export const REGION_CONFIGURATIONS = {
     currency: 'SGD',
     paymentMethods: [
       { id: 'paynow', name: 'PayNow' },
-      { id: 'grabpay-sg', name: 'GrabPay SG' },
-      { id: 'card', name: 'Card' }
+      { id: 'card', name: 'Debit / Credit Card' }
     ],
     // Provider catalogs stay empty until product-approved integrations are configured.
     deliveryProviders: [],

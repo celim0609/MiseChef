@@ -21,6 +21,7 @@ export interface WorkspaceStore {
   coverImageUrl: string;
   description: string;
   contactInformation: string;
+  businessWhatsApp: string;
   businessHours: string;
   pickupEnabled: boolean;
   deliveryEnabled: boolean;
@@ -43,6 +44,7 @@ export interface StoreSettingsDraft {
   coverImageUrl: string;
   description: string;
   contactInformation: string;
+  businessWhatsApp: string;
   businessHours: string;
   pickupEnabled: boolean;
   deliveryEnabled: boolean;
@@ -143,10 +145,13 @@ export interface StoreOrderItem {
 
 export interface StoreOrder {
   id: string;
+  orderNumber: string;
   storeId: string;
   workspaceId: string;
   storeName: string;
   currency: RegionCurrency;
+  paymentMethodId: string;
+  paymentMethodName: string;
   customerName: string;
   phone: string;
   pickupDate: string;
@@ -169,6 +174,7 @@ export interface StoreOrderDraft {
   pickupDate: string;
   pickupSession: string;
   pickupLocationId: string;
+  paymentMethodId: string;
   notes: string;
   selections: CartSelection[];
 }

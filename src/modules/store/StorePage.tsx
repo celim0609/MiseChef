@@ -66,6 +66,7 @@ const toSettingsDraft = (store: WorkspaceStore): StoreSettingsDraft => ({
   coverImageUrl: store.coverImageUrl,
   description: store.description,
   contactInformation: store.contactInformation,
+  businessWhatsApp: store.businessWhatsApp,
   businessHours: store.businessHours,
   pickupEnabled: store.pickupEnabled,
   deliveryEnabled: store.deliveryEnabled,
@@ -790,6 +791,11 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
               <span className="font-sans text-xs font-extrabold text-primary">Contact Information</span>
               <textarea rows={3} placeholder="Phone, email, or other contact details" value={settingsDraft.contactInformation} onChange={event => updateSettings('contactInformation', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
             </label>
+            <label className="block md:col-span-2">
+              <span className="font-sans text-xs font-extrabold text-primary">Business WhatsApp</span>
+              <input type="tel" inputMode="tel" autoComplete="tel" placeholder="+60 12-3456789" value={settingsDraft.businessWhatsApp} onChange={event => updateSettings('businessWhatsApp', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+              <span className="mt-1.5 block font-sans text-[11px] font-bold text-on-surface-variant">Shown publicly only on WhatsApp enquiry buttons.</span>
+            </label>
           </div>
           <div className="mt-7 flex justify-end">
             <button type="submit" disabled={isSaving} className="rounded-full bg-primary px-6 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : 'Save Store Settings'}</button>
@@ -827,10 +833,10 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
 
             <div className="mt-4 grid gap-2 sm:grid-cols-2">
               <button type="button" onClick={copyOrderingLink} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">
-                <Copy className="h-4 w-4" /> Copy Link
+                <Copy className="h-4 w-4" /> Copy Order Link
               </button>
               <button type="button" onClick={downloadQrCode} disabled={!qrDataUrl || isGeneratingQr} className="inline-flex items-center justify-center gap-2 rounded-full bg-surface-container px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-50">
-                <Download className="h-4 w-4" /> Download QR
+                <Download className="h-4 w-4" /> Download QR Code
               </button>
             </div>
             {shareMessage && <p className="mt-3 text-center font-sans text-xs font-bold text-on-surface-variant">{shareMessage}</p>}

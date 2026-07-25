@@ -17,7 +17,7 @@ test('Malaysia configuration exposes the approved currency and payment methods',
   assert.equal(malaysia.currency, 'MYR');
   assert.deepEqual(
     malaysia.paymentMethods.map(method => method.name),
-    ["Touch 'n Go", 'GrabPay MY', 'FPX', 'Card']
+    ["Touch 'n Go eWallet", 'FPX', 'Debit / Credit Card']
   );
 });
 
@@ -29,7 +29,7 @@ test('Singapore configuration exposes the approved currency and payment methods'
   assert.equal(singapore.currency, 'SGD');
   assert.deepEqual(
     singapore.paymentMethods.map(method => method.name),
-    ['PayNow', 'GrabPay SG', 'Card']
+    ['PayNow', 'Debit / Credit Card']
   );
 });
 

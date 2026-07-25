@@ -5,6 +5,7 @@ import {
   Clock3,
   Compass,
   MapPin,
+  MessageCircle,
   Minus,
   PackageOpen,
   Plus,
@@ -16,6 +17,7 @@ import {
 import { formatRegionCurrency, getRegionConfiguration } from '../../regions';
 import { storeService } from './services';
 import { formatPickupDateLabel, getValidPickupDates } from './storeModel';
+import { getBusinessWhatsAppUrl } from './selling';
 import type { CartSelection, PublicStoreData, StoreOrder, StoreProduct } from './types';
 
 interface CartLine extends CartSelection {
@@ -38,6 +40,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
   const [pickupDate, setPickupDate] = useState('');
   const [pickupSession, setPickupSession] = useState('');
   const [pickupLocationId, setPickupLocationId] = useState('');
+  const [paymentMethodId, setPaymentMethodId] = useState('');
   const [notes, setNotes] = useState('');
   const [checkoutError, setCheckoutError] = useState('');
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
@@ -55,6 +58,9 @@ export default function PublicStorePage({ slug }: { slug: string }) {
         setPickupDate(storeData ? getValidPickupDates(storeData.store)[0] || '' : '');
         setPickupSession(storeData?.store.pickupSessions[0] || '');
         setPickupLocationId(storeData?.store.pickupLocations[0]?.id || '');
+        setPaymentMethodId(storeData
+          ? getRegionConfiguration(storeData.store.country).paymentMethods[0]?.id || ''
+          : '');
       })
       .catch(() => {
         if (!isCancelled) {
@@ -138,6 +144,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
         pickupDate,
         pickupSession,
         pickupLocationId,
+        paymentMethodId,
         notes,
         selections: cart.map(({ productId, quantity, selectedOptions }) => ({
           productId,
@@ -172,6 +179,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
 
   const { store, products } = data;
   const region = getRegionConfiguration(store.country);
+  const bulkOrderWhatsAppUrl = getBusinessWhatsAppUrl(store.businessWhatsApp);
   const canOrderPickup = store.pickupEnabled
     && store.pickupLocations.length > 0
     && store.pickupSessions.length > 0
@@ -262,9 +270,17 @@ export default function PublicStorePage({ slug }: { slug: string }) {
             <div className="mt-5 rounded-2xl bg-green-50 p-4 text-green-800">
               <CheckCircle2 className="h-6 w-6" />
               <p className="mt-2 font-display text-xl font-bold">Order placed</p>
-              <p className="mt-1 font-sans text-xs font-bold">{placedOrder.pickupDate} · {placedOrder.pickupSession}</p>
-              <p className="mt-1 font-sans text-xs font-bold">{placedOrder.pickupLocationName}</p>
-              <a href="/" className="mt-4 inline-flex items-center gap-2 rounded-full bg-green-800 px-4 py-2.5 font-sans text-xs font-extrabold text-white">Explore MiseChef <ArrowRight className="h-3.5 w-3.5" /></a>
+              <dl className="mt-4 grid gap-3 rounded-2xl bg-white/70 p-4">
+                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Order Number</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.orderNumber}</dd></div>
+                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Date</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{formatPickupDateLabel(placedOrder.pickupDate, store.country)}</dd></div>
+                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Location</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupLocationName}</dd></div>
+                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Session</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupSession}</dd></div>
+                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Payment Method</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.paymentMethodName}</dd></div>
+              </dl>
+              <div className="mt-4 flex flex-col gap-2">
+                {bulkOrderWhatsAppUrl && <a href={bulkOrderWhatsAppUrl} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-full bg-green-800 px-4 py-2.5 font-sans text-xs font-extrabold text-white"><MessageCircle className="h-3.5 w-3.5" /> WhatsApp Us</a>}
+                <a href="/" className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 font-sans text-xs font-extrabold text-green-800">Explore MiseChef <ArrowRight className="h-3.5 w-3.5" /></a>
+              </div>
             </div>
           )}
 
@@ -321,6 +337,17 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                     {store.pickupSessions.map(session => <option key={session} value={session}>{session}</option>)}
                   </select>
                 </label>
+                <fieldset>
+                  <legend className="font-sans text-xs font-extrabold text-primary">Payment</legend>
+                  <div className="mt-2 space-y-2">
+                    {region.paymentMethods.map(method => (
+                      <label key={method.id} className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 ${paymentMethodId === method.id ? 'border-primary bg-primary/5' : 'border-surface-container-high bg-surface-container-low'}`}>
+                        <input type="radio" name="paymentMethod" value={method.id} checked={paymentMethodId === method.id} onChange={() => setPaymentMethodId(method.id)} className="h-4 w-4 text-primary" />
+                        <span className="font-sans text-sm font-extrabold text-primary">{method.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
                 <p className="pt-1 font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Your details</p>
                 <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Name</span>
@@ -336,7 +363,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                 </label>
                 {checkoutError && <p className="rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
                 <button type="submit" disabled={isPlacingOrder} className="w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary disabled:opacity-50">{isPlacingOrder ? 'Placing Order…' : 'Place Order'}</button>
-                <p className="text-center font-sans text-[10px] font-bold text-outline">No login, email, account, or payment required.</p>
+                <p className="text-center font-sans text-[10px] font-bold text-outline">No login, email, or account required.</p>
               </form>
             </>
           ) : !placedOrder && canOrderPickup ? (
@@ -344,6 +371,17 @@ export default function PublicStorePage({ slug }: { slug: string }) {
           ) : null}
         </aside>
       </div>
+
+      <section className="rounded-3xl border border-surface-container-high bg-white px-6 py-8 text-center shadow-sm">
+        <MessageCircle className="mx-auto h-7 w-7 text-primary" />
+        <h2 className="mt-3 font-display text-3xl font-bold text-primary">Need a Bulk Order?</h2>
+        <p className="mx-auto mt-2 max-w-xl font-sans text-sm font-bold leading-relaxed text-on-surface-variant">Planning breakfast, meetings, catering or events?</p>
+        {bulkOrderWhatsAppUrl ? (
+          <a href={bulkOrderWhatsAppUrl} target="_blank" rel="noreferrer" className="mt-5 inline-flex items-center gap-2 rounded-full bg-green-700 px-6 py-3.5 font-sans text-sm font-extrabold text-white"><MessageCircle className="h-4 w-4" /> WhatsApp Us</a>
+        ) : (
+          <p className="mt-4 font-sans text-xs font-bold text-outline">Bulk order contact is not available yet.</p>
+        )}
+      </section>
 
       <section className="rounded-3xl bg-primary px-6 py-8 text-on-primary sm:flex sm:items-center sm:justify-between sm:gap-8">
         <div>

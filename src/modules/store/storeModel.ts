@@ -1,5 +1,6 @@
 import type { Workspace } from '../../types';
 import { getWorkspaceRegionConfiguration, normalizeRegionCode } from '../../regions';
+import { isValidBusinessWhatsApp } from './selling';
 import type {
   CartSelection,
   StoreProduct,
@@ -144,6 +145,7 @@ export const createDefaultWorkspaceStore = (
     coverImageUrl: '',
     description: '',
     contactInformation: '',
+    businessWhatsApp: '',
     businessHours: DEFAULT_STORE_BUSINESS_HOURS,
     pickupEnabled: false,
     deliveryEnabled: false,
@@ -178,6 +180,7 @@ export const normalizeWorkspaceStore = (
     coverImageUrl: readString(data.coverImageUrl),
     description: readString(data.description),
     contactInformation: readString(data.contactInformation),
+    businessWhatsApp: readString(data.businessWhatsApp),
     businessHours: readString(data.businessHours, DEFAULT_STORE_BUSINESS_HOURS),
     pickupEnabled: readBoolean(data.pickupEnabled),
     deliveryEnabled: readBoolean(data.deliveryEnabled),
@@ -244,6 +247,7 @@ export const validateStoreSettings = (draft: StoreSettingsDraft) => {
   if (draft.name.trim().length > 120) return 'Store name must be 120 characters or fewer.';
   if (draft.description.trim().length > 1200) return 'Description must be 1,200 characters or fewer.';
   if (draft.contactInformation.trim().length > 500) return 'Contact information must be 500 characters or fewer.';
+  if (!isValidBusinessWhatsApp(draft.businessWhatsApp)) return 'Enter a valid Business WhatsApp number, including country code.';
   if (draft.businessHours.trim().length > 300) return 'Business hours must be 300 characters or fewer.';
   if (pickupSessions.length > 20) return 'Use 20 pickup sessions or fewer.';
   if (pickupSessions.some(session => session.length > 80)) {
@@ -322,10 +326,11 @@ export const validateStoreOptionGroup = (draft: StoreOptionGroupDraft) => {
 
 export const validateStoreOrder = (
   draft: StoreOrderDraft,
-  store: Pick<WorkspaceStore, 'pickupEnabled' | 'pickupSessions' | 'pickupLocations' | 'orderDays' | 'earliestPickupDays' | 'maximumAdvanceDays' | 'unavailableDates'>,
+  store: Pick<WorkspaceStore, 'pickupEnabled' | 'pickupSessions' | 'pickupLocations' | 'orderDays' | 'earliestPickupDays' | 'maximumAdvanceDays' | 'unavailableDates' | 'country'>,
   currentDate = new Date()
 ) => {
   if (!store.pickupEnabled) return 'Pickup ordering is not available.';
+  const region = getWorkspaceRegionConfiguration(store);
   if (!draft.customerName.trim()) return 'Name is required.';
   if (draft.customerName.trim().length > 120) return 'Name must be 120 characters or fewer.';
   if (!draft.phone.trim() || draft.phone.replace(/\D/g, '').length < 6) return 'Enter a valid phone number.';
@@ -335,6 +340,7 @@ export const validateStoreOrder = (
   if (!getValidPickupDates(store, currentDate).includes(draft.pickupDate)) return 'Choose an available pickup date.';
   if (!store.pickupSessions.includes(draft.pickupSession)) return 'Choose a valid pickup session.';
   if (!store.pickupLocations.some(location => location.id === draft.pickupLocationId)) return 'Choose a valid pickup location.';
+  if (!region.paymentMethods.some(method => method.id === draft.paymentMethodId)) return 'Choose a valid payment method.';
   if (draft.notes.trim().length > 500) return 'Notes must be 500 characters or fewer.';
   if (draft.selections.length === 0) return 'Your cart is empty.';
   if (draft.selections.some(selection => !Number.isInteger(selection.quantity) || selection.quantity < 1 || selection.quantity > 20)) {

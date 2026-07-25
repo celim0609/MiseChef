@@ -47,6 +47,7 @@ test('pickup stays simple and requires owner-defined locations and sessions', ()
     coverImageUrl: '',
     description: '',
     contactInformation: '',
+    businessWhatsApp: '',
     businessHours: '',
     pickupEnabled: true,
     deliveryEnabled: false,
@@ -68,6 +69,10 @@ test('pickup stays simple and requires owner-defined locations and sessions', ()
     ...baseSettings,
     pickupLocations: [{ id: 'counter', name: '', address: '', notes: '' }]
   }), 'Every pickup location needs a name and address.');
+  assert.equal(validateStoreSettings({
+    ...baseSettings,
+    businessWhatsApp: 'not-a-number'
+  }), 'Enter a valid Business WhatsApp number, including country code.');
 });
 
 test('public Store slugs are stable and URL safe', () => {
@@ -165,6 +170,7 @@ test('order snapshots use current available products and owner-defined option pr
 test('guest checkout requires pickup availability, valid sessions, and no account', () => {
   const currentDate = new Date('2026-07-25T12:00:00');
   const preorderRules = {
+    country: 'MY' as const,
     orderDays: [...DEFAULT_STORE_ORDER_DAYS],
     earliestPickupDays: 0 as const,
     maximumAdvanceDays: 14 as const,
@@ -176,6 +182,7 @@ test('guest checkout requires pickup availability, valid sessions, and no accoun
     pickupDate: '2026-07-28',
     pickupSession: '12:00–12:30',
     pickupLocationId: 'front-counter',
+    paymentMethodId: 'fpx',
     notes: '',
     selections: [{ productId: 'set-a', quantity: 1, selectedOptions: [] }]
   };
@@ -243,6 +250,7 @@ test('pickup windows follow the Store region instead of the customer device or U
 test('checkout rejects disabled, blocked, too-early, and out-of-window pickup dates', () => {
   const currentDate = new Date('2026-07-25T12:00:00');
   const store = {
+    country: 'MY' as const,
     pickupEnabled: true,
     pickupSessions: ['Lunch'],
     pickupLocations: [{ id: 'counter', name: 'Counter', address: '1 Main Street', notes: '' }],
@@ -257,6 +265,7 @@ test('checkout rejects disabled, blocked, too-early, and out-of-window pickup da
     pickupDate: '2026-07-28',
     pickupSession: 'Lunch',
     pickupLocationId: 'counter',
+    paymentMethodId: 'card',
     notes: '',
     selections: [{ productId: 'set-a', quantity: 1, selectedOptions: [] }]
   };
@@ -268,6 +277,19 @@ test('checkout rejects disabled, blocked, too-early, and out-of-window pickup da
     );
   }
   assert.equal(validateStoreOrder(draft, store, currentDate), '');
+  assert.equal(
+    validateStoreOrder({ ...draft, paymentMethodId: 'paynow' }, store, currentDate),
+    'Choose a valid payment method.'
+  );
+  const singaporeStore = { ...store, country: 'SG' as const };
+  assert.equal(
+    validateStoreOrder({ ...draft, paymentMethodId: 'paynow' }, singaporeStore, currentDate),
+    ''
+  );
+  assert.equal(
+    validateStoreOrder({ ...draft, paymentMethodId: 'touch-n-go' }, singaporeStore, currentDate),
+    'Choose a valid payment method.'
+  );
 });
 
 test('legacy Stores receive safe default pre-order rules', () => {

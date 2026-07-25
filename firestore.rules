@@ -193,6 +193,7 @@ service cloud.firestore {
           'coverImageUrl',
           'description',
           'contactInformation',
+          'businessWhatsApp',
           'businessHours',
           'pickupEnabled',
           'deliveryEnabled',
@@ -222,6 +223,8 @@ service cloud.firestore {
         && data.description.size() <= 1200
         && data.contactInformation is string
         && data.contactInformation.size() <= 500
+        && data.businessWhatsApp is string
+        && data.businessWhatsApp.size() <= 30
         && data.businessHours is string
         && data.businessHours.size() <= 300
         && data.pickupEnabled is bool
@@ -334,13 +337,28 @@ service cloud.firestore {
         && (!('unavailableDates' in store) || !(data.pickupDate in store.unavailableDates));
     }
 
+    function hasValidStorePayment(data, store) {
+      return (store.country == 'MY' && (
+          (data.paymentMethodId == 'touch-n-go' && data.paymentMethodName == "Touch 'n Go eWallet")
+          || (data.paymentMethodId == 'fpx' && data.paymentMethodName == 'FPX')
+          || (data.paymentMethodId == 'card' && data.paymentMethodName == 'Debit / Credit Card')
+        ))
+        || (store.country == 'SG' && (
+          (data.paymentMethodId == 'paynow' && data.paymentMethodName == 'PayNow')
+          || (data.paymentMethodId == 'card' && data.paymentMethodName == 'Debit / Credit Card')
+        ));
+    }
+
     function isValidStoreOrder(data, orderId) {
       return data.keys().hasOnly([
           'id',
+          'orderNumber',
           'storeId',
           'workspaceId',
           'storeName',
           'currency',
+          'paymentMethodId',
+          'paymentMethodName',
           'customerName',
           'phone',
           'pickupDate',
@@ -357,10 +375,14 @@ service cloud.firestore {
           'createdAt'
         ])
         && data.id == orderId
+        && data.orderNumber is string
+        && data.orderNumber.matches('^MC-[0-9]{6}-[A-HJ-NP-Z2-9]{6}$')
         && data.storeId == data.workspaceId
         && data.storeName is string
         && data.storeName.size() > 0
         && data.currency in ['MYR', 'SGD']
+        && data.paymentMethodId is string
+        && data.paymentMethodName is string
         && data.customerName is string
         && data.customerName.size() > 0
         && data.customerName.size() <= 120
@@ -397,6 +419,10 @@ service cloud.firestore {
         && data.storeName == get(/databases/$(database)/documents/stores/$(data.workspaceId)).data.name
         && data.pickupSession in get(/databases/$(database)/documents/stores/$(data.workspaceId)).data.pickupSessions
         && data.currency == get(/databases/$(database)/documents/stores/$(data.workspaceId)).data.currency
+        && hasValidStorePayment(
+          data,
+          get(/databases/$(database)/documents/stores/$(data.workspaceId)).data
+        )
         && followsStorePreorderRules(data);
     }
 
@@ -712,6 +738,7 @@ service cloud.firestore {
           'coverImageUrl',
           'description',
           'contactInformation',
+          'businessWhatsApp',
           'businessHours',
           'pickupEnabled',
           'deliveryEnabled',

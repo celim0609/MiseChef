@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import type { Workspace } from '../../../types';
+import { getWorkspaceRegionConfiguration } from '../../../regions';
 import {
   createDefaultWorkspaceStore,
   buildStoreOrderItems,
@@ -23,6 +24,7 @@ import {
   validateStoreProduct,
   validateStoreSettings
 } from '../storeModel';
+import { createCustomerOrderNumber } from '../selling';
 import type {
   PublicStoreData,
   StoreOptionGroup,
@@ -126,6 +128,7 @@ export const storeService = {
       name: draft.name.trim(),
       description: draft.description.trim(),
       contactInformation: draft.contactInformation.trim(),
+      businessWhatsApp: draft.businessWhatsApp.trim(),
       businessHours: draft.businessHours.trim(),
       pickupSessions: [...new Set(draft.pickupSessions.map(session => session.trim()).filter(Boolean))],
       pickupLocations: draft.pickupLocations.map(location => ({
@@ -357,10 +360,14 @@ export const storeService = {
     const orderRef = doc(collection(db, 'storeOrders'));
     const order: StoreOrder = {
       id: orderRef.id,
+      orderNumber: createCustomerOrderNumber(),
       storeId: currentData.store.id,
       workspaceId: currentData.store.workspaceId,
       storeName: currentData.store.name,
       currency: currentData.store.currency,
+      paymentMethodId: draft.paymentMethodId,
+      paymentMethodName: getWorkspaceRegionConfiguration(currentData.store).paymentMethods
+        .find(method => method.id === draft.paymentMethodId)!.name,
       customerName: draft.customerName.trim(),
       phone: draft.phone.trim(),
       pickupDate: draft.pickupDate,
