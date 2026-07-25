@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
+  ArrowRight,
   CheckCircle2,
   Clock3,
+  Compass,
   MapPin,
   Minus,
   PackageOpen,
@@ -92,6 +94,9 @@ export default function PublicStorePage({ slug }: { slug: string }) {
 
   const cartTotal = cartDetails.reduce((sum, item) => sum + item.lineTotal, 0);
   const cartCount = cart.reduce((sum, line) => sum + line.quantity, 0);
+  const selectedPickupLocation = data?.store.pickupLocations.find(
+    location => location.id === pickupLocationId
+  );
 
   const addConfiguredProduct = (product: StoreProduct, selectedOptions: CartSelection['selectedOptions']) => {
     const key = selectionKey(product.id, selectedOptions);
@@ -161,6 +166,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
         <StoreIcon className="mx-auto h-8 w-8 text-primary" />
         <h1 className="mt-4 font-display text-3xl font-bold text-primary">Store not available</h1>
         <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">This Store could not be found or is temporarily unavailable.</p>
+        <a href="/" className="mt-6 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">Explore MiseChef <ArrowRight className="h-4 w-4" /></a>
       </section>
     );
   }
@@ -194,7 +200,6 @@ export default function PublicStorePage({ slug }: { slug: string }) {
           <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">MiseChef Store</p>
           <h1 className="mt-2 font-display text-4xl font-bold text-primary sm:text-5xl">{store.name}</h1>
           {store.description && <p className="mt-4 max-w-3xl font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{store.description}</p>}
-          {store.contactInformation && <p className="mt-3 max-w-3xl whitespace-pre-line font-sans text-xs font-bold leading-relaxed text-on-surface-variant">{store.contactInformation}</p>}
           <div className="mt-5 flex flex-wrap gap-2">
             <span className="inline-flex items-center gap-2 rounded-full bg-surface-container-low px-4 py-2 font-sans text-xs font-extrabold text-primary">
               <MapPin className="h-4 w-4" /> {region.countryName}
@@ -239,7 +244,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
           )}
         </section>
 
-        <aside className="rounded-3xl border border-surface-container-high bg-white p-5 shadow-sm lg:sticky lg:top-6">
+        <aside id="customer-order" className="scroll-mt-24 rounded-3xl border border-surface-container-high bg-white p-5 shadow-sm lg:sticky lg:top-6">
           <div className="flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 font-display text-2xl font-bold text-primary"><ShoppingCart className="h-5 w-5" /> Your Order</h2>
             <span className="rounded-full bg-primary/10 px-3 py-1 font-sans text-xs font-extrabold text-primary">{cartCount}</span>
@@ -253,9 +258,9 @@ export default function PublicStorePage({ slug }: { slug: string }) {
             <div className="mt-5 rounded-2xl bg-green-50 p-4 text-green-800">
               <CheckCircle2 className="h-6 w-6" />
               <p className="mt-2 font-display text-xl font-bold">Order placed</p>
-              <p className="mt-1 font-sans text-xs font-bold">Reference: {placedOrder.id}</p>
               <p className="mt-1 font-sans text-xs font-bold">{placedOrder.pickupDate} · {placedOrder.pickupSession}</p>
               <p className="mt-1 font-sans text-xs font-bold">{placedOrder.pickupLocationName}</p>
+              <a href="/" className="mt-4 inline-flex items-center gap-2 rounded-full bg-green-800 px-4 py-2.5 font-sans text-xs font-extrabold text-white">Explore MiseChef <ArrowRight className="h-3.5 w-3.5" /></a>
             </div>
           )}
 
@@ -286,20 +291,46 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                 <span>{formatRegionCurrency(cartTotal, store.currency)}</span>
               </div>
 
-              <form onSubmit={placeOrder} className="mt-5 space-y-3">
-                <input aria-label="Name" required autoComplete="name" placeholder="Name" value={customerName} onChange={event => setCustomerName(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
-                <input aria-label="Phone" required autoComplete="tel" inputMode="tel" placeholder="Phone" value={phone} onChange={event => setPhone(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
-                <input aria-label="Pickup date" required type="date" min={today()} value={pickupDate} onChange={event => setPickupDate(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
-                <select aria-label="Pickup location" required value={pickupLocationId} onChange={event => setPickupLocationId(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
-                  {store.pickupLocations.map(location => <option key={location.id} value={location.id}>{location.name} · {location.address}</option>)}
-                </select>
-                <select aria-label="Pickup session" required value={pickupSession} onChange={event => setPickupSession(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
-                  {store.pickupSessions.map(session => <option key={session} value={session}>{session}</option>)}
-                </select>
-                <textarea aria-label="Notes" rows={3} placeholder="Notes (optional)" value={notes} onChange={event => setNotes(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+              <form onSubmit={placeOrder} className="mt-5 space-y-4">
+                <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup</p>
+                <label className="block">
+                  <span className="font-sans text-xs font-extrabold text-primary">Date</span>
+                  <input aria-label="Pickup date" required type="date" min={today()} value={pickupDate} onChange={event => setPickupDate(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                </label>
+                <label className="block">
+                  <span className="font-sans text-xs font-extrabold text-primary">Location</span>
+                  <select aria-label="Pickup location" required value={pickupLocationId} onChange={event => setPickupLocationId(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                    {store.pickupLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}
+                  </select>
+                </label>
+                {selectedPickupLocation && (
+                  <div className="rounded-2xl bg-surface-container-low p-3 font-sans text-xs font-bold leading-relaxed text-on-surface-variant">
+                    <p>{selectedPickupLocation.address}</p>
+                    {selectedPickupLocation.notes && <p className="mt-1">{selectedPickupLocation.notes}</p>}
+                  </div>
+                )}
+                <label className="block">
+                  <span className="font-sans text-xs font-extrabold text-primary">Session</span>
+                  <select aria-label="Pickup session" required value={pickupSession} onChange={event => setPickupSession(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                    {store.pickupSessions.map(session => <option key={session} value={session}>{session}</option>)}
+                  </select>
+                </label>
+                <p className="pt-1 font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Your details</p>
+                <label className="block">
+                  <span className="font-sans text-xs font-extrabold text-primary">Name</span>
+                  <input aria-label="Name" required autoComplete="name" placeholder="Your name" value={customerName} onChange={event => setCustomerName(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                </label>
+                <label className="block">
+                  <span className="font-sans text-xs font-extrabold text-primary">Phone</span>
+                  <input aria-label="Phone" required autoComplete="tel" inputMode="tel" placeholder="Your phone number" value={phone} onChange={event => setPhone(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                </label>
+                <label className="block">
+                  <span className="font-sans text-xs font-extrabold text-primary">Notes <span className="text-outline">(optional)</span></span>
+                  <textarea aria-label="Notes" rows={2} placeholder="Anything the Store should know?" value={notes} onChange={event => setNotes(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                </label>
                 {checkoutError && <p className="rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
                 <button type="submit" disabled={isPlacingOrder} className="w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary disabled:opacity-50">{isPlacingOrder ? 'Placing Order…' : 'Place Order'}</button>
-                <p className="text-center font-sans text-[10px] font-bold text-outline">No account or payment required.</p>
+                <p className="text-center font-sans text-[10px] font-bold text-outline">No login, email, account, or payment required.</p>
               </form>
             </>
           ) : !placedOrder && canOrderPickup ? (
@@ -307,6 +338,22 @@ export default function PublicStorePage({ slug }: { slug: string }) {
           ) : null}
         </aside>
       </div>
+
+      <section className="rounded-3xl bg-primary px-6 py-8 text-on-primary sm:flex sm:items-center sm:justify-between sm:gap-8">
+        <div>
+          <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-on-primary/70">Finished here?</p>
+          <h2 className="mt-2 font-display text-2xl font-bold">Explore MiseChef</h2>
+          <p className="mt-2 max-w-2xl font-sans text-sm font-bold leading-relaxed text-on-primary/80">Browse public recipes and discover chef profiles. No account is required.</p>
+        </div>
+        <a href="/" className="mt-5 inline-flex shrink-0 items-center gap-2 rounded-full bg-white px-5 py-3 font-sans text-xs font-extrabold text-primary sm:mt-0"><Compass className="h-4 w-4" /> Explore MiseChef</a>
+      </section>
+
+      {cartCount > 0 && (
+        <a href="#customer-order" className="fixed inset-x-4 bottom-4 z-40 flex items-center justify-between rounded-full bg-primary px-5 py-3.5 text-on-primary shadow-2xl shadow-primary/30 lg:hidden">
+          <span className="font-sans text-sm font-extrabold">View order · {cartCount}</span>
+          <span className="font-sans text-sm font-extrabold">{formatRegionCurrency(cartTotal, store.currency)}</span>
+        </a>
+      )}
 
       {configuringProduct && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-primary/50 p-0 sm:items-center sm:p-6">

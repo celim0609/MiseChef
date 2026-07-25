@@ -1,11 +1,15 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
+  Copy,
+  Download,
   ExternalLink,
   ImagePlus,
   MapPin,
   Package,
   Pencil,
   Plus,
+  QrCode,
+  Share2,
   Settings,
   X
 } from 'lucide-react';
@@ -14,6 +18,11 @@ import type { Workspace } from '../../types';
 import { formatRegionCurrency, useWorkspaceRegion } from '../../regions';
 import { uploadStoreBrandImage, uploadStoreProductPhoto } from '../../services/storage';
 import { storeService } from './services';
+import {
+  getPublicOrderingPath,
+  getPublicOrderingUrl,
+  getStoreQrFileName
+} from './customerEntry';
 import {
   validateStoreOptionGroup,
   validateStoreProduct,
@@ -96,6 +105,10 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [isShareOpen, setIsShareOpen] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [shareMessage, setShareMessage] = useState('');
+  const [isGeneratingQr, setIsGeneratingQr] = useState(false);
 
   useEffect(() => {
     let isCancelled = false;
@@ -130,6 +143,40 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
     };
   }, [currentUser.uid, workspace]);
 
+  useEffect(() => {
+    if (!isShareOpen || !store) return;
+
+    let isCancelled = false;
+    setIsGeneratingQr(true);
+    setShareMessage('');
+    import('qrcode')
+      .then(({ default: QRCode }) => QRCode.toDataURL(
+        getPublicOrderingUrl(window.location.origin, store.slug),
+        {
+          width: 768,
+          margin: 3,
+          errorCorrectionLevel: 'M',
+          color: {
+            dark: '#1f2933',
+            light: '#ffffff'
+          }
+        }
+      ))
+      .then(dataUrl => {
+        if (!isCancelled) setQrDataUrl(dataUrl);
+      })
+      .catch(() => {
+        if (!isCancelled) setShareMessage('Unable to create the QR code. Please try again.');
+      })
+      .finally(() => {
+        if (!isCancelled) setIsGeneratingQr(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isShareOpen, store]);
+
   const updateSettings = <K extends keyof StoreSettingsDraft>(
     field: K,
     value: StoreSettingsDraft[K]
@@ -147,6 +194,25 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
   const clearMessages = () => {
     setMessage('');
     setErrorMessage('');
+  };
+
+  const copyOrderingLink = async () => {
+    if (!store) return;
+    try {
+      await navigator.clipboard.writeText(getPublicOrderingUrl(window.location.origin, store.slug));
+      setShareMessage('Ordering link copied.');
+    } catch {
+      setShareMessage('Copy failed. Select the link and copy it manually.');
+    }
+  };
+
+  const downloadQrCode = () => {
+    if (!store || !qrDataUrl) return;
+    const link = document.createElement('a');
+    link.href = qrDataUrl;
+    link.download = getStoreQrFileName(store.slug);
+    link.click();
+    setShareMessage('QR code downloaded.');
   };
 
   const saveStoreDraft = async (draft: StoreSettingsDraft, successMessage: string) => {
@@ -365,9 +431,14 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
           <h1 className="mt-1 font-display text-4xl font-bold text-primary">{currentView.label}</h1>
           <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">{currentView.question}</p>
         </div>
-        <a href={`/store/${store.slug}`} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-full border border-surface-container-high bg-white px-5 py-3 font-sans text-xs font-extrabold text-primary shadow-sm">
-          <ExternalLink className="h-4 w-4" /> View Store
-        </a>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button type="button" onClick={() => setIsShareOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary shadow-sm">
+            <Share2 className="h-4 w-4" /> Share & QR
+          </button>
+          <a href={getPublicOrderingPath(store.slug)} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-full border border-surface-container-high bg-white px-5 py-3 font-sans text-xs font-extrabold text-primary shadow-sm">
+            <ExternalLink className="h-4 w-4" /> View Store
+          </a>
+        </div>
       </header>
 
       <nav aria-label="Store management" className="flex gap-2 overflow-x-auto pb-1">
@@ -635,6 +706,47 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
             <button type="submit" disabled={isSaving} className="rounded-full bg-primary px-6 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : 'Save Store Settings'}</button>
           </div>
         </form>
+      )}
+
+      {isShareOpen && (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-primary/50 p-0 sm:items-center sm:p-6">
+          <section role="dialog" aria-modal="true" aria-labelledby="share-store-title" className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-6 shadow-2xl sm:rounded-3xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Customer Entry</p>
+                <h2 id="share-store-title" className="mt-1 font-display text-3xl font-bold text-primary">Scan or share</h2>
+                <p className="mt-2 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">Customers open your public Store directly. No MiseChef account is required.</p>
+              </div>
+              <button type="button" aria-label="Close Store sharing" onClick={() => setIsShareOpen(false)} className="rounded-full bg-surface-container p-2 text-primary"><X className="h-5 w-5" /></button>
+            </div>
+
+            <div className="mt-6 rounded-3xl bg-surface-container-low p-5 text-center">
+              {isGeneratingQr ? (
+                <div className="mx-auto h-56 w-56 animate-pulse rounded-2xl bg-white" aria-label="Generating QR code" />
+              ) : qrDataUrl ? (
+                <img src={qrDataUrl} alt={`QR code for ${store.name} ordering page`} className="mx-auto h-56 w-56 rounded-2xl bg-white" />
+              ) : (
+                <div className="mx-auto flex h-56 w-56 items-center justify-center rounded-2xl bg-white text-outline"><QrCode className="h-12 w-12" /></div>
+              )}
+              <p className="mt-4 font-sans text-xs font-extrabold text-primary">Scan to order</p>
+            </div>
+
+            <label className="mt-5 block">
+              <span className="font-sans text-xs font-extrabold text-primary">Ordering link</span>
+              <input readOnly value={getPublicOrderingUrl(window.location.origin, store.slug)} onFocus={event => event.currentTarget.select()} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-xs font-bold text-primary outline-none" />
+            </label>
+
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              <button type="button" onClick={copyOrderingLink} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">
+                <Copy className="h-4 w-4" /> Copy Link
+              </button>
+              <button type="button" onClick={downloadQrCode} disabled={!qrDataUrl || isGeneratingQr} className="inline-flex items-center justify-center gap-2 rounded-full bg-surface-container px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-50">
+                <Download className="h-4 w-4" /> Download QR
+              </button>
+            </div>
+            {shareMessage && <p className="mt-3 text-center font-sans text-xs font-bold text-on-surface-variant">{shareMessage}</p>}
+          </section>
+        </div>
       )}
     </div>
   );
