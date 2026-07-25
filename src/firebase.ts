@@ -18,6 +18,18 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
+const useFirebaseEmulators = import.meta.env.DEV
+  && import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true';
+
+const activeFirebaseConfig = useFirebaseEmulators
+  ? {
+    ...firebaseConfig,
+    authDomain: 'demo-misechef-preview.firebaseapp.com',
+    projectId: 'demo-misechef-preview',
+    storageBucket: 'demo-misechef-preview.appspot.com'
+  }
+  : firebaseConfig;
+
 const isUsableConfigValue = (value: unknown) => {
   if (typeof value !== 'string') return false;
   const trimmed = value.trim();
@@ -29,16 +41,13 @@ export const isFirebaseConfigured = Object.values(firebaseConfig).every(isUsable
 export const firebaseApp: FirebaseApp | null = isFirebaseConfigured
   ? getApps().length > 0
     ? getApp()
-    : initializeApp(firebaseConfig)
+    : initializeApp(activeFirebaseConfig)
   : null;
 
 export const auth: Auth | null = firebaseApp ? getAuth(firebaseApp) : null;
 export const db: Firestore | null = firebaseApp ? getFirestore(firebaseApp) : null;
 export const functions: Functions | null = firebaseApp ? getFunctions(firebaseApp, 'us-central1') : null;
 export const storage: FirebaseStorage | null = firebaseApp ? getStorage(firebaseApp) : null;
-
-const useFirebaseEmulators = import.meta.env.DEV
-  && import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true';
 
 if (useFirebaseEmulators) {
   if (auth) connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });

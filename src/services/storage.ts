@@ -6,6 +6,9 @@
 import { FirebaseError } from 'firebase/app';
 import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import { storage } from '../firebase';
+import { getStorageUploadErrorMessage } from './storageError';
+
+export { getStorageUploadErrorMessage } from './storageError';
 
 export const getRecipeCoverPath = (userId: string, recipeId: string) => {
   return `recipes/${userId}/${recipeId}/cover.jpg`;
@@ -153,12 +156,16 @@ export const uploadStoreProductPhoto = async ({
   onProgress?: (progress: number) => void;
 }) => {
   const extension = requireSupportedImageExtension(file);
-  return uploadFile({
-    path: `stores/${workspaceId}/products/${productId}/photo.${extension}`,
-    file,
-    cacheControl: 'public,max-age=31536000',
-    onProgress
-  });
+  try {
+    return await uploadFile({
+      path: `stores/${workspaceId}/products/${productId}/photo.${extension}`,
+      file,
+      cacheControl: 'public,max-age=31536000',
+      onProgress
+    });
+  } catch (error) {
+    throw new Error(getStorageUploadErrorMessage(error, 'Product photo'));
+  }
 };
 
 export const uploadRecipeCoverImage = async ({
