@@ -607,8 +607,7 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.id == workspaceId
         && request.resource.data.ownerId == request.auth.uid
-        && hasValidWorkspaceCountry(request.resource.data)
-        && (workspaceId == request.auth.uid || isSuperAdmin());
+        && hasValidWorkspaceCountry(request.resource.data);
       allow read: if isWorkspaceMember(workspaceId);
       allow update: if (isWorkspaceOwner(workspaceId) || (isWorkspaceOwnerOrManager(workspaceId) && request.resource.data.ownerId == resource.data.ownerId))
         && request.resource.data.id == resource.data.id

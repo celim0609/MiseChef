@@ -10,6 +10,7 @@ import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, where } fro
 import { ChefProfile, CompanyRole, DEFAULT_CHEF_PROFILE, Recipe, RecipeCategory, RootTab, UserRole, Workspace, WorkspaceMemberRole } from './types';
 import { INITIAL_COLLECTIONS, INITIAL_RECIPES } from './data';
 import Header from './components/Header';
+import CreateWorkspaceDialog, { type CreateWorkspaceInput } from './components/CreateWorkspaceDialog';
 import HomeTab from './components/HomeTab';
 import SearchTab from './components/SearchTab';
 import AddRecipeTab from './components/AddRecipeTab';
@@ -585,6 +586,7 @@ export default function App() {
   const recipeSaveInFlightRef = useRef(false);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [isNavigationDrawerOpen, setIsNavigationDrawerOpen] = useState(false);
+  const [isCreateWorkspaceOpen, setIsCreateWorkspaceOpen] = useState(false);
   const [selectedHomeCategory, setSelectedHomeCategory] = useState<string | null>(null);
   const [isFavoritesFilterActive, setIsFavoritesFilterActive] = useState(false);
   const [isAppReady, setIsAppReady] = useState(false);
@@ -1504,6 +1506,30 @@ export default function App() {
     setIsFavoritesFilterActive(false);
   };
 
+  const handleCreateWorkspace = async (input: CreateWorkspaceInput) => {
+    if (!currentUser) {
+      throw new Error('Sign in to create a workspace.');
+    }
+
+    const createdWorkspace = await workspaceService.createWorkspace({
+      user: currentUser,
+      ...input
+    });
+    setWorkspaces(current => [
+      ...current.filter(workspace => workspace.id !== createdWorkspace.id),
+      createdWorkspace
+    ]);
+    workspaceService.setStoredWorkspaceId(currentUser.uid, createdWorkspace.id);
+    setCurrentWorkspace(createdWorkspace);
+    setAddingRecipe(false);
+    setEditingRecipe(null);
+    setSelectedRecipe(null);
+    setSelectedCostingInvoiceId(null);
+    setSelectedHomeCategory(null);
+    setIsFavoritesFilterActive(false);
+    triggerNotification(`${createdWorkspace.name} was created and selected.`, 'success');
+  };
+
   const handleFounderWorkspaceCreated = async (workspaceId: string) => {
     if (!currentUser || currentUserRole !== 'super_admin') {
       throw new Error('Only MiseChef super admins can use the founder workspace QA tool.');
@@ -1862,7 +1888,8 @@ export default function App() {
       onMenuClick: () => setIsNavigationDrawerOpen(true),
       workspaces,
       currentWorkspace,
-      onWorkspaceChange: handleWorkspaceChange
+      onWorkspaceChange: handleWorkspaceChange,
+      onCreateWorkspace: currentUser ? () => setIsCreateWorkspaceOpen(true) : undefined
     };
   };
 
@@ -1895,6 +1922,12 @@ export default function App() {
       <div className="min-h-screen flex flex-col font-sans selection:bg-secondary/20 bg-background relative overflow-x-hidden">
       {/* Dynamic Header */}
       <Header {...getHeaderProps()} />
+
+      <CreateWorkspaceDialog
+        isOpen={isCreateWorkspaceOpen}
+        onClose={() => setIsCreateWorkspaceOpen(false)}
+        onCreate={handleCreateWorkspace}
+      />
 
       <AnimatePresence>
         {currentUser && pendingTeamInvitations.length > 0 && (

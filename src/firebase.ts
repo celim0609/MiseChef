@@ -4,10 +4,10 @@
  */
 
 import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app';
-import { browserLocalPersistence, getAuth, setPersistence, type Auth } from 'firebase/auth';
-import { getFirestore, type Firestore } from 'firebase/firestore';
+import { browserLocalPersistence, connectAuthEmulator, getAuth, setPersistence, type Auth } from 'firebase/auth';
+import { connectFirestoreEmulator, getFirestore, type Firestore } from 'firebase/firestore';
 import { getFunctions, type Functions } from 'firebase/functions';
-import { getStorage, type FirebaseStorage } from 'firebase/storage';
+import { connectStorageEmulator, getStorage, type FirebaseStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -36,6 +36,15 @@ export const auth: Auth | null = firebaseApp ? getAuth(firebaseApp) : null;
 export const db: Firestore | null = firebaseApp ? getFirestore(firebaseApp) : null;
 export const functions: Functions | null = firebaseApp ? getFunctions(firebaseApp, 'us-central1') : null;
 export const storage: FirebaseStorage | null = firebaseApp ? getStorage(firebaseApp) : null;
+
+const useFirebaseEmulators = import.meta.env.DEV
+  && import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true';
+
+if (useFirebaseEmulators) {
+  if (auth) connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  if (db) connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  if (storage) connectStorageEmulator(storage, '127.0.0.1', 9199);
+}
 
 export const authPersistenceReady = auth
   ? setPersistence(auth, browserLocalPersistence).catch(() => {

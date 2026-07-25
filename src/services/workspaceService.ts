@@ -157,6 +157,61 @@ export const workspaceService = {
     });
   },
 
+  async createWorkspace({
+    user,
+    name,
+    type,
+    country
+  }: {
+    user: User;
+    name: string;
+    type?: WorkspaceType;
+    country: RegionCode;
+  }) {
+    if (!db) {
+      throw new Error("We couldn't connect to Firestore. Please try again.");
+    }
+
+    const workspaceName = name.trim();
+    if (!workspaceName) {
+      throw new Error('Workspace name is required.');
+    }
+
+    const workspaceRef = doc(collection(db, 'workspaces'));
+    const now = new Date().toISOString();
+    const member = toMemberSummary(user, 'Owner');
+    const workspace: Workspace = {
+      id: workspaceRef.id,
+      name: workspaceName,
+      ownerId: user.uid,
+      country: normalizeRegionCode(country),
+      type,
+      members: [member],
+      createdAt: now,
+      updatedAt: now
+    };
+    const membershipId = `${workspace.id}_${user.uid}`;
+    const membership: WorkspaceMembership = {
+      id: membershipId,
+      workspaceId: workspace.id,
+      userId: user.uid,
+      email: user.email || '',
+      displayName: user.displayName || user.email?.split('@')[0] || 'User',
+      role: 'Owner',
+      status: 'Active',
+      workspaceName: workspace.name,
+      createdAt: now,
+      updatedAt: now
+    };
+    const batch = writeBatch(db);
+
+    batch.set(workspaceRef, removeUndefinedFields(workspace));
+    batch.set(doc(db, 'workspaceMembers', membershipId), removeUndefinedFields(membership));
+    await batch.commit();
+
+    return workspace;
+  },
+
   async createFounderQaWorkspace({
     user,
     platformRole,

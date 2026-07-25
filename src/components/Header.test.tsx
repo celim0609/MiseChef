@@ -25,3 +25,16 @@ test('workspace country is visible as read-only workspace metadata', () => {
   assert.match(renderWorkspaceHeader('MY'), /Malaysia · Personal workspace/);
   assert.match(renderWorkspaceHeader('SG'), /Singapore · Personal workspace/);
 });
+
+test('a signed-in user can open workspace creation from a single-workspace switcher', () => {
+  const workspace = createWorkspace('MY');
+  const markup = renderToStaticMarkup(
+    <Header
+      currentWorkspace={workspace}
+      workspaces={[workspace]}
+      onCreateWorkspace={() => undefined}
+    />
+  );
+
+  assert.match(markup, /aria-haspopup="menu"/);
+});
