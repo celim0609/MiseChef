@@ -8,6 +8,7 @@ export const REGION_CONFIGURATIONS = {
     country: 'MY',
     countryName: 'Malaysia',
     locale: 'en-MY',
+    timeZone: 'Asia/Kuala_Lumpur',
     currency: 'MYR',
     paymentMethods: [
       { id: 'touch-n-go', name: "Touch 'n Go" },
@@ -23,6 +24,7 @@ export const REGION_CONFIGURATIONS = {
     country: 'SG',
     countryName: 'Singapore',
     locale: 'en-SG',
+    timeZone: 'Asia/Singapore',
     currency: 'SGD',
     paymentMethods: [
       { id: 'paynow', name: 'PayNow' },

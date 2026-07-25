@@ -46,23 +46,37 @@ const readMaximumAdvanceDays = (value: unknown): 7 | 14 | 30 => (
   value === 7 || value === 30 ? value : 14
 );
 
-const toLocalDateKey = (date: Date) => {
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${date.getFullYear()}-${month}-${day}`;
+const toRegionDateCursor = (date: Date, timeZone: string) => {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(date).map(part => [part.type, part.value])
+  );
+  return new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), 12));
 };
 
-const addLocalDays = (date: Date, days: number) => {
+const toDateKey = (date: Date) => {
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${date.getUTCFullYear()}-${month}-${day}`;
+};
+
+const addRegionDays = (date: Date, days: number) => {
   const next = new Date(date);
-  next.setHours(12, 0, 0, 0);
-  next.setDate(next.getDate() + days);
+  next.setUTCDate(next.getUTCDate() + days);
   return next;
 };
 
 export const getValidPickupDates = (
-  store: Pick<WorkspaceStore, 'orderDays' | 'earliestPickupDays' | 'maximumAdvanceDays' | 'unavailableDates'>,
+  store: Pick<WorkspaceStore, 'orderDays' | 'earliestPickupDays' | 'maximumAdvanceDays' | 'unavailableDates'>
+    & Partial<Pick<WorkspaceStore, 'country'>>,
   currentDate = new Date()
 ) => {
+  const region = getWorkspaceRegionConfiguration(store);
+  const regionToday = toRegionDateCursor(currentDate, region.timeZone);
   const enabledDays = new Set(store.orderDays);
   const unavailableDates = new Set(store.unavailableDates);
   const dayByIndex = new Map(STORE_ORDER_DAYS.map(day => [day.dayIndex, day.id]));
@@ -73,9 +87,9 @@ export const getValidPickupDates = (
     offset <= store.maximumAdvanceDays;
     offset += 1
   ) {
-    const candidate = addLocalDays(currentDate, offset);
-    const dateKey = toLocalDateKey(candidate);
-    const orderDay = dayByIndex.get(candidate.getDay());
+    const candidate = addRegionDays(regionToday, offset);
+    const dateKey = toDateKey(candidate);
+    const orderDay = dayByIndex.get(candidate.getUTCDay());
     if (orderDay && enabledDays.has(orderDay) && !unavailableDates.has(dateKey)) {
       dates.push(dateKey);
     }
@@ -84,15 +98,22 @@ export const getValidPickupDates = (
   return dates;
 };
 
-export const formatPickupDateLabel = (dateKey: string, currentDate = new Date()) => {
-  const date = new Date(`${dateKey}T12:00:00`);
-  const tomorrowKey = toLocalDateKey(addLocalDays(currentDate, 1));
-  const prefix = dateKey === toLocalDateKey(currentDate)
+export const formatPickupDateLabel = (
+  dateKey: string,
+  country?: unknown,
+  currentDate = new Date()
+) => {
+  const region = getWorkspaceRegionConfiguration({ country });
+  const regionToday = toRegionDateCursor(currentDate, region.timeZone);
+  const date = new Date(`${dateKey}T12:00:00Z`);
+  const tomorrowKey = toDateKey(addRegionDays(regionToday, 1));
+  const prefix = dateKey === toDateKey(regionToday)
     ? 'Today'
     : dateKey === tomorrowKey
       ? 'Tomorrow'
       : '';
-  const formatted = new Intl.DateTimeFormat('en', {
+  const formatted = new Intl.DateTimeFormat(region.locale, {
+    timeZone: region.timeZone,
     weekday: 'short',
     day: 'numeric',
     month: 'short'

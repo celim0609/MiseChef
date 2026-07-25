@@ -300,7 +300,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                 <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Date</span>
                   <select aria-label="Pickup date" required value={pickupDate} onChange={event => setPickupDate(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
-                    {validPickupDates.map(date => <option key={date} value={date}>{formatPickupDateLabel(date)}</option>)}
+                    {validPickupDates.map(date => <option key={date} value={date}>{formatPickupDateLabel(date, store.country)}</option>)}
                   </select>
                 </label>
                 <label className="block">

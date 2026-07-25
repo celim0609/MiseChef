@@ -226,6 +226,20 @@ test('pre-order rules give customers only enabled, in-window, unblocked dates', 
   ]);
 });
 
+test('pickup windows follow the Store region instead of the customer device or UTC day', () => {
+  const malaysiaAfterMidnight = new Date('2026-07-25T17:00:00.000Z');
+  const dates = getValidPickupDates({
+    country: 'MY',
+    orderDays: [...DEFAULT_STORE_ORDER_DAYS],
+    earliestPickupDays: 0,
+    maximumAdvanceDays: 7,
+    unavailableDates: []
+  }, malaysiaAfterMidnight);
+
+  assert.equal(dates[0], '2026-07-26');
+  assert.equal(dates.at(-1), '2026-08-02');
+});
+
 test('checkout rejects disabled, blocked, too-early, and out-of-window pickup dates', () => {
   const currentDate = new Date('2026-07-25T12:00:00');
   const store = {

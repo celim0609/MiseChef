@@ -77,13 +77,6 @@ const toSettingsDraft = (store: WorkspaceStore): StoreSettingsDraft => ({
   unavailableDates: [...store.unavailableDates]
 });
 
-const localToday = () => {
-  const date = new Date();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${date.getFullYear()}-${month}-${day}`;
-};
-
 const toProductDraft = (product: StoreProduct): StoreProductDraft => ({
   photoUrl: product.photoUrl,
   name: product.name,
@@ -734,14 +727,14 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
                 <span className="font-sans text-xs font-extrabold text-primary">Unavailable Dates</span>
                 <p className="mt-1 font-sans text-[11px] font-bold text-on-surface-variant">Block holidays, closed days, or fully booked dates.</p>
                 <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                  <input aria-label="Unavailable date" type="date" min={localToday()} value={unavailableDateDraft} onInput={event => setUnavailableDateDraft(event.currentTarget.value)} className="min-w-0 flex-1 rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                  <input aria-label="Unavailable date" type="date" value={unavailableDateDraft} onInput={event => setUnavailableDateDraft(event.currentTarget.value)} className="min-w-0 flex-1 rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                   <button type="button" disabled={!unavailableDateDraft || settingsDraft.unavailableDates.includes(unavailableDateDraft)} onClick={addUnavailableDate} className="rounded-full bg-surface-container px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-40">Block Date</button>
                 </div>
                 {settingsDraft.unavailableDates.length > 0 && (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {settingsDraft.unavailableDates.map(date => (
                       <span key={date} className="inline-flex items-center gap-2 rounded-full bg-surface-container-low px-3 py-2 font-sans text-xs font-bold text-primary">
-                        {formatPickupDateLabel(date)}
+                        {formatPickupDateLabel(date, store?.country)}
                         <button type="button" aria-label={`Remove unavailable date ${date}`} onClick={() => updateSettings('unavailableDates', settingsDraft.unavailableDates.filter(item => item !== date))} className="text-error"><X className="h-3.5 w-3.5" /></button>
                       </span>
                     ))}

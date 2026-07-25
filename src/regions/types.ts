@@ -10,6 +10,7 @@ export interface RegionConfiguration {
   country: RegionCode;
   countryName: string;
   locale: string;
+  timeZone: string;
   currency: RegionCurrency;
   paymentMethods: readonly RegionProviderOption[];
   deliveryProviders: readonly RegionProviderOption[];

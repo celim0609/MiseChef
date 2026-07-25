@@ -13,6 +13,7 @@ test('Malaysia configuration exposes the approved currency and payment methods',
   const malaysia = REGION_CONFIGURATIONS.MY;
 
   assert.equal(malaysia.locale, 'en-MY');
+  assert.equal(malaysia.timeZone, 'Asia/Kuala_Lumpur');
   assert.equal(malaysia.currency, 'MYR');
   assert.deepEqual(
     malaysia.paymentMethods.map(method => method.name),
@@ -24,6 +25,7 @@ test('Singapore configuration exposes the approved currency and payment methods'
   const singapore = REGION_CONFIGURATIONS.SG;
 
   assert.equal(singapore.locale, 'en-SG');
+  assert.equal(singapore.timeZone, 'Asia/Singapore');
   assert.equal(singapore.currency, 'SGD');
   assert.deepEqual(
     singapore.paymentMethods.map(method => method.name),
