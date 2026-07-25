@@ -8,7 +8,8 @@ import {
   toStoreSlug,
   validateStoreOptionGroup,
   validateStoreOrder,
-  validateStoreProduct
+  validateStoreProduct,
+  validateStoreSettings
 } from './storeModel';
 import { resolvePublicRoute } from '../public/publicRoutes';
 import { canAccessRootTab } from '../team/permissions';
@@ -33,6 +34,33 @@ test('every workspace receives exactly one region-aware Store identity', () => {
   assert.equal(singaporeStore.currency, 'SGD');
   assert.equal(malaysiaStore.pickupEnabled, false);
   assert.deepEqual(malaysiaStore.pickupSessions, []);
+  assert.deepEqual(malaysiaStore.pickupLocations, []);
+});
+
+test('pickup stays simple and requires owner-defined locations and sessions', () => {
+  const baseSettings = {
+    name: 'Test Kitchen',
+    logoUrl: '',
+    coverImageUrl: '',
+    description: '',
+    contactInformation: '',
+    businessHours: '',
+    pickupEnabled: true,
+    deliveryEnabled: false,
+    pickupSessions: ['Lunch'],
+    pickupLocations: [{
+      id: 'counter',
+      name: 'Main Counter',
+      address: '1 Main Street',
+      notes: ''
+    }]
+  };
+
+  assert.equal(validateStoreSettings(baseSettings), '');
+  assert.equal(validateStoreSettings({
+    ...baseSettings,
+    pickupLocations: [{ id: 'counter', name: '', address: '', notes: '' }]
+  }), 'Every pickup location needs a name and address.');
 });
 
 test('public Store slugs are stable and URL safe', () => {
@@ -133,21 +161,30 @@ test('guest checkout requires pickup availability, valid sessions, and no accoun
     phone: '+60123456789',
     pickupDate: '2099-01-01',
     pickupSession: '12:00–12:30',
+    pickupLocationId: 'front-counter',
     notes: '',
     selections: [{ productId: 'set-a', quantity: 1, selectedOptions: [] }]
   };
   assert.equal(validateStoreOrder(validDraft, {
     pickupEnabled: true,
-    pickupSessions: ['12:00–12:30']
+    pickupSessions: ['12:00–12:30'],
+    pickupLocations: [{ id: 'front-counter', name: 'Front Counter', address: '1 Main Street', notes: '' }]
   }), '');
   assert.equal(validateStoreOrder(validDraft, {
     pickupEnabled: false,
-    pickupSessions: ['12:00–12:30']
+    pickupSessions: ['12:00–12:30'],
+    pickupLocations: [{ id: 'front-counter', name: 'Front Counter', address: '1 Main Street', notes: '' }]
   }), 'Pickup ordering is not available.');
   assert.equal(validateStoreOrder({ ...validDraft, pickupSession: '13:00–13:30' }, {
     pickupEnabled: true,
-    pickupSessions: ['12:00–12:30']
+    pickupSessions: ['12:00–12:30'],
+    pickupLocations: [{ id: 'front-counter', name: 'Front Counter', address: '1 Main Street', notes: '' }]
   }), 'Choose a valid pickup session.');
+  assert.equal(validateStoreOrder({ ...validDraft, pickupLocationId: 'unknown' }, {
+    pickupEnabled: true,
+    pickupSessions: ['12:00–12:30'],
+    pickupLocations: [{ id: 'front-counter', name: 'Front Counter', address: '1 Main Street', notes: '' }]
+  }), 'Choose a valid pickup location.');
 });
 
 test('only workspace owners and managers can manage Store settings and products', () => {

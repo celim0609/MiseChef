@@ -8,10 +8,12 @@ export interface WorkspaceStore {
   logoUrl: string;
   coverImageUrl: string;
   description: string;
+  contactInformation: string;
   businessHours: string;
   pickupEnabled: boolean;
   deliveryEnabled: boolean;
   pickupSessions: string[];
+  pickupLocations: StorePickupLocation[];
   country: RegionCode;
   currency: RegionCurrency;
   createdBy: string;
@@ -24,10 +26,19 @@ export interface StoreSettingsDraft {
   logoUrl: string;
   coverImageUrl: string;
   description: string;
+  contactInformation: string;
   businessHours: string;
   pickupEnabled: boolean;
   deliveryEnabled: boolean;
   pickupSessions: string[];
+  pickupLocations: StorePickupLocation[];
+}
+
+export interface StorePickupLocation {
+  id: string;
+  name: string;
+  address: string;
+  notes: string;
 }
 
 export interface StoreOption {
@@ -120,6 +131,10 @@ export interface StoreOrder {
   phone: string;
   pickupDate: string;
   pickupSession: string;
+  pickupLocationId: string;
+  pickupLocationName: string;
+  pickupLocationAddress: string;
+  pickupLocationNotes: string;
   notes: string;
   items: StoreOrderItem[];
   itemCount: number;
@@ -133,6 +148,7 @@ export interface StoreOrderDraft {
   phone: string;
   pickupDate: string;
   pickupSession: string;
+  pickupLocationId: string;
   notes: string;
   selections: CartSelection[];
 }

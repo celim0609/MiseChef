@@ -192,10 +192,12 @@ service cloud.firestore {
           'logoUrl',
           'coverImageUrl',
           'description',
+          'contactInformation',
           'businessHours',
           'pickupEnabled',
           'deliveryEnabled',
           'pickupSessions',
+          'pickupLocations',
           'country',
           'currency',
           'createdBy',
@@ -214,12 +216,16 @@ service cloud.firestore {
         && data.coverImageUrl is string
         && data.description is string
         && data.description.size() <= 1200
+        && data.contactInformation is string
+        && data.contactInformation.size() <= 500
         && data.businessHours is string
         && data.businessHours.size() <= 300
         && data.pickupEnabled is bool
         && data.deliveryEnabled is bool
         && data.pickupSessions is list
         && data.pickupSessions.size() <= 20
+        && data.pickupLocations is list
+        && data.pickupLocations.size() <= 20
         && hasValidStoreRegion(data)
         && data.createdBy is string
         && data.createdAt is string
@@ -295,6 +301,10 @@ service cloud.firestore {
           'phone',
           'pickupDate',
           'pickupSession',
+          'pickupLocationId',
+          'pickupLocationName',
+          'pickupLocationAddress',
+          'pickupLocationNotes',
           'notes',
           'items',
           'itemCount',
@@ -317,6 +327,16 @@ service cloud.firestore {
         && data.pickupDate.size() == 10
         && data.pickupSession is string
         && data.pickupSession.size() > 0
+        && data.pickupLocationId is string
+        && data.pickupLocationId.size() > 0
+        && data.pickupLocationName is string
+        && data.pickupLocationName.size() > 0
+        && data.pickupLocationName.size() <= 120
+        && data.pickupLocationAddress is string
+        && data.pickupLocationAddress.size() > 0
+        && data.pickupLocationAddress.size() <= 300
+        && data.pickupLocationNotes is string
+        && data.pickupLocationNotes.size() <= 300
         && data.notes is string
         && data.notes.size() <= 500
         && data.items is list
@@ -646,10 +666,12 @@ service cloud.firestore {
           'logoUrl',
           'coverImageUrl',
           'description',
+          'contactInformation',
           'businessHours',
           'pickupEnabled',
           'deliveryEnabled',
           'pickupSessions',
+          'pickupLocations',
           'updatedAt'
         ]);
       allow delete: if false;

@@ -41,6 +41,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
   const [phone, setPhone] = useState('');
   const [pickupDate, setPickupDate] = useState(today);
   const [pickupSession, setPickupSession] = useState('');
+  const [pickupLocationId, setPickupLocationId] = useState('');
   const [notes, setNotes] = useState('');
   const [checkoutError, setCheckoutError] = useState('');
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
@@ -56,6 +57,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
         if (isCancelled) return;
         setData(storeData);
         setPickupSession(storeData?.store.pickupSessions[0] || '');
+        setPickupLocationId(storeData?.store.pickupLocations[0]?.id || '');
       })
       .catch(() => {
         if (!isCancelled) {
@@ -131,6 +133,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
         phone,
         pickupDate,
         pickupSession,
+        pickupLocationId,
         notes,
         selections: cart.map(({ productId, quantity, selectedOptions }) => ({
           productId,
@@ -164,7 +167,9 @@ export default function PublicStorePage({ slug }: { slug: string }) {
 
   const { store, products } = data;
   const region = getRegionConfiguration(store.country);
-  const canOrderPickup = store.pickupEnabled && store.pickupSessions.length > 0;
+  const canOrderPickup = store.pickupEnabled
+    && store.pickupLocations.length > 0
+    && store.pickupSessions.length > 0;
 
   return (
     <div className="space-y-8">
@@ -189,6 +194,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
           <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">MiseChef Store</p>
           <h1 className="mt-2 font-display text-4xl font-bold text-primary sm:text-5xl">{store.name}</h1>
           {store.description && <p className="mt-4 max-w-3xl font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{store.description}</p>}
+          {store.contactInformation && <p className="mt-3 max-w-3xl whitespace-pre-line font-sans text-xs font-bold leading-relaxed text-on-surface-variant">{store.contactInformation}</p>}
           <div className="mt-5 flex flex-wrap gap-2">
             <span className="inline-flex items-center gap-2 rounded-full bg-surface-container-low px-4 py-2 font-sans text-xs font-extrabold text-primary">
               <MapPin className="h-4 w-4" /> {region.countryName}
@@ -249,6 +255,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
               <p className="mt-2 font-display text-xl font-bold">Order placed</p>
               <p className="mt-1 font-sans text-xs font-bold">Reference: {placedOrder.id}</p>
               <p className="mt-1 font-sans text-xs font-bold">{placedOrder.pickupDate} · {placedOrder.pickupSession}</p>
+              <p className="mt-1 font-sans text-xs font-bold">{placedOrder.pickupLocationName}</p>
             </div>
           )}
 
@@ -283,6 +290,9 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                 <input aria-label="Name" required autoComplete="name" placeholder="Name" value={customerName} onChange={event => setCustomerName(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 <input aria-label="Phone" required autoComplete="tel" inputMode="tel" placeholder="Phone" value={phone} onChange={event => setPhone(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 <input aria-label="Pickup date" required type="date" min={today()} value={pickupDate} onChange={event => setPickupDate(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                <select aria-label="Pickup location" required value={pickupLocationId} onChange={event => setPickupLocationId(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                  {store.pickupLocations.map(location => <option key={location.id} value={location.id}>{location.name} · {location.address}</option>)}
+                </select>
                 <select aria-label="Pickup session" required value={pickupSession} onChange={event => setPickupSession(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
                   {store.pickupSessions.map(session => <option key={session} value={session}>{session}</option>)}
                 </select>

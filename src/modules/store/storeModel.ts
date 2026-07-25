@@ -49,10 +49,12 @@ export const createDefaultWorkspaceStore = (
     logoUrl: '',
     coverImageUrl: '',
     description: '',
+    contactInformation: '',
     businessHours: DEFAULT_STORE_BUSINESS_HOURS,
     pickupEnabled: false,
     deliveryEnabled: false,
     pickupSessions: [],
+    pickupLocations: [],
     country: region.country,
     currency: region.currency,
     createdBy,
@@ -76,11 +78,26 @@ export const normalizeWorkspaceStore = (
     logoUrl: readString(data.logoUrl),
     coverImageUrl: readString(data.coverImageUrl),
     description: readString(data.description),
+    contactInformation: readString(data.contactInformation),
     businessHours: readString(data.businessHours, DEFAULT_STORE_BUSINESS_HOURS),
     pickupEnabled: readBoolean(data.pickupEnabled),
     deliveryEnabled: readBoolean(data.deliveryEnabled),
     pickupSessions: Array.isArray(data.pickupSessions)
       ? [...new Set(data.pickupSessions.filter((session): session is string => typeof session === 'string' && Boolean(session.trim())).map(session => session.trim()))]
+      : [],
+    pickupLocations: Array.isArray(data.pickupLocations)
+      ? data.pickupLocations
+        .filter(location => location && typeof location === 'object')
+        .map(location => {
+          const value = location as Record<string, unknown>;
+          return {
+            id: readString(value.id),
+            name: readString(value.name),
+            address: readString(value.address),
+            notes: readString(value.notes)
+          };
+        })
+        .filter(location => location.id && location.name && location.address)
       : [],
     country: region.country,
     currency: region.currency,
@@ -115,15 +132,21 @@ export const validateStoreSettings = (draft: StoreSettingsDraft) => {
   if (!draft.name.trim()) return 'Store name is required.';
   if (draft.name.trim().length > 120) return 'Store name must be 120 characters or fewer.';
   if (draft.description.trim().length > 1200) return 'Description must be 1,200 characters or fewer.';
+  if (draft.contactInformation.trim().length > 500) return 'Contact information must be 500 characters or fewer.';
   if (draft.businessHours.trim().length > 300) return 'Business hours must be 300 characters or fewer.';
   if (pickupSessions.length > 20) return 'Use 20 pickup sessions or fewer.';
   if (pickupSessions.some(session => session.length > 80)) {
     return 'Each pickup session must be between 1 and 80 characters.';
   }
   if (new Set(pickupSessions).size !== pickupSessions.length) return 'Pickup sessions must be unique.';
-  if (draft.pickupEnabled && pickupSessions.length === 0) {
-    return 'Add at least one pickup session before enabling pickup.';
+  if (draft.pickupLocations.length > 20) return 'Use 20 pickup locations or fewer.';
+  if (draft.pickupLocations.some(location => !location.id || !location.name.trim() || !location.address.trim())) {
+    return 'Every pickup location needs a name and address.';
   }
+  if (draft.pickupLocations.some(location => location.name.trim().length > 120 || location.address.trim().length > 300 || location.notes.trim().length > 300)) {
+    return 'Pickup location details are too long.';
+  }
+  if (new Set(draft.pickupLocations.map(location => location.id)).size !== draft.pickupLocations.length) return 'Pickup locations must be unique.';
   return '';
 };
 
@@ -180,7 +203,7 @@ export const validateStoreOptionGroup = (draft: StoreOptionGroupDraft) => {
 
 export const validateStoreOrder = (
   draft: StoreOrderDraft,
-  store: Pick<WorkspaceStore, 'pickupEnabled' | 'pickupSessions'>
+  store: Pick<WorkspaceStore, 'pickupEnabled' | 'pickupSessions' | 'pickupLocations'>
 ) => {
   if (!store.pickupEnabled) return 'Pickup ordering is not available.';
   if (!draft.customerName.trim()) return 'Name is required.';
@@ -191,6 +214,7 @@ export const validateStoreOrder = (
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.pickupDate)) return 'Choose a valid pickup date.';
   if (draft.pickupDate < new Date().toISOString().slice(0, 10)) return 'Pickup date cannot be in the past.';
   if (!store.pickupSessions.includes(draft.pickupSession)) return 'Choose a valid pickup session.';
+  if (!store.pickupLocations.some(location => location.id === draft.pickupLocationId)) return 'Choose a valid pickup location.';
   if (draft.notes.trim().length > 500) return 'Notes must be 500 characters or fewer.';
   if (draft.selections.length === 0) return 'Your cart is empty.';
   if (draft.selections.some(selection => !Number.isInteger(selection.quantity) || selection.quantity < 1 || selection.quantity > 20)) {

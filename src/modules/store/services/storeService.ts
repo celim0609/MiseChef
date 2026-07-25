@@ -125,8 +125,17 @@ export const storeService = {
       ...draft,
       name: draft.name.trim(),
       description: draft.description.trim(),
+      contactInformation: draft.contactInformation.trim(),
       businessHours: draft.businessHours.trim(),
       pickupSessions: [...new Set(draft.pickupSessions.map(session => session.trim()).filter(Boolean))],
+      pickupLocations: draft.pickupLocations.map(location => ({
+        id: location.id,
+        name: location.name.trim(),
+        address: location.address.trim(),
+        notes: location.notes.trim()
+      })),
+      pickupEnabled: draft.pickupLocations.length > 0
+        && draft.pickupSessions.some(session => Boolean(session.trim())),
       updatedAt: new Date().toISOString()
     };
 
@@ -147,6 +156,11 @@ export const storeService = {
   createOptionId() {
     if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
     return doc(collection(db, 'storeOptionIds')).id;
+  },
+
+  createPickupLocationId() {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    return doc(collection(db, 'storePickupLocationIds')).id;
   },
 
   async listOptionGroups(workspaceId: string): Promise<StoreOptionGroup[]> {
@@ -334,6 +348,8 @@ export const storeService = {
     if (validationError) throw new Error(validationError);
 
     const items = buildStoreOrderItems(draft.selections, currentData.products, currentData.optionGroups);
+    const pickupLocation = currentData.store.pickupLocations.find(location => location.id === draft.pickupLocationId);
+    if (!pickupLocation) throw new Error('Choose a valid pickup location.');
     const orderRef = doc(collection(db, 'storeOrders'));
     const order: StoreOrder = {
       id: orderRef.id,
@@ -345,6 +361,10 @@ export const storeService = {
       phone: draft.phone.trim(),
       pickupDate: draft.pickupDate,
       pickupSession: draft.pickupSession,
+      pickupLocationId: pickupLocation.id,
+      pickupLocationName: pickupLocation.name,
+      pickupLocationAddress: pickupLocation.address,
+      pickupLocationNotes: pickupLocation.notes,
       notes: draft.notes.trim(),
       items,
       itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
