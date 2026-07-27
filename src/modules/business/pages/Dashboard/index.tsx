@@ -3,6 +3,7 @@ import { AlertTriangle, BarChart3, ReceiptText, TrendingUp, WalletCards } from '
 import { businessService } from '../../services';
 import { getCustomerFriendlyErrorMessage } from '../../../../utils/customerErrorMessages';
 import type { BusinessDashboardSummary } from '../../types';
+import { formatRegionCurrency, useWorkspaceRegion } from '../../../../regions';
 
 interface BusinessDashboardPageProps {
   userId?: string;
@@ -21,7 +22,6 @@ const emptySummary: BusinessDashboardSummary = {
   availability: { todaySales: false, todayPurchases: false, monthSales: false, monthPurchases: false, sales: false, invoices: false }
 };
 
-const formatMoney = (value: number) => `SGD ${Number(value || 0).toFixed(2)}`;
 const formatPercent = (value: number | null) => value === null ? 'No sales yet' : `${value.toFixed(1)}%`;
 
 const getCostBadgeClass = (percentage: number | null) => {
@@ -38,6 +38,8 @@ const alertClassName = {
 };
 
 export default function BusinessDashboardPage({ userId, workspaceId }: BusinessDashboardPageProps) {
+  const region = useWorkspaceRegion();
+  const formatMoney = (value: number) => formatRegionCurrency(value, region.currency);
   const [summary, setSummary] = useState<BusinessDashboardSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');

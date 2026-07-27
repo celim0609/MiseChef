@@ -23,6 +23,7 @@ import {
   Settings,
   ShieldCheck,
   Star,
+  Store as StoreIcon,
   Truck,
   UsersRound,
   X
@@ -202,6 +203,7 @@ export default function NavigationDrawer({
       : `Available in ${requiredPlanDefinition.name}`;
   };
   const staticMenuItems: Array<{ label: string; icon: React.ReactNode; tab?: RootTab }> = [
+    { label: 'Store', icon: <StoreIcon className="w-5 h-5" />, tab: 'store' as RootTab },
     { label: 'Team', icon: <UsersRound className="w-5 h-5" />, tab: 'team' as RootTab },
     { label: 'Chef Profile', icon: <BriefcaseBusiness className="w-5 h-5" />, tab: 'portfolio' as RootTab },
     { label: 'Settings', icon: <Settings className="w-5 h-5" />, tab: 'settings' as RootTab },

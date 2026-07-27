@@ -3,6 +3,7 @@ import { db } from '../../../firebase';
 import type { CostingIngredient, CostingInvoice, CostingInvoiceExtractedItem } from '../types';
 import { costIntelligenceService, type IngredientCostChange } from './costIntelligenceService';
 import { recipeCostService } from './recipeCostService';
+import { DEFAULT_REGION_CONFIGURATION, type RegionCurrency } from '../../../regions';
 
 export type InvoiceImportMatch = {
   item: CostingInvoiceExtractedItem;
@@ -71,13 +72,15 @@ export const invoiceImportService = {
     matches,
     ingredients,
     userId,
-    workspaceId = userId
+    workspaceId = userId,
+    defaultCurrency = DEFAULT_REGION_CONFIGURATION.currency
   }: {
     invoice: CostingInvoice;
     matches: InvoiceImportMatch[];
     ingredients: CostingIngredient[];
     userId: string;
     workspaceId?: string;
+    defaultCurrency?: RegionCurrency;
   }): Promise<{ invoiceUpdates: Partial<CostingInvoice> }> {
     if (!db) throw new Error("We couldn't connect to your workspace. Please refresh the page or try again.");
     if (invoice.processingStatus === 'Imported' || invoice.approvedAt) {
@@ -99,7 +102,7 @@ export const invoiceImportService = {
 
     const now = new Date().toISOString();
     const supplierId = invoice.supplier || invoice.extractedData?.supplier || '';
-    const currency = invoice.currency || invoice.extractedData?.currency || 'SGD';
+    const currency = invoice.currency || invoice.extractedData?.currency || defaultCurrency;
     const effectiveDate = invoice.invoiceDate || invoice.extractedData?.invoiceDate || invoice.processingCompletedAt || invoice.uploadDate || now;
     const currentIngredients = await loadCurrentIngredients(workspaceId);
     const effectiveIngredients = currentIngredients.length > 0 ? currentIngredients : ingredients;

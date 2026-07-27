@@ -1,6 +1,7 @@
 import { collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import type { Supplier, SupplierDraft, SupplierFilters, SupplierQuotation, SupplierQuotationInput, SupplierQuotationSummary } from '../types';
+import { DEFAULT_REGION_CONFIGURATION } from '../../../regions';
 
 const quotations: SupplierQuotation[] = [];
 
@@ -30,14 +31,17 @@ const sortByNewestQuotation = (a: SupplierQuotation, b: SupplierQuotation) => {
   return b.createdAt.localeCompare(a.createdAt);
 };
 
-const normalizeSupplier = (supplier: Partial<Supplier> & { id: string }): Supplier => ({
+const normalizeSupplier = (
+  supplier: Partial<Supplier> & { id: string },
+  defaultCurrency = DEFAULT_REGION_CONFIGURATION.currency
+): Supplier => ({
   id: supplier.id,
   companyName: supplier.companyName || '',
   contactPerson: supplier.contactPerson || '',
   email: supplier.email || '',
   phone: supplier.phone || '',
   address: supplier.address || '',
-  currency: supplier.currency || 'SGD',
+  currency: supplier.currency || defaultCurrency,
   paymentTerms: supplier.paymentTerms || '',
   deliveryDays: typeof supplier.deliveryDays === 'number' ? supplier.deliveryDays : null,
   gstRegistered: Boolean(supplier.gstRegistered),
@@ -64,14 +68,18 @@ const matchesSupplierStatus = (supplier: Supplier, status: SupplierFilters['stat
 );
 
 export const supplierService = {
-  async listSuppliers(workspaceId?: string, filters: SupplierFilters = { searchTerm: '', status: 'Active' }): Promise<Supplier[]> {
+  async listSuppliers(
+    workspaceId?: string,
+    filters: SupplierFilters = { searchTerm: '', status: 'Active' },
+    defaultCurrency = DEFAULT_REGION_CONFIGURATION.currency
+  ): Promise<Supplier[]> {
     if (!db || !workspaceId) return [];
 
     const suppliersQuery = query(collection(db, 'suppliers'), where('workspaceId', '==', workspaceId));
     const snapshot = await getDocs(suppliersQuery);
 
     return snapshot.docs
-      .map(supplierDoc => normalizeSupplier({ id: supplierDoc.id, ...supplierDoc.data() }))
+      .map(supplierDoc => normalizeSupplier({ id: supplierDoc.id, ...supplierDoc.data() }, defaultCurrency))
       .filter(supplier => matchesSupplierStatus(supplier, filters.status))
       .filter(supplier => matchesSupplierSearch(supplier, filters.searchTerm))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

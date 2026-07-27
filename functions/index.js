@@ -3,7 +3,7 @@ import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
-import { defineSecret } from 'firebase-functions/params';
+import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions';
 import { recordAiUsage } from './aiUsageTracker.js';
 import { deletePublicChefProfileAssets, getPublicChefAssetPrefix, publishPublicChefProfileAssets } from './publicChefProfileAssets.js';
@@ -19,11 +19,24 @@ import {
   requireWorkspaceEntitlements,
   reserveMonthlySubscriptionUsage
 } from './subscriptionEnforcement.js';
+import {
+  createPaymentAdapter,
+  createPrimaryPaymentAdapter
+} from './paymentProviders/index.js';
+import {
+  cancelStorePayment,
+  createStorePayment,
+  getStorePaymentResult,
+  handleStorePaymentWebhook
+} from './storePayments.js';
 
 initializeApp();
 
 const db = getFirestore();
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
+const stripeSecretKey = defineSecret('STRIPE_SECRET_KEY');
+const stripeWebhookSecret = defineSecret('STRIPE_WEBHOOK_SECRET');
+const sellingWorkspaceId = defineString('SELLING_WORKSPACE_ID', { default: '' });
 const MODEL = 'gemini-2.5-flash';
 const REGION = 'us-central1';
 const MAX_INVOICE_OCR_BYTES = 10 * 1024 * 1024;
@@ -33,6 +46,150 @@ const ALLOWED_INVOICE_OCR_MIME_TYPES = new Set([
   'image/png',
   'image/webp'
 ]);
+
+const toStorePaymentError = error => {
+  logger.error('Store payment request failed', {
+    name: error?.name || '',
+    code: error?.code || '',
+    message: error?.message || ''
+  });
+  const message = readString(error?.message);
+  if ([
+    'This Store is no longer available.',
+    'Online payments are not configured yet.',
+    'Online payments are not available for this Store.',
+    'Pickup ordering is not available.',
+    'Name is required.',
+    'Name must be 120 characters or fewer.',
+    'Enter a valid phone number.',
+    'Choose an available pickup date.',
+    'Choose a valid pickup session.',
+    'Choose a valid pickup location.',
+    'Notes must be 500 characters or fewer.',
+    'Your cart is empty.',
+    'Your cart contains too many items.',
+    'Each product quantity must be between 1 and 20.',
+    'A product in your cart is no longer available.',
+    'Order total must be greater than zero.'
+  ].includes(message) || message.startsWith('Choose one ') || message.startsWith('Options for ')) {
+    return new HttpsError('failed-precondition', message);
+  }
+  return new HttpsError('internal', 'Secure payment could not be started. Please try again.');
+};
+
+export const createPublicStorePayment = onCall({
+  region: REGION,
+  invoker: 'public',
+  secrets: [stripeSecretKey],
+  timeoutSeconds: 30,
+  memory: '256MiB'
+}, async request => {
+  try {
+    const adapter = createPrimaryPaymentAdapter({
+      stripeSecretKey: stripeSecretKey.value()
+    });
+    return await createStorePayment({
+      db,
+      adapter,
+      sellingWorkspaceId: sellingWorkspaceId.value(),
+      slug: request.data?.slug,
+      draft: request.data?.order
+    });
+  } catch (error) {
+    if (error instanceof HttpsError) throw error;
+    throw toStorePaymentError(error);
+  }
+});
+
+export const getPublicStorePaymentResult = onCall({
+  region: REGION,
+  invoker: 'public',
+  secrets: [stripeSecretKey],
+  timeoutSeconds: 20,
+  memory: '256MiB'
+}, async request => {
+  try {
+    const adapter = createPaymentAdapter(request.data?.provider, {
+      stripeSecretKey: stripeSecretKey.value()
+    });
+    return await getStorePaymentResult({
+      db,
+      adapter,
+      sellingWorkspaceId: sellingWorkspaceId.value(),
+      slug: request.data?.slug,
+      providerPaymentId: request.data?.paymentSessionId,
+      checkoutAccessToken: request.data?.checkoutAccessToken
+    });
+  } catch (error) {
+    logger.warn('Store payment result lookup failed', {
+      name: error?.name || '',
+      code: error?.code || '',
+      message: error?.message || ''
+    });
+    throw new HttpsError('not-found', 'We could not verify this payment yet. Please try again.');
+  }
+});
+
+export const cancelPublicStorePayment = onCall({
+  region: REGION,
+  invoker: 'public',
+  secrets: [stripeSecretKey],
+  timeoutSeconds: 20,
+  memory: '256MiB'
+}, async request => {
+  try {
+    const adapter = createPaymentAdapter(request.data?.provider, {
+      stripeSecretKey: stripeSecretKey.value()
+    });
+    return await cancelStorePayment({
+      db,
+      adapter,
+      sellingWorkspaceId: sellingWorkspaceId.value(),
+      slug: request.data?.slug,
+      providerPaymentId: request.data?.paymentSessionId,
+      checkoutAccessToken: request.data?.checkoutAccessToken
+    });
+  } catch (error) {
+    logger.warn('Store payment cancellation failed', {
+      name: error?.name || '',
+      code: error?.code || '',
+      message: error?.message || ''
+    });
+    throw new HttpsError('failed-precondition', 'This payment could not be cancelled. Please refresh and try again.');
+  }
+});
+
+export const stripeStorePaymentWebhook = onRequest({
+  region: REGION,
+  invoker: 'public',
+  secrets: [stripeSecretKey, stripeWebhookSecret],
+  timeoutSeconds: 30,
+  memory: '256MiB'
+}, async (request, response) => {
+  if (request.method !== 'POST') {
+    response.status(405).send('Method not allowed');
+    return;
+  }
+  try {
+    const adapter = createPaymentAdapter('stripe', {
+      stripeSecretKey: stripeSecretKey.value()
+    });
+    const event = adapter.constructWebhookEvent(
+      request.rawBody,
+      request.get('stripe-signature'),
+      stripeWebhookSecret.value()
+    );
+    const result = await handleStorePaymentWebhook({ db, adapter, event });
+    response.status(200).json(result);
+  } catch (error) {
+    logger.warn('Stripe Store payment webhook rejected', {
+      name: error?.name || '',
+      code: error?.code || '',
+      message: error?.message || ''
+    });
+    response.status(400).send('Webhook rejected');
+  }
+});
 
 const readPublicProfileUsername = snapshot => {
   if (!snapshot.exists) return '';

@@ -1,4 +1,4 @@
-import type { WorkspaceMemberRole, WorkspaceMemberStatus } from '../../../types';
+import type { RegionCode, WorkspaceMemberRole, WorkspaceMemberStatus } from '../../../types';
 
 export type TeamRoleName = WorkspaceMemberRole;
 export type { WorkspaceMemberRole, WorkspaceMemberStatus };
@@ -7,6 +7,7 @@ export interface Workspace {
   id: string;
   name: string;
   ownerId: string;
+  country: RegionCode;
   createdBy?: string;
   createdAt: string;
   updatedAt: string;

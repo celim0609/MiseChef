@@ -3,6 +3,7 @@ import { Plus, ReceiptText } from 'lucide-react';
 import { businessService } from '../../services';
 import { getCustomerFriendlyErrorMessage } from '../../../../utils/customerErrorMessages';
 import type { BusinessSale } from '../../types';
+import { formatRegionCurrency, useWorkspaceRegion } from '../../../../regions';
 
 interface BusinessSalesPageProps {
   userId?: string;
@@ -10,13 +11,14 @@ interface BusinessSalesPageProps {
 }
 
 const todayDate = () => new Date().toISOString().slice(0, 10);
-const formatMoney = (value: number) => `SGD ${Number(value || 0).toFixed(2)}`;
 
 const notifySalesChanged = () => {
   window.dispatchEvent(new CustomEvent('misechef:sales-changed'));
 };
 
 export default function BusinessSalesPage({ userId, workspaceId }: BusinessSalesPageProps) {
+  const region = useWorkspaceRegion();
+  const formatMoney = (value: number) => formatRegionCurrency(value, region.currency);
   const [sales, setSales] = useState<BusinessSale[]>([]);
   const [date, setDate] = useState(todayDate());
   const [amount, setAmount] = useState('');

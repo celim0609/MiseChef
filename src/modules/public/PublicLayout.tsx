@@ -9,6 +9,7 @@ import { resolvePublicRoute, toPublicSlug } from './publicRoutes';
 import { publicChefProfileService, publicRecipeService } from './services';
 import PublicChefProfilePage from './PublicChefProfilePage';
 import PublicRecipeDiscoveryPage from './PublicRecipeDiscoveryPage';
+import { PublicStorePage } from '../store';
 
 const publicNavigation = [
   { label: 'Home', href: '/' },
@@ -119,6 +120,10 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
       return recipe ? <PublicRecipeDiscoveryPage recipe={recipe} publicRecipes={publicRecipes} publicChefs={publicChefs} /> : <EmptyPublicState title="Recipe not available" message="This recipe is not public or could not be found." icon={<Search className="h-5 w-5" />} />;
     }
 
+    if (route.page === 'store') {
+      return <PublicStorePage slug={route.slug} />;
+    }
+
     if (route.page === 'chefs') {
       return (
         <div>
@@ -150,7 +155,7 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
             <BrandLogo className="h-8 w-auto" />
             <div>
               <p className="font-display text-2xl font-bold italic text-primary">MiseChef</p>
-              <p className="font-sans text-[9px] font-extrabold uppercase tracking-[0.18em] text-outline">Recipes and chefs</p>
+              <p className="font-sans text-[9px] font-extrabold uppercase tracking-[0.18em] text-outline">Recipes, chefs, and stores</p>
             </div>
           </a>
           <nav className="flex flex-wrap items-center gap-1" aria-label="Public navigation">

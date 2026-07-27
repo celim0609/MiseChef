@@ -4,6 +4,7 @@ import { ingredientService, recipeCostService } from '../../services';
 import { getCustomerFriendlyErrorMessage } from '../../../../utils/customerErrorMessages';
 import { usageLimitService } from '../../../../services/usageLimitService';
 import type { CostingIngredient } from '../../types';
+import { formatRegionCurrency, useWorkspaceRegion } from '../../../../regions';
 
 interface CostingIngredientsPageProps {
   userId?: string;
@@ -18,28 +19,26 @@ type IngredientFormState = Pick<CostingIngredient,
 
 const PAGE_SIZE = 8;
 
-const emptyForm: IngredientFormState = {
+const getEmptyForm = (currency: string): IngredientFormState => ({
   name: '',
   category: '',
   purchaseUnit: '',
   recipeUnit: '',
   conversionFactor: 1,
   currentPrice: 0,
-  currency: 'SGD',
+  currency,
   supplierId: '',
   yieldPercentage: 100,
   wastePercentage: 0,
   notes: ''
-};
+});
 
 const statusClassName: Record<CostingIngredient['status'], string> = {
   Active: 'bg-green-100 text-green-800',
   Archived: 'bg-surface-container-high text-on-surface-variant'
 };
 
-const formatMoney = (price: number, currency: string) => `${currency || 'SGD'} ${Number(price || 0).toFixed(2)}`;
-
-const toFormState = (ingredient?: CostingIngredient | null): IngredientFormState => ingredient ? {
+const toFormState = (ingredient: CostingIngredient | null | undefined, currency: string): IngredientFormState => ingredient ? {
   name: ingredient.name,
   category: ingredient.category,
   purchaseUnit: ingredient.purchaseUnit,
@@ -51,13 +50,14 @@ const toFormState = (ingredient?: CostingIngredient | null): IngredientFormState
   yieldPercentage: ingredient.yieldPercentage,
   wastePercentage: ingredient.wastePercentage,
   notes: ingredient.notes
-} : emptyForm;
+} : getEmptyForm(currency);
 
 export default function CostingIngredientsPage({ userId, workspaceId }: CostingIngredientsPageProps) {
+  const region = useWorkspaceRegion();
   const [ingredients, setIngredients] = useState<CostingIngredient[]>([]);
   const [selectedIngredient, setSelectedIngredient] = useState<CostingIngredient | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [formState, setFormState] = useState<IngredientFormState>(emptyForm);
+  const [formState, setFormState] = useState<IngredientFormState>(() => getEmptyForm(region.currency));
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [sortKey, setSortKey] = useState<SortKey>('name');
@@ -122,7 +122,7 @@ export default function CostingIngredientsPage({ userId, workspaceId }: CostingI
 
   const openCreateDrawer = () => {
     setSelectedIngredient(null);
-    setFormState(emptyForm);
+    setFormState(getEmptyForm(region.currency));
     setErrorMessage('');
     setMessage('');
     setIsDrawerOpen(true);
@@ -130,7 +130,7 @@ export default function CostingIngredientsPage({ userId, workspaceId }: CostingI
 
   const openEditDrawer = (ingredient: CostingIngredient) => {
     setSelectedIngredient(ingredient);
-    setFormState(toFormState(ingredient));
+    setFormState(toFormState(ingredient, region.currency));
     setErrorMessage('');
     setMessage('');
     setIsDrawerOpen(true);
@@ -291,7 +291,7 @@ export default function CostingIngredientsPage({ userId, workspaceId }: CostingI
                   <td className="px-4 py-3 font-bold text-on-surface-variant">{ingredient.category || '-'}</td>
                   <td className="px-4 py-3 font-bold text-on-surface-variant">{ingredient.purchaseUnit || '-'}</td>
                   <td className="px-4 py-3 font-bold text-on-surface-variant">{ingredient.recipeUnit || '-'}</td>
-                  <td className="px-4 py-3 font-bold text-on-surface-variant">{formatMoney(ingredient.currentPrice, ingredient.currency)}</td>
+                  <td className="px-4 py-3 font-bold text-on-surface-variant">{formatRegionCurrency(ingredient.currentPrice, ingredient.currency || region.currency)}</td>
                   <td className="px-4 py-3 font-bold text-on-surface-variant">{ingredient.yieldPercentage}%</td>
                   <td className="px-4 py-3 font-bold text-on-surface-variant">{ingredient.wastePercentage}%</td>
                   <td className="px-4 py-3"><span className={`rounded-full px-3 py-1 font-sans text-[10px] font-extrabold ${statusClassName[ingredient.status]}`}>{ingredient.status}</span></td>

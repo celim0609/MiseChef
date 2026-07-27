@@ -21,6 +21,21 @@ service firebase.storage {
         );
     }
 
+    function canManageWorkspace(workspaceId) {
+      return signedIn()
+        && (
+          (
+            firestore.exists(/databases/(default)/documents/workspaces/$(workspaceId))
+            && firestore.get(/databases/(default)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid
+          )
+          || (
+            firestore.exists(/databases/(default)/documents/workspaceMembers/$(workspaceId + "_" + request.auth.uid))
+            && firestore.get(/databases/(default)/documents/workspaceMembers/$(workspaceId + "_" + request.auth.uid)).data.status == 'Active'
+            && firestore.get(/databases/(default)/documents/workspaceMembers/$(workspaceId + "_" + request.auth.uid)).data.role in ['Owner', 'Manager']
+          )
+        );
+    }
+
     function validImageUpload(maxBytes) {
       return request.resource != null
         && request.resource.size <= maxBytes
@@ -66,6 +81,13 @@ service firebase.storage {
         && request.resource.size <= 2 * 1024 * 1024
         && request.resource.contentType == 'image/jpeg';
       allow delete: if isSuperAdmin();
+    }
+
+    match /stores/{workspaceId}/{allPaths=**} {
+      allow read: if true;
+      allow create, update: if canManageWorkspace(workspaceId)
+        && validImageUpload(10 * 1024 * 1024);
+      allow delete: if canManageWorkspace(workspaceId);
     }
 
     match /users/{userId}/profile/{fileName} {

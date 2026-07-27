@@ -10,6 +10,7 @@ import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, where } fro
 import { ChefProfile, CompanyRole, DEFAULT_CHEF_PROFILE, Recipe, RecipeCategory, RootTab, UserRole, Workspace, WorkspaceMemberRole } from './types';
 import { INITIAL_COLLECTIONS, INITIAL_RECIPES } from './data';
 import Header from './components/Header';
+import CreateWorkspaceDialog, { type CreateWorkspaceInput } from './components/CreateWorkspaceDialog';
 import HomeTab from './components/HomeTab';
 import SearchTab from './components/SearchTab';
 import AddRecipeTab from './components/AddRecipeTab';
@@ -41,6 +42,8 @@ import { workspaceService } from './services/workspaceService';
 import { usageLimitService } from './services/usageLimitService';
 import { canAccessRootTab, normalizeTeamRole } from './modules/team/permissions';
 import { getAuthenticatedDisplayName, getChefProfileStorageKey } from './utils/authenticatedUser';
+import { WorkspaceRegionProvider } from './regions';
+import { StorePage, storeService } from './modules/store';
 
 const STORAGE_RECIPES_KEY = 'my_cookbook_recipes_v2';
 const STORAGE_CATEGORIES_KEY = 'ce_lims_kitchen_categories_v1';
@@ -85,6 +88,7 @@ const ROOT_TAB_PATHS: Record<RootTab, string> = {
   login: '/login',
   team: '/app/team',
   admin: '/app/admin',
+  store: '/app/store',
   business: '/app/business',
   businessSales: '/app/business/sales',
   businessSuppliers: '/app/business/suppliers',
@@ -137,6 +141,9 @@ const getRootTabFromPath = (pathname: string): RootTab => {
     case '/app/admin':
     case '/admin':
       return 'admin';
+    case '/app/store':
+    case '/store':
+      return 'store';
     case '/app/business':
     case '/business':
       return 'business';
@@ -579,6 +586,7 @@ export default function App() {
   const recipeSaveInFlightRef = useRef(false);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [isNavigationDrawerOpen, setIsNavigationDrawerOpen] = useState(false);
+  const [isCreateWorkspaceOpen, setIsCreateWorkspaceOpen] = useState(false);
   const [selectedHomeCategory, setSelectedHomeCategory] = useState<string | null>(null);
   const [isFavoritesFilterActive, setIsFavoritesFilterActive] = useState(false);
   const [isAppReady, setIsAppReady] = useState(false);
@@ -607,6 +615,18 @@ export default function App() {
       : isGuestMode
         ? 'Viewer'
         : null;
+
+  useEffect(() => {
+    if (
+      !currentUser
+      || !currentWorkspace
+      || (currentWorkspaceRole !== 'Owner' && currentWorkspaceRole !== 'Manager')
+    ) {
+      return;
+    }
+
+    storeService.ensureWorkspaceStore(currentWorkspace, currentUser.uid).catch(() => undefined);
+  }, [currentUser, currentWorkspace, currentWorkspaceRole]);
 
   const handleRootNavigate = (tab: RootTab) => {
     if (addingRecipe || editingRecipe) {
@@ -1486,6 +1506,30 @@ export default function App() {
     setIsFavoritesFilterActive(false);
   };
 
+  const handleCreateWorkspace = async (input: CreateWorkspaceInput) => {
+    if (!currentUser) {
+      throw new Error('Sign in to create a workspace.');
+    }
+
+    const createdWorkspace = await workspaceService.createWorkspace({
+      user: currentUser,
+      ...input
+    });
+    setWorkspaces(current => [
+      ...current.filter(workspace => workspace.id !== createdWorkspace.id),
+      createdWorkspace
+    ]);
+    workspaceService.setStoredWorkspaceId(currentUser.uid, createdWorkspace.id);
+    setCurrentWorkspace(createdWorkspace);
+    setAddingRecipe(false);
+    setEditingRecipe(null);
+    setSelectedRecipe(null);
+    setSelectedCostingInvoiceId(null);
+    setSelectedHomeCategory(null);
+    setIsFavoritesFilterActive(false);
+    triggerNotification(`${createdWorkspace.name} was created and selected.`, 'success');
+  };
+
   const handleFounderWorkspaceCreated = async (workspaceId: string) => {
     if (!currentUser || currentUserRole !== 'super_admin') {
       throw new Error('Only MiseChef super admins can use the founder workspace QA tool.');
@@ -1686,6 +1730,9 @@ export default function App() {
             onWorkspaceCreated={handleFounderWorkspaceCreated}
           />
         );
+      case 'store':
+        if (!currentUser || !currentWorkspace) return null;
+        return <StorePage currentUser={currentUser} workspace={currentWorkspace} />;
       case 'costing':
       case 'costingIngredients':
       case 'costingInvoices':
@@ -1841,7 +1888,8 @@ export default function App() {
       onMenuClick: () => setIsNavigationDrawerOpen(true),
       workspaces,
       currentWorkspace,
-      onWorkspaceChange: handleWorkspaceChange
+      onWorkspaceChange: handleWorkspaceChange,
+      onCreateWorkspace: currentUser ? () => setIsCreateWorkspaceOpen(true) : undefined
     };
   };
 
@@ -1870,9 +1918,16 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col font-sans selection:bg-secondary/20 bg-background relative overflow-x-hidden">
+    <WorkspaceRegionProvider workspace={currentWorkspace}>
+      <div className="min-h-screen flex flex-col font-sans selection:bg-secondary/20 bg-background relative overflow-x-hidden">
       {/* Dynamic Header */}
       <Header {...getHeaderProps()} />
+
+      <CreateWorkspaceDialog
+        isOpen={isCreateWorkspaceOpen}
+        onClose={() => setIsCreateWorkspaceOpen(false)}
+        onCreate={handleCreateWorkspace}
+      />
 
       <AnimatePresence>
         {currentUser && pendingTeamInvitations.length > 0 && (
@@ -2078,6 +2133,7 @@ export default function App() {
           />
         )}
       </AnimatePresence>
-    </div>
+      </div>
+    </WorkspaceRegionProvider>
   );
 }

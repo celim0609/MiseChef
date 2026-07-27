@@ -4,9 +4,10 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Check, ChevronDown, Menu } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, Menu, Plus } from 'lucide-react';
 import { RootTab, Workspace } from '../types';
 import BrandLogo from './BrandLogo';
+import { getWorkspaceRegionConfiguration } from '../regions';
 
 interface HeaderProps {
   title?: string;
@@ -22,6 +23,7 @@ interface HeaderProps {
   workspaces?: Workspace[];
   currentWorkspace?: Workspace | null;
   onWorkspaceChange?: (workspaceId: string) => void;
+  onCreateWorkspace?: () => void;
 }
 
 type WorkspaceGroup = 'Personal' | 'Company';
@@ -38,6 +40,10 @@ const getWorkspaceInitials = (workspace: Workspace) => workspace.name
   .slice(0, 2)
   .toUpperCase() || 'MC';
 
+const getWorkspaceCountryName = (workspace: Workspace) => (
+  getWorkspaceRegionConfiguration(workspace).countryName
+);
+
 const groupOrder: WorkspaceGroup[] = ['Personal', 'Company'];
 
 export default function Header({
@@ -53,7 +59,8 @@ export default function Header({
   onAvatarClick,
   workspaces = [],
   currentWorkspace = null,
-  onWorkspaceChange
+  onWorkspaceChange,
+  onCreateWorkspace
 }: HeaderProps) {
   const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
   const switcherRef = useRef<HTMLDivElement | null>(null);
@@ -160,7 +167,7 @@ export default function Header({
           </div>
 
           {!isSubpage && currentWorkspace && (
-            accessibleWorkspaceCount !== 1 ? (
+            accessibleWorkspaceCount !== 1 || onCreateWorkspace ? (
               <div ref={switcherRef} className="relative block">
                 <button
                   type="button"
@@ -177,7 +184,7 @@ export default function Header({
                       <span className="truncate font-sans text-xs font-extrabold text-primary">{currentWorkspace.name}</span>
                     </span>
                     <span className="block truncate font-sans text-[10px] font-bold text-on-surface-variant">
-                      {getWorkspaceGroup(currentWorkspace)} workspace
+                      {getWorkspaceCountryName(currentWorkspace)} · {getWorkspaceGroup(currentWorkspace)} workspace
                     </span>
                   </span>
                   <ChevronDown className={`h-4 w-4 shrink-0 text-outline transition-transform ${isWorkspaceMenuOpen ? 'rotate-180' : ''}`} />
@@ -213,7 +220,7 @@ export default function Header({
                                       <span className="truncate font-sans text-sm font-extrabold">{workspace.name}</span>
                                     </span>
                                     <span className="block truncate font-sans text-[11px] font-bold text-on-surface-variant">
-                                      {getWorkspaceGroup(workspace)} workspace
+                                      {getWorkspaceCountryName(workspace)} · {getWorkspaceGroup(workspace)} workspace
                                     </span>
                                   </span>
                                   {isSelected && <Check className="h-4 w-4 shrink-0 text-secondary" />}
@@ -223,6 +230,23 @@ export default function Header({
                           </div>
                         </div>
                       ))}
+                      {onCreateWorkspace && (
+                        <div className="border-t border-surface-container-high p-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsWorkspaceMenuOpen(false);
+                              onCreateWorkspace();
+                            }}
+                            className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left text-primary transition-all hover:bg-surface-container-low"
+                          >
+                            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                              <Plus className="h-4 w-4" />
+                            </span>
+                            <span className="font-sans text-sm font-extrabold">Create Workspace</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -240,7 +264,7 @@ export default function Header({
                     <span className="truncate font-sans text-xs font-extrabold text-primary">{currentWorkspace.name}</span>
                   </span>
                   <span className="block truncate font-sans text-[10px] font-bold text-on-surface-variant">
-                    {getWorkspaceGroup(currentWorkspace)} Workspace
+                    {getWorkspaceCountryName(currentWorkspace)} · {getWorkspaceGroup(currentWorkspace)} workspace
                   </span>
                 </span>
               </div>

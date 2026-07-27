@@ -4,6 +4,7 @@ import { auditLogService } from '../../../services/auditLogService';
 import type { WorkspaceMemberRole, WorkspaceMemberSummary } from '../../../types';
 import { TEAM_ROLE_DESCRIPTIONS, TEAM_ROLE_ORDER, normalizeTeamRole } from '../permissions';
 import type { TeamData, TeamInvitation, TeamRole, TeamRoleName, Workspace, WorkspaceMember } from '../types';
+import { LEGACY_WORKSPACE_REGION_CODE, normalizeRegionCode } from '../../../regions';
 
 const toRoleId = (workspaceId: string, roleName: TeamRoleName) =>
   `${workspaceId}_${roleName.toLowerCase().replace(/\s+/g, '-')}`;
@@ -29,6 +30,7 @@ const normalizeWorkspace = (id: string, data: Record<string, unknown>): Workspac
   id,
   name: readString(data.name, 'Workspace'),
   ownerId: readString(data.ownerId),
+  country: normalizeRegionCode(data.country, LEGACY_WORKSPACE_REGION_CODE),
   createdBy: readString(data.createdBy),
   createdAt: readString(data.createdAt, nowIso()),
   updatedAt: readString(data.updatedAt, nowIso())

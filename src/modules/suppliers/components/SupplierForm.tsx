@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import type { Supplier, SupplierDraft, SupplierValidationErrors } from '../types';
+import { useWorkspaceRegion } from '../../../regions';
 
 interface SupplierFormProps {
   supplier?: Supplier | null;
@@ -8,20 +9,20 @@ interface SupplierFormProps {
   onSubmit: (draft: SupplierDraft) => Promise<void>;
 }
 
-const defaultDraft: SupplierDraft = {
+const getDefaultDraft = (currency: string): SupplierDraft => ({
   companyName: '',
   contactPerson: '',
   email: '',
   phone: '',
   address: '',
-  currency: 'SGD',
+  currency,
   paymentTerms: '',
   deliveryDays: null,
   gstRegistered: false,
   notes: ''
-};
+});
 
-const getInitialDraft = (supplier?: Supplier | null): SupplierDraft => supplier ? {
+const getInitialDraft = (supplier: Supplier | null | undefined, currency: string): SupplierDraft => supplier ? {
   companyName: supplier.companyName,
   contactPerson: supplier.contactPerson,
   email: supplier.email,
@@ -32,7 +33,7 @@ const getInitialDraft = (supplier?: Supplier | null): SupplierDraft => supplier 
   deliveryDays: supplier.deliveryDays,
   gstRegistered: supplier.gstRegistered,
   notes: supplier.notes
-} : defaultDraft;
+} : getDefaultDraft(currency);
 
 const validateSupplier = (draft: SupplierDraft): SupplierValidationErrors => {
   const errors: SupplierValidationErrors = {};
@@ -42,7 +43,8 @@ const validateSupplier = (draft: SupplierDraft): SupplierValidationErrors => {
 };
 
 export default function SupplierForm({ supplier, isSaving, onCancel, onSubmit }: SupplierFormProps) {
-  const [draft, setDraft] = useState<SupplierDraft>(() => getInitialDraft(supplier));
+  const region = useWorkspaceRegion();
+  const [draft, setDraft] = useState<SupplierDraft>(() => getInitialDraft(supplier, region.currency));
   const [errors, setErrors] = useState<SupplierValidationErrors>({});
 
   const title = supplier ? 'Edit Supplier' : 'Add Supplier';

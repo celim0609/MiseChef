@@ -1,0 +1,38 @@
+import type { RegionCode, RegionConfiguration } from './types';
+
+export const DEFAULT_REGION_CODE: RegionCode = 'MY';
+export const LEGACY_WORKSPACE_REGION_CODE: RegionCode = 'SG';
+
+export const REGION_CONFIGURATIONS = {
+  MY: {
+    country: 'MY',
+    countryName: 'Malaysia',
+    locale: 'en-MY',
+    timeZone: 'Asia/Kuala_Lumpur',
+    currency: 'MYR',
+    paymentMethods: [
+      { id: 'touch-n-go', name: "Touch 'n Go eWallet" },
+      { id: 'fpx', name: 'FPX' },
+      { id: 'card', name: 'Debit / Credit Card' }
+    ],
+    // Provider catalogs stay empty until product-approved integrations are configured.
+    deliveryProviders: [],
+    supplierProviders: []
+  },
+  SG: {
+    country: 'SG',
+    countryName: 'Singapore',
+    locale: 'en-SG',
+    timeZone: 'Asia/Singapore',
+    currency: 'SGD',
+    paymentMethods: [
+      { id: 'paynow', name: 'PayNow' },
+      { id: 'card', name: 'Debit / Credit Card' }
+    ],
+    // Provider catalogs stay empty until product-approved integrations are configured.
+    deliveryProviders: [],
+    supplierProviders: []
+  }
+} as const satisfies Record<RegionCode, RegionConfiguration>;
+
+export const DEFAULT_REGION_CONFIGURATION = REGION_CONFIGURATIONS[DEFAULT_REGION_CODE];

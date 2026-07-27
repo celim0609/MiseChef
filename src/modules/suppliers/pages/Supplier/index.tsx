@@ -7,6 +7,7 @@ import { supplierService } from '../../services';
 import { getCustomerFriendlyErrorMessage, isPermissionError } from '../../../../utils/customerErrorMessages';
 import { usageLimitService } from '../../../../services/usageLimitService';
 import type { Supplier, SupplierDraft, SupplierFilters, SupplierQuotationSummary } from '../../types';
+import { useWorkspaceRegion } from '../../../../regions';
 
 const emptySummary: SupplierQuotationSummary = {
   totalSuppliers: 0,
@@ -23,6 +24,7 @@ interface SuppliersPageProps {
 }
 
 export default function SuppliersPage({ userId, workspaceId }: SuppliersPageProps) {
+  const region = useWorkspaceRegion();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [summary, setSummary] = useState<SupplierQuotationSummary>(emptySummary);
   const [filters, setFilters] = useState<SupplierFilters>({ searchTerm: '', status: 'Active' });
@@ -51,7 +53,7 @@ export default function SuppliersPage({ userId, workspaceId }: SuppliersPageProp
 
     try {
       const [loadedSuppliers, loadedSummary] = await Promise.all([
-        safeLoad(() => supplierService.listSuppliers(workspaceId || userId, filters), [] as Supplier[]),
+        safeLoad(() => supplierService.listSuppliers(workspaceId || userId, filters, region.currency), [] as Supplier[]),
         safeLoad(() => supplierService.getSummary(workspaceId || userId), emptySummary)
       ]);
       setSuppliers(loadedSuppliers);
@@ -62,7 +64,7 @@ export default function SuppliersPage({ userId, workspaceId }: SuppliersPageProp
     } finally {
       setIsLoading(false);
     }
-  }, [filters, userId, workspaceId]);
+  }, [filters, region.currency, userId, workspaceId]);
 
   useEffect(() => {
     loadSuppliers();
