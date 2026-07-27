@@ -11,26 +11,20 @@ import {
 } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import type { Workspace } from '../../../types';
-import { getWorkspaceRegionConfiguration } from '../../../regions';
 import {
   createDefaultWorkspaceStore,
-  buildStoreOrderItems,
   normalizeStoreOptionGroup,
   normalizeStoreProduct,
   normalizeWorkspaceStore,
   toStoreSlug,
   validateStoreOptionGroup,
-  validateStoreOrder,
   validateStoreProduct,
   validateStoreSettings
 } from '../storeModel';
-import { createCustomerOrderNumber } from '../selling';
 import type {
   PublicStoreData,
   StoreOptionGroup,
   StoreOptionGroupDraft,
-  StoreOrder,
-  StoreOrderDraft,
   StoreProduct,
   StoreProductDraft,
   StoreSettingsDraft,
@@ -306,6 +300,10 @@ export const storeService = {
   },
 
   async getPublicStore(slug: string): Promise<PublicStoreData | null> {
+    if (import.meta.env.DEV && import.meta.env.VITE_STORE_QA_FIXTURE === 'true') {
+      const { createPublicStoreQaFixture } = await import('../testing/publicStoreQaFixture');
+      return createPublicStoreQaFixture(slug);
+    }
     if (!db || !slug.trim()) return null;
 
     const storeQuery = query(
@@ -344,46 +342,5 @@ export const storeService = {
       .sort((a, b) => a.name.localeCompare(b.name));
 
     return { store, products, optionGroups };
-  },
-
-  async placeOrder(slug: string, draft: StoreOrderDraft): Promise<StoreOrder> {
-    if (!db) throw new Error("We couldn't connect to this Store. Please refresh the page or try again.");
-    const currentData = await this.getPublicStore(slug);
-    if (!currentData) throw new Error('This Store is no longer available.');
-
-    const validationError = validateStoreOrder(draft, currentData.store);
-    if (validationError) throw new Error(validationError);
-
-    const items = buildStoreOrderItems(draft.selections, currentData.products, currentData.optionGroups);
-    const pickupLocation = currentData.store.pickupLocations.find(location => location.id === draft.pickupLocationId);
-    if (!pickupLocation) throw new Error('Choose a valid pickup location.');
-    const orderRef = doc(collection(db, 'storeOrders'));
-    const order: StoreOrder = {
-      id: orderRef.id,
-      orderNumber: createCustomerOrderNumber(),
-      storeId: currentData.store.id,
-      workspaceId: currentData.store.workspaceId,
-      storeName: currentData.store.name,
-      currency: currentData.store.currency,
-      paymentMethodId: draft.paymentMethodId,
-      paymentMethodName: getWorkspaceRegionConfiguration(currentData.store).paymentMethods
-        .find(method => method.id === draft.paymentMethodId)!.name,
-      customerName: draft.customerName.trim(),
-      phone: draft.phone.trim(),
-      pickupDate: draft.pickupDate,
-      pickupSession: draft.pickupSession,
-      pickupLocationId: pickupLocation.id,
-      pickupLocationName: pickupLocation.name,
-      pickupLocationAddress: pickupLocation.address,
-      pickupLocationNotes: pickupLocation.notes,
-      notes: draft.notes.trim(),
-      items,
-      itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
-      total: Math.round(items.reduce((sum, item) => sum + item.lineTotal, 0) * 100) / 100,
-      status: 'Placed',
-      createdAt: new Date().toISOString()
-    };
-    await setDoc(orderRef, removeUndefinedFields(order));
-    return order;
   }
 };

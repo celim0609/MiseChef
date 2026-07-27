@@ -7,6 +7,7 @@ const requiredFirebaseVariables = [
   'VITE_FIREBASE_STORAGE_BUCKET',
   'VITE_FIREBASE_MESSAGING_SENDER_ID',
   'VITE_FIREBASE_APP_ID',
+  'VITE_STRIPE_PUBLISHABLE_KEY',
 ];
 
 const fileEnvironment = loadEnv('production', process.cwd(), '');
@@ -20,9 +21,14 @@ const isUsableValue = value => {
     && !normalizedValue.startsWith('MY_FIREBASE_');
 };
 
-const missingVariables = requiredFirebaseVariables.filter(
-  variableName => !isUsableValue(environment[variableName]),
-);
+const missingVariables = requiredFirebaseVariables.filter(variableName => {
+  const value = environment[variableName];
+  if (!isUsableValue(value)) return true;
+  if (variableName === 'VITE_STRIPE_PUBLISHABLE_KEY') {
+    return !/^pk_(test|live)_[A-Za-z0-9]+$/.test(value.trim());
+  }
+  return false;
+});
 
 if (missingVariables.length > 0) {
   console.error(

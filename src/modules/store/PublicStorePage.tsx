@@ -15,10 +15,18 @@ import {
   X
 } from 'lucide-react';
 import { formatRegionCurrency, getRegionConfiguration } from '../../regions';
-import { storeService } from './services';
+import StorePaymentCheckout from './StorePaymentCheckout';
+import { storePaymentService, storeService } from './services';
 import { formatPickupDateLabel, getValidPickupDates } from './storeModel';
 import { getBusinessWhatsAppUrl } from './selling';
-import type { CartSelection, PublicStoreData, StoreOrder, StoreProduct } from './types';
+import type {
+  CartSelection,
+  PublicStoreData,
+  PublicStoreOrderResult,
+  StorePaymentProviderId,
+  StorePaymentSession,
+  StoreProduct
+} from './types';
 
 interface CartLine extends CartSelection {
   key: string;
@@ -40,11 +48,11 @@ export default function PublicStorePage({ slug }: { slug: string }) {
   const [pickupDate, setPickupDate] = useState('');
   const [pickupSession, setPickupSession] = useState('');
   const [pickupLocationId, setPickupLocationId] = useState('');
-  const [paymentMethodId, setPaymentMethodId] = useState('');
   const [notes, setNotes] = useState('');
   const [checkoutError, setCheckoutError] = useState('');
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
-  const [placedOrder, setPlacedOrder] = useState<StoreOrder | null>(null);
+  const [paymentSession, setPaymentSession] = useState<StorePaymentSession | null>(null);
+  const [placedOrder, setPlacedOrder] = useState<PublicStoreOrderResult | null>(null);
 
   useEffect(() => {
     let isCancelled = false;
@@ -58,9 +66,6 @@ export default function PublicStorePage({ slug }: { slug: string }) {
         setPickupDate(storeData ? getValidPickupDates(storeData.store)[0] || '' : '');
         setPickupSession(storeData?.store.pickupSessions[0] || '');
         setPickupLocationId(storeData?.store.pickupLocations[0]?.id || '');
-        setPaymentMethodId(storeData
-          ? getRegionConfiguration(storeData.store.country).paymentMethods[0]?.id || ''
-          : '');
       })
       .catch(() => {
         if (!isCancelled) {
@@ -75,6 +80,55 @@ export default function PublicStorePage({ slug }: { slug: string }) {
     return () => {
       isCancelled = true;
     };
+  }, [slug]);
+
+  const verifyPayment = async (
+    provider: StorePaymentProviderId,
+    paymentSessionId: string,
+    checkoutAccessToken: string
+  ) => {
+    const result = await storePaymentService.getResult(
+      slug,
+      provider,
+      paymentSessionId,
+      checkoutAccessToken
+    );
+    if (result.paymentStatus === 'paid') {
+      setPlacedOrder(result);
+      setPaymentSession(null);
+      setCart([]);
+      setNotes('');
+      setCheckoutError('');
+      return;
+    }
+    if (result.paymentStatus === 'processing') {
+      setCheckoutError('Your payment is still processing. Please check again in a moment.');
+      return;
+    }
+    throw new Error('Payment was not completed. Please choose a payment method and try again.');
+  };
+
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    const returnedProvider = query.get('payment_provider')
+      || (query.has('payment_intent') ? 'stripe' : '');
+    const returnedPaymentSessionId = query.get('payment_session_id')
+      || query.get('payment_intent');
+    const returnedCheckoutAccessToken = query.get('payment_access_token');
+    if (!returnedProvider || !returnedPaymentSessionId || !returnedCheckoutAccessToken) return;
+    setIsPlacingOrder(true);
+    verifyPayment(returnedProvider, returnedPaymentSessionId, returnedCheckoutAccessToken)
+      .catch(error => {
+        setCheckoutError(error instanceof Error ? error.message : 'We could not verify this payment yet.');
+      })
+      .finally(() => {
+        setIsPlacingOrder(false);
+        const cleanUrl = new URL(window.location.href);
+        cleanUrl.search = '';
+        window.history.replaceState({}, '', `${cleanUrl.pathname}${cleanUrl.hash}`);
+      });
+  // verifyPayment intentionally resolves the payment identified by the current URL once.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slug]);
 
   const optionGroupsById = useMemo(
@@ -117,6 +171,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
     setConfiguringProduct(null);
     setConfiguredOptions({});
     setPlacedOrder(null);
+    setPaymentSession(null);
     setCheckoutError('');
   };
 
@@ -132,19 +187,18 @@ export default function PublicStorePage({ slug }: { slug: string }) {
     setConfiguringProduct(product);
   };
 
-  const placeOrder = async (event: FormEvent<HTMLFormElement>) => {
+  const startPayment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!data || isPlacingOrder) return;
     setCheckoutError('');
     setIsPlacingOrder(true);
     try {
-      const order = await storeService.placeOrder(slug, {
+      const session = await storePaymentService.createPayment(slug, {
         customerName,
         phone,
         pickupDate,
         pickupSession,
         pickupLocationId,
-        paymentMethodId,
         notes,
         selections: cart.map(({ productId, quantity, selectedOptions }) => ({
           productId,
@@ -152,11 +206,9 @@ export default function PublicStorePage({ slug }: { slug: string }) {
           selectedOptions
         }))
       });
-      setPlacedOrder(order);
-      setCart([]);
-      setNotes('');
+      setPaymentSession(session);
     } catch (error) {
-      setCheckoutError(error instanceof Error ? error.message : 'Unable to place this order. Please try again.');
+      setCheckoutError(error instanceof Error ? error.message : 'Unable to start secure payment. Please try again.');
     } finally {
       setIsPlacingOrder(false);
     }
@@ -184,6 +236,13 @@ export default function PublicStorePage({ slug }: { slug: string }) {
     && store.pickupLocations.length > 0
     && store.pickupSessions.length > 0
     && validPickupDates.length > 0;
+  const paymentReturnUrl = (() => {
+    const url = new URL(window.location.href);
+    url.search = '';
+    url.hash = '';
+    url.searchParams.set('payment_return', '1');
+    return url.toString();
+  })();
 
   return (
     <div className="space-y-8">
@@ -269,7 +328,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
           {placedOrder && (
             <div className="mt-5 rounded-2xl bg-green-50 p-4 text-green-800">
               <CheckCircle2 className="h-6 w-6" />
-              <p className="mt-2 font-display text-xl font-bold">Order placed</p>
+              <p className="mt-2 font-display text-xl font-bold">Payment received</p>
               <dl className="mt-4 grid gap-3 rounded-2xl bg-white/70 p-4">
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Order Number</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.orderNumber}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Date</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{formatPickupDateLabel(placedOrder.pickupDate, store.country)}</dd></div>
@@ -284,7 +343,38 @@ export default function PublicStorePage({ slug }: { slug: string }) {
             </div>
           )}
 
-          {cartDetails.length > 0 ? (
+          {paymentSession ? (
+            <div className="mt-5">
+              <StorePaymentCheckout
+                session={paymentSession}
+                customerName={customerName}
+                phone={phone}
+                currency={store.currency}
+                total={cartTotal}
+                returnUrl={(() => {
+                  const url = new URL(paymentReturnUrl);
+                  url.searchParams.set('payment_provider', paymentSession.provider);
+                  url.searchParams.set('payment_session_id', paymentSession.paymentSessionId);
+                  url.searchParams.set('payment_access_token', paymentSession.checkoutAccessToken);
+                  return url.toString();
+                })()}
+                onComplete={paymentSessionId => verifyPayment(
+                  paymentSession.provider,
+                  paymentSessionId,
+                  paymentSession.checkoutAccessToken
+                )}
+                onBack={async () => {
+                  await storePaymentService.cancel(
+                    slug,
+                    paymentSession.provider,
+                    paymentSession.paymentSessionId,
+                    paymentSession.checkoutAccessToken
+                  );
+                  setPaymentSession(null);
+                }}
+              />
+            </div>
+          ) : cartDetails.length > 0 ? (
             <>
               <div className="mt-5 space-y-4">
                 {cartDetails.map(({ line, product, options, lineTotal }) => product && (
@@ -311,7 +401,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                 <span>{formatRegionCurrency(cartTotal, store.currency)}</span>
               </div>
 
-              <form onSubmit={placeOrder} className="mt-5 space-y-4">
+              <form onSubmit={startPayment} className="mt-5 space-y-4">
                 <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup</p>
                 <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Date</span>
@@ -337,17 +427,12 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                     {store.pickupSessions.map(session => <option key={session} value={session}>{session}</option>)}
                   </select>
                 </label>
-                <fieldset>
-                  <legend className="font-sans text-xs font-extrabold text-primary">Payment</legend>
-                  <div className="mt-2 space-y-2">
-                    {region.paymentMethods.map(method => (
-                      <label key={method.id} className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 ${paymentMethodId === method.id ? 'border-primary bg-primary/5' : 'border-surface-container-high bg-surface-container-low'}`}>
-                        <input type="radio" name="paymentMethod" value={method.id} checked={paymentMethodId === method.id} onChange={() => setPaymentMethodId(method.id)} className="h-4 w-4 text-primary" />
-                        <span className="font-sans text-sm font-extrabold text-primary">{method.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                </fieldset>
+                <div className="rounded-2xl bg-surface-container-low p-4">
+                  <p className="font-sans text-xs font-extrabold text-primary">Secure online payment</p>
+                  <p className="mt-1 font-sans text-xs font-bold leading-relaxed text-on-surface-variant">
+                    Available methods are shown automatically for {region.countryName}.
+                  </p>
+                </div>
                 <p className="pt-1 font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Your details</p>
                 <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Name</span>
@@ -362,7 +447,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                   <textarea aria-label="Notes" rows={2} placeholder="Anything the Store should know?" value={notes} onChange={event => setNotes(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 </label>
                 {checkoutError && <p className="rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
-                <button type="submit" disabled={isPlacingOrder} className="w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary disabled:opacity-50">{isPlacingOrder ? 'Placing Order…' : 'Place Order'}</button>
+                <button type="submit" disabled={isPlacingOrder} className="w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary disabled:opacity-50">{isPlacingOrder ? 'Preparing Payment…' : 'Continue to Payment'}</button>
                 <p className="text-center font-sans text-[10px] font-bold text-outline">No login, email, or account required.</p>
               </form>
             </>

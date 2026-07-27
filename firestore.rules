@@ -313,119 +313,6 @@ service cloud.firestore {
         && data.updatedAt is string;
     }
 
-    function isEnabledStoreOrderDay(store, pickupDate) {
-      return !('orderDays' in store)
-        || (pickupDate.dayOfWeek() == 1 && 'monday' in store.orderDays)
-        || (pickupDate.dayOfWeek() == 2 && 'tuesday' in store.orderDays)
-        || (pickupDate.dayOfWeek() == 3 && 'wednesday' in store.orderDays)
-        || (pickupDate.dayOfWeek() == 4 && 'thursday' in store.orderDays)
-        || (pickupDate.dayOfWeek() == 5 && 'friday' in store.orderDays)
-        || (pickupDate.dayOfWeek() == 6 && 'saturday' in store.orderDays)
-        || (pickupDate.dayOfWeek() == 7 && 'sunday' in store.orderDays);
-    }
-
-    function followsStorePreorderRules(data) {
-      let store = get(/databases/$(database)/documents/stores/$(data.workspaceId)).data;
-      let pickupDate = timestamp.value(data.pickupDate + 'T00:00:00Z');
-      let regionalNow = request.time + duration.value(8, 'h');
-      let today = timestamp.date(regionalNow.year(), regionalNow.month(), regionalNow.day());
-      let earliestPickupDays = 'earliestPickupDays' in store ? store.earliestPickupDays : 0;
-      let maximumAdvanceDays = 'maximumAdvanceDays' in store ? store.maximumAdvanceDays : 14;
-      return pickupDate >= today + duration.value(earliestPickupDays, 'd')
-        && pickupDate <= today + duration.value(maximumAdvanceDays, 'd')
-        && isEnabledStoreOrderDay(store, pickupDate)
-        && (!('unavailableDates' in store) || !(data.pickupDate in store.unavailableDates));
-    }
-
-    function hasValidStorePayment(data, store) {
-      return (store.country == 'MY' && (
-          (data.paymentMethodId == 'touch-n-go' && data.paymentMethodName == "Touch 'n Go eWallet")
-          || (data.paymentMethodId == 'fpx' && data.paymentMethodName == 'FPX')
-          || (data.paymentMethodId == 'card' && data.paymentMethodName == 'Debit / Credit Card')
-        ))
-        || (store.country == 'SG' && (
-          (data.paymentMethodId == 'paynow' && data.paymentMethodName == 'PayNow')
-          || (data.paymentMethodId == 'card' && data.paymentMethodName == 'Debit / Credit Card')
-        ));
-    }
-
-    function isValidStoreOrder(data, orderId) {
-      return data.keys().hasOnly([
-          'id',
-          'orderNumber',
-          'storeId',
-          'workspaceId',
-          'storeName',
-          'currency',
-          'paymentMethodId',
-          'paymentMethodName',
-          'customerName',
-          'phone',
-          'pickupDate',
-          'pickupSession',
-          'pickupLocationId',
-          'pickupLocationName',
-          'pickupLocationAddress',
-          'pickupLocationNotes',
-          'notes',
-          'items',
-          'itemCount',
-          'total',
-          'status',
-          'createdAt'
-        ])
-        && data.id == orderId
-        && data.orderNumber is string
-        && data.orderNumber.matches('^MC-[0-9]{6}-[A-HJ-NP-Z2-9]{6}$')
-        && data.storeId == data.workspaceId
-        && data.storeName is string
-        && data.storeName.size() > 0
-        && data.currency in ['MYR', 'SGD']
-        && data.paymentMethodId is string
-        && data.paymentMethodName is string
-        && data.customerName is string
-        && data.customerName.size() > 0
-        && data.customerName.size() <= 120
-        && data.phone is string
-        && data.phone.size() >= 6
-        && data.phone.size() <= 40
-        && data.pickupDate is string
-        && data.pickupDate.size() == 10
-        && data.pickupSession is string
-        && data.pickupSession.size() > 0
-        && data.pickupLocationId is string
-        && data.pickupLocationId.size() > 0
-        && data.pickupLocationName is string
-        && data.pickupLocationName.size() > 0
-        && data.pickupLocationName.size() <= 120
-        && data.pickupLocationAddress is string
-        && data.pickupLocationAddress.size() > 0
-        && data.pickupLocationAddress.size() <= 300
-        && data.pickupLocationNotes is string
-        && data.pickupLocationNotes.size() <= 300
-        && data.notes is string
-        && data.notes.size() <= 500
-        && data.items is list
-        && data.items.size() > 0
-        && data.items.size() <= 50
-        && data.itemCount is int
-        && data.itemCount > 0
-        && data.total is number
-        && data.total >= 0
-        && data.status == 'Placed'
-        && data.createdAt is string
-        && exists(/databases/$(database)/documents/stores/$(data.workspaceId))
-        && get(/databases/$(database)/documents/stores/$(data.workspaceId)).data.pickupEnabled == true
-        && data.storeName == get(/databases/$(database)/documents/stores/$(data.workspaceId)).data.name
-        && data.pickupSession in get(/databases/$(database)/documents/stores/$(data.workspaceId)).data.pickupSessions
-        && data.currency == get(/databases/$(database)/documents/stores/$(data.workspaceId)).data.currency
-        && hasValidStorePayment(
-          data,
-          get(/databases/$(database)/documents/stores/$(data.workspaceId)).data
-        )
-        && followsStorePreorderRules(data);
-    }
-
     function hasValidRecommendedProductIds() {
       return !('recommendedProductIds' in request.resource.data)
         || (request.resource.data.recommendedProductIds is list
@@ -804,9 +691,16 @@ service cloud.firestore {
     }
 
     match /storeOrders/{orderId} {
-      allow create: if isValidStoreOrder(request.resource.data, orderId);
+      // Guest checkout is created by the trusted payment function after it
+      // re-prices the cart from current Store data. Clients can never write an
+      // order or mark one paid.
+      allow create: if false;
       allow read: if isWorkspaceOwnerOrManager(resource.data.workspaceId);
       allow update, delete: if false;
+    }
+
+    match /storePaymentEvents/{eventId} {
+      allow read, create, update, delete: if false;
     }
 
     match /publicChefProfileOwnership/{username} {

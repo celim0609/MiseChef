@@ -340,7 +340,6 @@ export const validateStoreOrder = (
   if (!getValidPickupDates(store, currentDate).includes(draft.pickupDate)) return 'Choose an available pickup date.';
   if (!store.pickupSessions.includes(draft.pickupSession)) return 'Choose a valid pickup session.';
   if (!store.pickupLocations.some(location => location.id === draft.pickupLocationId)) return 'Choose a valid pickup location.';
-  if (!region.paymentMethods.some(method => method.id === draft.paymentMethodId)) return 'Choose a valid payment method.';
   if (draft.notes.trim().length > 500) return 'Notes must be 500 characters or fewer.';
   if (draft.selections.length === 0) return 'Your cart is empty.';
   if (draft.selections.some(selection => !Number.isInteger(selection.quantity) || selection.quantity < 1 || selection.quantity > 20)) {

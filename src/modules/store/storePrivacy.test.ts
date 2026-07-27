@@ -11,16 +11,15 @@ const publicStorePage = readFileSync(
   'utf8'
 );
 
-test('guest orders are writable without login but readable only by the correct Store team', () => {
+test('guest orders can only be created by trusted payment Functions and read by the correct Store team', () => {
   const orderRulesStart = firestoreRules.indexOf('match /storeOrders/{orderId}');
   const orderRulesEnd = firestoreRules.indexOf('match /publicChefProfileOwnership', orderRulesStart);
   const orderRules = firestoreRules.slice(orderRulesStart, orderRulesEnd);
 
-  assert.match(orderRules, /allow create: if isValidStoreOrder\(request\.resource\.data, orderId\)/);
+  assert.match(orderRules, /allow create: if false/);
   assert.match(orderRules, /allow read: if isWorkspaceOwnerOrManager\(resource\.data\.workspaceId\)/);
   assert.doesNotMatch(orderRules, /allow read: if true/);
-  assert.match(firestoreRules, /function hasValidStorePayment\(data, store\)/);
-  assert.match(firestoreRules, /data\.orderNumber\.matches/);
+  assert.match(firestoreRules, /match \/storePaymentEvents\/\{eventId\}/);
 });
 
 test('the public Store UI does not render private contact details or internal order ids', () => {
@@ -35,4 +34,6 @@ test('the public Store UI does not render private contact details or internal or
   assert.match(publicStorePage, /selectedPickupLocation\.address/);
   assert.match(publicStorePage, /Need a Bulk Order\?/);
   assert.match(publicStorePage, /Explore MiseChef/);
+  assert.match(publicStorePage, /Continue to Payment/);
+  assert.doesNotMatch(publicStorePage, /setDoc\(orderRef/);
 });

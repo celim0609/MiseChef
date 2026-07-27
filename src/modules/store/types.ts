@@ -1,5 +1,7 @@
 import type { RegionCode, RegionCurrency } from '../../regions';
 
+export type StorePaymentProviderId = string;
+
 export type StoreOrderDay =
   | 'monday'
   | 'tuesday'
@@ -164,8 +166,33 @@ export interface StoreOrder {
   items: StoreOrderItem[];
   itemCount: number;
   total: number;
-  status: 'Placed';
+  status:
+    | 'Awaiting Payment'
+    | 'Payment Processing'
+    | 'Paid'
+    | 'Payment Failed'
+    | 'Payment Cancelled'
+    | 'Refund Processing'
+    | 'Partially Refunded'
+    | 'Refunded';
+  payment: {
+    provider: StorePaymentProviderId;
+    providerMode: 'single_merchant' | 'connect' | 'merchant_gateway';
+    status: 'pending' | 'processing' | 'paid' | 'failed' | 'cancelled';
+    amountMinor: number;
+    currency: RegionCurrency;
+    providerPaymentId: string;
+    providerPaymentMethod: string;
+    checkoutAccessTokenHash: string;
+    failureCode: string;
+    refundStatus: 'none' | 'pending' | 'partial' | 'refunded' | 'failed';
+    refundedAmountMinor: number;
+    refundFailureCode: string;
+    createdAt: string;
+    updatedAt: string;
+  };
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface StoreOrderDraft {
@@ -174,7 +201,37 @@ export interface StoreOrderDraft {
   pickupDate: string;
   pickupSession: string;
   pickupLocationId: string;
-  paymentMethodId: string;
   notes: string;
   selections: CartSelection[];
+}
+
+export type StorePaymentCheckout =
+  | {
+    type: 'stripe_payment_element';
+    clientSecret: string;
+  }
+  | {
+    type: 'provider_redirect';
+    redirectUrl: string;
+  };
+
+export interface StorePaymentSession {
+  orderNumber: string;
+  provider: StorePaymentProviderId;
+  paymentSessionId: string;
+  checkout: StorePaymentCheckout;
+  checkoutAccessToken: string;
+}
+
+export interface PublicStoreOrderResult {
+  orderNumber: string;
+  storeName: string;
+  currency: RegionCurrency;
+  paymentMethodName: string;
+  pickupDate: string;
+  pickupSession: string;
+  pickupLocationName: string;
+  total: number;
+  status: StoreOrder['status'];
+  paymentStatus: StoreOrder['payment']['status'];
 }
