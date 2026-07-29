@@ -1,17 +1,21 @@
 import { loadEnv } from 'vite';
+import fs from 'node:fs';
+import {
+  firebaseEnvironmentVariables,
+  loadProductionFirebaseEnvironment,
+} from './productionFirebaseEnv.mjs';
 
 const requiredFirebaseVariables = [
-  'VITE_FIREBASE_API_KEY',
-  'VITE_FIREBASE_AUTH_DOMAIN',
-  'VITE_FIREBASE_PROJECT_ID',
-  'VITE_FIREBASE_STORAGE_BUCKET',
-  'VITE_FIREBASE_MESSAGING_SENDER_ID',
-  'VITE_FIREBASE_APP_ID',
+  ...firebaseEnvironmentVariables,
   'VITE_STRIPE_PUBLISHABLE_KEY',
 ];
 
 const fileEnvironment = loadEnv('production', process.cwd(), '');
-const environment = { ...fileEnvironment, ...process.env };
+const environment = {
+  ...fileEnvironment,
+  ...process.env,
+  ...loadProductionFirebaseEnvironment(),
+};
 
 const isUsableValue = value => {
   if (typeof value !== 'string') return false;
@@ -24,15 +28,46 @@ const isUsableValue = value => {
 const missingVariables = requiredFirebaseVariables.filter(variableName => {
   const value = environment[variableName];
   if (!isUsableValue(value)) return true;
+  if (variableName === 'VITE_FIREBASE_API_KEY') {
+    return !/^AIza[0-9A-Za-z_-]{35}$/.test(value.trim());
+  }
   if (variableName === 'VITE_STRIPE_PUBLISHABLE_KEY') {
     return !/^pk_(test|live)_[A-Za-z0-9]+$/.test(value.trim());
   }
   return false;
 });
 
+const firebaseProject = fs.existsSync('.firebaserc')
+  ? JSON.parse(fs.readFileSync('.firebaserc', 'utf8')).projects?.default
+  : undefined;
+
+const configurationMismatches = firebaseProject
+  ? [
+    environment.VITE_FIREBASE_PROJECT_ID !== firebaseProject
+      ? 'VITE_FIREBASE_PROJECT_ID'
+      : null,
+    environment.VITE_FIREBASE_AUTH_DOMAIN !== `${firebaseProject}.firebaseapp.com`
+      ? 'VITE_FIREBASE_AUTH_DOMAIN'
+      : null,
+    ![
+      `${firebaseProject}.appspot.com`,
+      `${firebaseProject}.firebasestorage.app`,
+    ].includes(environment.VITE_FIREBASE_STORAGE_BUCKET)
+      ? 'VITE_FIREBASE_STORAGE_BUCKET'
+      : null,
+  ].filter(Boolean)
+  : [];
+
 if (missingVariables.length > 0) {
   console.error(
     `Firebase environment preflight failed. Missing or invalid: ${missingVariables.join(', ')}`,
+  );
+  process.exit(1);
+}
+
+if (configurationMismatches.length > 0) {
+  console.error(
+    `Firebase environment preflight failed. Configuration does not match project ${firebaseProject}: ${configurationMismatches.join(', ')}`,
   );
   process.exit(1);
 }
