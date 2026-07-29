@@ -127,12 +127,29 @@ test('reusable option groups require owner-provided choices', () => {
     workspaceId: 'workspace-my',
     name: 'Drink',
     options: [
-      { id: 'kopi', name: 'Kopi', priceAdjustment: 0 },
-      { id: 'none', name: 'No Drink', priceAdjustment: -1 }
+      { id: 'kopi', name: 'Kopi', priceAdjustment: 0, available: true },
+      { id: 'none', name: 'No Drink', priceAdjustment: -1, available: false }
     ]
   });
-  assert.equal(validateStoreOptionGroup({ name: group.name, options: group.options }), '');
-  assert.equal(validateStoreOptionGroup({ name: 'Drink', options: [] }), 'Add at least one option.');
+  assert.equal(validateStoreOptionGroup({ ...group, options: group.options }), '');
+  assert.equal(group.selectionType, 'single');
+  assert.equal(group.required, true);
+  assert.equal(group.minimumSelections, 1);
+  assert.equal(group.maximumSelections, 1);
+  assert.equal(group.available, true);
+  assert.deepEqual(group.options.map(option => option.sortOrder), [0, 1]);
+  assert.equal(group.options[0].available, true);
+  assert.equal(group.options[1].available, false);
+  assert.equal(validateStoreOptionGroup({ ...group, options: [] }), 'Add at least one option.');
+  assert.equal(validateStoreOptionGroup({
+    ...group,
+    maximumSelections: 2
+  }), 'Single Select groups must have a maximum selection of one.');
+  assert.equal(validateStoreOptionGroup({
+    ...group,
+    required: true,
+    minimumSelections: 0
+  }), 'Required groups must have a minimum selection of at least one.');
 });
 
 test('order snapshots use current available products and owner-defined option pricing', () => {
@@ -154,7 +171,7 @@ test('order snapshots use current available products and owner-defined option pr
     storeId: 'workspace-my',
     workspaceId: 'workspace-my',
     name: 'Drink',
-    options: [{ id: 'none', name: 'No Drink', priceAdjustment: -1 }]
+    options: [{ id: 'none', name: 'No Drink', priceAdjustment: -1, available: true }]
   })];
   const items = buildStoreOrderItems([{
     productId: 'set-a',
@@ -165,6 +182,145 @@ test('order snapshots use current available products and owner-defined option pr
   assert.equal(items[0].unitPrice, 9);
   assert.equal(items[0].lineTotal, 18);
   assert.equal(items[0].selectedOptions[0].optionName, 'No Drink');
+  assert.equal(items[0].selectedOptions[0].priceAdjustment, -1);
+});
+
+test('legacy options default to available and unavailable options cannot enter an order snapshot', () => {
+  const legacyGroup = normalizeStoreOptionGroup('size', {
+    storeId: 'workspace-my',
+    workspaceId: 'workspace-my',
+    name: 'Size',
+    options: [{ id: 'regular', name: 'Regular', priceAdjustment: 0 }]
+  });
+  assert.equal(legacyGroup.options[0].available, true);
+
+  const products = [{
+    id: 'set-a',
+    storeId: 'workspace-my',
+    workspaceId: 'workspace-my',
+    photoUrl: 'https://example.test/set.jpg',
+    name: 'Breakfast Set',
+    description: '',
+    price: 10,
+    available: true,
+    optionGroupIds: ['size'],
+    createdBy: 'owner',
+    createdAt: '2026-07-25T00:00:00.000Z',
+    updatedAt: '2026-07-25T00:00:00.000Z'
+  }];
+  const unavailableGroup = normalizeStoreOptionGroup('size', {
+    storeId: 'workspace-my',
+    workspaceId: 'workspace-my',
+    name: 'Size',
+    options: [{ id: 'large', name: 'Large', priceAdjustment: 2, available: false }]
+  });
+
+  assert.throws(() => buildStoreOrderItems([{
+    productId: 'set-a',
+    quantity: 1,
+    selectedOptions: [{ groupId: 'size', optionId: 'large' }]
+  }], products, [unavailableGroup]), /Choose an available Size option/);
+});
+
+test('multiple-select groups enforce required minimum and maximum selections', () => {
+  const product = {
+    id: 'toast',
+    storeId: 'workspace-my',
+    workspaceId: 'workspace-my',
+    photoUrl: 'https://example.test/toast.jpg',
+    name: 'Toast',
+    description: '',
+    price: 10,
+    available: true,
+    optionGroupIds: ['addons'],
+    createdBy: 'owner',
+    createdAt: '2026-07-25T00:00:00.000Z',
+    updatedAt: '2026-07-25T00:00:00.000Z'
+  };
+  const group = normalizeStoreOptionGroup('addons', {
+    storeId: 'workspace-my',
+    workspaceId: 'workspace-my',
+    name: 'Add-ons',
+    selectionType: 'multiple',
+    required: true,
+    minimumSelections: 1,
+    maximumSelections: 2,
+    available: true,
+    options: [
+      { id: 'cheese', name: 'Cheese', priceAdjustment: 2, available: true, sortOrder: 1 },
+      { id: 'egg', name: 'Egg', priceAdjustment: 1.5, available: true, sortOrder: 0 },
+      { id: 'chicken', name: 'Chicken', priceAdjustment: 4, available: true, sortOrder: 2 }
+    ]
+  });
+
+  const items = buildStoreOrderItems([{
+    productId: product.id,
+    quantity: 2,
+    selectedOptions: [
+      { groupId: group.id, optionId: 'cheese' },
+      { groupId: group.id, optionId: 'egg' }
+    ]
+  }], [product], [group]);
+  assert.deepEqual(group.options.map(option => option.id), ['egg', 'cheese', 'chicken']);
+  assert.equal(items[0].basePrice, 10);
+  assert.equal(items[0].unitPrice, 13.5);
+  assert.equal(items[0].lineTotal, 27);
+  assert.deepEqual(items[0].selectedOptions.map(option => option.priceAdjustment), [2, 1.5]);
+
+  assert.throws(() => buildStoreOrderItems([{
+    productId: product.id,
+    quantity: 1,
+    selectedOptions: []
+  }], [product], [group]), /Choose at least 1 Add-ons option/);
+  assert.throws(() => buildStoreOrderItems([{
+    productId: product.id,
+    quantity: 1,
+    selectedOptions: [
+      { groupId: group.id, optionId: 'cheese' },
+      { groupId: group.id, optionId: 'egg' },
+      { groupId: group.id, optionId: 'chicken' }
+    ]
+  }], [product], [group]), /Choose no more than 2 Add-ons options/);
+});
+
+test('optional and unavailable option groups do not require a customer selection', () => {
+  const product = {
+    id: 'coffee',
+    storeId: 'workspace-my',
+    workspaceId: 'workspace-my',
+    photoUrl: 'https://example.test/coffee.jpg',
+    name: 'Coffee',
+    description: '',
+    price: 5,
+    available: true,
+    optionGroupIds: ['extras', 'seasonal'],
+    createdBy: 'owner',
+    createdAt: '2026-07-25T00:00:00.000Z',
+    updatedAt: '2026-07-25T00:00:00.000Z'
+  };
+  const optionalGroup = normalizeStoreOptionGroup('extras', {
+    name: 'Extras',
+    selectionType: 'multiple',
+    required: false,
+    minimumSelections: 0,
+    maximumSelections: 2,
+    options: [
+      { id: 'sugar', name: 'Sugar', priceAdjustment: 0, available: true },
+      { id: 'milk', name: 'Milk', priceAdjustment: 1, available: true }
+    ]
+  });
+  const unavailableGroup = normalizeStoreOptionGroup('seasonal', {
+    name: 'Seasonal',
+    available: false,
+    options: [{ id: 'special', name: 'Special', priceAdjustment: 2 }]
+  });
+  const items = buildStoreOrderItems([{
+    productId: product.id,
+    quantity: 1,
+    selectedOptions: []
+  }], [product], [optionalGroup, unavailableGroup]);
+  assert.equal(items[0].unitPrice, 5);
+  assert.deepEqual(items[0].selectedOptions, []);
 });
 
 test('guest checkout requires pickup availability, valid sessions, and no account', () => {

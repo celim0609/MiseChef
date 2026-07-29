@@ -287,39 +287,72 @@ export const validateStoreProduct = (draft: StoreProductDraft) => {
 export const normalizeStoreOptionGroup = (
   id: string,
   data: Record<string, unknown>
-): StoreOptionGroup => ({
-  id,
-  storeId: readString(data.storeId),
-  workspaceId: readString(data.workspaceId),
-  name: readString(data.name, 'Options'),
-  options: Array.isArray(data.options)
+): StoreOptionGroup => {
+  const selectionType = data.selectionType === 'multiple' ? 'multiple' : 'single';
+  const required = readBoolean(data.required, true);
+  const defaultMinimum = required ? 1 : 0;
+  const minimumSelections = Number.isInteger(data.minimumSelections)
+    ? Number(data.minimumSelections)
+    : defaultMinimum;
+  const options = Array.isArray(data.options)
     ? data.options
       .filter(option => option && typeof option === 'object')
-      .map(option => {
+      .map((option, index) => {
         const value = option as Record<string, unknown>;
         return {
           id: readString(value.id),
           name: readString(value.name, 'Option'),
           priceAdjustment: Number.isFinite(Number(value.priceAdjustment))
             ? Number(value.priceAdjustment)
-            : 0
+            : 0,
+          available: readBoolean(value.available, true),
+          sortOrder: Number.isInteger(value.sortOrder) ? Number(value.sortOrder) : index
         };
       })
       .filter(option => option.id && option.name)
-    : [],
-  createdBy: readString(data.createdBy),
-  createdAt: readString(data.createdAt, new Date().toISOString()),
-  updatedAt: readString(data.updatedAt, new Date().toISOString())
-});
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+    : [];
+  const maximumSelections = selectionType === 'single'
+    ? 1
+    : Number.isInteger(data.maximumSelections) ? Number(data.maximumSelections) : Math.max(1, options.length);
+
+  return {
+    id,
+    storeId: readString(data.storeId),
+    workspaceId: readString(data.workspaceId),
+    name: readString(data.name, 'Options'),
+    selectionType,
+    required,
+    minimumSelections,
+    maximumSelections,
+    sortOrder: Number.isInteger(data.sortOrder) ? Number(data.sortOrder) : 0,
+    available: readBoolean(data.available, true),
+    options,
+    createdBy: readString(data.createdBy),
+    createdAt: readString(data.createdAt, new Date().toISOString()),
+    updatedAt: readString(data.updatedAt, new Date().toISOString())
+  };
+};
 
 export const validateStoreOptionGroup = (draft: StoreOptionGroupDraft) => {
   if (!draft.name.trim()) return 'Option group name is required.';
   if (draft.name.trim().length > 100) return 'Option group name must be 100 characters or fewer.';
+  if (draft.selectionType !== 'single' && draft.selectionType !== 'multiple') return 'Choose a valid selection type.';
+  if (!Number.isInteger(draft.sortOrder) || draft.sortOrder < 0) return 'Option group sort order must be zero or greater.';
+  if (!Number.isInteger(draft.minimumSelections) || draft.minimumSelections < 0) return 'Minimum selection must be zero or greater.';
+  if (!Number.isInteger(draft.maximumSelections) || draft.maximumSelections < 1) return 'Maximum selection must be at least one.';
+  if (draft.selectionType === 'single' && draft.maximumSelections !== 1) return 'Single Select groups must have a maximum selection of one.';
+  if (draft.selectionType === 'single' && draft.minimumSelections > 1) return 'Single Select groups cannot require more than one selection.';
+  if (draft.required && draft.minimumSelections < 1) return 'Required groups must have a minimum selection of at least one.';
+  if (draft.minimumSelections > draft.maximumSelections) return 'Minimum selection cannot exceed maximum selection.';
   if (draft.options.length === 0) return 'Add at least one option.';
   if (draft.options.length > 20) return 'Use 20 options or fewer in one group.';
+  if (draft.maximumSelections > draft.options.length) return 'Maximum selection cannot exceed the number of options.';
   if (draft.options.some(option => !option.name.trim())) return 'Every option needs a name.';
   if (draft.options.some(option => option.name.trim().length > 100)) return 'Option names must be 100 characters or fewer.';
   if (draft.options.some(option => !Number.isFinite(option.priceAdjustment))) return 'Every price adjustment must be valid.';
+  if (draft.options.some(option => Math.abs(option.priceAdjustment) > 1_000_000)) return 'Price adjustments must be 1,000,000 or less.';
+  if (draft.options.some(option => !Number.isInteger(option.sortOrder) || option.sortOrder < 0)) return 'Option sort order must be zero or greater.';
   if (new Set(draft.options.map(option => option.id)).size !== draft.options.length) return 'Every option must be unique.';
   return '';
 };
@@ -350,6 +383,56 @@ export const validateStoreOrder = (
 
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
+export const calculateStoreOptionAdjustedPrice = (
+  basePrice: number,
+  priceAdjustments: number[]
+) => roundMoney(Math.max(
+  0,
+  basePrice + priceAdjustments.reduce((sum, adjustment) => sum + adjustment, 0)
+));
+
+export const getStoreOptionSelectionLimits = (
+  group: Pick<StoreOptionGroup, 'selectionType' | 'required' | 'minimumSelections' | 'maximumSelections'>
+) => ({
+  minimum: group.required ? Math.max(1, group.minimumSelections) : group.minimumSelections,
+  maximum: group.selectionType === 'single' ? 1 : group.maximumSelections
+});
+
+export const validateStoreProductOptionSelections = (
+  product: StoreProduct,
+  optionGroups: StoreOptionGroup[],
+  selectedOptions: CartSelection['selectedOptions']
+) => {
+  for (const groupId of product.optionGroupIds) {
+    const group = optionGroups.find(candidate => candidate.id === groupId);
+    if (!group) return `Options for ${product.name} are no longer available.`;
+    const choices = selectedOptions.filter(choice => choice.groupId === groupId);
+    if (!group.available) {
+      if (choices.length > 0) return `${group.name} is no longer available.`;
+      continue;
+    }
+    const { minimum, maximum } = getStoreOptionSelectionLimits(group);
+    if (choices.length < minimum) {
+      return `Choose at least ${minimum} ${group.name} option${minimum === 1 ? '' : 's'} for ${product.name}.`;
+    }
+    if (choices.length > maximum) {
+      return `Choose no more than ${maximum} ${group.name} option${maximum === 1 ? '' : 's'} for ${product.name}.`;
+    }
+    if (new Set(choices.map(choice => choice.optionId)).size !== choices.length) {
+      return `Choose each ${group.name} option only once.`;
+    }
+    if (choices.some(choice => !group.options.some(option => (
+      option.id === choice.optionId && option.available
+    )))) {
+      return `Choose an available ${group.name} option for ${product.name}.`;
+    }
+  }
+  if (selectedOptions.some(choice => !product.optionGroupIds.includes(choice.groupId))) {
+    return `An option for ${product.name} is no longer available.`;
+  }
+  return '';
+};
+
 export const buildStoreOrderItems = (
   selections: CartSelection[],
   products: StoreProduct[],
@@ -357,33 +440,30 @@ export const buildStoreOrderItems = (
 ): StoreOrderItem[] => selections.map(selection => {
   const product = products.find(candidate => candidate.id === selection.productId && candidate.available);
   if (!product) throw new Error('A product in your cart is no longer available.');
+  const selectionError = validateStoreProductOptionSelections(product, optionGroups, selection.selectedOptions);
+  if (selectionError) throw new Error(selectionError);
 
-  const selectedOptions = product.optionGroupIds.map(groupId => {
+  const selectedOptions = product.optionGroupIds.flatMap(groupId => {
     const group = optionGroups.find(candidate => candidate.id === groupId);
-    if (!group) throw new Error(`Options for ${product.name} are no longer available.`);
-
+    if (!group || !group.available) return [];
     const choices = selection.selectedOptions.filter(choice => choice.groupId === groupId);
-    if (choices.length !== 1) throw new Error(`Choose one ${group.name} option for ${product.name}.`);
-    const option = group.options.find(candidate => candidate.id === choices[0].optionId);
-    if (!option) throw new Error(`Choose a valid ${group.name} option for ${product.name}.`);
+    return choices.map(choice => {
+      const option = group.options.find(candidate => candidate.id === choice.optionId)!;
 
-    return {
-      groupId: group.id,
-      groupName: group.name,
-      optionId: option.id,
-      optionName: option.name,
-      priceAdjustment: option.priceAdjustment
-    };
+      return {
+        groupId: group.id,
+        groupName: group.name,
+        optionId: option.id,
+        optionName: option.name,
+        priceAdjustment: option.priceAdjustment
+      };
+    });
   });
 
-  if (selection.selectedOptions.some(choice => !product.optionGroupIds.includes(choice.groupId))) {
-    throw new Error(`An option for ${product.name} is no longer available.`);
-  }
-
-  const unitPrice = roundMoney(Math.max(
-    0,
-    product.price + selectedOptions.reduce((sum, option) => sum + option.priceAdjustment, 0)
-  ));
+  const unitPrice = calculateStoreOptionAdjustedPrice(
+    product.price,
+    selectedOptions.map(option => option.priceAdjustment)
+  );
 
   return {
     productId: product.id,

@@ -1,5 +1,7 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
   Copy,
   Download,
   ExternalLink,
@@ -48,6 +50,12 @@ type StoreView = 'products' | 'pickup' | 'settings';
 interface ProductOptionEditor {
   id: string;
   name: string;
+  selectionType: StoreOptionGroup['selectionType'];
+  required: boolean;
+  minimumSelections: number;
+  maximumSelections: number;
+  sortOrder: number;
+  available: boolean;
   options: StoreOptionGroup['options'];
 }
 
@@ -86,6 +94,32 @@ const toProductDraft = (product: StoreProduct): StoreProductDraft => ({
   available: product.available,
   optionGroupIds: [...product.optionGroupIds]
 });
+
+const toProductOptionEditor = (
+  group: StoreOptionGroup,
+  sortOrder: number
+): ProductOptionEditor => ({
+  id: group.id,
+  name: group.name,
+  selectionType: group.selectionType,
+  required: group.required,
+  minimumSelections: group.minimumSelections,
+  maximumSelections: group.maximumSelections,
+  sortOrder,
+  available: group.available,
+  options: group.options
+    .map(option => ({ ...option }))
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((option, index) => ({ ...option, sortOrder: index }))
+});
+
+const moveItem = <T,>(items: T[], fromIndex: number, toIndex: number) => {
+  if (toIndex < 0 || toIndex >= items.length) return items;
+  const next = [...items];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved);
+  return next;
+};
 
 const viewItems: Array<{ id: StoreView; label: string; question: string; icon: typeof Package }> = [
   { id: 'products', label: 'Products', question: 'What am I selling?', icon: Package },
@@ -314,11 +348,7 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
     setProductDraft(toProductDraft(product));
     setProductOptions(product.optionGroupIds.flatMap(groupId => {
       const group = optionGroups.find(candidate => candidate.id === groupId);
-      return group ? [{
-        id: group.id,
-        name: group.name,
-        options: group.options.map(option => ({ ...option })),
-      }] : [];
+      return group ? [toProductOptionEditor(group, product.optionGroupIds.indexOf(groupId))] : [];
     }));
     setSavedOptionGroupId('');
     setProductPhotoFile(null);
@@ -332,6 +362,12 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
       {
         id: storeService.createOptionGroupId(),
         name: '',
+        selectionType: 'single',
+        required: true,
+        minimumSelections: 1,
+        maximumSelections: 1,
+        sortOrder: current.length,
+        available: true,
         options: [],
       }
     ]);
@@ -343,11 +379,7 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
     if (!group) return;
     setProductOptions(current => [
       ...current,
-      {
-        id: group.id,
-        name: group.name,
-        options: group.options.map(option => ({ ...option })),
-      }
+      toProductOptionEditor(group, current.length)
     ]);
     setSavedOptionGroupId('');
   };
@@ -362,7 +394,14 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
       optionGroupIds: productOptions.map(group => group.id)
     });
     const optionError = productOptions
-      .map(group => validateStoreOptionGroup({ name: group.name, options: group.options }))
+      .map((group, groupIndex) => validateStoreOptionGroup({
+        ...group,
+        sortOrder: groupIndex,
+        options: group.options.map((option, optionIndex) => ({
+          ...option,
+          sortOrder: optionIndex
+        }))
+      }))
       .find(Boolean);
     if (preflightError || optionError) {
       setErrorMessage(preflightError || optionError || '');
@@ -372,8 +411,15 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
     setIsSaving(true);
     clearMessages();
     try {
-      const savedGroups = await Promise.all(productOptions.map(group => {
-        const draft = { name: group.name, options: group.options };
+      const savedGroups = await Promise.all(productOptions.map((group, groupIndex) => {
+        const draft = {
+          ...group,
+          sortOrder: groupIndex,
+          options: group.options.map((option, optionIndex) => ({
+            ...option,
+            sortOrder: optionIndex
+          }))
+        };
         const existing = optionGroups.find(candidate => candidate.id === group.id);
         return existing
           ? storeService.updateOptionGroup(existing, draft)
@@ -403,13 +449,28 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
           id: productId,
           workspaceId: workspace.id,
           draft: nextDraft,
-          createdBy: currentUser.uid
-        });
+            createdBy: currentUser.uid
+          });
+      const orphanedGroupIds = editingProduct
+        ? editingProduct.optionGroupIds.filter(groupId => (
+          !nextDraft.optionGroupIds.includes(groupId)
+          && !products.some(product => (
+            product.id !== editingProduct.id && product.optionGroupIds.includes(groupId)
+          ))
+        ))
+        : [];
+      const deletionResults = await Promise.allSettled(
+        orphanedGroupIds.map(groupId => storeService.deleteOptionGroup(groupId))
+      );
+      const deletedGroupIds = new Set(orphanedGroupIds.filter((_, index) => (
+        deletionResults[index].status === 'fulfilled'
+      )));
+      const groupDeletionFailed = deletionResults.some(result => result.status === 'rejected');
 
       setOptionGroups(current => {
         const savedIds = new Set(savedGroups.map(group => group.id));
-        return [...current.filter(group => !savedIds.has(group.id)), ...savedGroups]
-          .sort((a, b) => a.name.localeCompare(b.name));
+        return [...current.filter(group => !savedIds.has(group.id) && !deletedGroupIds.has(group.id)), ...savedGroups]
+          .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
       });
       setProducts(current => [
         savedProduct,
@@ -420,7 +481,9 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
       setProductOptions([]);
       setProductPhotoFile(null);
       setIsProductFormOpen(false);
-      setMessage(editingProduct ? 'Product updated.' : 'Product added.');
+      setMessage(groupDeletionFailed
+        ? 'Product saved. One unused option group could not be deleted; please try again.'
+        : editingProduct ? 'Product updated.' : 'Product added.');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to save this product.');
     } finally {
@@ -548,22 +611,80 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
                   <div className="mt-5 space-y-4">
                     {productOptions.map((group, groupIndex) => (
                       <div key={group.id} className="rounded-2xl bg-surface-container-low p-4">
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
                           <input aria-label={`Option group ${groupIndex + 1} name`} placeholder="Option name, e.g. Drink" value={group.name} onChange={event => setProductOptions(current => current.map(item => item.id === group.id ? { ...item, name: event.target.value } : item))} className="min-w-0 flex-1 rounded-xl border border-surface-container-high bg-white px-3 py-2.5 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
-                          <button type="button" aria-label={`Remove option group ${groupIndex + 1}`} onClick={() => setProductOptions(current => current.filter(item => item.id !== group.id))} className="rounded-xl bg-white p-2.5 text-error"><X className="h-4 w-4" /></button>
+                          <button type="button" disabled={groupIndex === 0} aria-label={`Move option group ${groupIndex + 1} up`} onClick={() => setProductOptions(current => moveItem(current, groupIndex, groupIndex - 1))} className="rounded-xl bg-white p-2.5 text-primary disabled:opacity-30"><ArrowUp className="h-4 w-4" /></button>
+                          <button type="button" disabled={groupIndex === productOptions.length - 1} aria-label={`Move option group ${groupIndex + 1} down`} onClick={() => setProductOptions(current => moveItem(current, groupIndex, groupIndex + 1))} className="rounded-xl bg-white p-2.5 text-primary disabled:opacity-30"><ArrowDown className="h-4 w-4" /></button>
+                          <button type="button" aria-label={`Delete option group ${groupIndex + 1}`} onClick={() => setProductOptions(current => current.filter(item => item.id !== group.id))} className="rounded-xl bg-white p-2.5 text-error"><X className="h-4 w-4" /></button>
+                        </div>
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                          <label className="block">
+                            <span className="font-sans text-[11px] font-extrabold text-primary">Selection Type</span>
+                            <select aria-label={`${group.name || 'Option'} selection type`} value={group.selectionType} onChange={event => setProductOptions(current => current.map(item => item.id !== group.id ? item : {
+                              ...item,
+                              selectionType: event.target.value === 'multiple' ? 'multiple' : 'single',
+                              minimumSelections: Math.min(item.minimumSelections, 1),
+                              maximumSelections: event.target.value === 'multiple'
+                                ? Math.max(1, Math.min(item.maximumSelections, Math.max(1, item.options.length)))
+                                : 1
+                            }))} className="mt-1 w-full rounded-xl border border-surface-container-high bg-white px-3 py-2.5 font-sans text-xs font-bold text-primary">
+                              <option value="single">Single Select</option>
+                              <option value="multiple">Multiple Select</option>
+                            </select>
+                          </label>
+                          <label className="flex items-center justify-between gap-2 rounded-xl bg-white px-3 py-2.5 sm:self-end">
+                            <span className="font-sans text-[11px] font-extrabold text-primary">Required</span>
+                            <input aria-label={`${group.name || 'Option'} required`} type="checkbox" checked={group.required} onChange={event => setProductOptions(current => current.map(item => item.id !== group.id ? item : {
+                              ...item,
+                              required: event.target.checked,
+                              minimumSelections: event.target.checked ? Math.max(1, item.minimumSelections) : 0
+                            }))} className="h-4 w-4 rounded border-surface-container-high text-primary" />
+                          </label>
+                          <label className="flex items-center justify-between gap-2 rounded-xl bg-white px-3 py-2.5 sm:self-end">
+                            <span className="font-sans text-[11px] font-extrabold text-primary">Available</span>
+                            <input aria-label={`${group.name || 'Option'} group available`} type="checkbox" checked={group.available} onChange={event => setProductOptions(current => current.map(item => item.id === group.id ? { ...item, available: event.target.checked } : item))} className="h-4 w-4 rounded border-surface-container-high text-primary" />
+                          </label>
+                          <label className="block">
+                            <span className="font-sans text-[11px] font-extrabold text-primary">Minimum Selection</span>
+                            <input aria-label={`${group.name || 'Option'} minimum selection`} type="number" min={group.required ? 1 : 0} max={group.maximumSelections} value={group.minimumSelections} onChange={event => setProductOptions(current => current.map(item => item.id === group.id ? { ...item, minimumSelections: Number(event.target.value) } : item))} className="mt-1 w-full rounded-xl border border-surface-container-high bg-white px-3 py-2.5 font-sans text-xs font-bold text-primary" />
+                          </label>
+                          <label className="block">
+                            <span className="font-sans text-[11px] font-extrabold text-primary">Maximum Selection</span>
+                            <input aria-label={`${group.name || 'Option'} maximum selection`} type="number" min={1} max={Math.max(1, group.options.length)} disabled={group.selectionType === 'single'} value={group.maximumSelections} onChange={event => setProductOptions(current => current.map(item => item.id === group.id ? { ...item, maximumSelections: Number(event.target.value) } : item))} className="mt-1 w-full rounded-xl border border-surface-container-high bg-white px-3 py-2.5 font-sans text-xs font-bold text-primary disabled:opacity-50" />
+                          </label>
+                          <div className="flex items-end">
+                            <p className="pb-2.5 font-sans text-[11px] font-bold text-outline">Sort order: {groupIndex + 1}</p>
+                          </div>
                         </div>
                         <div className="mt-3 space-y-2">
                           {group.options.map((option, optionIndex) => (
-                            <div key={option.id} className="grid gap-2 sm:grid-cols-[1fr_9rem_auto]">
+                            <div key={option.id} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_7rem_auto_auto_auto]">
                               <input aria-label={`${group.name || 'Option'} choice ${optionIndex + 1}`} placeholder="Choice" value={option.name} onChange={event => setProductOptions(current => current.map(item => item.id !== group.id ? item : {
                                 ...item,
                                 options: item.options.map(choice => choice.id === option.id ? { ...choice, name: event.target.value } : choice)
                               }))} className="rounded-xl border border-surface-container-high bg-white px-3 py-2.5 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
-                              <input aria-label={`${group.name || 'Option'} choice ${optionIndex + 1} price adjustment`} type="number" step="0.01" value={option.priceAdjustment} onChange={event => setProductOptions(current => current.map(item => item.id !== group.id ? item : {
+                              <label className="block">
+                                <span className="sr-only">Price adjustment</span>
+                                <input aria-label={`${group.name || 'Option'} choice ${optionIndex + 1} price adjustment`} title={`Price adjustment (${region.currency})`} type="number" step="0.01" value={option.priceAdjustment} onChange={event => setProductOptions(current => current.map(item => item.id !== group.id ? item : {
+                                  ...item,
+                                  options: item.options.map(choice => choice.id === option.id ? { ...choice, priceAdjustment: Number(event.target.value) } : choice)
+                                }))} className="w-full rounded-xl border border-surface-container-high bg-white px-3 py-2.5 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                              </label>
+                              <label className="flex items-center justify-between gap-2 rounded-xl bg-white px-3 py-2.5">
+                                <span className="font-sans text-[11px] font-extrabold text-primary">Available</span>
+                                <input aria-label={`${group.name || 'Option'} choice ${optionIndex + 1} available`} type="checkbox" checked={option.available} onChange={event => setProductOptions(current => current.map(item => item.id !== group.id ? item : {
+                                  ...item,
+                                  options: item.options.map(choice => choice.id === option.id ? { ...choice, available: event.target.checked } : choice)
+                                }))} className="h-4 w-4 rounded border-surface-container-high text-primary" />
+                              </label>
+                              <button type="button" disabled={optionIndex === 0} aria-label={`Move ${group.name || 'option'} choice ${optionIndex + 1} up`} onClick={() => setProductOptions(current => current.map(item => item.id !== group.id ? item : { ...item, options: moveItem(item.options, optionIndex, optionIndex - 1) }))} className="rounded-xl bg-white p-2.5 text-primary disabled:opacity-30"><ArrowUp className="h-4 w-4" /></button>
+                              <button type="button" disabled={optionIndex === group.options.length - 1} aria-label={`Move ${group.name || 'option'} choice ${optionIndex + 1} down`} onClick={() => setProductOptions(current => current.map(item => item.id !== group.id ? item : { ...item, options: moveItem(item.options, optionIndex, optionIndex + 1) }))} className="rounded-xl bg-white p-2.5 text-primary disabled:opacity-30"><ArrowDown className="h-4 w-4" /></button>
+                              <button type="button" aria-label={`Delete ${group.name || 'option'} choice ${optionIndex + 1}`} onClick={() => setProductOptions(current => current.map(item => item.id !== group.id ? item : {
                                 ...item,
-                                options: item.options.map(choice => choice.id === option.id ? { ...choice, priceAdjustment: Number(event.target.value) } : choice)
-                              }))} className="rounded-xl border border-surface-container-high bg-white px-3 py-2.5 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
-                              <button type="button" aria-label={`Remove choice ${optionIndex + 1}`} onClick={() => setProductOptions(current => current.map(item => item.id !== group.id ? item : { ...item, options: item.options.filter(choice => choice.id !== option.id) }))} className="rounded-xl bg-white p-2.5 text-error"><X className="h-4 w-4" /></button>
+                                options: item.options.filter(choice => choice.id !== option.id),
+                                maximumSelections: Math.max(1, Math.min(item.maximumSelections, item.options.length - 1)),
+                                minimumSelections: Math.min(item.minimumSelections, Math.max(0, item.options.length - 1))
+                              }))} className="rounded-xl bg-white p-2.5 text-error"><X className="h-4 w-4" /></button>
                             </div>
                           ))}
                         </div>
@@ -572,7 +693,9 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
                           options: [...item.options, {
                             id: storeService.createOptionId(),
                             name: '',
-                            priceAdjustment: 0
+                            priceAdjustment: 0,
+                            available: true,
+                            sortOrder: item.options.length
                           }]
                         }))} className="mt-3 font-sans text-xs font-extrabold text-primary">+ Add choice</button>
                       </div>

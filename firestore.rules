@@ -289,12 +289,66 @@ service cloud.firestore {
         && data.updatedAt is string;
     }
 
+    function isValidStoreOptionAt(options, index) {
+      return options.size() <= index
+        || (
+          options[index].keys().hasOnly([
+            'id',
+            'name',
+            'priceAdjustment',
+            'available',
+            'sortOrder'
+          ])
+          && options[index].id is string
+          && options[index].id.size() > 0
+          && options[index].id.size() <= 160
+          && options[index].name is string
+          && options[index].name.size() > 0
+          && options[index].name.size() <= 100
+          && options[index].priceAdjustment is number
+          && options[index].priceAdjustment >= -1000000
+          && options[index].priceAdjustment <= 1000000
+          && options[index].available is bool
+          && options[index].sortOrder is int
+          && options[index].sortOrder >= 0
+        );
+    }
+
+    function hasValidStoreOptions(options) {
+      return isValidStoreOptionAt(options, 0)
+        && isValidStoreOptionAt(options, 1)
+        && isValidStoreOptionAt(options, 2)
+        && isValidStoreOptionAt(options, 3)
+        && isValidStoreOptionAt(options, 4)
+        && isValidStoreOptionAt(options, 5)
+        && isValidStoreOptionAt(options, 6)
+        && isValidStoreOptionAt(options, 7)
+        && isValidStoreOptionAt(options, 8)
+        && isValidStoreOptionAt(options, 9)
+        && isValidStoreOptionAt(options, 10)
+        && isValidStoreOptionAt(options, 11)
+        && isValidStoreOptionAt(options, 12)
+        && isValidStoreOptionAt(options, 13)
+        && isValidStoreOptionAt(options, 14)
+        && isValidStoreOptionAt(options, 15)
+        && isValidStoreOptionAt(options, 16)
+        && isValidStoreOptionAt(options, 17)
+        && isValidStoreOptionAt(options, 18)
+        && isValidStoreOptionAt(options, 19);
+    }
+
     function isValidStoreOptionGroup(data, groupId) {
       return data.keys().hasOnly([
           'id',
           'storeId',
           'workspaceId',
           'name',
+          'selectionType',
+          'required',
+          'minimumSelections',
+          'maximumSelections',
+          'sortOrder',
+          'available',
           'options',
           'createdBy',
           'createdAt',
@@ -305,9 +359,25 @@ service cloud.firestore {
         && data.name is string
         && data.name.size() > 0
         && data.name.size() <= 100
+        && data.selectionType is string
+        && (data.selectionType == 'single' || data.selectionType == 'multiple')
+        && data.required is bool
+        && data.minimumSelections is int
+        && data.minimumSelections >= 0
+        && data.maximumSelections is int
+        && data.maximumSelections >= 1
+        && data.minimumSelections <= data.maximumSelections
+        && (!data.required || data.minimumSelections >= 1)
+        && (data.selectionType != 'single'
+          || (data.minimumSelections <= 1 && data.maximumSelections == 1))
+        && data.sortOrder is int
+        && data.sortOrder >= 0
+        && data.available is bool
         && data.options is list
         && data.options.size() > 0
         && data.options.size() <= 20
+        && data.maximumSelections <= data.options.size()
+        && hasValidStoreOptions(data.options)
         && data.createdBy is string
         && data.createdAt is string
         && data.updatedAt is string;
@@ -684,10 +754,16 @@ service cloud.firestore {
         && isValidStoreOptionGroup(request.resource.data, groupId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'name',
+          'selectionType',
+          'required',
+          'minimumSelections',
+          'maximumSelections',
+          'sortOrder',
+          'available',
           'options',
           'updatedAt'
         ]);
-      allow delete: if false;
+      allow delete: if isWorkspaceOwnerOrManager(resource.data.workspaceId);
     }
 
     match /storeOrders/{orderId} {

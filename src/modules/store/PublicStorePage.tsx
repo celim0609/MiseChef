@@ -17,7 +17,13 @@ import {
 import { formatRegionCurrency, getRegionConfiguration } from '../../regions';
 import StorePaymentCheckout from './StorePaymentCheckout';
 import { storePaymentService, storeService } from './services';
-import { formatPickupDateLabel, getValidPickupDates } from './storeModel';
+import {
+  calculateStoreOptionAdjustedPrice,
+  formatPickupDateLabel,
+  getStoreOptionSelectionLimits,
+  getValidPickupDates,
+  validateStoreProductOptionSelections
+} from './storeModel';
 import { getBusinessWhatsAppUrl } from './selling';
 import type {
   CartSelection,
@@ -41,7 +47,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [configuringProduct, setConfiguringProduct] = useState<StoreProduct | null>(null);
-  const [configuredOptions, setConfiguredOptions] = useState<Record<string, string>>({});
+  const [configuredOptions, setConfiguredOptions] = useState<Record<string, string[]>>({});
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customerName, setCustomerName] = useState('');
   const [phone, setPhone] = useState('');
@@ -143,9 +149,49 @@ export default function PublicStorePage({ slug }: { slug: string }) {
       const option = group?.options.find(candidate => candidate.id === selection.optionId);
       return { group, option };
     });
-    const unitPrice = Math.max(0, (product?.price || 0) + options.reduce((sum, item) => sum + (item.option?.priceAdjustment || 0), 0));
+    const unitPrice = calculateStoreOptionAdjustedPrice(
+      product?.price || 0,
+      options.map(item => item.option?.priceAdjustment || 0)
+    );
     return { line, product, options, unitPrice, lineTotal: unitPrice * line.quantity };
   }), [cart, data, optionGroupsById]);
+
+  const configuredProductPrice = useMemo(() => {
+    if (!configuringProduct) return 0;
+    const adjustments = configuringProduct.optionGroupIds.flatMap(groupId => {
+      const group = optionGroupsById.get(groupId);
+      return (configuredOptions[groupId] || []).map(optionId => (
+        group?.options.find(candidate => candidate.id === optionId && candidate.available)
+          ?.priceAdjustment || 0
+      ));
+    });
+    return calculateStoreOptionAdjustedPrice(configuringProduct.price, adjustments);
+  }, [configuredOptions, configuringProduct, optionGroupsById]);
+
+  const configuredSelections = useMemo<CartSelection['selectedOptions']>(() => (
+    Object.keys(configuredOptions).flatMap(groupId => (
+      configuredOptions[groupId].map(optionId => ({ groupId, optionId }))
+    ))
+  ), [configuredOptions]);
+
+  const configuredSelectionError = useMemo(() => {
+    if (!configuringProduct || !data) return '';
+    return validateStoreProductOptionSelections(
+      configuringProduct,
+      data.optionGroups,
+      configuredSelections
+    );
+  }, [configuredSelections, configuringProduct, data]);
+
+  const hasAvailableProductOptions = (product: StoreProduct) => (
+    product.optionGroupIds.every(groupId => {
+      const group = optionGroupsById.get(groupId);
+      if (!group) return false;
+      if (!group.available) return true;
+      const { minimum } = getStoreOptionSelectionLimits(group);
+      return group.options.filter(option => option.available).length >= minimum;
+    })
+  );
 
   const cartTotal = cartDetails.reduce((sum, item) => sum + item.lineTotal, 0);
   const cartCount = cart.reduce((sum, line) => sum + line.quantity, 0);
@@ -176,14 +222,26 @@ export default function PublicStorePage({ slug }: { slug: string }) {
   };
 
   const startAddingProduct = (product: StoreProduct) => {
-    const groups = product.optionGroupIds
-      .map(groupId => optionGroupsById.get(groupId))
-      .filter(group => group && group.options.length > 0);
-    if (groups.length === 0) {
+    if (product.optionGroupIds.length === 0) {
       addConfiguredProduct(product, []);
       return;
     }
-    setConfiguredOptions(Object.fromEntries(groups.map(group => [group!.id, group!.options[0].id])));
+    const groups = product.optionGroupIds
+      .map(groupId => optionGroupsById.get(groupId))
+      .filter(group => group?.available);
+    if (groups.length !== product.optionGroupIds.length) {
+      const missingGroup = product.optionGroupIds.some(groupId => !optionGroupsById.has(groupId));
+      if (missingGroup) {
+        setCheckoutError(`Options for ${product.name} are currently unavailable.`);
+        return;
+      }
+    }
+    setConfiguredOptions(Object.fromEntries(groups.map(group => [
+      group!.id,
+      group!.selectionType === 'single' && getStoreOptionSelectionLimits(group!).minimum > 0
+        ? [group!.options.find(option => option.available)!.id]
+        : []
+    ])));
     setConfiguringProduct(product);
   };
 
@@ -294,8 +352,10 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                     <p className="mt-2 font-sans text-lg font-extrabold text-secondary">{formatRegionCurrency(product.price, store.currency)}</p>
                     {product.description && <p className="mt-3 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{product.description}</p>}
                     {canOrderPickup && (
-                      <button type="button" onClick={() => startAddingProduct(product)} className="mt-5 w-full rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">
-                        {product.optionGroupIds.length > 0 ? 'Choose Options' : 'Add to Cart'}
+                      <button type="button" disabled={!hasAvailableProductOptions(product)} onClick={() => startAddingProduct(product)} className="mt-5 w-full rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
+                        {!hasAvailableProductOptions(product)
+                          ? 'Options unavailable'
+                          : product.optionGroupIds.length > 0 ? 'Choose Options' : 'Add to Cart'}
                       </button>
                     )}
                   </div>
@@ -383,7 +443,10 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                       <div>
                         <p className="font-sans text-sm font-extrabold text-primary">{product.name}</p>
                         {options.map(({ group, option }) => group && option && (
-                          <p key={group.id} className="mt-0.5 font-sans text-[11px] font-bold text-on-surface-variant">{group.name}: {option.name}</p>
+                          <p key={group.id} className="mt-0.5 font-sans text-[11px] font-bold text-on-surface-variant">
+                            {group.name}: {option.name}
+                            {option.priceAdjustment !== 0 && ` (${option.priceAdjustment > 0 ? '+' : '−'}${formatRegionCurrency(Math.abs(option.priceAdjustment), store.currency)})`}
+                          </p>
                         ))}
                       </div>
                       <p className="font-sans text-sm font-extrabold text-secondary">{formatRegionCurrency(lineTotal, store.currency)}</p>
@@ -491,6 +554,9 @@ export default function PublicStorePage({ slug }: { slug: string }) {
               <div>
                 <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Choose options</p>
                 <h2 id="product-options-title" className="mt-1 font-display text-3xl font-bold text-primary">{configuringProduct.name}</h2>
+                <p className="mt-2 font-sans text-sm font-extrabold text-secondary">
+                  {formatRegionCurrency(configuredProductPrice, store.currency)}
+                </p>
               </div>
               <button type="button" aria-label="Close options" onClick={() => setConfiguringProduct(null)} className="rounded-full bg-surface-container p-2 text-primary"><X className="h-5 w-5" /></button>
             </div>
@@ -498,15 +564,53 @@ export default function PublicStorePage({ slug }: { slug: string }) {
             <div className="mt-6 space-y-5">
               {configuringProduct.optionGroupIds.map(groupId => {
                 const group = optionGroupsById.get(groupId);
-                if (!group) return null;
+                if (!group?.available) return null;
+                const availableOptions = group.options.filter(option => option.available);
+                const selectedOptionIds = configuredOptions[group.id] || [];
+                const { minimum, maximum } = getStoreOptionSelectionLimits(group);
                 return (
                   <fieldset key={group.id}>
-                    <legend className="font-sans text-sm font-extrabold text-primary">{group.name}</legend>
+                    <legend className="font-sans text-sm font-extrabold text-primary">
+                      {group.name}
+                      {minimum > 0 && <span className="ml-1 text-error">*</span>}
+                    </legend>
+                    <p className="mt-1 font-sans text-[11px] font-bold text-on-surface-variant">
+                      {group.selectionType === 'single'
+                        ? minimum > 0 ? 'Choose one' : 'Choose up to one'
+                        : `Choose ${minimum === maximum ? minimum : `${minimum}–${maximum}`}`}
+                    </p>
                     <div className="mt-2 space-y-2">
-                      {group.options.map(option => (
+                      {group.selectionType === 'single' && minimum === 0 && (
+                        <label className="flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3">
+                          <span className="flex items-center gap-3">
+                            <input type="radio" name={group.id} checked={selectedOptionIds.length === 0} onChange={() => setConfiguredOptions(current => ({ ...current, [group.id]: [] }))} className="h-4 w-4 text-primary" />
+                            <span className="font-sans text-sm font-extrabold text-primary">No selection</span>
+                          </span>
+                        </label>
+                      )}
+                      {availableOptions.map(option => (
                         <label key={option.id} className="flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3">
                           <span className="flex items-center gap-3">
-                            <input type="radio" name={group.id} checked={configuredOptions[group.id] === option.id} onChange={() => setConfiguredOptions(current => ({ ...current, [group.id]: option.id }))} className="h-4 w-4 text-primary" />
+                            {group.selectionType === 'single' ? (
+                              <input type="radio" name={group.id} checked={selectedOptionIds.includes(option.id)} onChange={() => setConfiguredOptions(current => ({ ...current, [group.id]: [option.id] }))} className="h-4 w-4 text-primary" />
+                            ) : (
+                              <input
+                                type="checkbox"
+                                name={group.id}
+                                checked={selectedOptionIds.includes(option.id)}
+                                disabled={!selectedOptionIds.includes(option.id) && selectedOptionIds.length >= maximum}
+                                onChange={() => setConfiguredOptions(current => {
+                                  const selected = current[group.id] || [];
+                                  return {
+                                    ...current,
+                                    [group.id]: selected.includes(option.id)
+                                      ? selected.filter(id => id !== option.id)
+                                      : [...selected, option.id]
+                                  };
+                                })}
+                                className="h-4 w-4 text-primary disabled:opacity-40"
+                              />
+                            )}
                             <span className="font-sans text-sm font-extrabold text-primary">{option.name}</span>
                           </span>
                           {option.priceAdjustment !== 0 && <span className="font-sans text-xs font-bold text-on-surface-variant">{option.priceAdjustment > 0 ? '+' : '−'}{formatRegionCurrency(Math.abs(option.priceAdjustment), store.currency)}</span>}
@@ -518,8 +622,25 @@ export default function PublicStorePage({ slug }: { slug: string }) {
               })}
             </div>
 
-            <button type="button" onClick={() => addConfiguredProduct(configuringProduct, configuringProduct.optionGroupIds.map(groupId => ({ groupId, optionId: configuredOptions[groupId] })).filter(selection => selection.optionId))} className="mt-6 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary">
-              Add to Cart
+            {configuredSelectionError && (
+              <p className="mt-5 rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">
+                {configuredSelectionError}
+              </p>
+            )}
+
+            <div className="mt-6 rounded-2xl bg-surface-container-low p-4">
+              <div className="flex justify-between gap-3 font-sans text-xs font-bold text-on-surface-variant">
+                <span>Base price</span>
+                <span>{formatRegionCurrency(configuringProduct.price, store.currency)}</span>
+              </div>
+              <div className="mt-2 flex justify-between gap-3 font-sans text-sm font-extrabold text-primary">
+                <span>Final price</span>
+                <span>{formatRegionCurrency(configuredProductPrice, store.currency)}</span>
+              </div>
+            </div>
+
+            <button type="button" disabled={Boolean(configuredSelectionError)} onClick={() => addConfiguredProduct(configuringProduct, configuredSelections)} className="mt-4 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
+              Add to Cart · {formatRegionCurrency(configuredProductPrice, store.currency)}
             </button>
           </section>
         </div>

@@ -43,11 +43,49 @@ export const createPublicStoreQaFixture = (slug: string): PublicStoreData | null
       description: 'Fixture product used only to verify the local payment layout.',
       price: 5.9,
       available: true,
-      optionGroupIds: [],
+      optionGroupIds: ['qa-size', 'qa-addons'],
       createdBy: 'qa-owner',
       createdAt: now,
       updatedAt: now
     }],
-    optionGroups: []
+    optionGroups: [{
+      id: 'qa-size',
+      storeId: 'qa-ce-lim-workspace',
+      workspaceId: 'qa-ce-lim-workspace',
+      name: 'Size',
+      selectionType: 'single',
+      required: true,
+      minimumSelections: 1,
+      maximumSelections: 1,
+      sortOrder: 0,
+      available: true,
+      options: [
+        { id: 'regular', name: 'Regular', priceAdjustment: 0, available: true, sortOrder: 0 },
+        { id: 'large', name: 'Large', priceAdjustment: 2, available: true, sortOrder: 1 }
+      ],
+      createdBy: 'qa-owner',
+      createdAt: now,
+      updatedAt: now
+    }, {
+      id: 'qa-addons',
+      storeId: 'qa-ce-lim-workspace',
+      workspaceId: 'qa-ce-lim-workspace',
+      name: 'Add-ons',
+      selectionType: 'multiple',
+      required: true,
+      minimumSelections: 1,
+      maximumSelections: 2,
+      sortOrder: 1,
+      available: true,
+      options: [
+        { id: 'egg', name: 'Egg', priceAdjustment: 1.5, available: true, sortOrder: 0 },
+        { id: 'cheese', name: 'Cheese', priceAdjustment: 2, available: true, sortOrder: 1 },
+        { id: 'sauce', name: 'Sauce', priceAdjustment: 0.5, available: true, sortOrder: 2 },
+        { id: 'chicken', name: 'Chicken', priceAdjustment: 4, available: false, sortOrder: 3 }
+      ],
+      createdBy: 'qa-owner',
+      createdAt: now,
+      updatedAt: now
+    }]
   };
 };

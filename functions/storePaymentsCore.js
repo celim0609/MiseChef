@@ -121,23 +121,49 @@ export const buildOrderItems = (selections, products, optionGroups) => selection
 
   const productGroupIds = Array.isArray(product.optionGroupIds) ? product.optionGroupIds : [];
   const choices = Array.isArray(selection.selectedOptions) ? selection.selectedOptions : [];
-  const selectedOptions = productGroupIds.map(groupId => {
+  const selectedOptions = productGroupIds.flatMap(groupId => {
     const group = optionGroups.find(candidate => candidate.id === groupId);
     if (!group) throw new Error(`Options for ${readString(product.name) || 'this product'} are no longer available.`);
     const groupChoices = choices.filter(choice => readString(choice.groupId) === groupId);
-    if (groupChoices.length !== 1) {
-      throw new Error(`Choose one ${readString(group.name) || 'option'} for ${readString(product.name) || 'this product'}.`);
+    if (group.available === false) {
+      if (groupChoices.length > 0) {
+        throw new Error(`${readString(group.name) || 'This option group'} is no longer available.`);
+      }
+      return [];
     }
-    const option = (Array.isArray(group.options) ? group.options : [])
-      .find(candidate => candidate.id === readString(groupChoices[0].optionId));
-    if (!option) throw new Error(`Choose a valid ${readString(group.name) || 'product'} option.`);
-    return {
-      groupId: group.id,
-      groupName: readString(group.name),
-      optionId: option.id,
-      optionName: readString(option.name),
-      priceAdjustment: readNumber(option.priceAdjustment)
-    };
+    const selectionType = group.selectionType === 'multiple' ? 'multiple' : 'single';
+    const required = typeof group.required === 'boolean' ? group.required : true;
+    const configuredMinimum = Number.isInteger(group.minimumSelections)
+      ? group.minimumSelections
+      : required ? 1 : 0;
+    const minimumSelections = required ? Math.max(1, configuredMinimum) : Math.max(0, configuredMinimum);
+    const configuredMaximum = Number.isInteger(group.maximumSelections)
+      ? group.maximumSelections
+      : Math.max(1, Array.isArray(group.options) ? group.options.length : 1);
+    const maximumSelections = selectionType === 'single' ? 1 : configuredMaximum;
+    if (groupChoices.length < minimumSelections) {
+      throw new Error(`Choose at least ${minimumSelections} ${readString(group.name) || 'option'} option${minimumSelections === 1 ? '' : 's'} for ${readString(product.name) || 'this product'}.`);
+    }
+    if (groupChoices.length > maximumSelections) {
+      throw new Error(`Choose no more than ${maximumSelections} ${readString(group.name) || 'option'} option${maximumSelections === 1 ? '' : 's'} for ${readString(product.name) || 'this product'}.`);
+    }
+    if (new Set(groupChoices.map(choice => readString(choice.optionId))).size !== groupChoices.length) {
+      throw new Error(`Choose each ${readString(group.name) || 'option'} option only once.`);
+    }
+    return groupChoices.map(choice => {
+      const option = (Array.isArray(group.options) ? group.options : [])
+        .find(candidate => candidate.id === readString(choice.optionId));
+      if (!option || option.available === false) {
+        throw new Error(`Choose an available ${readString(group.name) || 'product'} option.`);
+      }
+      return {
+        groupId: group.id,
+        groupName: readString(group.name),
+        optionId: option.id,
+        optionName: readString(option.name),
+        priceAdjustment: readNumber(option.priceAdjustment)
+      };
+    });
   });
 
   if (choices.some(choice => !productGroupIds.includes(readString(choice.groupId)))) {

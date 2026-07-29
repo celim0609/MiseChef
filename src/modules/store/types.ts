@@ -69,13 +69,23 @@ export interface StoreOption {
   id: string;
   name: string;
   priceAdjustment: number;
+  available: boolean;
+  sortOrder: number;
 }
+
+export type StoreOptionSelectionType = 'single' | 'multiple';
 
 export interface StoreOptionGroup {
   id: string;
   storeId: string;
   workspaceId: string;
   name: string;
+  selectionType: StoreOptionSelectionType;
+  required: boolean;
+  minimumSelections: number;
+  maximumSelections: number;
+  sortOrder: number;
+  available: boolean;
   options: StoreOption[];
   createdBy: string;
   createdAt: string;
@@ -84,6 +94,12 @@ export interface StoreOptionGroup {
 
 export interface StoreOptionGroupDraft {
   name: string;
+  selectionType: StoreOptionSelectionType;
+  required: boolean;
+  minimumSelections: number;
+  maximumSelections: number;
+  sortOrder: number;
+  available: boolean;
   options: StoreOption[];
 }
 

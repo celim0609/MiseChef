@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -173,7 +174,7 @@ export const storeService = {
     const snapshot = await getDocs(groupsQuery);
     return snapshot.docs
       .map(groupDoc => normalizeStoreOptionGroup(groupDoc.id, groupDoc.data() as Record<string, unknown>))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
   },
 
   async createOptionGroup({
@@ -197,10 +198,18 @@ export const storeService = {
       storeId: workspaceId,
       workspaceId,
       name: draft.name.trim(),
-      options: draft.options.map(option => ({
+      selectionType: draft.selectionType,
+      required: draft.required,
+      minimumSelections: draft.minimumSelections,
+      maximumSelections: draft.maximumSelections,
+      sortOrder: draft.sortOrder,
+      available: draft.available,
+      options: draft.options.map((option, index) => ({
         id: option.id || this.createOptionId(),
         name: option.name.trim(),
-        priceAdjustment: option.priceAdjustment
+        priceAdjustment: option.priceAdjustment,
+        available: option.available,
+        sortOrder: index
       })),
       createdBy,
       createdAt: now,
@@ -221,15 +230,28 @@ export const storeService = {
     const updatedGroup: StoreOptionGroup = {
       ...group,
       name: draft.name.trim(),
-      options: draft.options.map(option => ({
+      selectionType: draft.selectionType,
+      required: draft.required,
+      minimumSelections: draft.minimumSelections,
+      maximumSelections: draft.maximumSelections,
+      sortOrder: draft.sortOrder,
+      available: draft.available,
+      options: draft.options.map((option, index) => ({
         id: option.id || this.createOptionId(),
         name: option.name.trim(),
-        priceAdjustment: option.priceAdjustment
+        priceAdjustment: option.priceAdjustment,
+        available: option.available,
+        sortOrder: index
       })),
       updatedAt: new Date().toISOString()
     };
     await setDoc(doc(db, 'storeOptionGroups', group.id), removeUndefinedFields(updatedGroup), { merge: true });
     return updatedGroup;
+  },
+
+  async deleteOptionGroup(groupId: string): Promise<void> {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    await deleteDoc(doc(db, 'storeOptionGroups', groupId));
   },
 
   async listProducts(workspaceId: string): Promise<StoreProduct[]> {
@@ -339,7 +361,7 @@ export const storeService = {
     const optionGroups = optionGroupSnapshot.docs
       .map(groupDoc => normalizeStoreOptionGroup(groupDoc.id, groupDoc.data() as Record<string, unknown>))
       .filter(group => referencedGroupIds.has(group.id))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
 
     return { store, products, optionGroups };
   }

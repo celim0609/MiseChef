@@ -45,8 +45,8 @@ const optionGroups = [{
   id: 'drink',
   name: 'Drink',
   options: [
-    { id: 'kopi', name: 'Kopi', priceAdjustment: 0 },
-    { id: 'none', name: 'No Drink', priceAdjustment: -1 }
+    { id: 'kopi', name: 'Kopi', priceAdjustment: 0, available: true },
+    { id: 'none', name: 'No Drink', priceAdjustment: -1, available: true }
   ]
 }];
 const draft = {
@@ -85,6 +85,162 @@ test('single-merchant order is priced from server products and stores provider-n
   assert.equal(order.status, 'Awaiting Payment');
   assert.equal(order.items[0].productName, 'Breakfast Set');
   assert.equal(order.items[0].selectedOptions[0].optionName, 'No Drink');
+  assert.equal(order.items[0].selectedOptions[0].priceAdjustment, -1);
+  assert.equal(order.items[0].basePrice, 5.9);
+  assert.equal(order.items[0].unitPrice, 4.9);
+});
+
+test('server pricing adds available option adjustments and preserves them in the order snapshot', () => {
+  const adjustedOrder = buildPendingOrder({
+    id: 'order-option-adjustment',
+    orderNumber: 'MC-260726-DDDDDD',
+    store,
+    products,
+    optionGroups: [{
+      id: 'drink',
+      name: 'Size',
+      options: [
+        { id: 'regular', name: 'Regular', priceAdjustment: 0, available: true },
+        { id: 'large', name: 'Large', priceAdjustment: 2, available: true }
+      ]
+    }],
+    paymentProvider: STRIPE_PROVIDER_ID,
+    paymentProviderMode: STRIPE_PROVIDER_MODE,
+    draft: {
+      ...draft,
+      selections: [{
+        productId: 'breakfast',
+        quantity: 2,
+        selectedOptions: [{ groupId: 'drink', optionId: 'large' }]
+      }]
+    },
+    now: new Date('2026-07-26T04:00:00.000Z')
+  });
+
+  assert.equal(adjustedOrder.items[0].basePrice, 5.9);
+  assert.equal(adjustedOrder.items[0].unitPrice, 7.9);
+  assert.equal(adjustedOrder.items[0].lineTotal, 15.8);
+  assert.equal(adjustedOrder.items[0].selectedOptions[0].priceAdjustment, 2);
+  assert.equal(adjustedOrder.total, 15.8);
+  assert.equal(adjustedOrder.payment.amountMinor, 1580);
+});
+
+test('server checkout rejects an option that the Store Owner made unavailable', () => {
+  assert.throws(() => buildPendingOrder({
+    id: 'order-unavailable-option',
+    orderNumber: 'MC-260726-EEEEEE',
+    store,
+    products,
+    optionGroups: [{
+      id: 'drink',
+      name: 'Size',
+      options: [
+        { id: 'large', name: 'Large', priceAdjustment: 2, available: false }
+      ]
+    }],
+    paymentProvider: STRIPE_PROVIDER_ID,
+    paymentProviderMode: STRIPE_PROVIDER_MODE,
+    draft: {
+      ...draft,
+      selections: [{
+        productId: 'breakfast',
+        quantity: 1,
+        selectedOptions: [{ groupId: 'drink', optionId: 'large' }]
+      }]
+    },
+    now: new Date('2026-07-26T04:00:00.000Z')
+  }), /Choose an available Size option/);
+});
+
+test('server pricing validates multiple-select limits and snapshots every adjustment', () => {
+  const multipleGroup = [{
+    id: 'drink',
+    name: 'Add-ons',
+    selectionType: 'multiple',
+    required: true,
+    minimumSelections: 1,
+    maximumSelections: 2,
+    available: true,
+    options: [
+      { id: 'cheese', name: 'Cheese', priceAdjustment: 2, available: true },
+      { id: 'egg', name: 'Egg', priceAdjustment: 1.5, available: true },
+      { id: 'chicken', name: 'Chicken', priceAdjustment: 4, available: true }
+    ]
+  }];
+  const selections = [{
+    productId: 'breakfast',
+    quantity: 2,
+    selectedOptions: [
+      { groupId: 'drink', optionId: 'cheese' },
+      { groupId: 'drink', optionId: 'egg' }
+    ]
+  }];
+  const order = buildPendingOrder({
+    id: 'order-multiple-options',
+    orderNumber: 'MC-260726-MULTI1',
+    store,
+    products,
+    optionGroups: multipleGroup,
+    paymentProvider: STRIPE_PROVIDER_ID,
+    paymentProviderMode: STRIPE_PROVIDER_MODE,
+    draft: { ...draft, selections },
+    now: new Date('2026-07-26T04:00:00.000Z')
+  });
+
+  assert.equal(order.items[0].basePrice, 5.9);
+  assert.equal(order.items[0].unitPrice, 9.4);
+  assert.equal(order.items[0].lineTotal, 18.8);
+  assert.deepEqual(order.items[0].selectedOptions.map(option => ({
+    name: option.optionName,
+    adjustment: option.priceAdjustment
+  })), [
+    { name: 'Cheese', adjustment: 2 },
+    { name: 'Egg', adjustment: 1.5 }
+  ]);
+  assert.equal(order.total, 18.8);
+  assert.equal(order.payment.amountMinor, 1880);
+
+  assert.throws(() => buildPendingOrder({
+    id: 'order-too-many-options',
+    orderNumber: 'MC-260726-MULTI2',
+    store,
+    products,
+    optionGroups: multipleGroup,
+    paymentProvider: STRIPE_PROVIDER_ID,
+    paymentProviderMode: STRIPE_PROVIDER_MODE,
+    draft: {
+      ...draft,
+      selections: [{
+        ...selections[0],
+        selectedOptions: [
+          ...selections[0].selectedOptions,
+          { groupId: 'drink', optionId: 'chicken' }
+        ]
+      }]
+    },
+    now: new Date('2026-07-26T04:00:00.000Z')
+  }), /Choose no more than 2 Add-ons options/);
+});
+
+test('server keeps legacy groups as required single-select groups', () => {
+  assert.throws(() => buildPendingOrder({
+    id: 'order-legacy-missing',
+    orderNumber: 'MC-260726-LEGACY',
+    store,
+    products,
+    optionGroups,
+    paymentProvider: STRIPE_PROVIDER_ID,
+    paymentProviderMode: STRIPE_PROVIDER_MODE,
+    draft: {
+      ...draft,
+      selections: [{
+        productId: 'breakfast',
+        quantity: 1,
+        selectedOptions: []
+      }]
+    },
+    now: new Date('2026-07-26T04:00:00.000Z')
+  }), /Choose at least 1 Drink option/);
 });
 
 test('customer-submitted prices and merchant routing are not accepted as checkout inputs', () => {
