@@ -27,6 +27,29 @@ export interface PublicChefProfile {
   experience: PublicChefExperience[];
   skills: string[];
   gallery: PublicChefGalleryItem[];
+  education?: Array<{
+    schoolName: string;
+    qualification: string;
+    fieldOfStudy: string;
+    startYear: string;
+    endYear: string;
+    description: string;
+  }>;
+  certificates?: Array<{
+    name: string;
+    issuingOrganisation: string;
+    issueDate: string;
+    expiryDate: string;
+    credentialUrl: string;
+  }>;
+  awards?: Array<{
+    name: string;
+    issuingOrganisation: string;
+    year: string;
+    description: string;
+  }>;
+  languages?: Array<{ language: string; proficiency: string }>;
+  socialLinks?: Record<string, string>;
   partnerSpotlight: PortfolioPartnerSpotlight;
   publishedAt: string;
 }

@@ -26,6 +26,7 @@ export type GeminiScannedRecipe = {
 
 export type GeminiResumePortfolioDraft = {
   basicProfile?: {
+    fullName?: string;
     professionalTitle?: string;
     yearsExperience?: string;
     shortBio?: string;
@@ -66,6 +67,10 @@ export type GeminiResumePortfolioDraft = {
     description?: string;
     skillsCertified?: string[];
   }>;
+  education?: Array<{ schoolName?: string; qualification?: string; fieldOfStudy?: string; startYear?: string; endYear?: string; description?: string }>;
+  awards?: Array<{ name?: string; issuingOrganisation?: string; year?: string; description?: string }>;
+  languages?: Array<{ language?: string; proficiency?: string }>;
+  socialLinks?: Record<string, string>;
   contact?: {
     email?: string;
     phone?: string;
@@ -164,9 +169,14 @@ const normalizeResumePortfolioDraft = (value: unknown): GeminiResumePortfolioDra
   const experience = Array.isArray(source.experience) ? source.experience : [];
   const skills = Array.isArray(source.skills) ? source.skills : [];
   const certificates = Array.isArray(source.certificates) ? source.certificates : [];
+  const education = Array.isArray(source.education) ? source.education : [];
+  const awards = Array.isArray(source.awards) ? source.awards : [];
+  const languages = Array.isArray(source.languages) ? source.languages : [];
+  const socialLinks = source.socialLinks && typeof source.socialLinks === 'object' ? source.socialLinks as Record<string, unknown> : {};
 
   return {
     basicProfile: {
+      fullName: readString(basicProfile.fullName),
       professionalTitle: readString(basicProfile.professionalTitle),
       yearsExperience: readString(basicProfile.yearsExperience),
       shortBio: readString(basicProfile.shortBio),
@@ -216,6 +226,19 @@ const normalizeResumePortfolioDraft = (value: unknown): GeminiResumePortfolioDra
         skillsCertified: readStringArray(certificate.skillsCertified)
       };
     }).filter(item => item.title),
+    education: education.map(item => {
+      const entry = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+      return { schoolName: readString(entry.schoolName), qualification: readString(entry.qualification), fieldOfStudy: readString(entry.fieldOfStudy), startYear: readString(entry.startYear), endYear: readString(entry.endYear), description: readString(entry.description) };
+    }).filter(item => item.schoolName),
+    awards: awards.map(item => {
+      const entry = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+      return { name: readString(entry.name), issuingOrganisation: readString(entry.issuingOrganisation), year: readString(entry.year), description: readString(entry.description) };
+    }).filter(item => item.name),
+    languages: languages.map(item => {
+      const entry = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+      return { language: readString(entry.language), proficiency: readString(entry.proficiency) };
+    }).filter(item => item.language),
+    socialLinks: Object.fromEntries(Object.entries(socialLinks).map(([key, item]) => [key, readString(item)]).filter(([, item]) => Boolean(item))),
     contact: {
       email: readString(contact.email),
       phone: readString(contact.phone),

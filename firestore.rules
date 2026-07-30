@@ -443,6 +443,60 @@ service cloud.firestore {
       }
     }
 
+    match /chefProfiles/{userId} {
+      allow read: if ownsUserDocument(userId) || isSuperAdmin();
+      allow create, update: if ownsUserDocument(userId)
+        && request.resource.data.userId == userId
+        && request.resource.data.profileSlug is string
+        && request.resource.data.profileSlug.size() <= 40
+        && (
+          request.resource.data.profileSlug == ''
+          || (
+            request.resource.data.profileSlug.matches('^[a-z0-9]+(?:-[a-z0-9]+)*$')
+            && existsAfter(/databases/$(database)/documents/chefProfileSlugs/$(request.resource.data.profileSlug))
+            && getAfter(/databases/$(database)/documents/chefProfileSlugs/$(request.resource.data.profileSlug)).data.userId == userId
+          )
+        )
+        && request.resource.data.visibility in ['private', 'public']
+        && request.resource.data.basicInfo is map
+        && request.resource.data.basicInfo.fullName is string
+        && request.resource.data.basicInfo.fullName.size() <= 120
+        && request.resource.data.basicInfo.professionalTitle is string
+        && request.resource.data.basicInfo.professionalTitle.size() <= 120
+        && request.resource.data.skills is list
+        && request.resource.data.skills.size() <= 50
+        && request.resource.data.experiences is list
+        && request.resource.data.experiences.size() <= 30
+        && request.resource.data.education is list
+        && request.resource.data.education.size() <= 20
+        && request.resource.data.certificates is list
+        && request.resource.data.certificates.size() <= 30
+        && request.resource.data.awards is list
+        && request.resource.data.awards.size() <= 30
+        && request.resource.data.languages is list
+        && request.resource.data.languages.size() <= 20
+        && request.resource.data.portfolio is list
+        && request.resource.data.portfolio.size() <= 30;
+      allow delete: if false;
+    }
+
+    match /chefProfileSlugs/{slug} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['userId'])
+        && request.resource.data.userId == request.auth.uid
+        && slug.matches('^[a-z0-9]+(?:-[a-z0-9]+)*$')
+        && slug.size() <= 40;
+      allow update: if false;
+      allow delete: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && (
+          !existsAfter(/databases/$(database)/documents/chefProfiles/$(request.auth.uid))
+          || getAfter(/databases/$(database)/documents/chefProfiles/$(request.auth.uid)).data.profileSlug != slug
+        );
+    }
+
     match /companies/{companyId} {
       allow create: if signedIn()
         && request.resource.data.companyId == companyId

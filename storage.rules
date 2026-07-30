@@ -68,6 +68,15 @@ service firebase.storage {
         && request.resource.contentType == 'application/pdf';
     }
 
+    function validResumeImport() {
+      return request.resource != null
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType in [
+          'application/pdf',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        ];
+    }
+
     match /recipes/{userId}/{recipeId}/{allPaths=**} {
       allow read: if ownsPath(userId);
       allow create, update: if ownsPath(userId) && validImageUpload(10 * 1024 * 1024);
@@ -119,6 +128,19 @@ service firebase.storage {
     match /users/{userId}/portfolio/resume/{fileName} {
       allow read: if ownsPath(userId);
       allow create, update: if ownsPath(userId) && validPdfUpload(15 * 1024 * 1024);
+      allow delete: if ownsPath(userId);
+    }
+
+    match /users/{userId}/chef-profile/resume-imports/{fileName} {
+      allow read: if ownsPath(userId);
+      allow create: if ownsPath(userId) && validResumeImport();
+      allow update: if false;
+      allow delete: if ownsPath(userId);
+    }
+
+    match /users/{userId}/chef-profile/certificates/{certificateId}/{fileName} {
+      allow read: if ownsPath(userId);
+      allow create, update: if ownsPath(userId) && validPdfUpload(10 * 1024 * 1024);
       allow delete: if ownsPath(userId);
     }
 
