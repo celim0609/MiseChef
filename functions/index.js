@@ -193,7 +193,9 @@ export const stripeStorePaymentWebhook = onRequest({
 
 const readPublicProfileUsername = snapshot => {
   if (!snapshot.exists) return '';
-  const publicProfile = snapshot.data()?.publicProfile;
+  const data = snapshot.data() || {};
+  if (data.visibility === 'public') return readString(data.profileSlug).toLowerCase();
+  const publicProfile = data.publicProfile;
   return publicProfile?.enabled === true ? readString(publicProfile.username).toLowerCase() : '';
 };
 
@@ -202,12 +204,14 @@ const resolvePublicChefUsername = async recipe => {
   const ownerId = readString(recipe.userId || recipe.createdBy);
   const profileReferences = [];
 
+  if (ownerId) profileReferences.push(db.doc(`chefProfiles/${ownerId}`));
   if (workspaceId) profileReferences.push(db.doc(`workspaces/${workspaceId}/portfolio/profile`));
   if (ownerId) profileReferences.push(db.doc(`users/${ownerId}/portfolio/profile`));
 
   for (const profileReference of profileReferences) {
     const snapshot = await profileReference.get();
-    const publicProfile = snapshot.exists ? snapshot.data()?.publicProfile : null;
+    const snapshotData = snapshot.exists ? snapshot.data() || {} : {};
+    const publicProfile = snapshotData.publicProfile;
     if (publicProfile?.ownerId && ownerId && publicProfile.ownerId !== ownerId) continue;
     const username = readPublicProfileUsername(snapshot);
     if (username) return username;
@@ -375,6 +379,60 @@ export const syncPublicChefProfile = onDocumentWritten({
   await deletePublicChefProfileAssets(obsoleteAssets);
 });
 
+export const syncCanonicalChefProfile = onDocumentWritten({
+  document: 'chefProfiles/{userId}',
+  region: REGION
+}, async event => {
+  const { userId } = event.params;
+  const sourcePath = `chefProfiles/${userId}`;
+  const sourceKey = getPublicChefAssetPrefix(sourcePath).split('/').pop();
+  const manifestReference = db.collection('publicChefProfileManifests').doc(sourceKey);
+  const previousManifest = await manifestReference.get();
+  const previousData = previousManifest.exists ? previousManifest.data() || {} : {};
+  const profileSnapshot = event.data?.after;
+  const profile = profileSnapshot?.exists ? profileSnapshot.data() || {} : {};
+  const projection = buildPublicChefProfileProjection(profile);
+  const nextUsername = projection?.username || '';
+  const previousUsername = normalizePublicUsername(previousData.username);
+
+  if (!projection) {
+    await deletePublishedChefProfile({
+      username: previousUsername,
+      sourceKey,
+      assets: previousData.assets
+    });
+    await manifestReference.delete();
+    return;
+  }
+
+  if (previousUsername && previousUsername !== nextUsername) {
+    await deletePublishedChefProfile({
+      username: previousUsername,
+      sourceKey,
+      assets: previousData.assets
+    });
+  }
+
+  const publishedAssets = await publishPublicChefProfileAssets({ sourcePath, profile });
+  const publicProjection = buildPublicChefProfileProjection(publishedAssets.profile);
+  const publicReference = db.collection('publicChefProfiles').doc(nextUsername);
+  const ownershipReference = db.collection('publicChefProfileOwnership').doc(nextUsername);
+  const batch = db.batch();
+  batch.set(publicReference, publicProjection);
+  batch.set(ownershipReference, { ownerId: userId, sourceKey });
+  batch.set(manifestReference, {
+    username: nextUsername,
+    assets: publishedAssets.assets,
+    updatedAt: FieldValue.serverTimestamp()
+  });
+  await batch.commit();
+
+  const currentAssetKeys = new Set(publishedAssets.assets.map(asset => `${asset.bucketName}/${asset.objectPath}`));
+  const obsoleteAssets = (Array.isArray(previousData.assets) ? previousData.assets : [])
+    .filter(asset => !currentAssetKeys.has(`${asset?.bucketName}/${asset?.objectPath}`));
+  await deletePublicChefProfileAssets(obsoleteAssets);
+});
+
 const recipeResponseSchema = {
   type: Type.OBJECT,
   properties: {
@@ -414,6 +472,7 @@ const portfolioResumeResponseSchema = {
     basicProfile: {
       type: Type.OBJECT,
       properties: {
+        fullName: { type: Type.STRING },
         professionalTitle: { type: Type.STRING },
         yearsExperience: { type: Type.STRING },
         shortBio: { type: Type.STRING },
@@ -474,6 +533,35 @@ const portfolioResumeResponseSchema = {
           description: { type: Type.STRING },
           skillsCertified: { type: Type.ARRAY, items: { type: Type.STRING } }
         }
+      }
+    },
+    education: {
+      type: Type.ARRAY,
+      items: { type: Type.OBJECT, properties: {
+        schoolName: { type: Type.STRING }, qualification: { type: Type.STRING },
+        fieldOfStudy: { type: Type.STRING }, startYear: { type: Type.STRING },
+        endYear: { type: Type.STRING }, description: { type: Type.STRING }
+      } }
+    },
+    awards: {
+      type: Type.ARRAY,
+      items: { type: Type.OBJECT, properties: {
+        name: { type: Type.STRING }, issuingOrganisation: { type: Type.STRING },
+        year: { type: Type.STRING }, description: { type: Type.STRING }
+      } }
+    },
+    languages: {
+      type: Type.ARRAY,
+      items: { type: Type.OBJECT, properties: {
+        language: { type: Type.STRING }, proficiency: { type: Type.STRING }
+      } }
+    },
+    socialLinks: {
+      type: Type.OBJECT,
+      properties: {
+        instagram: { type: Type.STRING }, tiktok: { type: Type.STRING },
+        facebook: { type: Type.STRING }, linkedin: { type: Type.STRING },
+        youtube: { type: Type.STRING }, website: { type: Type.STRING }
       }
     },
     contact: {
@@ -624,9 +712,14 @@ const sanitizeResumePortfolio = value => {
   const experience = Array.isArray(source.experience) ? source.experience : [];
   const skills = Array.isArray(source.skills) ? source.skills : [];
   const certificates = Array.isArray(source.certificates) ? source.certificates : [];
+  const education = Array.isArray(source.education) ? source.education : [];
+  const awards = Array.isArray(source.awards) ? source.awards : [];
+  const languages = Array.isArray(source.languages) ? source.languages : [];
+  const socialLinks = source.socialLinks && typeof source.socialLinks === 'object' ? source.socialLinks : {};
 
   return {
     basicProfile: {
+      fullName: readString(basicProfile.fullName),
       professionalTitle: readString(basicProfile.professionalTitle),
       yearsExperience: readString(basicProfile.yearsExperience),
       shortBio: readString(basicProfile.shortBio),
@@ -676,6 +769,19 @@ const sanitizeResumePortfolio = value => {
         skillsCertified: readStringArray(certificate.skillsCertified)
       };
     }).filter(item => item.title),
+    education: education.slice(0, 20).map(item => {
+      const entry = item && typeof item === 'object' ? item : {};
+      return { schoolName: readString(entry.schoolName), qualification: readString(entry.qualification), fieldOfStudy: readString(entry.fieldOfStudy), startYear: readString(entry.startYear), endYear: readString(entry.endYear), description: readString(entry.description) };
+    }).filter(item => item.schoolName),
+    awards: awards.slice(0, 30).map(item => {
+      const entry = item && typeof item === 'object' ? item : {};
+      return { name: readString(entry.name), issuingOrganisation: readString(entry.issuingOrganisation), year: readString(entry.year), description: readString(entry.description) };
+    }).filter(item => item.name),
+    languages: languages.slice(0, 20).map(item => {
+      const entry = item && typeof item === 'object' ? item : {};
+      return { language: readString(entry.language), proficiency: readString(entry.proficiency) };
+    }).filter(item => item.language),
+    socialLinks: Object.fromEntries(Object.entries(socialLinks).map(([key, item]) => [key, readString(item)]).filter(([, item]) => Boolean(item))),
     contact: {
       email: readString(contact.email),
       phone: readString(contact.phone),
@@ -1266,16 +1372,24 @@ Convert this resume into an editable chef portfolio draft.
 
 Return ONLY valid JSON with this exact top-level shape:
 {
-  "basicProfile": {"professionalTitle":"", "yearsExperience":"", "shortBio":"", "quote":"", "location":"", "specialties":[]},
+  "basicProfile": {"fullName":"", "professionalTitle":"", "yearsExperience":"", "shortBio":"", "quote":"", "location":"", "specialties":[]},
   "about": {"title":"", "body":"", "quote":"", "highlights":[]},
   "experience": [{"role":"", "organization":"", "location":"", "employmentType":"", "startDate":"", "endDate":"", "isCurrent":false, "description":"", "achievements":[]}],
   "skills": [{"name":"", "category":"", "level":"", "description":""}],
   "certificates": [{"title":"", "issuer":"", "issueDate":"", "expiryDate":"", "credentialId":"", "credentialUrl":"", "description":"", "skillsCertified":[]}],
+  "education": [{"schoolName":"", "qualification":"", "fieldOfStudy":"", "startYear":"", "endYear":"", "description":""}],
+  "awards": [{"name":"", "issuingOrganisation":"", "year":"", "description":""}],
+  "languages": [{"language":"", "proficiency":""}],
+  "socialLinks": {"instagram":"","tiktok":"","facebook":"","linkedin":"","youtube":"","website":""},
   "contact": {"email":"", "phone":"", "location":"", "message":""}
 }
 
 Rules:
 - Do not invent details that are not present in the resume.
+- Never guess dates, employers, certificates, awards, or qualifications.
+- Ignore ID and passport numbers, marital status, religion, salary, and full home addresses.
+- Keep every work, education, certificate, award, and language entry separate.
+- Only write shortBio when the resume contains enough professional information for an accurate summary.
 - Keep professional culinary language when the resume relates to food, hospitality, or chef work.
 - Preserve dates as written.
 - Use concise editable text.

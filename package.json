@@ -10,7 +10,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:chef-profile:rules": "firebase emulators:exec --only firestore,storage --project demo-misechef-chef-profile-rules \"node --test tests/chefProfileAccessControl.test.mjs\""
   },
   "dependencies": {
     "@stripe/react-stripe-js": "^6.8.0",
@@ -29,6 +30,7 @@
     "vite": "^6.2.3"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/qrcode": "^1.5.6",

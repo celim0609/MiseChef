@@ -11,12 +11,13 @@ export const publishPublicChefProfileAssets = async ({ sourcePath, profile }) =>
   const prefix = getPublicChefAssetPrefix(sourcePath);
   const internalIdentifiers = [
     profile.publicProfile?.ownerId,
+    profile.userId,
     sourcePath.split('/')[1]
   ].map(readString).filter(Boolean);
   const assets = [];
 
   const avatar = await publishPublicAsset({
-    sourceUrl: profile.publicProfile?.avatarUrl,
+    sourceUrl: profile.publicProfile?.avatarUrl || profile.basicInfo?.profilePhotoUrl,
     destinationPath: `${prefix}/avatar`,
     internalIdentifiers
   });
@@ -29,8 +30,9 @@ export const publishPublicChefProfileAssets = async ({ sourcePath, profile }) =>
   });
   if (cover.asset) assets.push(cover.asset);
 
-  const gallery = await Promise.all((Array.isArray(profile.gallery) ? profile.gallery : []).map(async (item, index) => {
-    if (item?.visibility !== 'public') return item;
+  const sourceGallery = Array.isArray(profile.gallery) ? profile.gallery : (Array.isArray(profile.portfolio) ? profile.portfolio : []);
+  const gallery = await Promise.all(sourceGallery.map(async (item, index) => {
+    if (Array.isArray(profile.gallery) && item?.visibility !== 'public') return item;
     const image = await publishPublicAsset({
       sourceUrl: item.imageUrl,
       destinationPath: `${prefix}/gallery-${index + 1}`,
@@ -44,9 +46,11 @@ export const publishPublicChefProfileAssets = async ({ sourcePath, profile }) =>
     profile: {
       ...profile,
       publicProfile: { ...profile.publicProfile, avatarUrl: avatar.url },
+      basicInfo: { ...profile.basicInfo, profilePhotoUrl: avatar.url, coverPhotoUrl: cover.url },
       basicProfile: { ...profile.basicProfile, coverPhotoUrl: cover.url },
       hero: { ...profile.hero, backgroundImageUrl: cover.url },
-      gallery
+      gallery: Array.isArray(profile.gallery) ? gallery : profile.gallery,
+      portfolio: Array.isArray(profile.portfolio) ? gallery : profile.portfolio
     },
     assets
   };

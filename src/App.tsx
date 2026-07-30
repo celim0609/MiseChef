@@ -21,7 +21,7 @@ import LoginTab from './components/LoginTab';
 import FavoritesTab from './components/FavoritesTab';
 import StatisticsTab from './components/StatisticsTab';
 import { AdminPage } from './modules/admin';
-import { PortfolioPage } from './modules/portfolio';
+import { ChefProfilePage } from './modules/chef-profile';
 import { CostingPage } from './modules/costing';
 import { recipeCostService } from './modules/costing/services';
 import { BusinessPage } from './modules/business';
@@ -1693,7 +1693,7 @@ export default function App() {
         );
       case 'portfolio':
         return (
-          <PortfolioPage
+          <ChefProfilePage
             profile={portfolioProfile}
             initialPortfolio={portfolioData}
             recipes={recipes}

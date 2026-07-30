@@ -47,6 +47,26 @@ export default function PublicChefProfilePage({ username }: { username: string }
     <AboutPreview about={profile.about} />
     <PublicExperienceSection experiences={profile.experience} />
     <PublicSkillsSection skills={profile.skills} />
+    <PublicListSection title="Education" items={(profile.education || []).map(item => ({
+      title: [item.qualification, item.fieldOfStudy].filter(Boolean).join(' · ') || item.schoolName,
+      subtitle: [item.schoolName, [item.startYear, item.endYear].filter(Boolean).join(' – ')].filter(Boolean).join(' · '),
+      description: item.description
+    }))} />
+    <PublicListSection title="Certificates" items={(profile.certificates || []).map(item => ({
+      title: item.name,
+      subtitle: [item.issuingOrganisation, item.issueDate].filter(Boolean).join(' · '),
+      description: ''
+    }))} />
+    <PublicListSection title="Awards" items={(profile.awards || []).map(item => ({
+      title: item.name,
+      subtitle: [item.issuingOrganisation, item.year].filter(Boolean).join(' · '),
+      description: item.description
+    }))} />
+    <PublicListSection title="Languages" items={(profile.languages || []).map(item => ({
+      title: item.language,
+      subtitle: item.proficiency,
+      description: ''
+    }))} />
     <section className="mb-16">
       <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Recipes</p>
       <h2 className="font-display text-3xl font-bold text-primary">Public Recipes</h2>
@@ -54,6 +74,11 @@ export default function PublicChefProfilePage({ username }: { username: string }
     </section>
     <PartnerSpotlightPreview spotlight={profile.partnerSpotlight} />
     <PublicGallerySection items={profile.gallery} />
+    {profile.socialLinks && Object.values(profile.socialLinks).some(Boolean) && <section className="mb-16">
+      <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Connect</p>
+      <h2 className="font-display text-3xl font-bold text-primary">Social Links</h2>
+      <div className="mt-5 flex flex-wrap gap-3">{Object.entries(profile.socialLinks).filter(([, url]) => Boolean(url)).map(([name, url]) => <a key={name} href={url} target="_blank" rel="noreferrer" className="rounded-full border border-primary px-4 py-2 font-sans text-xs font-extrabold capitalize text-primary">{name}</a>)}</div>
+    </section>}
     <section id="contact-chef" className="scroll-mt-24 rounded-3xl border border-surface-container-high bg-surface-container-low p-6 sm:p-8">
       <h2 className="font-display text-3xl font-bold text-primary">Contact Chef</h2>
       <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Send a private enquiry without exposing personal contact details.</p>
@@ -66,4 +91,13 @@ export default function PublicChefProfilePage({ username }: { username: string }
     </section>
     {recipes.length > 0 && <section className="mt-16"><h2 className="font-display text-3xl font-bold text-primary">More Recipes from this Chef</h2><div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">{recipes.slice(0, 4).map(recipe => <PublicProfileRecipeCard key={recipe.id} recipe={recipe} />)}</div></section>}
   </div>;
+}
+
+function PublicListSection({ title, items }: { title: string; items: Array<{ title: string; subtitle: string; description: string }> }) {
+  if (!items.length) return null;
+  return <section className="mb-16">
+    <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Profile</p>
+    <h2 className="font-display text-3xl font-bold text-primary">{title}</h2>
+    <div className="mt-6 grid gap-4 sm:grid-cols-2">{items.map((item, index) => <article key={`${item.title}-${index}`} className="rounded-2xl border border-surface-container-high bg-surface-container-low p-5"><h3 className="font-display text-xl font-bold text-primary">{item.title}</h3>{item.subtitle && <p className="mt-1 font-sans text-xs font-extrabold text-secondary">{item.subtitle}</p>}{item.description && <p className="mt-3 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{item.description}</p>}</article>)}</div>
+  </section>;
 }
