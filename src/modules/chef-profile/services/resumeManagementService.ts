@@ -71,10 +71,10 @@ export const resumeManagementService = {
     assertOwnedPath(userId, result.originalStoragePath);
     const next = buildManagedResumeUpload(userId, result);
     try {
-      await setDoc(doc(db, 'chefResumeImports', userId), stripUndefined({
+      await setDoc(doc(db, 'chefResumeImports', userId), {
         ...next,
         uploadedAt: serverTimestamp()
-      }));
+      });
     } catch (error) {
       await deleteFile(userId, result.originalStoragePath).catch(() => undefined);
       throw error;

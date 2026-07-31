@@ -35,13 +35,19 @@ export const importResume = async (
   });
   let registeredForRetry = false;
   try {
-    await new Promise<void>((resolve, reject) => upload.on('state_changed', undefined, reject, resolve));
+    await new Promise<void>((resolve, reject) => upload.on('state_changed', undefined, reject, resolve)).catch(error => {
+      console.error('[Resume Import] Storage upload failed', error);
+      throw error;
+    });
     if (onUploaded) {
       await onUploaded({
         originalStoragePath: storagePath,
         fileName: file.name,
         contentType: file.type,
         fileSize: file.size
+      }).catch(error => {
+        console.error('[Resume Import] Resume metadata registration failed', error);
+        throw error;
       });
       registeredForRetry = true;
     }
