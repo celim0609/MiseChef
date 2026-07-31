@@ -1398,7 +1398,7 @@ export const parseResumeToPortfolio = onCall({
   region: REGION,
   invoker: 'public',
   secrets: [geminiApiKey],
-  timeoutSeconds: 90,
+  timeoutSeconds: 180,
   memory: '256MiB'
 }, async request => {
   const requesterId = requireAuthenticatedUser(request);
