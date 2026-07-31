@@ -2,6 +2,7 @@ import type { Key } from 'react';
 import { Clock3, Copy, MapPin, MessageCircle, UserRound, Utensils } from 'lucide-react';
 import type { Recipe } from '../../types';
 import type { PublicChefExperience, PublicChefGalleryItem, PublicChefProfile } from './publicChefProfileTypes';
+import { toExperienceResponsibilities } from './experienceResponsibilities';
 import { toPublicSlug } from './publicRoutes';
 
 const meaningful = (value?: string) => {
@@ -46,7 +47,10 @@ export function PublicProfileHero({ profile, recipeCount }: { profile: PublicChe
 export function PublicExperienceSection({ experiences }: { experiences: PublicChefExperience[] }) {
   const items = experiences.filter(item => meaningful(item.role));
   if (!items.length) return null;
-  return <section className="mb-16"><p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Experience</p><h2 className="mt-1 font-display text-3xl font-bold text-primary">Professional Experience</h2><div className="mt-6 space-y-4 border-l border-surface-container-high pl-5 sm:pl-7">{items.map((item, index) => <article key={`${item.role}-${item.organization}-${index}`} className="relative rounded-2xl border border-surface-container-high bg-surface-container-low p-5 shadow-sm"><span className="absolute -left-[1.65rem] top-7 h-3 w-3 rounded-full bg-secondary sm:-left-[2.15rem]" /><h3 className="font-display text-2xl font-bold text-primary">{item.role}</h3>{meaningful(item.organization) && <p className="mt-1 font-sans text-sm font-extrabold text-on-surface-variant">{item.organization}</p>}<div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 font-sans text-xs font-bold text-outline">{meaningful(item.location) && <span>{item.location}</span>}{(meaningful(item.startDate) || meaningful(item.endDate) || item.isCurrent) && <span>{[item.startDate, item.isCurrent ? 'Current' : item.endDate].filter(Boolean).join(' – ')}</span>}</div>{meaningful(item.description) && <p className="mt-4 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{item.description}</p>}</article>)}</div></section>;
+  return <section className="mb-16"><p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Experience</p><h2 className="mt-1 font-display text-3xl font-bold text-primary">Professional Experience</h2><div className="mt-6 space-y-4 border-l border-surface-container-high pl-5 sm:pl-7">{items.map((item, index) => {
+    const responsibilities = toExperienceResponsibilities(item.description);
+    return <article key={`${item.role}-${item.organization}-${index}`} className="relative rounded-2xl border border-surface-container-high bg-surface-container-low p-5 shadow-sm"><span className="absolute -left-[1.65rem] top-7 h-3 w-3 rounded-full bg-secondary sm:-left-[2.15rem]" /><h3 className="font-display text-2xl font-bold text-primary">{item.role}</h3>{meaningful(item.organization) && <p className="mt-1 font-sans text-sm font-extrabold text-on-surface-variant">{item.organization}</p>}<div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 font-sans text-xs font-bold text-outline">{meaningful(item.location) && <span>{item.location}</span>}{(meaningful(item.startDate) || meaningful(item.endDate) || item.isCurrent) && <span>{[item.startDate, item.isCurrent ? 'Current' : item.endDate].filter(Boolean).join(' – ')}</span>}</div>{responsibilities.length > 0 && <ul className="mt-4 list-disc space-y-2 pl-5 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{responsibilities.map((responsibility, responsibilityIndex) => <li key={`${responsibility}-${responsibilityIndex}`}>{responsibility}</li>)}</ul>}</article>;
+  })}</div></section>;
 }
 
 export function PublicSkillsSection({ skills }: { skills: string[] }) {
