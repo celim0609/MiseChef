@@ -67,7 +67,12 @@ const getCallableErrorMessage = (err: unknown, fallbackMessage: string) => {
     source.code === 'functions/failed-precondition' &&
     (details.reason === 'incomplete-extraction' || source.message === 'AI extraction incomplete.')
   ) {
-    return 'AI extraction incomplete.';
+    const incomplete = [details.missingFields, details.emptyDetectedSections, details.incompleteSections, details.missingContent]
+      .flatMap(value => Array.isArray(value) ? value.map(item => String(item).toLowerCase()) : []);
+    if (incomplete.some(item => item.includes('education'))) {
+      return 'Resume imported, but Education could not be identified. Retry the import or add Education manually.';
+    }
+    return 'The uploaded file is valid but requires manual review. Retry the import or replace the resume with a clearer copy.';
   }
 
   return import.meta.env.DEV && devMessage ? devMessage : fallbackMessage;

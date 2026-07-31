@@ -1,9 +1,10 @@
-import { ref, uploadBytesResumable } from 'firebase/storage';
+import { deleteObject, getBlob, ref, uploadBytesResumable } from 'firebase/storage';
 import { storage } from '../../../firebase';
 import { parseResumeToPortfolioWithAI } from '../../../services/gemini';
 import type { ImportedChefProfile } from '../types';
 import { mapResumeDraftToChefProfile as mapResumeDraft } from './resumeImportMapping';
 import { extractChefResumeText } from './resumeTextExtraction';
+import { getResumeImportErrorMessage, isOwnedResumeStoragePath, type ManagedChefResume, type ResumeFileUpload, type ResumeUploadResult } from './resumeManagementModel';
 
 const PDF = 'application/pdf';
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -19,8 +20,9 @@ export const importResume = async (
   file: File,
   userId: string,
   workspaceId: string,
-  onStage: (stage: 1 | 2 | 3) => void
-): Promise<{ profile: ImportedChefProfile; originalStoragePath: string }> => {
+  onStage: (stage: 1 | 2 | 3) => void,
+  onUploaded?: (upload: ResumeFileUpload) => Promise<void>
+): Promise<ResumeUploadResult> => {
   validateResumeFile(file);
   if (!storage) throw new Error('Resume upload is temporarily unavailable.');
 
@@ -29,26 +31,78 @@ export const importResume = async (
   const storagePath = `users/${userId}/chef-profile/resume-imports/${crypto.randomUUID()}-${safeName}`;
   const upload = uploadBytesResumable(ref(storage, storagePath), file, {
     contentType: file.type,
-    customMetadata: { ownerId: userId, purpose: 'chef-profile-import' }
+    customMetadata: { ownerId: userId, purpose: 'chef-profile-import', originalFileName: file.name.slice(0, 255) }
   });
-  await new Promise<void>((resolve, reject) => upload.on('state_changed', undefined, reject, resolve));
-  onStage(2);
-  const text = await extractChefResumeText(file);
-  if (text.length < 80) throw new Error('We could not read this resume. You can try another file or continue manually.');
-  console.info('[Resume Import] Text extraction complete', {
-    fileType: file.type,
-    characters: text.length,
-    lines: text.split(/\r?\n/).filter(line => line.trim()).length
-  });
+  let registeredForRetry = false;
+  try {
+    await new Promise<void>((resolve, reject) => upload.on('state_changed', undefined, reject, resolve));
+    if (onUploaded) {
+      await onUploaded({
+        originalStoragePath: storagePath,
+        fileName: file.name,
+        contentType: file.type,
+        fileSize: file.size
+      });
+      registeredForRetry = true;
+    }
+    onStage(2);
+    const text = await extractChefResumeText(file).catch(error => {
+      throw new Error(getResumeImportErrorMessage(error, file.name));
+    });
+    if (text.length < 80) throw new Error(getResumeImportErrorMessage(new Error('Insufficient text'), file.name));
+    console.info('[Resume Import] Text extraction complete', {
+      fileType: file.type,
+      characters: text.length,
+      lines: text.split(/\r?\n/).filter(line => line.trim()).length
+    });
 
-  onStage(3);
-  const parsed = await parseResumeToPortfolioWithAI(text, workspaceId);
-  if (parsed.unmappedSections?.length) {
-    console.warn('[Resume Import] Unmapped resume sections', parsed.unmappedSections.map(section => ({
-      sectionName: section.sectionName,
-      reason: section.reason
-    })));
+    onStage(3);
+    const parsed = await parseResumeToPortfolioWithAI(text, workspaceId);
+    if (parsed.unmappedSections?.length) {
+      console.warn('[Resume Import] Unmapped resume sections', parsed.unmappedSections.map(section => ({
+        sectionName: section.sectionName,
+        reason: section.reason
+      })));
+    }
+    const profile = mapResumeDraft(parsed);
+    return {
+      profile,
+      originalStoragePath: storagePath,
+      fileName: file.name,
+      contentType: file.type,
+      fileSize: file.size
+    };
+  } catch (error) {
+    if (!registeredForRetry) await deleteObject(ref(storage, storagePath)).catch(() => undefined);
+    throw error;
   }
-  const profile = mapResumeDraft(parsed);
-  return { profile, originalStoragePath: storagePath };
+};
+
+const parseResumeFile = async (
+  file: File,
+  workspaceId: string,
+  onStage: (stage: 1 | 2 | 3) => void
+) => {
+  onStage(2);
+  const text = await extractChefResumeText(file).catch(error => {
+    throw new Error(getResumeImportErrorMessage(error, file.name));
+  });
+  if (text.length < 80) throw new Error(getResumeImportErrorMessage(new Error('Insufficient text'), file.name));
+  onStage(3);
+  return mapResumeDraft(await parseResumeToPortfolioWithAI(text, workspaceId));
+};
+
+export const retryResumeImport = async (
+  resume: ManagedChefResume,
+  userId: string,
+  workspaceId: string,
+  onStage: (stage: 1 | 2 | 3) => void
+) => {
+  if (!storage) throw new Error('Resume import is temporarily unavailable.');
+  if (!isOwnedResumeStoragePath(userId, resume.storagePath)) {
+    throw new Error('This resume does not belong to the signed-in user.');
+  }
+  const blob = await getBlob(ref(storage, resume.storagePath));
+  const file = new File([blob], resume.fileName, { type: resume.contentType });
+  return parseResumeFile(file, workspaceId, onStage);
 };

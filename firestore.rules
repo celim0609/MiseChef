@@ -480,6 +480,42 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /chefResumeImports/{userId} {
+      function validResumeRecord() {
+        return request.resource.data.keys().hasAll([
+            'userId', 'fileName', 'storagePath', 'contentType', 'fileSize',
+            'importStatus', 'uploadedAt'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'userId', 'fileName', 'storagePath', 'contentType', 'fileSize',
+            'importStatus', 'uploadedAt', 'importedAt', 'draft', 'lastError'
+          ])
+          && request.resource.data.userId == userId
+          && request.resource.data.fileName is string
+          && request.resource.data.fileName.size() > 0
+          && request.resource.data.fileName.size() <= 255
+          && request.resource.data.storagePath is string
+          && request.resource.data.storagePath.matches('^users/' + userId + '/chef-profile/resume-imports/[^/]+$')
+          && request.resource.data.contentType in [
+            'application/pdf',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          ]
+          && request.resource.data.fileSize is int
+          && request.resource.data.fileSize > 0
+          && request.resource.data.fileSize <= 10 * 1024 * 1024
+          && request.resource.data.importStatus in ['imported', 'review_required', 'failed']
+          && request.resource.data.uploadedAt is timestamp
+          && (!('importedAt' in request.resource.data) || request.resource.data.importedAt is timestamp)
+          && (!('draft' in request.resource.data) || request.resource.data.draft is map)
+          && (!('lastError' in request.resource.data)
+            || (request.resource.data.lastError is string && request.resource.data.lastError.size() <= 500));
+      }
+
+      allow read: if ownsUserDocument(userId);
+      allow create, update: if ownsUserDocument(userId) && validResumeRecord();
+      allow delete: if ownsUserDocument(userId);
+    }
+
     match /chefProfileSlugs/{slug} {
       allow get: if signedIn();
       allow list: if false;

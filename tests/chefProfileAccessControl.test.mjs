@@ -2,8 +2,8 @@ import { after, afterEach, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, writeBatch } from 'firebase/firestore';
-import { getBytes, ref, uploadBytes } from 'firebase/storage';
+import { deleteDoc, doc, getDoc, setDoc, writeBatch } from 'firebase/firestore';
+import { deleteObject, getBytes, listAll, ref, uploadBytes } from 'firebase/storage';
 import { buildPublicChefProfileProjection } from '../functions/publicChefProfileProjection.js';
 
 const projectId = 'demo-misechef-chef-profile-rules';
@@ -97,6 +97,55 @@ describe('chefProfiles ownership', () => {
       basicInfo: { ...profile('alice').basicInfo, summary: 'Imported or export-mutated data' }
     })));
     await assertFails(getDoc(doc(attacker, 'chefProfiles', 'alice')));
+  });
+});
+
+describe('resume management isolation', () => {
+  const resumeRecord = userId => ({
+    userId,
+    fileName: 'chef-resume.pdf',
+    storagePath: `users/${userId}/chef-profile/resume-imports/chef-resume.pdf`,
+    contentType: PDF,
+    fileSize: 2048,
+    importStatus: 'review_required',
+    uploadedAt: new Date(),
+    draft: { basicInfo: { fullName: 'Draft Chef', professionalTitle: 'Chef' }, experiences: [] }
+  });
+
+  test('owner can manage only their private resume metadata and draft', async () => {
+    const alice = ownerFirestore('alice');
+    const reference = doc(alice, 'chefResumeImports', 'alice');
+    await assertSucceeds(setDoc(reference, resumeRecord('alice')));
+    await assertSucceeds(getDoc(reference));
+    await assertFails(getDoc(doc(ownerFirestore('bob'), 'chefResumeImports', 'alice')));
+    await assertFails(getDoc(doc(testEnv.unauthenticatedContext().firestore(), 'chefResumeImports', 'alice')));
+    await assertFails(setDoc(doc(ownerFirestore('bob'), 'chefResumeImports', 'alice'), resumeRecord('alice')));
+  });
+
+  test('resume import status accepts review, failed, and imported states only', async () => {
+    const reference = doc(ownerFirestore('alice'), 'chefResumeImports', 'alice');
+    await assertSucceeds(setDoc(reference, resumeRecord('alice')));
+    await assertSucceeds(setDoc(reference, { ...resumeRecord('alice'), importStatus: 'failed', lastError: 'AI extraction incomplete.', draft: {} }));
+    await assertSucceeds(setDoc(reference, { ...resumeRecord('alice'), importStatus: 'imported' }));
+    await assertFails(setDoc(reference, { ...resumeRecord('alice'), importStatus: 'processing' }));
+  });
+
+  test('deleting resume metadata cannot delete canonical or public profile data', async () => {
+    await testEnv.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), 'chefProfiles', 'alice'), profile('alice'));
+      await setDoc(doc(context.firestore(), 'publicChefProfiles', 'chef-alice'), {
+        username: 'chef-alice', displayName: 'Chef Alice', professionalTitle: 'Chef',
+        skills: [], experience: [], gallery: [], partnerSpotlight: { enabled: false, partners: [] }, publishedAt: ''
+      });
+    });
+    const alice = ownerFirestore('alice');
+    const resumeReference = doc(alice, 'chefResumeImports', 'alice');
+    await assertSucceeds(setDoc(resumeReference, resumeRecord('alice')));
+    await assertSucceeds(deleteDoc(resumeReference));
+    await assertSucceeds(getDoc(doc(alice, 'chefProfiles', 'alice')));
+    await testEnv.withSecurityRulesDisabled(async context => {
+      assert.equal((await getDoc(doc(context.firestore(), 'publicChefProfiles', 'chef-alice'))).exists(), true);
+    });
   });
 });
 
@@ -211,6 +260,23 @@ describe('private Storage attachments', () => {
       new Uint8Array([0x25, 0x50, 0x44, 0x46]),
       { contentType: PDF }
     ));
+  });
+
+  test('only the owner can delete an uploaded resume', async () => {
+    const path = 'users/alice/chef-profile/resume-imports/delete-me.pdf';
+    await assertSucceeds(uploadBytes(ref(ownerStorage('alice'), path), new Uint8Array([0x25, 0x50, 0x44, 0x46]), { contentType: PDF }));
+    await assertFails(deleteObject(ref(ownerStorage('bob'), path)));
+    await assertFails(deleteObject(ref(testEnv.unauthenticatedContext().storage(), path)));
+    await assertSucceeds(deleteObject(ref(ownerStorage('alice'), path)));
+  });
+
+  test('only the owner can discover existing resume files for metadata migration', async () => {
+    const folder = 'users/alice/chef-profile/resume-imports';
+    await assertSucceeds(uploadBytes(ref(ownerStorage('alice'), `${folder}/existing.pdf`), new Uint8Array([0x25, 0x50, 0x44, 0x46]), { contentType: PDF }));
+    const ownerListing = await assertSucceeds(listAll(ref(ownerStorage('alice'), folder)));
+    assert.ok(ownerListing.items.some(item => item.name === 'existing.pdf'));
+    await assertFails(listAll(ref(ownerStorage('bob'), folder)));
+    await assertFails(listAll(ref(testEnv.unauthenticatedContext().storage(), folder)));
   });
 });
 
