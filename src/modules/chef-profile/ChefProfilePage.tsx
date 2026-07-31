@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, ChevronLeft, ChevronRight, Download, Eye, FileText, Pencil, Plus, RotateCw, Shield, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
 import { uploadPortfolioCertificatePdf, uploadUserProfilePhoto } from '../../services/storage';
-import type { Recipe } from '../../types';
-import type { Portfolio, PortfolioProfileSource } from '../portfolio/types';
 import { calculateCompletion, DEFAULT_SKILLS, emptyChefProfile, getNextAction, sanitizeProfile, slugifyProfile } from './model';
 import { chefProfileService } from './services/chefProfileService';
 import { exportChefProfilePdf } from './services/resumeExportService';
@@ -12,9 +10,7 @@ import { applyResumeReviewChoices, assessResumeImport, defaultResumeReviewChoice
 import type { ChefAward, ChefCertificate, ChefEducation, ChefExperience, ChefLanguage, ChefProfile, ImportedChefProfile, ResumeExportSettings } from './types';
 
 interface ChefProfilePageProps {
-  profile: PortfolioProfileSource;
-  initialPortfolio: Portfolio;
-  recipes: Recipe[];
+  key?: string;
   userId?: string;
   workspaceId?: string;
 }
@@ -49,7 +45,7 @@ const RemoveButton = ({ onClick }: { onClick: () => void }) => (
   <button type="button" onClick={onClick} aria-label="Remove entry" className="rounded-full border border-error/20 p-2 text-error"><X className="h-4 w-4" /></button>
 );
 
-export default function ChefProfilePage({ profile: account, initialPortfolio, userId, workspaceId }: ChefProfilePageProps) {
+export default function ChefProfilePage({ userId, workspaceId }: ChefProfilePageProps) {
   const [profile, setProfile] = useState<ChefProfile | null>(null);
   const [screen, setScreen] = useState<'loading' | 'entry' | 'builder' | 'dashboard'>('loading');
   const [step, setStep] = useState(0);
@@ -68,40 +64,58 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
   const [customSkill, setCustomSkill] = useState('');
 
   useEffect(() => {
+    let cancelled = false;
+    setProfile(null);
+    setScreen(userId ? 'loading' : 'entry');
+    setImported(null);
+    setReviewChoices(null);
+    setPendingResumeImport(false);
+    setSaveState('');
     if (!userId) {
-      setProfile(null);
-      setScreen('entry');
-      return;
+      return () => { cancelled = true; };
     }
-    chefProfileService.load(userId, initialPortfolio, workspaceId, account.displayName, account.email || '')
+    chefProfileService.load(userId)
       .then(value => {
-        setProfile(value);
+        if (cancelled) return;
+        const ownedProfile = value || emptyChefProfile(userId);
+        setProfile(ownedProfile);
         const hasMeaningfulData = Boolean(value?.basicInfo.fullName && value.basicInfo.professionalTitle);
         setScreen(hasMeaningfulData ? 'dashboard' : 'entry');
       })
       .catch(() => {
-        setProfile(emptyChefProfile(userId, account.displayName, account.email || ''));
+        if (cancelled) return;
+        setProfile(emptyChefProfile(userId));
         setScreen('entry');
       });
-  }, [userId, workspaceId, account.displayName, account.email, initialPortfolio]);
+    return () => { cancelled = true; };
+  }, [userId]);
 
   useEffect(() => {
+    let cancelled = false;
+    setManagedResume(null);
+    setResumeLoading(Boolean(userId));
+    setImportError('');
+    setResumeAction('');
+    setConfirmResumeDelete(false);
     if (!userId) {
-      setManagedResume(null);
-      setResumeLoading(false);
-      return;
+      return () => { cancelled = true; };
     }
-    setResumeLoading(true);
     resumeManagementService.load(userId)
       .then(value => {
+        if (cancelled) return;
         setManagedResume(value);
         if (value?.draft) {
           setImported(value.draft);
           setReviewChoices(defaultResumeReviewChoices(value.draft));
         }
       })
-      .catch(() => setImportError('We could not load your saved resume details.'))
-      .finally(() => setResumeLoading(false));
+      .catch(() => {
+        if (!cancelled) setImportError('We could not load your saved resume details.');
+      })
+      .finally(() => {
+        if (!cancelled) setResumeLoading(false);
+      });
+    return () => { cancelled = true; };
   }, [userId]);
 
   const update = (recipe: (current: ChefProfile) => ChefProfile) => setProfile(current => current ? recipe(current) : current);

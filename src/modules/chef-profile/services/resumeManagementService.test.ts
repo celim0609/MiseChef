@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyResumeReviewChoices, assessResumeImport, buildManagedResumeUpload, defaultResumeReviewChoices, getResumeImportErrorMessage, getResumeImportSummary, isOwnedResumeStoragePath, resumeFileNameFromObjectName } from './resumeManagementModel';
+import { applyResumeReviewChoices, assessResumeImport, buildManagedResumeUpload, defaultResumeReviewChoices, getResumeImportErrorMessage, getResumeImportSummary, isOwnedResumeStoragePath, resolveOwnedManagedResume, resumeFileNameFromObjectName } from './resumeManagementModel';
 import { emptyChefProfile } from '../model';
 import type { ImportedChefProfile } from '../types';
 
@@ -31,6 +31,23 @@ test('resume operations are restricted to the signed-in user import path', () =>
   assert.equal(isOwnedResumeStoragePath('alice', 'users/bob/chef-profile/resume-imports/resume.pdf'), false);
   assert.equal(isOwnedResumeStoragePath('alice', 'users/alice/chef-profile/resume-imports/../profile.jpg'), false);
   assert.equal(isOwnedResumeStoragePath('alice', 'users/alice/portfolio/resume/resume.pdf'), false);
+});
+
+test('resume drafts remain isolated across an A to B to A account switch', () => {
+  const resumeA = {
+    ...buildManagedResumeUpload('alice', {
+      originalStoragePath: 'users/alice/chef-profile/resume-imports/resume.pdf',
+      fileName: 'resume.pdf',
+      contentType: 'application/pdf',
+      fileSize: 2048
+    }),
+    draft: { ...draft, basicInfo: { ...draft.basicInfo, fullName: 'Alice Private Draft' } }
+  };
+
+  assert.equal(resolveOwnedManagedResume('alice', resumeA)?.draft?.basicInfo.fullName, 'Alice Private Draft');
+  assert.throws(() => resolveOwnedManagedResume('bob', resumeA), /ownership mismatch/i);
+  assert.equal(resolveOwnedManagedResume('bob', null), null);
+  assert.equal(resolveOwnedManagedResume('alice', resumeA)?.draft?.basicInfo.fullName, 'Alice Private Draft');
 });
 
 test('legacy storage object names recover the original safe filename', () => {

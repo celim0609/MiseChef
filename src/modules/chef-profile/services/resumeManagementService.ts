@@ -1,7 +1,7 @@
 import { deleteDoc, deleteField, doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import { deleteObject, getBlob, getMetadata, listAll, ref } from 'firebase/storage';
 import { db, storage } from '../../../firebase';
-import { buildManagedResumeUpload, isOwnedResumeStoragePath, resumeFileNameFromObjectName, type ManagedChefResume, type ResumeFileUpload } from './resumeManagementModel';
+import { buildManagedResumeUpload, isOwnedResumeStoragePath, resolveOwnedManagedResume, resumeFileNameFromObjectName, type ManagedChefResume, type ResumeFileUpload } from './resumeManagementModel';
 import type { ImportedChefProfile } from '../types';
 export type { ManagedChefResume, ResumeFileUpload, ResumeImportStatus, ResumeUploadResult } from './resumeManagementModel';
 
@@ -58,7 +58,9 @@ export const resumeManagementService = {
   async load(userId: string): Promise<ManagedChefResume | null> {
     if (!db) return null;
     const snapshot = await getDoc(doc(db, 'chefResumeImports', userId));
-    if (snapshot.exists()) return snapshot.data() as ManagedChefResume;
+    if (snapshot.exists()) {
+      return resolveOwnedManagedResume(userId, snapshot.data() as ManagedChefResume);
+    }
     const legacy = await discoverLegacyResume(userId);
     if (legacy) await setDoc(doc(db, 'chefResumeImports', userId), stripUndefined(legacy)).catch(() => undefined);
     return legacy;

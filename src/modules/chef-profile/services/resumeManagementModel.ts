@@ -123,6 +123,17 @@ export const isOwnedResumeStoragePath = (userId: string, storagePath: string) =>
   && !storagePath.includes('..')
 );
 
+export const resolveOwnedManagedResume = (
+  userId: string,
+  value?: ManagedChefResume | null
+): ManagedChefResume | null => {
+  if (!value) return null;
+  if (value.userId !== userId || !isOwnedResumeStoragePath(userId, value.storagePath)) {
+    throw new Error('Resume import ownership mismatch.');
+  }
+  return value;
+};
+
 export const resumeFileNameFromObjectName = (objectName: string) => (
   objectName.replace(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i, '')
 );

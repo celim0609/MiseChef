@@ -787,6 +787,8 @@ export default function App() {
             setChefProfile(localProfile);
             setCustomAvatarUrl(localProfile.photo);
             setCurrentUserRole(getConfiguredRoleForUser(user));
+            setWorkspaces([]);
+            setCurrentWorkspace(null);
             setIsGuestMode(false);
             const pathname = window.location.pathname;
 
@@ -1694,9 +1696,7 @@ export default function App() {
       case 'portfolio':
         return (
           <ChefProfilePage
-            profile={portfolioProfile}
-            initialPortfolio={portfolioData}
-            recipes={recipes}
+            key={currentUser?.uid || 'signed-out'}
             userId={currentUser?.uid}
             workspaceId={activeWorkspaceId}
           />

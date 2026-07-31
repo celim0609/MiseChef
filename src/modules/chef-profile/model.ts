@@ -163,3 +163,10 @@ export const sanitizeProfile = (value: ChefProfile): ChefProfile => {
   profile.completionPercentage = calculateCompletion(profile);
   return profile;
 };
+
+/** Resolves profile state only from the canonical document keyed by the active UID. */
+export const resolveOwnedChefProfile = (userId: string, value?: ChefProfile | null): ChefProfile => {
+  if (!value) return emptyChefProfile(userId);
+  if (value.userId !== userId) throw new Error('Chef Profile ownership mismatch.');
+  return sanitizeProfile(value);
+};

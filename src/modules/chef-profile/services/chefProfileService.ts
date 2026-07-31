@@ -1,7 +1,6 @@
 import { doc, getDoc, runTransaction, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../firebase';
-import type { Portfolio } from '../../portfolio/types';
-import { emptyChefProfile, migratePortfolio, sanitizeProfile } from '../model';
+import { emptyChefProfile, resolveOwnedChefProfile, sanitizeProfile } from '../model';
 import type { ChefProfile } from '../types';
 
 const stripUndefined = (value: unknown): unknown => {
@@ -15,17 +14,11 @@ const stripUndefined = (value: unknown): unknown => {
 };
 
 export const chefProfileService = {
-  async load(userId: string, legacy?: Portfolio, workspaceId?: string, fallbackName = '', email = '') {
-    if (!db) return legacy ? migratePortfolio(userId, legacy, fallbackName, email) : null;
+  async load(userId: string) {
+    if (!db) return null;
     const snapshot = await getDoc(doc(db, 'chefProfiles', userId));
-    if (snapshot.exists()) return snapshot.data() as ChefProfile;
-
-    let legacyProfile = legacy;
-    if (workspaceId) {
-      const legacySnapshot = await getDoc(doc(db, 'workspaces', workspaceId, 'portfolio', 'profile'));
-      if (legacySnapshot.exists()) legacyProfile = legacySnapshot.data() as Portfolio;
-    }
-    return legacyProfile ? migratePortfolio(userId, legacyProfile, fallbackName, email) : null;
+    if (!snapshot.exists()) return null;
+    return resolveOwnedChefProfile(userId, snapshot.data() as ChefProfile);
   },
 
   async save(profile: ChefProfile) {
