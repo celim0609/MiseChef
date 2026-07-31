@@ -29,6 +29,10 @@ import {
   getStorePaymentResult,
   handleStorePaymentWebhook
 } from './storePayments.js';
+import {
+  extractResumeWithCompletenessRetry,
+  ResumeExtractionIncompleteError
+} from './resumeExtractionReliability.js';
 
 initializeApp();
 
@@ -468,6 +472,20 @@ const stepsResponseSchema = {
 
 const portfolioResumeResponseSchema = {
   type: Type.OBJECT,
+  required: [
+    'basicProfile',
+    'about',
+    'experience',
+    'skills',
+    'certificates',
+    'education',
+    'awards',
+    'languages',
+    'projects',
+    'unmappedSections',
+    'socialLinks',
+    'contact'
+  ],
   properties: {
     basicProfile: {
       type: Type.OBJECT,
@@ -554,6 +572,22 @@ const portfolioResumeResponseSchema = {
       type: Type.ARRAY,
       items: { type: Type.OBJECT, properties: {
         language: { type: Type.STRING }, proficiency: { type: Type.STRING }
+      } }
+    },
+    projects: {
+      type: Type.ARRAY,
+      items: { type: Type.OBJECT, properties: {
+        title: { type: Type.STRING }, role: { type: Type.STRING },
+        description: { type: Type.STRING }, url: { type: Type.STRING },
+        startDate: { type: Type.STRING }, endDate: { type: Type.STRING }
+      } }
+    },
+    unmappedSections: {
+      type: Type.ARRAY,
+      items: { type: Type.OBJECT, properties: {
+        sectionName: { type: Type.STRING },
+        content: { type: Type.STRING },
+        reason: { type: Type.STRING }
       } }
     },
     socialLinks: {
@@ -715,14 +749,16 @@ const sanitizeResumePortfolio = value => {
   const education = Array.isArray(source.education) ? source.education : [];
   const awards = Array.isArray(source.awards) ? source.awards : [];
   const languages = Array.isArray(source.languages) ? source.languages : [];
+  const projects = Array.isArray(source.projects) ? source.projects : [];
+  const unmappedSections = Array.isArray(source.unmappedSections) ? source.unmappedSections : [];
   const socialLinks = source.socialLinks && typeof source.socialLinks === 'object' ? source.socialLinks : {};
 
   return {
     basicProfile: {
       fullName: readString(basicProfile.fullName),
-      professionalTitle: readString(basicProfile.professionalTitle),
+      professionalTitle: readString(basicProfile.professionalTitle || source.headline),
       yearsExperience: readString(basicProfile.yearsExperience),
-      shortBio: readString(basicProfile.shortBio),
+      shortBio: readString(basicProfile.shortBio || source.summary),
       quote: readString(basicProfile.quote),
       location: readString(basicProfile.location),
       specialties: readStringArray(basicProfile.specialties)
@@ -771,8 +807,15 @@ const sanitizeResumePortfolio = value => {
     }).filter(item => item.title),
     education: education.slice(0, 20).map(item => {
       const entry = item && typeof item === 'object' ? item : {};
-      return { schoolName: readString(entry.schoolName), qualification: readString(entry.qualification), fieldOfStudy: readString(entry.fieldOfStudy), startYear: readString(entry.startYear), endYear: readString(entry.endYear), description: readString(entry.description) };
-    }).filter(item => item.schoolName),
+      return {
+        schoolName: readString(entry.schoolName || entry.institution || entry.school),
+        qualification: readString(entry.qualification || entry.degree),
+        fieldOfStudy: readString(entry.fieldOfStudy || entry.field),
+        startYear: readString(entry.startYear),
+        endYear: readString(entry.endYear || entry.graduationYear),
+        description: readString(entry.description)
+      };
+    }).filter(item => item.schoolName || item.qualification || item.fieldOfStudy || item.description),
     awards: awards.slice(0, 30).map(item => {
       const entry = item && typeof item === 'object' ? item : {};
       return { name: readString(entry.name), issuingOrganisation: readString(entry.issuingOrganisation), year: readString(entry.year), description: readString(entry.description) };
@@ -781,6 +824,25 @@ const sanitizeResumePortfolio = value => {
       const entry = item && typeof item === 'object' ? item : {};
       return { language: readString(entry.language), proficiency: readString(entry.proficiency) };
     }).filter(item => item.language),
+    projects: projects.slice(0, 30).map(item => {
+      const entry = item && typeof item === 'object' ? item : {};
+      return {
+        title: readString(entry.title),
+        role: readString(entry.role),
+        description: readString(entry.description),
+        url: readString(entry.url),
+        startDate: readString(entry.startDate),
+        endDate: readString(entry.endDate)
+      };
+    }).filter(item => item.title || item.description || item.url),
+    unmappedSections: unmappedSections.slice(0, 20).map(item => {
+      const entry = item && typeof item === 'object' ? item : {};
+      return {
+        sectionName: readString(entry.sectionName),
+        content: readString(entry.content).slice(0, 2000),
+        reason: readString(entry.reason)
+      };
+    }).filter(item => item.sectionName || item.content),
     socialLinks: Object.fromEntries(Object.entries(socialLinks).map(([key, item]) => [key, readString(item)]).filter(([, item]) => Boolean(item))),
     contact: {
       email: readString(contact.email),
@@ -1380,15 +1442,28 @@ Return ONLY valid JSON with this exact top-level shape:
   "education": [{"schoolName":"", "qualification":"", "fieldOfStudy":"", "startYear":"", "endYear":"", "description":""}],
   "awards": [{"name":"", "issuingOrganisation":"", "year":"", "description":""}],
   "languages": [{"language":"", "proficiency":""}],
+  "projects": [{"title":"", "role":"", "description":"", "url":"", "startDate":"", "endDate":""}],
+  "unmappedSections": [{"sectionName":"", "content":"", "reason":""}],
   "socialLinks": {"instagram":"","tiktok":"","facebook":"","linkedin":"","youtube":"","website":""},
   "contact": {"email":"", "phone":"", "location":"", "message":""}
 }
 
 Rules:
+- Scan the ENTIRE resume from beginning to end before generating any JSON.
 - Do not invent details that are not present in the resume.
 - Never guess dates, employers, certificates, awards, or qualifications.
 - Ignore ID and passport numbers, marital status, religion, salary, and full home addresses.
-- Keep every work, education, certificate, award, and language entry separate.
+- Extract every supported section when present: full name, headline/professional title, summary,
+  education, work experience, skills, certifications, languages, awards, projects, and contact information.
+- If a work experience, employment history, professional experience, career history, or experience
+  section exists, return EVERY distinct role and employer as a separate experience object.
+- Never omit a supported top-level property. Return an empty array only when that section is genuinely
+  absent from the resume.
+- Keep every work, education, certificate, award, language, and project entry separate.
+- Preserve an education entry when a qualification or field is present even if the institution is omitted.
+- Put resume projects in projects, not work experience.
+- Never silently discard an unknown section. Add it to unmappedSections with its heading,
+  original concise content, and why it cannot map to a supported field.
 - Only write shortBio when the resume contains enough professional information for an accurate summary.
 - Keep professional culinary language when the resume relates to food, hospitality, or chef work.
 - Preserve dates as written.
@@ -1402,17 +1477,67 @@ ${resumeText}
 
     logger.info('AI resume import requested', { requesterId, action, textLength: resumeText.length });
     const ai = getAi();
-    const { response, attempts: usedAttempts } = await callGeminiWithRetry(() => ai.models.generateContent({
-      model: MODEL,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: portfolioResumeResponseSchema
+    let extraction;
+    try {
+      extraction = await extractResumeWithCompletenessRetry({
+        resumeText,
+        extract: async retryInstruction => {
+          const result = await callGeminiWithRetry(() => ai.models.generateContent({
+            model: MODEL,
+            contents: `${prompt}${retryInstruction}`,
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: portfolioResumeResponseSchema
+            }
+          }));
+          attempts += result.attempts;
+          return {
+            response: result.response,
+            parsed: parseJsonResponse(result.response.text, {}, includeDiagnostics)
+          };
+        },
+        onIncomplete: (validation, extractionAttempt) => {
+          logger.warn('AI resume extraction incomplete', {
+            requesterId,
+            action,
+            extractionAttempt,
+            missingFields: validation.missingFields,
+            emptyDetectedSections: validation.emptyDetectedSections,
+            incompleteSections: validation.incompleteSections,
+            missingContent: validation.missingContent,
+            corruptFields: validation.corruptFields,
+            employmentIssues: validation.employmentValidation.issues,
+            detectedSections: validation.detectedSections
+          });
+        }
+      });
+    } catch (err) {
+      if (err instanceof ResumeExtractionIncompleteError) {
+        throw new HttpsError('failed-precondition', 'AI extraction incomplete.', {
+          reason: 'incomplete-extraction',
+          missingFields: err.validation.missingFields,
+          emptyDetectedSections: err.validation.emptyDetectedSections,
+          incompleteSections: err.validation.incompleteSections,
+          missingContent: err.validation.missingContent,
+          corruptFields: err.validation.corruptFields,
+          employmentIssues: err.validation.employmentValidation.issues
+        });
       }
-    }));
-    attempts = usedAttempts;
+      throw err;
+    }
 
-    const portfolio = sanitizeResumePortfolio(parseJsonResponse(response.text, {}, includeDiagnostics));
+    const { response, parsed: parsedPortfolio } = extraction;
+    const portfolio = sanitizeResumePortfolio(parsedPortfolio);
+    if (portfolio.unmappedSections.length) {
+      logger.warn('Resume sections require manual mapping', {
+        requesterId,
+        action,
+        sections: portfolio.unmappedSections.map(section => ({
+          sectionName: section.sectionName,
+          reason: section.reason
+        }))
+      });
+    }
     await logRequest({ requesterId, companyId, action, status: 'success', attempts, response, responseTime: Date.now() - startedAt });
     return { portfolio };
   } catch (err) {

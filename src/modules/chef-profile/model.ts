@@ -138,7 +138,7 @@ export const sanitizeProfile = (value: ChefProfile): ChefProfile => {
       id: text(item.id, 128), schoolName: text(item.schoolName, 160), qualification: text(item.qualification, 160),
       fieldOfStudy: text(item.fieldOfStudy, 160), startYear: text(item.startYear, 8), endYear: text(item.endYear, 8),
       description: text(item.description, 2000)
-    })).filter(item => item.schoolName),
+    })).filter(item => item.schoolName || item.qualification || item.fieldOfStudy || item.description),
     certificates: value.certificates.slice(0, 30).map(item => ({
       id: text(item.id, 128), name: text(item.name, 160), issuingOrganisation: text(item.issuingOrganisation, 160),
       issueDate: text(item.issueDate, 32), expiryDate: text(item.expiryDate, 32), credentialUrl: url(item.credentialUrl),
@@ -156,8 +156,8 @@ export const sanitizeProfile = (value: ChefProfile): ChefProfile => {
       .filter(([, item]) => Boolean(item))),
     portfolio: value.portfolio.slice(0, 30).map(item => ({
       id: text(item.id, 128), title: text(item.title, 160), description: text(item.description, 2000),
-      imageUrl: url(item.imageUrl), videoUrl: url(item.videoUrl)
-    })).filter(item => item.title || item.imageUrl || item.videoUrl),
+      projectUrl: url(item.projectUrl), imageUrl: url(item.imageUrl), videoUrl: url(item.videoUrl)
+    })).filter(item => item.title || item.description || item.projectUrl || item.imageUrl || item.videoUrl),
     profileSlug: slugifyProfile(value.profileSlug || value.basicInfo.fullName)
   };
   profile.completionPercentage = calculateCompletion(profile);
