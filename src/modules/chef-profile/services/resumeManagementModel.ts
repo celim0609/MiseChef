@@ -34,6 +34,8 @@ export const getResumeImportSummary = (draft: ImportedChefProfile) => ([
 ]);
 
 export const getResumeImportErrorMessage = (error: unknown, fileName = '') => {
+  const source = error && typeof error === 'object' ? error as Record<string, unknown> : {};
+  const code = typeof source.code === 'string' ? source.code : '';
   const message = error instanceof Error ? error.message.trim() : '';
   if (message && (
     message.startsWith('Resume imported, but')
@@ -43,6 +45,12 @@ export const getResumeImportErrorMessage = (error: unknown, fileName = '') => {
     || message.startsWith('Choose a PDF or DOCX')
     || message.startsWith('Your resume must be')
   )) return message;
+  if (code.startsWith('functions/') && message) {
+    return `${message} (${code})`;
+  }
+  if (message && !/invalid pdf|insufficient text|pdf.*(parse|read|structure)/i.test(message)) {
+    return message;
+  }
   if (/\.pdf$/i.test(fileName)) return 'Unable to read PDF. Make sure it contains selectable text, then retry or replace it.';
   if (/\.docx$/i.test(fileName)) return 'Unable to read DOCX. Check that the document opens correctly, then retry or replace it.';
   return message || 'Resume import failed. Retry the existing file or replace it with a clearer PDF or DOCX.';

@@ -935,7 +935,9 @@ const getErrorDiagnostics = err => ({
   name: err?.name || '',
   message: err?.message || '',
   code: err?.code || '',
-  status: err?.status || ''
+  status: err?.status || '',
+  details: err?.details || null,
+  stack: err?.stack || ''
 });
 
 const wrapInternalError = (friendlyMessage, err, includeDiagnostics = false) => new HttpsError('internal', friendlyMessage, {

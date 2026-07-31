@@ -47,7 +47,14 @@ export const importResume = async (
     }
     onStage(2);
     const text = await extractChefResumeText(file).catch(error => {
-      throw new Error(getResumeImportErrorMessage(error, file.name));
+      console.error('[Resume Import] PDF/DOCX text extraction failed', {
+        stage: 'text-extraction',
+        fileType: file.type,
+        code: (error as { code?: unknown })?.code || '',
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : ''
+      });
+      throw error;
     });
     if (text.length < 80) throw new Error(getResumeImportErrorMessage(new Error('Insufficient text'), file.name));
     console.info('[Resume Import] Text extraction complete', {
@@ -85,7 +92,14 @@ const parseResumeFile = async (
 ) => {
   onStage(2);
   const text = await extractChefResumeText(file).catch(error => {
-    throw new Error(getResumeImportErrorMessage(error, file.name));
+    console.error('[Resume Import] Stored PDF/DOCX text extraction failed', {
+      stage: 'text-extraction',
+      fileType: file.type,
+      code: (error as { code?: unknown })?.code || '',
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : ''
+    });
+    throw error;
   });
   if (text.length < 80) throw new Error(getResumeImportErrorMessage(new Error('Insufficient text'), file.name));
   onStage(3);

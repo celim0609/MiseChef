@@ -75,6 +75,10 @@ const getCallableErrorMessage = (err: unknown, fallbackMessage: string) => {
     return 'The uploaded file is valid but requires manual review. Retry the import or replace the resume with a clearer copy.';
   }
 
+  if (typeof source.code === 'string' && source.code.startsWith('functions/') && typeof source.message === 'string') {
+    return source.message;
+  }
+
   return import.meta.env.DEV && devMessage ? devMessage : fallbackMessage;
 };
 
@@ -236,6 +240,17 @@ export const parseResumeToPortfolioWithAI = async (resumeText: string, workspace
 
     return normalizeResumePortfolioDraftModel(response.data?.portfolio);
   } catch (err) {
-    throw new Error(getCallableErrorMessage(err, 'We could not import this resume. Please try again.'));
+    const source = err && typeof err === 'object' ? err as Record<string, unknown> : {};
+    console.error('[Resume Import] parseResumeToPortfolio failed', {
+      code: source.code || '',
+      message: source.message || '',
+      details: source.details || null,
+      stack: source.stack || ''
+    });
+    const friendlyMessage = getCallableErrorMessage(err, 'We could not import this resume. Please try again.');
+    if (err instanceof Error && friendlyMessage === err.message) throw err;
+    const wrapped = new Error(friendlyMessage, { cause: err });
+    if (typeof source.code === 'string') Object.assign(wrapped, { code: source.code, details: source.details });
+    throw wrapped;
   }
 };

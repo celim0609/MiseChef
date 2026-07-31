@@ -12,7 +12,6 @@ import type { ChefAward, ChefCertificate, ChefEducation, ChefExperience, ChefLan
 interface ChefProfilePageProps {
   key?: string;
   userId?: string;
-  workspaceId?: string;
 }
 
 const STEPS = ['Basic Information', 'Skills', 'Work Experience', 'Education', 'Certificates', 'Awards & Languages', 'Social Links', 'Review & Publish'];
@@ -45,7 +44,7 @@ const RemoveButton = ({ onClick }: { onClick: () => void }) => (
   <button type="button" onClick={onClick} aria-label="Remove entry" className="rounded-full border border-error/20 p-2 text-error"><X className="h-4 w-4" /></button>
 );
 
-export default function ChefProfilePage({ userId, workspaceId }: ChefProfilePageProps) {
+export default function ChefProfilePage({ userId }: ChefProfilePageProps) {
   const [profile, setProfile] = useState<ChefProfile | null>(null);
   const [screen, setScreen] = useState<'loading' | 'entry' | 'builder' | 'dashboard'>('loading');
   const [step, setStep] = useState(0);
@@ -171,7 +170,7 @@ export default function ChefProfilePage({ userId, workspaceId }: ChefProfilePage
     setReviewChoices(null);
     let registeredResume: ManagedChefResume | null = null;
     try {
-      const result = await importResume(file, userId, workspaceId || userId, setImportStage, async upload => {
+      const result = await importResume(file, userId, userId, setImportStage, async upload => {
         const record = await resumeManagementService.registerUpload(userId, upload, managedResume);
         registeredResume = { ...record, uploadedAt: new Date() };
         setManagedResume(registeredResume);
@@ -200,7 +199,7 @@ export default function ChefProfilePage({ userId, workspaceId }: ChefProfilePage
     setImported(null);
     setReviewChoices(null);
     try {
-      const draft = await retryResumeImport(managedResume, userId, workspaceId || userId, setImportStage);
+      const draft = await retryResumeImport(managedResume, userId, userId, setImportStage);
       await resumeManagementService.saveDraft(userId, draft);
       setManagedResume(current => current ? { ...current, importStatus: 'review_required', draft, lastError: undefined } : current);
       setImported(draft);

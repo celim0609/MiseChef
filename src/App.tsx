@@ -1698,7 +1698,6 @@ export default function App() {
           <ChefProfilePage
             key={currentUser?.uid || 'signed-out'}
             userId={currentUser?.uid}
-            workspaceId={activeWorkspaceId}
           />
         );
       case 'admin':

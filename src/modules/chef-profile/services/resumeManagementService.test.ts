@@ -140,4 +140,18 @@ test('resume errors identify the failed stage and provide a next action', () => 
     getResumeImportErrorMessage(new Error('The uploaded file is valid but requires manual review. Retry the import or replace the resume with a clearer copy.'), 'resume.pdf'),
     'The uploaded file is valid but requires manual review. Retry the import or replace the resume with a clearer copy.'
   );
+  const callableError = Object.assign(new Error('Workspace subscription is temporarily unavailable.'), {
+    code: 'functions/unavailable'
+  });
+  assert.equal(
+    getResumeImportErrorMessage(callableError, 'resume.pdf'),
+    'Workspace subscription is temporarily unavailable. (functions/unavailable)'
+  );
+  const geminiError = Object.assign(new Error('AI resume import failed. Please try again.'), {
+    code: 'functions/internal'
+  });
+  assert.equal(
+    getResumeImportErrorMessage(geminiError, 'resume.pdf'),
+    'AI resume import failed. Please try again. (functions/internal)'
+  );
 });
