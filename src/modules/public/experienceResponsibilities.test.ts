@@ -24,6 +24,19 @@ test('joins wrapped lines belonging to an explicit multi-line bullet', () => {
   ]);
 });
 
+test('separates punctuation-free responsibility lines and keeps lowercase wraps attached', () => {
+  assert.deepEqual(toExperienceResponsibilities(`
+    Prepared and maintained high-quality cold kitchen products
+    for daily service
+    Supported production planning and kitchen workflow coordination
+    Maintained food safety, hygiene and quality standards
+  `), [
+    'Prepared and maintained high-quality cold kitchen products for daily service',
+    'Supported production planning and kitchen workflow coordination',
+    'Maintained food safety, hygiene and quality standards'
+  ]);
+});
+
 test('ignores blanks, trims whitespace, removes duplicate bullets, and preserves punctuation', () => {
   assert.deepEqual(toExperienceResponsibilities(`
     -  Maintained food safety, hygiene and quality standards.

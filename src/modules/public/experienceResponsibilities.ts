@@ -16,6 +16,25 @@ const splitPlainText = (value: string) => value
   .map(tidy)
   .filter(Boolean);
 
+const splitPlainLines = (lines: string[]) => {
+  const items: string[] = [];
+  let current = '';
+
+  for (const rawLine of lines) {
+    const line = tidy(rawLine);
+    if (!line) continue;
+    const isContinuation = Boolean(current) && (/^[a-z(]/.test(line) || /[,;:]$/.test(current));
+    if (isContinuation) {
+      current = `${current} ${line}`;
+    } else {
+      if (current) items.push(current);
+      current = line;
+    }
+  }
+  if (current) items.push(current);
+  return items;
+};
+
 export const toExperienceResponsibilities = (description?: string) => {
   if (!description?.trim()) return [];
 
@@ -47,14 +66,12 @@ export const toExperienceResponsibilities = (description?: string) => {
     return responsibilities;
   }
 
-  const paragraphs = description
-    .replace(/\r\n?/g, '\n')
-    .split(/\n\s*\n/)
-    .map(paragraph => tidy(paragraph))
-    .filter(Boolean);
+  const nonBlankLines = lines.map(tidy).filter(Boolean);
+  const plainResponsibilities = nonBlankLines.length > 1
+    ? splitPlainLines(lines).flatMap(splitPlainText)
+    : splitPlainText(nonBlankLines[0] || '');
 
-  paragraphs
-    .flatMap(splitPlainText)
+  plainResponsibilities
     .forEach(item => appendUnique(responsibilities, seen, item));
 
   return responsibilities;
