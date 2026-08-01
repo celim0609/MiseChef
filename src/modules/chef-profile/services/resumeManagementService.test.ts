@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyResumeReviewChoices, assessResumeImport, buildManagedResumeUpload, defaultResumeReviewChoices, getResumeImportErrorMessage, getResumeImportSummary, isOwnedResumeStoragePath, resolveOwnedManagedResume, resumeFileNameFromObjectName } from './resumeManagementModel';
+import { applyResumeReviewChoices, assessResumeImport, buildManagedResumeUpload, defaultResumeReviewChoices, getResumeImportErrorMessage, getResumeImportSummary, getReusableExtractedResumeText, isOwnedResumeStoragePath, isResumeRetryRequiredError, resolveOwnedManagedResume, resumeFileNameFromObjectName } from './resumeManagementModel';
 import { emptyChefProfile } from '../model';
 import type { ImportedChefProfile } from '../types';
 
@@ -56,6 +56,20 @@ test('legacy storage object names recover the original safe filename', () => {
     'Chef_Resume.pdf'
   );
   assert.equal(resumeFileNameFromObjectName('resume.pdf'), 'resume.pdf');
+});
+
+test('resume retry reuses preserved extracted text without requiring another upload', () => {
+  const resume = {
+    ...buildManagedResumeUpload('alice', {
+      originalStoragePath: 'users/alice/chef-profile/resume-imports/resume.pdf',
+      fileName: 'resume.pdf',
+      contentType: 'application/pdf',
+      fileSize: 2048
+    }),
+    extractedText: `Professional Summary\n${'Chef experience and responsibilities. '.repeat(4)}`
+  };
+  assert.equal(getReusableExtractedResumeText(resume), resume.extractedText.trim());
+  assert.equal(getReusableExtractedResumeText({ ...resume, extractedText: 'short' }), '');
 });
 
 test('import summary exposes required counts and highlights missing sections', () => {
@@ -154,4 +168,15 @@ test('resume errors identify the failed stage and provide a next action', () => 
     getResumeImportErrorMessage(geminiError, 'resume.pdf'),
     'AI resume import failed. Please try again. (functions/internal)'
   );
+
+  const busyError = Object.assign(new Error('AI service is temporarily busy. Please retry in a few minutes.'), {
+    code: 'functions/unavailable',
+    details: { reason: 'ai-service-busy' }
+  });
+  assert.equal(
+    getResumeImportErrorMessage(busyError, 'resume.pdf'),
+    'AI service is temporarily busy.\nPlease retry in a few minutes.'
+  );
+  assert.equal(isResumeRetryRequiredError(busyError), true);
+  assert.equal(isResumeRetryRequiredError(new Error('Invalid PDF structure')), false);
 });

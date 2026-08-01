@@ -229,7 +229,7 @@ export const parseResumeToPortfolioWithAI = async (resumeText: string, workspace
   const parseResume = httpsCallable<
     { workspaceId: string; resumeText: string; debug?: boolean },
     { portfolio: GeminiResumePortfolioDraft }
-  >(functions, 'parseResumeToPortfolio', { timeout: 180_000 });
+  >(functions, 'parseResumeToPortfolio', { timeout: 330_000 });
 
   try {
     const response = await parseResume({

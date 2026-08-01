@@ -488,7 +488,7 @@ service cloud.firestore {
           ])
           && request.resource.data.keys().hasOnly([
             'userId', 'fileName', 'storagePath', 'contentType', 'fileSize',
-            'importStatus', 'uploadedAt', 'importedAt', 'draft', 'lastError'
+            'importStatus', 'uploadedAt', 'importedAt', 'draft', 'extractedText', 'lastError'
           ])
           && request.resource.data.userId == userId
           && request.resource.data.fileName is string
@@ -503,10 +503,14 @@ service cloud.firestore {
           && request.resource.data.fileSize is int
           && request.resource.data.fileSize > 0
           && request.resource.data.fileSize <= 10 * 1024 * 1024
-          && request.resource.data.importStatus in ['imported', 'review_required', 'failed']
+          && request.resource.data.importStatus in ['imported', 'review_required', 'retry_required', 'failed']
           && request.resource.data.uploadedAt is timestamp
           && (!('importedAt' in request.resource.data) || request.resource.data.importedAt is timestamp)
           && (!('draft' in request.resource.data) || request.resource.data.draft is map)
+          && (!('extractedText' in request.resource.data)
+            || (request.resource.data.extractedText is string
+              && request.resource.data.extractedText.size() >= 80
+              && request.resource.data.extractedText.size() <= 50000))
           && (!('lastError' in request.resource.data)
             || (request.resource.data.lastError is string && request.resource.data.lastError.size() <= 500));
       }

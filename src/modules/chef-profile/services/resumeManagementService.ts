@@ -95,6 +95,24 @@ export const resumeManagementService = {
     });
   },
 
+  async saveExtractedText(userId: string, extractedText: string) {
+    if (!db) throw new Error('Resume management is temporarily unavailable.');
+    const text = extractedText.trim();
+    if (text.length < 80 || text.length > 50_000) {
+      throw new Error('Extracted resume text is outside the supported size.');
+    }
+    await updateDoc(doc(db, 'chefResumeImports', userId), { extractedText: text });
+  },
+
+  async markRetryRequired(userId: string, message: string) {
+    if (!db) return;
+    await updateDoc(doc(db, 'chefResumeImports', userId), {
+      importStatus: 'retry_required',
+      draft: deleteField(),
+      lastError: message.trim().slice(0, 500)
+    });
+  },
+
   async markFailed(userId: string, message: string) {
     if (!db) return;
     await updateDoc(doc(db, 'chefResumeImports', userId), {

@@ -6,7 +6,7 @@ import { chefProfileService } from './services/chefProfileService';
 import { exportChefProfilePdf } from './services/resumeExportService';
 import { importResume, retryResumeImport } from './services/resumeImportService';
 import { resumeManagementService, type ManagedChefResume } from './services/resumeManagementService';
-import { applyResumeReviewChoices, assessResumeImport, defaultResumeReviewChoices, getResumeImportErrorMessage, type ResumeReviewChoice, type ResumeReviewSectionKey } from './services/resumeManagementModel';
+import { applyResumeReviewChoices, assessResumeImport, defaultResumeReviewChoices, getResumeImportErrorMessage, isResumeRetryRequiredError, type ResumeReviewChoice, type ResumeReviewSectionKey } from './services/resumeManagementModel';
 import type { ChefAward, ChefCertificate, ChefEducation, ChefExperience, ChefLanguage, ChefProfile, ImportedChefProfile, ResumeExportSettings } from './types';
 
 interface ChefProfilePageProps {
@@ -170,11 +170,24 @@ export default function ChefProfilePage({ userId }: ChefProfilePageProps) {
     setReviewChoices(null);
     let registeredResume: ManagedChefResume | null = null;
     try {
-      const result = await importResume(file, userId, userId, setImportStage, async upload => {
-        const record = await resumeManagementService.registerUpload(userId, upload, managedResume);
-        registeredResume = { ...record, uploadedAt: new Date() };
-        setManagedResume(registeredResume);
-      });
+      const result = await importResume(
+        file,
+        userId,
+        userId,
+        setImportStage,
+        async upload => {
+          const record = await resumeManagementService.registerUpload(userId, upload, managedResume);
+          registeredResume = { ...record, uploadedAt: new Date() };
+          setManagedResume(registeredResume);
+        },
+        async extractedText => {
+          await resumeManagementService.saveExtractedText(userId, extractedText);
+          if (registeredResume) {
+            registeredResume = { ...registeredResume, extractedText };
+            setManagedResume(registeredResume);
+          }
+        }
+      );
       await resumeManagementService.saveDraft(userId, result.profile);
       setManagedResume(current => current ? { ...current, importStatus: 'review_required', draft: result.profile, lastError: undefined } : current);
       setImported(result.profile);
@@ -185,8 +198,10 @@ export default function ChefProfilePage({ userId }: ChefProfilePageProps) {
       setImportStage(0);
       const message = getResumeImportErrorMessage(error, file.name);
       if (registeredResume) {
-        await resumeManagementService.markFailed(userId, message).catch(() => undefined);
-        setManagedResume({ ...registeredResume, importStatus: 'failed', lastError: message, draft: undefined });
+        const retryRequired = isResumeRetryRequiredError(error);
+        if (retryRequired) await resumeManagementService.markRetryRequired(userId, message).catch(() => undefined);
+        else await resumeManagementService.markFailed(userId, message).catch(() => undefined);
+        setManagedResume({ ...registeredResume, importStatus: retryRequired ? 'retry_required' : 'failed', lastError: message, draft: undefined });
       }
       setImportError(message);
     }
@@ -199,15 +214,26 @@ export default function ChefProfilePage({ userId }: ChefProfilePageProps) {
     setImported(null);
     setReviewChoices(null);
     try {
-      const draft = await retryResumeImport(managedResume, userId, userId, setImportStage);
+      const draft = await retryResumeImport(
+        managedResume,
+        userId,
+        userId,
+        setImportStage,
+        async extractedText => {
+          await resumeManagementService.saveExtractedText(userId, extractedText);
+          setManagedResume(current => current ? { ...current, extractedText } : current);
+        }
+      );
       await resumeManagementService.saveDraft(userId, draft);
       setManagedResume(current => current ? { ...current, importStatus: 'review_required', draft, lastError: undefined } : current);
       setImported(draft);
       setReviewChoices(defaultResumeReviewChoices(draft));
     } catch (error) {
       const message = getResumeImportErrorMessage(error, managedResume.fileName);
-      await resumeManagementService.markFailed(userId, message).catch(() => undefined);
-      setManagedResume(current => current ? { ...current, importStatus: 'failed', lastError: message, draft: undefined } : current);
+      const retryRequired = isResumeRetryRequiredError(error);
+      if (retryRequired) await resumeManagementService.markRetryRequired(userId, message).catch(() => undefined);
+      else await resumeManagementService.markFailed(userId, message).catch(() => undefined);
+      setManagedResume(current => current ? { ...current, importStatus: retryRequired ? 'retry_required' : 'failed', lastError: message, draft: undefined } : current);
       setImportError(message);
     } finally {
       setImportStage(0);
@@ -434,6 +460,7 @@ const formatResumeDate = (value: unknown) => {
 const resumeStatusLabel: Record<ManagedChefResume['importStatus'], string> = {
   imported: 'Imported',
   review_required: 'Review Required',
+  retry_required: 'Retry Required',
   failed: 'Failed'
 };
 
@@ -487,11 +514,11 @@ function ResumeManagementCard({
         <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-[.14em] text-outline">Import status</dt><dd className="mt-1 font-sans text-sm font-extrabold text-secondary">{resumeStatusLabel[resume.importStatus]}</dd></div>
       </dl>
       <p className="font-sans text-xs font-bold text-on-surface-variant">Replacing this file creates a new review draft. Your existing Chef Profile stays unchanged until you complete review and save.</p>
-      {resume.lastError && <p role="alert" className="rounded-xl bg-error-container p-3 font-sans text-xs font-extrabold text-on-error-container">{resume.lastError}</p>}
+      {resume.lastError && <p role="alert" className="whitespace-pre-line rounded-xl bg-error-container p-3 font-sans text-xs font-extrabold text-on-error-container">{resume.lastError}</p>}
       <div className="flex flex-wrap gap-2">
         <button type="button" disabled={busy} onClick={onView} className="inline-flex items-center gap-2 rounded-full border border-primary px-4 py-2.5 font-sans text-xs font-extrabold text-primary disabled:opacity-50"><Eye className="h-4 w-4" />{action === 'viewing' ? 'Opening...' : 'View Resume'}</button>
         {resume.importStatus === 'review_required' && resume.draft && <button type="button" disabled={busy} onClick={onReview} className="inline-flex items-center gap-2 rounded-full border border-secondary px-4 py-2.5 font-sans text-xs font-extrabold text-secondary disabled:opacity-50"><Sparkles className="h-4 w-4" />Review Import</button>}
-        {(resume.importStatus === 'failed' || (resume.importStatus === 'review_required' && !resume.draft)) && <button type="button" disabled={busy} onClick={onRetry} className="inline-flex items-center gap-2 rounded-full border border-secondary px-4 py-2.5 font-sans text-xs font-extrabold text-secondary disabled:opacity-50"><RotateCw className="h-4 w-4" />{action === 'retrying' ? 'Retrying...' : 'Retry Import'}</button>}
+        {(resume.importStatus === 'failed' || resume.importStatus === 'retry_required' || (resume.importStatus === 'review_required' && !resume.draft)) && <button type="button" disabled={busy} onClick={onRetry} className="inline-flex items-center gap-2 rounded-full border border-secondary px-4 py-2.5 font-sans text-xs font-extrabold text-secondary disabled:opacity-50"><RotateCw className="h-4 w-4" />{action === 'retrying' ? 'Retrying...' : 'Retry Import'}</button>}
         <button type="button" disabled={busy} onClick={() => input.current?.click()} className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50"><RotateCw className="h-4 w-4" />{stageLabel || 'Replace Resume'}</button>
         <button type="button" disabled={busy} onClick={onDeleteRequest} className="inline-flex items-center gap-2 rounded-full border border-error/30 px-4 py-2.5 font-sans text-xs font-extrabold text-error disabled:opacity-50"><Trash2 className="h-4 w-4" />Delete Resume</button>
       </div>

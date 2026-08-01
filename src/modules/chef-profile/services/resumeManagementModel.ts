@@ -1,6 +1,6 @@
 import type { ChefProfile, ImportedChefProfile } from '../types';
 
-export type ResumeImportStatus = 'imported' | 'review_required' | 'failed';
+export type ResumeImportStatus = 'imported' | 'review_required' | 'retry_required' | 'failed';
 
 export interface ManagedChefResume {
   userId: string;
@@ -12,6 +12,7 @@ export interface ManagedChefResume {
   uploadedAt?: unknown;
   importedAt?: unknown;
   draft?: ImportedChefProfile;
+  extractedText?: string;
   lastError?: string;
 }
 
@@ -37,6 +38,9 @@ export const getResumeImportErrorMessage = (error: unknown, fileName = '') => {
   const source = error && typeof error === 'object' ? error as Record<string, unknown> : {};
   const code = typeof source.code === 'string' ? source.code : '';
   const message = error instanceof Error ? error.message.trim() : '';
+  if (message.startsWith('AI service is temporarily busy.')) {
+    return 'AI service is temporarily busy.\nPlease retry in a few minutes.';
+  }
   if (message && (
     message.startsWith('Resume imported, but')
     || message.startsWith('The uploaded file is valid')
@@ -54,6 +58,21 @@ export const getResumeImportErrorMessage = (error: unknown, fileName = '') => {
   if (/\.pdf$/i.test(fileName)) return 'Unable to read PDF. Make sure it contains selectable text, then retry or replace it.';
   if (/\.docx$/i.test(fileName)) return 'Unable to read DOCX. Check that the document opens correctly, then retry or replace it.';
   return message || 'Resume import failed. Retry the existing file or replace it with a clearer PDF or DOCX.';
+};
+
+export const isResumeRetryRequiredError = (error: unknown) => {
+  const source = error && typeof error === 'object' ? error as Record<string, unknown> : {};
+  const details = source.details && typeof source.details === 'object'
+    ? source.details as Record<string, unknown>
+    : {};
+  const message = error instanceof Error ? error.message : '';
+  return details.reason === 'ai-service-busy'
+    || message.startsWith('AI service is temporarily busy.');
+};
+
+export const getReusableExtractedResumeText = (resume: ManagedChefResume) => {
+  const text = resume.extractedText?.trim() || '';
+  return text.length >= 80 && text.length <= 50_000 ? text : '';
 };
 
 export type ResumeReviewSectionKey = 'experiences' | 'education' | 'skills' | 'languages' | 'summary' | 'contact';

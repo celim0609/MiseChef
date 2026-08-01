@@ -122,11 +122,18 @@ describe('resume management isolation', () => {
     await assertFails(setDoc(doc(ownerFirestore('bob'), 'chefResumeImports', 'alice'), resumeRecord('alice')));
   });
 
-  test('resume import status accepts review, failed, and imported states only', async () => {
+  test('resume import status accepts retry-required state with private extracted text', async () => {
     const reference = doc(ownerFirestore('alice'), 'chefResumeImports', 'alice');
     await assertSucceeds(setDoc(reference, resumeRecord('alice')));
+    await assertSucceeds(setDoc(reference, {
+      ...resumeRecord('alice'),
+      importStatus: 'retry_required',
+      extractedText: `Professional Summary\n${'Chef experience and responsibilities. '.repeat(4)}`,
+      lastError: 'AI service is temporarily busy. Please retry in a few minutes.'
+    }));
     await assertSucceeds(setDoc(reference, { ...resumeRecord('alice'), importStatus: 'failed', lastError: 'AI extraction incomplete.', draft: {} }));
     await assertSucceeds(setDoc(reference, { ...resumeRecord('alice'), importStatus: 'imported' }));
+    await assertFails(setDoc(reference, { ...resumeRecord('alice'), extractedText: 'too short' }));
     await assertFails(setDoc(reference, { ...resumeRecord('alice'), importStatus: 'processing' }));
   });
 

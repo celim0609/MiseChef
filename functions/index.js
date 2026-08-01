@@ -33,6 +33,7 @@ import {
   extractResumeWithCompletenessRetry,
   ResumeExtractionIncompleteError
 } from './resumeExtractionReliability.js';
+import { classifyGeminiFailure, generateGeminiJsonWithRetry } from './geminiReliability.js';
 
 initializeApp();
 
@@ -1398,7 +1399,7 @@ export const parseResumeToPortfolio = onCall({
   region: REGION,
   invoker: 'public',
   secrets: [geminiApiKey],
-  timeoutSeconds: 180,
+  timeoutSeconds: 300,
   memory: '256MiB'
 }, async request => {
   const requesterId = requireAuthenticatedUser(request);
@@ -1484,18 +1485,34 @@ ${resumeText}
       extraction = await extractResumeWithCompletenessRetry({
         resumeText,
         extract: async retryInstruction => {
-          const result = await callGeminiWithRetry(() => ai.models.generateContent({
-            model: MODEL,
-            contents: `${prompt}${retryInstruction}`,
-            config: {
-              responseMimeType: 'application/json',
-              responseSchema: portfolioResumeResponseSchema
+          const result = await generateGeminiJsonWithRetry({
+            generate: () => ai.models.generateContent({
+              model: MODEL,
+              contents: `${prompt}${retryInstruction}`,
+              config: {
+                responseMimeType: 'application/json',
+                responseSchema: portfolioResumeResponseSchema
+              }
+            }),
+            parse: text => parseJsonResponse(text, {}, includeDiagnostics),
+            onFailure: failure => {
+              const diagnostics = {
+                requesterId,
+                action,
+                attempt: failure.attempt,
+                status: failure.status || '',
+                ...getErrorDiagnostics(failure.error)
+              };
+              if (failure.type === 'http_failure') logger.warn('Gemini resume HTTP failure', diagnostics);
+              else if (failure.type === 'json_parsing_failure') logger.warn('Gemini resume JSON parsing failure', diagnostics);
+              else if (failure.type === 'timeout') logger.error('Gemini resume timeout', diagnostics);
+              else if (failure.type === 'model_refusal') logger.warn('Gemini resume model refusal', diagnostics);
             }
-          }));
+          });
           attempts += result.attempts;
           return {
             response: result.response,
-            parsed: parseJsonResponse(result.response.text, {}, includeDiagnostics)
+            parsed: result.parsed
           };
         },
         onIncomplete: (validation, extractionAttempt) => {
@@ -1523,6 +1540,13 @@ ${resumeText}
           missingContent: err.validation.missingContent,
           corruptFields: err.validation.corruptFields,
           employmentIssues: err.validation.employmentValidation.issues
+        });
+      }
+      const failure = classifyGeminiFailure(err);
+      if (['http_failure', 'json_parsing_failure', 'timeout', 'model_refusal'].includes(failure.type)) {
+        throw new HttpsError('unavailable', 'AI service is temporarily busy. Please retry in a few minutes.', {
+          reason: 'ai-service-busy',
+          failureType: failure.type
         });
       }
       throw err;
