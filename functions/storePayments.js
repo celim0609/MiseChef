@@ -4,6 +4,7 @@ import {
   PAYMENT_REFUND_STATUS,
   buildPendingOrder,
   createOrderNumber,
+  getEnabledStorePaymentMethod,
   PAYMENT_STATUS,
   readString,
   toPublicOrderResult
@@ -53,7 +54,7 @@ const hashCheckoutAccessToken = token => createHash('sha256')
   .update(readString(token))
   .digest('hex');
 
-const hasValidCheckoutAccessToken = (order, token) => {
+export const hasValidCheckoutAccessToken = (order, token) => {
   const expected = Buffer.from(readString(order.payment?.checkoutAccessTokenHash), 'hex');
   const received = Buffer.from(hashCheckoutAccessToken(token), 'hex');
   return expected.length === received.length
@@ -66,6 +67,7 @@ const loadAuthorizedPaymentOrder = async ({
   payment,
   provider,
   sellingWorkspaceId,
+  requiresSellingWorkspace,
   slug,
   checkoutAccessToken
 }) => {
@@ -79,7 +81,7 @@ const loadAuthorizedPaymentOrder = async ({
   if (!hasValidCheckoutAccessToken(order, checkoutAccessToken)) {
     throw new Error('This checkout access token is invalid.');
   }
-  if (readString(order.workspaceId) !== readString(sellingWorkspaceId)) {
+  if (requiresSellingWorkspace && readString(order.workspaceId) !== readString(sellingWorkspaceId)) {
     throw new Error('This payment does not belong to the active selling workspace.');
   }
   const storeSnapshot = await db.collection('stores').doc(order.storeId).get();
@@ -107,6 +109,8 @@ export const reconcileStorePayment = async ({ db, payment }) => {
     }
 
     const paymentStatus = payment.status;
+    const isNewPaidOrder = paymentStatus === PAYMENT_STATUS.paid
+      && readString(order.payment?.status) !== PAYMENT_STATUS.paid;
     const providerPaymentMethod = readString(payment.paymentMethod);
     const status = paymentStatus === PAYMENT_STATUS.paid
       ? 'Paid'
@@ -127,7 +131,54 @@ export const reconcileStorePayment = async ({ db, payment }) => {
       'payment.updatedAt': new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
+    if (isNewPaidOrder) {
+      update.fulfilmentStatus = 'Paid';
+      update.fulfilmentUpdatedAt = FieldValue.serverTimestamp();
+      update.fulfilmentUpdatedBy = 'system:payment';
+    }
+
+    let notificationReference;
+    let timelineReference;
+    let notificationSnapshot;
+    let timelineSnapshot;
+    if (isNewPaidOrder) {
+      notificationReference = db.collection('storeNotifications').doc(`new-paid-order_${orderId}`);
+      timelineReference = db.collection('storeOrderTimeline').doc(`${orderId}_payment-received`);
+      [notificationSnapshot, timelineSnapshot] = await Promise.all([
+        transaction.get(notificationReference),
+        transaction.get(timelineReference)
+      ]);
+    }
+
     transaction.update(orderReference, update);
+    if (isNewPaidOrder && notificationReference && !notificationSnapshot.exists) {
+      transaction.create(notificationReference, {
+        id: notificationReference.id,
+        workspaceId: readString(order.workspaceId),
+        storeId: readString(order.storeId),
+        orderId,
+        orderNumber: readString(order.orderNumber),
+        type: 'new_paid_order',
+        title: 'New paid order',
+        message: `${readString(order.orderNumber)} is ready to prepare.`,
+        readAt: null,
+        createdAt: FieldValue.serverTimestamp()
+      });
+    }
+    if (isNewPaidOrder && timelineReference && !timelineSnapshot.exists) {
+      transaction.create(timelineReference, {
+        id: timelineReference.id,
+        orderId,
+        workspaceId: readString(order.workspaceId),
+        storeId: readString(order.storeId),
+        type: 'payment_received',
+        label: 'Payment Received',
+        previousStatus: '',
+        newStatus: 'Paid',
+        actingUserId: 'system:payment',
+        createdAt: FieldValue.serverTimestamp()
+      });
+    }
     return { ...order, ...update, payment: { ...order.payment, status: paymentStatus } };
   });
 };
@@ -190,20 +241,26 @@ export const reconcileStoreRefund = async ({ db, payment }) => {
 export const createStorePayment = async ({
   db,
   adapter,
+  resolveAdapter,
   sellingWorkspaceId,
   slug,
   draft,
   now = new Date()
 }) => {
   const checkoutData = await loadStoreCheckoutData(db, slug);
-  assertSellingWorkspace(checkoutData.store, sellingWorkspaceId);
+  const paymentMethod = getEnabledStorePaymentMethod(checkoutData.store, draft?.paymentMethodId);
+  const activeAdapter = adapter || resolveAdapter(paymentMethod);
+  if (activeAdapter.requiresSellingWorkspace) {
+    assertSellingWorkspace(checkoutData.store, sellingWorkspaceId);
+  }
   const orderReference = db.collection('storeOrders').doc();
   const order = buildPendingOrder({
     id: orderReference.id,
     orderNumber: createOrderNumber(now),
     ...checkoutData,
-    paymentProvider: adapter.provider,
-    paymentProviderMode: adapter.mode,
+    paymentProvider: activeAdapter.provider,
+    paymentProviderMode: activeAdapter.mode,
+    paymentMethod,
     draft,
     now
   });
@@ -213,7 +270,7 @@ export const createStorePayment = async ({
 
   let providerPaymentId = '';
   try {
-    const payment = await adapter.createPayment({ order });
+    const payment = await activeAdapter.createPayment({ order });
     if (!readString(payment.providerPaymentId) || !readString(payment.checkout?.type)) {
       throw new Error('The payment provider did not create a usable checkout session.');
     }
@@ -225,14 +282,14 @@ export const createStorePayment = async ({
     });
     return {
       orderNumber: order.orderNumber,
-      provider: adapter.provider,
+      provider: activeAdapter.provider,
       paymentSessionId: providerPaymentId,
       checkout: payment.checkout,
       checkoutAccessToken
     };
   } catch (error) {
     if (providerPaymentId) {
-      await adapter.cancelPayment(providerPaymentId).catch(() => undefined);
+      await activeAdapter.cancelPayment(providerPaymentId, { db }).catch(() => undefined);
     }
     await orderReference.update({
       status: 'Payment Failed',
@@ -253,15 +310,17 @@ export const getStorePaymentResult = async ({
   providerPaymentId,
   checkoutAccessToken
 }) => {
-  const payment = await adapter.retrievePayment(readString(providerPaymentId));
-  await loadAuthorizedPaymentOrder({
+  const payment = await adapter.retrievePayment(readString(providerPaymentId), { db });
+  const authorizedOrder = await loadAuthorizedPaymentOrder({
     db,
     payment,
     provider: adapter.provider,
     sellingWorkspaceId,
+    requiresSellingWorkspace: adapter.requiresSellingWorkspace,
     slug,
     checkoutAccessToken
   });
+  if (adapter.provider === 'manual') return toPublicOrderResult(authorizedOrder);
   const order = await reconcileStorePayment({ db, payment });
   return toPublicOrderResult(order);
 };
@@ -274,19 +333,20 @@ export const cancelStorePayment = async ({
   providerPaymentId,
   checkoutAccessToken
 }) => {
-  const payment = await adapter.retrievePayment(readString(providerPaymentId));
+  const payment = await adapter.retrievePayment(readString(providerPaymentId), { db });
   const order = await loadAuthorizedPaymentOrder({
     db,
     payment,
     provider: adapter.provider,
     sellingWorkspaceId,
+    requiresSellingWorkspace: adapter.requiresSellingWorkspace,
     slug,
     checkoutAccessToken
   });
   if (payment.status === PAYMENT_STATUS.paid) return toPublicOrderResult(order);
   const cancelledPayment = payment.status === PAYMENT_STATUS.cancelled
     ? payment
-    : await adapter.cancelPayment(payment.providerPaymentId);
+    : await adapter.cancelPayment(payment.providerPaymentId, { db });
   const cancelledOrder = await reconcileStorePayment({ db, payment: cancelledPayment });
   return toPublicOrderResult(cancelledOrder);
 };

@@ -2,6 +2,21 @@ import type { RegionCode, RegionCurrency } from '../../regions';
 
 export type StorePaymentProviderId = string;
 
+export type StorePaymentMethodId =
+  | 'cash_on_pickup'
+  | 'touch_n_go_qr'
+  | 'duitnow_qr'
+  | 'bank_transfer'
+  | 'stripe';
+
+export interface StorePaymentMethodConfig {
+  id: StorePaymentMethodId;
+  enabled: boolean;
+  qrCodeUrl: string;
+  instructions: string;
+}
+
+
 export type StoreOrderDay =
   | 'monday'
   | 'tuesday'
@@ -33,6 +48,7 @@ export interface WorkspaceStore {
   earliestPickupDays: StoreEarliestPickupDays;
   maximumAdvanceDays: StoreMaximumAdvanceDays;
   unavailableDates: string[];
+  paymentMethods: StorePaymentMethodConfig[];
   country: RegionCode;
   currency: RegionCurrency;
   createdBy: string;
@@ -56,6 +72,7 @@ export interface StoreSettingsDraft {
   earliestPickupDays: StoreEarliestPickupDays;
   maximumAdvanceDays: StoreMaximumAdvanceDays;
   unavailableDates: string[];
+  paymentMethods: StorePaymentMethodConfig[];
 }
 
 export interface StorePickupLocation {
@@ -161,6 +178,40 @@ export interface StoreOrderItem {
   selectedOptions: StoreOrderItemOption[];
 }
 
+export type StoreFulfilmentStatus =
+  | 'Confirmed'
+  | 'Paid'
+  | 'Preparing'
+  | 'Ready'
+  | 'Completed'
+  | 'Cancelled';
+
+export interface StoreOrderTimelineEvent {
+  id: string;
+  orderId: string;
+  workspaceId: string;
+  storeId: string;
+  type: 'payment_received' | 'payment_review' | 'fulfilment_status';
+  label: string;
+  previousStatus: string;
+  newStatus: StoreFulfilmentStatus | 'Pending Verification' | 'Payment Rejected';
+  actingUserId: string;
+  createdAt: string;
+}
+
+export interface StoreNotification {
+  id: string;
+  workspaceId: string;
+  storeId: string;
+  orderId: string;
+  orderNumber: string;
+  type: 'new_paid_order' | 'payment_verification_required';
+  title: string;
+  message: string;
+  readAt: string;
+  createdAt: string;
+}
+
 export interface StoreOrder {
   id: string;
   orderNumber: string;
@@ -182,19 +233,25 @@ export interface StoreOrder {
   items: StoreOrderItem[];
   itemCount: number;
   total: number;
+  fulfilmentStatus: StoreFulfilmentStatus | '';
+  fulfilmentUpdatedAt: string;
+  fulfilmentUpdatedBy: string;
   status:
     | 'Awaiting Payment'
     | 'Payment Processing'
     | 'Paid'
     | 'Payment Failed'
     | 'Payment Cancelled'
+    | 'Pending Verification'
+    | 'Payment Rejected'
+    | 'Confirmed'
     | 'Refund Processing'
     | 'Partially Refunded'
     | 'Refunded';
   payment: {
     provider: StorePaymentProviderId;
-    providerMode: 'single_merchant' | 'connect' | 'merchant_gateway';
-    status: 'pending' | 'processing' | 'paid' | 'failed' | 'cancelled';
+    providerMode: 'single_merchant' | 'connect' | 'merchant_gateway' | 'manual';
+    status: 'pending' | 'pending_verification' | 'processing' | 'paid' | 'failed' | 'cancelled' | 'rejected';
     amountMinor: number;
     currency: RegionCurrency;
     providerPaymentId: string;
@@ -204,6 +261,11 @@ export interface StoreOrder {
     refundStatus: 'none' | 'pending' | 'partial' | 'refunded' | 'failed';
     refundedAmountMinor: number;
     refundFailureCode: string;
+    receiptPath: string;
+    receiptFileName: string;
+    receiptUploadedAt: string;
+    reviewedAt: string;
+    reviewedBy: string;
     createdAt: string;
     updatedAt: string;
   };
@@ -212,6 +274,7 @@ export interface StoreOrder {
 }
 
 export interface StoreOrderDraft {
+  paymentMethodId?: StorePaymentMethodId;
   customerName: string;
   phone: string;
   pickupDate: string;
@@ -229,6 +292,14 @@ export type StorePaymentCheckout =
   | {
     type: 'provider_redirect';
     redirectUrl: string;
+  }
+  | {
+    type: 'manual_payment';
+    methodId: Exclude<StorePaymentMethodId, 'stripe'>;
+    methodName: string;
+    qrCodeUrl: string;
+    instructions: string;
+    receiptAllowed: boolean;
   };
 
 export interface StorePaymentSession {

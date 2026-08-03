@@ -321,6 +321,11 @@ export const storeService = {
     return updatedProduct;
   },
 
+  async deleteProduct(productId: string): Promise<void> {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    await deleteDoc(doc(db, 'storeProducts', productId));
+  },
+
   async getPublicStore(slug: string): Promise<PublicStoreData | null> {
     if (import.meta.env.DEV && import.meta.env.VITE_STORE_QA_FIXTURE === 'true') {
       const { createPublicStoreQaFixture } = await import('../testing/publicStoreQaFixture');

@@ -183,6 +183,18 @@ service cloud.firestore {
         );
     }
 
+    function isValidStorePaymentMethod(method, id) {
+      return method is map
+        && method.keys().hasOnly(['id', 'enabled', 'qrCodeUrl', 'instructions'])
+        && method.id == id
+        && method.enabled is bool
+        && method.qrCodeUrl is string
+        && method.qrCodeUrl.size() <= 2000
+        && method.instructions is string
+        && method.instructions.size() <= 1000;
+    }
+
+
     function isValidStoreSettings(data, workspaceId) {
       return data.keys().hasOnly([
           'id',
@@ -203,6 +215,7 @@ service cloud.firestore {
           'earliestPickupDays',
           'maximumAdvanceDays',
           'unavailableDates',
+          'paymentMethods',
           'country',
           'currency',
           'createdBy',
@@ -249,6 +262,13 @@ service cloud.firestore {
         && data.maximumAdvanceDays in [7, 14, 30]
         && data.unavailableDates is list
         && data.unavailableDates.size() <= 60
+        && data.paymentMethods is list
+        && data.paymentMethods.size() == 5
+        && isValidStorePaymentMethod(data.paymentMethods[0], 'cash_on_pickup')
+        && isValidStorePaymentMethod(data.paymentMethods[1], 'touch_n_go_qr')
+        && isValidStorePaymentMethod(data.paymentMethods[2], 'duitnow_qr')
+        && isValidStorePaymentMethod(data.paymentMethods[3], 'bank_transfer')
+        && isValidStorePaymentMethod(data.paymentMethods[4], 'stripe')
         && hasValidStoreRegion(data)
         && data.createdBy is string
         && data.createdAt is string
@@ -759,6 +779,7 @@ service cloud.firestore {
           'earliestPickupDays',
           'maximumAdvanceDays',
           'unavailableDates',
+          'paymentMethods',
           'updatedAt'
         ]);
       allow delete: if false;
@@ -795,7 +816,7 @@ service cloud.firestore {
           'optionGroupIds',
           'updatedAt'
         ]);
-      allow delete: if false;
+      allow delete: if isWorkspaceOwnerOrManager(resource.data.workspaceId);
     }
 
     match /storeOptionGroups/{groupId} {
@@ -831,6 +852,19 @@ service cloud.firestore {
 
     match /storePaymentEvents/{eventId} {
       allow read, create, update, delete: if false;
+    }
+
+    match /storeOrderTimeline/{eventId} {
+      allow read: if isWorkspaceOwnerOrManager(resource.data.workspaceId);
+      allow create, update, delete: if false;
+    }
+
+    match /storeNotifications/{notificationId} {
+      allow read: if isWorkspaceOwnerOrManager(resource.data.workspaceId);
+      allow update: if isWorkspaceOwnerOrManager(resource.data.workspaceId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt'])
+        && request.resource.data.readAt is timestamp;
+      allow create, delete: if false;
     }
 
     match /publicChefProfileOwnership/{username} {

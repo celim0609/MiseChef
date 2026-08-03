@@ -28,6 +28,13 @@ export const createPublicStoreQaFixture = (slug: string): PublicStoreData | null
       earliestPickupDays: 1,
       maximumAdvanceDays: 14,
       unavailableDates: [],
+      paymentMethods: [
+        { id: 'cash_on_pickup', enabled: true, qrCodeUrl: '', instructions: 'Pay when you collect.' },
+        { id: 'touch_n_go_qr', enabled: false, qrCodeUrl: '', instructions: '' },
+        { id: 'duitnow_qr', enabled: false, qrCodeUrl: '', instructions: '' },
+        { id: 'bank_transfer', enabled: false, qrCodeUrl: '', instructions: '' },
+        { id: 'stripe', enabled: true, qrCodeUrl: '', instructions: '' }
+      ],
       country: 'MY',
       currency: 'MYR',
       createdBy: 'qa-owner',

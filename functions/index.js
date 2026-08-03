@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { defineSecret, defineString } from 'firebase-functions/params';
@@ -20,8 +21,7 @@ import {
   reserveMonthlySubscriptionUsage
 } from './subscriptionEnforcement.js';
 import {
-  createPaymentAdapter,
-  createPrimaryPaymentAdapter
+  createPaymentAdapter
 } from './paymentProviders/index.js';
 import {
   cancelStorePayment,
@@ -29,6 +29,12 @@ import {
   getStorePaymentResult,
   handleStorePaymentWebhook
 } from './storePayments.js';
+import {
+  reviewManualStorePayment,
+  submitManualStorePayment,
+  uploadManualStorePaymentReceipt
+} from './storeManualPayments.js';
+import { updateStoreOrderFulfilment } from './storeFulfilment.js';
 
 initializeApp();
 
@@ -70,7 +76,11 @@ const toStorePaymentError = error => {
     'Your cart contains too many items.',
     'Each product quantity must be between 1 and 20.',
     'A product in your cart is no longer available.',
-    'Order total must be greater than zero.'
+    'Order total must be greater than zero.',
+    'Choose a valid payment method.',
+    'This payment method is no longer available.',
+    'This QR payment method is not configured correctly.',
+    'Bank Transfer is not configured correctly.'
   ].includes(message) || message.startsWith('Choose one ') || message.startsWith('Options for ')) {
     return new HttpsError('failed-precondition', message);
   }
@@ -85,12 +95,12 @@ export const createPublicStorePayment = onCall({
   memory: '256MiB'
 }, async request => {
   try {
-    const adapter = createPrimaryPaymentAdapter({
-      stripeSecretKey: stripeSecretKey.value()
-    });
     return await createStorePayment({
       db,
-      adapter,
+      resolveAdapter: paymentMethod => createPaymentAdapter(paymentMethod.provider, {
+        stripeSecretKey: stripeSecretKey.value(),
+        method: paymentMethod
+      }),
       sellingWorkspaceId: sellingWorkspaceId.value(),
       slug: request.data?.slug,
       draft: request.data?.order
@@ -98,6 +108,65 @@ export const createPublicStorePayment = onCall({
   } catch (error) {
     if (error instanceof HttpsError) throw error;
     throw toStorePaymentError(error);
+  }
+});
+
+export const uploadPublicStorePaymentReceipt = onCall({
+  region: REGION,
+  invoker: 'public',
+  timeoutSeconds: 30,
+  memory: '256MiB'
+}, async request => {
+  try {
+    return await uploadManualStorePaymentReceipt({
+      db,
+      bucket: getStorage().bucket(),
+      slug: request.data?.slug,
+      orderId: request.data?.paymentSessionId,
+      checkoutAccessToken: request.data?.checkoutAccessToken,
+      dataUrl: request.data?.dataUrl,
+      fileName: request.data?.fileName
+    });
+  } catch (error) {
+    logger.warn('Manual payment receipt upload failed', { message: error?.message || '' });
+    throw new HttpsError('failed-precondition', error?.message || 'The receipt could not be uploaded.');
+  }
+});
+
+export const submitPublicStoreManualPayment = onCall({
+  region: REGION,
+  invoker: 'public',
+  timeoutSeconds: 20,
+  memory: '256MiB'
+}, async request => {
+  try {
+    return await submitManualStorePayment({
+      db,
+      slug: request.data?.slug,
+      orderId: request.data?.paymentSessionId,
+      checkoutAccessToken: request.data?.checkoutAccessToken
+    });
+  } catch (error) {
+    logger.warn('Manual payment submission failed', { message: error?.message || '' });
+    throw new HttpsError('failed-precondition', error?.message || 'Payment could not be submitted.');
+  }
+});
+
+export const reviewStoreManualPayment = onCall({
+  region: REGION,
+  timeoutSeconds: 20,
+  memory: '256MiB'
+}, async request => {
+  try {
+    return await reviewManualStorePayment({
+      db,
+      uid: request.auth?.uid,
+      orderId: request.data?.orderId,
+      decision: request.data?.decision
+    });
+  } catch (error) {
+    logger.warn('Manual payment review failed', { message: error?.message || '' });
+    throw new HttpsError('failed-precondition', error?.message || 'Payment review failed.');
   }
 });
 
@@ -188,6 +257,29 @@ export const stripeStorePaymentWebhook = onRequest({
       message: error?.message || ''
     });
     response.status(400).send('Webhook rejected');
+  }
+});
+
+export const updateStoreOrderStatus = onCall({
+  region: REGION,
+  timeoutSeconds: 20,
+  memory: '256MiB'
+}, async request => {
+  try {
+    return await updateStoreOrderFulfilment({
+      db,
+      uid: request.auth?.uid,
+      orderId: request.data?.orderId,
+      nextStatus: request.data?.nextStatus
+    });
+  } catch (error) {
+    if (error instanceof HttpsError) throw error;
+    logger.error('Store fulfilment update failed', {
+      name: error?.name || '',
+      code: error?.code || '',
+      message: error?.message || ''
+    });
+    throw new HttpsError('internal', 'This order could not be updated. Please try again.');
   }
 });
 

@@ -10,6 +10,7 @@ import type {
   StoreOrderItem,
   StoreOrderDraft,
   StoreOrderDay,
+  StorePaymentMethodConfig,
   StoreSettingsDraft,
   WorkspaceStore
 } from './types';
@@ -25,6 +26,39 @@ export const STORE_ORDER_DAYS: Array<{ id: StoreOrderDay; label: string; dayInde
   { id: 'sunday', label: 'Sunday', dayIndex: 0 }
 ];
 export const DEFAULT_STORE_ORDER_DAYS = STORE_ORDER_DAYS.map(day => day.id);
+export const STORE_PAYMENT_METHODS: Array<{ id: StorePaymentMethodConfig['id']; label: string }> = [
+  { id: 'cash_on_pickup', label: 'Cash on Pickup' },
+  { id: 'touch_n_go_qr', label: "Touch 'n Go QR" },
+  { id: 'duitnow_qr', label: 'DuitNow QR' },
+  { id: 'bank_transfer', label: 'Bank Transfer' },
+  { id: 'stripe', label: 'Stripe' }
+];
+export const getStorePaymentMethodLabel = (id: StorePaymentMethodConfig['id']) => (
+  STORE_PAYMENT_METHODS.find(method => method.id === id)?.label || 'Payment'
+);
+
+export const createDefaultStorePaymentMethods = (): StorePaymentMethodConfig[] => (
+  STORE_PAYMENT_METHODS.map(method => ({
+    id: method.id,
+    enabled: method.id === 'stripe',
+    qrCodeUrl: '',
+    instructions: ''
+  }))
+);
+
+export const normalizeStorePaymentMethods = (value: unknown): StorePaymentMethodConfig[] => {
+  const configured = Array.isArray(value) ? value : [];
+  return STORE_PAYMENT_METHODS.map(method => {
+    const raw = configured.find(item => item && typeof item === 'object'
+      && (item as Record<string, unknown>).id === method.id) as Record<string, unknown> | undefined;
+    return {
+      id: method.id,
+      enabled: raw ? readBoolean(raw.enabled) : method.id === 'stripe',
+      qrCodeUrl: readString(raw?.qrCodeUrl),
+      instructions: readString(raw?.instructions)
+    };
+  });
+};
 
 const readString = (value: unknown, fallback = '') => (
   typeof value === 'string' && value.trim() ? value.trim() : fallback
@@ -107,6 +141,7 @@ export const formatPickupDateLabel = (
   const region = getWorkspaceRegionConfiguration({ country });
   const regionToday = toRegionDateCursor(currentDate, region.timeZone);
   const date = new Date(`${dateKey}T12:00:00Z`);
+  if (!dateKey || Number.isNaN(date.getTime())) return 'Pickup date unavailable';
   const tomorrowKey = toDateKey(addRegionDays(regionToday, 1));
   const prefix = dateKey === toDateKey(regionToday)
     ? 'Today'
@@ -155,6 +190,7 @@ export const createDefaultWorkspaceStore = (
     earliestPickupDays: 0,
     maximumAdvanceDays: 14,
     unavailableDates: [],
+    paymentMethods: createDefaultStorePaymentMethods(),
     country: region.country,
     currency: region.currency,
     createdBy,
@@ -213,6 +249,7 @@ export const normalizeWorkspaceStore = (
         typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
       )))].sort()
       : [],
+    paymentMethods: normalizeStorePaymentMethods(data.paymentMethods),
     country: region.country,
     currency: region.currency,
     createdBy: readString(data.createdBy),
@@ -270,6 +307,21 @@ export const validateStoreSettings = (draft: StoreSettingsDraft) => {
   if (draft.unavailableDates.length > 60) return 'Use 60 unavailable dates or fewer.';
   if (draft.unavailableDates.some(date => !/^\d{4}-\d{2}-\d{2}$/.test(date))) return 'Choose valid unavailable dates.';
   if (new Set(draft.unavailableDates).size !== draft.unavailableDates.length) return 'Unavailable dates must be unique.';
+  if (!draft.paymentMethods.some(method => method.enabled)) return 'Enable at least one payment method.';
+  if (draft.paymentMethods.length !== STORE_PAYMENT_METHODS.length
+    || new Set(draft.paymentMethods.map(method => method.id)).size !== STORE_PAYMENT_METHODS.length
+    || draft.paymentMethods.some(method => !STORE_PAYMENT_METHODS.some(candidate => candidate.id === method.id))) {
+    return 'Choose valid payment methods.';
+  }
+  if (draft.paymentMethods.some(method => method.qrCodeUrl.length > 2000 || method.instructions.length > 1000)) {
+    return 'Payment instructions are too long.';
+  }
+  if (draft.paymentMethods.some(method => (
+    method.enabled && ['touch_n_go_qr', 'duitnow_qr'].includes(method.id) && !method.qrCodeUrl.trim()
+  ))) return 'Upload a merchant QR code before enabling QR payment.';
+  if (draft.paymentMethods.some(method => (
+    method.enabled && method.id === 'bank_transfer' && !method.instructions.trim()
+  ))) return 'Add bank transfer instructions before enabling Bank Transfer.';
   return '';
 };
 

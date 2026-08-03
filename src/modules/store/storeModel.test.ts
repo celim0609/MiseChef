@@ -4,8 +4,11 @@ import {
   buildStoreOrderItems,
   createDefaultWorkspaceStore,
   DEFAULT_STORE_ORDER_DAYS,
+  createDefaultStorePaymentMethods,
+  formatPickupDateLabel,
   getValidPickupDates,
   normalizeStoreOptionGroup,
+  normalizeStorePaymentMethods,
   normalizeWorkspaceStore,
   toStoreSlug,
   validateStoreOptionGroup,
@@ -61,7 +64,8 @@ test('pickup stays simple and requires owner-defined locations and sessions', ()
     orderDays: [...DEFAULT_STORE_ORDER_DAYS],
     earliestPickupDays: 0 as const,
     maximumAdvanceDays: 14 as const,
-    unavailableDates: []
+    unavailableDates: [],
+    paymentMethods: createDefaultStorePaymentMethods()
   };
 
   assert.equal(validateStoreSettings(baseSettings), '');
@@ -73,6 +77,31 @@ test('pickup stays simple and requires owner-defined locations and sessions', ()
     ...baseSettings,
     businessWhatsApp: 'not-a-number'
   }), 'Enter a valid Business WhatsApp number, including country code.');
+});
+
+test('legacy Stores remain Stripe-only and QR methods require an owner QR image', () => {
+  const legacyMethods = normalizeStorePaymentMethods(undefined);
+  assert.deepEqual(legacyMethods.filter(method => method.enabled).map(method => method.id), ['stripe']);
+  const baseStore = createDefaultWorkspaceStore(
+    { id: 'workspace-payments', name: 'Payment Kitchen', country: 'MY' },
+    'owner-payments'
+  );
+  const baseSettings = {
+    name: baseStore.name,
+    logoUrl: '', coverImageUrl: '', description: '', contactInformation: '', businessWhatsApp: '',
+    businessHours: '', pickupEnabled: false, deliveryEnabled: false, pickupSessions: [], pickupLocations: [],
+    orderDays: [...DEFAULT_STORE_ORDER_DAYS], earliestPickupDays: 0 as const, maximumAdvanceDays: 14 as const,
+    unavailableDates: [], paymentMethods: baseStore.paymentMethods.map(method => (
+      method.id === 'touch_n_go_qr' ? { ...method, enabled: true } : method.id === 'stripe' ? { ...method, enabled: false } : method
+    ))
+  };
+  assert.equal(validateStoreSettings(baseSettings), 'Upload a merchant QR code before enabling QR payment.');
+  assert.equal(validateStoreSettings({
+    ...baseSettings,
+    paymentMethods: baseSettings.paymentMethods.map(method => method.id === 'touch_n_go_qr'
+      ? { ...method, qrCodeUrl: 'https://storage.test/merchant-qr.png' }
+      : method)
+  }), '');
 });
 
 test('public Store slugs are stable and URL safe', () => {
@@ -400,6 +429,11 @@ test('pickup windows follow the Store region instead of the customer device or U
 
   assert.equal(dates[0], '2026-07-26');
   assert.equal(dates.at(-1), '2026-08-02');
+});
+
+test('legacy orders without a pickup date do not crash the Store Owner inbox', () => {
+  assert.equal(formatPickupDateLabel('', 'MY'), 'Pickup date unavailable');
+  assert.equal(formatPickupDateLabel('not-a-date', 'SG'), 'Pickup date unavailable');
 });
 
 test('checkout rejects disabled, blocked, too-early, and out-of-window pickup dates', () => {

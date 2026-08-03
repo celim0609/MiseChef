@@ -99,6 +99,13 @@ service firebase.storage {
       allow delete: if canManageWorkspace(workspaceId);
     }
 
+    // Guest receipts are written only by the trusted checkout callable using
+    // the Admin SDK. Only the matching Store Owner or Manager may read them.
+    match /store-payment-receipts/{workspaceId}/{orderId}/{fileName} {
+      allow read: if canManageWorkspace(workspaceId);
+      allow create, update, delete: if false;
+    }
+
     match /users/{userId}/profile/{fileName} {
       allow read: if ownsPath(userId);
       allow create, update: if ownsPath(userId) && validImageUpload(5 * 1024 * 1024);

@@ -2,6 +2,8 @@ import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
   ArrowDown,
   ArrowUp,
+  Bell,
+  ClipboardList,
   Copy,
   Download,
   ExternalLink,
@@ -13,13 +15,20 @@ import {
   QrCode,
   Share2,
   Settings,
+  Trash2,
   X
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import type { Workspace } from '../../types';
 import { formatRegionCurrency, useWorkspaceRegion } from '../../regions';
-import { uploadStoreBrandImage, uploadStoreProductPhoto } from '../../services/storage';
-import { storeService } from './services';
+import {
+  deleteStoreProductPhoto,
+  uploadStoreBrandImage,
+  uploadStorePaymentQr,
+  uploadStoreProductPhoto
+} from '../../services/storage';
+import { storeOrderService, storeService } from './services';
+import StoreOrdersPanel from './StoreOrdersPanel';
 import {
   getPublicOrderingPath,
   getPublicOrderingUrl,
@@ -27,6 +36,7 @@ import {
 } from './customerEntry';
 import {
   formatPickupDateLabel,
+  STORE_PAYMENT_METHODS,
   STORE_ORDER_DAYS,
   validateStoreOptionGroup,
   validateStoreProduct,
@@ -34,6 +44,7 @@ import {
 } from './storeModel';
 import type {
   StoreOptionGroup,
+  StoreNotification,
   StoreProduct,
   StoreProductDraft,
   StoreSettingsDraft,
@@ -45,7 +56,7 @@ interface StorePageProps {
   workspace: Workspace;
 }
 
-type StoreView = 'products' | 'pickup' | 'settings';
+type StoreView = 'products' | 'orders' | 'pickup' | 'settings';
 
 interface ProductOptionEditor {
   id: string;
@@ -83,7 +94,8 @@ const toSettingsDraft = (store: WorkspaceStore): StoreSettingsDraft => ({
   orderDays: [...store.orderDays],
   earliestPickupDays: store.earliestPickupDays,
   maximumAdvanceDays: store.maximumAdvanceDays,
-  unavailableDates: [...store.unavailableDates]
+  unavailableDates: [...store.unavailableDates],
+  paymentMethods: store.paymentMethods.map(method => ({ ...method }))
 });
 
 const toProductDraft = (product: StoreProduct): StoreProductDraft => ({
@@ -123,6 +135,7 @@ const moveItem = <T,>(items: T[], fromIndex: number, toIndex: number) => {
 
 const viewItems: Array<{ id: StoreView; label: string; question: string; icon: typeof Package }> = [
   { id: 'products', label: 'Products', question: 'What am I selling?', icon: Package },
+  { id: 'orders', label: 'Orders', question: 'What have customers ordered?', icon: ClipboardList },
   { id: 'pickup', label: 'Pickup', question: 'Where and when do customers collect?', icon: MapPin },
   { id: 'settings', label: 'Store Settings', question: 'How does my store look?', icon: Settings }
 ];
@@ -136,6 +149,7 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
   const [optionGroups, setOptionGroups] = useState<StoreOptionGroup[]>([]);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [paymentQrFiles, setPaymentQrFiles] = useState<Partial<Record<'touch_n_go_qr' | 'duitnow_qr', File>>>({});
   const [productDraft, setProductDraft] = useState<StoreProductDraft>(emptyProductDraft);
   const [productOptions, setProductOptions] = useState<ProductOptionEditor[]>([]);
   const [savedOptionGroupId, setSavedOptionGroupId] = useState('');
@@ -151,6 +165,8 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
   const [shareMessage, setShareMessage] = useState('');
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
   const [unavailableDateDraft, setUnavailableDateDraft] = useState('');
+  const [notifications, setNotifications] = useState<StoreNotification[]>([]);
+  const [focusedOrderId, setFocusedOrderId] = useState('');
 
   useEffect(() => {
     let isCancelled = false;
@@ -184,6 +200,12 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
       isCancelled = true;
     };
   }, [currentUser.uid, workspace]);
+
+  useEffect(() => storeOrderService.subscribeNotifications(
+    workspace.id,
+    setNotifications,
+    error => setErrorMessage(error.message || 'Unable to load new-order notifications.')
+  ), [workspace.id]);
 
   useEffect(() => {
     if (!isShareOpen || !store) return;
@@ -255,6 +277,24 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
     setErrorMessage('');
   };
 
+  const openOrderNotification = async (notification: StoreNotification) => {
+    setActiveView('orders');
+    setFocusedOrderId(notification.orderId);
+    setIsProductFormOpen(false);
+    clearMessages();
+    if (notification.readAt) return;
+    setNotifications(current => current.map(item => (
+      item.id === notification.id
+        ? { ...item, readAt: new Date().toISOString() }
+        : item
+    )));
+    try {
+      await storeOrderService.markNotificationRead(notification.id);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to mark the notification as read.');
+    }
+  };
+
   const copyOrderingLink = async () => {
     if (!store) return;
     try {
@@ -317,7 +357,16 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
           ? uploadStoreBrandImage({ workspaceId: workspace.id, kind: 'cover', file: coverFile })
           : Promise.resolve(settingsDraft.coverImageUrl)
       ]);
-      const nextDraft = { ...settingsDraft, logoUrl, coverImageUrl };
+      const paymentMethods = await Promise.all(settingsDraft.paymentMethods.map(async method => {
+        if (method.id !== 'touch_n_go_qr' && method.id !== 'duitnow_qr') return method;
+        const file = paymentQrFiles[method.id];
+        if (!file) return method;
+        return {
+          ...method,
+          qrCodeUrl: await uploadStorePaymentQr({ workspaceId: workspace.id, methodId: method.id, file })
+        };
+      }));
+      const nextDraft = { ...settingsDraft, logoUrl, coverImageUrl, paymentMethods };
       const validationError = validateStoreSettings(nextDraft);
       if (validationError) throw new Error(validationError);
       const updatedStore = await storeService.updateStore(store, nextDraft);
@@ -325,6 +374,7 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
       setSettingsDraft(toSettingsDraft(updatedStore));
       setLogoFile(null);
       setCoverFile(null);
+      setPaymentQrFiles({});
       setMessage('Store settings saved.');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to save Store settings.');
@@ -491,6 +541,42 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
     }
   };
 
+  const handleProductDelete = async () => {
+    if (!editingProduct || isSaving) return;
+    if (!window.confirm(`Delete ${editingProduct.name}? This cannot be undone.`)) return;
+
+    setIsSaving(true);
+    clearMessages();
+    const productToDelete = editingProduct;
+    try {
+      await storeService.deleteProduct(productToDelete.id);
+      await deleteStoreProductPhoto({
+        workspaceId: workspace.id,
+        productId: productToDelete.id,
+        photoUrl: productToDelete.photoUrl
+      });
+      const sharedGroupIds = new Set(
+        products
+          .filter(product => product.id !== productToDelete.id)
+          .flatMap(product => product.optionGroupIds)
+      );
+      const orphanedGroupIds = productToDelete.optionGroupIds.filter(groupId => !sharedGroupIds.has(groupId));
+      await Promise.allSettled(orphanedGroupIds.map(groupId => storeService.deleteOptionGroup(groupId)));
+      setProducts(current => current.filter(product => product.id !== productToDelete.id));
+      setOptionGroups(current => current.filter(group => !orphanedGroupIds.includes(group.id)));
+      setEditingProduct(null);
+      setProductDraft(emptyProductDraft());
+      setProductOptions([]);
+      setProductPhotoFile(null);
+      setIsProductFormOpen(false);
+      setMessage('Product deleted.');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to delete this product.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const readImageFile = (
     event: ChangeEvent<HTMLInputElement>,
     setter: (file: File | null) => void
@@ -510,6 +596,7 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
   }
 
   const currentView = viewItems.find(item => item.id === activeView) || viewItems[0];
+  const unreadNotifications = notifications.filter(notification => !notification.readAt);
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
@@ -520,6 +607,23 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
           <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">{currentView.question}</p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
+          <button
+            type="button"
+            aria-label={`${unreadNotifications.length} unread order notifications`}
+            onClick={() => {
+              const notification = unreadNotifications[0] || notifications[0];
+              if (notification) void openOrderNotification(notification);
+              else setActiveView('orders');
+            }}
+            className="relative inline-flex items-center justify-center gap-2 rounded-full border border-surface-container-high bg-white px-5 py-3 font-sans text-xs font-extrabold text-primary shadow-sm"
+          >
+            <Bell className="h-4 w-4" /> Orders
+            {unreadNotifications.length > 0 && (
+              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-error px-1.5 text-[10px] text-white">
+                {unreadNotifications.length}
+              </span>
+            )}
+          </button>
           <button type="button" onClick={() => setIsShareOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary shadow-sm">
             <Share2 className="h-4 w-4" /> Share & QR
           </button>
@@ -535,6 +639,7 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
           return (
             <button key={item.id} type="button" onClick={() => {
               setActiveView(item.id);
+              if (item.id !== 'orders') setFocusedOrderId('');
               setIsProductFormOpen(false);
               clearMessages();
             }} className={`inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2.5 font-sans text-xs font-extrabold transition ${
@@ -715,6 +820,11 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
               </div>
 
               <div className="mt-7 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                {editingProduct && (
+                  <button type="button" disabled={isSaving} onClick={handleProductDelete} className="inline-flex items-center justify-center gap-2 rounded-full bg-error/10 px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50 sm:mr-auto">
+                    <Trash2 className="h-4 w-4" /> Delete Product
+                  </button>
+                )}
                 <button type="button" onClick={() => setIsProductFormOpen(false)} className="rounded-full bg-surface-container px-5 py-3 font-sans text-xs font-extrabold text-primary">Cancel</button>
                 <button type="submit" disabled={isSaving} className="rounded-full bg-primary px-6 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : 'Save Product'}</button>
               </div>
@@ -750,6 +860,17 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
             )}
           </div>
         </section>
+      )}
+
+      {activeView === 'orders' && (
+        <StoreOrdersPanel
+          workspaceId={workspace.id}
+          country={store.country}
+          currency={store.currency}
+          focusOrderId={focusedOrderId}
+          notifications={unreadNotifications}
+          onNotificationClick={notification => void openOrderNotification(notification)}
+        />
       )}
 
       {activeView === 'pickup' && (
@@ -919,6 +1040,63 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
               <input type="tel" inputMode="tel" autoComplete="tel" placeholder="+60 12-3456789" value={settingsDraft.businessWhatsApp} onChange={event => updateSettings('businessWhatsApp', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
               <span className="mt-1.5 block font-sans text-[11px] font-bold text-on-surface-variant">Shown publicly only on WhatsApp enquiry buttons.</span>
             </label>
+            <fieldset className="md:col-span-2">
+              <legend className="font-display text-2xl font-bold text-primary">Payment Methods</legend>
+              <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Customers see only the methods you enable.</p>
+              <div className="mt-4 space-y-3">
+                {STORE_PAYMENT_METHODS.map(methodDefinition => {
+                  const method = settingsDraft.paymentMethods.find(candidate => candidate.id === methodDefinition.id)!;
+                  const isQr = method.id === 'touch_n_go_qr' || method.id === 'duitnow_qr';
+                  return (
+                    <div key={method.id} className="rounded-2xl border border-surface-container-high p-4">
+                      <label className="flex items-center justify-between gap-4">
+                        <span className="font-sans text-sm font-extrabold text-primary">{methodDefinition.label}</span>
+                        <input
+                          type="checkbox"
+                          checked={method.enabled}
+                          onChange={event => updateSettings('paymentMethods', settingsDraft.paymentMethods.map(candidate => (
+                            candidate.id === method.id ? { ...candidate, enabled: event.target.checked } : candidate
+                          )))}
+                          className="h-5 w-5 rounded text-primary"
+                        />
+                      </label>
+                      {isQr && (
+                        <div className="mt-3 grid gap-3 sm:grid-cols-[6rem_1fr]">
+                          {method.qrCodeUrl ? <img src={method.qrCodeUrl} alt={`${methodDefinition.label} merchant QR`} className="h-24 w-24 rounded-xl border border-surface-container-high object-contain" /> : <div className="flex h-24 w-24 items-center justify-center rounded-xl bg-surface-container-low"><QrCode className="h-7 w-7 text-outline" /></div>}
+                          <label className="block">
+                            <span className="font-sans text-xs font-extrabold text-primary">Merchant QR Code</span>
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              onChange={event => {
+                                const file = event.currentTarget.files?.[0];
+                                if (file) setPaymentQrFiles(current => ({ ...current, [method.id]: file }));
+                              }}
+                              className="mt-2 block w-full font-sans text-xs font-bold text-on-surface-variant"
+                            />
+                            {paymentQrFiles[method.id] && <span className="mt-1 block font-sans text-[11px] font-bold text-on-surface-variant">{paymentQrFiles[method.id]!.name}</span>}
+                          </label>
+                        </div>
+                      )}
+                      {method.id !== 'stripe' && (
+                        <label className="mt-3 block">
+                          <span className="font-sans text-xs font-extrabold text-primary">Customer Instructions {method.id === 'bank_transfer' ? '' : '(optional)'}</span>
+                          <textarea
+                            rows={2}
+                            placeholder={method.id === 'bank_transfer' ? 'Bank name, account name, and account number' : 'Short payment or pickup instructions'}
+                            value={method.instructions}
+                            onChange={event => updateSettings('paymentMethods', settingsDraft.paymentMethods.map(candidate => (
+                              candidate.id === method.id ? { ...candidate, instructions: event.target.value } : candidate
+                            )))}
+                            className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary"
+                          />
+                        </label>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </fieldset>
           </div>
           <div className="mt-7 flex justify-end">
             <button type="submit" disabled={isSaving} className="rounded-full bg-primary px-6 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : 'Save Store Settings'}</button>

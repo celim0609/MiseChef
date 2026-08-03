@@ -4,8 +4,10 @@ export const PAYMENT_STATUS = Object.freeze({
   pending: 'pending',
   processing: 'processing',
   paid: 'paid',
+  pendingVerification: 'pending_verification',
   failed: 'failed',
-  cancelled: 'cancelled'
+  cancelled: 'cancelled',
+  rejected: 'rejected'
 });
 export const PAYMENT_REFUND_STATUS = Object.freeze({
   none: 'none',
@@ -31,6 +33,33 @@ const ORDER_DAY_BY_INDEX = [
 const ORDER_NUMBER_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 export const readString = value => typeof value === 'string' ? value.trim() : '';
+
+export const STORE_PAYMENT_METHODS = Object.freeze({
+  cash_on_pickup: { name: 'Cash on Pickup', provider: 'manual', mode: 'manual', receiptAllowed: false },
+  touch_n_go_qr: { name: "Touch 'n Go QR", provider: 'manual', mode: 'manual', receiptAllowed: true },
+  duitnow_qr: { name: 'DuitNow QR', provider: 'manual', mode: 'manual', receiptAllowed: true },
+  bank_transfer: { name: 'Bank Transfer', provider: 'manual', mode: 'manual', receiptAllowed: true },
+  stripe: { name: 'Stripe', provider: 'stripe', mode: 'single_merchant', receiptAllowed: false }
+});
+
+export const getEnabledStorePaymentMethod = (store, methodId) => {
+  const id = readString(methodId) || 'stripe';
+  const definition = STORE_PAYMENT_METHODS[id];
+  if (!definition) throw new Error('Choose a valid payment method.');
+  const rawMethods = Array.isArray(store.paymentMethods) ? store.paymentMethods : [];
+  const configured = rawMethods.find(method => readString(method?.id) === id);
+  const enabled = configured ? configured.enabled === true : id === 'stripe';
+  if (!enabled) throw new Error('This payment method is no longer available.');
+  const qrCodeUrl = readString(configured?.qrCodeUrl);
+  const instructions = readString(configured?.instructions);
+  if (['touch_n_go_qr', 'duitnow_qr'].includes(id) && !qrCodeUrl) {
+    throw new Error('This QR payment method is not configured correctly.');
+  }
+  if (id === 'bank_transfer' && !instructions) {
+    throw new Error('Bank Transfer is not configured correctly.');
+  }
+  return { id, ...definition, qrCodeUrl, instructions };
+};
 
 const readNumber = value => typeof value === 'number' && Number.isFinite(value) ? value : 0;
 const roundMoney = value => Math.round((value + Number.EPSILON) * 100) / 100;
@@ -195,6 +224,7 @@ export const buildPendingOrder = ({
   optionGroups,
   paymentProvider,
   paymentProviderMode,
+  paymentMethod,
   draft,
   now = new Date()
 }) => {
@@ -206,6 +236,10 @@ export const buildPendingOrder = ({
   if (!readString(paymentProvider) || !readString(paymentProviderMode)) {
     throw new Error('This Store payment provider is not configured.');
   }
+  const resolvedPaymentMethod = paymentMethod || {
+    id: 'stripe',
+    name: 'Secure online payment'
+  };
   const items = buildOrderItems(draft.selections, products, optionGroups);
   const pickupLocation = store.pickupLocations.find(
     location => readString(location.id) === readString(draft.pickupLocationId)
@@ -222,8 +256,8 @@ export const buildPendingOrder = ({
     workspaceId: readString(store.workspaceId) || readString(store.id),
     storeName: readString(store.name),
     currency: region.currency,
-    paymentMethodId: 'online',
-    paymentMethodName: 'Secure online payment',
+    paymentMethodId: readString(resolvedPaymentMethod.id),
+    paymentMethodName: readString(resolvedPaymentMethod.name) || 'Secure online payment',
     customerName: readString(draft.customerName),
     phone: readString(draft.phone),
     pickupDate: readString(draft.pickupDate),
@@ -237,6 +271,9 @@ export const buildPendingOrder = ({
     itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
     total,
     status: 'Awaiting Payment',
+    fulfilmentStatus: '',
+    fulfilmentUpdatedAt: null,
+    fulfilmentUpdatedBy: '',
     payment: {
       provider: readString(paymentProvider),
       providerMode: readString(paymentProviderMode),
@@ -249,6 +286,11 @@ export const buildPendingOrder = ({
       refundStatus: PAYMENT_REFUND_STATUS.none,
       refundedAmountMinor: 0,
       refundFailureCode: '',
+      receiptPath: '',
+      receiptFileName: '',
+      receiptUploadedAt: null,
+      reviewedAt: null,
+      reviewedBy: '',
       createdAt,
       updatedAt: createdAt
     },

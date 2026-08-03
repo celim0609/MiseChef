@@ -27,6 +27,7 @@ export const createStripeSingleMerchantAdapter = secretKey => {
   return {
     provider: STRIPE_PROVIDER_ID,
     mode: STRIPE_PROVIDER_MODE,
+    requiresSellingWorkspace: true,
 
     async createPayment({ order }) {
       const paymentIntent = await stripe.paymentIntents.create({

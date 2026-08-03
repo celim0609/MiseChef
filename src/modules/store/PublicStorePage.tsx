@@ -21,6 +21,7 @@ import {
   calculateStoreOptionAdjustedPrice,
   formatPickupDateLabel,
   getStoreOptionSelectionLimits,
+  getStorePaymentMethodLabel,
   getValidPickupDates,
   validateStoreProductOptionSelections
 } from './storeModel';
@@ -30,6 +31,7 @@ import type {
   PublicStoreData,
   PublicStoreOrderResult,
   StorePaymentProviderId,
+  StorePaymentMethodId,
   StorePaymentSession,
   StoreProduct
 } from './types';
@@ -55,6 +57,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
   const [pickupSession, setPickupSession] = useState('');
   const [pickupLocationId, setPickupLocationId] = useState('');
   const [notes, setNotes] = useState('');
+  const [paymentMethodId, setPaymentMethodId] = useState<StorePaymentMethodId>('stripe');
   const [checkoutError, setCheckoutError] = useState('');
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [paymentSession, setPaymentSession] = useState<StorePaymentSession | null>(null);
@@ -72,6 +75,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
         setPickupDate(storeData ? getValidPickupDates(storeData.store)[0] || '' : '');
         setPickupSession(storeData?.store.pickupSessions[0] || '');
         setPickupLocationId(storeData?.store.pickupLocations[0]?.id || '');
+        setPaymentMethodId(storeData?.store.paymentMethods.find(method => method.enabled)?.id || 'stripe');
       })
       .catch(() => {
         if (!isCancelled) {
@@ -99,7 +103,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
       paymentSessionId,
       checkoutAccessToken
     );
-    if (result.paymentStatus === 'paid') {
+    if (['paid', 'pending', 'pending_verification'].includes(result.paymentStatus)) {
       setPlacedOrder(result);
       setPaymentSession(null);
       setCart([]);
@@ -252,6 +256,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
     setIsPlacingOrder(true);
     try {
       const session = await storePaymentService.createPayment(slug, {
+        paymentMethodId,
         customerName,
         phone,
         pickupDate,
@@ -388,12 +393,20 @@ export default function PublicStorePage({ slug }: { slug: string }) {
           {placedOrder && (
             <div className="mt-5 rounded-2xl bg-green-50 p-4 text-green-800">
               <CheckCircle2 className="h-6 w-6" />
-              <p className="mt-2 font-display text-xl font-bold">Payment received</p>
+              <p className="mt-2 font-display text-xl font-bold">Thank you</p>
+              <p className="mt-1 font-sans text-sm font-bold">
+                {placedOrder.paymentStatus === 'paid'
+                  ? 'Your payment was received and your order is confirmed.'
+                  : placedOrder.paymentStatus === 'pending_verification'
+                    ? 'Your order was received. The Store will verify your payment.'
+                    : 'Your order is confirmed. Please pay when you collect it.'}
+              </p>
               <dl className="mt-4 grid gap-3 rounded-2xl bg-white/70 p-4">
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Order Number</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.orderNumber}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Date</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{formatPickupDateLabel(placedOrder.pickupDate, store.country)}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Location</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupLocationName}</dd></div>
-                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Session</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupSession}</dd></div>
+                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Time</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupSession}</dd></div>
+                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Payment Status</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.paymentStatus === 'paid' ? 'Paid' : placedOrder.paymentStatus === 'pending_verification' ? 'Pending Verification' : 'Cash on Pickup'}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Payment Method</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.paymentMethodName}</dd></div>
               </dl>
               <div className="mt-4 flex flex-col gap-2">
@@ -490,12 +503,17 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                     {store.pickupSessions.map(session => <option key={session} value={session}>{session}</option>)}
                   </select>
                 </label>
-                <div className="rounded-2xl bg-surface-container-low p-4">
-                  <p className="font-sans text-xs font-extrabold text-primary">Secure online payment</p>
-                  <p className="mt-1 font-sans text-xs font-bold leading-relaxed text-on-surface-variant">
-                    Available methods are shown automatically for {region.countryName}.
-                  </p>
-                </div>
+                <fieldset>
+                  <legend className="font-sans text-xs font-extrabold text-primary">Payment Method</legend>
+                  <div className="mt-2 grid gap-2">
+                    {store.paymentMethods.filter(method => method.enabled).map(method => (
+                      <label key={method.id} className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 ${paymentMethodId === method.id ? 'border-primary bg-primary/5' : 'border-surface-container-high bg-surface-container-low'}`}>
+                        <input type="radio" name="paymentMethod" value={method.id} checked={paymentMethodId === method.id} onChange={() => setPaymentMethodId(method.id)} className="h-4 w-4 text-primary" />
+                        <span className="font-sans text-sm font-extrabold text-primary">{getStorePaymentMethodLabel(method.id)}</span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
                 <p className="pt-1 font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Your details</p>
                 <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Name</span>

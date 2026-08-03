@@ -1,0 +1,130 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { after, before, test } from 'node:test';
+import {
+  assertFails,
+  assertSucceeds,
+  initializeTestEnvironment
+} from '@firebase/rules-unit-testing';
+
+const PROJECT_ID = 'demo-misechef-payment-rules';
+const BUCKET_URL = `gs://${PROJECT_ID}.appspot.com`;
+const WORKSPACE_A = 'workspace-payment-a';
+const WORKSPACE_B = 'workspace-payment-b';
+const ORDER_A = 'order-payment-a';
+const RECEIPT_PATH = `store-payment-receipts/${WORKSPACE_A}/${ORDER_A}/receipt.png`;
+const firestoreRules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
+const storageRules = readFileSync(new URL('../storage.rules', import.meta.url), 'utf8');
+
+let environment;
+let anonymous;
+let ownerA;
+let managerA;
+let memberA;
+let ownerB;
+let managerB;
+
+before(async () => {
+  environment = await initializeTestEnvironment({
+    projectId: PROJECT_ID,
+    firestore: { rules: firestoreRules },
+    storage: { rules: storageRules }
+  });
+  anonymous = environment.unauthenticatedContext();
+  ownerA = environment.authenticatedContext('owner-a', { email: 'owner-a@example.test' });
+  managerA = environment.authenticatedContext('manager-a', { email: 'manager-a@example.test' });
+  memberA = environment.authenticatedContext('member-a', { email: 'member-a@example.test' });
+  ownerB = environment.authenticatedContext('owner-b', { email: 'owner-b@example.test' });
+  managerB = environment.authenticatedContext('manager-b', { email: 'manager-b@example.test' });
+
+  await environment.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await Promise.all([
+      db.doc(`workspaces/${WORKSPACE_A}`).set({ id: WORKSPACE_A, ownerId: 'owner-a', country: 'MY' }),
+      db.doc(`workspaces/${WORKSPACE_B}`).set({ id: WORKSPACE_B, ownerId: 'owner-b', country: 'MY' }),
+      db.doc(`workspaceMembers/${WORKSPACE_A}_owner-a`).set({
+        workspaceId: WORKSPACE_A, userId: 'owner-a', role: 'Owner', status: 'Active'
+      }),
+      db.doc(`workspaceMembers/${WORKSPACE_A}_manager-a`).set({
+        workspaceId: WORKSPACE_A, userId: 'manager-a', role: 'Manager', status: 'Active'
+      }),
+      db.doc(`workspaceMembers/${WORKSPACE_A}_member-a`).set({
+        workspaceId: WORKSPACE_A, userId: 'member-a', role: 'Chef', status: 'Active'
+      }),
+      db.doc(`workspaceMembers/${WORKSPACE_B}_manager-b`).set({
+        workspaceId: WORKSPACE_B, userId: 'manager-b', role: 'Manager', status: 'Active'
+      }),
+      db.doc(`workspaceMembers/${WORKSPACE_B}_owner-b`).set({
+        workspaceId: WORKSPACE_B, userId: 'owner-b', role: 'Owner', status: 'Active'
+      }),
+      db.doc(`storeOrders/${ORDER_A}`).set({
+        id: ORDER_A,
+        workspaceId: WORKSPACE_A,
+        storeId: WORKSPACE_A,
+        status: 'Pending Verification',
+        payment: {
+          provider: 'manual',
+          status: 'pending_verification',
+          receiptPath: RECEIPT_PATH,
+          reviewedAt: null,
+          reviewedBy: ''
+        }
+      })
+    ]);
+    await context.storage(BUCKET_URL).ref(RECEIPT_PATH).put(
+      Uint8Array.from([137, 80, 78, 71]),
+      { contentType: 'image/png' }
+    );
+  });
+});
+
+after(async () => {
+  await environment?.cleanup();
+});
+
+test('server-controlled receipt exists and matching Owner and Manager can read it', async () => {
+  assert.equal((await assertSucceeds(ownerA.storage(BUCKET_URL).ref(RECEIPT_PATH).getDownloadURL())).includes('receipt.png'), true);
+  assert.equal((await assertSucceeds(managerA.storage(BUCKET_URL).ref(RECEIPT_PATH).getDownloadURL())).includes('receipt.png'), true);
+});
+
+test('anonymous, unrelated, and other-Workspace users cannot read a receipt', async () => {
+  await assertFails(anonymous.storage(BUCKET_URL).ref(RECEIPT_PATH).getDownloadURL());
+  await assertFails(memberA.storage(BUCKET_URL).ref(RECEIPT_PATH).getDownloadURL());
+  await assertFails(ownerB.storage(BUCKET_URL).ref(RECEIPT_PATH).getDownloadURL());
+  await assertFails(managerB.storage(BUCKET_URL).ref(RECEIPT_PATH).getDownloadURL());
+});
+
+test('no client, including the matching Owner or Manager, can write or delete protected receipts', async () => {
+  const replacement = Uint8Array.from([1, 2, 3]);
+  await assertFails(anonymous.storage(BUCKET_URL).ref(RECEIPT_PATH).put(replacement, { contentType: 'image/png' }));
+  await assertFails(ownerA.storage(BUCKET_URL).ref(RECEIPT_PATH).put(replacement, { contentType: 'image/png' }));
+  await assertFails(managerA.storage(BUCKET_URL).ref(RECEIPT_PATH).put(replacement, { contentType: 'image/png' }));
+  await assertFails(ownerB.storage(BUCKET_URL).ref(RECEIPT_PATH).delete());
+});
+
+test('clients cannot create orders or directly mutate payment and approval fields', async () => {
+  await assertFails(anonymous.firestore().doc('storeOrders/customer-created').set({
+    id: 'customer-created', workspaceId: WORKSPACE_A, payment: { status: 'paid' }
+  }));
+  await assertFails(ownerA.firestore().doc(`storeOrders/${ORDER_A}`).update({
+    status: 'Paid',
+    'payment.status': 'paid',
+    'payment.reviewedBy': 'owner-a'
+  }));
+  await assertFails(managerA.firestore().doc(`storeOrders/${ORDER_A}`).update({
+    'payment.status': 'rejected',
+    'payment.reviewedBy': 'manager-a'
+  }));
+  await assertFails(ownerB.firestore().doc(`storeOrders/${ORDER_A}`).update({
+    'payment.status': 'paid'
+  }));
+});
+
+test('only the matching Store team can read the protected order', async () => {
+  await assertSucceeds(ownerA.firestore().doc(`storeOrders/${ORDER_A}`).get());
+  await assertSucceeds(managerA.firestore().doc(`storeOrders/${ORDER_A}`).get());
+  await assertFails(anonymous.firestore().doc(`storeOrders/${ORDER_A}`).get());
+  await assertFails(memberA.firestore().doc(`storeOrders/${ORDER_A}`).get());
+  await assertFails(ownerB.firestore().doc(`storeOrders/${ORDER_A}`).get());
+  await assertFails(managerB.firestore().doc(`storeOrders/${ORDER_A}`).get());
+});

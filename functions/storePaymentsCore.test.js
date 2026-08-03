@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   buildPendingOrder,
   createOrderNumber,
+  getEnabledStorePaymentMethod,
   PAYMENT_STATUS
 } from './storePaymentsCore.js';
 import {
@@ -305,6 +306,37 @@ test('Phase 1 accepts only the configured Ce Lim Kitchen workspace id, never its
     () => assertSellingWorkspace(store, ''),
     /not configured yet/
   );
+});
+
+test('Store payment configuration is server-authoritative and manual methods keep server pricing', () => {
+  const configuredStore = {
+    ...store,
+    paymentMethods: [
+      { id: 'cash_on_pickup', enabled: true, qrCodeUrl: '', instructions: 'Pay at pickup.' },
+      { id: 'touch_n_go_qr', enabled: true, qrCodeUrl: 'https://storage.test/tng.png', instructions: '' },
+      { id: 'duitnow_qr', enabled: false, qrCodeUrl: '', instructions: '' },
+      { id: 'bank_transfer', enabled: true, qrCodeUrl: '', instructions: 'Bank account details' },
+      { id: 'stripe', enabled: false, qrCodeUrl: '', instructions: '' }
+    ]
+  };
+  const method = getEnabledStorePaymentMethod(configuredStore, 'touch_n_go_qr');
+  const order = buildPendingOrder({
+    id: 'manual-order', orderNumber: 'MC-260726-MANUAL', store: configuredStore,
+    products, optionGroups, paymentProvider: method.provider, paymentProviderMode: method.mode,
+    paymentMethod: method, draft: { ...draft, paymentMethodId: method.id },
+    now: new Date('2026-07-26T04:00:00.000Z')
+  });
+  assert.equal(order.paymentMethodId, 'touch_n_go_qr');
+  assert.equal(order.paymentMethodName, "Touch 'n Go QR");
+  assert.equal(order.payment.provider, 'manual');
+  assert.equal(order.total, 9.8);
+  assert.throws(() => getEnabledStorePaymentMethod(configuredStore, 'stripe'), /no longer available/);
+  assert.throws(() => getEnabledStorePaymentMethod(configuredStore, 'duitnow_qr'), /no longer available/);
+});
+
+test('legacy Stores remain Stripe-only until the owner enables another method', () => {
+  assert.equal(getEnabledStorePaymentMethod(store, 'stripe').provider, 'stripe');
+  assert.throws(() => getEnabledStorePaymentMethod(store, 'cash_on_pickup'), /no longer available/);
 });
 
 test('Stripe lifecycle maps to stable MiseChef payment states', () => {
