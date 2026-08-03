@@ -11,6 +11,7 @@ import type {
   StoreOrderDraft,
   StoreOrderDay,
   StorePaymentMethodConfig,
+  StoreContact,
   StoreSettingsDraft,
   WorkspaceStore
 } from './types';
@@ -26,6 +27,31 @@ export const STORE_ORDER_DAYS: Array<{ id: StoreOrderDay; label: string; dayInde
   { id: 'sunday', label: 'Sunday', dayIndex: 0 }
 ];
 export const DEFAULT_STORE_ORDER_DAYS = STORE_ORDER_DAYS.map(day => day.id);
+export const createDefaultStoreContact = (): StoreContact => ({
+  phone: '',
+  email: '',
+  whatsapp: '',
+  facebook: '',
+  instagram: '',
+  tiktok: '',
+  website: ''
+});
+
+export const normalizeStoreContact = (
+  value: unknown,
+  legacyWhatsApp = ''
+): StoreContact => {
+  const contact = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  return {
+    phone: readString(contact.phone),
+    email: readString(contact.email),
+    whatsapp: readString(contact.whatsapp, readString(legacyWhatsApp)),
+    facebook: readString(contact.facebook),
+    instagram: readString(contact.instagram),
+    tiktok: readString(contact.tiktok),
+    website: readString(contact.website)
+  };
+};
 export const STORE_PAYMENT_METHODS: Array<{ id: StorePaymentMethodConfig['id']; label: string }> = [
   { id: 'cash_on_pickup', label: 'Cash on Pickup' },
   { id: 'touch_n_go_qr', label: "Touch 'n Go QR" },
@@ -181,6 +207,7 @@ export const createDefaultWorkspaceStore = (
     description: '',
     contactInformation: '',
     businessWhatsApp: '',
+    storeContact: createDefaultStoreContact(),
     businessHours: DEFAULT_STORE_BUSINESS_HOURS,
     pickupEnabled: false,
     deliveryEnabled: false,
@@ -217,6 +244,7 @@ export const normalizeWorkspaceStore = (
     description: readString(data.description),
     contactInformation: readString(data.contactInformation),
     businessWhatsApp: readString(data.businessWhatsApp),
+    storeContact: normalizeStoreContact(data.storeContact, readString(data.businessWhatsApp)),
     businessHours: readString(data.businessHours, DEFAULT_STORE_BUSINESS_HOURS),
     pickupEnabled: readBoolean(data.pickupEnabled),
     deliveryEnabled: readBoolean(data.deliveryEnabled),
@@ -285,6 +313,28 @@ export const validateStoreSettings = (draft: StoreSettingsDraft) => {
   if (draft.description.trim().length > 1200) return 'Description must be 1,200 characters or fewer.';
   if (draft.contactInformation.trim().length > 500) return 'Contact information must be 500 characters or fewer.';
   if (!isValidBusinessWhatsApp(draft.businessWhatsApp)) return 'Enter a valid Business WhatsApp number, including country code.';
+  if (draft.storeContact.phone.trim().length > 40) return 'Store phone must be 40 characters or fewer.';
+  if (draft.storeContact.email.trim().length > 254
+    || (draft.storeContact.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.storeContact.email.trim()))) {
+    return 'Enter a valid Store email address.';
+  }
+  if (!isValidBusinessWhatsApp(draft.storeContact.whatsapp)) return 'Enter a valid Store WhatsApp number, including country code.';
+  const socialUrls = [
+    draft.storeContact.facebook,
+    draft.storeContact.instagram,
+    draft.storeContact.tiktok,
+    draft.storeContact.website
+  ];
+  if (socialUrls.some(value => value.trim().length > 500)) return 'Store contact links must be 500 characters or fewer.';
+  if (socialUrls.some(value => {
+    if (!value.trim()) return false;
+    try {
+      const url = new URL(value.trim());
+      return !['http:', 'https:'].includes(url.protocol);
+    } catch {
+      return true;
+    }
+  })) return 'Enter complete http:// or https:// links for Store social profiles and website.';
   if (draft.businessHours.trim().length > 300) return 'Business hours must be 300 characters or fewer.';
   if (pickupSessions.length > 20) return 'Use 20 pickup sessions or fewer.';
   if (pickupSessions.some(session => session.length > 80)) {

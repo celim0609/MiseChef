@@ -4,6 +4,7 @@ import {
   BULK_ORDER_MESSAGE,
   createCustomerOrderNumber,
   getBusinessWhatsAppUrl,
+  getStoreChatWhatsAppUrl,
   isValidBusinessWhatsApp
 } from './selling';
 
@@ -14,6 +15,19 @@ test('Business WhatsApp accepts international numbers without exposing other Sto
     getBusinessWhatsAppUrl('+60 12-3456789'),
     `https://wa.me/60123456789?text=${encodeURIComponent(BULK_ORDER_MESSAGE)}`
   );
+});
+
+test('Store chat uses wa.me and automatically includes an existing order number', () => {
+  const url = getStoreChatWhatsAppUrl({
+    whatsapp: '+60 12-3456789',
+    storeName: 'Ce Lim Kitchen',
+    orderNumber: 'MC-260803-ABC234'
+  });
+  assert.equal(
+    url,
+    `https://wa.me/60123456789?text=${encodeURIComponent('Hi! I need help with my Ce Lim Kitchen order MC-260803-ABC234.')}`
+  );
+  assert.equal(getStoreChatWhatsAppUrl({ whatsapp: ' ', storeName: 'Ce Lim Kitchen' }), '');
 });
 
 test('bulk order enquiries contain only the approved blank enquiry template', () => {

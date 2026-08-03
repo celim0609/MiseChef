@@ -14,6 +14,15 @@ export const createPublicStoreQaFixture = (slug: string): PublicStoreData | null
       description: 'Local checkout layout fixture. No production data or payment credentials are used.',
       contactInformation: '',
       businessWhatsApp: '+60123456789',
+      storeContact: {
+        phone: '+60123456789',
+        email: 'hello@example.com',
+        whatsapp: '+60123456789',
+        facebook: '',
+        instagram: '',
+        tiktok: '',
+        website: 'https://example.com'
+      },
       businessHours: 'Monday–Friday, 8:00 AM–2:00 PM',
       pickupEnabled: true,
       deliveryEnabled: false,

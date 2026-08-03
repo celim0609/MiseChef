@@ -54,6 +54,17 @@ test('product deletion is scoped to the same Owner-Manager authorization as crea
   assert.doesNotMatch(productRules, /allow (create|update|delete): if true/);
 });
 
+test('Store Contact fields are schema-bounded and remain under existing Store team authorization', () => {
+  const storeRulesStart = firestoreRules.indexOf('match /stores/{workspaceId}');
+  const storeRulesEnd = firestoreRules.indexOf('match /storeProducts/{productId}', storeRulesStart);
+  const storeRules = firestoreRules.slice(storeRulesStart, storeRulesEnd);
+
+  assert.match(firestoreRules, /function isValidStoreContact\(contact\)/);
+  assert.match(firestoreRules, /contact\.keys\(\)\.hasOnly/);
+  assert.match(storeRules, /allow update: if isWorkspaceOwnerOrManager\(workspaceId\)/);
+  assert.match(storeRules, /isValidStoreSettings\(request\.resource\.data, workspaceId\)/);
+  assert.doesNotMatch(storeRules, /allow (create|update|delete): if true/);
+});
 
 test('order timelines and notifications are private server-created Store team data', () => {
   const rulesStart = firestoreRules.indexOf('match /storeOrderTimeline/{eventId}');
@@ -76,10 +87,12 @@ test('the public Store UI does not render private contact details or internal or
   assert.match(publicStorePage, /placedOrder\.pickupLocationName/);
   assert.match(publicStorePage, /placedOrder\.pickupSession/);
   assert.match(publicStorePage, /placedOrder\.paymentMethodName/);
-  assert.match(publicStorePage, /getBusinessWhatsAppUrl\(store\.businessWhatsApp\)/);
   assert.match(publicStorePage, />Thank you</);
   assert.match(publicStorePage, /placedOrder\.paymentStatus/);
   assert.match(publicStorePage, />Pickup Time</);
+  assert.match(publicStorePage, /store\.storeContact\.whatsapp/);
+  assert.match(publicStorePage, /<StoreContactButton/);
+  assert.match(publicStorePage, /orderNumber=\{placedOrder\.orderNumber\}/);
   assert.match(publicStorePage, /selectedPickupLocation\.address/);
   assert.match(publicStorePage, /Need a Bulk Order\?/);
   assert.match(publicStorePage, /Explore MiseChef/);

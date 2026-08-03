@@ -12,6 +12,7 @@ import {
 import { formatRegionCurrency } from '../../regions';
 import { storeOrderService } from './services';
 import { formatPickupDateLabel } from './storeModel';
+import StoreContactButton from './StoreContactButton';
 import type {
   StoreFulfilmentStatus,
   StoreNotification,
@@ -59,6 +60,8 @@ interface StoreOrdersPanelProps {
   workspaceId: string;
   country: 'MY' | 'SG';
   currency: 'MYR' | 'SGD';
+  storeName: string;
+  storeWhatsApp: string;
   focusOrderId: string;
   notifications: StoreNotification[];
   onNotificationClick: (notification: StoreNotification) => void;
@@ -68,6 +71,8 @@ export default function StoreOrdersPanel({
   workspaceId,
   country,
   currency,
+  storeName,
+  storeWhatsApp,
   focusOrderId,
   notifications,
   onNotificationClick
@@ -286,6 +291,12 @@ export default function StoreOrdersPanel({
               </div>
             )}
 
+            <StoreContactButton
+              whatsapp={storeWhatsApp}
+              storeName={storeName}
+              orderNumber={selectedOrder.orderNumber}
+              className="mt-5 w-full sm:w-auto"
+            />
 
             <div className="mt-7">
               <h3 className="font-display text-xl font-bold text-primary">Fulfilment Timeline</h3>

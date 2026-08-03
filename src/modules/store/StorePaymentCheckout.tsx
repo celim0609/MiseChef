@@ -1,5 +1,6 @@
 import { getPaymentProviderClientAdapter } from './paymentProviders';
 import type { PaymentProviderCheckoutProps } from './paymentProviders/types';
+import StoreContactButton from './StoreContactButton';
 
 export default function StorePaymentCheckout({
   session,
@@ -7,6 +8,8 @@ export default function StorePaymentCheckout({
   phone,
   currency,
   total,
+  storeName,
+  storeWhatsApp,
   returnUrl,
   onComplete,
   onBack
@@ -21,15 +24,25 @@ export default function StorePaymentCheckout({
 
   const ProviderCheckout = adapter.Checkout;
   return (
-    <ProviderCheckout
-      session={session}
-      customerName={customerName}
-      phone={phone}
-      currency={currency}
-      total={total}
-      returnUrl={returnUrl}
-      onComplete={onComplete}
-      onBack={onBack}
-    />
+    <div className="space-y-3">
+      <ProviderCheckout
+        session={session}
+        customerName={customerName}
+        phone={phone}
+        currency={currency}
+        total={total}
+        storeName={storeName}
+        storeWhatsApp={storeWhatsApp}
+        returnUrl={returnUrl}
+        onComplete={onComplete}
+        onBack={onBack}
+      />
+      <StoreContactButton
+        whatsapp={storeWhatsApp}
+        storeName={storeName}
+        orderNumber={session.orderNumber}
+        className="w-full"
+      />
+    </div>
   );
 }

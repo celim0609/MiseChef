@@ -8,6 +8,8 @@ export interface PaymentProviderCheckoutProps {
   phone: string;
   currency: RegionCurrency;
   total: number;
+  storeName: string;
+  storeWhatsApp: string;
   returnUrl: string;
   onComplete: (paymentSessionId: string) => Promise<void>;
   onBack: () => Promise<void>;

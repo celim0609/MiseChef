@@ -194,6 +194,32 @@ service cloud.firestore {
         && method.instructions.size() <= 1000;
     }
 
+    function isValidStoreContact(contact) {
+      return contact is map
+        && contact.keys().hasOnly([
+          'phone',
+          'email',
+          'whatsapp',
+          'facebook',
+          'instagram',
+          'tiktok',
+          'website'
+        ])
+        && contact.phone is string
+        && contact.phone.size() <= 40
+        && contact.email is string
+        && contact.email.size() <= 254
+        && contact.whatsapp is string
+        && contact.whatsapp.size() <= 30
+        && contact.facebook is string
+        && contact.facebook.size() <= 500
+        && contact.instagram is string
+        && contact.instagram.size() <= 500
+        && contact.tiktok is string
+        && contact.tiktok.size() <= 500
+        && contact.website is string
+        && contact.website.size() <= 500;
+    }
 
     function isValidStoreSettings(data, workspaceId) {
       return data.keys().hasOnly([
@@ -206,6 +232,7 @@ service cloud.firestore {
           'description',
           'contactInformation',
           'businessWhatsApp',
+          'storeContact',
           'businessHours',
           'pickupEnabled',
           'deliveryEnabled',
@@ -238,6 +265,7 @@ service cloud.firestore {
         && data.contactInformation.size() <= 500
         && data.businessWhatsApp is string
         && data.businessWhatsApp.size() <= 30
+        && isValidStoreContact(data.storeContact)
         && data.businessHours is string
         && data.businessHours.size() <= 300
         && data.pickupEnabled is bool
@@ -770,6 +798,7 @@ service cloud.firestore {
           'description',
           'contactInformation',
           'businessWhatsApp',
+          'storeContact',
           'businessHours',
           'pickupEnabled',
           'deliveryEnabled',

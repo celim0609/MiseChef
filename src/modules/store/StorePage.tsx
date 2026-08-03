@@ -86,6 +86,7 @@ const toSettingsDraft = (store: WorkspaceStore): StoreSettingsDraft => ({
   description: store.description,
   contactInformation: store.contactInformation,
   businessWhatsApp: store.businessWhatsApp,
+  storeContact: { ...store.storeContact },
   businessHours: store.businessHours,
   pickupEnabled: store.pickupEnabled,
   deliveryEnabled: store.deliveryEnabled,
@@ -246,6 +247,17 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
     value: StoreSettingsDraft[K]
   ) => {
     setSettingsDraft(current => current ? { ...current, [field]: value } : current);
+  };
+
+  const updateStoreContact = (
+    field: keyof StoreSettingsDraft['storeContact'],
+    value: string
+  ) => {
+    setSettingsDraft(current => current ? {
+      ...current,
+      ...(field === 'whatsapp' ? { businessWhatsApp: value } : {}),
+      storeContact: { ...current.storeContact, [field]: value }
+    } : current);
   };
 
   const toggleOrderDay = (dayId: StoreSettingsDraft['orderDays'][number]) => {
@@ -867,6 +879,8 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
           workspaceId={workspace.id}
           country={store.country}
           currency={store.currency}
+          storeName={store.name}
+          storeWhatsApp={store.storeContact.whatsapp}
           focusOrderId={focusedOrderId}
           notifications={unreadNotifications}
           onNotificationClick={notification => void openOrderNotification(notification)}
@@ -1031,15 +1045,31 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
               <span className="font-sans text-xs font-extrabold text-primary">Description</span>
               <textarea rows={4} value={settingsDraft.description} onChange={event => updateSettings('description', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
             </label>
-            <label className="block md:col-span-2">
-              <span className="font-sans text-xs font-extrabold text-primary">Contact Information</span>
-              <textarea rows={3} placeholder="Phone, email, or other contact details" value={settingsDraft.contactInformation} onChange={event => updateSettings('contactInformation', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
-            </label>
-            <label className="block md:col-span-2">
-              <span className="font-sans text-xs font-extrabold text-primary">Business WhatsApp</span>
-              <input type="tel" inputMode="tel" autoComplete="tel" placeholder="+60 12-3456789" value={settingsDraft.businessWhatsApp} onChange={event => updateSettings('businessWhatsApp', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
-              <span className="mt-1.5 block font-sans text-[11px] font-bold text-on-surface-variant">Shown publicly only on WhatsApp enquiry buttons.</span>
-            </label>
+            <fieldset className="md:col-span-2">
+              <legend className="font-display text-2xl font-bold text-primary">Store Contact</legend>
+              <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Customers can contact the Store using the details you choose to provide.</p>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="font-sans text-xs font-extrabold text-primary">Phone</span>
+                  <input type="tel" inputMode="tel" autoComplete="tel" placeholder="+60 12-3456789" value={settingsDraft.storeContact.phone} onChange={event => updateStoreContact('phone', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                </label>
+                <label className="block">
+                  <span className="font-sans text-xs font-extrabold text-primary">Email</span>
+                  <input type="email" inputMode="email" autoComplete="email" placeholder="hello@store.com" value={settingsDraft.storeContact.email} onChange={event => updateStoreContact('email', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                </label>
+                <label className="block sm:col-span-2">
+                  <span className="font-sans text-xs font-extrabold text-primary">WhatsApp</span>
+                  <input type="tel" inputMode="tel" autoComplete="tel" placeholder="+60 12-3456789" value={settingsDraft.storeContact.whatsapp} onChange={event => updateStoreContact('whatsapp', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                  <span className="mt-1.5 block font-sans text-[11px] font-bold text-on-surface-variant">Enables the public “Chat with Store” button.</span>
+                </label>
+                {(['facebook', 'instagram', 'tiktok', 'website'] as const).map(field => (
+                  <label key={field} className="block">
+                    <span className="font-sans text-xs font-extrabold capitalize text-primary">{field}</span>
+                    <input type="url" inputMode="url" placeholder="https://" value={settingsDraft.storeContact[field]} onChange={event => updateStoreContact(field, event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                  </label>
+                ))}
+              </div>
+            </fieldset>
             <fieldset className="md:col-span-2">
               <legend className="font-display text-2xl font-bold text-primary">Payment Methods</legend>
               <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Customers see only the methods you enable.</p>

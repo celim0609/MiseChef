@@ -16,6 +16,15 @@ export interface StorePaymentMethodConfig {
   instructions: string;
 }
 
+export interface StoreContact {
+  phone: string;
+  email: string;
+  whatsapp: string;
+  facebook: string;
+  instagram: string;
+  tiktok: string;
+  website: string;
+}
 
 export type StoreOrderDay =
   | 'monday'
@@ -39,6 +48,7 @@ export interface WorkspaceStore {
   description: string;
   contactInformation: string;
   businessWhatsApp: string;
+  storeContact: StoreContact;
   businessHours: string;
   pickupEnabled: boolean;
   deliveryEnabled: boolean;
@@ -63,6 +73,7 @@ export interface StoreSettingsDraft {
   description: string;
   contactInformation: string;
   businessWhatsApp: string;
+  storeContact: StoreContact;
   businessHours: string;
   pickupEnabled: boolean;
   deliveryEnabled: boolean;

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { formatRegionCurrency, getRegionConfiguration } from '../../regions';
 import StorePaymentCheckout from './StorePaymentCheckout';
+import StoreContactButton from './StoreContactButton';
 import { storePaymentService, storeService } from './services';
 import {
   calculateStoreOptionAdjustedPrice,
@@ -294,7 +295,8 @@ export default function PublicStorePage({ slug }: { slug: string }) {
 
   const { store, products } = data;
   const region = getRegionConfiguration(store.country);
-  const bulkOrderWhatsAppUrl = getBusinessWhatsAppUrl(store.businessWhatsApp);
+  const storeWhatsApp = store.storeContact.whatsapp;
+  const bulkOrderWhatsAppUrl = getBusinessWhatsAppUrl(storeWhatsApp);
   const canOrderPickup = store.pickupEnabled
     && store.pickupLocations.length > 0
     && store.pickupSessions.length > 0
@@ -340,6 +342,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
             {canOrderPickup && <span className="rounded-full bg-green-100 px-4 py-2 font-sans text-xs font-extrabold text-green-800">Pickup pre-order available</span>}
             {store.deliveryEnabled && <span className="inline-flex items-center gap-2 rounded-full bg-green-100 px-4 py-2 font-sans text-xs font-extrabold text-green-800"><Truck className="h-4 w-4" /> Delivery available</span>}
           </div>
+          <StoreContactButton whatsapp={storeWhatsApp} storeName={store.name} className="mt-5" />
         </div>
       </section>
 
@@ -410,7 +413,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Payment Method</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.paymentMethodName}</dd></div>
               </dl>
               <div className="mt-4 flex flex-col gap-2">
-                {bulkOrderWhatsAppUrl && <a href={bulkOrderWhatsAppUrl} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-full bg-green-800 px-4 py-2.5 font-sans text-xs font-extrabold text-white"><MessageCircle className="h-3.5 w-3.5" /> WhatsApp Us</a>}
+                <StoreContactButton whatsapp={storeWhatsApp} storeName={store.name} orderNumber={placedOrder.orderNumber} className="w-full" />
                 <a href="/" className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 font-sans text-xs font-extrabold text-green-800">Explore MiseChef <ArrowRight className="h-3.5 w-3.5" /></a>
               </div>
             </div>
@@ -424,6 +427,8 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                 phone={phone}
                 currency={store.currency}
                 total={cartTotal}
+                storeName={store.name}
+                storeWhatsApp={storeWhatsApp}
                 returnUrl={(() => {
                   const url = new URL(paymentReturnUrl);
                   url.searchParams.set('payment_provider', paymentSession.provider);
@@ -527,6 +532,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                   <span className="font-sans text-xs font-extrabold text-primary">Notes <span className="text-outline">(optional)</span></span>
                   <textarea aria-label="Notes" rows={2} placeholder="Anything the Store should know?" value={notes} onChange={event => setNotes(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 </label>
+                <StoreContactButton whatsapp={storeWhatsApp} storeName={store.name} className="w-full" />
                 {checkoutError && <p className="rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
                 <button type="submit" disabled={isPlacingOrder} className="w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary disabled:opacity-50">{isPlacingOrder ? 'Preparing Payment…' : 'Continue to Payment'}</button>
                 <p className="text-center font-sans text-[10px] font-bold text-outline">No login, email, or account required.</p>
@@ -656,6 +662,8 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                 <span>{formatRegionCurrency(configuredProductPrice, store.currency)}</span>
               </div>
             </div>
+
+            <StoreContactButton whatsapp={storeWhatsApp} storeName={store.name} className="mt-4 w-full" />
 
             <button type="button" disabled={Boolean(configuredSelectionError)} onClick={() => addConfiguredProduct(configuringProduct, configuredSelections)} className="mt-4 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
               Add to Cart · {formatRegionCurrency(configuredProductPrice, store.currency)}

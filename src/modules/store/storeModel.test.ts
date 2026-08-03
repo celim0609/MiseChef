@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildStoreOrderItems,
+  createDefaultStoreContact,
   createDefaultWorkspaceStore,
   DEFAULT_STORE_ORDER_DAYS,
   createDefaultStorePaymentMethods,
   formatPickupDateLabel,
   getValidPickupDates,
   normalizeStoreOptionGroup,
+  normalizeStoreContact,
   normalizeStorePaymentMethods,
   normalizeWorkspaceStore,
   toStoreSlug,
@@ -51,6 +53,7 @@ test('pickup stays simple and requires owner-defined locations and sessions', ()
     description: '',
     contactInformation: '',
     businessWhatsApp: '',
+    storeContact: createDefaultStoreContact(),
     businessHours: '',
     pickupEnabled: true,
     deliveryEnabled: false,
@@ -75,8 +78,8 @@ test('pickup stays simple and requires owner-defined locations and sessions', ()
   }), 'Every pickup location needs a name and address.');
   assert.equal(validateStoreSettings({
     ...baseSettings,
-    businessWhatsApp: 'not-a-number'
-  }), 'Enter a valid Business WhatsApp number, including country code.');
+    storeContact: { ...baseSettings.storeContact, whatsapp: 'not-a-number' }
+  }), 'Enter a valid Store WhatsApp number, including country code.');
 });
 
 test('legacy Stores remain Stripe-only and QR methods require an owner QR image', () => {
@@ -89,6 +92,7 @@ test('legacy Stores remain Stripe-only and QR methods require an owner QR image'
   const baseSettings = {
     name: baseStore.name,
     logoUrl: '', coverImageUrl: '', description: '', contactInformation: '', businessWhatsApp: '',
+    storeContact: createDefaultStoreContact(),
     businessHours: '', pickupEnabled: false, deliveryEnabled: false, pickupSessions: [], pickupLocations: [],
     orderDays: [...DEFAULT_STORE_ORDER_DAYS], earliestPickupDays: 0 as const, maximumAdvanceDays: 14 as const,
     unavailableDates: [], paymentMethods: baseStore.paymentMethods.map(method => (
@@ -120,6 +124,18 @@ test('stored currency is derived from country instead of editable Store data', (
 
   assert.equal(store.country, 'MY');
   assert.equal(store.currency, 'MYR');
+});
+
+test('legacy Store WhatsApp is migrated into structured contact without inventing other contact data', () => {
+  assert.deepEqual(normalizeStoreContact(undefined, '+60 12-3456789'), {
+    phone: '',
+    email: '',
+    whatsapp: '+60 12-3456789',
+    facebook: '',
+    instagram: '',
+    tiktok: '',
+    website: ''
+  });
 });
 
 test('simple products require only the milestone fields', () => {

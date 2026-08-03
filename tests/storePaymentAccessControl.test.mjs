@@ -13,6 +13,48 @@ const WORKSPACE_A = 'workspace-payment-a';
 const WORKSPACE_B = 'workspace-payment-b';
 const ORDER_A = 'order-payment-a';
 const RECEIPT_PATH = `store-payment-receipts/${WORKSPACE_A}/${ORDER_A}/receipt.png`;
+const STORE_CONTACT = {
+  phone: '+60123456789',
+  email: 'hello@example.test',
+  whatsapp: '+60123456789',
+  facebook: '',
+  instagram: '',
+  tiktok: '',
+  website: 'https://example.test'
+};
+const createStoreRecord = () => ({
+  id: WORKSPACE_A,
+  workspaceId: WORKSPACE_A,
+  slug: 'workspace-payment-a',
+  name: 'Payment Kitchen',
+  logoUrl: '',
+  coverImageUrl: '',
+  description: '',
+  contactInformation: '',
+  businessWhatsApp: STORE_CONTACT.whatsapp,
+  storeContact: STORE_CONTACT,
+  businessHours: '',
+  pickupEnabled: false,
+  deliveryEnabled: false,
+  pickupSessions: [],
+  pickupLocations: [],
+  orderDays: ['monday'],
+  earliestPickupDays: 0,
+  maximumAdvanceDays: 14,
+  unavailableDates: [],
+  paymentMethods: [
+    { id: 'cash_on_pickup', enabled: false, qrCodeUrl: '', instructions: '' },
+    { id: 'touch_n_go_qr', enabled: false, qrCodeUrl: '', instructions: '' },
+    { id: 'duitnow_qr', enabled: false, qrCodeUrl: '', instructions: '' },
+    { id: 'bank_transfer', enabled: false, qrCodeUrl: '', instructions: '' },
+    { id: 'stripe', enabled: true, qrCodeUrl: '', instructions: '' }
+  ],
+  country: 'MY',
+  currency: 'MYR',
+  createdBy: 'owner-a',
+  createdAt: '2026-08-03T00:00:00.000Z',
+  updatedAt: '2026-08-03T00:00:00.000Z'
+});
 const firestoreRules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 const storageRules = readFileSync(new URL('../storage.rules', import.meta.url), 'utf8');
 
@@ -57,6 +99,7 @@ before(async () => {
       db.doc(`workspaceMembers/${WORKSPACE_B}_owner-b`).set({
         workspaceId: WORKSPACE_B, userId: 'owner-b', role: 'Owner', status: 'Active'
       }),
+      db.doc(`stores/${WORKSPACE_A}`).set(createStoreRecord()),
       db.doc(`storeOrders/${ORDER_A}`).set({
         id: ORDER_A,
         workspaceId: WORKSPACE_A,
@@ -127,4 +170,27 @@ test('only the matching Store team can read the protected order', async () => {
   await assertFails(memberA.firestore().doc(`storeOrders/${ORDER_A}`).get());
   await assertFails(ownerB.firestore().doc(`storeOrders/${ORDER_A}`).get());
   await assertFails(managerB.firestore().doc(`storeOrders/${ORDER_A}`).get());
+});
+
+test('matching Owner and Manager can update validated Store Contact settings', async () => {
+  await assertSucceeds(ownerA.firestore().doc(`stores/${WORKSPACE_A}`).update({
+    storeContact: { ...STORE_CONTACT, instagram: 'https://instagram.com/payment-kitchen' },
+    updatedAt: '2026-08-03T01:00:00.000Z'
+  }));
+  await assertSucceeds(managerA.firestore().doc(`stores/${WORKSPACE_A}`).update({
+    storeContact: { ...STORE_CONTACT, whatsapp: '+60111222333' },
+    businessWhatsApp: '+60111222333',
+    updatedAt: '2026-08-03T02:00:00.000Z'
+  }));
+});
+
+test('unrelated users and invalid Store Contact data remain denied', async () => {
+  await assertFails(ownerB.firestore().doc(`stores/${WORKSPACE_A}`).update({
+    storeContact: { ...STORE_CONTACT, phone: '+6599999999' },
+    updatedAt: '2026-08-03T03:00:00.000Z'
+  }));
+  await assertFails(ownerA.firestore().doc(`stores/${WORKSPACE_A}`).update({
+    storeContact: { ...STORE_CONTACT, privateInternalNote: 'must not be stored here' },
+    updatedAt: '2026-08-03T03:00:00.000Z'
+  }));
 });

@@ -123,7 +123,17 @@ export const storeService = {
       name: draft.name.trim(),
       description: draft.description.trim(),
       contactInformation: draft.contactInformation.trim(),
-      businessWhatsApp: draft.businessWhatsApp.trim(),
+      // Keep the legacy field mirrored while older deployed clients still read it.
+      businessWhatsApp: draft.storeContact.whatsapp.trim(),
+      storeContact: {
+        phone: draft.storeContact.phone.trim(),
+        email: draft.storeContact.email.trim(),
+        whatsapp: draft.storeContact.whatsapp.trim(),
+        facebook: draft.storeContact.facebook.trim(),
+        instagram: draft.storeContact.instagram.trim(),
+        tiktok: draft.storeContact.tiktok.trim(),
+        website: draft.storeContact.website.trim()
+      },
       businessHours: draft.businessHours.trim(),
       pickupSessions: [...new Set(draft.pickupSessions.map(session => session.trim()).filter(Boolean))],
       pickupLocations: draft.pickupLocations.map(location => ({
