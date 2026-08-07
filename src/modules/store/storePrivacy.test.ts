@@ -96,8 +96,40 @@ test('the public Store UI does not render private contact details or internal or
   assert.match(publicStorePage, /selectedPickupLocation\.address/);
   assert.match(publicStorePage, /Need a Bulk Order\?/);
   assert.match(publicStorePage, /Explore MiseChef/);
-  assert.match(publicStorePage, /Continue to Payment/);
+  assert.match(publicStorePage, /Customer Details/);
+  assert.match(publicStorePage, /Payment Instructions/);
+  assert.match(publicStorePage, /Place Order/);
+  assert.doesNotMatch(publicStorePage, /Continue to Payment/);
   assert.doesNotMatch(publicStorePage, /setDoc\(orderRef/);
+});
+
+test('manual checkout is one customer-facing payment step', () => {
+  assert.match(publicStorePage, /if \(session\.checkout\.type === 'manual_payment'\)/);
+  assert.match(publicStorePage, /storePaymentService\.uploadReceipt\(slug, session, paymentReceipt\)/);
+  assert.match(publicStorePage, /storePaymentService\.submitManual\(slug, session\)/);
+  assert.match(publicStorePage, /setPaymentSession\(session\)/);
+  assert.match(publicStorePage, /Continue to Secure Payment/);
+});
+
+test('checkout presents only enabled methods as polished cards in the requested hierarchy', () => {
+  const sectionOrder = [
+    'Order Summary',
+    'Payment Method',
+    'Customer Details',
+    'Pickup Details',
+    'Payment Instructions',
+    'Receipt Upload'
+  ].map(label => publicStorePage.indexOf(label));
+
+  assert.ok(sectionOrder.every(index => index >= 0));
+  assert.deepEqual([...sectionOrder].sort((a, b) => a - b), sectionOrder);
+  assert.match(publicStorePage, /paymentMethods\.filter\(method => method\.enabled\)/);
+  assert.match(publicStorePage, /<PaymentMethodIcon methodId=\{method\.id\}/);
+  assert.match(publicStorePage, /getPaymentMethodDescription\(method\.id\)/);
+  assert.match(publicStorePage, /getPaymentActionLabel\(paymentMethodId\)/);
+  assert.match(publicStorePage, /return "I've Completed Payment"/);
+  assert.match(publicStorePage, /sticky bottom-3/);
+  assert.match(publicStorePage, /cartCount > 0 && !isCheckoutVisible/);
 });
 
 test('manual receipts remain private and customer order writes stay server-only', () => {

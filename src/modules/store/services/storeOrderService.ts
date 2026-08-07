@@ -218,13 +218,21 @@ export const storeOrderService = {
       value: workspaceId,
       normalize: (snapshot): StoreNotification => {
         const data = snapshot.data() as Record<string, unknown>;
+        const rawType = readString(data.type);
+        const type: StoreNotification['type'] = rawType === 'payment_verification_required'
+          ? 'payment_submitted'
+          : rawType === 'new_paid_order'
+            ? 'new_order'
+            : ['new_order', 'payment_submitted', 'payment_approved', 'payment_rejected', 'order_ready'].includes(rawType)
+              ? rawType as StoreNotification['type']
+              : 'new_order';
         return {
           id: snapshot.id,
           workspaceId: readString(data.workspaceId),
           storeId: readString(data.storeId),
           orderId: readString(data.orderId),
           orderNumber: readString(data.orderNumber),
-          type: data.type === 'payment_verification_required' ? 'payment_verification_required' : 'new_paid_order',
+          type,
           title: readString(data.title, 'New paid order'),
           message: readString(data.message),
           readAt: readTimestamp(data.readAt),

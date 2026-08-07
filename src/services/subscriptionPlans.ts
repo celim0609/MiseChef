@@ -44,7 +44,7 @@ export interface SubscriptionPlanDefinition {
   limits: Record<Exclude<PlanLimit, 'recipe' | 'supplier' | 'invoice' | 'teamMember'>, number>;
 }
 
-export const SUBSCRIPTION_PLAN_ORDER: SubscriptionPlan[] = ['free', 'starter', 'professional', 'business', 'enterprise'];
+export const SUBSCRIPTION_PLAN_ORDER: SubscriptionPlan[] = ['free', 'starter', 'professional', 'business'];
 
 const enabledCoreFeatures = {
   recipes: true,
@@ -151,36 +151,6 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, SubscriptionPlanDefini
       storageMB: 25_000,
       workspaces: UNLIMITED_PLAN_LIMIT
     }
-  },
-  enterprise: {
-    id: 'enterprise',
-    name: 'Enterprise',
-    description: 'Enterprise-scale platform access.',
-    features: {
-      recipes: true,
-      ingredients: true,
-      suppliers: true,
-      invoiceOcr: true,
-      aiRequests: true,
-      teamMembers: true,
-      reports: true,
-      export: true,
-      multipleWorkspaces: true,
-      inventory: true
-    },
-    limits: {
-      recipes: UNLIMITED_PLAN_LIMIT,
-      ingredients: UNLIMITED_PLAN_LIMIT,
-      suppliers: UNLIMITED_PLAN_LIMIT,
-      invoices: UNLIMITED_PLAN_LIMIT,
-      invoiceOcr: UNLIMITED_PLAN_LIMIT,
-      aiRequests: UNLIMITED_PLAN_LIMIT,
-      aiTokens: UNLIMITED_PLAN_LIMIT,
-      aiCostBudgetUSD: UNLIMITED_PLAN_LIMIT,
-      teamMembers: UNLIMITED_PLAN_LIMIT,
-      storageMB: UNLIMITED_PLAN_LIMIT,
-      workspaces: UNLIMITED_PLAN_LIMIT
-    }
   }
 };
 
@@ -225,7 +195,8 @@ export const normalizeSubscriptionPlan = (plan: unknown): SubscriptionPlan => {
   if (normalized === 'starter') return 'starter';
   if (normalized === 'professional') return 'professional';
   if (normalized === 'business') return 'business';
-  if (normalized === 'enterprise') return 'enterprise';
+  // Legacy Enterprise workspaces receive the highest tier supported by this milestone.
+  if (normalized === 'enterprise') return 'business';
   return 'free';
 };
 
@@ -287,14 +258,14 @@ export const getLimitValue = (plan: unknown, limit: PlanLimit) => {
 };
 
 export const getRequiredPlanForFeature = (feature: PlanFeature) => {
-  return SUBSCRIPTION_PLAN_ORDER.find(plan => canPlanUseFeature(plan, feature)) || 'enterprise';
+  return SUBSCRIPTION_PLAN_ORDER.find(plan => canPlanUseFeature(plan, feature)) || 'business';
 };
 
 export const getRequiredPlanForLimit = (limit: PlanLimit, requestedUsage = 1) => {
   return SUBSCRIPTION_PLAN_ORDER.find(plan => {
     const planLimit = getLimitValue(plan, limit);
     return planLimit === UNLIMITED_PLAN_LIMIT || requestedUsage <= planLimit;
-  }) || 'enterprise';
+  }) || 'business';
 };
 
 export const PLAN_LIMITS: Record<SubscriptionPlan, PlanLimits> = SUBSCRIPTION_PLAN_ORDER.reduce((acc, plan) => {

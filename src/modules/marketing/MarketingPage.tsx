@@ -3,6 +3,7 @@ import { Bot, Calculator, LayoutDashboard, ReceiptText, Send, Store, UtensilsCro
 import { collection, doc, setDoc } from 'firebase/firestore';
 import BrandLogo from '../../components/BrandLogo';
 import { db } from '../../firebase';
+import { PricingExperience } from '../subscription';
 
 interface MarketingPageProps {
   initialSection?: string;
@@ -56,13 +57,6 @@ const features = [
     description: 'See daily sales, purchases, invoices, ingredients, and action items in one view.',
     icon: <LayoutDashboard className="h-5 w-5" />
   }
-];
-
-const pricingPlans = [
-  { name: 'Free', price: '$0', description: 'Start with basic recipe and AI tools.', features: ['25 AI requests', 'Recipe library', 'Basic invoice tracking'] },
-  { name: 'Starter', price: 'Coming Soon', description: 'For small kitchens getting organized.', features: ['More AI requests', 'Supplier records', 'Invoice workflows'] },
-  { name: 'Professional', price: 'Coming Soon', description: 'For growing culinary teams.', features: ['Advanced reports', 'Team management', 'Recipe costing'] },
-  { name: 'Business', price: 'Coming Soon', description: 'For multi-outlet operations.', features: ['Higher limits', 'Business dashboards', 'Operational controls'] }
 ];
 
 const navItems = [
@@ -214,20 +208,14 @@ export default function MarketingPage({ initialSection }: MarketingPageProps) {
         </section>
 
         <section id="pricing" className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-          <p className="font-sans text-xs font-extrabold uppercase tracking-[0.2em] text-secondary">Pricing</p>
-          <h2 className="mt-3 font-display text-4xl font-bold text-primary">Plans for every kitchen stage</h2>
-          <div className="mt-8 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {pricingPlans.map(plan => (
-              <article key={plan.name} className="rounded-2xl border border-surface-container-high bg-white p-6 shadow-sm">
-                <h3 className="font-display text-2xl font-bold text-primary">{plan.name}</h3>
-                <p className="mt-3 font-display text-3xl font-bold text-secondary">{plan.price}</p>
-                <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">{plan.description}</p>
-                <ul className="mt-5 space-y-2">
-                  {plan.features.map(item => <li key={item} className="font-sans text-sm font-bold text-primary">• {item}</li>)}
-                </ul>
-              </article>
-            ))}
+          <div className="max-w-3xl">
+            <p className="font-sans text-xs font-extrabold uppercase tracking-[0.2em] text-secondary">Simple plans, clear value</p>
+            <h2 className="mt-3 font-display text-4xl font-bold text-primary sm:text-5xl">Start free. Upgrade when your kitchen grows.</h2>
+            <p className="mt-4 font-sans text-base font-bold leading-relaxed text-on-surface-variant">
+              Build your public presence at no cost, then unlock the operational tools your business needs—without guessing what comes with each plan.
+            </p>
           </div>
+          <div className="mt-10"><PricingExperience /></div>
         </section>
 
         <section id="book-demo" className="border-y border-surface-container-high bg-surface-container-low px-4 py-16 sm:px-6 lg:px-8">

@@ -1,6 +1,11 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { PAYMENT_STATUS, readString, toPublicOrderResult } from './storePaymentsCore.js';
 import { hasValidCheckoutAccessToken } from './storePayments.js';
+import {
+  buildStoreNotification,
+  getStoreNotificationId,
+  STORE_NOTIFICATION_TYPE
+} from './storeNotifications.js';
 
 const MANUAL_METHODS = new Set(['cash_on_pickup', 'touch_n_go_qr', 'duitnow_qr', 'bank_transfer']);
 const RECEIPT_METHODS = new Set(['touch_n_go_qr', 'duitnow_qr', 'bank_transfer']);
@@ -76,7 +81,12 @@ export const submitManualStorePayment = async ({ db, slug, orderId, checkoutAcce
   const status = cash ? 'Confirmed' : 'Pending Verification';
   const fulfilmentStatus = cash ? 'Confirmed' : '';
   const reference = db.collection('storeOrders').doc(order.id);
-  const notificationReference = db.collection('storeNotifications').doc(`payment-verification_${order.id}`);
+  const notificationType = cash
+    ? STORE_NOTIFICATION_TYPE.newOrder
+    : STORE_NOTIFICATION_TYPE.paymentSubmitted;
+  const notificationReference = db.collection('storeNotifications').doc(
+    getStoreNotificationId(notificationType, order.id)
+  );
   const timelineReference = db.collection('storeOrderTimeline').doc(`${order.id}_${cash ? 'order-confirmed' : 'payment-submitted'}`);
   const result = await db.runTransaction(async transaction => {
     const fresh = await transaction.get(reference);
@@ -98,14 +108,14 @@ export const submitManualStorePayment = async ({ db, slug, orderId, checkoutAcce
       label: cash ? 'Order Confirmed' : 'Payment Submitted', previousStatus: '', newStatus: status,
       actingUserId: 'system:checkout', createdAt: FieldValue.serverTimestamp()
     }, { merge: false });
-    transaction.set(notificationReference, {
-      id: notificationReference.id, workspaceId: order.workspaceId, storeId: order.storeId,
-      orderId: order.id, orderNumber: order.orderNumber,
-      type: cash ? 'new_paid_order' : 'payment_verification_required',
-      title: cash ? 'New cash order' : 'Payment needs verification',
+    transaction.set(notificationReference, buildStoreNotification({
+      id: notificationReference.id,
+      type: notificationType,
+      order,
+      title: cash ? 'New Order' : 'Payment Submitted',
       message: cash ? `${order.orderNumber} is confirmed for cash on pickup.` : `${order.orderNumber} is waiting for payment review.`,
-      readAt: null, createdAt: FieldValue.serverTimestamp()
-    }, { merge: false });
+      createdAt: FieldValue.serverTimestamp()
+    }), { merge: false });
     return { ...current, ...update, payment: { ...current.payment, status: paymentStatus } };
   });
   return toPublicOrderResult(result);
@@ -135,6 +145,12 @@ export const reviewManualStorePayment = async ({ db, uid, orderId, decision }) =
     updatedAt: now
   };
   const timeline = db.collection('storeOrderTimeline').doc(`${order.id}_payment-${decision}`);
+  const notificationType = approved
+    ? STORE_NOTIFICATION_TYPE.paymentApproved
+    : STORE_NOTIFICATION_TYPE.paymentRejected;
+  const notification = db.collection('storeNotifications').doc(
+    getStoreNotificationId(notificationType, order.id)
+  );
   await db.runTransaction(async transaction => {
     const fresh = await transaction.get(reference);
     if (fresh.data()?.payment?.status !== PAYMENT_STATUS.pendingVerification) {
@@ -147,6 +163,14 @@ export const reviewManualStorePayment = async ({ db, uid, orderId, decision }) =
       previousStatus: 'Pending Verification', newStatus: approved ? 'Paid' : 'Payment Rejected',
       actingUserId: uid, createdAt: FieldValue.serverTimestamp()
     });
+    transaction.create(notification, buildStoreNotification({
+      id: notification.id,
+      type: notificationType,
+      order,
+      title: approved ? 'Payment Approved' : 'Payment Rejected',
+      message: `${order.orderNumber} payment was ${approved ? 'approved' : 'rejected'}.`,
+      createdAt: FieldValue.serverTimestamp()
+    }));
   });
   return { orderId: order.id, paymentStatus: approved ? PAYMENT_STATUS.paid : PAYMENT_STATUS.rejected };
 };

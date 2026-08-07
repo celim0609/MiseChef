@@ -13,12 +13,11 @@ const emptyDashboard: AdminSubscriptionDashboard = {
     free: 0,
     starter: 0,
     professional: 0,
-    business: 0,
-    enterprise: 0
+    business: 0
   }
 };
 
-const planOptions: Array<'All' | SubscriptionPlan> = ['All', 'free', 'starter', 'professional', 'business', 'enterprise'];
+const planOptions: Array<'All' | SubscriptionPlan> = ['All', 'free', 'starter', 'professional', 'business'];
 const statusOptions: Array<'All' | SubscriptionStatus> = ['All', 'active', 'trialing', 'past_due', 'cancelled', 'suspended'];
 
 const formatDate = (value: string) => {
@@ -138,13 +137,12 @@ export function AdminSubscriptionsPage() {
         </span>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Total Companies" value={dashboard.summary.totalCompanies} />
         <StatCard label="Free" value={dashboard.summary.free} />
         <StatCard label="Starter" value={dashboard.summary.starter} />
         <StatCard label="Professional" value={dashboard.summary.professional} />
         <StatCard label="Business" value={dashboard.summary.business} />
-        <StatCard label="Enterprise" value={dashboard.summary.enterprise} />
       </div>
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_220px_220px]">

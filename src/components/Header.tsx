@@ -14,6 +14,7 @@ interface HeaderProps {
   isSubpage?: boolean;
   onBack?: () => void;
   rightAction?: React.ReactNode;
+  notificationAction?: React.ReactNode;
   activeTab?: RootTab;
   chefAvatarUrl?: string;
   chefName?: string;
@@ -51,6 +52,7 @@ export default function Header({
   isSubpage = false,
   onBack,
   rightAction,
+  notificationAction,
   activeTab,
   chefAvatarUrl = "",
   chefName = "User profile",
@@ -274,6 +276,7 @@ export default function Header({
 
         {/* Right Side */}
         <div className="flex items-center gap-3">
+          {notificationAction}
           {rightAction ? (
             rightAction
           ) : showAvatar ? (

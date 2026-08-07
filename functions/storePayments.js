@@ -9,6 +9,11 @@ import {
   readString,
   toPublicOrderResult
 } from './storePaymentsCore.js';
+import {
+  buildStoreNotification,
+  getStoreNotificationId,
+  STORE_NOTIFICATION_TYPE
+} from './storeNotifications.js';
 
 const loadStoreCheckoutData = async (db, slug) => {
   const storeSnapshot = await db.collection('stores')
@@ -142,7 +147,9 @@ export const reconcileStorePayment = async ({ db, payment }) => {
     let notificationSnapshot;
     let timelineSnapshot;
     if (isNewPaidOrder) {
-      notificationReference = db.collection('storeNotifications').doc(`new-paid-order_${orderId}`);
+      notificationReference = db.collection('storeNotifications').doc(
+        getStoreNotificationId(STORE_NOTIFICATION_TYPE.newOrder, orderId)
+      );
       timelineReference = db.collection('storeOrderTimeline').doc(`${orderId}_payment-received`);
       [notificationSnapshot, timelineSnapshot] = await Promise.all([
         transaction.get(notificationReference),
@@ -152,18 +159,14 @@ export const reconcileStorePayment = async ({ db, payment }) => {
 
     transaction.update(orderReference, update);
     if (isNewPaidOrder && notificationReference && !notificationSnapshot.exists) {
-      transaction.create(notificationReference, {
+      transaction.create(notificationReference, buildStoreNotification({
         id: notificationReference.id,
-        workspaceId: readString(order.workspaceId),
-        storeId: readString(order.storeId),
-        orderId,
-        orderNumber: readString(order.orderNumber),
-        type: 'new_paid_order',
-        title: 'New paid order',
+        type: STORE_NOTIFICATION_TYPE.newOrder,
+        order: { ...order, id: orderId },
+        title: 'New Order',
         message: `${readString(order.orderNumber)} is ready to prepare.`,
-        readAt: null,
         createdAt: FieldValue.serverTimestamp()
-      });
+      }));
     }
     if (isNewPaidOrder && timelineReference && !timelineSnapshot.exists) {
       transaction.create(timelineReference, {

@@ -216,7 +216,12 @@ export interface StoreNotification {
   storeId: string;
   orderId: string;
   orderNumber: string;
-  type: 'new_paid_order' | 'payment_verification_required';
+  type:
+    | 'new_order'
+    | 'payment_submitted'
+    | 'payment_approved'
+    | 'payment_rejected'
+    | 'order_ready';
   title: string;
   message: string;
   readAt: string;

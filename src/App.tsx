@@ -10,6 +10,7 @@ import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, where } fro
 import { ChefProfile, CompanyRole, DEFAULT_CHEF_PROFILE, Recipe, RecipeCategory, RootTab, UserRole, Workspace, WorkspaceMemberRole } from './types';
 import { INITIAL_COLLECTIONS, INITIAL_RECIPES } from './data';
 import Header from './components/Header';
+import StoreNotificationBell from './components/StoreNotificationBell';
 import CreateWorkspaceDialog, { type CreateWorkspaceInput } from './components/CreateWorkspaceDialog';
 import HomeTab from './components/HomeTab';
 import SearchTab from './components/SearchTab';
@@ -43,7 +44,12 @@ import { usageLimitService } from './services/usageLimitService';
 import { canAccessRootTab, normalizeTeamRole } from './modules/team/permissions';
 import { getAuthenticatedDisplayName, getChefProfileStorageKey } from './utils/authenticatedUser';
 import { WorkspaceRegionProvider } from './regions';
-import { StorePage, storeService } from './modules/store';
+import {
+  StorePage,
+  storeOrderService,
+  storeService,
+  type StoreNotification
+} from './modules/store';
 
 const STORAGE_RECIPES_KEY = 'my_cookbook_recipes_v2';
 const STORAGE_CATEGORIES_KEY = 'ce_lims_kitchen_categories_v1';
@@ -601,6 +607,8 @@ export default function App() {
   const [selectedCostingInvoiceId, setSelectedCostingInvoiceId] = useState<string | null>(() => getCostingInvoiceIdFromPath(window.location.pathname));
   const [pendingTeamInvitations, setPendingTeamInvitations] = useState<TeamInvitation[]>([]);
   const [processingInvitationId, setProcessingInvitationId] = useState<string | null>(null);
+  const [storeNotifications, setStoreNotifications] = useState<StoreNotification[]>([]);
+  const [focusedStoreOrderId, setFocusedStoreOrderId] = useState('');
   
   // Notification states
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
@@ -626,6 +634,26 @@ export default function App() {
     }
 
     storeService.ensureWorkspaceStore(currentWorkspace, currentUser.uid).catch(() => undefined);
+  }, [currentUser, currentWorkspace, currentWorkspaceRole]);
+
+  useEffect(() => {
+    setStoreNotifications([]);
+    setFocusedStoreOrderId('');
+    if (
+      !currentUser
+      || !currentWorkspace
+      || (currentWorkspaceRole !== 'Owner' && currentWorkspaceRole !== 'Manager')
+    ) {
+      return;
+    }
+    return storeOrderService.subscribeNotifications(
+      currentWorkspace.id,
+      setStoreNotifications,
+      error => setNotification({
+        message: error.message || 'Unable to load Store notifications.',
+        type: 'error'
+      })
+    );
   }, [currentUser, currentWorkspace, currentWorkspaceRole]);
 
   const handleRootNavigate = (tab: RootTab) => {
@@ -671,6 +699,29 @@ export default function App() {
       setSelectedCostingInvoiceId(null);
     }
     window.history.replaceState(null, '', ROOT_TAB_PATHS[tab]);
+  };
+
+  const handleStoreNotificationSelect = async (selectedNotification: StoreNotification) => {
+    setFocusedStoreOrderId(selectedNotification.orderId);
+    handleRootNavigate('store');
+    if (selectedNotification.readAt) return;
+
+    setStoreNotifications(current => current.map(item => (
+      item.id === selectedNotification.id
+        ? { ...item, readAt: new Date().toISOString() }
+        : item
+    )));
+    try {
+      await storeOrderService.markNotificationRead(selectedNotification.id);
+    } catch (error) {
+      setStoreNotifications(current => current.map(item => (
+        item.id === selectedNotification.id ? { ...item, readAt: '' } : item
+      )));
+      triggerNotification(
+        error instanceof Error ? error.message : 'Unable to mark the notification as read.',
+        'error'
+      );
+    }
   };
 
   useEffect(() => {
@@ -1732,7 +1783,15 @@ export default function App() {
         );
       case 'store':
         if (!currentUser || !currentWorkspace) return null;
-        return <StorePage currentUser={currentUser} workspace={currentWorkspace} />;
+        return (
+          <StorePage
+            currentUser={currentUser}
+            workspace={currentWorkspace}
+            focusOrderId={focusedStoreOrderId}
+            notifications={storeNotifications}
+            onNotificationClick={notification => void handleStoreNotificationSelect(notification)}
+          />
+        );
       case 'costing':
       case 'costingIngredients':
       case 'costingInvoices':
@@ -1855,11 +1914,23 @@ export default function App() {
 
   // Header Contextual configuration
   const getHeaderProps = () => {
+    const notificationAction = currentUser
+      && currentWorkspace
+      && (currentWorkspaceRole === 'Owner' || currentWorkspaceRole === 'Manager')
+      ? (
+        <StoreNotificationBell
+          notifications={storeNotifications}
+          onSelect={notification => void handleStoreNotificationSelect(notification)}
+        />
+      )
+      : undefined;
+
     if (addingRecipe || editingRecipe) {
       return {
         title: editingRecipe ? 'Edit Recipe' : 'Add New Recipe',
         isSubpage: true,
         onBack: handleCancelRecipeForm,
+        notificationAction,
         rightAction: (
           <button
             onClick={() => {
@@ -1889,7 +1960,8 @@ export default function App() {
       workspaces,
       currentWorkspace,
       onWorkspaceChange: handleWorkspaceChange,
-      onCreateWorkspace: currentUser ? () => setIsCreateWorkspaceOpen(true) : undefined
+      onCreateWorkspace: currentUser ? () => setIsCreateWorkspaceOpen(true) : undefined,
+      notificationAction
     };
   };
 

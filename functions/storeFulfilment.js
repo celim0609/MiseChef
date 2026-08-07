@@ -1,5 +1,10 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
+import {
+  buildStoreNotification,
+  getStoreNotificationId,
+  STORE_NOTIFICATION_TYPE
+} from './storeNotifications.js';
 
 export const STORE_FULFILMENT_STATUS = Object.freeze({
   confirmed: 'Confirmed',
@@ -101,6 +106,11 @@ export const updateStoreOrderFulfilment = async ({
 
     const eventReference = db.collection('storeOrderTimeline')
       .doc(`${normalizedOrderId}_${normalizeEventStatus(normalizedNextStatus)}`);
+    const readyNotificationReference = normalizedNextStatus === STORE_FULFILMENT_STATUS.ready
+      ? db.collection('storeNotifications').doc(
+        getStoreNotificationId(STORE_NOTIFICATION_TYPE.orderReady, normalizedOrderId)
+      )
+      : null;
     transaction.update(orderReference, {
       fulfilmentStatus: normalizedNextStatus,
       fulfilmentUpdatedAt: FieldValue.serverTimestamp(),
@@ -119,6 +129,16 @@ export const updateStoreOrderFulfilment = async ({
       actingUserId: uid,
       createdAt: FieldValue.serverTimestamp()
     });
+    if (readyNotificationReference) {
+      transaction.create(readyNotificationReference, buildStoreNotification({
+        id: readyNotificationReference.id,
+        type: STORE_NOTIFICATION_TYPE.orderReady,
+        order: { ...order, id: normalizedOrderId },
+        title: 'Order Ready',
+        message: `${readString(order.orderNumber)} is ready for pickup.`,
+        createdAt: FieldValue.serverTimestamp()
+      }));
+    }
     return {
       orderId: normalizedOrderId,
       previousStatus: currentStatus,

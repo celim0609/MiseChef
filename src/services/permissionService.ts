@@ -23,7 +23,7 @@ const subscriptionInactive = (subscription: CompanySubscription): PermissionResu
 
   return {
     allowed: false,
-    reason: `Your company subscription is ${subscription.subscriptionStatus}.`,
+    reason: `Your workspace subscription is ${subscription.subscriptionStatus}.`,
     requiredPlan: subscription.subscriptionPlan
   };
 };

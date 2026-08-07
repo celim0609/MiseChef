@@ -58,6 +58,8 @@ test('Store Owner can approve a manual payment and the decision is audited', asy
   assert.equal(db.writes[0].data['payment.reviewedBy'], 'owner-a');
   assert.equal(db.writes[1].data.label, 'Payment Approved');
   assert.equal(db.writes[1].data.actingUserId, 'owner-a');
+  assert.equal(db.writes[2].ref.key, 'storeNotifications/payment-approved_order-a');
+  assert.equal(db.writes[2].data.type, 'payment_approved');
 });
 
 test('a user outside the Workspace cannot approve or reject payment', async () => {
@@ -85,6 +87,8 @@ test('active Manager can reject only an order in their own Workspace', async () 
     db: managerDb, uid: 'manager-a', orderId: 'order-a', decision: 'reject'
   }));
   assert.equal(managerDb.writes[0].data['payment.status'], 'rejected');
+  assert.equal(managerDb.writes[2].ref.key, 'storeNotifications/payment-rejected_order-a');
+  assert.equal(managerDb.writes[2].data.type, 'payment_rejected');
 
   const otherOwnerDb = createFakeDb({
     'storeOrders/order-a': pendingOrder,

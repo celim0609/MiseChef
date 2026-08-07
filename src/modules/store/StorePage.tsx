@@ -2,7 +2,6 @@ import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
   ArrowDown,
   ArrowUp,
-  Bell,
   ClipboardList,
   Copy,
   Download,
@@ -27,7 +26,7 @@ import {
   uploadStorePaymentQr,
   uploadStoreProductPhoto
 } from '../../services/storage';
-import { storeOrderService, storeService } from './services';
+import { storeService } from './services';
 import StoreOrdersPanel from './StoreOrdersPanel';
 import {
   getPublicOrderingPath,
@@ -54,6 +53,9 @@ import type {
 interface StorePageProps {
   currentUser: User;
   workspace: Workspace;
+  focusOrderId?: string;
+  notifications?: StoreNotification[];
+  onNotificationClick?: (notification: StoreNotification) => void;
 }
 
 type StoreView = 'products' | 'orders' | 'pickup' | 'settings';
@@ -141,7 +143,13 @@ const viewItems: Array<{ id: StoreView; label: string; question: string; icon: t
   { id: 'settings', label: 'Store Settings', question: 'How does my store look?', icon: Settings }
 ];
 
-export default function StorePage({ currentUser, workspace }: StorePageProps) {
+export default function StorePage({
+  currentUser,
+  workspace,
+  focusOrderId = '',
+  notifications = [],
+  onNotificationClick = () => undefined
+}: StorePageProps) {
   const region = useWorkspaceRegion();
   const [activeView, setActiveView] = useState<StoreView>('products');
   const [store, setStore] = useState<WorkspaceStore | null>(null);
@@ -166,8 +174,6 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
   const [shareMessage, setShareMessage] = useState('');
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
   const [unavailableDateDraft, setUnavailableDateDraft] = useState('');
-  const [notifications, setNotifications] = useState<StoreNotification[]>([]);
-  const [focusedOrderId, setFocusedOrderId] = useState('');
 
   useEffect(() => {
     let isCancelled = false;
@@ -202,11 +208,11 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
     };
   }, [currentUser.uid, workspace]);
 
-  useEffect(() => storeOrderService.subscribeNotifications(
-    workspace.id,
-    setNotifications,
-    error => setErrorMessage(error.message || 'Unable to load new-order notifications.')
-  ), [workspace.id]);
+  useEffect(() => {
+    if (!focusOrderId) return;
+    setActiveView('orders');
+    setIsProductFormOpen(false);
+  }, [focusOrderId]);
 
   useEffect(() => {
     if (!isShareOpen || !store) return;
@@ -287,24 +293,6 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
   const clearMessages = () => {
     setMessage('');
     setErrorMessage('');
-  };
-
-  const openOrderNotification = async (notification: StoreNotification) => {
-    setActiveView('orders');
-    setFocusedOrderId(notification.orderId);
-    setIsProductFormOpen(false);
-    clearMessages();
-    if (notification.readAt) return;
-    setNotifications(current => current.map(item => (
-      item.id === notification.id
-        ? { ...item, readAt: new Date().toISOString() }
-        : item
-    )));
-    try {
-      await storeOrderService.markNotificationRead(notification.id);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to mark the notification as read.');
-    }
   };
 
   const copyOrderingLink = async () => {
@@ -608,8 +596,6 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
   }
 
   const currentView = viewItems.find(item => item.id === activeView) || viewItems[0];
-  const unreadNotifications = notifications.filter(notification => !notification.readAt);
-
   return (
     <div className="mx-auto max-w-6xl space-y-8">
       <header className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
@@ -619,23 +605,6 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
           <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">{currentView.question}</p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
-          <button
-            type="button"
-            aria-label={`${unreadNotifications.length} unread order notifications`}
-            onClick={() => {
-              const notification = unreadNotifications[0] || notifications[0];
-              if (notification) void openOrderNotification(notification);
-              else setActiveView('orders');
-            }}
-            className="relative inline-flex items-center justify-center gap-2 rounded-full border border-surface-container-high bg-white px-5 py-3 font-sans text-xs font-extrabold text-primary shadow-sm"
-          >
-            <Bell className="h-4 w-4" /> Orders
-            {unreadNotifications.length > 0 && (
-              <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-error px-1.5 text-[10px] text-white">
-                {unreadNotifications.length}
-              </span>
-            )}
-          </button>
           <button type="button" onClick={() => setIsShareOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary shadow-sm">
             <Share2 className="h-4 w-4" /> Share & QR
           </button>
@@ -651,7 +620,6 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
           return (
             <button key={item.id} type="button" onClick={() => {
               setActiveView(item.id);
-              if (item.id !== 'orders') setFocusedOrderId('');
               setIsProductFormOpen(false);
               clearMessages();
             }} className={`inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2.5 font-sans text-xs font-extrabold transition ${
@@ -881,9 +849,9 @@ export default function StorePage({ currentUser, workspace }: StorePageProps) {
           currency={store.currency}
           storeName={store.name}
           storeWhatsApp={store.storeContact.whatsapp}
-          focusOrderId={focusedOrderId}
-          notifications={unreadNotifications}
-          onNotificationClick={notification => void openOrderNotification(notification)}
+          focusOrderId={focusOrderId}
+          notifications={notifications.filter(notification => !notification.readAt)}
+          onNotificationClick={onNotificationClick}
         />
       )}
 

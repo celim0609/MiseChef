@@ -40,6 +40,7 @@ const manualClientAdapter = readFileSync(
   'utf8'
 );
 const storageRules = readFileSync(new URL('../storage.rules', import.meta.url), 'utf8');
+const storeNotifications = readFileSync(new URL('./storeNotifications.js', import.meta.url), 'utf8');
 
 test('Stripe secrets stay server-side and webhook verification uses the raw signed body', () => {
   assert.match(functionsIndex, /defineSecret\('STRIPE_SECRET_KEY'\)/);
@@ -82,10 +83,12 @@ test('fulfilment changes are server-owned, sequential, audited, and Owner-Manage
 });
 
 test('a paid Stripe payment creates one deterministic persistent order notification', () => {
-  assert.match(paymentService, /new-paid-order_\$\{orderId\}/);
+  assert.match(paymentService, /getStoreNotificationId\(STORE_NOTIFICATION_TYPE\.newOrder, orderId\)/);
+  assert.match(storeNotifications, /newOrder: 'new_order'/);
+  assert.match(storeNotifications, /\[STORE_NOTIFICATION_TYPE\.newOrder\]: 'new-paid-order'/);
   assert.match(paymentService, /orderId}_payment-received/);
   assert.match(paymentService, /if \(isNewPaidOrder[\s\S]*!notificationSnapshot\.exists\)/);
-  assert.match(paymentService, /readAt: null/);
+  assert.match(storeNotifications, /readAt: null/);
   assert.match(paymentService, /createdAt: FieldValue\.serverTimestamp\(\)/);
 });
 

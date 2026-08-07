@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "misechef-fa4bf"
-  }
+    "production": "misechef-fa4bf",
+    "beta": "misechef-beta-fa4bf"
+  },
+  "targets": {},
+  "etags": {}
 }

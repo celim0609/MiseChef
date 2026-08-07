@@ -31,6 +31,8 @@ const createFakeDb = documents => {
 };
 
 const paidOrder = {
+  id: 'order-a',
+  orderNumber: 'MC-001',
   workspaceId: 'workspace-a',
   storeId: 'workspace-a',
   fulfilmentStatus: 'Paid',
@@ -138,4 +140,24 @@ test('active Manager can update fulfilment but another Workspace user is denied'
     nextStatus: 'Preparing'
   }), error => error.code === 'permission-denied');
   assert.equal(otherUserDb.writes.length, 0);
+});
+
+test('marking an order Ready creates one deterministic persistent notification', async () => {
+  const db = createFakeDb({
+    'storeOrders/order-a': { ...paidOrder, fulfilmentStatus: 'Preparing' },
+    'workspaces/workspace-a': { ownerId: 'owner-a' }
+  });
+
+  await updateStoreOrderFulfilment({
+    db,
+    uid: 'owner-a',
+    orderId: 'order-a',
+    nextStatus: 'Ready'
+  });
+
+  assert.equal(db.writes[2].operation, 'create');
+  assert.equal(db.writes[2].ref.key, 'storeNotifications/order-ready_order-a');
+  assert.equal(db.writes[2].data.type, 'order_ready');
+  assert.equal(db.writes[2].data.orderId, 'order-a');
+  assert.equal(db.writes[2].data.readAt, null);
 });

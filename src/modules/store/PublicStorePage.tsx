@@ -1,17 +1,22 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   ArrowRight,
+  Banknote,
   CheckCircle2,
   Clock3,
   Compass,
+  CreditCard,
+  Landmark,
   MapPin,
   MessageCircle,
   Minus,
   PackageOpen,
   Plus,
+  QrCode,
   ShoppingCart,
   Store as StoreIcon,
   Truck,
+  Upload,
   X
 } from 'lucide-react';
 import { formatRegionCurrency, getRegionConfiguration } from '../../regions';
@@ -45,7 +50,32 @@ const selectionKey = (productId: string, selectedOptions: CartSelection['selecte
   `${productId}:${selectedOptions.map(option => `${option.groupId}=${option.optionId}`).sort().join('|')}`
 );
 
+const getPaymentMethodDescription = (methodId: StorePaymentMethodId) => {
+  switch (methodId) {
+    case 'touch_n_go_qr': return 'Scan the QR code to pay.';
+    case 'duitnow_qr': return 'Pay using your banking app.';
+    case 'bank_transfer': return 'Transfer directly to the Store.';
+    case 'cash_on_pickup': return 'Pay when collecting your order.';
+    case 'stripe': return 'Secure online payment. Instant confirmation.';
+  }
+};
+
+const getPaymentActionLabel = (methodId: StorePaymentMethodId) => {
+  if (methodId === 'stripe') return 'Continue to Secure Payment';
+  if (methodId === 'cash_on_pickup') return 'Place Order';
+  return "I've Completed Payment";
+};
+
+function PaymentMethodIcon({ methodId }: { methodId: StorePaymentMethodId }) {
+  const iconClassName = 'h-5 w-5';
+  if (methodId === 'cash_on_pickup') return <Banknote className={iconClassName} aria-hidden="true" />;
+  if (methodId === 'stripe') return <CreditCard className={iconClassName} aria-hidden="true" />;
+  if (methodId === 'bank_transfer') return <Landmark className={iconClassName} aria-hidden="true" />;
+  return <QrCode className={iconClassName} aria-hidden="true" />;
+}
+
 export default function PublicStorePage({ slug }: { slug: string }) {
+  const checkoutSectionRef = useRef<HTMLElement | null>(null);
   const [data, setData] = useState<PublicStoreData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
@@ -59,10 +89,12 @@ export default function PublicStorePage({ slug }: { slug: string }) {
   const [pickupLocationId, setPickupLocationId] = useState('');
   const [notes, setNotes] = useState('');
   const [paymentMethodId, setPaymentMethodId] = useState<StorePaymentMethodId>('stripe');
+  const [paymentReceipt, setPaymentReceipt] = useState<File | null>(null);
   const [checkoutError, setCheckoutError] = useState('');
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [paymentSession, setPaymentSession] = useState<StorePaymentSession | null>(null);
   const [placedOrder, setPlacedOrder] = useState<PublicStoreOrderResult | null>(null);
+  const [isCheckoutVisible, setIsCheckoutVisible] = useState(false);
 
   useEffect(() => {
     let isCancelled = false;
@@ -92,6 +124,17 @@ export default function PublicStorePage({ slug }: { slug: string }) {
       isCancelled = true;
     };
   }, [slug]);
+
+  useEffect(() => {
+    const checkoutSection = checkoutSectionRef.current;
+    if (!checkoutSection || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsCheckoutVisible(entry.isIntersecting),
+      { threshold: 0.05 }
+    );
+    observer.observe(checkoutSection);
+    return () => observer.disconnect();
+  }, [data]);
 
   const verifyPayment = async (
     provider: StorePaymentProviderId,
@@ -207,6 +250,9 @@ export default function PublicStorePage({ slug }: { slug: string }) {
   const selectedPickupLocation = data?.store.pickupLocations.find(
     location => location.id === pickupLocationId
   );
+  const selectedPaymentMethod = data?.store.paymentMethods.find(
+    method => method.id === paymentMethodId && method.enabled
+  );
 
   const addConfiguredProduct = (product: StoreProduct, selectedOptions: CartSelection['selectedOptions']) => {
     const key = selectionKey(product.id, selectedOptions);
@@ -270,7 +316,23 @@ export default function PublicStorePage({ slug }: { slug: string }) {
           selectedOptions
         }))
       });
-      setPaymentSession(session);
+      if (session.checkout.type === 'manual_payment') {
+        try {
+          if (paymentReceipt) await storePaymentService.uploadReceipt(slug, session, paymentReceipt);
+          await storePaymentService.submitManual(slug, session);
+          await verifyPayment(session.provider, session.paymentSessionId, session.checkoutAccessToken);
+          setPaymentReceipt(null);
+        } catch (manualPaymentError) {
+          // Preserve the server-created session so a failed receipt upload or
+          // submission can be retried without creating a duplicate order.
+          setPaymentSession(session);
+          throw manualPaymentError;
+        }
+      } else {
+        // The online provider's secure element must confirm the payment after the
+        // server creates its session. This is the only required continuation step.
+        setPaymentSession(session);
+      }
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : 'Unable to start secure payment. Please try again.');
     } finally {
@@ -379,9 +441,9 @@ export default function PublicStorePage({ slug }: { slug: string }) {
           )}
         </section>
 
-        <aside id="customer-order" className="scroll-mt-24 rounded-3xl border border-surface-container-high bg-white p-5 shadow-sm lg:sticky lg:top-6">
+        <aside ref={checkoutSectionRef} id="customer-order" className="scroll-mt-24 rounded-3xl border border-surface-container-high bg-white p-5 shadow-sm lg:sticky lg:top-6">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="flex items-center gap-2 font-display text-2xl font-bold text-primary"><ShoppingCart className="h-5 w-5" /> Your Order</h2>
+            <h2 className="flex items-center gap-2 font-display text-2xl font-bold text-primary"><ShoppingCart className="h-5 w-5" /> Order Summary</h2>
             <span className="rounded-full bg-primary/10 px-3 py-1 font-sans text-xs font-extrabold text-primary">{cartCount}</span>
           </div>
 
@@ -421,6 +483,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
 
           {paymentSession ? (
             <div className="mt-5">
+              {checkoutError && <p role="alert" className="mb-3 rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
               <StorePaymentCheckout
                 session={paymentSession}
                 customerName={customerName}
@@ -449,6 +512,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                     paymentSession.checkoutAccessToken
                   );
                   setPaymentSession(null);
+                  setCheckoutError('');
                 }}
               />
             </div>
@@ -482,60 +546,113 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                 <span>{formatRegionCurrency(cartTotal, store.currency)}</span>
               </div>
 
-              <form onSubmit={startPayment} className="mt-5 space-y-4">
-                <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup</p>
-                <label className="block">
-                  <span className="font-sans text-xs font-extrabold text-primary">Date</span>
-                  <select aria-label="Pickup date" required value={pickupDate} onChange={event => setPickupDate(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
-                    {validPickupDates.map(date => <option key={date} value={date}>{formatPickupDateLabel(date, store.country)}</option>)}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="font-sans text-xs font-extrabold text-primary">Location</span>
-                  <select aria-label="Pickup location" required value={pickupLocationId} onChange={event => setPickupLocationId(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
-                    {store.pickupLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}
-                  </select>
-                </label>
-                {selectedPickupLocation && (
-                  <div className="rounded-2xl bg-surface-container-low p-3 font-sans text-xs font-bold leading-relaxed text-on-surface-variant">
-                    <p>{selectedPickupLocation.address}</p>
-                    {selectedPickupLocation.notes && <p className="mt-1">{selectedPickupLocation.notes}</p>}
-                  </div>
-                )}
-                <label className="block">
-                  <span className="font-sans text-xs font-extrabold text-primary">Session</span>
-                  <select aria-label="Pickup session" required value={pickupSession} onChange={event => setPickupSession(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
-                    {store.pickupSessions.map(session => <option key={session} value={session}>{session}</option>)}
-                  </select>
-                </label>
+              <form onSubmit={startPayment} className="mt-6 space-y-6">
                 <fieldset>
-                  <legend className="font-sans text-xs font-extrabold text-primary">Payment Method</legend>
-                  <div className="mt-2 grid gap-2">
-                    {store.paymentMethods.filter(method => method.enabled).map(method => (
-                      <label key={method.id} className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 ${paymentMethodId === method.id ? 'border-primary bg-primary/5' : 'border-surface-container-high bg-surface-container-low'}`}>
-                        <input type="radio" name="paymentMethod" value={method.id} checked={paymentMethodId === method.id} onChange={() => setPaymentMethodId(method.id)} className="h-4 w-4 text-primary" />
-                        <span className="font-sans text-sm font-extrabold text-primary">{getStorePaymentMethodLabel(method.id)}</span>
-                      </label>
-                    ))}
+                  <legend className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Payment Method</legend>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {store.paymentMethods.filter(method => method.enabled).map(method => {
+                      const isSelected = paymentMethodId === method.id;
+                      return (
+                        <label key={method.id} className={`relative flex min-h-28 cursor-pointer flex-col rounded-2xl border p-3.5 transition-colors ${isSelected ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20' : 'border-surface-container-high bg-white hover:border-outline-variant'}`}>
+                          <input type="radio" name="paymentMethod" value={method.id} checked={isSelected} onChange={() => { setPaymentMethodId(method.id); setPaymentReceipt(null); }} className="sr-only" />
+                          <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${isSelected ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>
+                            <PaymentMethodIcon methodId={method.id} />
+                          </span>
+                          {isSelected && <CheckCircle2 className="absolute right-3 top-3 h-5 w-5 text-primary" aria-hidden="true" />}
+                          <span className="mt-3 font-sans text-sm font-extrabold leading-tight text-primary">{getStorePaymentMethodLabel(method.id)}</span>
+                          <span className="mt-1 font-sans text-[11px] font-bold leading-snug text-on-surface-variant">{getPaymentMethodDescription(method.id)}</span>
+                        </label>
+                      );
+                    })}
                   </div>
                 </fieldset>
-                <p className="pt-1 font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Your details</p>
-                <label className="block">
-                  <span className="font-sans text-xs font-extrabold text-primary">Name</span>
-                  <input aria-label="Name" required autoComplete="name" placeholder="Your name" value={customerName} onChange={event => setCustomerName(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
-                </label>
-                <label className="block">
-                  <span className="font-sans text-xs font-extrabold text-primary">Phone</span>
-                  <input aria-label="Phone" required autoComplete="tel" inputMode="tel" placeholder="Your phone number" value={phone} onChange={event => setPhone(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
-                </label>
-                <label className="block">
-                  <span className="font-sans text-xs font-extrabold text-primary">Notes <span className="text-outline">(optional)</span></span>
-                  <textarea aria-label="Notes" rows={2} placeholder="Anything the Store should know?" value={notes} onChange={event => setNotes(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
-                </label>
+
+                <section aria-labelledby="customer-details-heading">
+                  <h3 id="customer-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Customer Details</h3>
+                  <div className="mt-3 space-y-3">
+                    <label className="block">
+                      <span className="font-sans text-xs font-extrabold text-primary">Name</span>
+                      <input aria-label="Name" required autoComplete="name" placeholder="Your name" value={customerName} onChange={event => setCustomerName(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                    </label>
+                    <label className="block">
+                      <span className="font-sans text-xs font-extrabold text-primary">Phone</span>
+                      <input aria-label="Phone" required autoComplete="tel" inputMode="tel" placeholder="Your phone number" value={phone} onChange={event => setPhone(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                    </label>
+                    <label className="block">
+                      <span className="font-sans text-xs font-extrabold text-primary">Notes <span className="text-outline">(optional)</span></span>
+                      <textarea aria-label="Notes" rows={2} placeholder="Anything the Store should know?" value={notes} onChange={event => setNotes(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                    </label>
+                  </div>
+                </section>
+
+                <section aria-labelledby="pickup-details-heading">
+                  <h3 id="pickup-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup Details</h3>
+                  <div className="mt-3 space-y-3">
+                    <label className="block">
+                      <span className="font-sans text-xs font-extrabold text-primary">Date</span>
+                      <select aria-label="Pickup date" required value={pickupDate} onChange={event => setPickupDate(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                        {validPickupDates.map(date => <option key={date} value={date}>{formatPickupDateLabel(date, store.country)}</option>)}
+                      </select>
+                    </label>
+                    <label className="block">
+                      <span className="font-sans text-xs font-extrabold text-primary">Location</span>
+                      <select aria-label="Pickup location" required value={pickupLocationId} onChange={event => setPickupLocationId(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                        {store.pickupLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}
+                      </select>
+                    </label>
+                    {selectedPickupLocation && (
+                      <div className="flex gap-2 rounded-2xl bg-surface-container-low p-3 font-sans text-xs font-bold leading-relaxed text-on-surface-variant">
+                        <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-secondary" aria-hidden="true" />
+                        <div><p>{selectedPickupLocation.address}</p>{selectedPickupLocation.notes && <p className="mt-1">{selectedPickupLocation.notes}</p>}</div>
+                      </div>
+                    )}
+                    <label className="block">
+                      <span className="font-sans text-xs font-extrabold text-primary">Session</span>
+                      <select aria-label="Pickup session" required value={pickupSession} onChange={event => setPickupSession(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                        {store.pickupSessions.map(session => <option key={session} value={session}>{session}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                </section>
+
+                <section aria-labelledby="payment-instructions-heading" className="rounded-2xl bg-surface-container-low p-4">
+                  <h3 id="payment-instructions-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Payment Instructions</h3>
+                  {paymentMethodId === 'stripe' ? (
+                    <p className="mt-2 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">Your order details are saved first, then secure payment continues on the next step.</p>
+                  ) : (
+                    <>
+                      {selectedPaymentMethod?.qrCodeUrl && (
+                        <img src={selectedPaymentMethod.qrCodeUrl} alt={`${getStorePaymentMethodLabel(paymentMethodId)} merchant QR code`} className="mx-auto mt-3 max-h-64 w-full rounded-2xl bg-white object-contain p-3" />
+                      )}
+                      <p className="mt-2 whitespace-pre-line font-sans text-sm font-bold leading-relaxed text-on-surface-variant">
+                        {selectedPaymentMethod?.instructions || (paymentMethodId === 'cash_on_pickup'
+                          ? 'Payment will be collected when you pick up your order.'
+                          : 'Complete the payment using the merchant details above, then confirm below.')}
+                      </p>
+                    </>
+                  )}
+                </section>
+
+                {paymentMethodId !== 'stripe' && paymentMethodId !== 'cash_on_pickup' && (
+                  <section aria-labelledby="receipt-upload-heading">
+                    <h3 id="receipt-upload-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Receipt Upload <span className="normal-case tracking-normal text-outline">(optional)</span></h3>
+                    <label className="mt-3 block min-h-24 cursor-pointer rounded-2xl border border-dashed border-outline-variant bg-white p-4 text-center transition-colors hover:bg-surface-container-low">
+                      <Upload className="mx-auto h-5 w-5 text-primary" aria-hidden="true" />
+                      <span className="mt-2 block font-sans text-xs font-extrabold text-primary">Choose receipt image</span>
+                      <input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => setPaymentReceipt(event.currentTarget.files?.[0] || null)} className="mt-2 block w-full font-sans text-xs text-on-surface-variant" />
+                      {paymentReceipt && <span className="mt-1 block truncate font-sans text-[11px] font-bold text-on-surface-variant">{paymentReceipt.name}</span>}
+                    </label>
+                  </section>
+                )}
+
                 <StoreContactButton whatsapp={storeWhatsApp} storeName={store.name} className="w-full" />
-                {checkoutError && <p className="rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
-                <button type="submit" disabled={isPlacingOrder} className="w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary disabled:opacity-50">{isPlacingOrder ? 'Preparing Payment…' : 'Continue to Payment'}</button>
-                <p className="text-center font-sans text-[10px] font-bold text-outline">No login, email, or account required.</p>
+                {checkoutError && <p role="alert" className="rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
+                <div className="sticky bottom-3 z-30 -mx-2 rounded-2xl bg-white/95 p-2 shadow-xl shadow-primary/10 backdrop-blur lg:static lg:mx-0 lg:bg-transparent lg:p-0 lg:shadow-none">
+                  <button type="submit" disabled={isPlacingOrder} className="min-h-12 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary shadow-lg shadow-primary/20 disabled:opacity-50">
+                    {isPlacingOrder ? 'Placing Order…' : getPaymentActionLabel(paymentMethodId)}
+                  </button>
+                  <p className="mt-2 text-center font-sans text-[10px] font-bold text-outline">No login, email, or account required.</p>
+                </div>
               </form>
             </>
           ) : !placedOrder && canOrderPickup ? (
@@ -564,7 +681,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
         <a href="/" className="mt-5 inline-flex shrink-0 items-center gap-2 rounded-full bg-white px-5 py-3 font-sans text-xs font-extrabold text-primary sm:mt-0"><Compass className="h-4 w-4" /> Explore MiseChef</a>
       </section>
 
-      {cartCount > 0 && (
+      {cartCount > 0 && !isCheckoutVisible && (
         <a href="#customer-order" className="fixed inset-x-4 bottom-4 z-40 flex items-center justify-between rounded-full bg-primary px-5 py-3.5 text-on-primary shadow-2xl shadow-primary/30 lg:hidden">
           <span className="font-sans text-sm font-extrabold">View order · {cartCount}</span>
           <span className="font-sans text-sm font-extrabold">{formatRegionCurrency(cartTotal, store.currency)}</span>

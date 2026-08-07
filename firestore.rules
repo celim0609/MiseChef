@@ -135,11 +135,22 @@ service cloud.firestore {
       return isSuperAdmin() || hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef']);
     }
 
-    function hasProfessionalWorkspaceEntitlement(workspaceId) {
+    function hasActiveWorkspaceSubscription(workspaceId) {
       return signedIn()
-        && exists(/databases/$(database)/documents/companies/$(workspaceId))
-        && get(/databases/$(database)/documents/companies/$(workspaceId)).data.subscriptionStatus in ['active', 'trialing']
-        && get(/databases/$(database)/documents/companies/$(workspaceId)).data.subscriptionPlan in ['professional', 'business', 'enterprise'];
+        && exists(/databases/$(database)/documents/workspaces/$(workspaceId))
+        && (
+          get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.subscriptionStatus == 'active'
+          || (
+            get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.subscriptionStatus == 'trialing'
+            && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.trialEndsAt is timestamp
+            && request.time < get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.trialEndsAt
+          )
+        );
+    }
+
+    function hasProfessionalWorkspaceEntitlement(workspaceId) {
+      return hasActiveWorkspaceSubscription(workspaceId)
+        && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.subscriptionPlan in ['professional', 'business'];
     }
 
     function canAccessRecipes(workspaceId) {
@@ -528,6 +539,42 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /chefResumeImports/{userId} {
+      function validResumeRecord() {
+        return request.resource.data.keys().hasAll([
+            'userId', 'fileName', 'storagePath', 'contentType', 'fileSize',
+            'importStatus', 'uploadedAt'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'userId', 'fileName', 'storagePath', 'contentType', 'fileSize',
+            'importStatus', 'uploadedAt', 'importedAt', 'draft', 'lastError'
+          ])
+          && request.resource.data.userId == userId
+          && request.resource.data.fileName is string
+          && request.resource.data.fileName.size() > 0
+          && request.resource.data.fileName.size() <= 255
+          && request.resource.data.storagePath is string
+          && request.resource.data.storagePath.matches('^users/' + userId + '/chef-profile/resume-imports/[^/]+$')
+          && request.resource.data.contentType in [
+            'application/pdf',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          ]
+          && request.resource.data.fileSize is int
+          && request.resource.data.fileSize > 0
+          && request.resource.data.fileSize <= 10 * 1024 * 1024
+          && request.resource.data.importStatus in ['imported', 'review_required', 'failed']
+          && request.resource.data.uploadedAt is timestamp
+          && (!('importedAt' in request.resource.data) || request.resource.data.importedAt is timestamp)
+          && (!('draft' in request.resource.data) || request.resource.data.draft is map)
+          && (!('lastError' in request.resource.data)
+            || (request.resource.data.lastError is string && request.resource.data.lastError.size() <= 500));
+      }
+
+      allow read: if ownsUserDocument(userId);
+      allow create, update: if ownsUserDocument(userId) && validResumeRecord();
+      allow delete: if ownsUserDocument(userId);
+    }
+
     match /chefProfileSlugs/{slug} {
       allow get: if signedIn();
       allow list: if false;
@@ -757,10 +804,12 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.id == workspaceId
         && request.resource.data.ownerId == request.auth.uid
+        && !request.resource.data.keys().hasAny(['subscriptionPlan', 'subscriptionStatus', 'trialStartedAt', 'trialEndsAt', 'subscriptionUpdatedAt'])
         && hasValidWorkspaceCountry(request.resource.data);
       allow read: if isWorkspaceMember(workspaceId);
       allow update: if (isWorkspaceOwner(workspaceId) || (isWorkspaceOwnerOrManager(workspaceId) && request.resource.data.ownerId == resource.data.ownerId))
         && request.resource.data.id == resource.data.id
+        && request.resource.data.diff(resource.data).affectedKeys().hasNone(['subscriptionPlan', 'subscriptionStatus', 'trialStartedAt', 'trialEndsAt', 'subscriptionUpdatedAt'])
         && (
           (('country' in resource.data)
             && request.resource.data.country == resource.data.country)

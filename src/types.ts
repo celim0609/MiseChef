@@ -142,7 +142,7 @@ export type UserRole = 'super_admin' | 'admin' | 'user';
 
 export type CompanyRole = 'super_admin' | 'owner' | 'manager' | 'chef' | 'staff';
 
-export type SubscriptionPlan = 'free' | 'starter' | 'professional' | 'business' | 'enterprise';
+export type SubscriptionPlan = 'free' | 'starter' | 'professional' | 'business';
 export type SubscriptionStatus = 'active' | 'trialing' | 'past_due' | 'cancelled' | 'suspended';
 export type BillingCycle = 'monthly' | 'yearly';
 
@@ -181,6 +181,10 @@ export interface Workspace {
   country: RegionCode;
   type?: WorkspaceType;
   members: WorkspaceMemberSummary[];
+  subscriptionPlan?: SubscriptionPlan;
+  subscriptionStatus?: SubscriptionStatus;
+  trialStartedAt?: string | null;
+  trialEndsAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

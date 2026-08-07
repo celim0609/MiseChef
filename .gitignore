@@ -6,4 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+!.env.beta
+!functions/.env.misechef-beta-fa4bf
 functions/.secret.local

@@ -65,6 +65,7 @@ export interface ChefPortfolioItem {
   id: string;
   title?: string;
   description?: string;
+  projectUrl?: string;
   imageUrl?: string;
   videoUrl?: string;
 }
@@ -98,6 +99,7 @@ export interface ChefProfile {
 
 export type ImportedChefProfile = Omit<ChefProfile, 'userId' | 'visibility' | 'completionPercentage' | 'createdAt' | 'updatedAt'> & {
   summaryGeneratedByAi?: boolean;
+  unmappedSections?: Array<{ sectionName: string; content?: string; reason?: string }>;
 };
 
 export interface ResumeExportSettings {

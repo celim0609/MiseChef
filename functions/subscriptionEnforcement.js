@@ -1,18 +1,8 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
+import { requireWorkspaceFeature, SUBSCRIPTION_PLANS, UNLIMITED } from './subscriptionFoundation.js';
 
-const UNLIMITED = -1;
-const ACTIVE_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing']);
-
-// These server-owned limits mirror the existing Subscription Center definitions.
-// Entitlements are always selected from the authenticated workspace's company document.
-const PLAN_LIMITS = Object.freeze({
-  free: Object.freeze({ invoices: 10, invoiceOcr: 10, aiRequests: 25 }),
-  starter: Object.freeze({ invoices: 75, invoiceOcr: 75, aiRequests: 250 }),
-  professional: Object.freeze({ invoices: 500, invoiceOcr: 500, aiRequests: 1_000 }),
-  business: Object.freeze({ invoices: 2_500, invoiceOcr: 2_500, aiRequests: 5_000 }),
-  enterprise: Object.freeze({ invoices: UNLIMITED, invoiceOcr: UNLIMITED, aiRequests: UNLIMITED })
-});
+const PLAN_LIMITS = Object.freeze(Object.fromEntries(Object.entries(SUBSCRIPTION_PLANS).map(([plan, definition]) => [plan, definition.limits])));
 
 const readString = value => typeof value === 'string' ? value.trim() : '';
 
@@ -39,72 +29,7 @@ const getLimitError = (resource, limit) => new HttpsError(
 );
 
 export const requireWorkspaceEntitlements = async ({ db, uid, workspaceId }) => {
-  const normalizedWorkspaceId = readString(workspaceId);
-  if (!uid) throw new HttpsError('unauthenticated', 'Sign in to use this feature.');
-  if (!normalizedWorkspaceId) {
-    throw new HttpsError('invalid-argument', 'Workspace ID is required.');
-  }
-
-  const membershipReference = db.collection('workspaceMembers').doc(`${normalizedWorkspaceId}_${uid}`);
-  const workspaceReference = db.collection('workspaces').doc(normalizedWorkspaceId);
-  const companyReference = db.collection('companies').doc(normalizedWorkspaceId);
-
-  let membershipSnapshot;
-  let workspaceSnapshot;
-  let companySnapshot;
-  try {
-    [membershipSnapshot, workspaceSnapshot, companySnapshot] = await Promise.all([
-      membershipReference.get(),
-      workspaceReference.get(),
-      companyReference.get()
-    ]);
-  } catch (err) {
-    throw new HttpsError('unavailable', 'Workspace subscription is temporarily unavailable.', {
-      reason: 'subscription-lookup-failed'
-    });
-  }
-
-  const membership = membershipSnapshot.exists ? membershipSnapshot.data() || {} : {};
-  const workspace = workspaceSnapshot.exists ? workspaceSnapshot.data() || {} : {};
-  const isActiveMember = membership.userId === uid
-    && membership.workspaceId === normalizedWorkspaceId
-    && membership.status === 'Active';
-  const isWorkspaceOwner = workspaceSnapshot.exists && workspace.ownerId === uid;
-
-  if (!isActiveMember && !isWorkspaceOwner) {
-    throw new HttpsError('permission-denied', 'You do not have access to this workspace.', {
-      reason: 'workspace-membership-required'
-    });
-  }
-
-  if (!companySnapshot.exists) {
-    throw new HttpsError('unavailable', 'Workspace subscription is temporarily unavailable.', {
-      reason: 'subscription-not-found'
-    });
-  }
-
-  const company = companySnapshot.data() || {};
-  const plan = readString(company.subscriptionPlan).toLowerCase();
-  const status = readString(company.subscriptionStatus).toLowerCase();
-  if (!PLAN_LIMITS[plan] || !status) {
-    throw new HttpsError('unavailable', 'Workspace subscription is temporarily unavailable.', {
-      reason: 'subscription-invalid'
-    });
-  }
-  if (!ACTIVE_SUBSCRIPTION_STATUSES.has(status)) {
-    throw new HttpsError('permission-denied', 'The workspace subscription is not active.', {
-      reason: 'subscription-inactive',
-      status
-    });
-  }
-
-  return {
-    workspaceId: normalizedWorkspaceId,
-    role: isWorkspaceOwner ? 'Owner' : readString(membership.role),
-    plan,
-    status,
-    limits: PLAN_LIMITS[plan]
-  };
+  return requireWorkspaceFeature({ db, uid, workspaceId, feature: 'aiRequests' });
 };
 
 const loadMonthlyUsageBaseline = async ({ db, workspaceId, monthKey }) => {
