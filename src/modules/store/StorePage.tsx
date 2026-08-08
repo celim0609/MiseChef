@@ -192,7 +192,7 @@ export default function StorePage({
         setSettingsDraft(toSettingsDraft(loadedStore));
         setProducts(loadedProducts);
         setOptionGroups(loadedOptionGroups);
-        setActiveView('products');
+        setActiveView(focusOrderId ? 'orders' : 'products');
       } catch (error) {
         if (!isCancelled) {
           setErrorMessage(error instanceof Error ? error.message : 'Unable to load this Store.');

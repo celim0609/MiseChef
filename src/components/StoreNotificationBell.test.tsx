@@ -7,6 +7,7 @@ import type { StoreNotification } from '../modules/store';
 
 const appSource = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
 const bellSource = readFileSync(new URL('./StoreNotificationBell.tsx', import.meta.url), 'utf8');
+const storePageSource = readFileSync(new URL('../modules/store/StorePage.tsx', import.meta.url), 'utf8');
 const rulesSource = readFileSync(new URL('../../firestore.rules', import.meta.url), 'utf8');
 
 const notification = (id: string, readAt = ''): StoreNotification => ({
@@ -39,6 +40,7 @@ test('notification selection marks the document read and routes to the related S
   assert.match(appSource, /setFocusedStoreOrderId\(selectedNotification\.orderId\)/);
   assert.match(appSource, /handleRootNavigate\('store'\)/);
   assert.match(bellSource, /onSelect\(notification\)/);
+  assert.match(storePageSource, /setActiveView\(focusOrderId \? 'orders' : 'products'\)/);
 });
 
 test('notifications remain server-created and only their read timestamp is client writable', () => {
