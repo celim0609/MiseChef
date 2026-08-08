@@ -124,9 +124,9 @@ export default function Header({
 
   return (
     <header className="fixed top-0 left-0 w-full z-50 h-16 bg-surface/85 backdrop-blur-md border-b border-surface-container-high transition-all">
-      <div className="max-w-7xl mx-auto h-full px-4 sm:px-6 md:px-8 flex justify-between items-center">
+      <div className="max-w-7xl mx-auto h-full px-2 sm:px-6 md:px-8 flex justify-between items-center">
         {/* Left Side */}
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-1 sm:gap-3 min-w-0">
           {isSubpage ? (
             <button
               onClick={onBack}
@@ -147,7 +147,7 @@ export default function Header({
             </button>
           )}
           
-          <div className="flex items-center gap-2.5 min-w-0">
+          <div className="hidden items-center gap-2.5 min-w-0 sm:flex">
             {title === "MiseChef" && (
               <BrandLogo className="h-8 sm:h-9 w-auto shrink-0" />
             )}
@@ -174,7 +174,7 @@ export default function Header({
                 <button
                   type="button"
                   onClick={() => setIsWorkspaceMenuOpen(prev => !prev)}
-                  className="group flex min-w-[190px] max-w-[280px] items-center gap-2 rounded-2xl border border-surface-container-high bg-surface-container-low/90 px-2.5 py-2 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-white hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/10"
+                  className="group flex min-w-[150px] max-w-[170px] items-center gap-2 rounded-2xl border border-surface-container-high bg-surface-container-low/90 px-2 py-2 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-white hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary/10 sm:min-w-[190px] sm:max-w-[280px] sm:px-2.5"
                   aria-haspopup="menu"
                   aria-expanded={isWorkspaceMenuOpen}
                 >
@@ -255,7 +255,7 @@ export default function Header({
               </div>
             ) : (
               <div
-                className="flex min-w-[190px] max-w-[280px] items-center gap-2 rounded-2xl border border-surface-container-high bg-surface-container-low/90 px-2.5 py-2 text-left shadow-sm"
+                className="flex min-w-[150px] max-w-[170px] items-center gap-2 rounded-2xl border border-surface-container-high bg-surface-container-low/90 px-2 py-2 text-left shadow-sm sm:min-w-[190px] sm:max-w-[280px] sm:px-2.5"
                 aria-label="Current workspace"
               >
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary text-[11px] font-display font-bold text-on-primary shadow-sm shadow-primary/20">
@@ -275,7 +275,7 @@ export default function Header({
         </div>
 
         {/* Right Side */}
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-3">
           {notificationAction}
           {rightAction ? (
             rightAction
@@ -283,7 +283,7 @@ export default function Header({
             <button
               type="button"
               onClick={onAvatarClick}
-              className="w-10 h-10 sm:w-11 sm:h-11 rounded-full overflow-hidden border-2 border-primary shadow-sm shadow-primary/20 hover:shadow-md hover:shadow-primary/25 hover:scale-105 transition-all cursor-pointer bg-primary text-on-primary flex items-center justify-center"
+              className="w-9 h-9 sm:w-11 sm:h-11 rounded-full overflow-hidden border-2 border-primary shadow-sm shadow-primary/20 hover:shadow-md hover:shadow-primary/25 hover:scale-105 transition-all cursor-pointer bg-primary text-on-primary flex items-center justify-center"
               aria-label="Open account settings"
             >
               {chefAvatarUrl ? (
