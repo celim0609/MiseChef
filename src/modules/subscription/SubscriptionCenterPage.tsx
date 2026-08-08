@@ -57,9 +57,16 @@ const UsageItem = ({ label, value = 0, limit = 0, icon, comingSoon = false }: Us
 export default function SubscriptionCenterPage({ workspaceId, currentWorkspace, recipeCount }: SubscriptionCenterPageProps) {
   const [subscription, setSubscription] = useState<CompanySubscription | null>(null);
   const [aiUsage, setAiUsage] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     let isCancelled = false;
+
+    setSubscription(null);
+    setAiUsage(0);
+    setIsLoading(true);
+    setLoadError(false);
 
     const loadSubscriptionCenter = async () => {
       const [nextSubscription, usageRecords] = await Promise.all([
@@ -79,7 +86,9 @@ export default function SubscriptionCenterPage({ workspaceId, currentWorkspace, 
     };
 
     loadSubscriptionCenter().catch(() => {
-      if (!isCancelled) setSubscription(null);
+      if (!isCancelled) setLoadError(true);
+    }).finally(() => {
+      if (!isCancelled) setIsLoading(false);
     });
 
     return () => {
@@ -87,20 +96,42 @@ export default function SubscriptionCenterPage({ workspaceId, currentWorkspace, 
     };
   }, [workspaceId]);
 
-  const activeSubscription = subscription || {
-    workspaceId,
-    companyId: workspaceId,
-    subscriptionPlan: 'free' as const,
-    subscriptionStatus: 'active' as const,
-    billingCycle: 'monthly' as const,
-    subscriptionStartedAt: '',
-    subscriptionRenewalAt: '',
-    subscriptionCancelledAt: null,
-    trialStartedAt: null,
-    trialEndsAt: null,
-    trialDaysRemaining: 0,
-    limits: subscriptionService.getPlanLimits('free')
-  };
+  const pageHeader = (
+    <header>
+      <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Workspace subscription</p>
+      <h1 className="mt-1 font-display text-3xl font-semibold text-primary sm:text-4xl">Subscription Center</h1>
+      <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">Plan and usage information for the active workspace.</p>
+    </header>
+  );
+
+  if (!subscription) {
+    return (
+      <div className="mx-auto w-full max-w-6xl space-y-5 py-4 sm:py-6" aria-busy={isLoading}>
+        {pageHeader}
+        <section
+          role={loadError ? 'alert' : 'status'}
+          aria-live="polite"
+          className="rounded-3xl border border-surface-container-high bg-surface-container-low p-6 shadow-sm"
+        >
+          <div className="flex items-center gap-3">
+            <span className={`rounded-2xl bg-primary/10 p-3 text-primary ${isLoading ? 'animate-pulse' : ''}`}>
+              <CreditCard className="h-6 w-6" />
+            </span>
+            <div>
+              <h2 className="font-display text-xl font-semibold text-primary">
+                {loadError ? 'Subscription information is unavailable' : 'Loading subscription information'}
+              </h2>
+              <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">
+                {loadError ? 'Refresh the page to try again.' : 'Checking the active workspace plan and usage.'}
+              </p>
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  const activeSubscription = subscription;
   const currentPlan = subscriptionService.getPlanDefinition(activeSubscription.subscriptionPlan);
   const teamMembers = currentWorkspace?.members.filter(member => member.status === 'Active').length || 0;
   const reachedLimits = [
@@ -118,11 +149,7 @@ export default function SubscriptionCenterPage({ workspaceId, currentWorkspace, 
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-5 py-4 sm:py-6">
-      <header>
-        <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Workspace subscription</p>
-        <h1 className="mt-1 font-display text-3xl font-semibold text-primary sm:text-4xl">Subscription Center</h1>
-        <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">Plan and usage information for the active workspace.</p>
-      </header>
+      {pageHeader}
 
       {activeSubscription.subscriptionStatus === 'trialing' && (
         <section className="relative overflow-hidden rounded-3xl bg-primary p-5 text-on-primary shadow-lg sm:p-6">
