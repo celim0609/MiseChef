@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { initializeApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
@@ -26,6 +27,7 @@ import {
   requireWorkspaceAccess,
   requireWorkspaceFeature
 } from './subscriptionFoundation.js';
+import { provisionNewUser } from './newUserProvisioning.js';
 import {
   createPaymentAdapter
 } from './paymentProviders/index.js';
@@ -62,6 +64,15 @@ const ALLOWED_INVOICE_OCR_MIME_TYPES = new Set([
   'image/png',
   'image/webp'
 ]);
+
+export const provisionNewUserWorkspace = onCall({ region: REGION }, async request => provisionNewUser({
+  db,
+  auth: getAuth(),
+  uid: request.auth?.uid,
+  email: request.auth?.token?.email || '',
+  authDisplayName: request.auth?.token?.name || '',
+  requestedDisplayName: request.data?.displayName || ''
+}));
 
 export const getWorkspaceSubscription = onCall({ region: REGION }, async request => {
   const access = await requireWorkspaceAccess({

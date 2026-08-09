@@ -19,6 +19,7 @@ import RecipeDetailModal from './components/RecipeDetailModal';
 import NavigationDrawer from './components/NavigationDrawer';
 import SettingsTab, { ImportedAppData } from './components/SettingsTab';
 import LoginTab from './components/LoginTab';
+import WorkspaceSetupScreen from './components/WorkspaceSetupScreen';
 import FavoritesTab from './components/FavoritesTab';
 import StatisticsTab from './components/StatisticsTab';
 import { AdminPage } from './modules/admin';
@@ -40,6 +41,8 @@ import { FALLBACK_CATEGORY_NAME, getRecipeCategories, normalizeRecipeCategories,
 import { normalizeIngredientForDisplay } from './utils/ingredientParser';
 import { getConfiguredRoleForUser, resolveUserRole } from './utils/userRoles';
 import { workspaceService } from './services/workspaceService';
+import { ensureNewUserProvisioned } from './services/newUserProvisioningService';
+import { shouldShowWorkspaceSetup } from './services/newUserProvisioningModel';
 import { usageLimitService } from './services/usageLimitService';
 import { canAccessRootTab, normalizeTeamRole } from './modules/team/permissions';
 import { getAuthenticatedDisplayName, getChefProfileStorageKey } from './utils/authenticatedUser';
@@ -597,6 +600,8 @@ export default function App() {
   const [isFavoritesFilterActive, setIsFavoritesFilterActive] = useState(false);
   const [isAppReady, setIsAppReady] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [workspaceSetupStatus, setWorkspaceSetupStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [workspaceSetupError, setWorkspaceSetupError] = useState('');
   const [isGuestMode, setIsGuestMode] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>('user');
@@ -830,6 +835,10 @@ export default function App() {
         if (isCancelled) return;
 
         unsubscribeAuth = onAuthStateChanged(auth, user => {
+          setWorkspaceSetupStatus(user ? 'loading' : 'idle');
+          setWorkspaceSetupError('');
+          setWorkspaces([]);
+          setCurrentWorkspace(null);
           setCurrentUser(user);
           setIsAuthReady(true);
 
@@ -951,38 +960,37 @@ export default function App() {
     let isCancelled = false;
 
     const initializeFirestoreUser = async () => {
-      const workspaceInitialization = workspaceService.listUserWorkspaces(currentUser);
-      const accountInitialization = (async () => {
-        const role = await createUserDocument(currentUser);
-        const cloudProfile = await loadFirestoreProfile(currentUser);
-        return { role, cloudProfile };
-      })();
-
-      const [workspaceResult, accountResult] = await Promise.allSettled([
-        workspaceInitialization,
-        accountInitialization
-      ]);
-
-      if (isCancelled) return;
-
-      if (workspaceResult.status === 'fulfilled') {
-        const loadedWorkspaces = workspaceResult.value;
+      setWorkspaceSetupStatus('loading');
+      setWorkspaceSetupError('');
+      try {
+        const provisioned = await ensureNewUserProvisioned(currentUser);
+        const [loadedWorkspaces, cloudProfile] = await Promise.all([
+          workspaceService.listAccessibleWorkspaces(currentUser),
+          loadFirestoreProfile(currentUser)
+        ]);
+        if (isCancelled) return;
+        if (!loadedWorkspaces.some(workspace => workspace.id === provisioned.workspaceId)) {
+          throw new Error('Your personal workspace is not ready yet.');
+        }
         const selectedWorkspace = workspaceService.resolveSelectedWorkspace(currentUser, loadedWorkspaces);
         setWorkspaces(loadedWorkspaces);
         setCurrentWorkspace(selectedWorkspace);
         if (selectedWorkspace) {
           workspaceService.setStoredWorkspaceId(currentUser.uid, selectedWorkspace.id);
         }
-      }
-
-      if (accountResult.status === 'fulfilled') {
-        setCurrentUserRole(accountResult.value.role);
-        const cloudProfile = accountResult.value.cloudProfile;
+        setCurrentUserRole(provisioned.userRole);
         if (cloudProfile) {
           setChefProfile(cloudProfile);
           setCustomAvatarUrl(cloudProfile.photo);
           localStorage.setItem(getChefProfileStorageKey(currentUser.uid), JSON.stringify(cloudProfile));
         }
+        setWorkspaceSetupStatus('ready');
+      } catch (error) {
+        if (isCancelled) return;
+        setWorkspaceSetupStatus('error');
+        setWorkspaceSetupError(error instanceof Error
+          ? error.message
+          : "We couldn't finish setting up your workspace. Please reload and try again.");
       }
     };
 
@@ -1977,6 +1985,15 @@ export default function App() {
 
   if (isMarketingPath(window.location.pathname)) {
     return <MarketingPage initialSection={MARKETING_SECTION_BY_PATH[window.location.pathname]} />;
+  }
+
+  if (shouldShowWorkspaceSetup({
+    hasUser: Boolean(currentUser),
+    isGuestMode,
+    isAppPath: isAppPath(window.location.pathname),
+    status: workspaceSetupStatus
+  })) {
+    return <WorkspaceSetupScreen error={workspaceSetupStatus === 'error' ? workspaceSetupError : ''} />;
   }
 
   if (!isProtectedShellVisible && window.location.pathname === '/login') {
