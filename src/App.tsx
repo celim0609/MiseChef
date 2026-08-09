@@ -964,6 +964,7 @@ export default function App() {
       setWorkspaceSetupError('');
       try {
         const provisioned = await ensureNewUserProvisioned(currentUser);
+        await currentUser.reload();
         const [loadedWorkspaces, cloudProfile] = await Promise.all([
           workspaceService.listAccessibleWorkspaces(currentUser),
           loadFirestoreProfile(currentUser)

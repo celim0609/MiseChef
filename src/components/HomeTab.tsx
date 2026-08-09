@@ -33,6 +33,7 @@ import TodaysTasks from './home/TodaysTasks';
 import type { CostingInvoice } from '../modules/costing/types';
 import { dashboardService, type DashboardSource, type OwnerDashboardData } from '../services/dashboardService';
 import { getAuthenticatedGreeting } from '../utils/authenticatedUser';
+import { selectProvisionedDisplayName } from '../services/newUserProvisioningModel';
 import { formatRegionCurrency, useWorkspaceRegion } from '../regions';
 
 interface HomePortfolioSummary {
@@ -136,7 +137,8 @@ export default function HomeTab({
   onNavigate,
   onSelectRecipe,
   onToggleFavorite,
-  workspaceRole = null
+  workspaceRole = null,
+  profile
 }: HomeTabProps) {
   const region = useWorkspaceRegion();
   const [dashboard, setDashboard] = useState<OwnerDashboardData | null>(null);
@@ -146,9 +148,15 @@ export default function HomeTab({
   const userId = currentUser?.uid;
   const activeWorkspaceId = workspaceId || userId;
   const isChefHome = workspaceRole === 'Chef';
-  const firstTimeGreeting = getAuthenticatedGreeting('Welcome to MiseChef', currentUser);
-  const chefHomeGreeting = getAuthenticatedGreeting('Welcome back', currentUser);
-  const ownerHomeGreeting = getAuthenticatedGreeting(getGreeting(), currentUser);
+  const greetingIdentity = {
+    displayName: selectProvisionedDisplayName({
+      authDisplayName: currentUser?.displayName,
+      profileName: profile?.name
+    })
+  };
+  const firstTimeGreeting = getAuthenticatedGreeting('Welcome to MiseChef', greetingIdentity);
+  const chefHomeGreeting = getAuthenticatedGreeting('Welcome back', greetingIdentity);
+  const ownerHomeGreeting = getAuthenticatedGreeting(getGreeting(), greetingIdentity);
 
   const loadDashboard = useCallback(async () => {
     if (!userId || !activeWorkspaceId) {

@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { selectClientProvisioningDisplayName, shouldShowWorkspaceSetup } from './newUserProvisioningModel';
+import {
+  selectClientProvisioningDisplayName,
+  selectProvisionedDisplayName,
+  shouldShowWorkspaceSetup
+} from './newUserProvisioningModel';
 
 test('registration uses the entered name while Auth displayName is still empty', () => {
   assert.equal(selectClientProvisioningDisplayName({
@@ -29,4 +33,15 @@ test('protected app stays behind neutral setup state until provisioning is ready
     isAppPath: true,
     status: 'ready'
   }), false);
+});
+
+test('first-session UI falls back to the provisioned profile while the Auth object refreshes', () => {
+  assert.equal(selectProvisionedDisplayName({
+    authDisplayName: '',
+    profileName: 'Nur Iman'
+  }), 'Nur Iman');
+  assert.equal(selectProvisionedDisplayName({
+    authDisplayName: 'Updated Auth Name',
+    profileName: 'Nur Iman'
+  }), 'Updated Auth Name');
 });

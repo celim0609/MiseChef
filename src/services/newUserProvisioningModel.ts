@@ -13,6 +13,14 @@ export const selectClientProvisioningDisplayName = ({
   || normalizeProvisioningName(email).split('@')[0]
   || 'Chef';
 
+export const selectProvisionedDisplayName = ({
+  authDisplayName,
+  profileName
+}: {
+  authDisplayName?: string | null;
+  profileName?: string | null;
+}) => normalizeProvisioningName(authDisplayName) || normalizeProvisioningName(profileName);
+
 export const shouldShowWorkspaceSetup = ({
   hasUser,
   isGuestMode,
