@@ -29,6 +29,7 @@ import { recipeCostService } from './modules/costing/services';
 import { BusinessPage } from './modules/business';
 import { TeamPage } from './modules/team';
 import { SubscriptionCenterPage } from './modules/subscription';
+import { IntentOnboarding, getOnboardingDestination, onboardingService, normalizeOnboarding, type OnboardingGoal, type UserOnboarding } from './modules/onboarding';
 import { teamService } from './modules/team/services';
 import type { TeamInvitation } from './modules/team/types';
 import { MarketingPage } from './modules/marketing';
@@ -50,7 +51,6 @@ import { WorkspaceRegionProvider } from './regions';
 import {
   StorePage,
   storeOrderService,
-  storeService,
   type StoreNotification
 } from './modules/store';
 
@@ -602,6 +602,9 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [workspaceSetupStatus, setWorkspaceSetupStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [workspaceSetupError, setWorkspaceSetupError] = useState('');
+  const [onboarding, setOnboarding] = useState<UserOnboarding>(() => normalizeOnboarding(null));
+  const [isSavingOnboarding, setIsSavingOnboarding] = useState(false);
+  const [onboardingError, setOnboardingError] = useState('');
   const [isGuestMode, setIsGuestMode] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>('user');
@@ -628,18 +631,6 @@ export default function App() {
       : isGuestMode
         ? 'Viewer'
         : null;
-
-  useEffect(() => {
-    if (
-      !currentUser
-      || !currentWorkspace
-      || (currentWorkspaceRole !== 'Owner' && currentWorkspaceRole !== 'Manager')
-    ) {
-      return;
-    }
-
-    storeService.ensureWorkspaceStore(currentWorkspace, currentUser.uid).catch(() => undefined);
-  }, [currentUser, currentWorkspace, currentWorkspaceRole]);
 
   useEffect(() => {
     setStoreNotifications([]);
@@ -839,6 +830,8 @@ export default function App() {
           setWorkspaceSetupError('');
           setWorkspaces([]);
           setCurrentWorkspace(null);
+          setOnboarding(normalizeOnboarding(null));
+          setOnboardingError('');
           setCurrentUser(user);
           setIsAuthReady(true);
 
@@ -965,9 +958,10 @@ export default function App() {
       try {
         const provisioned = await ensureNewUserProvisioned(currentUser);
         await currentUser.reload();
-        const [loadedWorkspaces, cloudProfile] = await Promise.all([
+        const [loadedWorkspaces, cloudProfile, loadedOnboarding] = await Promise.all([
           workspaceService.listAccessibleWorkspaces(currentUser),
-          loadFirestoreProfile(currentUser)
+          loadFirestoreProfile(currentUser),
+          onboardingService.load(currentUser.uid)
         ]);
         if (isCancelled) return;
         if (!loadedWorkspaces.some(workspace => workspace.id === provisioned.workspaceId)) {
@@ -980,6 +974,7 @@ export default function App() {
           workspaceService.setStoredWorkspaceId(currentUser.uid, selectedWorkspace.id);
         }
         setCurrentUserRole(provisioned.userRole);
+        setOnboarding(loadedOnboarding);
         if (cloudProfile) {
           setChefProfile(cloudProfile);
           setCustomAvatarUrl(cloudProfile.photo);
@@ -1524,6 +1519,7 @@ export default function App() {
       setCustomAvatarUrl(guestProfile.photo);
       setWorkspaces([]);
       setCurrentWorkspace(null);
+      setOnboarding(normalizeOnboarding(null));
       setIsGuestMode(false);
       setRecipes(loadLocalRecipes());
       setAddingRecipe(false);
@@ -1638,6 +1634,7 @@ export default function App() {
     setCurrentUserRole('user');
     setWorkspaces([]);
     setCurrentWorkspace(null);
+    setOnboarding(normalizeOnboarding(null));
     setIsGuestMode(true);
     const localProfile = loadLocalProfile();
     setChefProfile(localProfile);
@@ -1659,6 +1656,21 @@ export default function App() {
 
     setIsGuestMode(false);
     handleRootNavigate('login');
+  };
+
+  const saveOnboardingGoals = async (goals: OnboardingGoal[]) => {
+    if (!currentUser) return;
+    setIsSavingOnboarding(true);
+    setOnboardingError('');
+    try {
+      const saved = await onboardingService.complete(currentUser.uid, goals);
+      setOnboarding(saved);
+      handleRootNavigate(getOnboardingDestination(goals));
+    } catch (error) {
+      setOnboardingError(error instanceof Error ? error.message : "We couldn't save your choices. Please try again.");
+    } finally {
+      setIsSavingOnboarding(false);
+    }
   };
 
   const handleAcceptTeamInvitation = async (invitation: TeamInvitation) => {
@@ -1732,6 +1744,7 @@ export default function App() {
             }}
             onCreateRecipe={() => setAddingRecipe(true)}
             onNavigate={handleRootNavigate}
+            onboardingGoals={onboarding.goals}
           />
         );
       case 'favorites':
@@ -1995,6 +2008,17 @@ export default function App() {
     status: workspaceSetupStatus
   })) {
     return <WorkspaceSetupScreen error={workspaceSetupStatus === 'error' ? workspaceSetupError : ''} />;
+  }
+
+  if (currentUser && isAppPath(window.location.pathname) && onboarding.status === 'pending') {
+    return (
+      <IntentOnboarding
+        isSaving={isSavingOnboarding}
+        error={onboardingError}
+        onContinue={saveOnboardingGoals}
+        onSkip={() => saveOnboardingGoals([])}
+      />
+    );
   }
 
   if (!isProtectedShellVisible && window.location.pathname === '/login') {

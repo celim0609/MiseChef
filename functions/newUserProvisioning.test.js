@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Timestamp } from 'firebase-admin/firestore';
-import { buildProvisioningRecords, provisionNewUser, selectProvisioningDisplayName } from './newUserProvisioning.js';
+import { buildProvisioningRecords, getPersonalWorkspaceName, provisionNewUser, selectProvisioningDisplayName } from './newUserProvisioning.js';
 
 const UID = 'fresh-user';
 const EMAIL = 'fresh@example.test';
@@ -18,7 +18,15 @@ test('entered registration name provisions profile, workspace, Owner membership,
 
   assert.equal(records.user.displayName, 'Aisha Rahman');
   assert.equal(records.user.profile.name, 'Aisha Rahman');
-  assert.equal(records.workspace.name, 'Aisha Rahman Kitchen');
+  assert.equal(records.workspace.name, "Aisha's Workspace");
+  assert.deepEqual(records.user.onboarding, {
+    version: 1,
+    status: 'pending',
+    goals: [],
+    createdAt: NOW.toISOString(),
+    updatedAt: NOW.toISOString(),
+    completedAt: null
+  });
   assert.equal(records.workspace.ownerId, UID);
   assert.equal(records.membership.id, `${UID}_${UID}`);
   assert.equal(records.membership.role, 'Owner');
@@ -69,6 +77,40 @@ test('idempotent provisioning preserves manually edited workspace and profile na
   assert.equal(records.workspace.trialStartedAt.toDate().toISOString(), '2026-08-08T00:00:00.000Z');
   assert.equal(records.workspace.trialEndsAt.toDate().toISOString(), '2026-08-22T00:00:00.000Z');
   assert.equal(records.membership.workspaceName, 'My Hand-edited Restaurant');
+  assert.equal(records.user.onboarding, undefined);
+});
+
+test('idempotent retry keeps an existing exact 14-day trial when Firestore createTime differs', () => {
+  const originalStart = Timestamp.fromDate(new Date('2026-08-09T16:05:35.792Z'));
+  const originalEnd = Timestamp.fromDate(new Date('2026-08-23T16:05:35.792Z'));
+  const firestoreCreateTime = Timestamp.fromDate(new Date('2026-08-09T16:05:35.816Z'));
+  const records = buildProvisioningRecords({
+    uid: UID,
+    email: EMAIL,
+    displayName: 'Aisha Rahman',
+    now: new Date('2026-08-09T16:05:36.000Z'),
+    workspaceCreateTime: firestoreCreateTime,
+    userExists: true,
+    workspaceExists: true,
+    membershipExists: true,
+    existingWorkspace: {
+      id: UID,
+      name: "Aisha's Workspace",
+      ownerId: UID,
+      subscriptionPlan: 'professional',
+      subscriptionStatus: 'trialing',
+      trialStartedAt: originalStart,
+      trialEndsAt: originalEnd
+    }
+  });
+
+  assert.equal(records.workspace.trialStartedAt.toDate().toISOString(), '2026-08-09T16:05:35.792Z');
+  assert.equal(records.workspace.trialEndsAt.toDate().toISOString(), '2026-08-23T16:05:35.792Z');
+});
+
+test('personal workspace naming is neutral and uses the first name only', () => {
+  assert.equal(getPersonalWorkspaceName('Aisha Rahman'), "Aisha's Workspace");
+  assert.equal(getPersonalWorkspaceName(''), "Chef's Workspace");
 });
 
 test('entered registration name wins before Firebase Auth displayName is available', () => {

@@ -26,6 +26,11 @@ export const selectProvisioningDisplayName = ({ requestedDisplayName, authDispla
   return readString(requestedDisplayName) || readString(authDisplayName) || emailName || 'Chef';
 };
 
+export const getPersonalWorkspaceName = displayName => {
+  const firstName = readString(displayName).split(/\s+/)[0] || 'Chef';
+  return `${firstName}'s Workspace`;
+};
+
 export const buildProvisioningRecords = ({
   uid,
   email,
@@ -50,7 +55,7 @@ export const buildProvisioningRecords = ({
 
   const workspaceName = workspaceExists && readString(existingWorkspace.name)
     ? existingWorkspace.name
-    : `${displayName} Kitchen`;
+    : getPersonalWorkspaceName(displayName);
   const owner = memberSummary({ uid, email, displayName });
   const members = Array.isArray(existingWorkspace.members)
     ? existingWorkspace.members.some(member => member?.userId === uid)
@@ -75,6 +80,16 @@ export const buildProvisioningRecords = ({
       role: readString(existingUser.role) || 'user',
       profile,
       authProvider: readString(existingUser.authProvider) || 'password',
+      ...(!userExists ? {
+        onboarding: {
+          version: 1,
+          status: 'pending',
+          goals: [],
+          createdAt: nowIso,
+          updatedAt: nowIso,
+          completedAt: null
+        }
+      } : {}),
       createdAt: readString(existingUser.createdAt) || nowIso,
       updatedAt: nowIso
     },

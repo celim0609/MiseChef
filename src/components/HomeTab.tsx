@@ -35,6 +35,7 @@ import { dashboardService, type DashboardSource, type OwnerDashboardData } from 
 import { getAuthenticatedGreeting } from '../utils/authenticatedUser';
 import { selectProvisionedDisplayName } from '../services/newUserProvisioningModel';
 import { formatRegionCurrency, useWorkspaceRegion } from '../regions';
+import type { OnboardingGoal } from '../modules/onboarding';
 
 interface HomePortfolioSummary {
   professionalTitle?: string;
@@ -58,6 +59,7 @@ interface HomeTabProps {
   onNavigate?: (tab: RootTab) => void;
   workspaceRole?: WorkspaceMemberRole | null;
   allRecipes?: Recipe[];
+  onboardingGoals?: OnboardingGoal[];
 }
 
 interface ActivityItem {
@@ -138,7 +140,8 @@ export default function HomeTab({
   onSelectRecipe,
   onToggleFavorite,
   workspaceRole = null,
-  profile
+  profile,
+  onboardingGoals = []
 }: HomeTabProps) {
   const region = useWorkspaceRegion();
   const [dashboard, setDashboard] = useState<OwnerDashboardData | null>(null);
@@ -416,8 +419,10 @@ export default function HomeTab({
     return (
       <FirstTimeHome
         greeting={firstTimeGreeting}
+        goals={onboardingGoals}
         onCreateRecipe={onCreateRecipe}
-        onCompleteProfile={() => onNavigate?.('profile')}
+        onCompleteProfile={() => onNavigate?.('portfolio')}
+        onSetUpStore={() => onNavigate?.('store')}
       />
     );
   }

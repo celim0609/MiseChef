@@ -85,6 +85,14 @@ const createStoreWithSlug = async (
 };
 
 export const storeService = {
+  async getWorkspaceStore(workspaceId: string): Promise<WorkspaceStore | null> {
+    if (!db || !workspaceId) return null;
+    const snapshot = await getDoc(doc(db, 'stores', workspaceId));
+    return snapshot.exists()
+      ? normalizeWorkspaceStore(snapshot.id, snapshot.data() as Record<string, unknown>)
+      : null;
+  },
+
   async ensureWorkspaceStore(
     workspace: Pick<Workspace, 'id' | 'name' | 'country'>,
     createdBy: string

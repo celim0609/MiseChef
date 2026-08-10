@@ -14,6 +14,7 @@ import {
   QrCode,
   Share2,
   Settings,
+  Store as StoreIcon,
   Trash2,
   X
 } from 'lucide-react';
@@ -169,11 +170,16 @@ export default function StorePage({
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [isStoreLoadError, setIsStoreLoadError] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [shareMessage, setShareMessage] = useState('');
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
   const [unavailableDateDraft, setUnavailableDateDraft] = useState('');
+  const [storeName, setStoreName] = useState(() => {
+    const firstName = currentUser.displayName?.trim().split(/\s+/)[0] || 'My';
+    return firstName === 'My' ? 'My Store' : `${firstName}'s Store`;
+  });
 
   useEffect(() => {
     let isCancelled = false;
@@ -181,20 +187,28 @@ export default function StorePage({
     const loadStore = async () => {
       setIsLoading(true);
       setErrorMessage('');
+      setIsStoreLoadError(false);
       try {
-        const [loadedStore, loadedProducts, loadedOptionGroups] = await Promise.all([
-          storeService.ensureWorkspaceStore(workspace, currentUser.uid),
-          storeService.listProducts(workspace.id),
-          storeService.listOptionGroups(workspace.id)
-        ]);
+        const loadedStore = await storeService.getWorkspaceStore(workspace.id);
         if (isCancelled) return;
         setStore(loadedStore);
-        setSettingsDraft(toSettingsDraft(loadedStore));
-        setProducts(loadedProducts);
-        setOptionGroups(loadedOptionGroups);
+        setSettingsDraft(loadedStore ? toSettingsDraft(loadedStore) : null);
+        if (loadedStore) {
+          const [loadedProducts, loadedOptionGroups] = await Promise.all([
+            storeService.listProducts(workspace.id),
+            storeService.listOptionGroups(workspace.id)
+          ]);
+          if (isCancelled) return;
+          setProducts(loadedProducts);
+          setOptionGroups(loadedOptionGroups);
+        } else {
+          setProducts([]);
+          setOptionGroups([]);
+        }
         setActiveView(focusOrderId ? 'orders' : 'products');
       } catch (error) {
         if (!isCancelled) {
+          setIsStoreLoadError(true);
           setErrorMessage(error instanceof Error ? error.message : 'Unable to load this Store.');
         }
       } finally {
@@ -582,11 +596,49 @@ export default function StorePage({
     setter: (file: File | null) => void
   ) => setter(event.target.files?.[0] || null);
 
+  const handleSetUpStore = async (event: FormEvent) => {
+    event.preventDefault();
+    const name = storeName.trim();
+    if (!name) {
+      setErrorMessage('Store name is required.');
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMessage('');
+    try {
+      const createdStore = await storeService.ensureWorkspaceStore({ ...workspace, name }, currentUser.uid);
+      setStore(createdStore);
+      setSettingsDraft(toSettingsDraft(createdStore));
+      setMessage('Your Store is ready. Add your first product when you are ready.');
+      setActiveView('products');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to set up your Store.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   if (isLoading) {
     return <div className="h-80 animate-pulse rounded-3xl bg-surface-container-low" aria-label="Loading Store" />;
   }
 
   if (!store || !settingsDraft) {
+    if (!isStoreLoadError) {
+      return (
+        <section className="mx-auto max-w-3xl rounded-3xl border border-surface-container-high bg-white p-8 text-center shadow-sm sm:p-12">
+          <span className="mx-auto inline-flex rounded-full bg-primary/10 p-4 text-primary"><StoreIcon className="h-7 w-7" /></span>
+          <h1 className="mt-5 font-display text-4xl font-bold text-primary">Start selling with MiseChef</h1>
+          <p className="mx-auto mt-3 max-w-xl font-sans text-sm font-bold leading-relaxed text-on-surface-variant sm:text-base">Create a Store when you're ready to sell food and accept orders.</p>
+          <form onSubmit={handleSetUpStore} className="mx-auto mt-7 max-w-md space-y-3 text-left">
+            <label htmlFor="store-name" className="block font-sans text-xs font-extrabold uppercase tracking-[0.14em] text-primary">Store name</label>
+            <input id="store-name" value={storeName} onChange={event => setStoreName(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+            {errorMessage && <p role="alert" className="font-sans text-sm font-bold text-error">{errorMessage}</p>}
+            <button type="submit" disabled={isSaving} className="w-full rounded-full bg-primary px-6 py-3 font-sans text-sm font-extrabold text-on-primary shadow-sm disabled:opacity-50">{isSaving ? 'Setting up...' : 'Set Up Store'}</button>
+          </form>
+        </section>
+      );
+    }
     return (
       <section className="rounded-3xl border border-error/30 bg-error/10 p-8 text-center">
         <h1 className="font-display text-3xl font-bold text-error">Store unavailable</h1>

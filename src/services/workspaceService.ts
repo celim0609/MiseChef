@@ -22,9 +22,9 @@ const removeUndefinedFields = <T,>(value: T): T => {
 
 const getDefaultWorkspaceName = (user: User) => {
   const displayName = user.displayName?.trim();
-  if (displayName) return `${displayName} Kitchen`;
+  if (displayName) return `${displayName.split(/\s+/)[0]}'s Workspace`;
   const emailName = user.email?.split('@')[0]?.trim();
-  return emailName ? `${emailName} Kitchen` : 'My Kitchen';
+  return emailName ? `${emailName}'s Workspace` : "Chef's Workspace";
 };
 
 const toMemberSummary = (user: User, role: WorkspaceMemberSummary['role']): WorkspaceMemberSummary => ({

@@ -48,7 +48,9 @@ const normalizeStatus = value => {
 };
 
 export const resolveWorkspaceSubscription = ({ data = {}, createTime, now = new Date() }) => {
-  const createdAt = readDate(createTime) || readDate(data.createdAt) || now;
+  // Idempotent provisioning may rerun after Firestore assigns createTime. Keep the
+  // first committed trial start so a retry cannot shorten the original 14 days.
+  const createdAt = readDate(data.trialStartedAt) || readDate(createTime) || readDate(data.createdAt) || now;
   const canonicalTrialEnd = new Date(createdAt.getTime() + FREE_TRIAL_DAYS * DAY_MS);
   const requestedTrialEnd = readDate(data.trialEndsAt);
   const trialEnd = requestedTrialEnd && requestedTrialEnd <= canonicalTrialEnd ? requestedTrialEnd : canonicalTrialEnd;
