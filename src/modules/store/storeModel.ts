@@ -393,9 +393,10 @@ export const normalizeStoreOptionGroup = (
   const selectionType = data.selectionType === 'multiple' ? 'multiple' : 'single';
   const required = readBoolean(data.required, true);
   const defaultMinimum = required ? 1 : 0;
-  const minimumSelections = Number.isInteger(data.minimumSelections)
+  const configuredMinimum = Number.isInteger(data.minimumSelections)
     ? Number(data.minimumSelections)
     : defaultMinimum;
+  const minimumSelections = required ? Math.max(1, configuredMinimum) : 0;
   const options = Array.isArray(data.options)
     ? data.options
       .filter(option => option && typeof option === 'object')
@@ -446,6 +447,7 @@ export const validateStoreOptionGroup = (draft: StoreOptionGroupDraft) => {
   if (draft.selectionType === 'single' && draft.maximumSelections !== 1) return 'Single Select groups must have a maximum selection of one.';
   if (draft.selectionType === 'single' && draft.minimumSelections > 1) return 'Single Select groups cannot require more than one selection.';
   if (draft.required && draft.minimumSelections < 1) return 'Required groups must have a minimum selection of at least one.';
+  if (!draft.required && draft.minimumSelections !== 0) return 'Optional groups must allow zero selections.';
   if (draft.minimumSelections > draft.maximumSelections) return 'Minimum selection cannot exceed maximum selection.';
   if (draft.options.length === 0) return 'Add at least one option.';
   if (draft.options.length > 20) return 'Use 20 options or fewer in one group.';
@@ -496,9 +498,24 @@ export const calculateStoreOptionAdjustedPrice = (
 export const getStoreOptionSelectionLimits = (
   group: Pick<StoreOptionGroup, 'selectionType' | 'required' | 'minimumSelections' | 'maximumSelections'>
 ) => ({
-  minimum: group.required ? Math.max(1, group.minimumSelections) : group.minimumSelections,
+  minimum: group.required ? Math.max(1, group.minimumSelections) : 0,
   maximum: group.selectionType === 'single' ? 1 : group.maximumSelections
 });
+
+export const formatStoreOptionSelectionRequirement = (
+  group: Pick<StoreOptionGroup, 'selectionType' | 'required' | 'minimumSelections' | 'maximumSelections'>
+) => {
+  const { minimum, maximum } = getStoreOptionSelectionLimits(group);
+  if (!group.required) {
+    return group.selectionType === 'single'
+      ? 'Optional'
+      : `Choose up to ${maximum} · Optional`;
+  }
+  if (group.selectionType === 'single') return 'Choose one · Required';
+  return minimum === maximum
+    ? `Choose ${minimum} · Required`
+    : `Choose ${minimum}–${maximum} · Required`;
+};
 
 export const validateStoreProductOptionSelections = (
   product: StoreProduct,

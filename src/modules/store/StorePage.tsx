@@ -36,6 +36,7 @@ import {
 } from './customerEntry';
 import {
   formatPickupDateLabel,
+  formatStoreOptionSelectionRequirement,
   STORE_PAYMENT_METHODS,
   STORE_ORDER_DAYS,
   validateStoreOptionGroup,
@@ -793,28 +794,35 @@ export default function StorePage({
                               <option value="multiple">Multiple Select</option>
                             </select>
                           </label>
-                          <label className="flex items-center justify-between gap-2 rounded-xl bg-white px-3 py-2.5 sm:self-end">
-                            <span className="font-sans text-[11px] font-extrabold text-primary">Required</span>
-                            <input aria-label={`${group.name || 'Option'} required`} type="checkbox" checked={group.required} onChange={event => setProductOptions(current => current.map(item => item.id !== group.id ? item : {
+                          <label className="block">
+                            <span className="font-sans text-[11px] font-extrabold text-primary">Selection requirement</span>
+                            <select aria-label={`${group.name || 'Option'} selection requirement`} value={group.required ? 'required' : 'optional'} onChange={event => setProductOptions(current => current.map(item => item.id !== group.id ? item : {
                               ...item,
-                              required: event.target.checked,
-                              minimumSelections: event.target.checked ? Math.max(1, item.minimumSelections) : 0
-                            }))} className="h-4 w-4 rounded border-surface-container-high text-primary" />
+                              required: event.target.value === 'required',
+                              minimumSelections: event.target.value === 'required' ? 1 : 0
+                            }))} className="mt-1 w-full rounded-xl border border-surface-container-high bg-white px-3 py-2.5 font-sans text-xs font-bold text-primary">
+                              <option value="optional">Optional</option>
+                              <option value="required">Required</option>
+                            </select>
                           </label>
                           <label className="flex items-center justify-between gap-2 rounded-xl bg-white px-3 py-2.5 sm:self-end">
                             <span className="font-sans text-[11px] font-extrabold text-primary">Available</span>
                             <input aria-label={`${group.name || 'Option'} group available`} type="checkbox" checked={group.available} onChange={event => setProductOptions(current => current.map(item => item.id === group.id ? { ...item, available: event.target.checked } : item))} className="h-4 w-4 rounded border-surface-container-high text-primary" />
                           </label>
-                          <label className="block">
-                            <span className="font-sans text-[11px] font-extrabold text-primary">Minimum Selection</span>
-                            <input aria-label={`${group.name || 'Option'} minimum selection`} type="number" min={group.required ? 1 : 0} max={group.maximumSelections} value={group.minimumSelections} onChange={event => setProductOptions(current => current.map(item => item.id === group.id ? { ...item, minimumSelections: Number(event.target.value) } : item))} className="mt-1 w-full rounded-xl border border-surface-container-high bg-white px-3 py-2.5 font-sans text-xs font-bold text-primary" />
-                          </label>
-                          <label className="block">
-                            <span className="font-sans text-[11px] font-extrabold text-primary">Maximum Selection</span>
-                            <input aria-label={`${group.name || 'Option'} maximum selection`} type="number" min={1} max={Math.max(1, group.options.length)} disabled={group.selectionType === 'single'} value={group.maximumSelections} onChange={event => setProductOptions(current => current.map(item => item.id === group.id ? { ...item, maximumSelections: Number(event.target.value) } : item))} className="mt-1 w-full rounded-xl border border-surface-container-high bg-white px-3 py-2.5 font-sans text-xs font-bold text-primary disabled:opacity-50" />
-                          </label>
+                          {group.required && group.selectionType === 'multiple' && (
+                            <label className="block">
+                              <span className="font-sans text-[11px] font-extrabold text-primary">Customer must choose at least</span>
+                              <input aria-label={`${group.name || 'Option'} minimum selection`} type="number" min={1} max={group.maximumSelections} value={group.minimumSelections} onChange={event => setProductOptions(current => current.map(item => item.id === group.id ? { ...item, minimumSelections: Number(event.target.value) } : item))} className="mt-1 w-full rounded-xl border border-surface-container-high bg-white px-3 py-2.5 font-sans text-xs font-bold text-primary" />
+                            </label>
+                          )}
+                          {group.selectionType === 'multiple' && (
+                            <label className="block">
+                              <span className="font-sans text-[11px] font-extrabold text-primary">Customer can choose up to</span>
+                              <input aria-label={`${group.name || 'Option'} maximum selection`} type="number" min={1} max={Math.max(1, group.options.length)} value={group.maximumSelections} onChange={event => setProductOptions(current => current.map(item => item.id === group.id ? { ...item, maximumSelections: Number(event.target.value) } : item))} className="mt-1 w-full rounded-xl border border-surface-container-high bg-white px-3 py-2.5 font-sans text-xs font-bold text-primary" />
+                            </label>
+                          )}
                           <div className="flex items-end">
-                            <p className="pb-2.5 font-sans text-[11px] font-bold text-outline">Sort order: {groupIndex + 1}</p>
+                            <p className="pb-2.5 font-sans text-[11px] font-bold text-outline">{formatStoreOptionSelectionRequirement(group)} · Sort order {groupIndex + 1}</p>
                           </div>
                         </div>
                         <div className="mt-3 space-y-2">

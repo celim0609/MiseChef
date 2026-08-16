@@ -10,6 +10,7 @@ const publicStorePage = readFileSync(
   new URL('./PublicStorePage.tsx', import.meta.url),
   'utf8'
 );
+const storePage = readFileSync(new URL('./StorePage.tsx', import.meta.url), 'utf8');
 const storeOrderService = readFileSync(
   new URL('./services/storeOrderService.ts', import.meta.url),
   'utf8'
@@ -41,6 +42,14 @@ test('option-group writes validate production selection fields and remain owner-
   assert.match(optionRules, /'sortOrder'/);
   assert.match(optionRules, /'available'/);
   assert.doesNotMatch(optionRules, /allow (create|update|delete): if true/);
+});
+
+test('merchant and customer option UX clearly distinguishes Optional from Required', () => {
+  assert.match(storePage, />Selection requirement</);
+  assert.match(storePage, /<option value="optional">Optional<\/option>/);
+  assert.match(storePage, /<option value="required">Required<\/option>/);
+  assert.match(storePage, /minimumSelections: event\.target\.value === 'required' \? 1 : 0/);
+  assert.match(publicStorePage, /formatStoreOptionSelectionRequirement\(group\)/);
 });
 
 test('product deletion is scoped to the same Owner-Manager authorization as create and edit', () => {

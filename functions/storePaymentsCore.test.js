@@ -223,6 +223,68 @@ test('server pricing validates multiple-select limits and snapshots every adjust
   }), /Choose no more than 2 Add-ons options/);
 });
 
+test('server checkout accepts optional add-ons with zero or bounded selections and snapshots authoritative prices', () => {
+  const optionalAddons = [{
+    id: 'drink',
+    name: 'Add-ons',
+    selectionType: 'multiple',
+    required: false,
+    minimumSelections: 2,
+    maximumSelections: 3,
+    available: true,
+    options: [
+      { id: 'sambal', name: 'Extra Sambal', priceAdjustment: 0.5, available: true },
+      { id: 'egg', name: 'Add Egg', priceAdjustment: 1, available: true },
+      { id: 'chicken', name: 'Add Chicken', priceAdjustment: 3, available: true },
+      { id: 'rice', name: 'Extra Rice', priceAdjustment: 1.5, available: true }
+    ]
+  }];
+  const buildOptionalOrder = (selectedOptions, suffix) => buildPendingOrder({
+    id: `order-optional-${suffix}`,
+    orderNumber: `MC-260726-OPT${suffix}`,
+    store,
+    products,
+    optionGroups: optionalAddons,
+    paymentProvider: STRIPE_PROVIDER_ID,
+    paymentProviderMode: STRIPE_PROVIDER_MODE,
+    draft: {
+      ...draft,
+      selections: [{ productId: 'breakfast', quantity: 1, selectedOptions }]
+    },
+    now: new Date('2026-07-26T04:00:00.000Z')
+  });
+
+  const baseOrder = buildOptionalOrder([], 'ZERO');
+  assert.equal(baseOrder.items[0].unitPrice, 5.9);
+  assert.equal(baseOrder.total, 5.9);
+  assert.deepEqual(baseOrder.items[0].selectedOptions, []);
+
+  const oneAddonOrder = buildOptionalOrder([
+    { groupId: 'drink', optionId: 'egg' }
+  ], 'ONE');
+  assert.equal(oneAddonOrder.items[0].basePrice, 5.9);
+  assert.equal(oneAddonOrder.items[0].unitPrice, 6.9);
+  assert.equal(oneAddonOrder.payment.amountMinor, 690);
+  assert.deepEqual(oneAddonOrder.items[0].selectedOptions.map(option => ({
+    name: option.optionName,
+    adjustment: option.priceAdjustment
+  })), [{ name: 'Add Egg', adjustment: 1 }]);
+
+  const maximumOrder = buildOptionalOrder([
+    { groupId: 'drink', optionId: 'sambal' },
+    { groupId: 'drink', optionId: 'egg' },
+    { groupId: 'drink', optionId: 'chicken' }
+  ], 'MAX');
+  assert.equal(maximumOrder.items[0].unitPrice, 10.4);
+
+  assert.throws(() => buildOptionalOrder([
+    { groupId: 'drink', optionId: 'sambal' },
+    { groupId: 'drink', optionId: 'egg' },
+    { groupId: 'drink', optionId: 'chicken' },
+    { groupId: 'drink', optionId: 'rice' }
+  ], 'OVER'), /Choose no more than 3 Add-ons options/);
+});
+
 test('server keeps legacy groups as required single-select groups', () => {
   assert.throws(() => buildPendingOrder({
     id: 'order-legacy-missing',

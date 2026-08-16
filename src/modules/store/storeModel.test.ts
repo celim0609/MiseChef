@@ -7,6 +7,7 @@ import {
   DEFAULT_STORE_ORDER_DAYS,
   createDefaultStorePaymentMethods,
   formatPickupDateLabel,
+  formatStoreOptionSelectionRequirement,
   getValidPickupDates,
   normalizeStoreOptionGroup,
   normalizeStoreContact,
@@ -347,11 +348,13 @@ test('optional and unavailable option groups do not require a customer selection
     name: 'Extras',
     selectionType: 'multiple',
     required: false,
-    minimumSelections: 0,
-    maximumSelections: 2,
+    minimumSelections: 2,
+    maximumSelections: 3,
     options: [
       { id: 'sugar', name: 'Sugar', priceAdjustment: 0, available: true },
-      { id: 'milk', name: 'Milk', priceAdjustment: 1, available: true }
+      { id: 'milk', name: 'Milk', priceAdjustment: 1, available: true },
+      { id: 'egg', name: 'Egg', priceAdjustment: 1.5, available: true },
+      { id: 'chicken', name: 'Chicken', priceAdjustment: 3, available: true }
     ]
   });
   const unavailableGroup = normalizeStoreOptionGroup('seasonal', {
@@ -366,6 +369,40 @@ test('optional and unavailable option groups do not require a customer selection
   }], [product], [optionalGroup, unavailableGroup]);
   assert.equal(items[0].unitPrice, 5);
   assert.deepEqual(items[0].selectedOptions, []);
+  assert.equal(optionalGroup.minimumSelections, 0);
+  assert.equal(formatStoreOptionSelectionRequirement(optionalGroup), 'Choose up to 3 · Optional');
+
+  const oneAddon = buildStoreOrderItems([{
+    productId: product.id,
+    quantity: 1,
+    selectedOptions: [{ groupId: optionalGroup.id, optionId: 'egg' }]
+  }], [product], [optionalGroup, unavailableGroup]);
+  assert.equal(oneAddon[0].unitPrice, 6.5);
+  assert.deepEqual(oneAddon[0].selectedOptions.map(option => option.priceAdjustment), [1.5]);
+
+  const withinMaximum = buildStoreOrderItems([{
+    productId: product.id,
+    quantity: 1,
+    selectedOptions: [
+      { groupId: optionalGroup.id, optionId: 'milk' },
+      { groupId: optionalGroup.id, optionId: 'egg' },
+      { groupId: optionalGroup.id, optionId: 'chicken' }
+    ]
+  }], [product], [optionalGroup, unavailableGroup]);
+  assert.equal(withinMaximum[0].unitPrice, 10.5);
+
+  assert.throws(() => buildStoreOrderItems([{
+    productId: product.id,
+    quantity: 1,
+    selectedOptions: [
+      { groupId: optionalGroup.id, optionId: 'sugar' },
+      { groupId: optionalGroup.id, optionId: 'milk' },
+      { groupId: optionalGroup.id, optionId: 'egg' },
+      { groupId: optionalGroup.id, optionId: 'chicken' }
+    ]
+  }], [product], [optionalGroup, unavailableGroup]), /Choose no more than 3 Extras options/);
+
+  assert.equal(validateStoreOptionGroup({ ...optionalGroup, minimumSelections: 1 }), 'Optional groups must allow zero selections.');
 });
 
 test('guest checkout requires pickup availability, valid sessions, and no account', () => {

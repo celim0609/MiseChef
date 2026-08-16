@@ -165,7 +165,7 @@ export const buildOrderItems = (selections, products, optionGroups) => selection
     const configuredMinimum = Number.isInteger(group.minimumSelections)
       ? group.minimumSelections
       : required ? 1 : 0;
-    const minimumSelections = required ? Math.max(1, configuredMinimum) : Math.max(0, configuredMinimum);
+    const minimumSelections = required ? Math.max(1, configuredMinimum) : 0;
     const configuredMaximum = Number.isInteger(group.maximumSelections)
       ? group.maximumSelections
       : Math.max(1, Array.isArray(group.options) ? group.options.length : 1);

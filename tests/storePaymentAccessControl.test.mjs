@@ -36,6 +36,26 @@ const createProductRecord = (id, createdBy = 'owner-a') => ({
   createdAt: '2026-08-16T00:00:00.000Z',
   updatedAt: '2026-08-16T00:00:00.000Z'
 });
+const createOptionalGroupRecord = (id, createdBy = 'owner-a') => ({
+  id,
+  storeId: WORKSPACE_A,
+  workspaceId: WORKSPACE_A,
+  name: 'Add-ons',
+  selectionType: 'multiple',
+  required: false,
+  minimumSelections: 0,
+  maximumSelections: 3,
+  sortOrder: 0,
+  available: true,
+  options: [
+    { id: 'egg', name: 'Add Egg', priceAdjustment: 1, available: true, sortOrder: 0 },
+    { id: 'chicken', name: 'Add Chicken', priceAdjustment: 3, available: true, sortOrder: 1 },
+    { id: 'sambal', name: 'Extra Sambal', priceAdjustment: 0.5, available: true, sortOrder: 2 }
+  ],
+  createdBy,
+  createdAt: '2026-08-16T00:00:00.000Z',
+  updatedAt: '2026-08-16T00:00:00.000Z'
+});
 const createStoreRecord = () => ({
   id: WORKSPACE_A,
   workspaceId: WORKSPACE_A,
@@ -230,6 +250,26 @@ test('members and users from another Workspace cannot create or edit Store produ
   ));
   await assertFails(managerB.firestore().doc('storeProducts/beta-product').update({
     name: 'Cross-workspace edit',
+    updatedAt: '2026-08-16T02:00:00.000Z'
+  }));
+});
+
+test('Owner can persist an optional option group while Workspace isolation remains enforced', async () => {
+  const groupRef = ownerA.firestore().doc('storeOptionGroups/optional-addons');
+  await assertSucceeds(groupRef.set(createOptionalGroupRecord('optional-addons')));
+  const persisted = (await assertSucceeds(groupRef.get())).data();
+  assert.equal(persisted.required, false);
+  assert.equal(persisted.minimumSelections, 0);
+  assert.equal(persisted.maximumSelections, 3);
+
+  await assertFails(memberA.firestore().doc('storeOptionGroups/member-addons').set(
+    createOptionalGroupRecord('member-addons', 'member-a')
+  ));
+  await assertFails(ownerB.firestore().doc('storeOptionGroups/foreign-addons').set(
+    createOptionalGroupRecord('foreign-addons', 'owner-b')
+  ));
+  await assertFails(managerB.firestore().doc('storeOptionGroups/optional-addons').update({
+    maximumSelections: 1,
     updatedAt: '2026-08-16T02:00:00.000Z'
   }));
 });

@@ -25,6 +25,7 @@ import StoreContactButton from './StoreContactButton';
 import { storePaymentService, storeService } from './services';
 import {
   calculateStoreOptionAdjustedPrice,
+  formatStoreOptionSelectionRequirement,
   formatPickupDateLabel,
   getStoreOptionSelectionLimits,
   getStorePaymentMethodLabel,
@@ -716,9 +717,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                       {minimum > 0 && <span className="ml-1 text-error">*</span>}
                     </legend>
                     <p className="mt-1 font-sans text-[11px] font-bold text-on-surface-variant">
-                      {group.selectionType === 'single'
-                        ? minimum > 0 ? 'Choose one' : 'Choose up to one'
-                        : `Choose ${minimum === maximum ? minimum : `${minimum}–${maximum}`}`}
+                      {formatStoreOptionSelectionRequirement(group)}
                     </p>
                     <div className="mt-2 space-y-2">
                       {group.selectionType === 'single' && minimum === 0 && (
