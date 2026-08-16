@@ -22,7 +22,7 @@ test('product validation failures remain visible beside the Save action', () => 
 test('product save failures provide useful, customer-safe messages', () => {
   assert.equal(
     getProductSaveErrorMessage({ code: 'firestore/permission-denied' }, 'product-write'),
-    'This product could not be saved because you do not have permission for this Store.'
+    'This product was rejected by the Store security checks. Refresh the page and confirm your Workspace access.'
   );
   assert.equal(
     getProductSaveErrorMessage({ code: 'storage/unauthorized' }, 'photo-upload'),
@@ -31,6 +31,23 @@ test('product save failures provide useful, customer-safe messages', () => {
   assert.equal(
     getProductSaveErrorMessage(new Error('Product photo is required.'), 'validation'),
     'Product photo is required.'
+  );
+});
+
+test('subscription and Store data failures are not mislabeled as role failures', () => {
+  assert.equal(
+    getProductSaveErrorMessage({
+      code: 'functions/permission-denied',
+      details: { reason: 'subscription-inactive' }
+    }, 'authorization'),
+    'Your Workspace subscription is not active. Review Subscription before saving products.'
+  );
+  const malformed = Object.assign(new Error('This Store has stale Workspace information.'), {
+    code: 'store/store-identity-mismatch'
+  });
+  assert.equal(
+    getProductSaveErrorMessage(malformed, 'authorization'),
+    'This Store has stale Workspace information.'
   );
 });
 

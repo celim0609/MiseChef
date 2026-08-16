@@ -241,6 +241,32 @@ test('matching Owner can create and Manager can edit a persisted Store product',
   assert.equal((await assertSucceeds(productRef.get())).data().name, 'Beta Product Updated');
 });
 
+test('canonical Workspace ownerId authorizes a legacy Owner without a membership document', async () => {
+  const workspaceId = 'legacy-owner-workspace';
+  const legacyOwner = environment.authenticatedContext('legacy-owner', { email: 'legacy-owner@example.test' });
+  await environment.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await db.doc(`workspaces/${workspaceId}`).set({
+      id: workspaceId,
+      ownerId: 'legacy-owner',
+      country: 'MY'
+    });
+    await db.doc(`stores/${workspaceId}`).set({
+      ...createStoreRecord(),
+      id: workspaceId,
+      workspaceId,
+      slug: workspaceId,
+      createdBy: 'legacy-owner'
+    });
+  });
+
+  await assertSucceeds(legacyOwner.firestore().doc('storeProducts/legacy-owner-product').set({
+    ...createProductRecord('legacy-owner-product', 'legacy-owner'),
+    storeId: workspaceId,
+    workspaceId
+  }));
+});
+
 test('members and users from another Workspace cannot create or edit Store products', async () => {
   await assertFails(memberA.firestore().doc('storeProducts/member-product').set(
     createProductRecord('member-product', 'member-a')

@@ -10,7 +10,7 @@ import {
   setDoc,
   where
 } from 'firebase/firestore';
-import { db } from '../../../firebase';
+import { auth, db } from '../../../firebase';
 import type { Workspace } from '../../../types';
 import {
   createDefaultWorkspaceStore,
@@ -31,6 +31,10 @@ import type {
   StoreSettingsDraft,
   WorkspaceStore
 } from '../types';
+import {
+  getStoreAuthorizationIssue,
+  StoreAuthorizationError
+} from '../storeAuthorization';
 
 const removeUndefinedFields = <T,>(value: T): T => {
   if (Array.isArray(value)) return value.map(item => removeUndefinedFields(item)) as T;
@@ -85,6 +89,40 @@ const createStoreWithSlug = async (
 };
 
 export const storeService = {
+  async assertCanManageProducts({
+    workspace,
+    userId,
+    product
+  }: {
+    workspace: Pick<Workspace, 'id' | 'ownerId' | 'subscriptionStatus'>;
+    userId: string;
+    product?: Pick<StoreProduct, 'storeId' | 'workspaceId'> | null;
+  }): Promise<void> {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+
+    const [membershipSnapshot, storeSnapshot] = await Promise.all([
+      getDoc(doc(db, 'workspaceMembers', `${workspace.id}_${userId}`)),
+      getDoc(doc(db, 'stores', workspace.id))
+    ]);
+    const membership = membershipSnapshot.exists()
+      ? membershipSnapshot.data() as { role?: Workspace['members'][number]['role']; status?: string }
+      : null;
+    const store = storeSnapshot.exists()
+      ? normalizeWorkspaceStore(storeSnapshot.id, storeSnapshot.data() as Record<string, unknown>)
+      : null;
+    const issue = getStoreAuthorizationIssue({
+      authenticatedUid: auth?.currentUser?.uid || '',
+      requestedUserId: userId,
+      workspaceId: workspace.id,
+      workspaceOwnerId: workspace.ownerId,
+      membership,
+      store: store ? { id: store.id, workspaceId: store.workspaceId } : null,
+      product,
+      subscriptionStatus: workspace.subscriptionStatus
+    });
+    if (issue) throw new StoreAuthorizationError(issue);
+  },
+
   async getWorkspaceStore(workspaceId: string): Promise<WorkspaceStore | null> {
     if (!db || !workspaceId) return null;
     const snapshot = await getDoc(doc(db, 'stores', workspaceId));

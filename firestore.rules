@@ -106,9 +106,16 @@ service cloud.firestore {
     function isWorkspaceMember(workspaceId) {
       return isSuperAdmin()
         || (signedIn()
-          && (workspaceId == request.auth.uid
+          && (isWorkspaceDocumentOwner(workspaceId)
+            || workspaceId == request.auth.uid
             || (exists(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId)))
               && get(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId))).data.status == 'Active')));
+    }
+
+    function isWorkspaceDocumentOwner(workspaceId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/workspaces/$(workspaceId))
+        && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid;
     }
 
     function currentWorkspaceRole(workspaceId) {
@@ -120,15 +127,19 @@ service cloud.firestore {
 
     function hasWorkspaceRole(workspaceId, roles) {
       return isSuperAdmin()
-        || (isWorkspaceMember(workspaceId) && currentWorkspaceRole(workspaceId) in roles);
+        || (isWorkspaceDocumentOwner(workspaceId) && roles.hasAny(['Owner']))
+        || (signedIn()
+          && exists(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId)))
+          && get(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId))).data.status == 'Active'
+          && get(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId))).data.role in roles);
     }
 
     function isWorkspaceOwner(workspaceId) {
-      return isSuperAdmin() || hasWorkspaceRole(workspaceId, ['Owner']);
+      return hasWorkspaceRole(workspaceId, ['Owner']);
     }
 
     function isWorkspaceOwnerOrManager(workspaceId) {
-      return isSuperAdmin() || hasWorkspaceRole(workspaceId, ['Owner', 'Manager']);
+      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager']);
     }
 
     function isWorkspaceManagerLevel(workspaceId) {

@@ -488,8 +488,14 @@ export default function StorePage({
 
     setIsSaving(true);
     clearMessages();
-    let saveStage: ProductSaveStage = 'option-groups';
+    let saveStage: ProductSaveStage = 'authorization';
     try {
+      await storeService.assertCanManageProducts({
+        workspace,
+        userId: currentUser.uid,
+        product: editingProduct
+      });
+      saveStage = 'option-groups';
       const savedGroups = await Promise.all(productOptions.map((group, groupIndex) => {
         const draft = {
           ...group,
