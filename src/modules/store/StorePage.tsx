@@ -50,6 +50,11 @@ import type {
   StoreSettingsDraft,
   WorkspaceStore
 } from './types';
+import {
+  getProductSaveDiagnostic,
+  getProductSaveErrorMessage,
+  type ProductSaveStage
+} from './productSaveFeedback';
 
 interface StorePageProps {
   currentUser: User;
@@ -468,12 +473,21 @@ export default function StorePage({
       }))
       .find(Boolean);
     if (preflightError || optionError) {
-      setErrorMessage(preflightError || optionError || '');
+      const validationMessage = preflightError || optionError || 'Check the product details and try again.';
+      setErrorMessage(validationMessage);
+      console.warn('[Store product save blocked]', getProductSaveDiagnostic({
+        error: new Error(validationMessage),
+        stage: 'validation',
+        workspaceId: workspace.id,
+        storeId: store.id,
+        operation: editingProduct ? 'update' : 'create'
+      }));
       return;
     }
 
     setIsSaving(true);
     clearMessages();
+    let saveStage: ProductSaveStage = 'option-groups';
     try {
       const savedGroups = await Promise.all(productOptions.map((group, groupIndex) => {
         const draft = {
@@ -495,6 +509,7 @@ export default function StorePage({
           });
       }));
       const productId = editingProduct?.id || storeService.createProductId();
+      saveStage = 'photo-upload';
       const photoUrl = productPhotoFile
         ? await uploadStoreProductPhoto({
           workspaceId: workspace.id,
@@ -507,6 +522,7 @@ export default function StorePage({
         photoUrl,
         optionGroupIds: savedGroups.map(group => group.id)
       };
+      saveStage = 'product-write';
       const savedProduct = editingProduct
         ? await storeService.updateProduct(editingProduct, nextDraft)
         : await storeService.createProduct({
@@ -523,6 +539,7 @@ export default function StorePage({
           ))
         ))
         : [];
+      saveStage = 'cleanup';
       const deletionResults = await Promise.allSettled(
         orphanedGroupIds.map(groupId => storeService.deleteOptionGroup(groupId))
       );
@@ -549,7 +566,14 @@ export default function StorePage({
         ? 'Product saved. One unused option group could not be deleted; please try again.'
         : editingProduct ? 'Product updated.' : 'Product added.');
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Unable to save this product.');
+      console.error('[Store product save failed]', getProductSaveDiagnostic({
+        error,
+        stage: saveStage,
+        workspaceId: workspace.id,
+        storeId: store.id,
+        operation: editingProduct ? 'update' : 'create'
+      }));
+      setErrorMessage(getProductSaveErrorMessage(error, saveStage));
     } finally {
       setIsSaving(false);
     }
@@ -685,7 +709,7 @@ export default function StorePage({
         })}
       </nav>
 
-      {(message || errorMessage) && (
+      {(message || (errorMessage && !isProductFormOpen)) && (
         <p className={`rounded-2xl px-4 py-3 font-sans text-sm font-bold ${
           errorMessage ? 'bg-error/10 text-error' : 'bg-primary/10 text-primary'
         }`}>
@@ -723,8 +747,8 @@ export default function StorePage({
                   <textarea rows={3} value={productDraft.description} onChange={event => updateProduct('description', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 </label>
                 <label className="block">
-                  <span className="font-sans text-xs font-extrabold text-primary">Photo</span>
-                  <input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => readImageFile(event, setProductPhotoFile)} className="mt-2 block w-full font-sans text-xs font-bold text-on-surface-variant" />
+                  <span className="font-sans text-xs font-extrabold text-primary">Product Photo <span aria-hidden="true">*</span></span>
+                  <input type="file" accept="image/jpeg,image/png,image/webp" aria-required={!editingProduct && !productDraft.photoUrl} onChange={event => readImageFile(event, setProductPhotoFile)} className="mt-2 block w-full font-sans text-xs font-bold text-on-surface-variant" />
                   <span className="mt-1 block font-sans text-[11px] font-bold text-outline">{productPhotoFile?.name || (productDraft.photoUrl ? 'Existing photo retained' : 'Photo required')}</span>
                 </label>
                 <label className="flex items-center justify-between gap-4 rounded-2xl bg-surface-container-low px-4 py-3">
@@ -851,7 +875,13 @@ export default function StorePage({
                 )}
               </div>
 
-              <div className="mt-7 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              {errorMessage && (
+                <p role="alert" aria-live="assertive" className="mt-7 rounded-2xl bg-error/10 px-4 py-3 font-sans text-sm font-bold text-error">
+                  {errorMessage}
+                </p>
+              )}
+
+              <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 {editingProduct && (
                   <button type="button" disabled={isSaving} onClick={handleProductDelete} className="inline-flex items-center justify-center gap-2 rounded-full bg-error/10 px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50 sm:mr-auto">
                     <Trash2 className="h-4 w-4" /> Delete Product

@@ -22,6 +22,20 @@ const STORE_CONTACT = {
   tiktok: '',
   website: 'https://example.test'
 };
+const createProductRecord = (id, createdBy = 'owner-a') => ({
+  id,
+  storeId: WORKSPACE_A,
+  workspaceId: WORKSPACE_A,
+  photoUrl: `https://example.test/${id}.jpg`,
+  name: 'Beta Product',
+  description: 'Store product access test',
+  price: 5.9,
+  available: true,
+  optionGroupIds: [],
+  createdBy,
+  createdAt: '2026-08-16T00:00:00.000Z',
+  updatedAt: '2026-08-16T00:00:00.000Z'
+});
 const createStoreRecord = () => ({
   id: WORKSPACE_A,
   workspaceId: WORKSPACE_A,
@@ -192,5 +206,30 @@ test('unrelated users and invalid Store Contact data remain denied', async () =>
   await assertFails(ownerA.firestore().doc(`stores/${WORKSPACE_A}`).update({
     storeContact: { ...STORE_CONTACT, privateInternalNote: 'must not be stored here' },
     updatedAt: '2026-08-03T03:00:00.000Z'
+  }));
+});
+
+test('matching Owner can create and Manager can edit a persisted Store product', async () => {
+  const productRef = ownerA.firestore().doc('storeProducts/beta-product');
+  await assertSucceeds(productRef.set(createProductRecord('beta-product')));
+  assert.equal((await assertSucceeds(productRef.get())).data().name, 'Beta Product');
+
+  await assertSucceeds(managerA.firestore().doc('storeProducts/beta-product').update({
+    name: 'Beta Product Updated',
+    updatedAt: '2026-08-16T01:00:00.000Z'
+  }));
+  assert.equal((await assertSucceeds(productRef.get())).data().name, 'Beta Product Updated');
+});
+
+test('members and users from another Workspace cannot create or edit Store products', async () => {
+  await assertFails(memberA.firestore().doc('storeProducts/member-product').set(
+    createProductRecord('member-product', 'member-a')
+  ));
+  await assertFails(ownerB.firestore().doc('storeProducts/foreign-product').set(
+    createProductRecord('foreign-product', 'owner-b')
+  ));
+  await assertFails(managerB.firestore().doc('storeProducts/beta-product').update({
+    name: 'Cross-workspace edit',
+    updatedAt: '2026-08-16T02:00:00.000Z'
   }));
 });
