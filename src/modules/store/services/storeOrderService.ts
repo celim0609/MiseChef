@@ -106,6 +106,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
       amountMinor: readNumber(payment.amountMinor),
       currency: payment.currency === 'MYR' ? 'MYR' : 'SGD',
       providerPaymentId: readString(payment.providerPaymentId),
+      providerTransactionId: readString(payment.providerTransactionId),
       providerPaymentMethod: readString(payment.providerPaymentMethod),
       checkoutAccessTokenHash: '',
       failureCode: readString(payment.failureCode),

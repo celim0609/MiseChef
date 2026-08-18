@@ -59,6 +59,34 @@ const hashCheckoutAccessToken = token => createHash('sha256')
   .update(readString(token))
   .digest('hex');
 
+const CHECKOUT_RETURN_HOSTS = new Set([
+  'misechef.ai',
+  'www.misechef.ai',
+  'misechef-fa4bf.web.app',
+  'misechef-beta-fa4bf.web.app'
+]);
+
+export const validateStoreCheckoutReturnUrl = value => {
+  let url;
+  try {
+    url = new URL(readString(value));
+  } catch {
+    throw new Error('Secure checkout return URL is invalid.');
+  }
+  const isHostedStore = url.protocol === 'https:' && CHECKOUT_RETURN_HOSTS.has(url.hostname);
+  const isLocalEmulator = process.env.FUNCTIONS_EMULATOR === 'true'
+    && url.protocol === 'http:'
+    && ['127.0.0.1', 'localhost'].includes(url.hostname);
+  if ((!isHostedStore && !isLocalEmulator) || !url.pathname.startsWith('/store/')) {
+    throw new Error('Secure checkout return URL is invalid.');
+  }
+  url.username = '';
+  url.password = '';
+  url.search = '';
+  url.hash = '';
+  return url.toString();
+};
+
 export const hasValidCheckoutAccessToken = (order, token) => {
   const expected = Buffer.from(readString(order.payment?.checkoutAccessTokenHash), 'hex');
   const received = Buffer.from(hashCheckoutAccessToken(token), 'hex');
@@ -131,6 +159,7 @@ export const reconcileStorePayment = async ({ db, payment }) => {
       paymentMethodId: providerPaymentMethod || 'online',
       paymentMethodName: paymentMethodLabel(providerPaymentMethod),
       'payment.status': paymentStatus,
+      'payment.providerTransactionId': readString(payment.providerTransactionId),
       'payment.providerPaymentMethod': providerPaymentMethod,
       'payment.failureCode': readString(payment.failureCode),
       'payment.updatedAt': new Date().toISOString(),
@@ -248,6 +277,7 @@ export const createStorePayment = async ({
   sellingWorkspaceId,
   slug,
   draft,
+  returnUrl,
   now = new Date()
 }) => {
   const checkoutData = await loadStoreCheckoutData(db, slug);
@@ -256,6 +286,9 @@ export const createStorePayment = async ({
   if (activeAdapter.requiresSellingWorkspace) {
     assertSellingWorkspace(checkoutData.store, sellingWorkspaceId);
   }
+  const checkoutReturnUrl = activeAdapter.provider === 'stripe'
+    ? validateStoreCheckoutReturnUrl(returnUrl)
+    : '';
   const orderReference = db.collection('storeOrders').doc();
   const order = buildPendingOrder({
     id: orderReference.id,
@@ -273,7 +306,11 @@ export const createStorePayment = async ({
 
   let providerPaymentId = '';
   try {
-    const payment = await activeAdapter.createPayment({ order });
+    const payment = await activeAdapter.createPayment({
+      order,
+      returnUrl: checkoutReturnUrl,
+      checkoutAccessToken
+    });
     if (!readString(payment.providerPaymentId) || !readString(payment.checkout?.type)) {
       throw new Error('The payment provider did not create a usable checkout session.');
     }
@@ -323,9 +360,9 @@ export const getStorePaymentResult = async ({
     slug,
     checkoutAccessToken
   });
-  if (adapter.provider === 'manual') return toPublicOrderResult(authorizedOrder);
-  const order = await reconcileStorePayment({ db, payment });
-  return toPublicOrderResult(order);
+  // The signed webhook is authoritative for online payment state. A browser
+  // return may read the order but must never promote it to Paid.
+  return toPublicOrderResult(authorizedOrder);
 };
 
 export const cancelStorePayment = async ({
@@ -370,6 +407,7 @@ export const handleStorePaymentWebhook = async ({ db, adapter, event }) => {
     providerMode: adapter.mode,
     type: event.type,
     providerPaymentId,
+    providerTransactionId: readString(update.payment?.providerTransactionId),
     processedAt: FieldValue.serverTimestamp()
   }, { merge: true });
   return { received: true };

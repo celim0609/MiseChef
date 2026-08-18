@@ -92,11 +92,14 @@ test('a paid Stripe payment creates one deterministic persistent order notificat
   assert.match(paymentService, /createdAt: FieldValue\.serverTimestamp\(\)/);
 });
 
-test('Payment Element keeps email optional and payment methods account-driven', () => {
+test('Stripe Checkout leaves eligible payment methods account-driven', () => {
   assert.match(paymentForm, /email: 'auto'/);
   assert.doesNotMatch(paymentForm, /email: 'never'/);
   assert.match(paymentForm, /address: 'if_required'/);
-  assert.match(stripeAdapter, /automatic_payment_methods: \{ enabled: true \}/);
+  assert.match(stripeAdapter, /stripe\.checkout\.sessions\.create/);
+  assert.match(stripeAdapter, /payment_method_types is intentionally omitted/);
+  assert.doesNotMatch(stripeAdapter, /payment_method_types:/);
+  assert.match(stripeAdapter, /type: 'provider_redirect'/);
 });
 
 test('Payment Element recovers from rejected confirmations so customers can retry', () => {
@@ -117,8 +120,19 @@ test('Store checkout and order flow depend on provider-neutral payment sessions'
   assert.match(clientPaymentProviderRegistry, /stripeClientPaymentAdapter/);
   assert.match(stripeClientAdapter, /StripePaymentForm/);
   assert.match(stripeClientAdapter, /stripe_payment_element/);
+  assert.match(stripeClientAdapter, /provider_redirect/);
   assert.match(clientPaymentProviderRegistry, /manualClientPaymentAdapter/);
   assert.match(manualClientAdapter, /manual_payment/);
+});
+
+test('browser return reads webhook-owned status and cannot mark an online order Paid', () => {
+  const resultStart = paymentService.indexOf('export const getStorePaymentResult');
+  const cancelStart = paymentService.indexOf('export const cancelStorePayment', resultStart);
+  const resultFlow = paymentService.slice(resultStart, cancelStart);
+  assert.match(resultFlow, /loadAuthorizedPaymentOrder/);
+  assert.match(resultFlow, /toPublicOrderResult\(authorizedOrder\)/);
+  assert.doesNotMatch(resultFlow, /reconcileStorePayment/);
+  assert.match(publicStorePage, /payment_cancelled/);
 });
 
 test('manual payment receipts are private, bounded, and reviewed only by the Store team', () => {

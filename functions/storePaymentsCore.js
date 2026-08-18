@@ -281,6 +281,7 @@ export const buildPendingOrder = ({
       amountMinor,
       currency: region.currency,
       providerPaymentId: '',
+      providerTransactionId: '',
       providerPaymentMethod: '',
       failureCode: '',
       refundStatus: PAYMENT_REFUND_STATUS.none,

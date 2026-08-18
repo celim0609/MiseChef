@@ -148,7 +148,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
       paymentSessionId,
       checkoutAccessToken
     );
-    if (['paid', 'pending', 'pending_verification'].includes(result.paymentStatus)) {
+    if (['paid', 'pending_verification'].includes(result.paymentStatus)) {
       setPlacedOrder(result);
       setPaymentSession(null);
       setCart([]);
@@ -156,7 +156,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
       setCheckoutError('');
       return;
     }
-    if (result.paymentStatus === 'processing') {
+    if (['pending', 'processing'].includes(result.paymentStatus)) {
       setCheckoutError('Your payment is still processing. Please check again in a moment.');
       return;
     }
@@ -171,8 +171,20 @@ export default function PublicStorePage({ slug }: { slug: string }) {
       || query.get('payment_intent');
     const returnedCheckoutAccessToken = query.get('payment_access_token');
     if (!returnedProvider || !returnedPaymentSessionId || !returnedCheckoutAccessToken) return;
+    const wasCancelled = query.get('payment_cancelled') === '1';
     setIsPlacingOrder(true);
-    verifyPayment(returnedProvider, returnedPaymentSessionId, returnedCheckoutAccessToken)
+    const returnAction = wasCancelled
+      ? storePaymentService.cancel(
+        slug,
+        returnedProvider,
+        returnedPaymentSessionId,
+        returnedCheckoutAccessToken
+      ).then(() => {
+        setPaymentSession(null);
+        setCheckoutError('Payment was cancelled. Your order has not been paid. You can try again.');
+      })
+      : verifyPayment(returnedProvider, returnedPaymentSessionId, returnedCheckoutAccessToken);
+    returnAction
       .catch(error => {
         setCheckoutError(error instanceof Error ? error.message : 'We could not verify this payment yet.');
       })
@@ -316,7 +328,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
           quantity,
           selectedOptions
         }))
-      });
+      }, paymentReturnUrl);
       if (session.checkout.type === 'manual_payment') {
         try {
           if (paymentReceipt) await storePaymentService.uploadReceipt(slug, session, paymentReceipt);
@@ -329,6 +341,8 @@ export default function PublicStorePage({ slug }: { slug: string }) {
           setPaymentSession(session);
           throw manualPaymentError;
         }
+      } else if (session.checkout.type === 'provider_redirect') {
+        window.location.assign(session.checkout.redirectUrl);
       } else {
         // The online provider's secure element must confirm the payment after the
         // server creates its session. This is the only required continuation step.

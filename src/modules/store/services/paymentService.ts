@@ -15,12 +15,12 @@ const requireFunctions = () => {
 };
 
 export const storePaymentService = {
-  async createPayment(slug: string, order: StoreOrderDraft): Promise<StorePaymentSession> {
+  async createPayment(slug: string, order: StoreOrderDraft, returnUrl: string): Promise<StorePaymentSession> {
     const createPayment = httpsCallable<
-      { slug: string; order: StoreOrderDraft },
+      { slug: string; order: StoreOrderDraft; returnUrl: string },
       StorePaymentSession
     >(requireFunctions(), 'createPublicStorePayment');
-    const response = await createPayment({ slug, order });
+    const response = await createPayment({ slug, order, returnUrl });
     return response.data;
   },
 

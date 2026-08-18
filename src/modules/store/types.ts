@@ -271,6 +271,7 @@ export interface StoreOrder {
     amountMinor: number;
     currency: RegionCurrency;
     providerPaymentId: string;
+    providerTransactionId: string;
     providerPaymentMethod: string;
     checkoutAccessTokenHash: string;
     failureCode: string;

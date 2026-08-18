@@ -125,6 +125,7 @@ const toStorePaymentError = error => {
     'This Store is no longer available.',
     'Online payments are not configured yet.',
     'Online payments are not available for this Store.',
+    'Secure checkout return URL is invalid.',
     'Pickup ordering is not available.',
     'Name is required.',
     'Name must be 120 characters or fewer.',
@@ -164,7 +165,8 @@ export const createPublicStorePayment = onCall({
       }),
       sellingWorkspaceId: sellingWorkspaceId.value(),
       slug: request.data?.slug,
-      draft: request.data?.order
+      draft: request.data?.order,
+      returnUrl: request.data?.returnUrl
     });
   } catch (error) {
     if (error instanceof HttpsError) throw error;
