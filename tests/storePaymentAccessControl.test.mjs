@@ -7,7 +7,7 @@ import {
   initializeTestEnvironment
 } from '@firebase/rules-unit-testing';
 
-const PROJECT_ID = 'demo-misechef-payment-rules';
+const PROJECT_ID = 'demo-misechef-store-payment-rules';
 const BUCKET_URL = `gs://${PROJECT_ID}.appspot.com`;
 const WORKSPACE_A = 'workspace-payment-a';
 const WORKSPACE_B = 'workspace-payment-b';
