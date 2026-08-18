@@ -236,6 +236,6 @@ export const parseResumeToPortfolioWithAI = async (resumeText: string, workspace
 
     return normalizeResumePortfolioDraftModel(response.data?.portfolio);
   } catch (err) {
-    throw new Error(getCallableErrorMessage(err, 'We could not import this resume. Please try again.'));
+    throw new Error(getCallableErrorMessage(err, 'We could not import this resume. Please try again.'), { cause: err });
   }
 };

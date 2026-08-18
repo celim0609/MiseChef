@@ -5,7 +5,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, Camera, ChevronDown, ChevronRight, FileText, Image as ImageIcon, MoreHorizontal, Plus, Trash2, X, Sparkles, Video } from 'lucide-react';
-import * as pdfjsLib from 'pdfjs-dist/webpack.mjs';
+import { loadPdfJsRuntime } from '../services/pdfRuntime';
 import { Recipe, Ingredient, MethodStep, RecipeCategory, RecipeVisibility, RecommendedProduct, UserRole, type ApprovedProductSummary } from '../types';
 import { generateRecipeStepsWithAI, scanRecipeImageWithGemini } from '../services/gemini';
 import type { GeminiScannedIngredient } from '../services/gemini';
@@ -363,6 +363,7 @@ const detectRecipesFromText = (rawText: string): ParsedImportedRecipe[] => {
 
 const extractTextFromPdfFile = async (file: File) => {
   const data = await file.arrayBuffer();
+  const pdfjsLib = await loadPdfJsRuntime();
   const pdf = await pdfjsLib.getDocument({ data }).promise;
   const pageTexts: string[] = [];
 

@@ -2,9 +2,10 @@ import { deleteObject, getBlob, ref, uploadBytesResumable } from 'firebase/stora
 import { storage } from '../../../firebase';
 import { parseResumeToPortfolioWithAI } from '../../../services/gemini';
 import type { ImportedChefProfile } from '../types';
-import { mapResumeDraftToChefProfile as mapResumeDraft } from './resumeImportMapping';
+import { logResumeImportFailure, ResumeImportError } from './resumeImportErrors';
+import { parseExtractedResumeText } from './resumeParsing';
 import { extractChefResumeText } from './resumeTextExtraction';
-import { getResumeImportErrorMessage, isOwnedResumeStoragePath, type ManagedChefResume, type ResumeFileUpload, type ResumeUploadResult } from './resumeManagementModel';
+import { isOwnedResumeStoragePath, type ManagedChefResume, type ResumeFileUpload, type ResumeUploadResult } from './resumeManagementModel';
 
 const PDF = 'application/pdf';
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -12,8 +13,8 @@ const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.doc
 export const validateResumeFile = (file: File) => {
   const extension = file.name.toLowerCase().split('.').pop();
   const validType = (file.type === PDF && extension === 'pdf') || (file.type === DOCX && extension === 'docx');
-  if (!validType) throw new Error('Choose a PDF or DOCX resume.');
-  if (file.size > 10 * 1024 * 1024) throw new Error('Your resume must be 10 MB or smaller.');
+  if (!validType) throw new ResumeImportError('unsupported_file', 'validation', 'Choose a PDF or DOCX resume.');
+  if (file.size > 10 * 1024 * 1024) throw new ResumeImportError('file_too_large', 'validation', 'Your resume must be 10 MB or smaller.');
 };
 
 export const importResume = async (
@@ -24,7 +25,7 @@ export const importResume = async (
   onUploaded?: (upload: ResumeFileUpload) => Promise<void>
 ): Promise<ResumeUploadResult> => {
   validateResumeFile(file);
-  if (!storage) throw new Error('Resume upload is temporarily unavailable.');
+  if (!storage) throw new ResumeImportError('upload_failed', 'upload', 'Resume upload is temporarily unavailable.');
 
   onStage(1);
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -35,21 +36,24 @@ export const importResume = async (
   });
   let registeredForRetry = false;
   try {
-    await new Promise<void>((resolve, reject) => upload.on('state_changed', undefined, reject, resolve));
+    await new Promise<void>((resolve, reject) => upload.on('state_changed', undefined, error => {
+      reject(new ResumeImportError('upload_failed', 'upload', 'Resume upload failed.', { cause: error }));
+    }, resolve));
     if (onUploaded) {
-      await onUploaded({
-        originalStoragePath: storagePath,
-        fileName: file.name,
-        contentType: file.type,
-        fileSize: file.size
-      });
+      try {
+        await onUploaded({
+          originalStoragePath: storagePath,
+          fileName: file.name,
+          contentType: file.type,
+          fileSize: file.size
+        });
+      } catch (error) {
+        throw new ResumeImportError('upload_failed', 'upload', 'Resume upload registration failed.', { cause: error });
+      }
       registeredForRetry = true;
     }
     onStage(2);
-    const text = await extractChefResumeText(file).catch(error => {
-      throw new Error(getResumeImportErrorMessage(error, file.name));
-    });
-    if (text.length < 80) throw new Error(getResumeImportErrorMessage(new Error('Insufficient text'), file.name));
+    const text = await extractChefResumeText(file);
     console.info('[Resume Import] Text extraction complete', {
       fileType: file.type,
       characters: text.length,
@@ -57,14 +61,7 @@ export const importResume = async (
     });
 
     onStage(3);
-    const parsed = await parseResumeToPortfolioWithAI(text, workspaceId);
-    if (parsed.unmappedSections?.length) {
-      console.warn('[Resume Import] Unmapped resume sections', parsed.unmappedSections.map(section => ({
-        sectionName: section.sectionName,
-        reason: section.reason
-      })));
-    }
-    const profile = mapResumeDraft(parsed);
+    const profile = await parseExtractedResumeText(text, workspaceId, parseResumeToPortfolioWithAI);
     return {
       profile,
       originalStoragePath: storagePath,
@@ -74,6 +71,7 @@ export const importResume = async (
     };
   } catch (error) {
     if (!registeredForRetry) await deleteObject(ref(storage, storagePath)).catch(() => undefined);
+    logResumeImportFailure(error, { fileName: file.name, registeredForRetry });
     throw error;
   }
 };
@@ -84,12 +82,9 @@ const parseResumeFile = async (
   onStage: (stage: 1 | 2 | 3) => void
 ) => {
   onStage(2);
-  const text = await extractChefResumeText(file).catch(error => {
-    throw new Error(getResumeImportErrorMessage(error, file.name));
-  });
-  if (text.length < 80) throw new Error(getResumeImportErrorMessage(new Error('Insufficient text'), file.name));
+  const text = await extractChefResumeText(file);
   onStage(3);
-  return mapResumeDraft(await parseResumeToPortfolioWithAI(text, workspaceId));
+  return parseExtractedResumeText(text, workspaceId, parseResumeToPortfolioWithAI);
 };
 
 export const retryResumeImport = async (
@@ -98,11 +93,18 @@ export const retryResumeImport = async (
   workspaceId: string,
   onStage: (stage: 1 | 2 | 3) => void
 ) => {
-  if (!storage) throw new Error('Resume import is temporarily unavailable.');
+  if (!storage) throw new ResumeImportError('download_failed', 'download', 'Resume import is temporarily unavailable.');
   if (!isOwnedResumeStoragePath(userId, resume.storagePath)) {
     throw new Error('This resume does not belong to the signed-in user.');
   }
-  const blob = await getBlob(ref(storage, resume.storagePath));
-  const file = new File([blob], resume.fileName, { type: resume.contentType });
-  return parseResumeFile(file, workspaceId, onStage);
+  try {
+    const blob = await getBlob(ref(storage, resume.storagePath)).catch(error => {
+      throw new ResumeImportError('download_failed', 'download', 'Saved resume download failed.', { cause: error });
+    });
+    const file = new File([blob], resume.fileName, { type: resume.contentType });
+    return await parseResumeFile(file, workspaceId, onStage);
+  } catch (error) {
+    logResumeImportFailure(error, { fileName: resume.fileName, retry: true });
+    throw error;
+  }
 };

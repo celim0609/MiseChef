@@ -8,7 +8,7 @@ import { chefProfileService } from './services/chefProfileService';
 import { exportChefProfilePdf } from './services/resumeExportService';
 import { importResume, retryResumeImport } from './services/resumeImportService';
 import { resumeManagementService, type ManagedChefResume } from './services/resumeManagementService';
-import { applyResumeReviewChoices, assessResumeImport, defaultResumeReviewChoices, getResumeImportErrorMessage, type ResumeReviewChoice, type ResumeReviewSectionKey } from './services/resumeManagementModel';
+import { acquireResumeImportLock, applyResumeReviewChoices, assessResumeImport, defaultResumeReviewChoices, getResumeImportErrorMessage, type ResumeReviewChoice, type ResumeReviewSectionKey } from './services/resumeManagementModel';
 import type { ChefAward, ChefCertificate, ChefEducation, ChefExperience, ChefLanguage, ChefProfile, ImportedChefProfile, ResumeExportSettings } from './types';
 
 interface ChefProfilePageProps {
@@ -66,6 +66,7 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
   const [showExport, setShowExport] = useState(false);
   const [exportSettings, setExportSettings] = useState(exportDefaults);
   const [customSkill, setCustomSkill] = useState('');
+  const resumeImportInFlight = useRef(false);
 
   useEffect(() => {
     if (!userId) {
@@ -152,6 +153,8 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
 
   const handleResume = async (file?: File) => {
     if (!file || !profile || !userId) return;
+    const releaseImportLock = acquireResumeImportLock(resumeImportInFlight);
+    if (!releaseImportLock) return;
     setImportError('');
     setImported(null);
     setReviewChoices(null);
@@ -176,11 +179,15 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
         setManagedResume({ ...registeredResume, importStatus: 'failed', lastError: message, draft: undefined });
       }
       setImportError(message);
+    } finally {
+      releaseImportLock();
     }
   };
 
   const retryImport = async () => {
     if (!userId || !managedResume) return;
+    const releaseImportLock = acquireResumeImportLock(resumeImportInFlight);
+    if (!releaseImportLock) return;
     setResumeAction('retrying');
     setImportError('');
     setImported(null);
@@ -199,6 +206,7 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
     } finally {
       setImportStage(0);
       setResumeAction('');
+      releaseImportLock();
     }
   };
 

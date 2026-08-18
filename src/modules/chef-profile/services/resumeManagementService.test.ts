@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyResumeReviewChoices, assessResumeImport, buildManagedResumeUpload, defaultResumeReviewChoices, getResumeImportErrorMessage, getResumeImportSummary, isOwnedResumeStoragePath, resumeFileNameFromObjectName } from './resumeManagementModel';
+import { acquireResumeImportLock, applyResumeReviewChoices, assessResumeImport, buildManagedResumeUpload, defaultResumeReviewChoices, getResumeImportErrorMessage, getResumeImportSummary, isOwnedResumeStoragePath, resumeFileNameFromObjectName } from './resumeManagementModel';
 import { emptyChefProfile } from '../model';
 import type { ImportedChefProfile } from '../types';
+import { ResumeImportError } from './resumeImportErrors';
 
 const draft = {
   basicInfo: { fullName: 'Chef Example', professionalTitle: 'Sous Chef' },
@@ -31,6 +32,15 @@ test('resume operations are restricted to the signed-in user import path', () =>
   assert.equal(isOwnedResumeStoragePath('alice', 'users/bob/chef-profile/resume-imports/resume.pdf'), false);
   assert.equal(isOwnedResumeStoragePath('alice', 'users/alice/chef-profile/resume-imports/../profile.jpg'), false);
   assert.equal(isOwnedResumeStoragePath('alice', 'users/alice/portfolio/resume/resume.pdf'), false);
+});
+
+test('resume import uses a single-flight lock to prevent duplicate parsing requests', () => {
+  const lock = { current: false };
+  const release = acquireResumeImportLock(lock);
+  assert.equal(typeof release, 'function');
+  assert.equal(acquireResumeImportLock(lock), null);
+  release?.();
+  assert.equal(typeof acquireResumeImportLock(lock), 'function');
 });
 
 test('legacy storage object names recover the original safe filename', () => {
@@ -113,7 +123,19 @@ test('each section keeps existing data unless imported content is explicitly acc
 test('resume errors identify the failed stage and provide a next action', () => {
   assert.equal(
     getResumeImportErrorMessage(new Error('Invalid PDF structure'), 'resume.pdf'),
-    'Unable to read PDF. Make sure it contains selectable text, then retry or replace it.'
+    'We could not process this PDF. Export a fresh copy and try again.'
+  );
+  assert.equal(
+    getResumeImportErrorMessage(new ResumeImportError('pdf_worker_failed', 'pdf-worker', 'worker failed'), 'resume.pdf'),
+    'The PDF reader could not start. Refresh the app and retry; your PDF may still be valid.'
+  );
+  assert.equal(
+    getResumeImportErrorMessage(new ResumeImportError('pdf_empty_text', 'text-validation', 'empty'), 'resume.pdf'),
+    'No selectable text was found in this PDF. Use a text-based PDF and try again.'
+  );
+  assert.equal(
+    getResumeImportErrorMessage(new ResumeImportError('resume_parser_failed', 'resume-parser', 'parser failed'), 'resume.pdf'),
+    'We read the resume, but could not prepare the profile review. Please retry.'
   );
   assert.equal(
     getResumeImportErrorMessage(new Error('Resume imported, but Education could not be identified. Retry the import or add Education manually.'), 'resume.pdf'),
