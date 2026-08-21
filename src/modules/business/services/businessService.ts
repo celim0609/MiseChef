@@ -2,6 +2,17 @@ import { collection, doc, getDocs, query, setDoc, where } from 'firebase/firesto
 import { db } from '../../../firebase';
 import { invoiceService } from '../../costing/services';
 import type { CostingInvoice } from '../../costing/types';
+import { DEFAULT_REGION_CONFIGURATION } from '../../../regions';
+import {
+  getBusinessDateKey,
+  getBusinessMonthDateKeys,
+  getInvoiceKpiDate,
+  getInvoiceKpiTotal,
+  getPurchaseCostPercentage,
+  isPurchaseKpiEligible,
+  isSameBusinessDay,
+  isSameBusinessMonth
+} from '../purchaseKpi';
 import type { BusinessDashboardSummary, BusinessSale } from '../types';
 
 const removeUndefinedFields = <T,>(value: T): T => {
@@ -23,28 +34,7 @@ const normalizeSale = (sale: BusinessSale): BusinessSale => ({
   notes: sale.notes || ''
 });
 
-const isSameDay = (dateValue: string, target: Date) => dateValue === target.toISOString().slice(0, 10);
-const isSameMonth = (dateValue: string, target: Date) => dateValue.slice(0, 7) === target.toISOString().slice(0, 7);
-const getDateKey = (value?: string) => (value || '').slice(0, 10);
-
-const getInvoiceTotal = (invoice: CostingInvoice) => Number(invoice.total ?? invoice.extractedData?.total ?? 0);
-const getInvoiceDate = (invoice: CostingInvoice) => getDateKey(invoice.invoiceDate || invoice.processingCompletedAt || invoice.uploadDate);
 const getInvoiceSupplier = (invoice: CostingInvoice) => invoice.supplier || invoice.extractedData?.supplier || 'Unknown Supplier';
-
-const isApprovedInvoiceProxy = (invoice: CostingInvoice) => invoice.processingStatus === 'Imported' && Boolean(invoice.approvedAt) && !invoice.errorMessage;
-
-const getMonthDateKeys = (today: Date) => {
-  const keys: string[] = [];
-  const cursor = new Date(today.getFullYear(), today.getMonth(), 1);
-  const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-
-  while (cursor <= end) {
-    keys.push(cursor.toISOString().slice(0, 10));
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  return keys;
-};
 
 export const businessService = {
   async listSales(workspaceId?: string): Promise<BusinessSale[]> {
@@ -78,7 +68,7 @@ export const businessService = {
     return sale;
   },
 
-  async getDashboardSummary(userId?: string, workspaceId = userId): Promise<BusinessDashboardSummary> {
+  async getDashboardSummary(userId?: string, workspaceId = userId, timeZone = DEFAULT_REGION_CONFIGURATION.timeZone): Promise<BusinessDashboardSummary> {
     if (!userId || !workspaceId) {
       return {
         todaySales: 0,
@@ -99,39 +89,39 @@ export const businessService = {
       invoiceService.listInvoices(userId, { workspaceId })
     ]);
 
-    const todaySalesRecords = sales.filter(sale => isSameDay(sale.date, today));
+    const todaySalesRecords = sales.filter(sale => isSameBusinessDay(sale.date, today, timeZone));
     const todaySales = todaySalesRecords
       .reduce((sum, sale) => sum + sale.amount, 0);
 
-    const approvedInvoices = invoices.filter(invoice => isApprovedInvoiceProxy(invoice));
+    const approvedInvoices = invoices.filter(isPurchaseKpiEligible);
 
-    const todayPurchaseInvoices = approvedInvoices.filter(invoice => isSameDay(getInvoiceDate(invoice), today));
+    const todayPurchaseInvoices = approvedInvoices.filter(invoice => getInvoiceKpiDate(invoice, timeZone) === getBusinessDateKey(today, timeZone));
     const todayPurchases = todayPurchaseInvoices
-      .reduce((sum, invoice) => sum + getInvoiceTotal(invoice), 0);
+      .reduce((sum, invoice) => sum + getInvoiceKpiTotal(invoice), 0);
 
-    const monthSalesRecords = sales.filter(sale => isSameMonth(sale.date, today));
+    const monthSalesRecords = sales.filter(sale => isSameBusinessMonth(sale.date, today, timeZone));
     const monthSales = monthSalesRecords
       .reduce((sum, sale) => sum + sale.amount, 0);
 
     const monthInvoices = approvedInvoices
-      .filter(invoice => isSameMonth(getInvoiceDate(invoice), today));
+      .filter(invoice => isSameBusinessMonth(getInvoiceKpiDate(invoice, timeZone), today, timeZone));
 
     const monthPurchases = monthInvoices
-      .reduce((sum, invoice) => sum + getInvoiceTotal(invoice), 0);
+      .reduce((sum, invoice) => sum + getInvoiceKpiTotal(invoice), 0);
 
-    const monthlyTrend = getMonthDateKeys(today).map(date => {
+    const monthlyTrend = getBusinessMonthDateKeys(today, timeZone).map(date => {
       const dailySales = sales
         .filter(sale => sale.date === date)
         .reduce((sum, sale) => sum + sale.amount, 0);
       const dailyPurchases = monthInvoices
-        .filter(invoice => getInvoiceDate(invoice) === date)
-        .reduce((sum, invoice) => sum + getInvoiceTotal(invoice), 0);
+        .filter(invoice => getInvoiceKpiDate(invoice, timeZone) === date)
+        .reduce((sum, invoice) => sum + getInvoiceKpiTotal(invoice), 0);
 
       return {
         date,
         sales: dailySales,
         purchases: dailyPurchases,
-        purchaseCostPercentage: dailySales > 0 ? (dailyPurchases / dailySales) * 100 : null
+        purchaseCostPercentage: getPurchaseCostPercentage(dailyPurchases, dailySales)
       };
     });
 
@@ -139,7 +129,7 @@ export const businessService = {
     monthInvoices.forEach(invoice => {
       const supplier = getInvoiceSupplier(invoice);
       const current = supplierMap.get(supplier) || { supplier, totalSpend: 0, invoiceCount: 0 };
-      current.totalSpend += getInvoiceTotal(invoice);
+      current.totalSpend += getInvoiceKpiTotal(invoice);
       current.invoiceCount += 1;
       supplierMap.set(supplier, current);
     });
@@ -148,7 +138,7 @@ export const businessService = {
       .sort((a, b) => b.totalSpend - a.totalSpend)
       .slice(0, 5);
 
-    const purchaseCostPercentage = monthSales > 0 ? (monthPurchases / monthSales) * 100 : null;
+    const purchaseCostPercentage = getPurchaseCostPercentage(monthPurchases, monthSales);
     const sevenDaysAgo = new Date(today);
     sevenDaysAgo.setDate(today.getDate() - 7);
     const hasInvoiceThisWeek = invoices.some(invoice => new Date(invoice.uploadDate) >= sevenDaysAgo);

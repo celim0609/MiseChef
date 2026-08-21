@@ -36,6 +36,15 @@ import { getAuthenticatedGreeting } from '../utils/authenticatedUser';
 import { selectProvisionedDisplayName } from '../services/newUserProvisioningModel';
 import { formatRegionCurrency, useWorkspaceRegion } from '../regions';
 import type { OnboardingGoal } from '../modules/onboarding';
+import {
+  formatPurchaseCostPercentage,
+  getInvoiceKpiDate,
+  getInvoiceKpiTotal,
+  getPurchaseCostPercentage,
+  isPurchaseKpiEligible,
+  isSameBusinessDay,
+  isSameBusinessMonth
+} from '../modules/business/purchaseKpi';
 
 interface HomePortfolioSummary {
   professionalTitle?: string;
@@ -86,15 +95,6 @@ const getGreeting = () => {
   return 'Good Evening';
 };
 
-const isSameDay = (value?: string | null, target = new Date()) => {
-  if (!value) return false;
-  const parsed = new Date(value);
-  return !Number.isNaN(parsed.getTime())
-    && parsed.getFullYear() === target.getFullYear()
-    && parsed.getMonth() === target.getMonth()
-    && parsed.getDate() === target.getDate();
-};
-
 const toTime = (value?: string | null) => {
   const time = value ? new Date(value).getTime() : 0;
   return Number.isNaN(time) ? 0 : time;
@@ -110,17 +110,7 @@ const isExpiringSoon = (value?: string | null) => {
   return expiry >= now.getTime() && expiry <= inFourteenDays.getTime();
 };
 
-const isSameMonth = (value?: string | null, target = new Date()) => {
-  if (!value) return false;
-  const parsed = new Date(value);
-  return !Number.isNaN(parsed.getTime())
-    && parsed.getFullYear() === target.getFullYear()
-    && parsed.getMonth() === target.getMonth();
-};
-
 const getInvoiceStatus = (invoice: CostingInvoice) => invoice.processingStatus || invoice.status;
-const getInvoiceTotal = (invoice: CostingInvoice) => Number(invoice.total ?? invoice.extractedData?.total ?? 0);
-const getInvoiceBusinessDate = (invoice: CostingInvoice) => invoice.invoiceDate || invoice.extractedData?.invoiceDate || invoice.processingCompletedAt || invoice.uploadDate;
 
 const getMetricState = <T,>(source: DashboardSource<T> | undefined, hasData: boolean, isLoading: boolean): OwnerMetricState => {
   if (isLoading) return 'loading';
@@ -211,17 +201,17 @@ export default function HomeTab({
 
   const now = new Date();
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-  const todaySalesRecords = sales.filter(sale => isSameDay(sale.date, now));
-  const yesterdaySalesRecords = sales.filter(sale => isSameDay(sale.date, yesterday));
-  const monthSalesRecords = sales.filter(sale => isSameMonth(sale.date, now));
+  const todaySalesRecords = sales.filter(sale => isSameBusinessDay(sale.date, now, region.timeZone));
+  const yesterdaySalesRecords = sales.filter(sale => isSameBusinessDay(sale.date, yesterday, region.timeZone));
+  const monthSalesRecords = sales.filter(sale => isSameBusinessMonth(sale.date, now, region.timeZone));
   const todaySales = todaySalesRecords.reduce((sum, sale) => sum + Number(sale.amount || 0), 0);
   const yesterdaySales = yesterdaySalesRecords.reduce((sum, sale) => sum + Number(sale.amount || 0), 0);
   const monthSales = monthSalesRecords.reduce((sum, sale) => sum + Number(sale.amount || 0), 0);
 
   const approvedMonthInvoices = invoices
-    .filter(invoice => getInvoiceStatus(invoice) === 'Imported' && Boolean(invoice.approvedAt))
-    .filter(invoice => isSameMonth(getInvoiceBusinessDate(invoice), now));
-  const monthPurchases = approvedMonthInvoices.reduce((sum, invoice) => sum + getInvoiceTotal(invoice), 0);
+    .filter(isPurchaseKpiEligible)
+    .filter(invoice => isSameBusinessMonth(getInvoiceKpiDate(invoice, region.timeZone), now, region.timeZone));
+  const monthPurchases = approvedMonthInvoices.reduce((sum, invoice) => sum + getInvoiceKpiTotal(invoice), 0);
   const pendingOcr = invoices.filter(invoice => ['Pending', 'Processing'].includes(getInvoiceStatus(invoice))).length;
   const pendingInvoiceRecords = invoices.filter(invoice => getInvoiceStatus(invoice) === 'Processed');
   const pendingInvoices = pendingInvoiceRecords.length;
@@ -251,14 +241,14 @@ export default function HomeTab({
   const aiUsageState = getMetricState(dashboard?.aiUsage, aiUsage.recordCount > 0, isLoading);
   const purchaseRatioState: OwnerMetricState = isLoading
     ? 'loading'
-    : monthSalesState === 'permission-denied' || purchaseState === 'permission-denied'
+    : dashboard?.sales.status === 'permission-denied' || purchaseState === 'permission-denied'
       ? 'permission-denied'
-      : monthSalesState === 'error' || purchaseState === 'error'
+      : dashboard?.sales.status === 'error' || purchaseState === 'error'
         ? 'error'
-        : monthSalesState === 'no-data' || purchaseState === 'no-data'
+        : !dashboard?.sales || purchaseState === 'no-data'
           ? 'no-data'
           : 'ready';
-  const purchaseRatio = purchaseRatioState === 'ready' && monthSales > 0 ? (monthPurchases / monthSales) * 100 : null;
+  const purchaseRatio = purchaseRatioState === 'ready' ? getPurchaseCostPercentage(monthPurchases, monthSales) : null;
 
   const alertSources = [
     dashboard?.invoices,
@@ -323,7 +313,7 @@ export default function HomeTab({
     { label: 'Yesterday Sales', value: formatRegionCurrency(yesterdaySales, region.currency), icon: <TrendingUp className="h-5 w-5" />, helper: 'Recorded sales for yesterday', tone: 'secondary', state: yesterdaySalesState },
     { label: 'This Month Sales', value: formatRegionCurrency(monthSales, region.currency), icon: <TrendingUp className="h-5 w-5" />, helper: 'Recorded sales this month', tone: 'secondary', state: monthSalesState },
     { label: 'Total Purchases', value: formatRegionCurrency(monthPurchases, region.currency), icon: <ReceiptText className="h-5 w-5" />, helper: 'Approved imported invoices this month', tone: 'primary', state: purchaseState },
-    { label: 'Purchase Ratio', value: purchaseRatio === null ? 'Not available' : `${purchaseRatio.toFixed(1)}%`, icon: <ClipboardList className="h-5 w-5" />, helper: purchaseRatioState === 'ready' && monthSales === 0 ? 'Sales total is an actual zero' : 'Total purchases divided by total sales', tone: 'secondary', state: purchaseRatioState }
+    { label: 'Purchase Ratio', value: formatPurchaseCostPercentage(purchaseRatio), icon: <ClipboardList className="h-5 w-5" />, helper: purchaseRatioState === 'ready' && monthSales === 0 ? 'Approved purchases exist, but no sales are recorded this month' : 'Total purchases divided by total sales', tone: 'secondary', state: purchaseRatioState }
   ];
 
   const recentActivity = useMemo<ActivityItem[]>(() => {
@@ -389,7 +379,7 @@ export default function HomeTab({
         : purchaseRatioState === 'no-data'
           ? { value: 'No data available', label: 'No data', className: 'bg-surface-container-high text-on-surface-variant' }
           : purchaseRatio === null
-            ? { value: 'Not available', label: 'Sales total is zero', className: 'bg-surface-container-high text-on-surface-variant' }
+            ? { value: 'No sales yet', label: 'Sales total is zero', className: 'bg-surface-container-high text-on-surface-variant' }
             : { value: `${purchaseRatio.toFixed(1)}%`, label: 'Monthly actuals', className: 'bg-primary/10 text-primary' };
 
   if (isChefHome) {
