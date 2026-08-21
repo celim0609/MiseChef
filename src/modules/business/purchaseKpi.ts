@@ -2,6 +2,7 @@ import type { CostingInvoice } from '../costing/types';
 
 const ISO_DATE_PATTERN = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
 const DAY_FIRST_DATE_PATTERN = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+const DAY_FIRST_SHORT_YEAR_PATTERN = /^(\d{1,2})([/-])(\d{1,2})\2(\d{2})$/;
 
 const padDatePart = (value: number) => String(value).padStart(2, '0');
 
@@ -39,6 +40,11 @@ export const normalizeInvoiceDate = (value?: string | null, timeZone = 'UTC') =>
   const dayFirstDate = trimmed.match(DAY_FIRST_DATE_PATTERN);
   if (dayFirstDate) return toValidatedDateKey(Number(dayFirstDate[3]), Number(dayFirstDate[2]), Number(dayFirstDate[1]));
 
+  const dayFirstShortYearDate = trimmed.match(DAY_FIRST_SHORT_YEAR_PATTERN);
+  if (dayFirstShortYearDate) {
+    return toValidatedDateKey(2000 + Number(dayFirstShortYearDate[4]), Number(dayFirstShortYearDate[3]), Number(dayFirstShortYearDate[1]));
+  }
+
   const parsed = new Date(trimmed);
   return Number.isNaN(parsed.getTime()) ? '' : getBusinessDateKey(parsed, timeZone);
 };
@@ -49,12 +55,20 @@ export const isPurchaseKpiEligible = (invoice: CostingInvoice) => (
   && !invoice.errorMessage
 );
 
-export const getInvoiceKpiDate = (invoice: CostingInvoice, timeZone: string) => (
-  normalizeInvoiceDate(invoice.invoiceDate, timeZone)
-  || normalizeInvoiceDate(invoice.extractedData?.invoiceDate, timeZone)
-  || normalizeInvoiceDate(invoice.processingCompletedAt, timeZone)
-  || normalizeInvoiceDate(invoice.uploadDate, timeZone)
-);
+export const getInvoiceKpiDate = (invoice: CostingInvoice, timeZone: string) => {
+  const invoiceDates = [invoice.invoiceDate, invoice.extractedData?.invoiceDate]
+    .filter((value): value is string => Boolean(value?.trim()));
+
+  for (const invoiceDate of invoiceDates) {
+    const normalizedDate = normalizeInvoiceDate(invoiceDate, timeZone);
+    if (normalizedDate) return normalizedDate;
+  }
+
+  if (invoiceDates.length > 0) return '';
+
+  return normalizeInvoiceDate(invoice.processingCompletedAt, timeZone)
+    || normalizeInvoiceDate(invoice.uploadDate, timeZone);
+};
 
 export const getInvoiceKpiTotal = (invoice: CostingInvoice) => {
   const total = Number(invoice.total ?? invoice.extractedData?.total ?? 0);

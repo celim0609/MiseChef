@@ -41,7 +41,14 @@ test('invoice dates normalize ISO and legacy day-first formats without persisten
   assert.equal(normalizeInvoiceDate('2026-08-21'), '2026-08-21');
   assert.equal(normalizeInvoiceDate('21/08/2026'), '2026-08-21');
   assert.equal(normalizeInvoiceDate('1/8/2026'), '2026-08-01');
+  assert.equal(normalizeInvoiceDate('15-08-26'), '2026-08-15');
+  assert.equal(normalizeInvoiceDate('5-8-26'), '2026-08-05');
+  assert.equal(normalizeInvoiceDate('05/08/26'), '2026-08-05');
+  assert.equal(normalizeInvoiceDate('5/8/26'), '2026-08-05');
+  assert.equal(normalizeInvoiceDate('1/1/00'), '2000-01-01');
   assert.equal(normalizeInvoiceDate('31/02/2026'), '');
+  assert.equal(normalizeInvoiceDate('31/02/26'), '');
+  assert.equal(normalizeInvoiceDate('99-99-26'), '');
 
   const historicalInvoice = createInvoice({ invoiceDate: '21/08/2026', total: 128.5 });
   assert.equal(getInvoiceKpiDate(historicalInvoice, 'Asia/Kuala_Lumpur'), '2026-08-21');
@@ -67,6 +74,14 @@ test('timestamp fallbacks are converted to the workspace business date', () => {
   });
   assert.equal(getInvoiceKpiDate(invoice, 'Asia/Kuala_Lumpur'), '2026-08-21');
   assert.equal(getInvoiceKpiDate(invoice, 'Asia/Singapore'), '2026-08-21');
+});
+
+test('an invalid present invoice date is rejected instead of falling back to processing time', () => {
+  const invoice = createInvoice({
+    invoiceDate: '31/02/26',
+    processingCompletedAt: '2026-08-20T16:30:00.000Z'
+  });
+  assert.equal(getInvoiceKpiDate(invoice, 'Asia/Kuala_Lumpur'), '');
 });
 
 test('purchase cost percentage is safe and clearly labelled when sales are zero', () => {
