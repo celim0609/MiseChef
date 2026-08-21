@@ -14,6 +14,10 @@ import { FALLBACK_CATEGORY_NAME, getRecipeCategories, normalizeRecipeCategories 
 import { canCreateKitchenDictionaryEntry, createKitchenDictionaryEntry, isKnownKitchenDictionaryIngredientName } from '../services/kitchenDictionary';
 import { ingredientService } from '../modules/costing/services';
 import type { CostingIngredient } from '../modules/costing/types';
+import {
+  loadRecipeIngredientLibrary,
+  updateRecipeIngredientLibraryLink
+} from '../modules/costing/services/recipeIngredientLibrary';
 import { ApprovedProductSelector } from '../modules/products/components/ApprovedProductSelector';
 import { approvedProductService } from '../modules/products/services/approvedProductService';
 
@@ -765,17 +769,18 @@ export default function AddRecipeTab({
   useEffect(() => {
     let isMounted = true;
 
-    if (!userId) {
+    if (!workspaceId && !userId) {
       setLibraryIngredients([]);
       return () => {
         isMounted = false;
       };
     }
 
-    ingredientService.listIngredients(userId)
+    setLibraryIngredients([]);
+    loadRecipeIngredientLibrary(workspaceId, userId, ingredientService.listIngredients)
       .then(loadedIngredients => {
         if (isMounted) {
-          setLibraryIngredients(loadedIngredients.filter(ingredient => ingredient.status === 'Active'));
+          setLibraryIngredients(loadedIngredients);
         }
       })
       .catch(error => {
@@ -785,7 +790,7 @@ export default function AddRecipeTab({
     return () => {
       isMounted = false;
     };
-  }, [userId]);
+  }, [userId, workspaceId]);
 
   // Local helper for cover photo selection
   const handleCoverPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -841,24 +846,7 @@ export default function AddRecipeTab({
 
     setIngredients(prev => prev.map(ing => {
       if (ing.id !== id) return ing;
-      if (!matchedIngredient) {
-        return {
-          id: ing.id,
-          name: ing.name,
-          englishName: ing.englishName,
-          chineseName: ing.chineseName,
-          qty: ing.qty,
-          unit: ing.unit,
-          notes: ing.notes
-        };
-      }
-
-      return {
-        ...ing,
-        ingredientId: matchedIngredient.id,
-        name: ing.name.trim() || matchedIngredient.name,
-        unit: ing.unit.trim() || matchedIngredient.recipeUnit || matchedIngredient.purchaseUnit
-      };
+      return updateRecipeIngredientLibraryLink(ing, matchedIngredient);
     }));
   };
 
