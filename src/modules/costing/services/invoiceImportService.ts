@@ -4,6 +4,7 @@ import type { CostingIngredient, CostingInvoice, CostingInvoiceExtractedItem } f
 import { costIntelligenceService, type IngredientCostChange } from './costIntelligenceService';
 import { recipeCostService } from './recipeCostService';
 import { DEFAULT_REGION_CONFIGURATION, type RegionCurrency } from '../../../regions';
+import { getGenericInvoiceLegacyPricing, planGenericInvoicePriceUpdate } from './ingredientPackModel';
 
 export type InvoiceImportMatch = {
   item: CostingInvoiceExtractedItem;
@@ -19,6 +20,8 @@ type PlannedInvoiceImport = {
   ingredientName: string;
   previousCost: number | null;
   newCost: number;
+  effectiveCost: number;
+  appliesPriceUpdate: boolean;
 };
 
 const removeUndefinedFields = <T,>(value: T): T => {
@@ -81,7 +84,11 @@ export const invoiceImportService = {
     userId: string;
     workspaceId?: string;
     defaultCurrency?: RegionCurrency;
-  }): Promise<{ invoiceUpdates: Partial<CostingInvoice> }> {
+  }): Promise<{
+    invoiceUpdates: Partial<CostingInvoice>;
+    priceUpdatesApplied: number;
+    packPricesPreserved: number;
+  }> {
     if (!db) throw new Error("We couldn't connect to your workspace. Please refresh the page or try again.");
     if (invoice.processingStatus === 'Imported' || invoice.approvedAt) {
       throw new Error('This invoice has already been imported.');
@@ -123,6 +130,7 @@ export const invoiceImportService = {
         : doc(collection(db, 'ingredients'));
       const ingredientId = matchedIngredient?.id || ingredientRef.id;
       const newCost = costIntelligenceService.calculateUnitCost(match.item);
+      const pricingPlan = planGenericInvoicePriceUpdate(matchedIngredient, newCost);
 
       acc.push({
         match,
@@ -130,18 +138,22 @@ export const invoiceImportService = {
         ingredientRef,
         ingredientId,
         ingredientName: matchedIngredient?.name || match.item.name.trim(),
-        previousCost: matchedIngredient ? Number(matchedIngredient.currentPrice || 0) : null,
-        newCost
+        previousCost: pricingPlan.previousCost,
+        newCost,
+        effectiveCost: pricingPlan.effectiveCost,
+        appliesPriceUpdate: pricingPlan.priceApplied
       });
 
       return acc;
     }, []);
-    const costChanges: IngredientCostChange[] = plannedImports.map(plannedImport => ({
-      ingredientId: plannedImport.ingredientId,
-      ingredientName: plannedImport.ingredientName,
-      previousCost: plannedImport.previousCost,
-      newCost: plannedImport.newCost
-    }));
+    const costChanges: IngredientCostChange[] = plannedImports
+      .filter(plannedImport => plannedImport.appliesPriceUpdate)
+      .map(plannedImport => ({
+        ingredientId: plannedImport.ingredientId,
+        ingredientName: plannedImport.ingredientName,
+        previousCost: plannedImport.previousCost,
+        newCost: plannedImport.newCost
+      }));
     const pendingRecipeRecalculations = await costIntelligenceService.findPendingRecipeRecalculations({
       costChanges,
       invoiceId: invoice.id,
@@ -151,23 +163,22 @@ export const invoiceImportService = {
     });
     const batch = writeBatch(db);
 
-    plannedImports.forEach(({ match, matchedIngredient, ingredientRef, ingredientId, previousCost, newCost }) => {
+    plannedImports.forEach(({ match, matchedIngredient, ingredientRef, ingredientId, previousCost, newCost, effectiveCost, appliesPriceUpdate }) => {
       if (matchedIngredient) {
-        batch.update(ingredientRef, removeUndefinedFields({
-          currentPrice: newCost,
-          supplierId: supplierId || matchedIngredient.supplierId,
-          currency,
-          updatedAt: now
-        }) as unknown as Record<string, unknown>);
+        if (appliesPriceUpdate) {
+          batch.update(ingredientRef, removeUndefinedFields({
+            currentPrice: newCost,
+            supplierId: supplierId || matchedIngredient.supplierId,
+            currency,
+            updatedAt: now
+          }) as unknown as Record<string, unknown>);
+        }
       } else {
         const newIngredient: CostingIngredient = {
           id: ingredientId,
           name: match.item.name.trim(),
           category: '',
-          purchaseUnit: match.item.unit || '',
-          recipeUnit: match.item.unit || '',
-          conversionFactor: 1,
-          currentPrice: newCost,
+          ...getGenericInvoiceLegacyPricing(match.item, newCost),
           currency,
           supplierId,
           yieldPercentage: 100,
@@ -189,8 +200,13 @@ export const invoiceImportService = {
         supplierId,
         invoiceId: invoice.id,
         previousCost,
-        newCost,
-        unitPrice: newCost,
+        newCost: effectiveCost,
+        unitPrice: effectiveCost,
+        priceApplied: appliesPriceUpdate,
+        transactionQuantity: match.item.quantity,
+        transactionUnit: match.item.unit,
+        transactionUnitPrice: match.item.unitPrice,
+        transactionTotal: match.item.total,
         currency,
         effectiveDate,
         createdAt: now,
@@ -217,6 +233,10 @@ export const invoiceImportService = {
       console.warn('Recipe cost recalculation could not be completed.', error);
     });
 
-    return { invoiceUpdates };
+    return {
+      invoiceUpdates,
+      priceUpdatesApplied: plannedImports.filter(item => item.appliesPriceUpdate).length,
+      packPricesPreserved: plannedImports.filter(item => !item.appliesPriceUpdate).length
+    };
   }
 };

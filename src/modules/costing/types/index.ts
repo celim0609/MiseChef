@@ -5,6 +5,9 @@ export type CostingIngredientStatus = 'Active' | 'Archived';
 export interface CostingIngredient {
   id: string;
   name: string;
+  packQuantity?: number;
+  packUnit?: string;
+  packPrice?: number;
   category: string;
   purchaseUnit: string;
   recipeUnit: string;
@@ -84,6 +87,11 @@ export interface CostingIngredientPriceHistory {
   previousCost: number | null;
   newCost: number;
   unitPrice: number;
+  priceApplied?: boolean;
+  transactionQuantity?: number;
+  transactionUnit?: string;
+  transactionUnitPrice?: number;
+  transactionTotal?: number;
   currency: string;
   effectiveDate: string;
   createdAt: string;

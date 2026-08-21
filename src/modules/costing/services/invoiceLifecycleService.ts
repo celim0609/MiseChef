@@ -51,8 +51,9 @@ const loadIngredient = async (ingredientId: string) => {
 export const invoiceLifecycleService = {
   async getImportImpact(invoiceId: string) {
     const history = await loadPriceHistoryForInvoice(invoiceId);
-    const newIngredientCount = history.filter(record => record.previousCost === null).length;
-    const updatedIngredientCount = history.length - newIngredientCount;
+    const appliedHistory = history.filter(record => record.priceApplied !== false);
+    const newIngredientCount = appliedHistory.filter(record => record.previousCost === null).length;
+    const updatedIngredientCount = appliedHistory.length - newIngredientCount;
 
     return {
       historyCount: history.length,
@@ -79,6 +80,15 @@ export const invoiceLifecycleService = {
     let restoredIngredients = 0;
 
     for (const record of history) {
+      if (record.priceApplied === false) {
+        batch.update(doc(db, 'ingredientPriceHistory', record.id), removeUndefinedFields({
+          rollbackStatus: 'RolledBack',
+          rolledBackAt: now,
+          rolledBackBy: userId
+        }) as unknown as Record<string, unknown>);
+        continue;
+      }
+
       const ingredient = await loadIngredient(record.ingredientId);
       const allHistoryForIngredient = await loadPriceHistoryForIngredient(record.ingredientId);
       const otherHistory = allHistoryForIngredient.filter(item => item.invoiceId !== invoice.id && item.rollbackStatus !== 'RolledBack');

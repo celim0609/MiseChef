@@ -152,6 +152,7 @@ export default function RecipeDetailModal({
   const displayedRecipe = isScaledView ? scaledRecipe : recipe;
   const displayedYield = displayedRecipe.yield || `${displayedRecipe.servings} servings`;
   const recipeCosting = recipe.costing;
+  const costingWarnings = recipe.ingredients.filter(ingredient => ingredient.costingWarning);
   const hasCostBreakdown = Boolean(recipeCosting?.breakdown?.length);
   const hasTotalCost = hasCostBreakdown && Number.isFinite(Number(recipeCosting?.totalRecipeCost));
   const hasPerPortionCost = hasTotalCost
@@ -495,6 +496,17 @@ export default function RecipeDetailModal({
                       </span>
                     </div>
                   </div>
+
+                  {costingWarnings.length > 0 && (
+                    <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                      <p className="font-sans text-xs font-extrabold uppercase tracking-wider text-amber-900">Costing warnings</p>
+                      {costingWarnings.map(ingredient => (
+                        <p key={ingredient.id} className="font-sans text-xs font-semibold text-amber-900">
+                          <span className="font-extrabold">{ingredient.name}:</span> {ingredient.costingWarning}
+                        </p>
+                      ))}
+                    </div>
+                  )}
 
                   {hasCostBreakdown ? (
                     <div className="overflow-x-auto">

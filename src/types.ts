@@ -18,6 +18,7 @@ export interface Ingredient {
   ingredientCost?: number;
   costingUnit?: string;
   costLastCalculatedAt?: string;
+  costingWarning?: string;
   notes?: string;
 }
 

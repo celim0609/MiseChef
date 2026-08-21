@@ -5,6 +5,13 @@ import { getCustomerFriendlyErrorMessage } from '../../../../utils/customerError
 import { usageLimitService } from '../../../../services/usageLimitService';
 import type { CostingIngredient } from '../../types';
 import { formatRegionCurrency, useWorkspaceRegion } from '../../../../regions';
+import {
+  calculatePackRecipeUnitCost,
+  getLegacyFieldsForPack,
+  hasIngredientPackData,
+  validateIngredientPack,
+  type PackValidationInput
+} from '../../services/ingredientPackModel';
 
 interface CostingIngredientsPageProps {
   userId?: string;
@@ -15,13 +22,21 @@ type SortKey = 'name' | 'category' | 'currentPrice' | 'updatedAt';
 
 type IngredientFormState = Pick<CostingIngredient,
   'name' | 'category' | 'purchaseUnit' | 'recipeUnit' | 'conversionFactor' | 'currentPrice' | 'currency' | 'supplierId' | 'yieldPercentage' | 'wastePercentage' | 'notes'
->;
+> & {
+  packQuantity: number;
+  packUnit: string;
+  packPrice: number;
+};
 
 const PAGE_SIZE = 8;
+const PACK_UNIT_OPTIONS = ['g', 'kg', 'ml', 'L', 'pcs', 'Unit'];
 
 const getEmptyForm = (currency: string): IngredientFormState => ({
   name: '',
   category: '',
+  packQuantity: 0,
+  packUnit: '',
+  packPrice: 0,
   purchaseUnit: '',
   recipeUnit: '',
   conversionFactor: 1,
@@ -41,6 +56,9 @@ const statusClassName: Record<CostingIngredient['status'], string> = {
 const toFormState = (ingredient: CostingIngredient | null | undefined, currency: string): IngredientFormState => ingredient ? {
   name: ingredient.name,
   category: ingredient.category,
+  packQuantity: Number(ingredient.packQuantity || 0),
+  packUnit: ingredient.packUnit || '',
+  packPrice: Number(ingredient.packPrice || 0),
   purchaseUnit: ingredient.purchaseUnit,
   recipeUnit: ingredient.recipeUnit,
   conversionFactor: ingredient.conversionFactor,
@@ -51,6 +69,18 @@ const toFormState = (ingredient: CostingIngredient | null | undefined, currency:
   wastePercentage: ingredient.wastePercentage,
   notes: ingredient.notes
 } : getEmptyForm(currency);
+
+const getIngredientPurchaseDisplay = (ingredient: CostingIngredient, fallbackCurrency: string) => {
+  if (hasIngredientPackData(ingredient) && Number(ingredient.packQuantity) > 0 && ingredient.packUnit) {
+    return `${ingredient.packQuantity} ${ingredient.packUnit} · ${formatRegionCurrency(ingredient.packPrice, ingredient.currency || fallbackCurrency)}`;
+  }
+
+  return `${ingredient.purchaseUnit || 'unit'} · ${formatRegionCurrency(ingredient.currentPrice, ingredient.currency || fallbackCurrency)}`;
+};
+
+const formatCalculatedUnitCost = (value: number, currency: string) => (
+  `${currency} ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`
+);
 
 export default function CostingIngredientsPage({ userId, workspaceId }: CostingIngredientsPageProps) {
   const region = useWorkspaceRegion();
@@ -140,11 +170,22 @@ export default function CostingIngredientsPage({ userId, workspaceId }: CostingI
     const value = event.target.value;
     setFormState(current => ({
       ...current,
-      [field]: ['conversionFactor', 'currentPrice', 'yieldPercentage', 'wastePercentage'].includes(field)
+      [field]: ['packQuantity', 'packPrice', 'conversionFactor', 'currentPrice', 'yieldPercentage', 'wastePercentage'].includes(field)
         ? Number(value) || 0
         : value
     }));
   };
+
+  const packInput: PackValidationInput = {
+    packQuantity: formState.packQuantity,
+    packUnit: formState.packUnit,
+    packPrice: formState.packPrice,
+    recipeUnit: formState.recipeUnit
+  };
+  const isEditingLegacyIngredient = Boolean(selectedIngredient && !hasIngredientPackData(selectedIngredient));
+  const hasEnteredPackInformation = formState.packQuantity !== 0 || Boolean(formState.packUnit) || formState.packPrice !== 0;
+  const shouldSavePackInformation = !isEditingLegacyIngredient || hasEnteredPackInformation;
+  const packUnitCost = shouldSavePackInformation ? calculatePackRecipeUnitCost(packInput) : null;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -159,21 +200,51 @@ export default function CostingIngredientsPage({ userId, workspaceId }: CostingI
       return;
     }
 
+    if (shouldSavePackInformation) {
+      const packValidationError = validateIngredientPack(packInput);
+      if (packValidationError) {
+        setErrorMessage(packValidationError);
+        return;
+      }
+    }
+
     setIsSaving(true);
     setErrorMessage('');
     setMessage('');
 
     try {
+      const {
+        packQuantity: _packQuantity,
+        packUnit: _packUnit,
+        packPrice: _packPrice,
+        ...legacyFormState
+      } = formState;
+      const pricingFields = shouldSavePackInformation
+        ? {
+            packQuantity: formState.packQuantity,
+            packUnit: formState.packUnit,
+            packPrice: formState.packPrice,
+            ...getLegacyFieldsForPack(packInput)
+          }
+        : {};
+      const ingredientDraft = {
+        ...legacyFormState,
+        ...pricingFields,
+        name: formState.name.trim(),
+        category: formState.category.trim()
+      };
+
       if (selectedIngredient) {
         const updatedIngredient = await ingredientService.updateIngredient({
           ...selectedIngredient,
-          ...formState,
-          name: formState.name.trim(),
-          category: formState.category.trim()
+          ...ingredientDraft
         });
         const previousCost = Number(selectedIngredient.currentPrice || 0);
         const nextCost = Number(updatedIngredient.currentPrice || 0);
-        if (previousCost !== nextCost) {
+        const packPricingChanged = ['packQuantity', 'packUnit', 'packPrice', 'recipeUnit'].some(field => (
+          selectedIngredient[field as keyof CostingIngredient] !== updatedIngredient[field as keyof CostingIngredient]
+        ));
+        if (previousCost !== nextCost || packPricingChanged) {
           recipeCostService.recalculateRecipesForCostChanges({
             costChanges: [{
               ingredientId: updatedIngredient.id,
@@ -198,9 +269,7 @@ export default function CostingIngredientsPage({ userId, workspaceId }: CostingI
         }
 
         const createdIngredient = await ingredientService.createIngredient({
-          ...formState,
-          name: formState.name.trim(),
-          category: formState.category.trim(),
+          ...ingredientDraft,
           status: 'Active'
         }, userId, workspaceId || userId);
         setIngredients(current => [createdIngredient, ...current]);
@@ -277,21 +346,20 @@ export default function CostingIngredientsPage({ userId, workspaceId }: CostingI
           <table className="w-full min-w-[900px] text-left font-sans text-sm">
             <thead className="bg-surface-container-low text-primary">
               <tr>
-                {['Ingredient', 'Category', 'Purchase Unit', 'Recipe Unit', 'Price', 'Yield', 'Waste', 'Status', 'Action'].map(header => (
+                {['Ingredient', 'Category', 'Purchase Information', 'Recipe Unit', 'Yield', 'Waste', 'Status', 'Action'].map(header => (
                   <th key={header} className="px-4 py-3 text-xs font-extrabold uppercase tracking-[0.14em]">{header}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={9} className="px-4 py-10 text-center font-bold text-on-surface-variant">Loading ingredients...</td></tr>
+                <tr><td colSpan={8} className="px-4 py-10 text-center font-bold text-on-surface-variant">Loading ingredients...</td></tr>
               ) : paginatedIngredients.length > 0 ? paginatedIngredients.map(ingredient => (
                 <tr key={ingredient.id} className="border-t border-surface-container-high hover:bg-surface-container-low/60">
                   <td className="px-4 py-3 font-extrabold text-primary">{ingredient.name}</td>
                   <td className="px-4 py-3 font-bold text-on-surface-variant">{ingredient.category || '-'}</td>
-                  <td className="px-4 py-3 font-bold text-on-surface-variant">{ingredient.purchaseUnit || '-'}</td>
+                  <td className="px-4 py-3 font-bold text-on-surface-variant">{getIngredientPurchaseDisplay(ingredient, region.currency)}</td>
                   <td className="px-4 py-3 font-bold text-on-surface-variant">{ingredient.recipeUnit || '-'}</td>
-                  <td className="px-4 py-3 font-bold text-on-surface-variant">{formatRegionCurrency(ingredient.currentPrice, ingredient.currency || region.currency)}</td>
                   <td className="px-4 py-3 font-bold text-on-surface-variant">{ingredient.yieldPercentage}%</td>
                   <td className="px-4 py-3 font-bold text-on-surface-variant">{ingredient.wastePercentage}%</td>
                   <td className="px-4 py-3"><span className={`rounded-full px-3 py-1 font-sans text-[10px] font-extrabold ${statusClassName[ingredient.status]}`}>{ingredient.status}</span></td>
@@ -304,7 +372,7 @@ export default function CostingIngredientsPage({ userId, workspaceId }: CostingI
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center">
+                  <td colSpan={8} className="px-4 py-12 text-center">
                     <p className="font-display text-xl font-bold text-primary">No ingredients found</p>
                     <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Create your first ingredient manually. Invoice-driven ingredient creation comes next.</p>
                     <button type="button" onClick={openCreateDrawer} className="mt-5 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">Add Ingredient</button>
@@ -338,30 +406,92 @@ export default function CostingIngredientsPage({ userId, workspaceId }: CostingI
             </div>
 
             <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-              {[
-                ['Name', 'name'],
-                ['Category', 'category'],
-                ['Purchase Unit', 'purchaseUnit'],
-                ['Recipe Unit', 'recipeUnit'],
-                ['Current Price', 'currentPrice'],
-                ['Currency', 'currency'],
-                ['Supplier', 'supplierId'],
-                ['Yield', 'yieldPercentage'],
-                ['Waste', 'wastePercentage']
-              ].map(([label, field]) => {
-                const numeric = ['currentPrice', 'yieldPercentage', 'wastePercentage'].includes(field);
-                return (
-                  <label key={field} className="block">
-                    <span className="font-sans text-xs font-extrabold uppercase tracking-[0.14em] text-primary">{label}</span>
-                    <input type={numeric ? 'number' : 'text'} step={numeric ? '0.01' : undefined} value={String(formState[field as keyof IngredientFormState])} onChange={event => updateField(field as keyof IngredientFormState, event)} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" />
-                  </label>
-                );
-              })}
+              <label className="block">
+                <span className="font-sans text-xs font-extrabold uppercase tracking-[0.14em] text-primary">Name</span>
+                <input value={formState.name} onChange={event => updateField('name', event)} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" />
+              </label>
 
               <label className="block">
-                <span className="font-sans text-xs font-extrabold uppercase tracking-[0.14em] text-primary">Conversion Factor</span>
-                <input type="number" step="0.0001" value={formState.conversionFactor} onChange={event => updateField('conversionFactor', event)} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" />
+                <span className="font-sans text-xs font-extrabold uppercase tracking-[0.14em] text-primary">Category</span>
+                <input value={formState.category} onChange={event => updateField('category', event)} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" />
               </label>
+
+              <section className="space-y-4 rounded-2xl border border-surface-container-high bg-surface-container-low/50 p-4">
+                <div>
+                  <h4 className="font-display text-lg font-bold text-primary">Purchase Information</h4>
+                  <p className="mt-1 font-sans text-xs font-semibold text-on-surface-variant">Enter the quantity and price shown on the pack you buy.</p>
+                </div>
+
+                {isEditingLegacyIngredient && !hasEnteredPackInformation && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+                    This ingredient uses legacy pricing ({formatRegionCurrency(selectedIngredient?.currentPrice, selectedIngredient?.currency || region.currency)} per {selectedIngredient?.purchaseUnit || 'unit'}). Add complete pack information to move it to automatic pack costing.
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="font-sans text-xs font-extrabold uppercase tracking-[0.14em] text-primary">Pack Quantity</span>
+                    <input type="number" min="0" step="0.001" value={formState.packQuantity || ''} onChange={event => updateField('packQuantity', event)} placeholder="50" className="mt-2 w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" />
+                  </label>
+                  <label className="block">
+                    <span className="font-sans text-xs font-extrabold uppercase tracking-[0.14em] text-primary">Pack Unit</span>
+                    <select value={formState.packUnit} onChange={event => updateField('packUnit', event)} className="mt-2 w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10">
+                      <option value="">Select unit</option>
+                      {!PACK_UNIT_OPTIONS.includes(formState.packUnit) && formState.packUnit && <option value={formState.packUnit}>{formState.packUnit}</option>}
+                      {PACK_UNIT_OPTIONS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="font-sans text-xs font-extrabold uppercase tracking-[0.14em] text-primary">Pack Price</span>
+                    <div className="mt-2 flex overflow-hidden rounded-xl border border-surface-container-high bg-white focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/10">
+                      <span className="flex items-center border-r border-surface-container-high px-3 font-sans text-xs font-extrabold text-on-surface-variant">{formState.currency}</span>
+                      <input type="number" min="0" step="0.01" value={formState.packPrice ?? ''} onChange={event => updateField('packPrice', event)} placeholder="2.45" className="min-w-0 flex-1 border-none bg-transparent px-4 py-3 font-sans text-sm font-bold text-primary outline-none" />
+                    </div>
+                  </label>
+                  <label className="block">
+                    <span className="font-sans text-xs font-extrabold uppercase tracking-[0.14em] text-primary">Currency</span>
+                    <input value={formState.currency} onChange={event => updateField('currency', event)} className="mt-2 w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" />
+                  </label>
+                </div>
+              </section>
+
+              <section className="space-y-4 rounded-2xl border border-surface-container-high p-4">
+                <div>
+                  <h4 className="font-display text-lg font-bold text-primary">Recipe Usage</h4>
+                  <p className="mt-1 font-sans text-xs font-semibold text-on-surface-variant">Choose how chefs normally measure this ingredient in recipes.</p>
+                </div>
+                <label className="block">
+                  <span className="font-sans text-xs font-extrabold uppercase tracking-[0.14em] text-primary">Recipe Unit</span>
+                  <select value={formState.recipeUnit} onChange={event => updateField('recipeUnit', event)} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10">
+                    <option value="">Select unit</option>
+                    {!PACK_UNIT_OPTIONS.includes(formState.recipeUnit) && formState.recipeUnit && <option value={formState.recipeUnit}>{formState.recipeUnit}</option>}
+                    {PACK_UNIT_OPTIONS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+                  </select>
+                </label>
+                {packUnitCost?.unitCost !== null && packUnitCost?.unitCost !== undefined ? (
+                  <div className="rounded-xl bg-primary/5 px-4 py-3 font-sans text-sm font-extrabold text-primary">
+                    Unit Cost: {formatCalculatedUnitCost(packUnitCost.unitCost, formState.currency)} / {formState.recipeUnit}
+                  </div>
+                ) : packUnitCost?.warning ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 font-sans text-xs font-bold text-amber-900">{packUnitCost.warning}</div>
+                ) : null}
+              </section>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {[
+                  ['Supplier', 'supplierId'],
+                  ['Yield', 'yieldPercentage'],
+                  ['Waste', 'wastePercentage']
+                ].map(([label, field]) => {
+                  const numeric = ['yieldPercentage', 'wastePercentage'].includes(field);
+                  return (
+                    <label key={field} className="block">
+                      <span className="font-sans text-xs font-extrabold uppercase tracking-[0.14em] text-primary">{label}</span>
+                      <input type={numeric ? 'number' : 'text'} min={numeric ? '0' : undefined} step={numeric ? '0.01' : undefined} value={String(formState[field as keyof IngredientFormState])} onChange={event => updateField(field as keyof IngredientFormState, event)} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" />
+                    </label>
+                  );
+                })}
+              </div>
 
               <label className="block">
                 <span className="font-sans text-xs font-extrabold uppercase tracking-[0.14em] text-primary">Notes</span>

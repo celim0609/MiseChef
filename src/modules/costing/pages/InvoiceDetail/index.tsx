@@ -233,7 +233,11 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
       setIngredients(loadedIngredients);
       setInvoice(current => current ? { ...current, ...result.invoiceUpdates } : current);
       notifyInvoiceLifecycleChanged();
-      setReviewMessage('Import approved. Ingredients and price history were updated.');
+      setReviewMessage(
+        result.packPricesPreserved > 0
+          ? `Import approved. ${result.priceUpdatesApplied} ingredient price${result.priceUpdatesApplied === 1 ? '' : 's'} updated; ${result.packPricesPreserved} pack-priced ingredient${result.packPricesPreserved === 1 ? '' : 's'} preserved for manual pack-price confirmation.`
+          : 'Import approved. Ingredients and price history were updated.'
+      );
     } catch (err) {
       setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to approve import.'));
     } finally {
