@@ -8,6 +8,7 @@ import {
   ExternalLink,
   ImagePlus,
   MapPin,
+  MonitorUp,
   Package,
   Pencil,
   Plus,
@@ -63,6 +64,7 @@ interface StorePageProps {
   focusOrderId?: string;
   notifications?: StoreNotification[];
   onNotificationClick?: (notification: StoreNotification) => void;
+  onOpenPos?: () => void;
 }
 
 type StoreView = 'products' | 'orders' | 'pickup' | 'settings';
@@ -155,7 +157,8 @@ export default function StorePage({
   workspace,
   focusOrderId = '',
   notifications = [],
-  onNotificationClick = () => undefined
+  onNotificationClick = () => undefined,
+  onOpenPos = () => undefined
 }: StorePageProps) {
   const region = useWorkspaceRegion();
   const [activeView, setActiveView] = useState<StoreView>('products');
@@ -688,6 +691,9 @@ export default function StorePage({
           <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">{currentView.question}</p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
+          <button type="button" onClick={onOpenPos} className="inline-flex items-center justify-center gap-2 rounded-full bg-secondary px-5 py-3 font-sans text-xs font-extrabold text-on-secondary shadow-sm">
+            <MonitorUp className="h-4 w-4" /> Open POS
+          </button>
           <button type="button" onClick={() => setIsShareOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary shadow-sm">
             <Share2 className="h-4 w-4" /> Share & QR
           </button>

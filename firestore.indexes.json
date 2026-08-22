@@ -7,6 +7,15 @@
         { "fieldPath": "publicProfile.enabled", "order": "ASCENDING" },
         { "fieldPath": "publicProfile.username", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "storeOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "workspaceId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

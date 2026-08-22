@@ -58,6 +58,7 @@ export const canAccessRootTab = (tab: RootTab, role?: WorkspaceMemberRole | null
     case 'businessSuppliers':
       return SUPPLIER_ROLES.includes(role);
     case 'store':
+    case 'storePos':
       return STORE_MANAGER_ROLES.includes(role);
     case 'costing':
     case 'costingInvoices':

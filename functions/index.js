@@ -333,7 +333,8 @@ export const updateStoreOrderStatus = onCall({
       db,
       uid: request.auth?.uid,
       orderId: request.data?.orderId,
-      nextStatus: request.data?.nextStatus
+      nextStatus: request.data?.nextStatus,
+      cancellationReason: request.data?.cancellationReason
     });
   } catch (error) {
     if (error instanceof HttpsError) throw error;

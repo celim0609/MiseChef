@@ -7,6 +7,7 @@ import {
 } from './storeNotifications.js';
 
 export const STORE_FULFILMENT_STATUS = Object.freeze({
+  new: 'New',
   confirmed: 'Confirmed',
   paid: 'Paid',
   preparing: 'Preparing',
@@ -16,8 +17,13 @@ export const STORE_FULFILMENT_STATUS = Object.freeze({
 });
 
 const ALLOWED_TRANSITIONS = Object.freeze({
+  [STORE_FULFILMENT_STATUS.new]: new Set([
+    STORE_FULFILMENT_STATUS.preparing,
+    STORE_FULFILMENT_STATUS.cancelled
+  ]),
   [STORE_FULFILMENT_STATUS.confirmed]: new Set([
-    STORE_FULFILMENT_STATUS.preparing
+    STORE_FULFILMENT_STATUS.preparing,
+    STORE_FULFILMENT_STATUS.cancelled
   ]),
   [STORE_FULFILMENT_STATUS.paid]: new Set([
     STORE_FULFILMENT_STATUS.preparing,
@@ -37,14 +43,23 @@ const ALLOWED_TRANSITIONS = Object.freeze({
 
 const readString = value => typeof value === 'string' ? value.trim() : '';
 
-export const canTransitionStoreFulfilment = ({
-  currentStatus,
-  nextStatus,
-  refundStatus
-}) => {
+export const canTransitionStoreFulfilment = ({ currentStatus, nextStatus }) => {
   const allowed = ALLOWED_TRANSITIONS[readString(currentStatus)];
-  if (!allowed?.has(readString(nextStatus))) return false;
-  return nextStatus !== STORE_FULFILMENT_STATUS.cancelled || refundStatus === 'refunded';
+  return Boolean(allowed?.has(readString(nextStatus)));
+};
+
+const STANDARD_CANCELLATION_REASONS = new Set([
+  'Customer requested cancellation',
+  'Item unavailable',
+  'Duplicate order',
+  'Store unable to fulfil'
+]);
+
+const normalizeCancellationReason = value => {
+  const reason = readString(value);
+  if (STANDARD_CANCELLATION_REASONS.has(reason)) return reason;
+  if (reason.startsWith('Other:') && readString(reason.slice('Other:'.length))) return reason;
+  return '';
 };
 
 const normalizeEventStatus = status => readString(status).toLowerCase().replace(/\s+/g, '-');
@@ -53,7 +68,8 @@ export const updateStoreOrderFulfilment = async ({
   db,
   uid,
   orderId,
-  nextStatus
+  nextStatus,
+  cancellationReason
 }) => {
   const normalizedOrderId = readString(orderId);
   const normalizedNextStatus = readString(nextStatus);
@@ -61,6 +77,15 @@ export const updateStoreOrderFulfilment = async ({
   if (!normalizedOrderId) throw new HttpsError('invalid-argument', 'Order ID is required.');
   if (!Object.values(STORE_FULFILMENT_STATUS).includes(normalizedNextStatus)) {
     throw new HttpsError('invalid-argument', 'Choose a valid fulfilment status.');
+  }
+  const normalizedCancellationReason = normalizedNextStatus === STORE_FULFILMENT_STATUS.cancelled
+    ? normalizeCancellationReason(cancellationReason)
+    : '';
+  if (normalizedNextStatus === STORE_FULFILMENT_STATUS.cancelled && !normalizedCancellationReason) {
+    throw new HttpsError('invalid-argument', 'Choose a cancellation reason.');
+  }
+  if (normalizedCancellationReason.length > 240) {
+    throw new HttpsError('invalid-argument', 'Cancellation reason must be 240 characters or fewer.');
   }
 
   const orderReference = db.collection('storeOrders').doc(normalizedOrderId);
@@ -92,15 +117,8 @@ export const updateStoreOrderFulfilment = async ({
     const currentStatus = readString(order.fulfilmentStatus);
     if (!canTransitionStoreFulfilment({
       currentStatus,
-      nextStatus: normalizedNextStatus,
-      refundStatus: readString(order.payment?.refundStatus)
+      nextStatus: normalizedNextStatus
     })) {
-      if (normalizedNextStatus === STORE_FULFILMENT_STATUS.cancelled) {
-        throw new HttpsError(
-          'failed-precondition',
-          'A paid order can only be cancelled after its refund is confirmed.'
-        );
-      }
       throw new HttpsError('failed-precondition', 'This fulfilment status change is not allowed.');
     }
 
@@ -111,12 +129,18 @@ export const updateStoreOrderFulfilment = async ({
         getStoreNotificationId(STORE_NOTIFICATION_TYPE.orderReady, normalizedOrderId)
       )
       : null;
-    transaction.update(orderReference, {
+    const orderUpdate = {
       fulfilmentStatus: normalizedNextStatus,
       fulfilmentUpdatedAt: FieldValue.serverTimestamp(),
       fulfilmentUpdatedBy: uid,
       updatedAt: FieldValue.serverTimestamp()
-    });
+    };
+    if (normalizedNextStatus === STORE_FULFILMENT_STATUS.cancelled) {
+      orderUpdate.cancelledAt = FieldValue.serverTimestamp();
+      orderUpdate.cancelledBy = uid;
+      orderUpdate.cancellationReason = normalizedCancellationReason;
+    }
+    transaction.update(orderReference, orderUpdate);
     transaction.create(eventReference, {
       id: eventReference.id,
       orderId: normalizedOrderId,
@@ -127,6 +151,7 @@ export const updateStoreOrderFulfilment = async ({
       previousStatus: currentStatus,
       newStatus: normalizedNextStatus,
       actingUserId: uid,
+      ...(normalizedCancellationReason ? { cancellationReason: normalizedCancellationReason } : {}),
       createdAt: FieldValue.serverTimestamp()
     });
     if (readyNotificationReference) {
@@ -142,7 +167,8 @@ export const updateStoreOrderFulfilment = async ({
     return {
       orderId: normalizedOrderId,
       previousStatus: currentStatus,
-      fulfilmentStatus: normalizedNextStatus
+      fulfilmentStatus: normalizedNextStatus,
+      cancellationReason: normalizedCancellationReason
     };
   });
 };

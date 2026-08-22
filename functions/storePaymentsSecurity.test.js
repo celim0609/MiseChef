@@ -79,7 +79,10 @@ test('fulfilment changes are server-owned, sequential, audited, and Owner-Manage
   assert.match(fulfilmentService, /FieldValue\.serverTimestamp\(\)/);
   assert.match(fulfilmentService, /previousStatus: currentStatus/);
   assert.match(fulfilmentService, /actingUserId: uid/);
-  assert.match(fulfilmentService, /refundStatus === 'refunded'/);
+  assert.match(fulfilmentService, /cancellationReason: normalizedCancellationReason/);
+  assert.match(fulfilmentService, /cancelledBy = uid/);
+  assert.match(fulfilmentService, /cancelledAt = FieldValue\.serverTimestamp\(\)/);
+  assert.doesNotMatch(fulfilmentService, /refundStatus === 'refunded'/);
 });
 
 test('a paid Stripe payment creates one deterministic persistent order notification', () => {

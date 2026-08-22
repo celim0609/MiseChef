@@ -189,7 +189,10 @@ export interface StoreOrderItem {
   selectedOptions: StoreOrderItemOption[];
 }
 
+export type StoreOrderSource = 'online' | 'pos';
+
 export type StoreFulfilmentStatus =
+  | 'New'
   | 'Confirmed'
   | 'Paid'
   | 'Preparing'
@@ -233,6 +236,7 @@ export interface StoreOrder {
   orderNumber: string;
   storeId: string;
   workspaceId: string;
+  orderSource: StoreOrderSource;
   storeName: string;
   currency: RegionCurrency;
   paymentMethodId: string;
@@ -252,6 +256,9 @@ export interface StoreOrder {
   fulfilmentStatus: StoreFulfilmentStatus | '';
   fulfilmentUpdatedAt: string;
   fulfilmentUpdatedBy: string;
+  cancelledAt: string;
+  cancelledBy: string;
+  cancellationReason: string;
   status:
     | 'Awaiting Payment'
     | 'Payment Processing'

@@ -41,6 +41,16 @@ const paidOrder = {
 
 test('fulfilment follows Paid → Preparing → Ready → Completed and never skips', () => {
   assert.equal(canTransitionStoreFulfilment({
+    currentStatus: 'New',
+    nextStatus: 'Preparing',
+    refundStatus: 'none'
+  }), true);
+  assert.equal(canTransitionStoreFulfilment({
+    currentStatus: 'New',
+    nextStatus: 'Ready',
+    refundStatus: 'none'
+  }), false);
+  assert.equal(canTransitionStoreFulfilment({
     currentStatus: 'Paid',
     nextStatus: 'Preparing',
     refundStatus: 'none'
@@ -67,17 +77,52 @@ test('fulfilment follows Paid → Preparing → Ready → Completed and never sk
   }), false);
 });
 
-test('cancelled is blocked until the payment refund is confirmed', () => {
-  assert.equal(canTransitionStoreFulfilment({
-    currentStatus: 'Paid',
+test('New, Paid, Preparing, and Ready can cancel while Completed cannot', () => {
+  for (const currentStatus of ['New', 'Paid', 'Preparing', 'Ready']) {
+    assert.equal(canTransitionStoreFulfilment({ currentStatus, nextStatus: 'Cancelled' }), true);
+  }
+  assert.equal(canTransitionStoreFulfilment({ currentStatus: 'Completed', nextStatus: 'Cancelled' }), false);
+  assert.equal(canTransitionStoreFulfilment({ currentStatus: 'Cancelled', nextStatus: 'Preparing' }), false);
+});
+
+test('cancellation preserves payment data and writes the required audit fields', async () => {
+  const db = createFakeDb({
+    'storeOrders/order-a': paidOrder,
+    'workspaces/workspace-a': { ownerId: 'owner-a' }
+  });
+
+  const result = await updateStoreOrderFulfilment({
+    db,
+    uid: 'owner-a',
+    orderId: 'order-a',
     nextStatus: 'Cancelled',
-    refundStatus: 'pending'
-  }), false);
-  assert.equal(canTransitionStoreFulfilment({
-    currentStatus: 'Paid',
+    cancellationReason: 'Customer requested cancellation'
+  });
+
+  const update = db.writes[0].data;
+  assert.equal(update.fulfilmentStatus, 'Cancelled');
+  assert.equal(update.cancelledBy, 'owner-a');
+  assert.equal(update.cancellationReason, 'Customer requested cancellation');
+  assert.ok(update.cancelledAt);
+  assert.equal('payment' in update, false);
+  assert.equal('status' in update, false);
+  assert.equal(result.cancellationReason, 'Customer requested cancellation');
+  assert.equal(db.writes[1].data.cancellationReason, 'Customer requested cancellation');
+});
+
+test('cancellation requires a server-validated reason before any write', async () => {
+  const db = createFakeDb({
+    'storeOrders/order-a': paidOrder,
+    'workspaces/workspace-a': { ownerId: 'owner-a' }
+  });
+  await assert.rejects(updateStoreOrderFulfilment({
+    db,
+    uid: 'owner-a',
+    orderId: 'order-a',
     nextStatus: 'Cancelled',
-    refundStatus: 'refunded'
-  }), true);
+    cancellationReason: ''
+  }), error => error.code === 'invalid-argument');
+  assert.equal(db.writes.length, 0);
 });
 
 test('Workspace Owner can update fulfilment and a permanent server timeline event is created', async () => {

@@ -50,6 +50,7 @@ import { getAuthenticatedDisplayName, getChefProfileStorageKey } from './utils/a
 import { WorkspaceRegionProvider } from './regions';
 import {
   StorePage,
+  StorePosPage,
   storeOrderService,
   type StoreNotification
 } from './modules/store';
@@ -98,6 +99,7 @@ const ROOT_TAB_PATHS: Record<RootTab, string> = {
   team: '/app/team',
   admin: '/app/admin',
   store: '/app/store',
+  storePos: '/app/store/pos',
   business: '/app/business',
   businessSales: '/app/business/sales',
   businessSuppliers: '/app/business/suppliers',
@@ -153,6 +155,9 @@ const getRootTabFromPath = (pathname: string): RootTab => {
     case '/app/store':
     case '/store':
       return 'store';
+    case '/app/store/pos':
+    case '/store/pos':
+      return 'storePos';
     case '/app/business':
     case '/business':
       return 'business';
@@ -1812,6 +1817,23 @@ export default function App() {
             focusOrderId={focusedStoreOrderId}
             notifications={storeNotifications}
             onNotificationClick={notification => void handleStoreNotificationSelect(notification)}
+            onOpenPos={() => handleRootNavigate('storePos')}
+          />
+        );
+      case 'storePos':
+        if (!currentUser || !currentWorkspace) return null;
+        return (
+          <StorePosPage
+            storeId={currentWorkspace.id}
+            workspaceId={currentWorkspace.id}
+            workspaceName={currentWorkspace.name}
+            onBack={() => handleRootNavigate('store')}
+            notificationAction={(
+              <StoreNotificationBell
+                notifications={storeNotifications}
+                onSelect={notification => void handleStoreNotificationSelect(notification)}
+              />
+            )}
           />
         );
       case 'costing':
@@ -1947,6 +1969,15 @@ export default function App() {
       )
       : undefined;
 
+    if (activeTab === 'storePos') {
+      return {
+        title: 'POS',
+        isSubpage: true,
+        onBack: () => handleRootNavigate('store'),
+        notificationAction
+      };
+    }
+
     if (addingRecipe || editingRecipe) {
       return {
         title: editingRecipe ? 'Edit Recipe' : 'Add New Recipe',
@@ -2035,7 +2066,7 @@ export default function App() {
     <WorkspaceRegionProvider workspace={currentWorkspace}>
       <div className="min-h-screen flex flex-col font-sans selection:bg-secondary/20 bg-background relative overflow-x-hidden">
       {/* Dynamic Header */}
-      <Header {...getHeaderProps()} />
+      {activeTab !== 'storePos' && <Header {...getHeaderProps()} />}
 
       <CreateWorkspaceDialog
         isOpen={isCreateWorkspaceOpen}
@@ -2154,7 +2185,9 @@ export default function App() {
       </AnimatePresence>
 
       {/* Main Scaffold Layout Wrapper */}
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 md:px-8 pt-24 pb-28 md:pb-16">
+      <main className={activeTab === 'storePos'
+        ? 'flex-1 w-full'
+        : 'flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 md:px-8 pt-24 pb-28 md:pb-16'}>
         {editingRecipe ? (
           <AddRecipeTab
             initialRecipe={editingRecipe}
@@ -2193,7 +2226,7 @@ export default function App() {
       </main>
 
       {/* Responsive Bottom Navigation Bar Block (Mobile size, Tablet uses top) */}
-      {isProtectedShellVisible && !addingRecipe && !editingRecipe && (
+      {isProtectedShellVisible && !addingRecipe && !editingRecipe && activeTab !== 'storePos' && (
         <nav className="fixed bottom-0 left-0 w-full z-45 flex justify-around items-center px-4 pb-4 pt-3 bg-surface/90 backdrop-blur-md rounded-t-2xl shadow-[0_-4px_24px_rgba(62,86,65,0.08)] md:hidden border-t border-surface-container-high transition-transform">
           <button
             onClick={() => {
@@ -2222,7 +2255,7 @@ export default function App() {
       )}
 
       {/* Persistent Desktop & Mobile Contextual floating Add Button (FAB) (Matches screenshot button!) */}
-      {isProtectedShellVisible && !addingRecipe && !editingRecipe && (
+      {isProtectedShellVisible && !addingRecipe && !editingRecipe && activeTab !== 'storePos' && (
         <button
           onClick={() => setAddingRecipe(true)}
           id="persistent-fab-add-recipe"

@@ -1,9 +1,12 @@
 import {
   collection,
   doc,
+  getDocs,
   onSnapshot,
+  orderBy,
   query,
   serverTimestamp,
+  Timestamp,
   updateDoc,
   where,
   type DocumentData,
@@ -75,6 +78,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     orderNumber: readString(data.orderNumber, snapshot.id),
     storeId: readString(data.storeId),
     workspaceId: readString(data.workspaceId),
+    orderSource: data.orderSource === 'pos' ? 'pos' : 'online',
     storeName: readString(data.storeName, 'Store'),
     currency: data.currency === 'MYR' ? 'MYR' : 'SGD',
     paymentMethodId: readString(data.paymentMethodId, 'online'),
@@ -92,12 +96,15 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     itemCount: readNumber(data.itemCount),
     total: readNumber(data.total),
     fulfilmentStatus: (
-      ['Confirmed', 'Paid', 'Preparing', 'Ready', 'Completed', 'Cancelled'].includes(fulfilmentStatus)
+      ['New', 'Confirmed', 'Paid', 'Preparing', 'Ready', 'Completed', 'Cancelled'].includes(fulfilmentStatus)
         ? fulfilmentStatus
         : ''
     ) as StoreOrder['fulfilmentStatus'],
     fulfilmentUpdatedAt: readTimestamp(data.fulfilmentUpdatedAt),
     fulfilmentUpdatedBy: readString(data.fulfilmentUpdatedBy),
+    cancelledAt: readTimestamp(data.cancelledAt),
+    cancelledBy: readString(data.cancelledBy),
+    cancellationReason: readString(data.cancellationReason),
     status: readString(data.status, 'Awaiting Payment') as StoreOrder['status'],
     payment: {
       provider: readString(payment.provider, 'stripe'),
@@ -153,6 +160,33 @@ const subscribe = <T,>({
 };
 
 export const storeOrderService = {
+  subscribePosOrders(
+    storeId: string,
+    workspaceId: string,
+    onData: (orders: StoreOrder[], addedNewOrderIds: string[]) => void,
+    onError: (error: Error) => void
+  ) {
+    if (!db || !storeId || !workspaceId) {
+      onData([], []);
+      return () => undefined;
+    }
+    return onSnapshot(
+      query(
+        collection(db, 'storeOrders'),
+        where('storeId', '==', storeId),
+        where('workspaceId', '==', workspaceId),
+        orderBy('createdAt', 'desc')
+      ),
+      snapshot => onData(
+        snapshot.docs.map(normalizeOrder),
+        snapshot.docChanges()
+          .filter(change => change.type === 'added' && readString(change.doc.data().fulfilmentStatus) === 'New')
+          .map(change => change.doc.id)
+      ),
+      error => onError(error)
+    );
+  },
+
   subscribeOrders(
     workspaceId: string,
     onData: (orders: StoreOrder[]) => void,
@@ -171,6 +205,24 @@ export const storeOrderService = {
       ),
       onError
     });
+  },
+
+  async getOrdersForBusinessDate(
+    storeId: string,
+    workspaceId: string,
+    start: Date,
+    end: Date
+  ): Promise<StoreOrder[]> {
+    if (!db || !storeId || !workspaceId) return [];
+    const snapshot = await getDocs(query(
+      collection(db, 'storeOrders'),
+      where('storeId', '==', storeId),
+      where('workspaceId', '==', workspaceId),
+      where('createdAt', '>=', Timestamp.fromDate(start)),
+      where('createdAt', '<', Timestamp.fromDate(end)),
+      orderBy('createdAt', 'desc')
+    ));
+    return snapshot.docs.map(normalizeOrder);
   },
 
   subscribeTimeline(
@@ -254,13 +306,21 @@ export const storeOrderService = {
     });
   },
 
-  async updateFulfilment(orderId: string, nextStatus: StoreFulfilmentStatus) {
+  async updateFulfilment(
+    orderId: string,
+    nextStatus: StoreFulfilmentStatus,
+    cancellationReason = ''
+  ) {
     if (!functions) throw new Error('Order updates are temporarily unavailable.');
     const updateStatus = httpsCallable<
-      { orderId: string; nextStatus: StoreFulfilmentStatus },
-      { orderId: string; previousStatus: string; fulfilmentStatus: StoreFulfilmentStatus }
+      { orderId: string; nextStatus: StoreFulfilmentStatus; cancellationReason?: string },
+      { orderId: string; previousStatus: string; fulfilmentStatus: StoreFulfilmentStatus; cancellationReason: string }
     >(functions, 'updateStoreOrderStatus');
-    return (await updateStatus({ orderId, nextStatus })).data;
+    return (await updateStatus({
+      orderId,
+      nextStatus,
+      ...(cancellationReason ? { cancellationReason } : {})
+    })).data;
   },
 
   async reviewManualPayment(orderId: string, decision: 'approve' | 'reject') {

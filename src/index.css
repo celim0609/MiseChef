@@ -357,3 +357,69 @@ input:focus, textarea:focus, select:focus {
   outline: none !important;
   box-shadow: 0 0 0 2px rgba(39, 63, 43, 0.15) !important;
 }
+
+/* The POS/KDS owns its Light/Night mode independently from the dashboard appearance. */
+.pos-screen[data-pos-theme="light"] {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  color-scheme: light;
+}
+
+.pos-screen[data-pos-theme="light"] .pos-light-surface {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+.pos-screen[data-pos-theme="light"] .pos-page-title,
+.pos-screen[data-pos-theme="light"] .pos-card-title,
+.pos-screen[data-pos-theme="light"] .pos-readable-heading {
+  color: #0f172a !important;
+}
+
+.pos-screen[data-pos-theme="light"] .pos-control {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.pos-screen[data-pos-theme="light"] .pos-status-heading[data-status="new"] {
+  color: #d97706 !important;
+}
+
+.pos-screen[data-pos-theme="light"] .pos-status-heading[data-status="preparing"] {
+  color: #ea580c !important;
+}
+
+.pos-screen[data-pos-theme="light"] .pos-status-heading[data-status="ready"] {
+  color: #047857 !important;
+}
+
+.pos-screen[data-pos-theme="light"] .pos-status-heading[data-status="completed"] {
+  color: #1d4ed8 !important;
+}
+
+.pos-screen[data-pos-theme="dark"] .pos-status-heading[data-status="new"] {
+  color: #fcd34d !important;
+}
+
+.pos-screen[data-pos-theme="dark"] .pos-status-heading[data-status="preparing"] {
+  color: #fdba74 !important;
+}
+
+.pos-screen[data-pos-theme="dark"] .pos-status-heading[data-status="ready"] {
+  color: #6ee7b7 !important;
+}
+
+.pos-screen[data-pos-theme="dark"] .pos-status-heading[data-status="completed"] {
+  color: #93c5fd !important;
+}
+
+.pos-screen[data-pos-theme="dark"] .pos-readable-heading {
+  color: #ffffff !important;
+}
+
+.pos-screen[data-pos-theme="dark"] .pos-control {
+  background-color: #111827 !important;
+  border-color: #475569 !important;
+  color: #f8fafc !important;
+}
