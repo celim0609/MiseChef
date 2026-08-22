@@ -18,6 +18,7 @@ import {
   X
 } from 'lucide-react';
 import { storeOrderService, storeService } from './services';
+import WhatsAppCustomerButton from './WhatsAppCustomerButton';
 import {
   countActiveOnlineOrders,
   filterHistoryOrders,
@@ -153,6 +154,8 @@ interface StorePosPageProps {
 export default function StorePosPage({ storeId, workspaceId, workspaceName, onBack, notificationAction }: StorePosPageProps) {
   const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [storeDisplayName, setStoreDisplayName] = useState('Loading Store…');
+  const [storeNameForMessages, setStoreNameForMessages] = useState('');
+  const [storeCountry, setStoreCountry] = useState<'MY' | 'SG' | ''>('');
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [updatingOrderId, setUpdatingOrderId] = useState('');
@@ -197,10 +200,18 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     let cancelled = false;
     void storeService.getWorkspaceStore(workspaceId)
       .then(store => {
-        if (!cancelled) setStoreDisplayName(store?.name || 'Store not configured');
+        if (!cancelled) {
+          setStoreDisplayName(store?.name || 'Store not configured');
+          setStoreNameForMessages(store?.name || '');
+          setStoreCountry(store?.country === 'SG' ? 'SG' : 'MY');
+        }
       })
       .catch(() => {
-        if (!cancelled) setStoreDisplayName('Store unavailable');
+        if (!cancelled) {
+          setStoreDisplayName('Store unavailable');
+          setStoreNameForMessages('');
+          setStoreCountry('');
+        }
       });
     return () => {
       cancelled = true;
@@ -378,10 +389,12 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                         <article key={order.id} className={`pos-light-surface rounded-2xl border-2 p-4 shadow-md ${isNightMode ? 'border-slate-700 bg-[#081321]' : 'border-slate-300 bg-white'}`}>
                           <div className="flex items-start justify-between gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${column.badge}`}>{column.label}</span><time className={`shrink-0 text-sm font-black ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`} dateTime={order.createdAt}>{formatRelativeTime(order.createdAt, now)}</time></div>
                           <h3 className={`pos-card-title mt-4 text-2xl font-black leading-none ${isNightMode ? 'text-white' : 'text-slate-950'}`}>{order.orderNumber}</h3>
+                          {order.pickupCode && <p className={`mt-2 inline-flex rounded-lg px-3 py-1.5 text-xl font-black tracking-[0.18em] ${isNightMode ? 'bg-blue-400 text-slate-950' : 'bg-blue-100 text-blue-950'}`}><span className="sr-only">Pickup Code </span>{order.pickupCode}</p>}
                           <p className={`mt-3 text-sm font-extrabold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}><span className="capitalize">{order.orderSource || 'online'}</span><span className="px-1.5">·</span><span className={paymentClass(order)}>{paymentStatusLabel(order.payment.status)}</span></p>
                           <ul className={`mt-4 space-y-3 border-t pt-4 ${isNightMode ? 'border-slate-700' : 'border-slate-200'}`}>{order.items.map((item, index) => <li key={`${order.id}-${item.productId}-${index}`} className={`flex gap-2 text-lg font-black leading-tight ${isNightMode ? 'text-white' : 'text-slate-950'}`}><span className={`min-w-8 text-right ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.quantity}×</span><span>{item.productName}{item.selectedOptions.length > 0 && <span className={`mt-1 block text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.selectedOptions.map(option => option.optionName).join(', ')}</span>}</span></li>)}</ul>
                           {order.notes && <p className="mt-4 rounded-xl bg-amber-100 px-3 py-2 text-sm font-extrabold text-amber-950">Note: {order.notes}</p>}
                           <button type="button" disabled={Boolean(updatingOrderId)} onClick={() => void advanceOrder(order)} className={`mt-5 min-h-14 w-full rounded-xl px-4 text-lg font-black shadow-md active:scale-[0.98] disabled:opacity-50 ${column.action}`}>{updatingOrderId === order.id ? 'Updating…' : column.actionLabel}</button>
+                          {storeCountry && <WhatsAppCustomerButton order={order} country={storeCountry} storeName={storeNameForMessages} className="mt-2 w-full" />}
                           <button type="button" disabled={Boolean(updatingOrderId)} onClick={() => openCancellation(order)} className={`mt-2 min-h-12 w-full rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-rose-400/50 text-rose-200' : 'border-rose-300 bg-rose-50 text-rose-800'}`}>Cancel Order</button>
                         </article>
                       ))}
@@ -406,7 +419,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               const isCancelled = order.fulfilmentStatus === 'Cancelled';
               const isCompleted = order.fulfilmentStatus === 'Completed';
               const canCancel = Boolean(toActivePosStatus(order.fulfilmentStatus));
-              return <article key={order.id} className={`rounded-2xl border-2 p-4 ${isCancelled ? isNightMode ? 'border-rose-800 bg-rose-950/40' : 'border-rose-200 bg-rose-50' : isNightMode ? 'border-slate-700 bg-[#081321]' : 'border-slate-200 bg-slate-50'}`}><div className="flex items-start justify-between gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${isCancelled ? 'bg-rose-600 text-white' : isCompleted ? 'bg-slate-600 text-white' : 'bg-blue-600 text-white'}`}>{order.fulfilmentStatus || 'Order'}</span><time className={`text-xs font-black ${isNightMode ? 'text-slate-200' : 'text-slate-600'}`}>{formatMalaysiaTimestamp(order.createdAt)}</time></div><h3 className="pos-readable-heading mt-3 text-xl font-black">{order.orderNumber}</h3><p className={`mt-2 text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}><span className="capitalize">{order.orderSource}</span> · <span className={paymentClass(order)}>{paymentStatusLabel(order.payment.status)}</span></p><ul className={`mt-3 space-y-2 border-t pt-3 ${isNightMode ? 'border-slate-700' : 'border-slate-200'}`}>{order.items.map((item, index) => <li key={`${order.id}-history-${index}`} className="font-black">{item.quantity}× {item.productName}{item.selectedOptions.length > 0 && <span className={`block pl-5 text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.selectedOptions.map(option => option.optionName).join(', ')}</span>}</li>)}</ul>{order.notes && <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm font-bold text-amber-950">Note: {order.notes}</p>}{isCancelled && <div className={`mt-3 rounded-xl px-3 py-3 text-sm ${isNightMode ? 'bg-rose-950 text-rose-100' : 'bg-rose-100 text-rose-950'}`}><p className="font-black">Cancellation reason</p><p className="mt-1 font-bold">{order.cancellationReason || 'Not recorded'}</p><p className="mt-2 text-xs font-bold">Cancelled {formatMalaysiaTimestamp(order.cancelledAt)}</p></div>}{canCancel && <button type="button" onClick={() => openCancellation(order)} className={`mt-4 min-h-12 w-full rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-rose-400/50 text-rose-200' : 'border-rose-300 bg-rose-50 text-rose-800'}`}>Cancel Order</button>}</article>;
+              return <article key={order.id} className={`rounded-2xl border-2 p-4 ${isCancelled ? isNightMode ? 'border-rose-800 bg-rose-950/40' : 'border-rose-200 bg-rose-50' : isNightMode ? 'border-slate-700 bg-[#081321]' : 'border-slate-200 bg-slate-50'}`}><div className="flex items-start justify-between gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${isCancelled ? 'bg-rose-600 text-white' : isCompleted ? 'bg-slate-600 text-white' : 'bg-blue-600 text-white'}`}>{order.fulfilmentStatus || 'Order'}</span><time className={`text-xs font-black ${isNightMode ? 'text-slate-200' : 'text-slate-600'}`}>{formatMalaysiaTimestamp(order.createdAt)}</time></div><h3 className="pos-readable-heading mt-3 text-xl font-black">{order.orderNumber}</h3>{order.pickupCode && <p className={`mt-2 text-sm font-black tracking-[0.16em] ${isNightMode ? 'text-blue-200' : 'text-blue-800'}`}>Pickup {order.pickupCode}</p>}<p className={`mt-2 text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}><span className="capitalize">{order.orderSource}</span> · <span className={paymentClass(order)}>{paymentStatusLabel(order.payment.status)}</span></p><ul className={`mt-3 space-y-2 border-t pt-3 ${isNightMode ? 'border-slate-700' : 'border-slate-200'}`}>{order.items.map((item, index) => <li key={`${order.id}-history-${index}`} className="font-black">{item.quantity}× {item.productName}{item.selectedOptions.length > 0 && <span className={`block pl-5 text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.selectedOptions.map(option => option.optionName).join(', ')}</span>}</li>)}</ul>{order.notes && <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm font-bold text-amber-950">Note: {order.notes}</p>}{isCancelled && <div className={`mt-3 rounded-xl px-3 py-3 text-sm ${isNightMode ? 'bg-rose-950 text-rose-100' : 'bg-rose-100 text-rose-950'}`}><p className="font-black">Cancellation reason</p><p className="mt-1 font-bold">{order.cancellationReason || 'Not recorded'}</p><p className="mt-2 text-xs font-bold">Cancelled {formatMalaysiaTimestamp(order.cancelledAt)}</p></div>}{canCancel && <button type="button" onClick={() => openCancellation(order)} className={`mt-4 min-h-12 w-full rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-rose-400/50 text-rose-200' : 'border-rose-300 bg-rose-50 text-rose-800'}`}>Cancel Order</button>}</article>;
             })}</div>}
           </section>
         </div>

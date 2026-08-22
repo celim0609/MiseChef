@@ -339,7 +339,7 @@ export default function StorePage({
 
   const saveStoreDraft = async (draft: StoreSettingsDraft, successMessage: string) => {
     if (!store || isSaving) return;
-    const validationError = validateStoreSettings(draft);
+    const validationError = validateStoreSettings(draft, store.country);
     if (validationError) {
       setErrorMessage(validationError);
       return;
@@ -390,7 +390,7 @@ export default function StorePage({
         };
       }));
       const nextDraft = { ...settingsDraft, logoUrl, coverImageUrl, paymentMethods };
-      const validationError = validateStoreSettings(nextDraft);
+      const validationError = validateStoreSettings(nextDraft, store.country);
       if (validationError) throw new Error(validationError);
       const updatedStore = await storeService.updateStore(store, nextDraft);
       setStore(updatedStore);
@@ -916,7 +916,7 @@ export default function StorePage({
           <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {products.map(product => (
               <article key={product.id} className="overflow-hidden rounded-3xl bg-white shadow-sm">
-                <img src={product.photoUrl} alt={product.name} className="h-44 w-full object-cover" referrerPolicy="no-referrer" />
+                {product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-44 w-full object-cover" referrerPolicy="no-referrer" />}
                 <div className="p-5">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -950,7 +950,6 @@ export default function StorePage({
           country={store.country}
           currency={store.currency}
           storeName={store.name}
-          storeWhatsApp={store.storeContact.whatsapp}
           focusOrderId={focusOrderId}
           notifications={notifications.filter(notification => !notification.readAt)}
           onNotificationClick={onNotificationClick}
@@ -1144,7 +1143,9 @@ export default function StorePage({
               <legend className="font-display text-2xl font-bold text-primary">Payment Methods</legend>
               <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Customers see only the methods you enable.</p>
               <div className="mt-4 space-y-3">
-                {STORE_PAYMENT_METHODS.map(methodDefinition => {
+                {STORE_PAYMENT_METHODS.filter(methodDefinition => (
+                  store.country === 'MY' || methodDefinition.id !== 'touch_n_go_qr'
+                )).map(methodDefinition => {
                   const method = settingsDraft.paymentMethods.find(candidate => candidate.id === methodDefinition.id)!;
                   const isQr = method.id === 'touch_n_go_qr' || method.id === 'duitnow_qr';
                   return (

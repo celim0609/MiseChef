@@ -1,9 +1,9 @@
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   PAYMENT_REFUND_STATUS,
   buildPendingOrder,
-  createOrderNumber,
+  createAvailableOrderReference,
   getEnabledStorePaymentMethod,
   PAYMENT_STATUS,
   readString,
@@ -165,12 +165,6 @@ export const reconcileStorePayment = async ({ db, payment }) => {
       'payment.updatedAt': new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
-    if (isNewPaidOrder) {
-      update.fulfilmentStatus = 'Paid';
-      update.fulfilmentUpdatedAt = FieldValue.serverTimestamp();
-      update.fulfilmentUpdatedBy = 'system:payment';
-    }
-
     let notificationReference;
     let timelineReference;
     let notificationSnapshot;
@@ -290,19 +284,59 @@ export const createStorePayment = async ({
     ? validateStoreCheckoutReturnUrl(returnUrl)
     : '';
   const orderReference = db.collection('storeOrders').doc();
-  const order = buildPendingOrder({
-    id: orderReference.id,
-    orderNumber: createOrderNumber(now),
-    ...checkoutData,
-    paymentProvider: activeAdapter.provider,
-    paymentProviderMode: activeAdapter.mode,
-    paymentMethod,
-    draft,
-    now
-  });
   const checkoutAccessToken = randomBytes(32).toString('hex');
-  order.payment.checkoutAccessTokenHash = hashCheckoutAccessToken(checkoutAccessToken);
-  await orderReference.create(order);
+  const storeId = readString(checkoutData.store.id) || readString(checkoutData.store.workspaceId);
+  const { order } = await db.runTransaction(async transaction => {
+    const reference = await createAvailableOrderReference({
+      date: now,
+      exists: async ({ orderNumber, pickupCode, businessDateKey }) => {
+        const reservationReference = db.collection('stores')
+          .doc(storeId)
+          .collection('orderNumberReservations')
+          .doc(`${businessDateKey}_${pickupCode}`);
+        const existingOrderQuery = db.collection('storeOrders')
+          .where('storeId', '==', storeId)
+          .where('orderNumber', '==', orderNumber)
+          .limit(1);
+        const [reservationSnapshot, existingOrderSnapshot] = await Promise.all([
+          transaction.get(reservationReference),
+          transaction.get(existingOrderQuery)
+        ]);
+        return reservationSnapshot.exists || !existingOrderSnapshot.empty;
+      }
+    });
+    const pendingOrder = buildPendingOrder({
+      id: orderReference.id,
+      orderNumber: reference.orderNumber,
+      pickupCode: reference.pickupCode,
+      ...checkoutData,
+      paymentProvider: activeAdapter.provider,
+      paymentProviderMode: activeAdapter.mode,
+      paymentMethod,
+      draft,
+      now
+    });
+    pendingOrder.payment.checkoutAccessTokenHash = hashCheckoutAccessToken(checkoutAccessToken);
+    // Store Order History performs Firestore Timestamp range queries. Keep the
+    // nested payment clock as its existing provider-facing ISO value, but write
+    // the authoritative order creation clock using the canonical Firestore type.
+    pendingOrder.createdAt = Timestamp.fromDate(now);
+    const reservationReference = db.collection('stores')
+      .doc(storeId)
+      .collection('orderNumberReservations')
+      .doc(`${reference.businessDateKey}_${reference.pickupCode}`);
+    transaction.create(reservationReference, {
+      orderId: orderReference.id,
+      orderNumber: reference.orderNumber,
+      pickupCode: reference.pickupCode,
+      businessDateKey: reference.businessDateKey,
+      storeId,
+      workspaceId: readString(checkoutData.store.workspaceId),
+      createdAt: now.toISOString()
+    });
+    transaction.create(orderReference, pendingOrder);
+    return { order: pendingOrder };
+  });
 
   let providerPaymentId = '';
   try {
@@ -322,6 +356,7 @@ export const createStorePayment = async ({
     });
     return {
       orderNumber: order.orderNumber,
+      pickupCode: order.pickupCode,
       provider: activeAdapter.provider,
       paymentSessionId: providerPaymentId,
       checkout: payment.checkout,

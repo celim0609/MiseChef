@@ -31,12 +31,14 @@ const ORDER_DAY_BY_INDEX = [
   'saturday'
 ];
 const ORDER_NUMBER_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const MALAYSIA_TIME_ZONE = 'Asia/Kuala_Lumpur';
+const ORDER_NUMBER_ATTEMPTS = 32;
 
 export const readString = value => typeof value === 'string' ? value.trim() : '';
 
 export const STORE_PAYMENT_METHODS = Object.freeze({
   cash_on_pickup: { name: 'Cash on Pickup', provider: 'manual', mode: 'manual', receiptAllowed: false },
-  touch_n_go_qr: { name: "Touch 'n Go QR", provider: 'manual', mode: 'manual', receiptAllowed: true },
+  touch_n_go_qr: { name: 'Touch ’n Go eWallet', provider: 'manual', mode: 'manual', receiptAllowed: true },
   duitnow_qr: { name: 'DuitNow QR', provider: 'manual', mode: 'manual', receiptAllowed: true },
   bank_transfer: { name: 'Bank Transfer', provider: 'manual', mode: 'manual', receiptAllowed: true },
   stripe: { name: 'Stripe', provider: 'stripe', mode: 'single_merchant', receiptAllowed: false }
@@ -46,6 +48,9 @@ export const getEnabledStorePaymentMethod = (store, methodId) => {
   const id = readString(methodId) || 'stripe';
   const definition = STORE_PAYMENT_METHODS[id];
   if (!definition) throw new Error('Choose a valid payment method.');
+  if (id === 'touch_n_go_qr' && readString(store.country) !== 'MY') {
+    throw new Error('Touch ’n Go eWallet is available only for Malaysia Stores.');
+  }
   const rawMethods = Array.isArray(store.paymentMethods) ? store.paymentMethods : [];
   const configured = rawMethods.find(method => readString(method?.id) === id);
   const enabled = configured ? configured.enabled === true : id === 'stripe';
@@ -88,13 +93,53 @@ const addDays = (date, days) => {
   return next;
 };
 
-export const createOrderNumber = (date = new Date(), random = randomBytes(6)) => {
-  const datePart = date.toISOString().slice(2, 10).replaceAll('-', '');
+export const getMalaysiaBusinessDateKey = (date = new Date()) => {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en', {
+      timeZone: MALAYSIA_TIME_ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(date).map(part => [part.type, part.value])
+  );
+  return `${parts.year}${parts.month}${parts.day}`;
+};
+
+export const createOrderNumber = (date = new Date(), random = randomBytes(4)) => {
+  const businessDate = getMalaysiaBusinessDateKey(date);
+  const datePart = businessDate.slice(4);
   const randomPart = Array.from(random)
-    .slice(0, 6)
+    .slice(0, 4)
     .map(byte => ORDER_NUMBER_ALPHABET[byte % ORDER_NUMBER_ALPHABET.length])
     .join('');
   return `MC-${datePart}-${randomPart}`;
+};
+
+export const getPickupCodeFromOrderNumber = orderNumber => {
+  const match = /^MC-\d{4}-([A-HJ-NP-Z2-9]{4})$/.exec(readString(orderNumber));
+  return match?.[1] || '';
+};
+
+export const createAvailableOrderReference = async ({
+  date = new Date(),
+  randomBytesFactory = () => randomBytes(4),
+  exists,
+  maxAttempts = ORDER_NUMBER_ATTEMPTS
+}) => {
+  if (typeof exists !== 'function') throw new Error('Order reference availability check is required.');
+  const businessDateKey = getMalaysiaBusinessDateKey(date);
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const orderNumber = createOrderNumber(date, randomBytesFactory());
+    const pickupCode = getPickupCodeFromOrderNumber(orderNumber);
+    if (!await exists({ orderNumber, pickupCode, businessDateKey })) {
+      return {
+        orderNumber,
+        pickupCode,
+        businessDateKey
+      };
+    }
+  }
+  throw new Error('A customer order reference could not be allocated. Please try again.');
 };
 
 export const getValidPickupDates = (store, currentDate = new Date()) => {
@@ -219,6 +264,7 @@ export const buildOrderItems = (selections, products, optionGroups) => selection
 export const buildPendingOrder = ({
   id,
   orderNumber,
+  pickupCode = getPickupCodeFromOrderNumber(orderNumber),
   store,
   products,
   optionGroups,
@@ -252,8 +298,10 @@ export const buildPendingOrder = ({
   return {
     id,
     orderNumber,
+    pickupCode: readString(pickupCode),
     storeId: readString(store.id) || readString(store.workspaceId),
     workspaceId: readString(store.workspaceId) || readString(store.id),
+    orderSource: 'online',
     storeName: readString(store.name),
     currency: region.currency,
     paymentMethodId: readString(resolvedPaymentMethod.id),
@@ -271,7 +319,7 @@ export const buildPendingOrder = ({
     itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
     total,
     status: 'Awaiting Payment',
-    fulfilmentStatus: '',
+    fulfilmentStatus: 'New',
     fulfilmentUpdatedAt: null,
     fulfilmentUpdatedBy: '',
     payment: {
@@ -302,6 +350,7 @@ export const buildPendingOrder = ({
 
 export const toPublicOrderResult = order => ({
   orderNumber: readString(order.orderNumber),
+  pickupCode: readString(order.pickupCode),
   storeName: readString(order.storeName),
   currency: readString(order.currency),
   paymentMethodName: readString(order.paymentMethodName) || 'Secure online payment',

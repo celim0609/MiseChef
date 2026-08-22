@@ -2,8 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildPendingOrder,
+  createAvailableOrderReference,
   createOrderNumber,
   getEnabledStorePaymentMethod,
+  getMalaysiaBusinessDateKey,
+  getPickupCodeFromOrderNumber,
   PAYMENT_STATUS
 } from './storePaymentsCore.js';
 import {
@@ -12,6 +15,7 @@ import {
   STRIPE_PROVIDER_ID,
   STRIPE_PROVIDER_MODE
 } from './paymentProviders/stripeSingleMerchant.js';
+import { createManualPaymentAdapter } from './paymentProviders/manualPayment.js';
 import { assertSellingWorkspace } from './storePayments.js';
 
 const store = {
@@ -84,6 +88,8 @@ test('single-merchant order is priced from server products and stores provider-n
   assert.equal(order.payment.providerMode, STRIPE_PROVIDER_MODE);
   assert.equal(order.payment.status, PAYMENT_STATUS.pending);
   assert.equal(order.status, 'Awaiting Payment');
+  assert.equal(order.fulfilmentStatus, 'New');
+  assert.equal(order.orderSource, 'online');
   assert.equal(order.items[0].productName, 'Breakfast Set');
   assert.equal(order.items[0].selectedOptions[0].optionName, 'No Drink');
   assert.equal(order.items[0].selectedOptions[0].priceAdjustment, -1);
@@ -389,11 +395,43 @@ test('Store payment configuration is server-authoritative and manual methods kee
     now: new Date('2026-07-26T04:00:00.000Z')
   });
   assert.equal(order.paymentMethodId, 'touch_n_go_qr');
-  assert.equal(order.paymentMethodName, "Touch 'n Go QR");
+  assert.equal(order.paymentMethodName, 'Touch ’n Go eWallet');
   assert.equal(order.payment.provider, 'manual');
   assert.equal(order.total, 9.8);
   assert.throws(() => getEnabledStorePaymentMethod(configuredStore, 'stripe'), /no longer available/);
   assert.throws(() => getEnabledStorePaymentMethod(configuredStore, 'duitnow_qr'), /no longer available/);
+});
+
+test('Touch ’n Go is accepted for MY Stores and rejected for SG Stores', () => {
+  const methods = [
+    { id: 'cash_on_pickup', enabled: false, qrCodeUrl: '', instructions: '' },
+    { id: 'touch_n_go_qr', enabled: true, qrCodeUrl: 'https://storage.test/tng.png', instructions: '' },
+    { id: 'duitnow_qr', enabled: false, qrCodeUrl: '', instructions: '' },
+    { id: 'bank_transfer', enabled: false, qrCodeUrl: '', instructions: '' },
+    { id: 'stripe', enabled: false, qrCodeUrl: '', instructions: '' }
+  ];
+  assert.equal(
+    getEnabledStorePaymentMethod({ ...store, country: 'MY', paymentMethods: methods }, 'touch_n_go_qr').provider,
+    'manual'
+  );
+  assert.throws(
+    () => getEnabledStorePaymentMethod({ ...store, country: 'SG', currency: 'SGD', paymentMethods: methods }, 'touch_n_go_qr'),
+    /available only for Malaysia Stores/
+  );
+});
+
+test('manual checkout receives the authoritative server amount and currency', async () => {
+  const method = getEnabledStorePaymentMethod({
+    ...store,
+    paymentMethods: [
+      { id: 'touch_n_go_qr', enabled: true, qrCodeUrl: 'https://storage.test/tng.png', instructions: '' }
+    ]
+  }, 'touch_n_go_qr');
+  const result = await createManualPaymentAdapter(method).createPayment({
+    order: { id: 'order-a', currency: 'MYR', payment: { amountMinor: 1280 } }
+  });
+  assert.equal(result.checkout.amountMinor, 1280);
+  assert.equal(result.checkout.currency, 'MYR');
 });
 
 test('legacy Stores remain Stripe-only until the owner enables another method', () => {
@@ -441,10 +479,53 @@ test('Stripe refunds map to full, partial, pending, and failed MiseChef states',
   );
 });
 
-test('customer order numbers remain separate from Stripe and Firestore ids', () => {
+test('new customer order numbers use Malaysia MMDD and expose a four-character pickup code', () => {
   const orderNumber = createOrderNumber(
-    new Date('2026-07-26T04:00:00.000Z'),
-    Uint8Array.from([0, 1, 2, 3, 4, 5])
+    new Date('2026-08-21T16:30:00.000Z'),
+    Uint8Array.from([0, 1, 2, 3])
   );
-  assert.equal(orderNumber, 'MC-260726-ABCDEF');
+  assert.equal(getMalaysiaBusinessDateKey(new Date('2026-08-21T16:30:00.000Z')), '20260822');
+  assert.equal(orderNumber, 'MC-0822-ABCD');
+  assert.equal(getPickupCodeFromOrderNumber(orderNumber), 'ABCD');
+  assert.match(orderNumber, /^MC-\d{4}-[A-HJ-NP-Z2-9]{4}$/);
+});
+
+test('historical order numbers remain compatible without inventing a pickup code', () => {
+  assert.equal(getPickupCodeFromOrderNumber('MC-260816-EHXQQX'), '');
+  const order = buildPendingOrder({
+    id: 'firestore-generated-id',
+    orderNumber: 'MC-260816-EHXQQX',
+    store,
+    products,
+    optionGroups,
+    paymentProvider: STRIPE_PROVIDER_ID,
+    paymentProviderMode: STRIPE_PROVIDER_MODE,
+    draft,
+    now: new Date('2026-07-26T04:00:00.000Z')
+  });
+  assert.equal(order.id, 'firestore-generated-id');
+  assert.equal(order.orderNumber, 'MC-260816-EHXQQX');
+  assert.equal(order.pickupCode, '');
+});
+
+test('customer order reference collision regenerates before returning', async () => {
+  const candidates = [
+    Uint8Array.from([0, 1, 2, 3]),
+    Uint8Array.from([4, 5, 6, 7])
+  ];
+  const checked = [];
+  const reference = await createAvailableOrderReference({
+    date: new Date('2026-08-21T16:30:00.000Z'),
+    randomBytesFactory: () => candidates.shift(),
+    exists: async candidate => {
+      checked.push(candidate.orderNumber);
+      return candidate.orderNumber === 'MC-0822-ABCD';
+    }
+  });
+  assert.deepEqual(checked, ['MC-0822-ABCD', 'MC-0822-EFGH']);
+  assert.deepEqual(reference, {
+    orderNumber: 'MC-0822-EFGH',
+    pickupCode: 'EFGH',
+    businessDateKey: '20260822'
+  });
 });

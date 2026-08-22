@@ -42,6 +42,23 @@ test('Active Online Orders counts only online orders visible in the active queue
   ]), 2);
 });
 
+test('payment state coexists with every operational fulfilment state', () => {
+  const states: Array<[StoreOrder['fulfilmentStatus'], StoreOrder['payment']['status']]> = [
+    ['New', 'pending_verification'],
+    ['New', 'paid'],
+    ['Preparing', 'paid'],
+    ['Ready', 'paid'],
+    ['Completed', 'paid'],
+    ['Cancelled', 'paid']
+  ];
+  const orders = states.map(([fulfilment, payment], index) => order(String(index), fulfilment, payment));
+  assert.deepEqual(orders.map(value => [value.fulfilmentStatus, value.payment.status]), states);
+  assert.deepEqual(orders.map(value => toActivePosStatus(value.fulfilmentStatus)), [
+    'New', 'New', 'Preparing', 'Ready', null, null
+  ]);
+  assert.equal(countActiveOnlineOrders(orders), 4);
+});
+
 test('Malaysia business dates do not follow UTC midnight', () => {
   assert.equal(toMalaysiaDateKey('2026-08-21T16:30:00.000Z'), '2026-08-22');
   assert.equal(shiftDateKey('2026-08-22', -1), '2026-08-21');

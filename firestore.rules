@@ -319,6 +319,11 @@ service cloud.firestore {
         && isValidStorePaymentMethod(data.paymentMethods[2], 'duitnow_qr')
         && isValidStorePaymentMethod(data.paymentMethods[3], 'bank_transfer')
         && isValidStorePaymentMethod(data.paymentMethods[4], 'stripe')
+        && (data.country == 'MY' || (
+          data.paymentMethods[1].enabled == false
+          && data.paymentMethods[1].qrCodeUrl == ''
+          && data.paymentMethods[1].instructions == ''
+        ))
         && hasValidStoreRegion(data)
         && data.createdBy is string
         && data.createdAt is string

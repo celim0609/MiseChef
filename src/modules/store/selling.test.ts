@@ -4,6 +4,7 @@ import {
   BULK_ORDER_MESSAGE,
   createCustomerOrderNumber,
   getBusinessWhatsAppUrl,
+  getOrderPickupCode,
   getStoreChatWhatsAppUrl,
   isValidBusinessWhatsApp
 } from './selling';
@@ -21,11 +22,11 @@ test('Store chat uses wa.me and automatically includes an existing order number'
   const url = getStoreChatWhatsAppUrl({
     whatsapp: '+60 12-3456789',
     storeName: 'Ce Lim Kitchen',
-    orderNumber: 'MC-260803-ABC234'
+    orderNumber: 'MC-0803-A7K2'
   });
   assert.equal(
     url,
-    `https://wa.me/60123456789?text=${encodeURIComponent('Hi! I need help with my Ce Lim Kitchen order MC-260803-ABC234.')}`
+    `https://wa.me/60123456789?text=${encodeURIComponent('Hi! I need help with my Ce Lim Kitchen order MC-0803-A7K2.')}`
   );
   assert.equal(getStoreChatWhatsAppUrl({ whatsapp: ' ', storeName: 'Ce Lim Kitchen' }), '');
 });
@@ -46,11 +47,17 @@ Contact Name:
 Thank you.`);
 });
 
-test('customer order numbers are separate from internal Firestore ids', () => {
+test('customer order preview uses Malaysia MMDD and a four-character readable suffix', () => {
   const orderNumber = createCustomerOrderNumber(
-    new Date('2026-07-25T12:00:00.000Z'),
+    new Date('2026-08-21T16:30:00.000Z'),
     () => 0
   );
-  assert.equal(orderNumber, 'MC-260725-AAAAAA');
-  assert.match(orderNumber, /^MC-\d{6}-[A-HJ-NP-Z2-9]{6}$/);
+  assert.equal(orderNumber, 'MC-0822-AAAA');
+  assert.match(orderNumber, /^MC-\d{4}-[A-HJ-NP-Z2-9]{4}$/);
+  assert.equal(getOrderPickupCode(orderNumber), 'AAAA');
+});
+
+test('historical order numbers display unchanged and do not gain a misleading pickup code', () => {
+  assert.equal(getOrderPickupCode('MC-260816-EHXQQX'), '');
+  assert.equal(getOrderPickupCode('MC-0822-A7K2', 'A7K2'), 'A7K2');
 });

@@ -28,7 +28,9 @@ export const createManualPaymentAdapter = method => ({
         methodName: method.name,
         qrCodeUrl: method.qrCodeUrl,
         instructions: method.instructions,
-        receiptAllowed: method.receiptAllowed
+        receiptAllowed: method.receiptAllowed,
+        amountMinor: Number(order.payment?.amountMinor),
+        currency: readString(order.currency)
       }
     };
   },

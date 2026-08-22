@@ -15,6 +15,10 @@ const storeOrderService = readFileSync(
   new URL('./services/storeOrderService.ts', import.meta.url),
   'utf8'
 );
+const manualCheckout = readFileSync(
+  new URL('./paymentProviders/manualClientAdapter.tsx', import.meta.url),
+  'utf8'
+);
 const storageRules = readFileSync(new URL('../../../storage.rules', import.meta.url), 'utf8');
 
 test('guest orders can only be created by trusted payment Functions and read by the correct Store team', () => {
@@ -100,23 +104,27 @@ test('the public Store UI does not render private contact details or internal or
   assert.match(publicStorePage, /placedOrder\.paymentStatus/);
   assert.match(publicStorePage, />Pickup Time</);
   assert.match(publicStorePage, /store\.storeContact\.whatsapp/);
-  assert.match(publicStorePage, /<StoreContactButton/);
-  assert.match(publicStorePage, /orderNumber=\{placedOrder\.orderNumber\}/);
+  assert.doesNotMatch(publicStorePage, /<StoreContactButton/);
   assert.match(publicStorePage, /selectedPickupLocation\.address/);
   assert.match(publicStorePage, /Need a Bulk Order\?/);
   assert.match(publicStorePage, /Explore MiseChef/);
   assert.match(publicStorePage, /Customer Details/);
   assert.match(publicStorePage, /Payment Instructions/);
   assert.match(publicStorePage, /Place Order/);
-  assert.doesNotMatch(publicStorePage, /Continue to Payment/);
+  assert.match(publicStorePage, /Continue to Payment/);
   assert.doesNotMatch(publicStorePage, /setDoc\(orderRef/);
 });
 
-test('manual checkout is one customer-facing payment step', () => {
+test('receipt-based manual checkout uses the server-priced payment step', () => {
   assert.match(publicStorePage, /if \(session\.checkout\.type === 'manual_payment'\)/);
-  assert.match(publicStorePage, /storePaymentService\.uploadReceipt\(slug, session, paymentReceipt\)/);
-  assert.match(publicStorePage, /storePaymentService\.submitManual\(slug, session\)/);
+  assert.match(publicStorePage, /session\.checkout\.methodId === 'cash_on_pickup'/);
   assert.match(publicStorePage, /setPaymentSession\(session\)/);
+  assert.doesNotMatch(publicStorePage, /storePaymentService\.uploadReceipt/);
+  assert.match(manualCheckout, /checkout\.amountMinor \/ 100/);
+  assert.match(manualCheckout, /Amount to Pay/);
+  assert.match(manualCheckout, /Pay this exact amount/);
+  assert.match(manualCheckout, /Upload payment screenshot or proof \(required\)/);
+  assert.match(manualCheckout, /disabled=\{isSubmitting \|\| \(requiresReceipt && !receipt\)\}/);
   assert.match(publicStorePage, /Continue to Secure Payment/);
 });
 
@@ -126,8 +134,7 @@ test('checkout presents only enabled methods as polished cards in the requested 
     'Payment Method',
     'Customer Details',
     'Pickup Details',
-    'Payment Instructions',
-    'Receipt Upload'
+    'Payment Instructions'
   ].map(label => publicStorePage.indexOf(label));
 
   assert.ok(sectionOrder.every(index => index >= 0));
@@ -136,9 +143,17 @@ test('checkout presents only enabled methods as polished cards in the requested 
   assert.match(publicStorePage, /<PaymentMethodIcon methodId=\{method\.id\}/);
   assert.match(publicStorePage, /getPaymentMethodDescription\(method\.id\)/);
   assert.match(publicStorePage, /getPaymentActionLabel\(paymentMethodId\)/);
-  assert.match(publicStorePage, /return "I've Completed Payment"/);
+  assert.match(publicStorePage, /return 'Continue to Payment'/);
   assert.match(publicStorePage, /sticky bottom-3/);
   assert.match(publicStorePage, /cartCount > 0 && !isCheckoutVisible/);
+});
+
+test('Touch ’n Go checkout gives the required proof and verification instructions', () => {
+  assert.match(manualCheckout, /Scan the QR using Touch ’n Go eWallet/);
+  assert.match(manualCheckout, /Pay the exact displayed amount/);
+  assert.match(manualCheckout, /Upload the payment screenshot or proof below/);
+  assert.match(manualCheckout, /Payment will remain Pending Verification until the Store verifies it/);
+  assert.match(manualCheckout, /`RM \$\{authoritativeTotal\.toFixed\(2\)\}`/);
 });
 
 test('manual receipts remain private and customer order writes stay server-only', () => {

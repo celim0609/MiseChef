@@ -1,4 +1,5 @@
 import { FieldValue } from 'firebase-admin/firestore';
+import { randomBytes } from 'node:crypto';
 import { PAYMENT_STATUS, readString, toPublicOrderResult } from './storePaymentsCore.js';
 import { hasValidCheckoutAccessToken } from './storePayments.js';
 import {
@@ -14,6 +15,16 @@ const RECEIPT_TYPES = new Map([
   ['image/png', 'png'],
   ['image/webp', 'webp']
 ]);
+
+const receiptPrefix = order => `store-payment-receipts/${readString(order.workspaceId)}/${readString(order.id)}/`;
+
+export const hasValidManualPaymentReceipt = order => {
+  const path = readString(order.payment?.receiptPath);
+  return RECEIPT_METHODS.has(readString(order.paymentMethodId))
+    && path.startsWith(receiptPrefix(order))
+    && /\.(?:jpg|png|webp)$/.test(path)
+    && Boolean(readString(order.payment?.receiptFileName));
+};
 
 const loadGuestOrder = async ({ db, orderId, slug, checkoutAccessToken }) => {
   const snapshot = await db.collection('storeOrders').doc(readString(orderId)).get();
@@ -50,7 +61,7 @@ const requireManager = async ({ db, uid, workspaceId }) => {
 export const uploadManualStorePaymentReceipt = async ({ db, bucket, slug, orderId, checkoutAccessToken, dataUrl, fileName }) => {
   const order = await loadGuestOrder({ db, orderId, slug, checkoutAccessToken });
   if (!RECEIPT_METHODS.has(readString(order.paymentMethodId))) throw new Error('This payment method does not accept receipts.');
-  if (![PAYMENT_STATUS.pending, PAYMENT_STATUS.pendingVerification].includes(order.payment?.status)) {
+  if (order.payment?.status !== PAYMENT_STATUS.pending) {
     throw new Error('This payment can no longer accept a receipt.');
   }
   const match = readString(dataUrl).match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
@@ -58,18 +69,37 @@ export const uploadManualStorePaymentReceipt = async ({ db, bucket, slug, orderI
   const bytes = Buffer.from(match[2], 'base64');
   if (bytes.length < 1 || bytes.length > 2 * 1024 * 1024) throw new Error('Choose a receipt image smaller than 2 MB.');
   const extension = RECEIPT_TYPES.get(match[1]);
-  const path = `store-payment-receipts/${order.workspaceId}/${order.id}/receipt.${extension}`;
-  await bucket.file(path).save(bytes, {
+  const safeFileName = readString(fileName).slice(0, 160);
+  if (!safeFileName) throw new Error('Choose a payment proof image before submitting.');
+  const path = `${receiptPrefix(order)}receipt-${randomBytes(8).toString('hex')}.${extension}`;
+  const receiptFile = bucket.file(path);
+  await receiptFile.save(bytes, {
     resumable: false,
     metadata: { contentType: match[1], cacheControl: 'private,no-store' }
   });
-  await db.collection('storeOrders').doc(order.id).update({
-    'payment.receiptPath': path,
-    'payment.receiptFileName': readString(fileName).slice(0, 160),
-    'payment.receiptUploadedAt': FieldValue.serverTimestamp(),
-    'payment.updatedAt': new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  });
+  const reference = db.collection('storeOrders').doc(order.id);
+  const previousReceiptPath = readString(order.payment?.receiptPath);
+  try {
+    await db.runTransaction(async transaction => {
+      const fresh = await transaction.get(reference);
+      if (!fresh.exists || fresh.data()?.payment?.status !== PAYMENT_STATUS.pending) {
+        throw new Error('This payment can no longer accept a receipt.');
+      }
+      transaction.update(reference, {
+        'payment.receiptPath': path,
+        'payment.receiptFileName': safeFileName,
+        'payment.receiptUploadedAt': FieldValue.serverTimestamp(),
+        'payment.updatedAt': new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+    });
+  } catch (error) {
+    await receiptFile.delete().catch(() => undefined);
+    throw error;
+  }
+  if (previousReceiptPath.startsWith(receiptPrefix(order)) && previousReceiptPath !== path) {
+    await bucket.file(previousReceiptPath).delete().catch(() => undefined);
+  }
   return { uploaded: true };
 };
 
@@ -79,7 +109,6 @@ export const submitManualStorePayment = async ({ db, slug, orderId, checkoutAcce
   const cash = order.paymentMethodId === 'cash_on_pickup';
   const paymentStatus = cash ? PAYMENT_STATUS.pending : PAYMENT_STATUS.pendingVerification;
   const status = cash ? 'Confirmed' : 'Pending Verification';
-  const fulfilmentStatus = cash ? 'Confirmed' : '';
   const reference = db.collection('storeOrders').doc(order.id);
   const notificationType = cash
     ? STORE_NOTIFICATION_TYPE.newOrder
@@ -92,11 +121,16 @@ export const submitManualStorePayment = async ({ db, slug, orderId, checkoutAcce
     const fresh = await transaction.get(reference);
     const current = { id: fresh.id, ...fresh.data() };
     if (current.payment?.status !== PAYMENT_STATUS.pending) return current;
+    if (RECEIPT_METHODS.has(readString(current.paymentMethodId)) && !hasValidManualPaymentReceipt(current)) {
+      throw new Error('Upload payment proof before submitting this payment.');
+    }
     const update = {
       status,
-      fulfilmentStatus,
-      fulfilmentUpdatedAt: cash ? FieldValue.serverTimestamp() : null,
-      fulfilmentUpdatedBy: cash ? 'system:checkout' : '',
+      ...(cash ? {
+        fulfilmentStatus: 'Confirmed',
+        fulfilmentUpdatedAt: FieldValue.serverTimestamp(),
+        fulfilmentUpdatedBy: 'system:checkout'
+      } : {}),
       'payment.status': paymentStatus,
       'payment.updatedAt': new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -135,9 +169,6 @@ export const reviewManualStorePayment = async ({ db, uid, orderId, decision }) =
   const now = new Date().toISOString();
   const update = {
     status: approved ? 'Paid' : 'Payment Rejected',
-    fulfilmentStatus: approved ? 'Paid' : '',
-    fulfilmentUpdatedAt: approved ? FieldValue.serverTimestamp() : null,
-    fulfilmentUpdatedBy: approved ? uid : '',
     'payment.status': approved ? PAYMENT_STATUS.paid : PAYMENT_STATUS.rejected,
     'payment.reviewedAt': FieldValue.serverTimestamp(),
     'payment.reviewedBy': uid,
@@ -155,6 +186,9 @@ export const reviewManualStorePayment = async ({ db, uid, orderId, decision }) =
     const fresh = await transaction.get(reference);
     if (fresh.data()?.payment?.status !== PAYMENT_STATUS.pendingVerification) {
       throw new Error('Only a payment pending verification can be reviewed.');
+    }
+    if (approved && !hasValidManualPaymentReceipt({ id: fresh.id, ...fresh.data() })) {
+      throw new Error('Payment proof is required before this payment can be approved.');
     }
     transaction.update(reference, update);
     transaction.create(timeline, {

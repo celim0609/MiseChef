@@ -11,6 +11,7 @@ const PROJECT_ID = 'demo-misechef-store-payment-rules';
 const BUCKET_URL = `gs://${PROJECT_ID}.appspot.com`;
 const WORKSPACE_A = 'workspace-payment-a';
 const WORKSPACE_B = 'workspace-payment-b';
+const WORKSPACE_SG = 'workspace-payment-sg';
 const ORDER_A = 'order-payment-a';
 const RECEIPT_PATH = `store-payment-receipts/${WORKSPACE_A}/${ORDER_A}/receipt.png`;
 const STORE_CONTACT = {
@@ -99,6 +100,7 @@ let managerA;
 let memberA;
 let ownerB;
 let managerB;
+let ownerSg;
 
 before(async () => {
   environment = await initializeTestEnvironment({
@@ -112,12 +114,14 @@ before(async () => {
   memberA = environment.authenticatedContext('member-a', { email: 'member-a@example.test' });
   ownerB = environment.authenticatedContext('owner-b', { email: 'owner-b@example.test' });
   managerB = environment.authenticatedContext('manager-b', { email: 'manager-b@example.test' });
+  ownerSg = environment.authenticatedContext('owner-sg', { email: 'owner-sg@example.test' });
 
   await environment.withSecurityRulesDisabled(async context => {
     const db = context.firestore();
     await Promise.all([
       db.doc(`workspaces/${WORKSPACE_A}`).set({ id: WORKSPACE_A, ownerId: 'owner-a', country: 'MY' }),
       db.doc(`workspaces/${WORKSPACE_B}`).set({ id: WORKSPACE_B, ownerId: 'owner-b', country: 'MY' }),
+      db.doc(`workspaces/${WORKSPACE_SG}`).set({ id: WORKSPACE_SG, ownerId: 'owner-sg', country: 'SG' }),
       db.doc(`workspaceMembers/${WORKSPACE_A}_owner-a`).set({
         workspaceId: WORKSPACE_A, userId: 'owner-a', role: 'Owner', status: 'Active'
       }),
@@ -133,7 +137,19 @@ before(async () => {
       db.doc(`workspaceMembers/${WORKSPACE_B}_owner-b`).set({
         workspaceId: WORKSPACE_B, userId: 'owner-b', role: 'Owner', status: 'Active'
       }),
+      db.doc(`workspaceMembers/${WORKSPACE_SG}_owner-sg`).set({
+        workspaceId: WORKSPACE_SG, userId: 'owner-sg', role: 'Owner', status: 'Active'
+      }),
       db.doc(`stores/${WORKSPACE_A}`).set(createStoreRecord()),
+      db.doc(`stores/${WORKSPACE_SG}`).set({
+        ...createStoreRecord(),
+        id: WORKSPACE_SG,
+        workspaceId: WORKSPACE_SG,
+        slug: 'workspace-payment-sg',
+        country: 'SG',
+        currency: 'SGD',
+        createdBy: 'owner-sg'
+      }),
       db.doc(`storeOrders/${ORDER_A}`).set({
         id: ORDER_A,
         workspaceId: WORKSPACE_A,
@@ -215,6 +231,24 @@ test('matching Owner and Manager can update validated Store Contact settings', a
     storeContact: { ...STORE_CONTACT, whatsapp: '+60111222333' },
     businessWhatsApp: '+60111222333',
     updatedAt: '2026-08-03T02:00:00.000Z'
+  }));
+});
+
+test('MY Store can configure Touch ’n Go while SG Store cannot configure or enable it', async () => {
+  const malaysiaMethods = createStoreRecord().paymentMethods.map(method => method.id === 'touch_n_go_qr'
+    ? { ...method, enabled: true, qrCodeUrl: 'https://storage.test/tng.png', instructions: 'Pay exactly.' }
+    : method);
+  await assertSucceeds(ownerA.firestore().doc(`stores/${WORKSPACE_A}`).update({
+    paymentMethods: malaysiaMethods,
+    updatedAt: '2026-08-16T03:00:00.000Z'
+  }));
+
+  const singaporeMethods = createStoreRecord().paymentMethods.map(method => method.id === 'touch_n_go_qr'
+    ? { ...method, enabled: true, qrCodeUrl: 'https://storage.test/tng.png', instructions: 'Pay exactly.' }
+    : method);
+  await assertFails(ownerSg.firestore().doc(`stores/${WORKSPACE_SG}`).update({
+    paymentMethods: singaporeMethods,
+    updatedAt: '2026-08-16T03:00:00.000Z'
   }));
 });
 

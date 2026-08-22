@@ -160,7 +160,7 @@ export const storeService = {
     draft: StoreSettingsDraft
   ): Promise<WorkspaceStore> {
     if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
-    const validationError = validateStoreSettings(draft);
+    const validationError = validateStoreSettings(draft, store.country);
     if (validationError) throw new Error(validationError);
 
     const updatedStore: WorkspaceStore = {

@@ -142,6 +142,7 @@ const toStorePaymentError = error => {
     'Choose a valid payment method.',
     'This payment method is no longer available.',
     'This QR payment method is not configured correctly.',
+    'Touch ’n Go eWallet is available only for Malaysia Stores.',
     'Bank Transfer is not configured correctly.'
   ].includes(message) || message.startsWith('Choose one ') || message.startsWith('Options for ')) {
     return new HttpsError('failed-precondition', message);

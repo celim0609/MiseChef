@@ -67,11 +67,24 @@ export const createCustomerOrderNumber = (
   now = new Date(),
   random = Math.random
 ) => {
-  const date = now.toISOString().slice(2, 10).replace(/-/g, '');
+  const malaysiaDateParts = Object.fromEntries(
+    new Intl.DateTimeFormat('en', {
+      timeZone: 'Asia/Kuala_Lumpur',
+      month: '2-digit',
+      day: '2-digit'
+    }).formatToParts(now).map(part => [part.type, part.value])
+  );
+  const date = `${malaysiaDateParts.month}${malaysiaDateParts.day}`;
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const suffix = Array.from(
-    { length: 6 },
+    { length: 4 },
     () => alphabet[Math.floor(random() * alphabet.length) % alphabet.length]
   ).join('');
   return `MC-${date}-${suffix}`;
+};
+
+export const getOrderPickupCode = (orderNumber: string, pickupCode = '') => {
+  const storedCode = pickupCode.trim();
+  if (/^[A-HJ-NP-Z2-9]{4}$/.test(storedCode)) return storedCode;
+  return /^MC-\d{4}-([A-HJ-NP-Z2-9]{4})$/.exec(orderNumber.trim())?.[1] || '';
 };

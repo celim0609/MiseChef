@@ -234,6 +234,7 @@ export interface StoreNotification {
 export interface StoreOrder {
   id: string;
   orderNumber: string;
+  pickupCode?: string;
   storeId: string;
   workspaceId: string;
   orderSource: StoreOrderSource;
@@ -324,10 +325,13 @@ export type StorePaymentCheckout =
     qrCodeUrl: string;
     instructions: string;
     receiptAllowed: boolean;
+    amountMinor: number;
+    currency: RegionCurrency;
   };
 
 export interface StorePaymentSession {
   orderNumber: string;
+  pickupCode: string;
   provider: StorePaymentProviderId;
   paymentSessionId: string;
   checkout: StorePaymentCheckout;
@@ -336,6 +340,7 @@ export interface StorePaymentSession {
 
 export interface PublicStoreOrderResult {
   orderNumber: string;
+  pickupCode: string;
   storeName: string;
   currency: RegionCurrency;
   paymentMethodName: string;

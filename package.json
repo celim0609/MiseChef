@@ -14,6 +14,9 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "test": "npm run test:store-payments:model && npm --prefix functions test && npm run test:store-payments:rules",
+    "test:store-payments:model": "tsx --test src/modules/store/*.test.ts src/modules/store/*.test.tsx src/components/StoreNotificationBell.test.tsx src/regions/regionService.test.ts",
+    "test:store-payments:rules": "firebase emulators:exec --only firestore,storage --project demo-misechef-store-payment-rules \"node --test tests/storePaymentAccessControl.test.mjs tests/storeOrderHistoryIntegration.test.mjs\"",
     "test:chef-profile:rules": "firebase emulators:exec --only firestore,storage --project demo-misechef-chef-profile-rules \"node --test tests/chefProfileAccessControl.test.mjs\""
   },
   "dependencies": {

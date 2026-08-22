@@ -41,9 +41,42 @@ test('every workspace receives exactly one region-aware Store identity', () => {
   assert.equal(singaporeStore.id, 'workspace-sg');
   assert.equal(singaporeStore.workspaceId, 'workspace-sg');
   assert.equal(singaporeStore.currency, 'SGD');
+  assert.equal(
+    singaporeStore.paymentMethods.find(method => method.id === 'touch_n_go_qr')?.enabled,
+    false
+  );
   assert.equal(malaysiaStore.pickupEnabled, false);
   assert.deepEqual(malaysiaStore.pickupSessions, []);
   assert.deepEqual(malaysiaStore.pickupLocations, []);
+});
+
+test('Touch ’n Go configuration is accepted for MY and cleared or rejected for SG', () => {
+  const malaysiaStore = createDefaultWorkspaceStore(
+    { id: 'workspace-my-tng', name: 'MY Store', country: 'MY' },
+    'owner-my'
+  );
+  const configuredMethods = malaysiaStore.paymentMethods.map(method => method.id === 'touch_n_go_qr'
+    ? { ...method, enabled: true, qrCodeUrl: 'https://storage.test/tng.png', instructions: 'Pay exactly.' }
+    : method.id === 'stripe' ? { ...method, enabled: false } : method);
+  const baseSettings = {
+    name: malaysiaStore.name,
+    logoUrl: '', coverImageUrl: '', description: '', contactInformation: '', businessWhatsApp: '',
+    storeContact: createDefaultStoreContact(),
+    businessHours: '', pickupEnabled: false, deliveryEnabled: false, pickupSessions: [], pickupLocations: [],
+    orderDays: [...DEFAULT_STORE_ORDER_DAYS], earliestPickupDays: 0 as const, maximumAdvanceDays: 14 as const,
+    unavailableDates: [], paymentMethods: configuredMethods
+  };
+
+  assert.equal(validateStoreSettings(baseSettings, 'MY'), '');
+  assert.equal(
+    validateStoreSettings(baseSettings, 'SG'),
+    'Touch ’n Go eWallet is available only for Malaysia Stores.'
+  );
+  const normalizedSg = normalizeStorePaymentMethods(configuredMethods, 'SG')
+    .find(method => method.id === 'touch_n_go_qr');
+  assert.deepEqual(normalizedSg, {
+    id: 'touch_n_go_qr', enabled: false, qrCodeUrl: '', instructions: ''
+  });
 });
 
 test('pickup stays simple and requires owner-defined locations and sessions', () => {

@@ -12,7 +12,7 @@ import {
 import { formatRegionCurrency } from '../../regions';
 import { storeOrderService } from './services';
 import { formatPickupDateLabel } from './storeModel';
-import StoreContactButton from './StoreContactButton';
+import WhatsAppCustomerButton from './WhatsAppCustomerButton';
 import type {
   StoreFulfilmentStatus,
   StoreNotification,
@@ -61,7 +61,6 @@ interface StoreOrdersPanelProps {
   country: 'MY' | 'SG';
   currency: 'MYR' | 'SGD';
   storeName: string;
-  storeWhatsApp: string;
   focusOrderId: string;
   notifications: StoreNotification[];
   onNotificationClick: (notification: StoreNotification) => void;
@@ -72,7 +71,6 @@ export default function StoreOrdersPanel({
   country,
   currency,
   storeName,
-  storeWhatsApp,
   focusOrderId,
   notifications,
   onNotificationClick
@@ -205,6 +203,7 @@ export default function StoreOrdersPanel({
               <span className="flex items-start justify-between gap-4">
                 <span>
                   <span className="block font-display text-xl font-bold text-primary">{order.orderNumber}</span>
+                  {order.pickupCode && <span className="mt-1 block font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup {order.pickupCode}</span>}
                   <span className="mt-1 block font-sans text-sm font-extrabold text-on-surface">{order.customerName}</span>
                 </span>
                 <span className="rounded-full bg-surface-container px-3 py-1.5 font-sans text-[10px] font-extrabold text-primary">
@@ -239,6 +238,7 @@ export default function StoreOrdersPanel({
               <div>
                 <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.18em] text-secondary">Order Detail</p>
                 <h2 className="mt-1 font-display text-3xl font-bold text-primary">{selectedOrder.orderNumber}</h2>
+                {selectedOrder.pickupCode && <p className="mt-2 font-sans text-sm font-extrabold uppercase tracking-[0.18em] text-secondary">Pickup Code {selectedOrder.pickupCode}</p>}
                 <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">{formatTimePlaced(selectedOrder.createdAt)}</p>
               </div>
               <button type="button" aria-label="Close order detail" onClick={() => setSelectedOrderId('')} className="rounded-full bg-surface-container p-2 text-primary"><X className="h-4 w-4" /></button>
@@ -291,13 +291,6 @@ export default function StoreOrdersPanel({
               </div>
             )}
 
-            <StoreContactButton
-              whatsapp={storeWhatsApp}
-              storeName={storeName}
-              orderNumber={selectedOrder.orderNumber}
-              className="mt-5 w-full sm:w-auto"
-            />
-
             <div className="mt-7">
               <h3 className="font-display text-xl font-bold text-primary">Fulfilment Timeline</h3>
               <ol className="mt-4 space-y-4">
@@ -337,6 +330,12 @@ export default function StoreOrdersPanel({
                   Mark {NEXT_STATUS[selectedOrder.fulfilmentStatus as StoreFulfilmentStatus]}
                 </button>
               )}
+              <WhatsAppCustomerButton
+                order={selectedOrder}
+                country={country}
+                storeName={storeName}
+                className="flex-1"
+              />
               {selectedOrder.payment.refundStatus === 'refunded'
                 && !['Completed', 'Cancelled'].includes(selectedOrder.fulfilmentStatus) && (
                 <button type="button" disabled={isUpdating} onClick={() => updateStatus('Cancelled')} className="rounded-full bg-error/10 px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">

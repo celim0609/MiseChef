@@ -54,13 +54,17 @@ export const normalizeStoreContact = (
 };
 export const STORE_PAYMENT_METHODS: Array<{ id: StorePaymentMethodConfig['id']; label: string }> = [
   { id: 'cash_on_pickup', label: 'Cash on Pickup' },
-  { id: 'touch_n_go_qr', label: "Touch 'n Go QR" },
+  { id: 'touch_n_go_qr', label: 'Touch ’n Go eWallet' },
   { id: 'duitnow_qr', label: 'DuitNow QR' },
   { id: 'bank_transfer', label: 'Bank Transfer' },
   { id: 'stripe', label: 'Stripe' }
 ];
 export const getStorePaymentMethodLabel = (id: StorePaymentMethodConfig['id']) => (
   STORE_PAYMENT_METHODS.find(method => method.id === id)?.label || 'Payment'
+);
+
+export const storePaymentMethodRequiresReceipt = (id: StorePaymentMethodConfig['id']) => (
+  ['touch_n_go_qr', 'duitnow_qr', 'bank_transfer'].includes(id)
 );
 
 export const createDefaultStorePaymentMethods = (): StorePaymentMethodConfig[] => (
@@ -72,17 +76,23 @@ export const createDefaultStorePaymentMethods = (): StorePaymentMethodConfig[] =
   }))
 );
 
-export const normalizeStorePaymentMethods = (value: unknown): StorePaymentMethodConfig[] => {
+export const normalizeStorePaymentMethods = (
+  value: unknown,
+  country: 'MY' | 'SG' = 'MY'
+): StorePaymentMethodConfig[] => {
   const configured = Array.isArray(value) ? value : [];
   return STORE_PAYMENT_METHODS.map(method => {
     const raw = configured.find(item => item && typeof item === 'object'
       && (item as Record<string, unknown>).id === method.id) as Record<string, unknown> | undefined;
-    return {
+    const normalized = {
       id: method.id,
       enabled: raw ? readBoolean(raw.enabled) : method.id === 'stripe',
       qrCodeUrl: readString(raw?.qrCodeUrl),
       instructions: readString(raw?.instructions)
     };
+    return country === 'SG' && method.id === 'touch_n_go_qr'
+      ? { ...normalized, enabled: false, qrCodeUrl: '', instructions: '' }
+      : normalized;
   });
 };
 
@@ -277,7 +287,7 @@ export const normalizeWorkspaceStore = (
         typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
       )))].sort()
       : [],
-    paymentMethods: normalizeStorePaymentMethods(data.paymentMethods),
+    paymentMethods: normalizeStorePaymentMethods(data.paymentMethods, region.country),
     country: region.country,
     currency: region.currency,
     createdBy: readString(data.createdBy),
@@ -306,7 +316,10 @@ export const normalizeStoreProduct = (
   updatedAt: readString(data.updatedAt, new Date().toISOString())
 });
 
-export const validateStoreSettings = (draft: StoreSettingsDraft) => {
+export const validateStoreSettings = (
+  draft: StoreSettingsDraft,
+  country: 'MY' | 'SG' = 'MY'
+) => {
   const pickupSessions = draft.pickupSessions.map(session => session.trim()).filter(Boolean);
   if (!draft.name.trim()) return 'Store name is required.';
   if (draft.name.trim().length > 120) return 'Store name must be 120 characters or fewer.';
@@ -369,6 +382,11 @@ export const validateStoreSettings = (draft: StoreSettingsDraft) => {
   if (draft.paymentMethods.some(method => (
     method.enabled && ['touch_n_go_qr', 'duitnow_qr'].includes(method.id) && !method.qrCodeUrl.trim()
   ))) return 'Upload a merchant QR code before enabling QR payment.';
+  const touchNGo = draft.paymentMethods.find(method => method.id === 'touch_n_go_qr');
+  if (country !== 'MY' && touchNGo
+    && (touchNGo.enabled || touchNGo.qrCodeUrl.trim() || touchNGo.instructions.trim())) {
+    return 'Touch ’n Go eWallet is available only for Malaysia Stores.';
+  }
   if (draft.paymentMethods.some(method => (
     method.enabled && method.id === 'bank_transfer' && !method.instructions.trim()
   ))) return 'Add bank transfer instructions before enabling Bank Transfer.';

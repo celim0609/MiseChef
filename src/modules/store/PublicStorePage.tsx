@@ -16,12 +16,10 @@ import {
   ShoppingCart,
   Store as StoreIcon,
   Truck,
-  Upload,
   X
 } from 'lucide-react';
 import { formatRegionCurrency, getRegionConfiguration } from '../../regions';
 import StorePaymentCheckout from './StorePaymentCheckout';
-import StoreContactButton from './StoreContactButton';
 import { storePaymentService, storeService } from './services';
 import {
   calculateStoreOptionAdjustedPrice,
@@ -30,6 +28,7 @@ import {
   getStoreOptionSelectionLimits,
   getStorePaymentMethodLabel,
   getValidPickupDates,
+  storePaymentMethodRequiresReceipt,
   validateStoreProductOptionSelections
 } from './storeModel';
 import { getBusinessWhatsAppUrl } from './selling';
@@ -64,7 +63,7 @@ const getPaymentMethodDescription = (methodId: StorePaymentMethodId) => {
 const getPaymentActionLabel = (methodId: StorePaymentMethodId) => {
   if (methodId === 'stripe') return 'Continue to Secure Payment';
   if (methodId === 'cash_on_pickup') return 'Place Order';
-  return "I've Completed Payment";
+  return 'Continue to Payment';
 };
 
 function PaymentMethodIcon({ methodId }: { methodId: StorePaymentMethodId }) {
@@ -90,7 +89,6 @@ export default function PublicStorePage({ slug }: { slug: string }) {
   const [pickupLocationId, setPickupLocationId] = useState('');
   const [notes, setNotes] = useState('');
   const [paymentMethodId, setPaymentMethodId] = useState<StorePaymentMethodId>('stripe');
-  const [paymentReceipt, setPaymentReceipt] = useState<File | null>(null);
   const [checkoutError, setCheckoutError] = useState('');
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [paymentSession, setPaymentSession] = useState<StorePaymentSession | null>(null);
@@ -331,10 +329,12 @@ export default function PublicStorePage({ slug }: { slug: string }) {
       }, paymentReturnUrl);
       if (session.checkout.type === 'manual_payment') {
         try {
-          if (paymentReceipt) await storePaymentService.uploadReceipt(slug, session, paymentReceipt);
-          await storePaymentService.submitManual(slug, session);
-          await verifyPayment(session.provider, session.paymentSessionId, session.checkoutAccessToken);
-          setPaymentReceipt(null);
+          if (session.checkout.methodId === 'cash_on_pickup') {
+            await storePaymentService.submitManual(slug, session);
+            await verifyPayment(session.provider, session.paymentSessionId, session.checkoutAccessToken);
+          } else {
+            setPaymentSession(session);
+          }
         } catch (manualPaymentError) {
           // Preserve the server-created session so a failed receipt upload or
           // submission can be retried without creating a duplicate order.
@@ -419,7 +419,6 @@ export default function PublicStorePage({ slug }: { slug: string }) {
             {canOrderPickup && <span className="rounded-full bg-green-100 px-4 py-2 font-sans text-xs font-extrabold text-green-800">Pickup pre-order available</span>}
             {store.deliveryEnabled && <span className="inline-flex items-center gap-2 rounded-full bg-green-100 px-4 py-2 font-sans text-xs font-extrabold text-green-800"><Truck className="h-4 w-4" /> Delivery available</span>}
           </div>
-          <StoreContactButton whatsapp={storeWhatsApp} storeName={store.name} className="mt-5" />
         </div>
       </section>
 
@@ -431,7 +430,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
             <div className="mt-6 grid gap-5 sm:grid-cols-2">
               {products.map(product => (
                 <article key={product.id} className="overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
-                  <img src={product.photoUrl} alt={product.name} className="h-52 w-full object-cover" referrerPolicy="no-referrer" />
+                  {product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-52 w-full object-cover" referrerPolicy="no-referrer" />}
                   <div className="p-5">
                     <h3 className="font-display text-2xl font-bold text-primary">{product.name}</h3>
                     <p className="mt-2 font-sans text-lg font-extrabold text-secondary">{formatRegionCurrency(product.price, store.currency)}</p>
@@ -483,6 +482,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
               </p>
               <dl className="mt-4 grid gap-3 rounded-2xl bg-white/70 p-4">
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Order Number</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.orderNumber}</dd></div>
+                {placedOrder.pickupCode && <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Code</dt><dd className="mt-0.5 font-display text-2xl font-bold tracking-[0.18em]">{placedOrder.pickupCode}</dd></div>}
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Date</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{formatPickupDateLabel(placedOrder.pickupDate, store.country)}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Location</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupLocationName}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Time</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupSession}</dd></div>
@@ -490,7 +490,6 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Payment Method</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.paymentMethodName}</dd></div>
               </dl>
               <div className="mt-4 flex flex-col gap-2">
-                <StoreContactButton whatsapp={storeWhatsApp} storeName={store.name} orderNumber={placedOrder.orderNumber} className="w-full" />
                 <a href="/" className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 font-sans text-xs font-extrabold text-green-800">Explore MiseChef <ArrowRight className="h-3.5 w-3.5" /></a>
               </div>
             </div>
@@ -569,7 +568,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                       const isSelected = paymentMethodId === method.id;
                       return (
                         <label key={method.id} className={`relative flex min-h-28 cursor-pointer flex-col rounded-2xl border p-3.5 transition-colors ${isSelected ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20' : 'border-surface-container-high bg-white hover:border-outline-variant'}`}>
-                          <input type="radio" name="paymentMethod" value={method.id} checked={isSelected} onChange={() => { setPaymentMethodId(method.id); setPaymentReceipt(null); }} className="sr-only" />
+                          <input type="radio" name="paymentMethod" value={method.id} checked={isSelected} onChange={() => setPaymentMethodId(method.id)} className="sr-only" />
                           <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${isSelected ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>
                             <PaymentMethodIcon methodId={method.id} />
                           </span>
@@ -636,31 +635,17 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                     <p className="mt-2 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">Your order details are saved first, then secure payment continues on the next step.</p>
                   ) : (
                     <>
-                      {selectedPaymentMethod?.qrCodeUrl && (
-                        <img src={selectedPaymentMethod.qrCodeUrl} alt={`${getStorePaymentMethodLabel(paymentMethodId)} merchant QR code`} className="mx-auto mt-3 max-h-64 w-full rounded-2xl bg-white object-contain p-3" />
-                      )}
                       <p className="mt-2 whitespace-pre-line font-sans text-sm font-bold leading-relaxed text-on-surface-variant">
-                        {selectedPaymentMethod?.instructions || (paymentMethodId === 'cash_on_pickup'
-                          ? 'Payment will be collected when you pick up your order.'
-                          : 'Complete the payment using the merchant details above, then confirm below.')}
+                        {paymentMethodId === 'cash_on_pickup'
+                          ? selectedPaymentMethod?.instructions || 'Payment will be collected when you pick up your order.'
+                          : storePaymentMethodRequiresReceipt(paymentMethodId)
+                            ? 'Continue to view the Store payment details and exact server-confirmed amount. Payment proof is required before submission.'
+                            : selectedPaymentMethod?.instructions || 'Continue to the payment step.'}
                       </p>
                     </>
                   )}
                 </section>
 
-                {paymentMethodId !== 'stripe' && paymentMethodId !== 'cash_on_pickup' && (
-                  <section aria-labelledby="receipt-upload-heading">
-                    <h3 id="receipt-upload-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Receipt Upload <span className="normal-case tracking-normal text-outline">(optional)</span></h3>
-                    <label className="mt-3 block min-h-24 cursor-pointer rounded-2xl border border-dashed border-outline-variant bg-white p-4 text-center transition-colors hover:bg-surface-container-low">
-                      <Upload className="mx-auto h-5 w-5 text-primary" aria-hidden="true" />
-                      <span className="mt-2 block font-sans text-xs font-extrabold text-primary">Choose receipt image</span>
-                      <input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => setPaymentReceipt(event.currentTarget.files?.[0] || null)} className="mt-2 block w-full font-sans text-xs text-on-surface-variant" />
-                      {paymentReceipt && <span className="mt-1 block truncate font-sans text-[11px] font-bold text-on-surface-variant">{paymentReceipt.name}</span>}
-                    </label>
-                  </section>
-                )}
-
-                <StoreContactButton whatsapp={storeWhatsApp} storeName={store.name} className="w-full" />
                 {checkoutError && <p role="alert" className="rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
                 <div className="sticky bottom-3 z-30 -mx-2 rounded-2xl bg-white/95 p-2 shadow-xl shadow-primary/10 backdrop-blur lg:static lg:mx-0 lg:bg-transparent lg:p-0 lg:shadow-none">
                   <button type="submit" disabled={isPlacingOrder} className="min-h-12 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary shadow-lg shadow-primary/20 disabled:opacity-50">
@@ -792,8 +777,6 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                 <span>{formatRegionCurrency(configuredProductPrice, store.currency)}</span>
               </div>
             </div>
-
-            <StoreContactButton whatsapp={storeWhatsApp} storeName={store.name} className="mt-4 w-full" />
 
             <button type="button" disabled={Boolean(configuredSelectionError)} onClick={() => addConfiguredProduct(configuringProduct, configuredSelections)} className="mt-4 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
               Add to Cart · {formatRegionCurrency(configuredProductPrice, store.currency)}

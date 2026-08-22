@@ -53,6 +53,7 @@ test('the first paid reconciliation creates exactly one notification and one pay
       orderNumber: 'MC-260729-PAID01',
       workspaceId: 'workspace-a',
       storeId: 'workspace-a',
+      fulfilmentStatus: 'New',
       currency: 'MYR',
       payment: {
         providerPaymentId: 'pi_test_paid',
@@ -74,7 +75,7 @@ test('the first paid reconciliation creates exactly one notification and one pay
   await reconcileStorePayment({ db, payment });
   await reconcileStorePayment({ db, payment });
 
-  assert.equal(db.documents.get('storeOrders/order-a').fulfilmentStatus, 'Paid');
+  assert.equal(db.documents.get('storeOrders/order-a').fulfilmentStatus, 'New');
   assert.equal(db.documents.get('storeOrders/order-a').payment.status, 'paid');
   assert.equal(db.documents.get('storeNotifications/new-paid-order_order-a').orderId, 'order-a');
   assert.equal(db.documents.get('storeOrderTimeline/order-a_payment-received').label, 'Payment Received');

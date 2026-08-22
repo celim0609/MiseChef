@@ -16,6 +16,7 @@ import {
 import { httpsCallable } from 'firebase/functions';
 import { getBlob, ref } from 'firebase/storage';
 import { db, functions, storage } from '../../../firebase';
+import { getOrderPickupCode } from '../selling';
 import type {
   StoreFulfilmentStatus,
   StoreNotification,
@@ -75,7 +76,11 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
   const fulfilmentStatus = readString(data.fulfilmentStatus);
   return {
     id: snapshot.id,
-    orderNumber: readString(data.orderNumber, snapshot.id),
+    orderNumber: readString(data.orderNumber),
+    pickupCode: getOrderPickupCode(
+      readString(data.orderNumber),
+      readString(data.pickupCode)
+    ),
     storeId: readString(data.storeId),
     workspaceId: readString(data.workspaceId),
     orderSource: data.orderSource === 'pos' ? 'pos' : 'online',
