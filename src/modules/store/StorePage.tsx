@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -13,6 +13,7 @@ import {
   Pencil,
   Plus,
   QrCode,
+  Search,
   Share2,
   Settings,
   Store as StoreIcon,
@@ -60,6 +61,7 @@ import {
   getProductSaveErrorMessage,
   type ProductSaveStage
 } from './productSaveFeedback';
+import { filterAdminStoreProducts, getStoreProductEditorPresentation } from './storeProductVisibility';
 
 interface StorePageProps {
   currentUser: User;
@@ -169,6 +171,7 @@ export default function StorePage({
   const [store, setStore] = useState<WorkspaceStore | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<StoreSettingsDraft | null>(null);
   const [products, setProducts] = useState<StoreProduct[]>([]);
+  const [productSearch, setProductSearch] = useState('');
   const [optionGroups, setOptionGroups] = useState<StoreOptionGroup[]>([]);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
@@ -179,6 +182,10 @@ export default function StorePage({
   const [productPhotoFile, setProductPhotoFile] = useState<File | null>(null);
   const [editingProduct, setEditingProduct] = useState<StoreProduct | null>(null);
   const [isProductFormOpen, setIsProductFormOpen] = useState(false);
+  const [recentlySavedProductId, setRecentlySavedProductId] = useState('');
+  const productFormRef = useRef<HTMLFormElement | null>(null);
+  const productFormHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const productCardRefs = useRef(new Map<string, HTMLElement>());
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -209,7 +216,7 @@ export default function StorePage({
         setSettingsDraft(loadedStore ? toSettingsDraft(loadedStore) : null);
         if (loadedStore) {
           const [loadedProducts, loadedOptionGroups] = await Promise.all([
-            storeService.listProducts(workspace.id),
+            storeService.listAdminProducts(workspace.id),
             storeService.listOptionGroups(workspace.id)
           ]);
           if (isCancelled) return;
@@ -235,6 +242,37 @@ export default function StorePage({
       isCancelled = true;
     };
   }, [currentUser.uid, workspace]);
+
+  const visibleProducts = useMemo(
+    () => filterAdminStoreProducts(products, workspace.id, productSearch),
+    [productSearch, products, workspace.id]
+  );
+  const productEditorPresentation = getStoreProductEditorPresentation(editingProduct);
+
+  useEffect(() => {
+    if (!isProductFormOpen || activeView !== 'products') return;
+
+    const frame = window.requestAnimationFrame(() => {
+      productFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      productFormHeadingRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeView, editingProduct?.id, isProductFormOpen]);
+
+  useEffect(() => {
+    if (!recentlySavedProductId || isProductFormOpen) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const card = productCardRefs.current.get(recentlySavedProductId);
+      card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card?.focus({ preventScroll: true });
+    });
+    const timeout = window.setTimeout(() => setRecentlySavedProductId(''), 1800);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timeout);
+    };
+  }, [isProductFormOpen, recentlySavedProductId]);
 
   useEffect(() => {
     if (!focusOrderId) return;
@@ -441,6 +479,16 @@ export default function StorePage({
     clearMessages();
   };
 
+  const closeProductForm = () => {
+    setEditingProduct(null);
+    setProductDraft(emptyProductDraft());
+    setProductOptions([]);
+    setSavedOptionGroupId('');
+    setProductPhotoFile(null);
+    setIsProductFormOpen(false);
+    clearMessages();
+  };
+
   const openProductEditor = (product: StoreProduct) => {
     setEditingProduct(product);
     setProductDraft(toProductDraft(product));
@@ -597,6 +645,7 @@ export default function StorePage({
       setProductOptions([]);
       setProductPhotoFile(null);
       setIsProductFormOpen(false);
+      setRecentlySavedProductId(savedProduct.id);
       setMessage(groupDeletionFailed
         ? 'Product saved. One unused option group could not be deleted; please try again.'
         : editingProduct ? 'Product updated.' : 'Product added.');
@@ -764,11 +813,46 @@ export default function StorePage({
             </button>
           </div>
 
+          <label className="relative mt-5 block">
+            <span className="sr-only">Search Store products</span>
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-outline" />
+            <input
+              type="search"
+              value={productSearch}
+              onChange={event => setProductSearch(event.target.value)}
+              placeholder="Search all products"
+              aria-label="Search Store products"
+              className="w-full rounded-2xl border border-surface-container-high bg-white py-3 pl-11 pr-4 font-sans text-sm font-bold text-primary outline-none focus:border-primary"
+            />
+          </label>
+
           {isProductFormOpen && (
-            <form onSubmit={handleProductSave} className="mt-6 rounded-3xl bg-white p-5 shadow-sm sm:p-7">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="font-display text-2xl font-bold text-primary">{editingProduct ? 'Edit Product' : 'New Product'}</h2>
-                <button type="button" aria-label="Close product editor" onClick={() => setIsProductFormOpen(false)} className="rounded-full bg-surface-container p-2 text-primary"><X className="h-4 w-4" /></button>
+            <form
+              ref={productFormRef}
+              onSubmit={handleProductSave}
+              aria-labelledby="store-product-form-heading"
+              data-product-form-mode={editingProduct ? 'edit' : 'add'}
+              className={`mt-6 scroll-mt-24 rounded-3xl border bg-white p-5 shadow-sm transition sm:p-7 ${
+                editingProduct
+                  ? 'border-secondary/40 ring-4 ring-secondary/10'
+                  : 'border-transparent'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2
+                    ref={productFormHeadingRef}
+                    id="store-product-form-heading"
+                    tabIndex={-1}
+                    className="font-display text-2xl font-bold text-primary outline-none"
+                  >
+                    {productEditorPresentation.title}
+                  </h2>
+                  <p aria-live="polite" className={`mt-1 font-sans text-sm font-bold ${editingProduct ? 'text-secondary' : 'text-on-surface-variant'}`}>
+                    {productEditorPresentation.context}
+                  </p>
+                </div>
+                <button type="button" aria-label="Close product editor" onClick={closeProductForm} className="rounded-full bg-surface-container p-2 text-primary"><X className="h-4 w-4" /></button>
               </div>
 
               <div className="mt-6 grid gap-5 md:grid-cols-2">
@@ -932,15 +1016,26 @@ export default function StorePage({
                     <Trash2 className="h-4 w-4" /> Delete Product
                   </button>
                 )}
-                <button type="button" onClick={() => setIsProductFormOpen(false)} className="rounded-full bg-surface-container px-5 py-3 font-sans text-xs font-extrabold text-primary">Cancel</button>
-                <button type="submit" disabled={isSaving} className="rounded-full bg-primary px-6 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : 'Save Product'}</button>
+                <button type="button" onClick={closeProductForm} className="rounded-full bg-surface-container px-5 py-3 font-sans text-xs font-extrabold text-primary">{productEditorPresentation.cancelAction}</button>
+                <button type="submit" disabled={isSaving} className="rounded-full bg-primary px-6 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : productEditorPresentation.primaryAction}</button>
               </div>
             </form>
           )}
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {products.map(product => (
-              <article key={product.id} className="overflow-hidden rounded-3xl bg-white shadow-sm">
+            {visibleProducts.map(product => (
+              <article
+                key={product.id}
+                ref={element => {
+                  if (element) productCardRefs.current.set(product.id, element);
+                  else productCardRefs.current.delete(product.id);
+                }}
+                tabIndex={-1}
+                data-product-id={product.id}
+                className={`overflow-hidden rounded-3xl bg-white shadow-sm outline-none transition ${
+                  product.available ? '' : 'opacity-80'
+                } ${recentlySavedProductId === product.id ? 'ring-4 ring-secondary/25' : ''}`}
+              >
                 {product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-44 w-full object-cover" referrerPolicy="no-referrer" />}
                 <div className="p-5">
                   <div className="flex items-start justify-between gap-3">
@@ -948,7 +1043,9 @@ export default function StorePage({
                       <h2 className="font-display text-xl font-bold text-primary">{product.name}</h2>
                       <p className="mt-1 font-sans text-sm font-extrabold text-secondary">{formatRegionCurrency(product.price, region.currency)}</p>
                     </div>
-                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${product.available ? 'bg-green-500' : 'bg-outline-variant'}`} aria-label={product.available ? 'Available' : 'Unavailable'} />
+                    <span className={`rounded-full px-3 py-1 font-sans text-[10px] font-extrabold uppercase tracking-wide ${product.available ? 'bg-green-100 text-green-800' : 'bg-surface-container-high text-on-surface-variant'}`}>
+                      {product.available ? 'Available' : 'Unavailable'}
+                    </span>
                   </div>
                   {product.description && <p className="mt-3 line-clamp-2 font-sans text-xs font-bold leading-relaxed text-on-surface-variant">{product.description}</p>}
                   {product.optionGroupIds.length > 0 && <p className="mt-3 font-sans text-[11px] font-bold text-outline">{product.optionGroupIds.length} option {product.optionGroupIds.length === 1 ? 'group' : 'groups'}</p>}
@@ -963,6 +1060,13 @@ export default function StorePage({
                 <Package className="mx-auto h-8 w-8 text-primary" />
                 <h2 className="mt-4 font-display text-2xl font-bold text-primary">What are you selling?</h2>
                 <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Add your first product to get started.</p>
+              </div>
+            )}
+            {products.length > 0 && visibleProducts.length === 0 && (
+              <div className="rounded-3xl border border-dashed border-outline-variant bg-white/50 px-6 py-14 text-center sm:col-span-2 lg:col-span-3">
+                <Search className="mx-auto h-8 w-8 text-primary" />
+                <h2 className="mt-4 font-display text-2xl font-bold text-primary">No products found</h2>
+                <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Try a different product name or description.</p>
               </div>
             )}
           </div>

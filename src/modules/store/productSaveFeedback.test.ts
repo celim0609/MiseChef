@@ -8,10 +8,12 @@ import {
 
 test('product validation failures remain visible beside the Save action', () => {
   const source = readFileSync(new URL('./StorePage.tsx', import.meta.url), 'utf8');
-  const formStart = source.indexOf('<form onSubmit={handleProductSave}');
+  const submitHandler = source.indexOf('onSubmit={handleProductSave}');
+  const formStart = source.lastIndexOf('<form', submitHandler);
   const formEnd = source.indexOf('</form>', formStart);
   const form = source.slice(formStart, formEnd);
 
+  assert.ok(submitHandler >= 0);
   assert.ok(formStart >= 0);
   assert.match(form, /role="alert"/);
   assert.match(form, /\{errorMessage\}/);

@@ -35,6 +35,10 @@ import {
   getStoreAuthorizationIssue,
   StoreAuthorizationError
 } from '../storeAuthorization';
+import {
+  buildUpdatedStoreProduct,
+  filterPublicAvailableProducts
+} from '../storeProductVisibility';
 
 const removeUndefinedFields = <T,>(value: T): T => {
   if (Array.isArray(value)) return value.map(item => removeUndefinedFields(item)) as T;
@@ -310,7 +314,7 @@ export const storeService = {
     await deleteDoc(doc(db, 'storeOptionGroups', groupId));
   },
 
-  async listProducts(workspaceId: string): Promise<StoreProduct[]> {
+  async listAdminProducts(workspaceId: string): Promise<StoreProduct[]> {
     if (!db || !workspaceId) return [];
     const productsQuery = query(
       collection(db, 'storeProducts'),
@@ -362,16 +366,7 @@ export const storeService = {
     const validationError = validateStoreProduct(draft);
     if (validationError) throw new Error(validationError);
 
-    const updatedProduct: StoreProduct = {
-      ...product,
-      photoUrl: draft.photoUrl.trim(),
-      name: draft.name.trim(),
-      description: draft.description.trim(),
-      price: draft.price,
-      available: draft.available,
-      optionGroupIds: [...draft.optionGroupIds],
-      updatedAt: new Date().toISOString()
-    };
+    const updatedProduct = buildUpdatedStoreProduct(product, draft, new Date().toISOString());
 
     await setDoc(doc(db, 'storeProducts', product.id), removeUndefinedFields(updatedProduct), { merge: true });
     return updatedProduct;
@@ -415,9 +410,9 @@ export const storeService = {
       getDocs(productsQuery),
       getDocs(optionGroupsQuery)
     ]);
-    const products = productSnapshot.docs
+    const products = filterPublicAvailableProducts(productSnapshot.docs
       .map(productDoc => normalizeStoreProduct(productDoc.id, productDoc.data() as Record<string, unknown>))
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), store.id);
     const referencedGroupIds = new Set(products.flatMap(product => product.optionGroupIds));
     const optionGroups = optionGroupSnapshot.docs
       .map(groupDoc => normalizeStoreOptionGroup(groupDoc.id, groupDoc.data() as Record<string, unknown>))
