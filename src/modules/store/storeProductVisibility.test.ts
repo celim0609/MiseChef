@@ -5,7 +5,9 @@ import {
   buildUpdatedStoreProduct,
   filterAdminStoreProducts,
   filterPublicAvailableProducts,
-  getStoreProductEditorPresentation
+  getStoreProductEditorDraft,
+  getStoreProductEditorPresentation,
+  getStoreProductValidationTarget
 } from './storeProductVisibility';
 import type { StoreProduct, StoreProductDraft } from './types';
 
@@ -101,17 +103,56 @@ test('product editor copy clearly distinguishes Add and Edit modes', () => {
   });
 });
 
+test('Edit loads the selected unavailable product into an independent draft', () => {
+  const selectedProduct = products[1];
+  const draft = getStoreProductEditorDraft(selectedProduct);
+
+  assert.deepEqual(draft, {
+    photoUrl: selectedProduct.photoUrl,
+    name: 'Seasonal Black Tea',
+    description: selectedProduct.description,
+    price: 12.5,
+    available: false,
+    optionGroupIds: ['size']
+  });
+  assert.notEqual(draft.optionGroupIds, selectedProduct.optionGroupIds);
+});
+
+test('validation messages map to the first appropriate editable field', () => {
+  assert.equal(getStoreProductValidationTarget('Product photo is required.'), 'photo');
+  assert.equal(getStoreProductValidationTarget('Product name is required.'), 'name');
+  assert.equal(getStoreProductValidationTarget('Product description must be shorter.'), 'description');
+  assert.equal(getStoreProductValidationTarget('Enter a valid product price.'), 'price');
+  assert.equal(getStoreProductValidationTarget('Add at least one option choice.'), 'options');
+});
+
 test('Store Product editor scrolls into view and returns focus to the saved product', () => {
   const source = readFileSync(new URL('./StorePage.tsx', import.meta.url), 'utf8');
 
-  assert.match(source, /setEditingProduct\(product\);[\s\S]*setProductDraft\(toProductDraft\(product\)\)/);
+  assert.match(source, /setEditingProduct\(product\);[\s\S]*setProductDraft\(getStoreProductEditorDraft\(product\)\)/);
   assert.match(source, /productFormRef\.current\?\.scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/);
-  assert.match(source, /productFormHeadingRef\.current\?\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(source, /productNameInputRef\.current\?\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(source, /layoutFrame = window\.requestAnimationFrame[\s\S]*focusFrame = window\.requestAnimationFrame/);
   assert.match(source, /card\?\.scrollIntoView\(\{ behavior: 'smooth', block: 'center' \}\)/);
   assert.match(source, /card\?\.focus\(\{ preventScroll: true \}\)/);
   assert.match(source, /data-product-form-mode=\{editingProduct \? 'edit' : 'add'\}/);
   assert.match(source, /setProducts\(current => \[[\s\S]*savedProduct,[\s\S]*product\.id !== savedProduct\.id/);
   assert.match(source, /setRecentlySavedProductId\(savedProduct\.id\)/);
+});
+
+test('validation failure remains in edit mode and focuses the invalid field', () => {
+  const source = readFileSync(new URL('./StorePage.tsx', import.meta.url), 'utf8');
+  const validationStart = source.indexOf('if (preflightError || optionError)');
+  const validationEnd = source.indexOf('setIsSaving(true)', validationStart);
+  const validationBranch = source.slice(validationStart, validationEnd);
+
+  assert.ok(validationStart >= 0);
+  assert.match(validationBranch, /setErrorMessage\(validationMessage\)/);
+  assert.match(validationBranch, /focusProductValidationError\(validationMessage\)/);
+  assert.match(validationBranch, /return;/);
+  assert.doesNotMatch(validationBranch, /setEditingProduct\(null\)|setIsProductFormOpen\(false\)|setRecentlySavedProductId/);
+  assert.match(source, /target === 'name'[\s\S]*productNameInputRef\.current/);
+  assert.match(source, /productFormRef\.current\?\.scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/);
 });
 
 test('Cancel Edit clears the draft and edit identity without saving', () => {

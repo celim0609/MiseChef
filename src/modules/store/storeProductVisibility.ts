@@ -21,6 +21,15 @@ export const filterPublicAvailableProducts = (
   storeId: string
 ) => products.filter(product => product.storeId === storeId && product.available);
 
+export const getStoreProductEditorDraft = (product: StoreProduct): StoreProductDraft => ({
+  photoUrl: product.photoUrl,
+  name: product.name,
+  description: product.description,
+  price: product.price,
+  available: product.available,
+  optionGroupIds: [...product.optionGroupIds]
+});
+
 export const getStoreProductEditorPresentation = (product: StoreProduct | null) => product
   ? {
       title: 'Edit Product',
@@ -34,6 +43,19 @@ export const getStoreProductEditorPresentation = (product: StoreProduct | null) 
       primaryAction: 'Add Product',
       cancelAction: 'Cancel'
     };
+
+export type StoreProductValidationTarget = 'photo' | 'name' | 'description' | 'price' | 'options';
+
+export const getStoreProductValidationTarget = (
+  validationMessage: string
+): StoreProductValidationTarget => {
+  const message = validationMessage.toLocaleLowerCase();
+  if (message.includes('photo')) return 'photo';
+  if (message.includes('product name')) return 'name';
+  if (message.includes('description')) return 'description';
+  if (message.includes('price')) return 'price';
+  return 'options';
+};
 
 export const buildUpdatedStoreProduct = (
   product: StoreProduct,

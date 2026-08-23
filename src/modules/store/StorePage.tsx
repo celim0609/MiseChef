@@ -61,7 +61,12 @@ import {
   getProductSaveErrorMessage,
   type ProductSaveStage
 } from './productSaveFeedback';
-import { filterAdminStoreProducts, getStoreProductEditorPresentation } from './storeProductVisibility';
+import {
+  filterAdminStoreProducts,
+  getStoreProductEditorDraft,
+  getStoreProductEditorPresentation,
+  getStoreProductValidationTarget
+} from './storeProductVisibility';
 
 interface StorePageProps {
   currentUser: User;
@@ -114,15 +119,6 @@ const toSettingsDraft = (store: WorkspaceStore): StoreSettingsDraft => ({
   unavailableDates: [...store.unavailableDates],
   paymentMethods: store.paymentMethods.map(method => ({ ...method })),
   hostProgram: { ...store.hostProgram }
-});
-
-const toProductDraft = (product: StoreProduct): StoreProductDraft => ({
-  photoUrl: product.photoUrl,
-  name: product.name,
-  description: product.description,
-  price: product.price,
-  available: product.available,
-  optionGroupIds: [...product.optionGroupIds]
 });
 
 const toProductOptionEditor = (
@@ -185,6 +181,11 @@ export default function StorePage({
   const [recentlySavedProductId, setRecentlySavedProductId] = useState('');
   const productFormRef = useRef<HTMLFormElement | null>(null);
   const productFormHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const productNameInputRef = useRef<HTMLInputElement | null>(null);
+  const productPriceInputRef = useRef<HTMLInputElement | null>(null);
+  const productDescriptionInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const productPhotoInputRef = useRef<HTMLInputElement | null>(null);
+  const productOptionsRef = useRef<HTMLDivElement | null>(null);
   const productCardRefs = useRef(new Map<string, HTMLElement>());
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -252,24 +253,34 @@ export default function StorePage({
   useEffect(() => {
     if (!isProductFormOpen || activeView !== 'products') return;
 
-    const frame = window.requestAnimationFrame(() => {
-      productFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      productFormHeadingRef.current?.focus({ preventScroll: true });
+    let focusFrame = 0;
+    const layoutFrame = window.requestAnimationFrame(() => {
+      focusFrame = window.requestAnimationFrame(() => {
+        productFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        productNameInputRef.current?.focus({ preventScroll: true });
+      });
     });
-    return () => window.cancelAnimationFrame(frame);
+    return () => {
+      window.cancelAnimationFrame(layoutFrame);
+      window.cancelAnimationFrame(focusFrame);
+    };
   }, [activeView, editingProduct?.id, isProductFormOpen]);
 
   useEffect(() => {
     if (!recentlySavedProductId || isProductFormOpen) return;
 
-    const frame = window.requestAnimationFrame(() => {
-      const card = productCardRefs.current.get(recentlySavedProductId);
-      card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      card?.focus({ preventScroll: true });
+    let focusFrame = 0;
+    const layoutFrame = window.requestAnimationFrame(() => {
+      focusFrame = window.requestAnimationFrame(() => {
+        const card = productCardRefs.current.get(recentlySavedProductId);
+        card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        card?.focus({ preventScroll: true });
+      });
     });
     const timeout = window.setTimeout(() => setRecentlySavedProductId(''), 1800);
     return () => {
-      window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(layoutFrame);
+      window.cancelAnimationFrame(focusFrame);
       window.clearTimeout(timeout);
     };
   }, [isProductFormOpen, recentlySavedProductId]);
@@ -491,7 +502,7 @@ export default function StorePage({
 
   const openProductEditor = (product: StoreProduct) => {
     setEditingProduct(product);
-    setProductDraft(toProductDraft(product));
+    setProductDraft(getStoreProductEditorDraft(product));
     setProductOptions(product.optionGroupIds.flatMap(groupId => {
       const group = optionGroups.find(candidate => candidate.id === groupId);
       return group ? [toProductOptionEditor(group, product.optionGroupIds.indexOf(groupId))] : [];
@@ -530,6 +541,25 @@ export default function StorePage({
     setSavedOptionGroupId('');
   };
 
+  const focusProductValidationError = (validationMessage: string) => {
+    const target = getStoreProductValidationTarget(validationMessage);
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        productFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        const targetElement = target === 'photo'
+          ? productPhotoInputRef.current
+          : target === 'name'
+            ? productNameInputRef.current
+            : target === 'description'
+              ? productDescriptionInputRef.current
+              : target === 'price'
+                ? productPriceInputRef.current
+                : productOptionsRef.current?.querySelector<HTMLElement>('input, select, button');
+        (targetElement || productFormHeadingRef.current)?.focus({ preventScroll: true });
+      });
+    });
+  };
+
   const handleProductSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!store || isSaving) return;
@@ -552,6 +582,7 @@ export default function StorePage({
     if (preflightError || optionError) {
       const validationMessage = preflightError || optionError || 'Check the product details and try again.';
       setErrorMessage(validationMessage);
+      focusProductValidationError(validationMessage);
       console.warn('[Store product save blocked]', getProductSaveDiagnostic({
         error: new Error(validationMessage),
         stage: 'validation',
@@ -858,19 +889,19 @@ export default function StorePage({
               <div className="mt-6 grid gap-5 md:grid-cols-2">
                 <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Product Name</span>
-                  <input value={productDraft.name} onChange={event => updateProduct('name', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                  <input ref={productNameInputRef} value={productDraft.name} onChange={event => updateProduct('name', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 </label>
                 <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Price ({region.currency})</span>
-                  <input type="number" min="0" step="0.01" value={productDraft.price} onChange={event => updateProduct('price', Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                  <input ref={productPriceInputRef} type="number" min="0" step="0.01" value={productDraft.price} onChange={event => updateProduct('price', Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 </label>
                 <label className="block md:col-span-2">
                   <span className="font-sans text-xs font-extrabold text-primary">Description</span>
-                  <textarea rows={3} value={productDraft.description} onChange={event => updateProduct('description', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                  <textarea ref={productDescriptionInputRef} rows={3} value={productDraft.description} onChange={event => updateProduct('description', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 </label>
                 <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Product Photo <span aria-hidden="true">*</span></span>
-                  <input type="file" accept="image/jpeg,image/png,image/webp" aria-required={!editingProduct && !productDraft.photoUrl} onChange={event => readImageFile(event, setProductPhotoFile)} className="mt-2 block w-full font-sans text-xs font-bold text-on-surface-variant" />
+                  <input ref={productPhotoInputRef} type="file" accept="image/jpeg,image/png,image/webp" aria-required={!editingProduct && !productDraft.photoUrl} onChange={event => readImageFile(event, setProductPhotoFile)} className="mt-2 block w-full font-sans text-xs font-bold text-on-surface-variant" />
                   <span className="mt-1 block font-sans text-[11px] font-bold text-outline">{productPhotoFile?.name || (productDraft.photoUrl ? 'Existing photo retained' : 'Photo required')}</span>
                 </label>
                 <label className="flex items-center justify-between gap-4 rounded-2xl bg-surface-container-low px-4 py-3">
@@ -879,7 +910,7 @@ export default function StorePage({
                 </label>
               </div>
 
-              <div className="mt-8 border-t border-surface-container-high pt-6">
+              <div ref={productOptionsRef} className="mt-8 border-t border-surface-container-high pt-6">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                   <div>
                     <h3 className="font-display text-xl font-bold text-primary">Options</h3>
