@@ -806,7 +806,9 @@ export default function App() {
         setActiveTab('home');
       } else {
         setActiveTab('login');
-        window.history.replaceState(null, '', '/login');
+        if (window.location.pathname !== '/login') {
+          window.history.replaceState(null, '', '/login');
+        }
       }
       return;
     }
@@ -876,7 +878,9 @@ export default function App() {
             setActiveTab('home');
           } else {
             setActiveTab('login');
-            window.history.replaceState(null, '', '/login');
+            if (window.location.pathname !== '/login') {
+              window.history.replaceState(null, '', '/login');
+            }
           }
         });
       }

@@ -6,6 +6,7 @@ import { createDefaultWorkspaceStore, normalizeWorkspaceStore, validateStoreSett
 
 const publicStorePage = readFileSync(new URL('./PublicStorePage.tsx', import.meta.url), 'utf8');
 const hostPage = readFileSync(new URL('./HostProgramPage.tsx', import.meta.url), 'utf8');
+const appSource = readFileSync(new URL('../../App.tsx', import.meta.url), 'utf8');
 const paymentService = readFileSync(new URL('./services/paymentService.ts', import.meta.url), 'utf8');
 const groupService = readFileSync(new URL('./services/groupOrderService.ts', import.meta.url), 'utf8');
 const rules = readFileSync(new URL('../../../firestore.rules', import.meta.url), 'utf8');
@@ -47,6 +48,8 @@ test('the Host CTA is conditional and Group checkout reuses PublicStorePage', ()
 test('Host activation uses the current account and sharing supports native Share and Copy Link', () => {
   assert.match(groupService, /activateMiseChefHost/);
   assert.match(hostPage, /existing MiseChef account/);
+  assert.match(appSource, /window\.location\.pathname !== '\/login'/);
+  assert.match(appSource, /new URLSearchParams\(window\.location\.search\)\.get\('returnTo'\)/);
   assert.match(hostPage, /navigator\.share/);
   assert.match(hostPage, /navigator\.clipboard\.writeText/);
   assert.match(hostPage, /Login or Register/);
