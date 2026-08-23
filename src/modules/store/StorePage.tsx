@@ -35,6 +35,7 @@ import {
   createStoreQrDataUrl,
   getPublicOrderingPath,
   getPublicOrderingUrl,
+  getStoreShareData,
   getStoreQrFileName
 } from './customerEntry';
 import {
@@ -336,6 +337,17 @@ export default function StorePage({
       setShareMessage('Ordering link copied.');
     } catch {
       setShareMessage('Copy failed. Select the link and copy it manually.');
+    }
+  };
+
+  const shareOrderingLink = async () => {
+    if (!store || typeof navigator.share !== 'function') return;
+    try {
+      await navigator.share(getStoreShareData(window.location.origin, store));
+      setShareMessage('Store shared.');
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      setShareMessage('Unable to open sharing. Copy the ordering link instead.');
     }
   };
 
@@ -1267,7 +1279,12 @@ export default function StorePage({
               <input readOnly value={getPublicOrderingUrl(window.location.origin, store.slug)} onFocus={event => event.currentTarget.select()} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-xs font-bold text-primary outline-none" />
             </label>
 
-            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <div className={`mt-4 grid gap-2 ${typeof navigator.share === 'function' ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
+              {typeof navigator.share === 'function' && (
+                <button type="button" onClick={shareOrderingLink} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">
+                  <Share2 className="h-4 w-4" /> Share Store
+                </button>
+              )}
               <button type="button" onClick={copyOrderingLink} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">
                 <Copy className="h-4 w-4" /> Copy Order Link
               </button>

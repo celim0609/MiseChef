@@ -1,4 +1,5 @@
 import { GoogleGenAI, Type } from '@google/genai';
+import { readFileSync } from 'node:fs';
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
@@ -54,6 +55,7 @@ import {
   extractResumeWithCompletenessRetry,
   ResumeExtractionIncompleteError
 } from './resumeExtractionReliability.js';
+import { createStoreSocialPreviewHandler } from './storeSocialPreview.js';
 
 initializeApp();
 
@@ -62,6 +64,7 @@ const geminiApiKey = defineSecret('GEMINI_API_KEY');
 const stripeSecretKey = defineSecret('STRIPE_SECRET_KEY');
 const stripeWebhookSecret = defineSecret('STRIPE_WEBHOOK_SECRET');
 const sellingWorkspaceId = defineString('SELLING_WORKSPACE_ID', { default: '' });
+const publicSiteOrigin = defineString('PUBLIC_SITE_ORIGIN', { default: '' });
 const MODEL = 'gemini-2.5-flash';
 const REGION = 'us-central1';
 const MAX_INVOICE_OCR_BYTES = 10 * 1024 * 1024;
@@ -71,6 +74,43 @@ const ALLOWED_INVOICE_OCR_MIME_TYPES = new Set([
   'image/png',
   'image/webp'
 ]);
+
+const publicStoreAppShell = readFileSync(
+  new URL('./generated/publicStoreAppShell.html', import.meta.url),
+  'utf8'
+);
+
+const publicStorePreviewHandler = createStoreSocialPreviewHandler({
+  projectId: process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || '',
+  configuredOrigin: publicSiteOrigin.value(),
+  loadStore: async slug => {
+    const snapshot = await db.collection('stores').where('slug', '==', slug).limit(1).get();
+    if (snapshot.empty) return null;
+    const data = snapshot.docs[0].data();
+    return {
+      slug: typeof data.slug === 'string' ? data.slug : slug,
+      name: typeof data.name === 'string' ? data.name : '',
+      description: typeof data.description === 'string' ? data.description : '',
+      coverImageUrl: typeof data.coverImageUrl === 'string' ? data.coverImageUrl : '',
+      logoUrl: typeof data.logoUrl === 'string' ? data.logoUrl : '',
+      updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : ''
+    };
+  },
+  loadAppShell: async () => publicStoreAppShell,
+  logError: (error, context) => logger.error('Public Store social preview failed', {
+    ...context,
+    message: error?.message || ''
+  })
+});
+
+export const renderPublicStore = onRequest({
+  region: REGION,
+  invoker: 'public',
+  timeoutSeconds: 10,
+  memory: '256MiB',
+  maxInstances: 20,
+  concurrency: 80
+}, publicStorePreviewHandler);
 
 export const provisionNewUserWorkspace = onCall({ region: REGION }, async request => provisionNewUser({
   db,

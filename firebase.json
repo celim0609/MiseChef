@@ -1,6 +1,9 @@
 {
   "functions": {
-    "source": "functions"
+    "source": "functions",
+    "predeploy": [
+      "node scripts/prepareStoreSocialTemplate.mjs"
+    ]
   },
   "firestore": {
     "rules": "firestore.rules",
@@ -42,6 +45,13 @@
       "**/node_modules/**"
     ],
     "rewrites": [
+      {
+        "source": "/store/**",
+        "function": {
+          "functionId": "renderPublicStore",
+          "region": "us-central1"
+        }
+      },
       {
         "source": "/go/recipes/**",
         "function": {

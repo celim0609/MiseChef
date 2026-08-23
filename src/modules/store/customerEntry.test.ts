@@ -1,15 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { resolvePublicRoute } from '../public/publicRoutes';
 import {
   createStoreQrBlob,
   createStoreQrDataUrl,
   getPublicOrderingPath,
   getPublicOrderingUrl,
+  getStoreShareData,
   getStoreQrFileName,
   STORE_QR_OPTIONS,
   STORE_QR_SIZE
 } from './customerEntry';
+
+const storePageSource = readFileSync(new URL('./StorePage.tsx', import.meta.url), 'utf8');
 
 test('shared links and QR codes open the public Store without entering the authenticated app', () => {
   const path = getPublicOrderingPath('ce-lim-kitchen');
@@ -24,6 +28,20 @@ test('shared links and QR codes open the public Store without entering the authe
     getPublicOrderingUrl('https://misechef.ai', 'ce-lim-kitchen'),
     'https://misechef.ai/store/ce-lim-kitchen'
   );
+});
+
+test('Web Share uses the Store name, description, and the same canonical ordering URL', () => {
+  assert.deepEqual(getStoreShareData('https://misechef-beta-fa4bf.web.app', {
+    slug: 'misechef-s-grab-go-store',
+    name: "MiseChef's Grab&Go Store",
+    description: 'Morning Grab & Go · Pre-order & Pickup'
+  }), {
+    title: "MiseChef's Grab&Go Store",
+    text: 'Morning Grab & Go · Pre-order & Pickup',
+    url: 'https://misechef-beta-fa4bf.web.app/store/misechef-s-grab-go-store'
+  });
+  assert.match(storePageSource, /navigator\.share\(getStoreShareData\(window\.location\.origin, store\)\)/);
+  assert.match(storePageSource, /Share Store/);
 });
 
 test('QR downloads use a stable Store-specific file name', () => {

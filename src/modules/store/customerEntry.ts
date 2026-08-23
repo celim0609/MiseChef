@@ -35,6 +35,15 @@ export const getPublicOrderingUrl = (origin: string, slug: string) => (
   new URL(getPublicOrderingPath(slug), origin).toString()
 );
 
+export const getStoreShareData = (
+  origin: string,
+  store: { slug: string; name: string; description: string }
+) => ({
+  title: store.name.trim() || 'MiseChef Store',
+  text: store.description.trim() || 'Browse this MiseChef Store and order ahead for pickup.',
+  url: getPublicOrderingUrl(origin, store.slug)
+});
+
 export const getStoreQrFileName = (slug: string) => (
   `${slug.trim() || 'misechef-store'}-order-qr.png`
 );
