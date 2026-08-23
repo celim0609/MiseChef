@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, Camera, ChevronDown, ChevronRight, FileText, Image as ImageIcon, MoreHorizontal, Plus, Trash2, X, Sparkles, Video } from 'lucide-react';
 import { loadPdfJsRuntime } from '../services/pdfRuntime';
 import { Recipe, Ingredient, MethodStep, RecipeCategory, RecipeVisibility, RecommendedProduct, UserRole, type ApprovedProductSummary } from '../types';
@@ -20,6 +20,8 @@ import {
 } from '../modules/costing/services/recipeIngredientLibrary';
 import { ApprovedProductSelector } from '../modules/products/components/ApprovedProductSelector';
 import { approvedProductService } from '../modules/products/services/approvedProductService';
+import RecipeCostAnalysis from './RecipeCostAnalysis';
+import { calculateRecipeEditorCostPreview } from '../modules/costing/services/recipeEditorCostPreview';
 
 const MAX_COVER_IMAGE_SIDE = 1200;
 const MAX_COVER_IMAGE_BYTES = 500 * 1024;
@@ -630,7 +632,7 @@ export default function AddRecipeTab({
   isSaving = false,
   saveError = ''
 }: AddRecipeTabProps) {
-  const isEditing = mode === 'edit' && initialRecipe;
+  const isEditing = mode === 'edit' && Boolean(initialRecipe);
 
   // Base details state
   const [title, setTitle] = useState(initialRecipe?.title || '');
@@ -791,6 +793,18 @@ export default function AddRecipeTab({
       isMounted = false;
     };
   }, [userId, workspaceId]);
+
+  const liveCostingRecipe = useMemo(() => {
+    if (!isEditing || !initialRecipe) return null;
+
+    return calculateRecipeEditorCostPreview({
+      recipe: initialRecipe,
+      ingredients,
+      libraryIngredients,
+      servings,
+      sellingPrice
+    });
+  }, [ingredients, initialRecipe, isEditing, libraryIngredients, sellingPrice, servings]);
 
   // Local helper for cover photo selection
   const handleCoverPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1786,33 +1800,9 @@ export default function AddRecipeTab({
         </div>
       </section>
 
-      {/* Chef's Story Section */}
-      <section className="bg-surface-container-low p-5 rounded-2xl border border-surface-container flex flex-col gap-4 shadow-sm">
-        <h3 className="font-display text-xl font-semibold text-primary flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-secondary animate-pulse" />
-          Story
-        </h3>
-        <textarea
-          value={story}
-          onChange={e => setStory(e.target.value)}
-          placeholder="Tell us the story behind this recipe. Is it a family heirloom? Inspired by a recent trip?"
-          rows={4}
-          className="w-full bg-white border-none rounded-xl font-sans text-sm text-on-surface p-4 focus:ring-1 focus:ring-primary resize-none placeholder:text-outline-variant font-medium leading-relaxed"
-        />
-      </section>
-
-      <section className="bg-surface-container-low p-5 rounded-2xl border border-surface-container flex flex-col gap-4 shadow-sm">
-        <h3 className="font-display text-xl font-semibold text-primary">
-          Chef Notes
-        </h3>
-        <textarea
-          value={chefNotes}
-          onChange={e => setChefNotes(e.target.value)}
-          placeholder="Add private notes, reminders, or cooking adjustments..."
-          rows={3}
-          className="w-full bg-white border-none rounded-xl font-sans text-sm text-on-surface p-4 focus:ring-1 focus:ring-primary resize-none placeholder:text-outline-variant font-medium leading-relaxed"
-        />
-      </section>
+      {liveCostingRecipe && (
+        <RecipeCostAnalysis recipe={liveCostingRecipe} defaultOpen livePreview />
+      )}
 
       {/* Ingredients List */}
       <section className="space-y-4" id="ingredients-section">
@@ -2106,6 +2096,34 @@ export default function AddRecipeTab({
             className="w-full bg-white border border-outline-variant/20 rounded-xl px-4 py-3 text-xs font-semibold placeholder:text-outline-variant"
           />
         </div>
+      </section>
+
+      {/* Secondary narrative details */}
+      <section className="bg-surface-container-low p-5 rounded-2xl border border-surface-container flex flex-col gap-4 shadow-sm">
+        <h3 className="font-display text-xl font-semibold text-primary flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-secondary" />
+          Story
+        </h3>
+        <textarea
+          value={story}
+          onChange={e => setStory(e.target.value)}
+          placeholder="Tell us the story behind this recipe. Is it a family heirloom? Inspired by a recent trip?"
+          rows={4}
+          className="w-full bg-surface-container-lowest border-none rounded-xl font-sans text-sm text-on-surface p-4 focus:ring-1 focus:ring-primary resize-none placeholder:text-outline-variant font-medium leading-relaxed"
+        />
+      </section>
+
+      <section className="bg-surface-container-low p-5 rounded-2xl border border-surface-container flex flex-col gap-4 shadow-sm">
+        <h3 className="font-display text-xl font-semibold text-primary">
+          Chef Notes
+        </h3>
+        <textarea
+          value={chefNotes}
+          onChange={e => setChefNotes(e.target.value)}
+          placeholder="Add private notes, reminders, or cooking adjustments..."
+          rows={3}
+          className="w-full bg-surface-container-lowest border-none rounded-xl font-sans text-sm text-on-surface p-4 focus:ring-1 focus:ring-primary resize-none placeholder:text-outline-variant font-medium leading-relaxed"
+        />
       </section>
 
       {/* Primary Floating Save Bar on bottom of screen (desktop has top nav Save, mobile also has this convenient one!) */}
