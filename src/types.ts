@@ -82,6 +82,11 @@ export type RecipeVisibility =
 
 export interface Recipe {
   id: string;
+  workspaceId?: string;
+  companyId?: string;
+  userId?: string;
+  createdBy?: string;
+  createdByName?: string;
   title: string;
   coverImage: string;
   imageUrl?: string;
@@ -109,6 +114,7 @@ export interface Recipe {
   isSaved: boolean;
   collections: string[]; // collection IDs
   createdAt?: string;
+  updatedAt?: string;
   tags?: string[];
   isFeatured?: boolean;
   visibility?: RecipeVisibility;

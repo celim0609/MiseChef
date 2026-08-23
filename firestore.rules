@@ -624,13 +624,20 @@ service cloud.firestore {
 
     match /recipes/{recipeId} {
       allow create: if ownsIncomingUserData()
+        && request.resource.data.workspaceId is string
+        && request.resource.data.workspaceId.size() > 0
+        && request.resource.data.createdBy == request.auth.uid
         && canAccessRecipes(incomingWorkspaceId())
         && hasValidRecommendedProductIds()
         && doesNotCreateLegacyRecommendations();
-      allow read: if canAccessRecipes(existingWorkspaceId());
+      allow read: if isWorkspaceMember(existingWorkspaceId());
       allow delete: if canAccessRecipes(existingWorkspaceId());
       allow update: if canAccessRecipes(existingWorkspaceId())
         && (!('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId)
+        && (!('createdBy' in request.resource.data)
+          || (('createdBy' in resource.data)
+            ? request.resource.data.createdBy == resource.data.createdBy
+            : request.resource.data.createdBy == resource.data.userId))
         && incomingWorkspaceId() == existingWorkspaceId()
         && hasValidRecommendedProductIds()
         && preservesOrRemovesLegacyRecommendations();
@@ -661,7 +668,8 @@ service cloud.firestore {
 
     match /categories/{categoryId} {
       allow create: if ownsIncomingUserData() && canAccessRecipes(incomingWorkspaceId());
-      allow read, delete: if canAccessRecipes(existingWorkspaceId());
+      allow read: if isWorkspaceMember(existingWorkspaceId());
+      allow delete: if canAccessRecipes(existingWorkspaceId());
       allow update: if canAccessRecipes(existingWorkspaceId())
         && (!('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId)
         && incomingWorkspaceId() == existingWorkspaceId();

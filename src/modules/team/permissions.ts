@@ -23,7 +23,6 @@ export const TEAM_ROLE_DESCRIPTIONS: Record<WorkspaceMemberRole, string> = {
 };
 
 const MANAGER_LEVEL_ROLES: WorkspaceMemberRole[] = ['Owner', 'Manager', 'Head Chef'];
-const RECIPE_ROLES: WorkspaceMemberRole[] = ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef'];
 const INVOICE_ROLES: WorkspaceMemberRole[] = ['Owner', 'Manager', 'Head Chef', 'Purchasing'];
 const SUPPLIER_ROLES: WorkspaceMemberRole[] = ['Owner', 'Manager', 'Head Chef', 'Purchasing'];
 const BUSINESS_ROLES: WorkspaceMemberRole[] = ['Owner', 'Manager', 'Head Chef', 'Finance'];
@@ -51,7 +50,7 @@ export const canAccessRootTab = (tab: RootTab, role?: WorkspaceMemberRole | null
     case 'favorites':
       return true;
     case 'search':
-      return RECIPE_ROLES.includes(role);
+      return true;
     case 'business':
     case 'businessSales':
       return BUSINESS_ROLES.includes(role) || MANAGER_LEVEL_ROLES.includes(role);

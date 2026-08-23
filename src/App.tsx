@@ -321,7 +321,9 @@ const getFirestoreRecipePayload = (recipe: Recipe, user: User) => {
     visibility: recipe.visibility || 'private',
     coverImage: imageUrl,
     imageUrl,
-    userId: user.uid,
+    userId: recipe.userId || user.uid,
+    createdBy: recipe.createdBy || recipe.userId || user.uid,
+    createdByName: recipe.createdByName || getAuthenticatedDisplayName(user),
     updatedAt: new Date().toISOString()
   });
 };
@@ -443,37 +445,30 @@ const loadFirestoreProfile = async (user: User) => {
 const loadFirestoreRecipes = async (user: User, workspaceId = user.uid) => {
   if (!db) return [];
 
-  const recipesQuery = workspaceId === user.uid
-    ? query(collection(db, 'recipes'), where('userId', '==', user.uid))
-    : query(collection(db, 'recipes'), where('workspaceId', '==', workspaceId));
+  const recipesQuery = query(collection(db, 'recipes'), where('workspaceId', '==', workspaceId));
   const snapshot = await getDocs(recipesQuery);
 
   return snapshot.docs
     .map(recipeDoc => {
-      const data = recipeDoc.data() as Recipe & { workspaceId?: string };
+      const data = recipeDoc.data() as Recipe;
       return normalizeLoadedRecipe({
         id: recipeDoc.id,
         ...data
       } as Recipe);
     })
-    .filter(recipe => {
-      const workspaceValue = (recipe as Recipe & { workspaceId?: string }).workspaceId;
-      return workspaceId === user.uid ? !workspaceValue || workspaceValue === workspaceId : workspaceValue === workspaceId;
-    })
+    .filter(recipe => recipe.workspaceId === workspaceId)
     .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 };
 
 const loadFirestoreCategories = async (user: User, workspaceId = user.uid) => {
   if (!db) return [];
 
-  const categoriesQuery = workspaceId === user.uid
-    ? query(collection(db, 'categories'), where('userId', '==', user.uid))
-    : query(collection(db, 'categories'), where('workspaceId', '==', workspaceId));
+  const categoriesQuery = query(collection(db, 'categories'), where('workspaceId', '==', workspaceId));
   const snapshot = await getDocs(categoriesQuery);
   const loadedCategories = snapshot.docs
     .map(categoryDoc => ({ id: categoryDoc.id, ...categoryDoc.data() } as RecipeCategory & { workspaceId?: string }))
     .filter(category => category.name?.trim())
-    .filter(category => workspaceId === user.uid ? !category.workspaceId || category.workspaceId === workspaceId : category.workspaceId === workspaceId)
+    .filter(category => category.workspaceId === workspaceId)
     .sort((a, b) => a.name.localeCompare(b.name));
 
   return sanitizeCategoryList(loadedCategories);
@@ -1281,6 +1276,11 @@ export default function App() {
     const duplicatedRecipe: Recipe = {
       ...recipe,
       id: `recipe_${Date.now()}`,
+      workspaceId: undefined,
+      companyId: undefined,
+      userId: undefined,
+      createdBy: undefined,
+      createdByName: undefined,
       title: `${recipe.title} Copy`,
       scanAttachmentUrl: undefined,
       scannedImageDataUrl: undefined,

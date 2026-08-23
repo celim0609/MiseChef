@@ -1653,9 +1653,12 @@ export default function AddRecipeTab({
               onChange={e => setVisibility(e.target.value as Extract<RecipeVisibility, 'private' | 'public'>)}
               className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold cursor-pointer transition-all"
             >
-              <option value="private">🔒 Private</option>
-              <option value="public">🌍 Public</option>
+              <option value="private">🔒 Private — Workspace only</option>
+              <option value="public">🌍 Public — Workspace + public profile</option>
             </select>
+            <p className="px-1 font-sans text-[11px] font-semibold text-on-surface-variant">
+              Both options are visible to active members of this Workspace.
+            </p>
           </div>
 
           <div className="space-y-1.5">
