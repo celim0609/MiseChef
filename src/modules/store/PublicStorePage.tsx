@@ -95,6 +95,7 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
   const [paymentSession, setPaymentSession] = useState<StorePaymentSession | null>(null);
   const [placedOrder, setPlacedOrder] = useState<PublicStoreOrderResult | null>(null);
   const [isCheckoutVisible, setIsCheckoutVisible] = useState(false);
+  const [isHostInfoOpen, setIsHostInfoOpen] = useState(false);
 
   useEffect(() => {
     let isCancelled = false;
@@ -439,9 +440,34 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
       </section>
 
       {!groupOrder && store.hostProgram.enabled && (
-        <section className="flex flex-col gap-4 rounded-3xl border border-secondary/25 bg-secondary/10 p-6 sm:flex-row sm:items-center sm:justify-between">
-          <div><p className="font-sans text-xs font-extrabold uppercase tracking-[0.18em] text-secondary">MiseChef Host Program</p><h2 className="mt-2 font-display text-2xl font-bold text-primary">Start a Group Order</h2><p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">Invite friends or colleagues and earn Host Rewards.</p></div>
-          <a href={`/host/${encodeURIComponent(store.slug)}`} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">Become a Host <ArrowRight className="h-4 w-4" /></a>
+        <section aria-labelledby="host-opportunity-title" className="overflow-hidden rounded-3xl border border-surface-container-high bg-surface-container-low shadow-sm">
+          <div className="grid gap-5 p-6 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:p-7">
+            <div>
+              <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Host a MiseChef Group Order</p>
+              <h2 id="host-opportunity-title" className="mt-2 font-display text-2xl font-bold text-primary sm:text-3xl">Bring your group. Get rewarded.</h2>
+              <p className="mt-2 max-w-2xl font-sans text-sm font-bold leading-relaxed text-on-surface-variant">Invite friends, family or colleagues to order together and earn Host Rewards.</p>
+              <p className="mt-4 inline-flex rounded-full border border-secondary/25 bg-secondary/10 px-4 py-2 font-sans text-xs font-extrabold text-primary">
+                Earn {store.hostProgram.rewardPercent.toLocaleString(undefined, { maximumFractionDigits: 2 })}% on qualifying group orders
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 sm:min-w-44">
+              <a href={`/host/${encodeURIComponent(store.slug)}`} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">Become a Host <ArrowRight className="h-4 w-4" /></a>
+              <button type="button" aria-expanded={isHostInfoOpen} aria-controls="host-opportunity-details" onClick={() => setIsHostInfoOpen(current => !current)} className="rounded-full border border-surface-container-high bg-surface px-5 py-3 font-sans text-xs font-extrabold text-primary">
+                {isHostInfoOpen ? 'Show less' : 'Learn more'}
+              </button>
+            </div>
+          </div>
+          {isHostInfoOpen && (
+            <div id="host-opportunity-details" className="border-t border-surface-container-high bg-surface/70 px-6 py-5 sm:px-7">
+              <ol className="grid gap-3 font-sans text-sm font-bold leading-relaxed text-on-surface-variant sm:grid-cols-2">
+                <li><span className="font-extrabold text-primary">1. Create your Group.</span> Choose one coordinated pickup time.</li>
+                <li><span className="font-extrabold text-primary">2. Share your Group link.</span> Invite friends, family or colleagues.</li>
+                <li><span className="font-extrabold text-primary">3. Guests order and pay individually.</span> Guests do not need a MiseChef account, and the Host does not collect their money.</li>
+                <li><span className="font-extrabold text-primary">4. Track qualifying rewards.</span> Estimated Host Reward applies once completed Group Sales reach {formatRegionCurrency(store.hostProgram.minimumQualifyingSales, store.currency)}.</li>
+              </ol>
+              <p className="mt-4 font-sans text-xs font-bold leading-relaxed text-outline">Phase 1 tracks estimated Host Rewards only. It is not a cash wallet or transferable balance.</p>
+            </div>
+          )}
         </section>
       )}
 

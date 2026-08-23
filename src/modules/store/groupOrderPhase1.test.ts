@@ -32,7 +32,13 @@ test('Store-level reward configuration is bounded', () => {
 
 test('the Host CTA is conditional and Group checkout reuses PublicStorePage', () => {
   assert.match(publicStorePage, /!groupOrder && store\.hostProgram\.enabled/);
-  assert.match(publicStorePage, /Start a Group Order/);
+  assert.match(publicStorePage, /Bring your group\. Get rewarded\./);
+  assert.match(publicStorePage, /store\.hostProgram\.rewardPercent\.toLocaleString/);
+  assert.match(publicStorePage, /formatRegionCurrency\(store\.hostProgram\.minimumQualifyingSales, store\.currency\)/);
+  assert.match(publicStorePage, /Guests order and pay individually\./);
+  assert.match(publicStorePage, /Host does not collect their money/);
+  assert.match(publicStorePage, /Phase 1 tracks estimated Host Rewards only/);
+  assert.doesNotMatch(publicStorePage, /Earn 5% on qualifying group orders/);
   assert.match(publicStorePage, /groupShareCode: groupOrder\.shareCode/);
   assert.match(publicStorePage, /disabled=\{Boolean\(groupOrder\)\}/);
   assert.match(paymentService, /createPublicStorePayment/);
