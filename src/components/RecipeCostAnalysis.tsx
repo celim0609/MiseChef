@@ -1,13 +1,12 @@
 import React, { useState } from 'react';
 import { ChevronDown, DollarSign } from 'lucide-react';
 import type { Recipe } from '../types';
+import { formatRegionCurrency, useWorkspaceRegion } from '../regions';
 
-const formatCurrency = (value: number | undefined) => `$${Number(value || 0).toFixed(2)}`;
-
-const formatUnitCost = (value: number | undefined) => {
+const formatUnitCost = (value: number | undefined, currency: string) => {
   const amount = Number(value);
   if (!Number.isFinite(amount)) return '—';
-  return `$${amount.toLocaleString(undefined, {
+  return `${currency} ${amount.toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 6
   })}`;
@@ -30,14 +29,23 @@ interface RecipeCostAnalysisProps {
   recipe: Recipe;
   defaultOpen?: boolean;
   livePreview?: boolean;
+  sellingPriceValue?: string;
+  onSellingPriceChange?: (value: string) => void;
+  sellingPriceError?: string;
+  sellingPriceInputRef?: React.Ref<HTMLInputElement>;
 }
 
 export default function RecipeCostAnalysis({
   recipe,
   defaultOpen = false,
-  livePreview = false
+  livePreview = false,
+  sellingPriceValue,
+  onSellingPriceChange,
+  sellingPriceError,
+  sellingPriceInputRef
 }: RecipeCostAnalysisProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  const region = useWorkspaceRegion();
   const recipeCosting = recipe.costing;
   const costingWarnings = recipe.ingredients.filter(ingredient => ingredient.costingWarning);
   const hasCostBreakdown = Boolean(recipeCosting?.breakdown?.length);
@@ -50,6 +58,8 @@ export default function RecipeCostAnalysis({
     && Number.isFinite(Number(recipeCosting?.foodCostPercentage))
     && Number.isFinite(Number(recipeCosting?.grossProfitPercentage));
   const contentId = `recipe-cost-analysis-${livePreview ? 'editor' : 'detail'}`;
+  const isSellingPriceEditable = sellingPriceValue !== undefined && Boolean(onSellingPriceChange);
+  const savedSellingPrice = Number(recipe.sellingPrice ?? recipeCosting?.sellingPrice ?? 0);
 
   return (
     <section className="overflow-hidden rounded-2xl border border-surface-container-high bg-surface-container-lowest shadow-sm">
@@ -77,18 +87,50 @@ export default function RecipeCostAnalysis({
 
       {isOpen && (
         <div id={contentId} className="space-y-5 border-t border-surface-container px-5 py-5">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
             <div className="rounded-xl border border-surface-container bg-surface-container-low px-3 py-2">
               <span className="block font-sans text-[10px] font-bold uppercase tracking-wider text-outline">Total Cost</span>
               <span className="font-sans text-sm font-extrabold text-primary">
-                {hasTotalCost ? formatCurrency(recipeCosting?.totalRecipeCost) : '—'}
+                {hasTotalCost ? formatRegionCurrency(Number(recipeCosting?.totalRecipeCost), region.currency) : '—'}
               </span>
             </div>
             <div className="rounded-xl border border-surface-container bg-surface-container-low px-3 py-2">
               <span className="block font-sans text-[10px] font-bold uppercase tracking-wider text-outline">Per Portion</span>
               <span className="font-sans text-sm font-extrabold text-primary">
-                {hasPerPortionCost ? formatCurrency(recipeCosting?.costPerPortion) : '—'}
+                {hasPerPortionCost ? formatRegionCurrency(Number(recipeCosting?.costPerPortion), region.currency) : '—'}
               </span>
+            </div>
+            <div className={`rounded-xl border bg-surface-container-low px-3 py-2 ${sellingPriceError ? 'border-error/50' : 'border-surface-container'}`}>
+              <span className="block font-sans text-[10px] font-bold uppercase tracking-wider text-outline">
+                Selling Price
+              </span>
+              {isSellingPriceEditable ? (
+                <div className="mt-0.5 flex items-center gap-1.5">
+                  <span className="font-sans text-xs font-extrabold text-on-surface-variant">{region.currency}</span>
+                  <input
+                    ref={sellingPriceInputRef}
+                    id={`${contentId}-selling-price`}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={sellingPriceValue}
+                    onChange={event => onSellingPriceChange?.(event.target.value)}
+                    aria-label={`Selling Price (${region.currency})`}
+                    aria-invalid={Boolean(sellingPriceError)}
+                    aria-describedby={sellingPriceError ? `${contentId}-selling-price-error` : undefined}
+                    className="min-w-0 w-full rounded-lg border border-surface-container-high bg-surface-container-lowest px-2 py-1 font-sans text-sm font-extrabold text-primary focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+              ) : (
+                <span className="font-sans text-sm font-extrabold text-primary">
+                  {Number.isFinite(savedSellingPrice) ? formatRegionCurrency(savedSellingPrice, region.currency) : '—'}
+                </span>
+              )}
+              {sellingPriceError && (
+                <span id={`${contentId}-selling-price-error`} role="alert" className="mt-1 block font-sans text-[10px] font-bold text-error">
+                  {sellingPriceError}
+                </span>
+              )}
             </div>
             <div className="rounded-xl border border-surface-container bg-surface-container-low px-3 py-2">
               <span className="block font-sans text-[10px] font-bold uppercase tracking-wider text-outline">Food Cost</span>
@@ -137,10 +179,10 @@ export default function RecipeCostAnalysis({
                         {item.quantity} {item.unit}
                       </td>
                       <td className="px-3 py-4 font-sans text-xs font-semibold text-on-surface-variant">
-                        {formatUnitCost(item.unitCost)} / {item.unit || 'unit'}
+                        {formatUnitCost(item.unitCost, region.currency)} / {item.unit || 'unit'}
                       </td>
                       <td className="px-3 py-4 font-sans text-sm font-extrabold text-primary">
-                        {formatCurrency(item.ingredientCost)}
+                        {formatRegionCurrency(item.ingredientCost, region.currency)}
                       </td>
                       <td className="py-4 pl-3 text-right font-sans text-[11px] font-semibold text-outline">
                         {item.percentageOfTotalRecipeCost}%

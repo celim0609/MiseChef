@@ -6,6 +6,7 @@ import type { Recipe } from '../types';
 import type { CostingIngredient } from '../modules/costing/types';
 import { calculateRecipeCosting } from '../modules/costing/services/recipeCostCalculator';
 import { calculateRecipeEditorCostPreview } from '../modules/costing/services/recipeEditorCostPreview';
+import { WorkspaceRegionProvider } from '../regions';
 import RecipeCostAnalysis from './RecipeCostAnalysis';
 
 const calculatedAt = '2026-08-23T08:00:00.000Z';
@@ -117,22 +118,61 @@ test('servings and selling price recalculate per-portion and profit metrics', ()
   const higherPrice = preview({ sellingPrice: '10' });
   assert.equal(higherPrice.costing?.foodCostPercentage, 2.4);
   assert.equal(higherPrice.costing?.grossProfitPercentage, 97.6);
+
+  const experimentalPrice = preview({ sellingPrice: '3.50' });
+  const updatedExperimentalPrice = preview({ sellingPrice: '4.00' });
+  assert.equal(experimentalPrice.costing?.foodCostPercentage, 6.9);
+  assert.equal(experimentalPrice.costing?.grossProfitPercentage, 93.1);
+  assert.equal(updatedExperimentalPrice.costing?.foodCostPercentage, 6);
+  assert.equal(updatedExperimentalPrice.costing?.grossProfitPercentage, 94);
+
+  const quantityAgainstDraftPrice = preview({
+    ingredients: [{ ...recipe.ingredients[0], qty: '20' }],
+    sellingPrice: '4.00'
+  });
+  assert.equal(quantityAgainstDraftPrice.costing?.foodCostPercentage, 12.3);
+  assert.equal(quantityAgainstDraftPrice.costing?.grossProfitPercentage, 87.8);
 });
 
-test('shared Cost Analysis renders the same metrics and responsive table in Edit Recipe', () => {
+test('shared Cost Analysis renders one editable MYR Selling Price in Edit Recipe', () => {
   const markup = renderToStaticMarkup(
-    <RecipeCostAnalysis recipe={preview()} defaultOpen livePreview />
+    <WorkspaceRegionProvider workspace={{ country: 'MY' }}>
+      <RecipeCostAnalysis
+        recipe={preview()}
+        defaultOpen
+        livePreview
+        sellingPriceValue="5"
+        onSellingPriceChange={() => undefined}
+      />
+    </WorkspaceRegionProvider>
   );
 
   assert.match(markup, /Cost Analysis/);
   assert.match(markup, /Live preview/);
   assert.match(markup, /Total Cost/);
   assert.match(markup, /Per Portion/);
+  assert.match(markup, /Selling Price/);
+  assert.match(markup, /aria-label="Selling Price \(MYR\)"/);
+  assert.match(markup, /value="5"/);
+  assert.match(markup, /MYR 0\.49/);
   assert.match(markup, /Food Cost/);
   assert.match(markup, /Gross Profit/);
   assert.match(markup, /Ingredient Cost/);
   assert.match(markup, /% of Total/);
   assert.match(markup, /min-w-\[620px\]/);
+});
+
+test('read-only Recipe Detail shows the saved Selling Price with Workspace currency', () => {
+  const markup = renderToStaticMarkup(
+    <WorkspaceRegionProvider workspace={{ country: 'MY' }}>
+      <RecipeCostAnalysis recipe={preview()} defaultOpen />
+    </WorkspaceRegionProvider>
+  );
+
+  assert.match(markup, /Selling Price/);
+  assert.match(markup, /MYR 5\.00/);
+  assert.doesNotMatch(markup, /aria-label="Selling Price \(MYR\)"/);
+  assert.doesNotMatch(markup, /\$5\.00/);
 });
 
 test('Edit Recipe places Cost Analysis before Ingredients and Story/Chef Notes after operational sections', () => {
@@ -154,4 +194,7 @@ test('Add Recipe remains available without exposing Edit-only live costing', () 
   const source = readFileSync(new URL('./AddRecipeTab.tsx', import.meta.url), 'utf8');
   assert.match(source, /if \(!isEditing \|\| !initialRecipe\) return null/);
   assert.match(source, /\{liveCostingRecipe && \(/);
+  assert.match(source, /\{!isEditing && \([\s\S]*Selling Price/);
+  assert.match(source, /sellingPriceValue=\{sellingPrice\}/);
+  assert.match(source, /onSellingPriceChange=\{value => \{[\s\S]*setSellingPrice\(value\)/);
 });

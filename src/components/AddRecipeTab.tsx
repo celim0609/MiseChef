@@ -1776,32 +1776,46 @@ export default function AddRecipeTab({
           />
         </div>
 
-        <div className="space-y-1.5">
-          <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Selling Price</label>
-          <input
-            ref={sellingPriceInputRef}
-            type="number"
-            min="0"
-            step="0.01"
-            value={sellingPrice}
-            onChange={e => {
-              setSellingPrice(e.target.value);
-              clearValidationError('sellingPrice');
-            }}
-            aria-invalid={Boolean(validationErrors.sellingPrice)}
-            placeholder="0.00"
-            className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold"
-          />
-          {validationErrors.sellingPrice && (
-            <p role="alert" className="px-1 font-sans text-[11px] font-bold text-error">
-              {validationErrors.sellingPrice}
-            </p>
-          )}
-        </div>
+        {!isEditing && (
+          <div className="space-y-1.5">
+            <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Selling Price</label>
+            <input
+              ref={sellingPriceInputRef}
+              type="number"
+              min="0"
+              step="0.01"
+              value={sellingPrice}
+              onChange={event => {
+                setSellingPrice(event.target.value);
+                clearValidationError('sellingPrice');
+              }}
+              aria-invalid={Boolean(validationErrors.sellingPrice)}
+              placeholder="0.00"
+              className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold"
+            />
+            {validationErrors.sellingPrice && (
+              <p role="alert" className="px-1 font-sans text-[11px] font-bold text-error">
+                {validationErrors.sellingPrice}
+              </p>
+            )}
+          </div>
+        )}
+
       </section>
 
       {liveCostingRecipe && (
-        <RecipeCostAnalysis recipe={liveCostingRecipe} defaultOpen livePreview />
+        <RecipeCostAnalysis
+          recipe={liveCostingRecipe}
+          defaultOpen
+          livePreview
+          sellingPriceValue={sellingPrice}
+          onSellingPriceChange={value => {
+            setSellingPrice(value);
+            clearValidationError('sellingPrice');
+          }}
+          sellingPriceError={validationErrors.sellingPrice}
+          sellingPriceInputRef={sellingPriceInputRef}
+        />
       )}
 
       {/* Ingredients List */}
