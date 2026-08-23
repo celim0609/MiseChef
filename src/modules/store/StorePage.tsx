@@ -31,6 +31,8 @@ import {
 import { storeService } from './services';
 import StoreOrdersPanel from './StoreOrdersPanel';
 import {
+  createStoreQrBlob,
+  createStoreQrDataUrl,
   getPublicOrderingPath,
   getPublicOrderingUrl,
   getStoreQrFileName
@@ -183,6 +185,7 @@ export default function StorePage({
   const [isStoreLoadError, setIsStoreLoadError] = useState(false);
   const [isShareOpen, setIsShareOpen] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState('');
+  const [qrDownloadUrl, setQrDownloadUrl] = useState('');
   const [shareMessage, setShareMessage] = useState('');
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
   const [unavailableDateDraft, setUnavailableDateDraft] = useState('');
@@ -242,25 +245,16 @@ export default function StorePage({
     if (!isShareOpen || !store) return;
 
     let isCancelled = false;
+    const orderingUrl = getPublicOrderingUrl(window.location.origin, store.slug);
     setIsGeneratingQr(true);
+    setQrDataUrl('');
     setShareMessage('');
-    import('qrcode')
-      .then(({ default: QRCode }) => QRCode.toDataURL(
-        getPublicOrderingUrl(window.location.origin, store.slug),
-        {
-          width: 768,
-          margin: 3,
-          errorCorrectionLevel: 'M',
-          color: {
-            dark: '#1f2933',
-            light: '#ffffff'
-          }
-        }
-      ))
+    createStoreQrDataUrl(orderingUrl)
       .then(dataUrl => {
         if (!isCancelled) setQrDataUrl(dataUrl);
       })
-      .catch(() => {
+      .catch(error => {
+        console.error('Store QR generation failed.', error);
         if (!isCancelled) setShareMessage('Unable to create the QR code. Please try again.');
       })
       .finally(() => {
@@ -271,6 +265,22 @@ export default function StorePage({
       isCancelled = true;
     };
   }, [isShareOpen, store]);
+
+  useEffect(() => {
+    if (!qrDataUrl) {
+      setQrDownloadUrl('');
+      return;
+    }
+    try {
+      const downloadUrl = URL.createObjectURL(createStoreQrBlob(qrDataUrl));
+      setQrDownloadUrl(downloadUrl);
+      return () => URL.revokeObjectURL(downloadUrl);
+    } catch (error) {
+      console.error('Store QR download preparation failed.', error);
+      setQrDownloadUrl('');
+      setShareMessage('Unable to prepare the QR code download. Please try again.');
+    }
+  }, [qrDataUrl]);
 
   const updateSettings = <K extends keyof StoreSettingsDraft>(
     field: K,
@@ -330,11 +340,13 @@ export default function StorePage({
   };
 
   const downloadQrCode = () => {
-    if (!store || !qrDataUrl) return;
+    if (!store || !qrDownloadUrl) return;
     const link = document.createElement('a');
-    link.href = qrDataUrl;
+    link.href = qrDownloadUrl;
     link.download = getStoreQrFileName(store.slug);
+    document.body.appendChild(link);
     link.click();
+    link.remove();
     setShareMessage('QR code downloaded.');
   };
 
@@ -1259,7 +1271,7 @@ export default function StorePage({
               <button type="button" onClick={copyOrderingLink} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">
                 <Copy className="h-4 w-4" /> Copy Order Link
               </button>
-              <button type="button" onClick={downloadQrCode} disabled={!qrDataUrl || isGeneratingQr} className="inline-flex items-center justify-center gap-2 rounded-full bg-surface-container px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-50">
+              <button type="button" onClick={downloadQrCode} disabled={!qrDataUrl || !qrDownloadUrl || isGeneratingQr} className="inline-flex items-center justify-center gap-2 rounded-full bg-surface-container px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-50">
                 <Download className="h-4 w-4" /> Download QR Code
               </button>
             </div>
