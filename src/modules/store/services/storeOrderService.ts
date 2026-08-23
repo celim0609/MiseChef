@@ -107,6 +107,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     ) as StoreOrder['fulfilmentStatus'],
     fulfilmentUpdatedAt: readTimestamp(data.fulfilmentUpdatedAt),
     fulfilmentUpdatedBy: readString(data.fulfilmentUpdatedBy),
+    completedAt: readTimestamp(data.completedAt),
     cancelledAt: readTimestamp(data.cancelledAt),
     cancelledBy: readString(data.cancelledBy),
     cancellationReason: readString(data.cancellationReason),
@@ -192,6 +193,31 @@ export const storeOrderService = {
     );
   },
 
+  subscribeCompletedOrders(
+    storeId: string,
+    workspaceId: string,
+    onData: (orders: StoreOrder[]) => void,
+    onError: (error: Error) => void
+  ) {
+    if (!db || !storeId || !workspaceId) {
+      onData([]);
+      return () => undefined;
+    }
+    return onSnapshot(
+      query(
+        collection(db, 'storeOrders'),
+        where('storeId', '==', storeId),
+        where('workspaceId', '==', workspaceId),
+        where('fulfilmentStatus', '==', 'Completed')
+      ),
+      snapshot => onData(snapshot.docs
+        .map(normalizeOrder)
+        .sort((a, b) => (b.completedAt || b.fulfilmentUpdatedAt)
+          .localeCompare(a.completedAt || a.fulfilmentUpdatedAt))),
+      error => onError(error)
+    );
+  },
+
   subscribeOrders(
     workspaceId: string,
     onData: (orders: StoreOrder[]) => void,
@@ -219,15 +245,31 @@ export const storeOrderService = {
     end: Date
   ): Promise<StoreOrder[]> {
     if (!db || !storeId || !workspaceId) return [];
-    const snapshot = await getDocs(query(
-      collection(db, 'storeOrders'),
+    const baseConstraints = [
       where('storeId', '==', storeId),
-      where('workspaceId', '==', workspaceId),
-      where('createdAt', '>=', Timestamp.fromDate(start)),
-      where('createdAt', '<', Timestamp.fromDate(end)),
-      orderBy('createdAt', 'desc')
-    ));
-    return snapshot.docs.map(normalizeOrder);
+      where('workspaceId', '==', workspaceId)
+    ] as const;
+    const [canonicalSnapshot, legacySnapshot] = await Promise.all([
+      getDocs(query(
+        collection(db, 'storeOrders'),
+        ...baseConstraints,
+        where('createdAt', '>=', Timestamp.fromDate(start)),
+        where('createdAt', '<', Timestamp.fromDate(end)),
+        orderBy('createdAt', 'desc')
+      )),
+      getDocs(query(
+        collection(db, 'storeOrders'),
+        ...baseConstraints,
+        where('createdAt', '>=', start.toISOString()),
+        where('createdAt', '<', end.toISOString()),
+        orderBy('createdAt', 'desc')
+      ))
+    ]);
+    const ordersById = new Map(
+      [...canonicalSnapshot.docs, ...legacySnapshot.docs]
+        .map(snapshot => [snapshot.id, normalizeOrder(snapshot)] as const)
+    );
+    return [...ordersById.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   },
 
   subscribeTimeline(

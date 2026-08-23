@@ -17,6 +17,15 @@ export const countActiveOnlineOrders = (orders: StoreOrder[]) => orders.filter(
   order => order.orderSource === 'online' && toActivePosStatus(order.fulfilmentStatus)
 ).length;
 
+export const getOrderCompletionTimestamp = (order: StoreOrder) => (
+  order.completedAt || (order.fulfilmentStatus === 'Completed' ? order.fulfilmentUpdatedAt : '')
+);
+
+export const isOrderCompletedOnMalaysiaDate = (order: StoreOrder, dateKey: string) => (
+  order.fulfilmentStatus === 'Completed'
+  && toMalaysiaDateKey(getOrderCompletionTimestamp(order)) === dateKey
+);
+
 export const toMalaysiaDateKey = (value: Date | string | number = new Date()) => {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return '';

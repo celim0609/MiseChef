@@ -135,6 +135,9 @@ export const updateStoreOrderFulfilment = async ({
       fulfilmentUpdatedBy: uid,
       updatedAt: FieldValue.serverTimestamp()
     };
+    if (normalizedNextStatus === STORE_FULFILMENT_STATUS.completed) {
+      orderUpdate.completedAt = FieldValue.serverTimestamp();
+    }
     if (normalizedNextStatus === STORE_FULFILMENT_STATUS.cancelled) {
       orderUpdate.cancelledAt = FieldValue.serverTimestamp();
       orderUpdate.cancelledBy = uid;

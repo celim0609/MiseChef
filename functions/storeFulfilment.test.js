@@ -150,6 +150,33 @@ test('Workspace Owner can update fulfilment and a permanent server timeline even
   assert.equal(db.writes[1].data.actingUserId, 'owner-a');
 });
 
+test('completion writes a canonical completion clock without changing payment or creation fields', async () => {
+  const db = createFakeDb({
+    'storeOrders/order-a': {
+      ...paidOrder,
+      fulfilmentStatus: 'Ready',
+      status: 'Paid',
+      createdAt: 'original-created-at',
+      payment: { status: 'paid', refundStatus: 'none' }
+    },
+    'workspaces/workspace-a': { ownerId: 'owner-a' }
+  });
+
+  await updateStoreOrderFulfilment({
+    db,
+    uid: 'owner-a',
+    orderId: 'order-a',
+    nextStatus: 'Completed'
+  });
+
+  const update = db.writes[0].data;
+  assert.equal(update.fulfilmentStatus, 'Completed');
+  assert.ok(update.completedAt);
+  assert.equal('createdAt' in update, false);
+  assert.equal('status' in update, false);
+  assert.equal('payment' in update, false);
+});
+
 test('active Manager can update fulfilment but another Workspace user is denied', async () => {
   const managerDb = createFakeDb({
     'storeOrders/order-a': paidOrder,

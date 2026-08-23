@@ -257,6 +257,7 @@ export interface StoreOrder {
   fulfilmentStatus: StoreFulfilmentStatus | '';
   fulfilmentUpdatedAt: string;
   fulfilmentUpdatedBy: string;
+  completedAt: string;
   cancelledAt: string;
   cancelledBy: string;
   cancellationReason: string;

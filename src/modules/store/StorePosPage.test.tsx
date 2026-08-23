@@ -48,10 +48,15 @@ test('Order History is date-scoped independently from the realtime listener', ()
   assert.match(pageSource, /activeView !== 'history'/);
   assert.match(pageSource, /getMalaysiaDateRange\(historyDateKey\)/);
   assert.match(pageSource, /getOrdersForBusinessDate/);
-  assert.match(pageSource, /Malaysia business date · UTC\+8/);
+  assert.match(pageSource, /Creation date/);
+  assert.match(pageSource, /Completion date/);
   assert.match(pageSource, /Search order #/);
   assert.match(serviceSource, /where\('createdAt', '>=', Timestamp\.fromDate\(start\)\)/);
   assert.match(serviceSource, /where\('createdAt', '<', Timestamp\.fromDate\(end\)\)/);
+  assert.match(serviceSource, /where\('createdAt', '>=', start\.toISOString\(\)\)/);
+  assert.match(serviceSource, /subscribeCompletedOrders/);
+  assert.match(pageSource, /isOrderCompletedOnMalaysiaDate/);
+  assert.match(pageSource, /openCompletedHistory/);
 });
 
 test('safe cancellation requires confirmation and preserves payment semantics', () => {

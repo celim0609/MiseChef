@@ -4,6 +4,8 @@ import {
   countActiveOnlineOrders,
   filterHistoryOrders,
   getMalaysiaDateRange,
+  getOrderCompletionTimestamp,
+  isOrderCompletedOnMalaysiaDate,
   shiftDateKey,
   toActivePosStatus,
   toMalaysiaDateKey
@@ -65,6 +67,27 @@ test('Malaysia business dates do not follow UTC midnight', () => {
   const range = getMalaysiaDateRange('2026-08-22');
   assert.equal(range.start.toISOString(), '2026-08-21T16:00:00.000Z');
   assert.equal(range.end.toISOString(), '2026-08-22T16:00:00.000Z');
+});
+
+test('Completed today uses completion time with a legacy fulfilment clock fallback', () => {
+  const canonical = {
+    ...order('canonical', 'Completed'),
+    createdAt: '2026-08-21T10:00:00.000Z',
+    completedAt: '2026-08-22T05:00:00.000Z',
+    fulfilmentUpdatedAt: '2026-08-22T04:59:59.000Z'
+  } as StoreOrder;
+  const legacy = {
+    ...order('legacy', 'Completed'),
+    createdAt: '2026-08-21T10:00:00.000Z',
+    completedAt: '',
+    fulfilmentUpdatedAt: '2026-08-22T06:00:00.000Z'
+  } as StoreOrder;
+
+  assert.equal(getOrderCompletionTimestamp(canonical), canonical.completedAt);
+  assert.equal(getOrderCompletionTimestamp(legacy), legacy.fulfilmentUpdatedAt);
+  assert.equal(isOrderCompletedOnMalaysiaDate(canonical, '2026-08-22'), true);
+  assert.equal(isOrderCompletedOnMalaysiaDate(legacy, '2026-08-22'), true);
+  assert.equal(isOrderCompletedOnMalaysiaDate(canonical, '2026-08-21'), false);
 });
 
 test('history filters status and order ID within the already date-scoped result', () => {

@@ -24,6 +24,8 @@ import {
   filterHistoryOrders,
   formatMalaysiaBusinessDate,
   getMalaysiaDateRange,
+  getOrderCompletionTimestamp,
+  isOrderCompletedOnMalaysiaDate,
   shiftDateKey,
   toActivePosStatus,
   toMalaysiaDateKey,
@@ -153,6 +155,7 @@ interface StorePosPageProps {
 
 export default function StorePosPage({ storeId, workspaceId, workspaceName, onBack, notificationAction }: StorePosPageProps) {
   const [orders, setOrders] = useState<StoreOrder[]>([]);
+  const [completedOrders, setCompletedOrders] = useState<StoreOrder[]>([]);
   const [storeDisplayName, setStoreDisplayName] = useState('Loading Store…');
   const [storeNameForMessages, setStoreNameForMessages] = useState('');
   const [storeCountry, setStoreCountry] = useState<'MY' | 'SG' | ''>('');
@@ -166,10 +169,12 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const [now, setNow] = useState(() => Date.now());
   const [activeView, setActiveView] = useState<'live' | 'history'>('live');
   const [historyDateKey, setHistoryDateKey] = useState(() => toMalaysiaDateKey());
+  const [historyDateBasis, setHistoryDateBasis] = useState<'created' | 'completed'>('created');
   const [historyFilter, setHistoryFilter] = useState<OrderHistoryFilter>('all');
   const [historySearch, setHistorySearch] = useState('');
   const [historyOrders, setHistoryOrders] = useState<StoreOrder[]>([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [isCompletedLoading, setIsCompletedLoading] = useState(true);
   const [historyError, setHistoryError] = useState('');
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [cancelOrder, setCancelOrder] = useState<StoreOrder | null>(null);
@@ -250,7 +255,23 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   }, [storeId, workspaceId]);
 
   useEffect(() => {
-    if (activeView !== 'history') return;
+    setIsCompletedLoading(true);
+    return storeOrderService.subscribeCompletedOrders(
+      storeId,
+      workspaceId,
+      nextOrders => {
+        setCompletedOrders(nextOrders);
+        setIsCompletedLoading(false);
+      },
+      error => {
+        setIsCompletedLoading(false);
+        setErrorMessage(error.message || 'Unable to load completed orders.');
+      }
+    );
+  }, [storeId, workspaceId]);
+
+  useEffect(() => {
+    if (activeView !== 'history' || historyDateBasis !== 'created') return;
     let cancelled = false;
     const { start, end } = getMalaysiaDateRange(historyDateKey);
     setIsHistoryLoading(true);
@@ -268,7 +289,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     return () => {
       cancelled = true;
     };
-  }, [activeView, historyDateKey, historyRefreshKey, storeId, workspaceId]);
+  }, [activeView, historyDateBasis, historyDateKey, historyRefreshKey, storeId, workspaceId]);
 
   const groupedOrders = useMemo(() => ACTIVE_COLUMNS.reduce<Record<ActivePosStatus, StoreOrder[]>>(
     (groups, column) => {
@@ -279,11 +300,18 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   ), [orders]);
 
   const todayKey = toMalaysiaDateKey(now);
-  const completedTodayCount = orders.filter(order => order.fulfilmentStatus === 'Completed' && toMalaysiaDateKey(order.createdAt) === todayKey).length;
+  const completedTodayOrders = completedOrders.filter(order => isOrderCompletedOnMalaysiaDate(order, todayKey));
+  const completedTodayCount = completedTodayOrders.length;
   const activeOnlineOrderCount = countActiveOnlineOrders(orders);
+  const historySourceOrders = useMemo(
+    () => historyDateBasis === 'completed'
+      ? completedOrders.filter(order => isOrderCompletedOnMalaysiaDate(order, historyDateKey))
+      : historyOrders,
+    [completedOrders, historyDateBasis, historyDateKey, historyOrders]
+  );
   const visibleHistoryOrders = useMemo(
-    () => filterHistoryOrders(historyOrders, historyFilter, historySearch),
-    [historyFilter, historyOrders, historySearch]
+    () => filterHistoryOrders(historySourceOrders, historyFilter, historySearch),
+    [historyFilter, historySearch, historySourceOrders]
   );
 
   const advanceOrder = async (order: StoreOrder) => {
@@ -341,8 +369,19 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
 
   const openHistory = (filter: OrderHistoryFilter = 'all') => {
     setHistoryDateKey(toMalaysiaDateKey());
+    setHistoryDateBasis('created');
     setHistoryFilter(filter);
     setHistorySearch('');
+    setHistoryError('');
+    setActiveView('history');
+  };
+
+  const openCompletedHistory = () => {
+    setHistoryDateKey(toMalaysiaDateKey());
+    setHistoryDateBasis('completed');
+    setHistoryFilter('completed');
+    setHistorySearch('');
+    setHistoryError('');
     setActiveView('history');
   };
 
@@ -406,20 +445,21 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               })}
             </div>
 
-            <aside className={`pos-light-surface self-start rounded-2xl border p-4 shadow-lg ${isNightMode ? 'border-slate-700 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}><div className="flex items-center gap-2 text-blue-500"><CheckCircle2 className="h-6 w-6" /><h2 className="pos-readable-heading text-lg font-black">Completed</h2></div><p className="mt-4 text-4xl font-black">{completedTodayCount}</p><p className={`mt-1 text-sm font-bold ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>orders today</p><button type="button" onClick={() => openHistory('completed')} className={`mt-5 min-h-12 w-full rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-blue-400/40 bg-blue-500/10 text-blue-200' : 'border-blue-300 bg-blue-50 text-blue-800'}`}>View Completed</button></aside>
+            <aside className={`pos-light-surface self-start rounded-2xl border p-4 shadow-lg ${isNightMode ? 'border-slate-700 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}><div className="flex items-center gap-2 text-blue-500"><CheckCircle2 className="h-6 w-6" /><h2 className="pos-readable-heading text-lg font-black">Completed</h2></div><p className="mt-4 text-4xl font-black">{completedTodayCount}</p><p className={`mt-1 text-sm font-bold ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>completed today</p><button type="button" onClick={openCompletedHistory} className={`mt-5 min-h-12 w-full rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-blue-400/40 bg-blue-500/10 text-blue-200' : 'border-blue-300 bg-blue-50 text-blue-800'}`}>View Completed</button></aside>
           </div>
         </div>
       ) : (
         <div className="flex-1 p-4 lg:p-6">
           <section className={`pos-light-surface mx-auto max-w-7xl rounded-2xl border p-4 shadow-lg lg:p-6 ${isNightMode ? 'border-slate-700 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}>
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div><p className={`text-xs font-black uppercase tracking-[0.16em] ${isNightMode ? 'text-blue-300' : 'text-blue-700'}`}>Malaysia business date · UTC+8</p><h2 className="pos-readable-heading mt-1 text-3xl font-black">Order History</h2></div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => setHistoryDateKey(toMalaysiaDateKey())} className={`min-h-12 rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}>Today</button><button type="button" onClick={() => setHistoryDateKey(shiftDateKey(toMalaysiaDateKey(), -1))} className={`min-h-12 rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}>Yesterday</button><button type="button" onClick={() => setHistoryDateKey(shiftDateKey(historyDateKey, -1))} aria-label="Previous date" className={`flex h-12 w-12 items-center justify-center rounded-xl border ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}><ChevronLeft className="h-6 w-6" /></button><div className={`flex min-h-12 items-center gap-2 rounded-xl border px-4 font-black ${isNightMode ? 'border-slate-600 bg-slate-900 text-white' : 'border-slate-300 bg-slate-50 text-slate-900'}`}><CalendarDays className="h-5 w-5" />{formatMalaysiaBusinessDate(historyDateKey)}</div><button type="button" disabled={historyDateKey >= toMalaysiaDateKey()} onClick={() => setHistoryDateKey(shiftDateKey(historyDateKey, 1))} aria-label="Next date" className={`flex h-12 w-12 items-center justify-center rounded-xl border disabled:opacity-35 ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}><ChevronRight className="h-6 w-6" /></button><label className={`pos-control flex min-h-12 items-center gap-2 rounded-xl border px-3 ${isNightMode ? 'border-slate-600 bg-slate-900' : 'border-slate-300 bg-white'}`}><span className="sr-only">Select date</span><input type="date" max={toMalaysiaDateKey()} value={historyDateKey} onChange={event => event.target.value && setHistoryDateKey(event.target.value)} className="pos-control bg-transparent text-sm font-black" /></label></div></div>
-            <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="flex flex-wrap gap-2">{HISTORY_FILTERS.map(filter => <button key={filter.id} type="button" onClick={() => setHistoryFilter(filter.id)} aria-pressed={historyFilter === filter.id} className={`min-h-11 rounded-full px-4 text-sm font-black ${historyFilter === filter.id ? 'bg-blue-600 text-white' : isNightMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>{filter.label}</button>)}</div><label className={`pos-control flex min-h-12 min-w-[260px] items-center gap-2 rounded-xl border px-3 ${isNightMode ? 'border-slate-600 bg-slate-900' : 'border-slate-300 bg-white'}`}><Search className="h-5 w-5 text-slate-400" /><span className="sr-only">Search order number</span><input value={historySearch} onChange={event => setHistorySearch(event.target.value)} placeholder="Search order #" className="pos-control w-full bg-transparent text-sm font-bold outline-none" /></label></div>
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div><p className={`text-xs font-black uppercase tracking-[0.16em] ${isNightMode ? 'text-blue-300' : 'text-blue-700'}`}>{historyDateBasis === 'completed' ? 'Completion date' : 'Creation date'} · Malaysia UTC+8</p><h2 className="pos-readable-heading mt-1 text-3xl font-black">{historyDateBasis === 'completed' ? 'Completed Orders' : 'Order History'}</h2></div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => setHistoryDateKey(toMalaysiaDateKey())} className={`min-h-12 rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}>Today</button><button type="button" onClick={() => setHistoryDateKey(shiftDateKey(toMalaysiaDateKey(), -1))} className={`min-h-12 rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}>Yesterday</button><button type="button" onClick={() => setHistoryDateKey(shiftDateKey(historyDateKey, -1))} aria-label="Previous date" className={`flex h-12 w-12 items-center justify-center rounded-xl border ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}><ChevronLeft className="h-6 w-6" /></button><div className={`flex min-h-12 items-center gap-2 rounded-xl border px-4 font-black ${isNightMode ? 'border-slate-600 bg-slate-900 text-white' : 'border-slate-300 bg-slate-50 text-slate-900'}`}><CalendarDays className="h-5 w-5" />{formatMalaysiaBusinessDate(historyDateKey)}</div><button type="button" disabled={historyDateKey >= toMalaysiaDateKey()} onClick={() => setHistoryDateKey(shiftDateKey(historyDateKey, 1))} aria-label="Next date" className={`flex h-12 w-12 items-center justify-center rounded-xl border disabled:opacity-35 ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}><ChevronRight className="h-6 w-6" /></button><label className={`pos-control flex min-h-12 items-center gap-2 rounded-xl border px-3 ${isNightMode ? 'border-slate-600 bg-slate-900' : 'border-slate-300 bg-white'}`}><span className="sr-only">Select date</span><input type="date" max={toMalaysiaDateKey()} value={historyDateKey} onChange={event => event.target.value && setHistoryDateKey(event.target.value)} className="pos-control bg-transparent text-sm font-black" /></label></div></div>
+            <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="flex flex-wrap gap-2">{historyDateBasis === 'created' ? HISTORY_FILTERS.map(filter => <button key={filter.id} type="button" onClick={() => setHistoryFilter(filter.id)} aria-pressed={historyFilter === filter.id} className={`min-h-11 rounded-full px-4 text-sm font-black ${historyFilter === filter.id ? 'bg-blue-600 text-white' : isNightMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>{filter.label}</button>) : <><button type="button" aria-pressed="true" className="min-h-11 rounded-full bg-blue-600 px-4 text-sm font-black text-white">Completed</button><button type="button" onClick={() => { setHistoryDateBasis('created'); setHistoryFilter('all'); }} className={`min-h-11 rounded-full px-4 text-sm font-black ${isNightMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>View Creation-date History</button></>}</div><label className={`pos-control flex min-h-12 min-w-[260px] items-center gap-2 rounded-xl border px-3 ${isNightMode ? 'border-slate-600 bg-slate-900' : 'border-slate-300 bg-white'}`}><Search className="h-5 w-5 text-slate-400" /><span className="sr-only">Search order number</span><input value={historySearch} onChange={event => setHistorySearch(event.target.value)} placeholder="Search order #" className="pos-control w-full bg-transparent text-sm font-bold outline-none" /></label></div>
             {historyError && <p role="alert" className="mt-4 rounded-xl bg-rose-950 px-4 py-3 text-sm font-black text-rose-100">{historyError}</p>}
-            {isHistoryLoading ? <p className="py-16 text-center font-black">Loading Order History…</p> : visibleHistoryOrders.length === 0 ? <p className={`py-16 text-center font-black ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>No orders for this date and filter.</p> : <div className="mt-5 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">{visibleHistoryOrders.map(order => {
+            {(historyDateBasis === 'completed' ? isCompletedLoading : isHistoryLoading) ? <p className="py-16 text-center font-black">Loading Order History…</p> : visibleHistoryOrders.length === 0 ? <p className={`py-16 text-center font-black ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>No orders for this date and filter.</p> : <div className="mt-5 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">{visibleHistoryOrders.map(order => {
               const isCancelled = order.fulfilmentStatus === 'Cancelled';
               const isCompleted = order.fulfilmentStatus === 'Completed';
               const canCancel = Boolean(toActivePosStatus(order.fulfilmentStatus));
-              return <article key={order.id} className={`rounded-2xl border-2 p-4 ${isCancelled ? isNightMode ? 'border-rose-800 bg-rose-950/40' : 'border-rose-200 bg-rose-50' : isNightMode ? 'border-slate-700 bg-[#081321]' : 'border-slate-200 bg-slate-50'}`}><div className="flex items-start justify-between gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${isCancelled ? 'bg-rose-600 text-white' : isCompleted ? 'bg-slate-600 text-white' : 'bg-blue-600 text-white'}`}>{order.fulfilmentStatus || 'Order'}</span><time className={`text-xs font-black ${isNightMode ? 'text-slate-200' : 'text-slate-600'}`}>{formatMalaysiaTimestamp(order.createdAt)}</time></div><h3 className="pos-readable-heading mt-3 text-xl font-black">{order.orderNumber}</h3>{order.pickupCode && <p className={`mt-2 text-sm font-black tracking-[0.16em] ${isNightMode ? 'text-blue-200' : 'text-blue-800'}`}>Pickup {order.pickupCode}</p>}<p className={`mt-2 text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}><span className="capitalize">{order.orderSource}</span> · <span className={paymentClass(order)}>{paymentStatusLabel(order.payment.status)}</span></p><ul className={`mt-3 space-y-2 border-t pt-3 ${isNightMode ? 'border-slate-700' : 'border-slate-200'}`}>{order.items.map((item, index) => <li key={`${order.id}-history-${index}`} className="font-black">{item.quantity}× {item.productName}{item.selectedOptions.length > 0 && <span className={`block pl-5 text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.selectedOptions.map(option => option.optionName).join(', ')}</span>}</li>)}</ul>{order.notes && <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm font-bold text-amber-950">Note: {order.notes}</p>}{isCancelled && <div className={`mt-3 rounded-xl px-3 py-3 text-sm ${isNightMode ? 'bg-rose-950 text-rose-100' : 'bg-rose-100 text-rose-950'}`}><p className="font-black">Cancellation reason</p><p className="mt-1 font-bold">{order.cancellationReason || 'Not recorded'}</p><p className="mt-2 text-xs font-bold">Cancelled {formatMalaysiaTimestamp(order.cancelledAt)}</p></div>}{canCancel && <button type="button" onClick={() => openCancellation(order)} className={`mt-4 min-h-12 w-full rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-rose-400/50 text-rose-200' : 'border-rose-300 bg-rose-50 text-rose-800'}`}>Cancel Order</button>}</article>;
+              const historyTimestamp = historyDateBasis === 'completed' ? getOrderCompletionTimestamp(order) : order.createdAt;
+              return <article key={order.id} className={`rounded-2xl border-2 p-4 ${isCancelled ? isNightMode ? 'border-rose-800 bg-rose-950/40' : 'border-rose-200 bg-rose-50' : isNightMode ? 'border-slate-700 bg-[#081321]' : 'border-slate-200 bg-slate-50'}`}><div className="flex items-start justify-between gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${isCancelled ? 'bg-rose-600 text-white' : isCompleted ? 'bg-slate-600 text-white' : 'bg-blue-600 text-white'}`}>{order.fulfilmentStatus || 'Order'}</span><time className={`text-xs font-black ${isNightMode ? 'text-slate-200' : 'text-slate-600'}`}>{historyDateBasis === 'completed' ? 'Completed' : 'Created'} {formatMalaysiaTimestamp(historyTimestamp)}</time></div><h3 className="pos-readable-heading mt-3 text-xl font-black">{order.orderNumber}</h3>{order.pickupCode && <p className={`mt-2 text-sm font-black tracking-[0.16em] ${isNightMode ? 'text-blue-200' : 'text-blue-800'}`}>Pickup {order.pickupCode}</p>}<p className={`mt-2 text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}><span className="capitalize">{order.orderSource}</span> · <span className={paymentClass(order)}>{paymentStatusLabel(order.payment.status)}</span></p><ul className={`mt-3 space-y-2 border-t pt-3 ${isNightMode ? 'border-slate-700' : 'border-slate-200'}`}>{order.items.map((item, index) => <li key={`${order.id}-history-${index}`} className="font-black">{item.quantity}× {item.productName}{item.selectedOptions.length > 0 && <span className={`block pl-5 text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.selectedOptions.map(option => option.optionName).join(', ')}</span>}</li>)}</ul>{order.notes && <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm font-bold text-amber-950">Note: {order.notes}</p>}{isCancelled && <div className={`mt-3 rounded-xl px-3 py-3 text-sm ${isNightMode ? 'bg-rose-950 text-rose-100' : 'bg-rose-100 text-rose-950'}`}><p className="font-black">Cancellation reason</p><p className="mt-1 font-bold">{order.cancellationReason || 'Not recorded'}</p><p className="mt-2 text-xs font-bold">Cancelled {formatMalaysiaTimestamp(order.cancelledAt)}</p></div>}{canCancel && <button type="button" onClick={() => openCancellation(order)} className={`mt-4 min-h-12 w-full rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-rose-400/50 text-rose-200' : 'border-rose-300 bg-rose-50 text-rose-800'}`}>Cancel Order</button>}</article>;
             })}</div>}
           </section>
         </div>

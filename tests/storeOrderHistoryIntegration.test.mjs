@@ -4,6 +4,7 @@ import { deleteApp, initializeApp } from '../functions/node_modules/firebase-adm
 import { getFirestore, Timestamp } from '../functions/node_modules/firebase-admin/lib/esm/firestore/index.js';
 import { createManualPaymentAdapter } from '../functions/paymentProviders/manualPayment.js';
 import { updateStoreOrderFulfilment } from '../functions/storeFulfilment.js';
+import { reviewManualStorePayment, submitManualStorePayment } from '../functions/storeManualPayments.js';
 import { createStorePayment } from '../functions/storePayments.js';
 
 const NOW = new Date('2026-08-21T16:30:00.000Z');
@@ -59,6 +60,21 @@ test('actual new-order writes remain queryable after Completed and Cancelled tra
     assert.equal(completedDocument.data().fulfilmentStatus, 'New');
     assert.equal(cancelledDocument.data().fulfilmentStatus, 'New');
 
+    await completedDocument.ref.update({
+      'payment.receiptPath': `store-payment-receipts/${workspaceId}/${completedDocument.id}/receipt-test.png`,
+      'payment.receiptFileName': 'receipt-test.png'
+    });
+    await submitManualStorePayment({
+      db,
+      slug,
+      orderId: completedDocument.id,
+      checkoutAccessToken: completedResult.checkoutAccessToken
+    });
+    await reviewManualStorePayment({ db, uid: ownerId, orderId: completedDocument.id, decision: 'approve' });
+    const paidDocument = await completedDocument.ref.get();
+    assert.equal(paidDocument.data().status, 'Paid');
+    assert.equal(paidDocument.data().payment.status, 'paid');
+
     for (const nextStatus of ['Preparing', 'Ready', 'Completed']) {
       await updateStoreOrderFulfilment({ db, uid: ownerId, orderId: completedDocument.id, nextStatus });
     }
@@ -67,16 +83,51 @@ test('actual new-order writes remain queryable after Completed and Cancelled tra
       cancellationReason: 'Customer requested cancellation'
     });
 
-    const today = await db.collection('storeOrders')
+    const persistedCompleted = (await completedDocument.ref.get()).data();
+    assert.equal(persistedCompleted.fulfilmentStatus, 'Completed');
+    assert.equal(persistedCompleted.status, 'Paid');
+    assert.equal(persistedCompleted.payment.status, 'paid');
+    assert.ok(persistedCompleted.createdAt instanceof Timestamp);
+    assert.ok(persistedCompleted.completedAt instanceof Timestamp);
+    assert.equal(persistedCompleted.workspaceId, workspaceId);
+    assert.equal(persistedCompleted.storeId, workspaceId);
+
+    const completedOrders = await db.collection('storeOrders')
+      .where('storeId', '==', workspaceId)
+      .where('workspaceId', '==', workspaceId)
+      .where('fulfilmentStatus', '==', 'Completed')
+      .get();
+    assert.ok(completedOrders.docs.some(document => document.id === completedDocument.id));
+
+    const legacyReference = db.collection('storeOrders').doc(`${workspaceId}-legacy-created-at`);
+    await legacyReference.set({
+      ...persistedCompleted,
+      id: legacyReference.id,
+      orderNumber: 'MC-LEGACY-CREATED-AT',
+      createdAt: NOW.toISOString()
+    });
+
+    const canonicalToday = await db.collection('storeOrders')
       .where('storeId', '==', workspaceId)
       .where('workspaceId', '==', workspaceId)
       .where('createdAt', '>=', TODAY_START)
       .where('createdAt', '<', TODAY_END)
       .orderBy('createdAt', 'desc')
       .get();
-    const states = new Map(today.docs.map(document => [document.id, document.data().fulfilmentStatus]));
+    const legacyToday = await db.collection('storeOrders')
+      .where('storeId', '==', workspaceId)
+      .where('workspaceId', '==', workspaceId)
+      .where('createdAt', '>=', TODAY_START.toDate().toISOString())
+      .where('createdAt', '<', TODAY_END.toDate().toISOString())
+      .orderBy('createdAt', 'desc')
+      .get();
+    const states = new Map(
+      [...canonicalToday.docs, ...legacyToday.docs]
+        .map(document => [document.id, document.data().fulfilmentStatus])
+    );
     assert.equal(states.get(completedDocument.id), 'Completed');
     assert.equal(states.get(cancelledDocument.id), 'Cancelled');
+    assert.equal(states.get(legacyReference.id), 'Completed');
   } finally {
     await deleteApp(app);
   }
