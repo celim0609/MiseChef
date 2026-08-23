@@ -228,6 +228,7 @@ export const createDefaultWorkspaceStore = (
     maximumAdvanceDays: 14,
     unavailableDates: [],
     paymentMethods: createDefaultStorePaymentMethods(),
+    hostProgram: { enabled: false, rewardPercent: 5, minimumQualifyingSales: 0 },
     country: region.country,
     currency: region.currency,
     createdBy,
@@ -288,6 +289,16 @@ export const normalizeWorkspaceStore = (
       )))].sort()
       : [],
     paymentMethods: normalizeStorePaymentMethods(data.paymentMethods, region.country),
+    hostProgram: (() => {
+      const value = data.hostProgram && typeof data.hostProgram === 'object'
+        ? data.hostProgram as Record<string, unknown>
+        : {};
+      return {
+        enabled: readBoolean(value.enabled),
+        rewardPercent: Math.min(100, Math.max(0, Number(value.rewardPercent) || 0)),
+        minimumQualifyingSales: Math.max(0, Number(value.minimumQualifyingSales) || 0)
+      };
+    })(),
     country: region.country,
     currency: region.currency,
     createdBy: readString(data.createdBy),
@@ -390,6 +401,11 @@ export const validateStoreSettings = (
   if (draft.paymentMethods.some(method => (
     method.enabled && method.id === 'bank_transfer' && !method.instructions.trim()
   ))) return 'Add bank transfer instructions before enabling Bank Transfer.';
+  if (!Number.isFinite(draft.hostProgram.rewardPercent)
+    || draft.hostProgram.rewardPercent < 0
+    || draft.hostProgram.rewardPercent > 100) return 'Host Reward must be between 0% and 100%.';
+  if (!Number.isFinite(draft.hostProgram.minimumQualifyingSales)
+    || draft.hostProgram.minimumQualifyingSales < 0) return 'Minimum qualifying Group Sales cannot be negative.';
   return '';
 };
 

@@ -45,6 +45,7 @@ export const createPublicStoreQaFixture = (slug: string): PublicStoreData | null
         { id: 'bank_transfer', enabled: false, qrCodeUrl: '', instructions: '' },
         { id: 'stripe', enabled: true, qrCodeUrl: '', instructions: '' }
       ],
+      hostProgram: { enabled: true, rewardPercent: 5, minimumQualifyingSales: 20 },
       country: 'MY',
       currency: 'MYR',
       createdBy: 'qa-owner',

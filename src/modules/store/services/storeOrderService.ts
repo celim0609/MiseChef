@@ -74,6 +74,9 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     ? data.payment as Record<string, unknown>
     : {};
   const fulfilmentStatus = readString(data.fulfilmentStatus);
+  const groupOrder = data.groupOrder && typeof data.groupOrder === 'object'
+    ? data.groupOrder as Record<string, unknown>
+    : null;
   return {
     id: snapshot.id,
     orderNumber: readString(data.orderNumber),
@@ -84,6 +87,14 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     storeId: readString(data.storeId),
     workspaceId: readString(data.workspaceId),
     orderSource: data.orderSource === 'pos' ? 'pos' : 'online',
+    ...(groupOrder && readString(groupOrder.id) ? { groupOrder: {
+      id: readString(groupOrder.id),
+      shareCode: readString(groupOrder.shareCode),
+      name: readString(groupOrder.name),
+      hostId: readString(groupOrder.hostId),
+      hostName: readString(groupOrder.hostName),
+      rewardPercent: readNumber(groupOrder.rewardPercent)
+    } } : {}),
     storeName: readString(data.storeName, 'Store'),
     currency: data.currency === 'MYR' ? 'MYR' : 'SGD',
     paymentMethodId: readString(data.paymentMethodId, 'online'),

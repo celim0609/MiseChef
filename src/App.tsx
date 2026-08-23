@@ -1631,6 +1631,11 @@ export default function App() {
   // Renders correct active screen body
   const handleAuthenticated = () => {
     setIsGuestMode(false);
+    const returnTo = new URLSearchParams(window.location.search).get('returnTo');
+    if (returnTo && /^\/host\/[a-z0-9-]+\/?$/i.test(returnTo)) {
+      window.location.assign(returnTo);
+      return;
+    }
     handleRootNavigate('home');
   };
 

@@ -59,6 +59,7 @@ export interface WorkspaceStore {
   maximumAdvanceDays: StoreMaximumAdvanceDays;
   unavailableDates: string[];
   paymentMethods: StorePaymentMethodConfig[];
+  hostProgram: StoreHostProgramConfig;
   country: RegionCode;
   currency: RegionCurrency;
   createdBy: string;
@@ -84,6 +85,37 @@ export interface StoreSettingsDraft {
   maximumAdvanceDays: StoreMaximumAdvanceDays;
   unavailableDates: string[];
   paymentMethods: StorePaymentMethodConfig[];
+  hostProgram: StoreHostProgramConfig;
+}
+
+export interface StoreHostProgramConfig {
+  enabled: boolean;
+  rewardPercent: number;
+  minimumQualifyingSales: number;
+}
+
+export interface PublicGroupOrder {
+  id: string;
+  shareCode: string;
+  storeSlug: string;
+  storeName: string;
+  hostName: string;
+  name: string;
+  pickupDate: string;
+  pickupSession: string;
+  pickupLocationId: string;
+  pickupLocationName: string;
+  pickupLocationAddress: string;
+  closesAt: string;
+  status: 'open' | 'closed' | 'cancelled';
+}
+
+export interface HostGroupOrder extends PublicGroupOrder {
+  rewardPercent: number;
+  minimumQualifyingSales: number;
+  orderCount: number;
+  eligibleSales: number;
+  estimatedReward: number;
 }
 
 export interface StorePickupLocation {
@@ -238,6 +270,14 @@ export interface StoreOrder {
   storeId: string;
   workspaceId: string;
   orderSource: StoreOrderSource;
+  groupOrder?: {
+    id: string;
+    shareCode: string;
+    name: string;
+    hostId: string;
+    hostName: string;
+    rewardPercent: number;
+  };
   storeName: string;
   currency: RegionCurrency;
   paymentMethodId: string;
@@ -308,6 +348,7 @@ export interface StoreOrderDraft {
   pickupLocationId: string;
   notes: string;
   selections: CartSelection[];
+  groupShareCode?: string;
 }
 
 export type StorePaymentCheckout =

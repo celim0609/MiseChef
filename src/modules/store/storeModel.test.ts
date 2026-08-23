@@ -64,7 +64,8 @@ test('Touch ’n Go configuration is accepted for MY and cleared or rejected for
     storeContact: createDefaultStoreContact(),
     businessHours: '', pickupEnabled: false, deliveryEnabled: false, pickupSessions: [], pickupLocations: [],
     orderDays: [...DEFAULT_STORE_ORDER_DAYS], earliestPickupDays: 0 as const, maximumAdvanceDays: 14 as const,
-    unavailableDates: [], paymentMethods: configuredMethods
+    unavailableDates: [], paymentMethods: configuredMethods,
+    hostProgram: { enabled: false, rewardPercent: 5, minimumQualifyingSales: 0 }
   };
 
   assert.equal(validateStoreSettings(baseSettings, 'MY'), '');
@@ -102,7 +103,8 @@ test('pickup stays simple and requires owner-defined locations and sessions', ()
     earliestPickupDays: 0 as const,
     maximumAdvanceDays: 14 as const,
     unavailableDates: [],
-    paymentMethods: createDefaultStorePaymentMethods()
+    paymentMethods: createDefaultStorePaymentMethods(),
+    hostProgram: { enabled: false, rewardPercent: 5, minimumQualifyingSales: 0 }
   };
 
   assert.equal(validateStoreSettings(baseSettings), '');
@@ -129,7 +131,7 @@ test('legacy Stores remain Stripe-only and QR methods require an owner QR image'
     storeContact: createDefaultStoreContact(),
     businessHours: '', pickupEnabled: false, deliveryEnabled: false, pickupSessions: [], pickupLocations: [],
     orderDays: [...DEFAULT_STORE_ORDER_DAYS], earliestPickupDays: 0 as const, maximumAdvanceDays: 14 as const,
-    unavailableDates: [], paymentMethods: baseStore.paymentMethods.map(method => (
+    unavailableDates: [], hostProgram: { ...baseStore.hostProgram }, paymentMethods: baseStore.paymentMethods.map(method => (
       method.id === 'touch_n_go_qr' ? { ...method, enabled: true } : method.id === 'stripe' ? { ...method, enabled: false } : method
     ))
   };

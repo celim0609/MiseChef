@@ -36,6 +36,7 @@ import type {
   CartSelection,
   PublicStoreData,
   PublicStoreOrderResult,
+  PublicGroupOrder,
   StorePaymentProviderId,
   StorePaymentMethodId,
   StorePaymentSession,
@@ -74,7 +75,7 @@ function PaymentMethodIcon({ methodId }: { methodId: StorePaymentMethodId }) {
   return <QrCode className={iconClassName} aria-hidden="true" />;
 }
 
-export default function PublicStorePage({ slug }: { slug: string }) {
+export default function PublicStorePage({ slug, groupOrder }: { slug: string; groupOrder?: PublicGroupOrder }) {
   const checkoutSectionRef = useRef<HTMLElement | null>(null);
   const [data, setData] = useState<PublicStoreData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -104,9 +105,9 @@ export default function PublicStorePage({ slug }: { slug: string }) {
       .then(storeData => {
         if (isCancelled) return;
         setData(storeData);
-        setPickupDate(storeData ? getValidPickupDates(storeData.store)[0] || '' : '');
-        setPickupSession(storeData?.store.pickupSessions[0] || '');
-        setPickupLocationId(storeData?.store.pickupLocations[0]?.id || '');
+        setPickupDate(groupOrder?.pickupDate || (storeData ? getValidPickupDates(storeData.store)[0] || '' : ''));
+        setPickupSession(groupOrder?.pickupSession || storeData?.store.pickupSessions[0] || '');
+        setPickupLocationId(groupOrder?.pickupLocationId || storeData?.store.pickupLocations[0]?.id || '');
         setPaymentMethodId(storeData?.store.paymentMethods.find(method => method.enabled)?.id || 'stripe');
       })
       .catch(() => {
@@ -122,7 +123,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
     return () => {
       isCancelled = true;
     };
-  }, [slug]);
+  }, [groupOrder?.id, slug]);
 
   useEffect(() => {
     const checkoutSection = checkoutSectionRef.current;
@@ -325,7 +326,8 @@ export default function PublicStorePage({ slug }: { slug: string }) {
           productId,
           quantity,
           selectedOptions
-        }))
+        })),
+        ...(groupOrder ? { groupShareCode: groupOrder.shareCode } : {})
       }, paymentReturnUrl);
       if (session.checkout.type === 'manual_payment') {
         try {
@@ -377,7 +379,8 @@ export default function PublicStorePage({ slug }: { slug: string }) {
   const canOrderPickup = store.pickupEnabled
     && store.pickupLocations.length > 0
     && store.pickupSessions.length > 0
-    && validPickupDates.length > 0;
+    && validPickupDates.length > 0
+    && (!groupOrder || groupOrder.status === 'open');
   const paymentReturnUrl = (() => {
     const url = new URL(window.location.href);
     url.search = '';
@@ -388,6 +391,19 @@ export default function PublicStorePage({ slug }: { slug: string }) {
 
   return (
     <div className="space-y-8">
+      {groupOrder && (
+        <section className="rounded-3xl border border-secondary/30 bg-secondary/10 p-6">
+          <p className="font-sans text-xs font-extrabold uppercase tracking-[0.18em] text-secondary">MiseChef Group Order</p>
+          <h1 className="mt-2 font-display text-3xl font-bold text-primary">You’re joining {groupOrder.hostName}’s Group Order</h1>
+          <p className="mt-2 font-display text-xl font-bold text-primary">{groupOrder.name}</p>
+          <dl className="mt-4 grid gap-3 font-sans text-sm font-bold text-on-surface-variant sm:grid-cols-3">
+            <div><dt className="text-[10px] font-extrabold uppercase text-outline">Store</dt><dd>{groupOrder.storeName}</dd></div>
+            <div><dt className="text-[10px] font-extrabold uppercase text-outline">Pickup</dt><dd>{formatPickupDateLabel(groupOrder.pickupDate, store.country)} · {groupOrder.pickupSession}</dd></div>
+            <div><dt className="text-[10px] font-extrabold uppercase text-outline">Orders close</dt><dd>{new Date(groupOrder.closesAt).toLocaleString()}</dd></div>
+          </dl>
+          {groupOrder.status !== 'open' && <p className="mt-4 rounded-2xl bg-white/70 p-3 font-sans text-sm font-extrabold text-error">This Group Order is closed. New orders are no longer accepted.</p>}
+        </section>
+      )}
       <section className="overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
         <div className="relative h-52 bg-primary sm:h-72">
           {store.coverImageUrl ? (
@@ -421,6 +437,13 @@ export default function PublicStorePage({ slug }: { slug: string }) {
           </div>
         </div>
       </section>
+
+      {!groupOrder && store.hostProgram.enabled && (
+        <section className="flex flex-col gap-4 rounded-3xl border border-secondary/25 bg-secondary/10 p-6 sm:flex-row sm:items-center sm:justify-between">
+          <div><p className="font-sans text-xs font-extrabold uppercase tracking-[0.18em] text-secondary">MiseChef Host Program</p><h2 className="mt-2 font-display text-2xl font-bold text-primary">Start a Group Order</h2><p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">Invite friends or colleagues and earn Host Rewards.</p></div>
+          <a href={`/host/${encodeURIComponent(store.slug)}`} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">Become a Host <ArrowRight className="h-4 w-4" /></a>
+        </section>
+      )}
 
       <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_23rem]">
         <section>
@@ -604,13 +627,13 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                   <div className="mt-3 space-y-3">
                     <label className="block">
                       <span className="font-sans text-xs font-extrabold text-primary">Date</span>
-                      <select aria-label="Pickup date" required value={pickupDate} onChange={event => setPickupDate(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                      <select aria-label="Pickup date" required disabled={Boolean(groupOrder)} value={pickupDate} onChange={event => setPickupDate(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary disabled:opacity-70">
                         {validPickupDates.map(date => <option key={date} value={date}>{formatPickupDateLabel(date, store.country)}</option>)}
                       </select>
                     </label>
                     <label className="block">
                       <span className="font-sans text-xs font-extrabold text-primary">Location</span>
-                      <select aria-label="Pickup location" required value={pickupLocationId} onChange={event => setPickupLocationId(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                      <select aria-label="Pickup location" required disabled={Boolean(groupOrder)} value={pickupLocationId} onChange={event => setPickupLocationId(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary disabled:opacity-70">
                         {store.pickupLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}
                       </select>
                     </label>
@@ -622,7 +645,7 @@ export default function PublicStorePage({ slug }: { slug: string }) {
                     )}
                     <label className="block">
                       <span className="font-sans text-xs font-extrabold text-primary">Session</span>
-                      <select aria-label="Pickup session" required value={pickupSession} onChange={event => setPickupSession(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                      <select aria-label="Pickup session" required disabled={Boolean(groupOrder)} value={pickupSession} onChange={event => setPickupSession(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary disabled:opacity-70">
                         {store.pickupSessions.map(session => <option key={session} value={session}>{session}</option>)}
                       </select>
                     </label>

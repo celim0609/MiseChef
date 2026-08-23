@@ -9,7 +9,7 @@ import { resolvePublicRoute, toPublicSlug } from './publicRoutes';
 import { publicChefProfileService, publicRecipeService } from './services';
 import PublicChefProfilePage from './PublicChefProfilePage';
 import PublicRecipeDiscoveryPage from './PublicRecipeDiscoveryPage';
-import { PublicStorePage } from '../store';
+import { HostProgramPage, PublicGroupOrderPage, PublicStorePage } from '../store';
 
 const publicNavigation = [
   { label: 'Home', href: '/' },
@@ -122,6 +122,14 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
 
     if (route.page === 'store') {
       return <PublicStorePage slug={route.slug} />;
+    }
+
+    if (route.page === 'host') {
+      return <HostProgramPage slug={route.slug} />;
+    }
+
+    if (route.page === 'group') {
+      return <PublicGroupOrderPage shareCode={route.shareCode} />;
     }
 
     if (route.page === 'chefs') {

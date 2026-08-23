@@ -265,6 +265,7 @@ service cloud.firestore {
           'maximumAdvanceDays',
           'unavailableDates',
           'paymentMethods',
+          'hostProgram',
           'country',
           'currency',
           'createdBy',
@@ -314,6 +315,14 @@ service cloud.firestore {
         && data.unavailableDates.size() <= 60
         && data.paymentMethods is list
         && data.paymentMethods.size() == 5
+        && data.hostProgram is map
+        && data.hostProgram.keys().hasOnly(['enabled', 'rewardPercent', 'minimumQualifyingSales'])
+        && data.hostProgram.enabled is bool
+        && data.hostProgram.rewardPercent is number
+        && data.hostProgram.rewardPercent >= 0
+        && data.hostProgram.rewardPercent <= 100
+        && data.hostProgram.minimumQualifyingSales is number
+        && data.hostProgram.minimumQualifyingSales >= 0
         && isValidStorePaymentMethod(data.paymentMethods[0], 'cash_on_pickup')
         && isValidStorePaymentMethod(data.paymentMethods[1], 'touch_n_go_qr')
         && isValidStorePaymentMethod(data.paymentMethods[2], 'duitnow_qr')
@@ -882,6 +891,7 @@ service cloud.firestore {
           'maximumAdvanceDays',
           'unavailableDates',
           'paymentMethods',
+          'hostProgram',
           'updatedAt'
         ]);
       allow delete: if false;
@@ -950,6 +960,21 @@ service cloud.firestore {
       allow create: if false;
       allow read: if isWorkspaceOwnerOrManager(resource.data.workspaceId);
       allow update, delete: if false;
+    }
+
+    match /hostProfiles/{userId} {
+      allow read: if ownsUserDocument(userId);
+      allow create, update, delete: if false;
+    }
+
+    match /groupOrders/{groupId} {
+      allow read: if signedIn() && resource.data.hostId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    match /hostRewardLedger/{orderId} {
+      allow read: if signedIn() && resource.data.hostId == request.auth.uid;
+      allow create, update, delete: if false;
     }
 
     match /storePaymentEvents/{eventId} {

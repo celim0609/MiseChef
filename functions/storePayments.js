@@ -14,6 +14,7 @@ import {
   getStoreNotificationId,
   STORE_NOTIFICATION_TYPE
 } from './storeNotifications.js';
+import { resolveCheckoutGroup } from './groupOrders.js';
 
 const loadStoreCheckoutData = async (db, slug) => {
   const storeSnapshot = await db.collection('stores')
@@ -77,7 +78,8 @@ export const validateStoreCheckoutReturnUrl = value => {
   const isLocalEmulator = process.env.FUNCTIONS_EMULATOR === 'true'
     && url.protocol === 'http:'
     && ['127.0.0.1', 'localhost'].includes(url.hostname);
-  if ((!isHostedStore && !isLocalEmulator) || !url.pathname.startsWith('/store/')) {
+  if ((!isHostedStore && !isLocalEmulator)
+    || (!url.pathname.startsWith('/store/') && !url.pathname.startsWith('/group/'))) {
     throw new Error('Secure checkout return URL is invalid.');
   }
   url.username = '';
@@ -275,6 +277,7 @@ export const createStorePayment = async ({
   now = new Date()
 }) => {
   const checkoutData = await loadStoreCheckoutData(db, slug);
+  const groupOrder = await resolveCheckoutGroup({ db, store: checkoutData.store, draft, now });
   const paymentMethod = getEnabledStorePaymentMethod(checkoutData.store, draft?.paymentMethodId);
   const activeAdapter = adapter || resolveAdapter(paymentMethod);
   if (activeAdapter.requiresSellingWorkspace) {
@@ -313,6 +316,7 @@ export const createStorePayment = async ({
       paymentProvider: activeAdapter.provider,
       paymentProviderMode: activeAdapter.mode,
       paymentMethod,
+      groupOrder,
       draft,
       now
     });

@@ -44,6 +44,13 @@ import {
 } from './storeManualPayments.js';
 import { updateStoreOrderFulfilment } from './storeFulfilment.js';
 import {
+  activateHostProfile,
+  createGroupOrder,
+  getPublicGroupOrder,
+  listHostGroupOrders,
+  projectGroupReward
+} from './groupOrders.js';
+import {
   extractResumeWithCompletenessRetry,
   ResumeExtractionIncompleteError
 } from './resumeExtractionReliability.js';
@@ -72,6 +79,41 @@ export const provisionNewUserWorkspace = onCall({ region: REGION }, async reques
   email: request.auth?.token?.email || '',
   authDisplayName: request.auth?.token?.name || '',
   requestedDisplayName: request.data?.displayName || ''
+}));
+
+export const activateMiseChefHost = onCall({ region: REGION }, async request => activateHostProfile({
+  db,
+  uid: request.auth?.uid,
+  email: request.auth?.token?.email || '',
+  displayName: request.auth?.token?.name || ''
+}));
+
+export const createMiseChefGroupOrder = onCall({ region: REGION }, async request => createGroupOrder({
+  db,
+  uid: request.auth?.uid,
+  email: request.auth?.token?.email || '',
+  displayName: request.auth?.token?.name || '',
+  slug: request.data?.slug,
+  input: request.data?.group
+}));
+
+export const getPublicMiseChefGroupOrder = onCall({ region: REGION, invoker: 'public' }, async request => (
+  getPublicGroupOrder({ db, shareCode: request.data?.shareCode })
+));
+
+export const listMyMiseChefGroupOrders = onCall({ region: REGION }, async request => listHostGroupOrders({
+  db,
+  uid: request.auth?.uid,
+  slug: request.data?.slug
+}));
+
+export const syncMiseChefGroupReward = onDocumentWritten({
+  document: 'storeOrders/{orderId}',
+  region: REGION
+}, async event => projectGroupReward({
+  db,
+  orderId: event.params.orderId,
+  order: event.data?.after?.exists ? event.data.after.data() : null
 }));
 
 export const getWorkspaceSubscription = onCall({ region: REGION }, async request => {
@@ -123,6 +165,10 @@ const toStorePaymentError = error => {
   const message = readString(error?.message);
   if ([
     'This Store is no longer available.',
+    'This Group Order could not be found.',
+    'This Group Order belongs to a different Store.',
+    'This Group Order is closed.',
+    'Pickup details must match this Group Order.',
     'Online payments are not configured yet.',
     'Online payments are not available for this Store.',
     'Secure checkout return URL is invalid.',

@@ -84,6 +84,7 @@ const createStoreRecord = () => ({
     { id: 'bank_transfer', enabled: false, qrCodeUrl: '', instructions: '' },
     { id: 'stripe', enabled: true, qrCodeUrl: '', instructions: '' }
   ],
+  hostProgram: { enabled: false, rewardPercent: 5, minimumQualifyingSales: 0 },
   country: 'MY',
   currency: 'MYR',
   createdBy: 'owner-a',
@@ -162,7 +163,11 @@ before(async () => {
           reviewedAt: null,
           reviewedBy: ''
         }
-      })
+      }),
+      db.doc('hostProfiles/host-a').set({ userId: 'host-a', status: 'active' }),
+      db.doc('hostProfiles/host-b').set({ userId: 'host-b', status: 'active' }),
+      db.doc('groupOrders/group-a').set({ id: 'group-a', hostId: 'host-a', workspaceId: WORKSPACE_A, storeId: WORKSPACE_A }),
+      db.doc('hostRewardLedger/reward-a').set({ orderId: 'reward-a', hostId: 'host-a', workspaceId: WORKSPACE_A, storeId: WORKSPACE_A })
     ]);
     await context.storage(BUCKET_URL).ref(RECEIPT_PATH).put(
       Uint8Array.from([137, 80, 78, 71]),
@@ -211,6 +216,21 @@ test('clients cannot create orders or directly mutate payment and approval field
   await assertFails(ownerB.firestore().doc(`storeOrders/${ORDER_A}`).update({
     'payment.status': 'paid'
   }));
+});
+
+test('Host data is private to its account and all Host writes remain server-only', async () => {
+  const hostA = environment.authenticatedContext('host-a');
+  const hostB = environment.authenticatedContext('host-b');
+  await assertSucceeds(hostA.firestore().doc('hostProfiles/host-a').get());
+  await assertFails(hostB.firestore().doc('hostProfiles/host-a').get());
+  await assertSucceeds(hostA.firestore().doc('groupOrders/group-a').get());
+  await assertFails(hostB.firestore().doc('groupOrders/group-a').get());
+  await assertFails(ownerB.firestore().doc('groupOrders/group-a').get());
+  await assertSucceeds(hostA.firestore().doc('hostRewardLedger/reward-a').get());
+  await assertFails(hostB.firestore().doc('hostRewardLedger/reward-a').get());
+  await assertFails(hostA.firestore().doc('groupOrders/client-group').set({ hostId: 'host-a', workspaceId: WORKSPACE_A }));
+  await assertFails(hostA.firestore().doc('groupOrders/group-a').update({ eligibleSales: 999999 }));
+  await assertFails(hostA.firestore().doc('hostRewardLedger/reward-a').update({ rewardAmount: 999999 }));
 });
 
 test('only the matching Store team can read the protected order', async () => {

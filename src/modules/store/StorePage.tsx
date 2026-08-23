@@ -107,7 +107,8 @@ const toSettingsDraft = (store: WorkspaceStore): StoreSettingsDraft => ({
   earliestPickupDays: store.earliestPickupDays,
   maximumAdvanceDays: store.maximumAdvanceDays,
   unavailableDates: [...store.unavailableDates],
-  paymentMethods: store.paymentMethods.map(method => ({ ...method }))
+  paymentMethods: store.paymentMethods.map(method => ({ ...method })),
+  hostProgram: { ...store.hostProgram }
 });
 
 const toProductDraft = (product: StoreProduct): StoreProductDraft => ({
@@ -1114,6 +1115,27 @@ export default function StorePage({
               <span className="font-sans text-xs font-extrabold text-primary">Description</span>
               <textarea rows={4} value={settingsDraft.description} onChange={event => updateSettings('description', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
             </label>
+            <fieldset className="md:col-span-2 rounded-3xl border border-surface-container-high p-5">
+              <legend className="font-display text-2xl font-bold text-primary">Host Program</legend>
+              <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Let account holders host Group Orders. Rewards are tracked estimates only in Phase 1.</p>
+              <label className="mt-5 flex items-center justify-between gap-4 rounded-2xl bg-surface-container-low p-4">
+                <span>
+                  <span className="block font-sans text-sm font-extrabold text-primary">Host Program Enabled</span>
+                  <span className="mt-1 block font-sans text-xs font-bold text-on-surface-variant">Shows the Host CTA on your public Store.</span>
+                </span>
+                <input type="checkbox" checked={settingsDraft.hostProgram.enabled} onChange={event => updateSettings('hostProgram', { ...settingsDraft.hostProgram, enabled: event.target.checked })} className="h-5 w-5 rounded text-primary" />
+              </label>
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="font-sans text-xs font-extrabold text-primary">Host Reward %</span>
+                  <input type="number" min="0" max="100" step="0.1" value={settingsDraft.hostProgram.rewardPercent} onChange={event => updateSettings('hostProgram', { ...settingsDraft.hostProgram, rewardPercent: Number(event.target.value) })} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                </label>
+                <label className="block">
+                  <span className="font-sans text-xs font-extrabold text-primary">Minimum qualifying Group Sales ({region.currency})</span>
+                  <input type="number" min="0" step="0.01" value={settingsDraft.hostProgram.minimumQualifyingSales} onChange={event => updateSettings('hostProgram', { ...settingsDraft.hostProgram, minimumQualifyingSales: Number(event.target.value) })} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                </label>
+              </div>
+            </fieldset>
             <fieldset className="md:col-span-2">
               <legend className="font-display text-2xl font-bold text-primary">Store Contact</legend>
               <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Customers can contact the Store using the details you choose to provide.</p>
