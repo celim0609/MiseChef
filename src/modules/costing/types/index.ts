@@ -33,6 +33,26 @@ export interface CostingInvoiceExtractedItem {
   total: number;
 }
 
+export type CostingInvoiceImportDecision = 'Use Existing' | 'Create New';
+
+export interface CostingInvoiceReviewedItem {
+  sourceItemIndex: number;
+  supplierDescription: string;
+  ingredientName: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  total: number;
+  decision?: CostingInvoiceImportDecision;
+  ingredientId?: string;
+}
+
+export interface CostingInvoiceImportReview {
+  items: CostingInvoiceReviewedItem[];
+  approvedAt: string;
+  approvedBy: string;
+}
+
 export interface CostingInvoiceExtractedData {
   supplier: string;
   invoiceNumber: string;
@@ -73,6 +93,7 @@ export interface CostingInvoice {
   rollbackReason?: string;
   previousStatus?: CostingInvoiceStatus;
   extractedData: CostingInvoiceExtractedData | null;
+  importReview?: CostingInvoiceImportReview | null;
   errorMessage: string | null;
   createdBy: string;
   workspaceId?: string;

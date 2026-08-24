@@ -1,7 +1,7 @@
 export { ingredientService } from './ingredientService';
 export { costIntelligenceService } from './costIntelligenceService';
 export type { IngredientCostChange } from './costIntelligenceService';
-export { invoiceImportService, matchInvoiceItemsToIngredients } from './invoiceImportService';
+export { createInvoiceReviewItems, invoiceImportService, matchInvoiceItemsToIngredients, validateInvoiceImportMatches } from './invoiceImportService';
 export type { InvoiceImportMatch } from './invoiceImportService';
 export { invoiceLifecycleService } from './invoiceLifecycleService';
 export { recipeCostService } from './recipeCostService';

@@ -1,9 +1,9 @@
 import { useEffect, useState, type ChangeEvent } from 'react';
 import { Archive, ArrowLeft, CheckCircle2, Download, FileJson, FileSpreadsheet, Loader2, RotateCcw, RotateCw, Sparkles, Trash2, XCircle, ZoomIn, ZoomOut } from 'lucide-react';
-import { ingredientService, invoiceImportService, invoiceLifecycleService, invoiceProcessor, invoiceService, matchInvoiceItemsToIngredients } from '../../services';
+import { createInvoiceReviewItems, ingredientService, invoiceImportService, invoiceLifecycleService, invoiceProcessor, invoiceService, matchInvoiceItemsToIngredients, validateInvoiceImportMatches } from '../../services';
 import { getCustomerFriendlyErrorMessage } from '../../../../utils/customerErrorMessages';
 import type { InvoiceImportMatch } from '../../services';
-import type { CostingIngredient, CostingInvoice, CostingInvoiceExtractedItem, CostingInvoiceStatus } from '../../types';
+import type { CostingIngredient, CostingInvoice, CostingInvoiceReviewedItem, CostingInvoiceStatus } from '../../types';
 import { useWorkspaceRegion } from '../../../../regions';
 
 interface InvoiceDetailPageProps {
@@ -75,7 +75,7 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
   const [errorMessage, setErrorMessage] = useState('');
   const [zoom, setZoom] = useState(1);
   const [processingAction, setProcessingAction] = useState<'process' | 'reprocess' | null>(null);
-  const [reviewItems, setReviewItems] = useState<CostingInvoiceExtractedItem[]>([]);
+  const [reviewItems, setReviewItems] = useState<CostingInvoiceReviewedItem[]>([]);
   const [ingredientMatches, setIngredientMatches] = useState<InvoiceImportMatch[]>([]);
   const [reviewMessage, setReviewMessage] = useState('');
   const [lifecycleAction, setLifecycleAction] = useState<'archive' | 'restore' | 'delete' | 'rollback' | null>(null);
@@ -93,10 +93,17 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
         ]);
         if (!isCancelled) {
           setInvoice(loadedInvoice);
-          const items = loadedInvoice?.extractedData?.items || [];
+          const items = loadedInvoice?.importReview?.items || createInvoiceReviewItems(loadedInvoice?.extractedData?.items || []);
           setIngredients(loadedIngredients);
           setReviewItems(items);
-          setIngredientMatches(matchInvoiceItemsToIngredients(items, loadedIngredients));
+          setIngredientMatches(loadedInvoice?.importReview
+            ? items.map(item => ({
+              item,
+              matchedIngredientId: item.decision === 'Use Existing' ? item.ingredientId : undefined,
+              decision: item.decision,
+              status: item.decision || 'Create New'
+            }))
+            : matchInvoiceItemsToIngredients(items, loadedIngredients, workspaceId || userId || ''));
         }
       } catch (err) {
         if (!isCancelled) setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to load invoice.'));
@@ -156,13 +163,15 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
         subtotal: extractedData?.subtotal ?? invoice.subtotal,
         gst: extractedData?.gst ?? invoice.gst,
         total: extractedData?.total ?? invoice.total,
+        importReview: null,
         errorMessage: null
       };
 
       await invoiceService.updateInvoice(invoice.id, processedUpdates);
       setInvoice(current => current ? { ...current, ...processedUpdates } : current);
-      setReviewItems(extractedData?.items || []);
-      setIngredientMatches(matchInvoiceItemsToIngredients(extractedData?.items || [], ingredients));
+      const reviewDrafts = createInvoiceReviewItems(extractedData?.items || []);
+      setReviewItems(reviewDrafts);
+      setIngredientMatches(matchInvoiceItemsToIngredients(reviewDrafts, ingredients, workspaceId || userId || ''));
       setReviewMessage('OCR complete. Review the extracted items before approving import.');
     } catch (err) {
       const processingCompletedAt = new Date().toISOString();
@@ -184,28 +193,43 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
 
   const handleReviewItemChange = (
     index: number,
-    field: keyof CostingInvoiceExtractedItem,
+    field: 'ingredientName' | 'quantity' | 'unit' | 'unitPrice' | 'total',
     event: ChangeEvent<HTMLInputElement>
   ) => {
     const value = event.target.value;
     setReviewItems(current => current.map((item, itemIndex) => {
       if (itemIndex !== index) return item;
-      return {
+      const updatedItem = {
         ...item,
-        [field]: field === 'name' || field === 'unit' ? value : Number(value) || 0
+        [field]: field === 'ingredientName' || field === 'unit' ? value : Number(value)
       };
+      if (field === 'ingredientName') {
+        const refreshedMatch = matchInvoiceItemsToIngredients([updatedItem], ingredients, workspaceId || userId || '')[0];
+        setIngredientMatches(matches => matches.map((match, matchIndex) => matchIndex === index ? refreshedMatch : match));
+      }
+      return updatedItem;
     }));
   };
 
-  const handleMatchedIngredientChange = (index: number, ingredientId: string) => {
+  const handleUseExisting = (index: number, ingredientId: string) => {
     setIngredientMatches(current => current.map((match, matchIndex) => {
       if (matchIndex !== index) return match;
       return {
         ...match,
-        matchedIngredientId: ingredientId || undefined,
-        status: ingredientId ? 'Matched' : 'New Ingredient'
+        matchedIngredientId: ingredientId,
+        decision: 'Use Existing',
+        status: 'Use Existing'
       };
     }));
+  };
+
+  const handleCreateNew = (index: number) => {
+    setIngredientMatches(current => current.map((match, matchIndex) => matchIndex === index ? {
+      ...match,
+      matchedIngredientId: undefined,
+      decision: 'Create New',
+      status: 'Create New'
+    } : match));
   };
 
   const handleApproveImport = async () => {
@@ -218,9 +242,10 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
     try {
       const matches = ingredientMatches.map((match, index) => ({
         ...match,
-        item: reviewItems[index] || match.item,
-        status: match.matchedIngredientId ? 'Matched' as const : 'New Ingredient' as const
+        item: reviewItems[index] || match.item
       }));
+      const validationError = validateInvoiceImportMatches(matches);
+      if (validationError) throw new Error(validationError);
       const result = await invoiceImportService.approveImport({
         invoice,
         matches,
@@ -383,6 +408,10 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
   const isImported = invoice.processingStatus === 'Imported' || Boolean(invoice.approvedAt);
   const isArchived = invoice.processingStatus === 'Archived';
   const isLifecycleBusy = lifecycleAction !== null;
+  const importValidationError = validateInvoiceImportMatches(ingredientMatches.map((match, index) => ({
+    ...match,
+    item: reviewItems[index] || match.item
+  })));
 
   return (
     <div className="space-y-6">
@@ -525,7 +554,7 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row xl:flex-col 2xl:flex-row">
-            <button type="button" onClick={handleApproveImport} disabled={isProcessing || isImporting || isImported || isArchived || extractedItems.length === 0} className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-50">
+            <button type="button" onClick={handleApproveImport} title={!isImported ? importValidationError : undefined} disabled={!canManageInvoices || isProcessing || isImporting || isImported || isArchived || extractedItems.length === 0 || Boolean(importValidationError)} className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-50">
               <CheckCircle2 className="h-4 w-4" />
               {isImporting ? 'Approving...' : isImported ? 'Imported' : 'Approve Import'}
             </button>
@@ -545,7 +574,7 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
         <div>
           <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Ingredient Matching</p>
           <h3 className="font-display text-2xl font-bold text-primary tracking-tight mt-1">Ingredient Review</h3>
-          <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Confirm whether each OCR item should update an existing ingredient or create a new one.</p>
+          <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Possible matches are suggestions only. Explicitly use an existing Workspace Ingredient or create a new one.</p>
         </div>
         <div className="overflow-x-auto rounded-2xl border border-surface-container-high bg-white shadow-sm">
           <table className="w-full min-w-[820px] text-left font-sans text-sm">
@@ -557,25 +586,41 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
             <tbody>
               {ingredientMatches.length > 0 ? ingredientMatches.map((match, index) => {
                 const matchedIngredient = match.matchedIngredientId ? ingredients.find(ingredient => ingredient.id === match.matchedIngredientId) : null;
-                const status = match.matchedIngredientId ? 'Matched' : 'New Ingredient';
+                const suggestedIngredient = match.suggestedIngredientId ? ingredients.find(ingredient => ingredient.id === match.suggestedIngredientId) : null;
+                const status = match.status;
+                const statusClass = status === 'Use Existing'
+                  ? 'bg-green-100 text-green-800'
+                  : status === 'Possible Match'
+                    ? 'bg-blue-100 text-blue-800'
+                    : 'bg-yellow-100 text-yellow-800';
 
                 return (
-                  <tr key={`${match.item.name}-${index}`} className="border-t border-surface-container-high align-top hover:bg-surface-container-low/50">
-                    <td className="px-4 py-3 font-extrabold text-primary">{reviewItems[index]?.name || match.item.name || '-'}</td>
-                    <td className="px-4 py-3 font-bold text-on-surface-variant">{matchedIngredient?.name || 'No existing ingredient selected'}</td>
-                    <td className="px-4 py-3"><span className={`rounded-full px-3 py-1 font-sans text-[10px] font-extrabold ${status === 'Matched' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>{status}</span></td>
-                    <td className="px-4 py-3">
+                  <tr key={`${match.item.sourceItemIndex}-${index}`} className="border-t border-surface-container-high align-top hover:bg-surface-container-low/50">
+                    <td className="px-4 py-3 font-extrabold text-primary">{reviewItems[index]?.ingredientName || match.item.ingredientName || '-'}</td>
+                    <td className="px-4 py-3 font-bold text-on-surface-variant">
+                      {matchedIngredient?.name || (suggestedIngredient ? <span>Possible match: <strong className="text-primary">{suggestedIngredient.name}</strong></span> : 'No close match found')}
+                    </td>
+                    <td className="px-4 py-3"><span className={`rounded-full px-3 py-1 font-sans text-[10px] font-extrabold ${statusClass}`}>{status}</span></td>
+                    <td className="px-4 py-3 space-y-2">
+                      {suggestedIngredient && match.decision !== 'Use Existing' && (
+                        <button type="button" onClick={() => handleUseExisting(index, suggestedIngredient.id)} disabled={!canManageInvoices || isImported || isImporting} className="w-full rounded-xl bg-primary px-3 py-2 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">
+                          Use Existing: {suggestedIngredient.name}
+                        </button>
+                      )}
                       <select
                         value={match.matchedIngredientId || ''}
-                        onChange={event => handleMatchedIngredientChange(index, event.target.value)}
-                        disabled={isImported || isImporting}
+                        onChange={event => event.target.value && handleUseExisting(index, event.target.value)}
+                        disabled={!canManageInvoices || isImported || isImporting}
                         className="w-full min-w-[220px] rounded-xl border border-surface-container-high bg-white px-3 py-2 font-sans text-sm font-bold text-primary outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-50"
                       >
-                        <option value="">Create new ingredient</option>
-                        {ingredients.filter(ingredient => ingredient.status === 'Active').map(ingredient => (
+                        <option value="">Select another existing Ingredient</option>
+                        {ingredients.filter(ingredient => ingredient.status === 'Active' && ingredient.workspaceId === (workspaceId || userId)).map(ingredient => (
                           <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>
                         ))}
                       </select>
+                      <button type="button" onClick={() => handleCreateNew(index)} disabled={!canManageInvoices || isImported || isImporting} className="w-full rounded-xl border border-surface-container-high px-3 py-2 font-sans text-xs font-extrabold text-primary disabled:opacity-50">
+                        Create New
+                      </button>
                     </td>
                   </tr>
                 );
@@ -607,18 +652,23 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
           <table className="w-full min-w-[760px] text-left font-sans text-sm">
             <thead className="bg-surface-container-low text-primary">
               <tr>
-                {['Item Name', 'Quantity', 'Unit', 'Unit Price', 'Line Total'].map(header => <th key={header} className="px-4 py-3 text-xs font-extrabold uppercase tracking-[0.14em]">{header}</th>)}
+                {['Original OCR / Supplier Description', 'Ingredient Name', 'Quantity', 'Unit', 'Unit Price', 'Line Total'].map(header => <th key={header} className="px-4 py-3 text-xs font-extrabold uppercase tracking-[0.14em]">{header}</th>)}
               </tr>
             </thead>
             <tbody>
               {extractedItems.length > 0 ? extractedItems.map((item, index) => (
-                <tr key={`${item.name}-${index}`} className="border-t border-surface-container-high align-top hover:bg-surface-container-low/50">
+                <tr key={`${item.sourceItemIndex}-${index}`} className="border-t border-surface-container-high align-top hover:bg-surface-container-low/50">
+                  <td className="min-w-[260px] px-4 py-3">
+                    <p className="font-sans text-sm font-bold text-on-surface-variant">{item.supplierDescription || '-'}</p>
+                    <p className="mt-1 font-sans text-[10px] font-extrabold uppercase tracking-[0.12em] text-outline">Preserved invoice evidence</p>
+                  </td>
                   <td className="px-4 py-3">
                     <input
-                      value={item.name}
-                      onChange={event => handleReviewItemChange(index, 'name', event)}
+                      value={item.ingredientName}
+                      onChange={event => handleReviewItemChange(index, 'ingredientName', event)}
+                      disabled={isImported || !canManageInvoices}
                       className="w-full min-w-[220px] rounded-xl border border-surface-container-high bg-white px-3 py-2 font-sans text-sm font-bold text-primary outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
-                      aria-label={`Item ${index + 1} name`}
+                      aria-label={`Item ${index + 1} Ingredient Name`}
                     />
                   </td>
                   <td className="px-4 py-3">
@@ -626,6 +676,7 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
                       type="number"
                       value={item.quantity || ''}
                       onChange={event => handleReviewItemChange(index, 'quantity', event)}
+                      disabled={isImported || !canManageInvoices}
                       className="w-24 rounded-xl border border-surface-container-high bg-white px-3 py-2 font-sans text-sm font-bold text-primary outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
                       aria-label={`Item ${index + 1} quantity`}
                     />
@@ -634,6 +685,7 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
                     <input
                       value={item.unit}
                       onChange={event => handleReviewItemChange(index, 'unit', event)}
+                      disabled={isImported || !canManageInvoices}
                       className="w-28 rounded-xl border border-surface-container-high bg-white px-3 py-2 font-sans text-sm font-bold text-primary outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
                       aria-label={`Item ${index + 1} unit`}
                     />
@@ -643,6 +695,7 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
                       type="number"
                       value={item.unitPrice || ''}
                       onChange={event => handleReviewItemChange(index, 'unitPrice', event)}
+                      disabled={isImported || !canManageInvoices}
                       className="w-32 rounded-xl border border-surface-container-high bg-white px-3 py-2 font-sans text-sm font-bold text-primary outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
                       aria-label={`Item ${index + 1} unit price`}
                     />
@@ -652,6 +705,7 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
                       type="number"
                       value={item.total || ''}
                       onChange={event => handleReviewItemChange(index, 'total', event)}
+                      disabled={isImported || !canManageInvoices}
                       className="w-32 rounded-xl border border-surface-container-high bg-white px-3 py-2 font-sans text-sm font-bold text-primary outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/10"
                       aria-label={`Item ${index + 1} total`}
                     />
@@ -659,7 +713,7 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center">
+                  <td colSpan={6} className="px-4 py-10 text-center">
                     <Loader2 className={`mx-auto h-8 w-8 text-outline ${isProcessing ? 'animate-spin text-primary' : ''}`} />
                     <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">
                       {isProcessing
