@@ -40,6 +40,12 @@ const requiredSourceMarkers = [
   ['src/modules/personal-expenses/PersonalExpensesPage.tsx', 'Personal Expenses', 'Personal Expenses module'],
   ['src/modules/costing/pages/Invoices/index.tsx', 'Invoice History', 'Supplier Invoices module'],
   ['src/components/SearchTab.tsx', 'Recipe', 'Recipe Library'],
+  ['src/components/RecipeCostAnalysis.tsx', 'Selling Price', 'Recipe Cost Analysis summary'],
+  ['src/components/RecipeCostAnalysis.tsx', 'useWorkspaceRegion', 'Recipe Cost Analysis workspace currency'],
+  ['src/components/AddRecipeTab.tsx', 'calculateRecipeEditorCostPreview', 'Edit Recipe live costing'],
+  ['src/components/AddRecipeTab.tsx', 'sellingPriceValue={sellingPrice}', 'Edit Recipe canonical Selling Price binding'],
+  ['src/components/RecipeDetailModal.tsx', '<RecipeCostAnalysis recipe={recipe} />', 'Recipe Detail shared Cost Analysis'],
+  ['src/modules/costing/services/recipeCostCalculator.ts', 'calculateRecipeCosting', 'shared Recipe costing calculator'],
   ['src/modules/store/StorePage.tsx', 'Store', 'Store module'],
   ['src/modules/store/HostProgramPage.tsx', 'Host', 'Host Group Order module'],
   ['src/modules/store/services/groupOrderService.ts', 'groupOrder', 'Host Group Order service'],
@@ -53,6 +59,29 @@ const missing = requiredSourceMarkers.flatMap(([filePath, marker, label]) => {
     return [`${label}: ${filePath} is missing`];
   }
 });
+
+const recipeEditorSource = readRepositoryFile('src/components/AddRecipeTab.tsx');
+const recipeEditorOrder = [
+  ['Cost Analysis', recipeEditorSource.indexOf('<RecipeCostAnalysis')],
+  ['Ingredients', recipeEditorSource.indexOf('id="ingredients-section"')],
+  ['Instructions', recipeEditorSource.indexOf('id="method-section"')],
+  ['Story / Chef Notes', recipeEditorSource.indexOf('{/* Secondary narrative details */}')]
+];
+const recipeEditorOrderIsProtected = recipeEditorOrder.every(([, index]) => index >= 0)
+  && recipeEditorOrder.every(([, index], position) => position === 0 || index > recipeEditorOrder[position - 1][1]);
+
+if (!recipeEditorOrderIsProtected) {
+  missing.push(
+    `Recipe Edit Cost Analysis: expected ${recipeEditorOrder.map(([label]) => label).join(' -> ')} in src/components/AddRecipeTab.tsx`
+  );
+}
+
+const sellingPriceBindingCount = recipeEditorSource.split('sellingPriceValue={sellingPrice}').length - 1;
+if (sellingPriceBindingCount !== 1 || !recipeEditorSource.includes('{!isEditing && (')) {
+  missing.push(
+    'Recipe Edit Cost Analysis: Selling Price must have one canonical Edit binding inside Cost Analysis while the legacy field remains Add-only'
+  );
+}
 
 if (missing.length > 0) {
   throw new Error(`Protected Beta module regression detected:\n- ${missing.join('\n- ')}`);
