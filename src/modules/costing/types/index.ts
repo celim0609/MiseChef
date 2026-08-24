@@ -67,6 +67,7 @@ export interface CostingInvoiceExtractedData {
 export interface CostingInvoice {
   id: string;
   fileName: string;
+  displayName?: string | null;
   storageFileName?: string;
   fileUrl: string;
   fileType: CostingInvoiceFileType;

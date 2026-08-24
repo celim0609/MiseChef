@@ -1,6 +1,6 @@
 import { useEffect, useState, type ChangeEvent } from 'react';
 import { Archive, ArrowLeft, CheckCircle2, Download, FileJson, FileSpreadsheet, Loader2, RotateCcw, RotateCw, Sparkles, Trash2, XCircle, ZoomIn, ZoomOut } from 'lucide-react';
-import { createInvoiceReviewItems, ingredientService, invoiceImportService, invoiceLifecycleService, invoiceProcessor, invoiceService, matchInvoiceItemsToIngredients, validateInvoiceImportMatches } from '../../services';
+import { createInvoiceReviewItems, getInvoiceDisplayName, getInvoiceSecondaryLabel, getInvoiceSupplierName, ingredientService, invoiceImportService, invoiceLifecycleService, invoiceProcessor, invoiceService, matchInvoiceItemsToIngredients, validateInvoiceImportMatches } from '../../services';
 import { getCustomerFriendlyErrorMessage } from '../../../../utils/customerErrorMessages';
 import type { InvoiceImportMatch } from '../../services';
 import type { CostingIngredient, CostingInvoice, CostingInvoiceReviewedItem, CostingInvoiceStatus } from '../../types';
@@ -79,6 +79,9 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
   const [ingredientMatches, setIngredientMatches] = useState<InvoiceImportMatch[]>([]);
   const [reviewMessage, setReviewMessage] = useState('');
   const [lifecycleAction, setLifecycleAction] = useState<'archive' | 'restore' | 'delete' | 'rollback' | null>(null);
+  const [displayNameDraft, setDisplayNameDraft] = useState('');
+  const [isEditingDisplayName, setIsEditingDisplayName] = useState(false);
+  const [isSavingDisplayName, setIsSavingDisplayName] = useState(false);
 
   useEffect(() => {
     let isCancelled = false;
@@ -93,6 +96,7 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
         ]);
         if (!isCancelled) {
           setInvoice(loadedInvoice);
+          setDisplayNameDraft(loadedInvoice ? getInvoiceDisplayName(loadedInvoice) : '');
           const items = loadedInvoice?.importReview?.items || createInvoiceReviewItems(loadedInvoice?.extractedData?.items || []);
           setIngredients(loadedIngredients);
           setReviewItems(items);
@@ -168,7 +172,9 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
       };
 
       await invoiceService.updateInvoice(invoice.id, processedUpdates);
+      const processedInvoice = { ...invoice, ...processedUpdates };
       setInvoice(current => current ? { ...current, ...processedUpdates } : current);
+      if (!invoice.displayName) setDisplayNameDraft(getInvoiceDisplayName(processedInvoice));
       const reviewDrafts = createInvoiceReviewItems(extractedData?.items || []);
       setReviewItems(reviewDrafts);
       setIngredientMatches(matchInvoiceItemsToIngredients(reviewDrafts, ingredients, workspaceId || userId || ''));
@@ -209,6 +215,32 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
       }
       return updatedItem;
     }));
+  };
+
+  const handleSaveDisplayName = async () => {
+    if (!invoice || !canManageInvoices || isSavingDisplayName) return;
+    const displayName = displayNameDraft.trim();
+    if (!displayName) {
+      setErrorMessage('Invoice display name is required.');
+      return;
+    }
+    if (displayName.length > 120) {
+      setErrorMessage('Invoice display name must be 120 characters or fewer.');
+      return;
+    }
+
+    setIsSavingDisplayName(true);
+    setErrorMessage('');
+    try {
+      await invoiceService.updateInvoice(invoice.id, { displayName });
+      setInvoice(current => current ? { ...current, displayName } : current);
+      setIsEditingDisplayName(false);
+      setReviewMessage('Invoice display name updated.');
+    } catch (err) {
+      setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to update the invoice display name.'));
+    } finally {
+      setIsSavingDisplayName(false);
+    }
   };
 
   const handleUseExisting = (index: number, ingredientId: string) => {
@@ -408,6 +440,9 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
   const isImported = invoice.processingStatus === 'Imported' || Boolean(invoice.approvedAt);
   const isArchived = invoice.processingStatus === 'Archived';
   const isLifecycleBusy = lifecycleAction !== null;
+  const invoiceDisplayName = getInvoiceDisplayName(invoice);
+  const invoiceSecondaryLabel = getInvoiceSecondaryLabel(invoice);
+  const ocrSupplierName = getInvoiceSupplierName(invoice);
   const importValidationError = validateInvoiceImportMatches(ingredientMatches.map((match, index) => ({
     ...match,
     item: reviewItems[index] || match.item
@@ -475,9 +510,35 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <section className="rounded-2xl border border-surface-container-high bg-surface-container-low p-4 sm:p-6 shadow-sm space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Invoice Preview</p>
-              <h2 className="font-display text-2xl font-bold text-primary tracking-tight mt-1">{invoice.fileName}</h2>
+              {isEditingDisplayName ? (
+                <div className="mt-2 space-y-2">
+                  <input
+                    value={displayNameDraft}
+                    onChange={event => setDisplayNameDraft(event.target.value)}
+                    maxLength={120}
+                    aria-label="Invoice display name"
+                    className="w-full max-w-xl rounded-xl border border-surface-container-high bg-white px-3 py-2 font-display text-xl font-bold text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={handleSaveDisplayName} disabled={isSavingDisplayName} className="rounded-full bg-primary px-4 py-2 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">
+                      {isSavingDisplayName ? 'Saving...' : 'Save Name'}
+                    </button>
+                    {ocrSupplierName && <button type="button" onClick={() => setDisplayNameDraft(ocrSupplierName)} className="rounded-full border border-surface-container-high px-4 py-2 font-sans text-xs font-extrabold text-primary">Use OCR Supplier</button>}
+                    <button type="button" onClick={() => { setDisplayNameDraft(invoiceDisplayName); setIsEditingDisplayName(false); }} className="rounded-full border border-surface-container-high px-4 py-2 font-sans text-xs font-extrabold text-primary">Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <h2 className="font-display text-2xl font-bold text-primary tracking-tight">{invoiceDisplayName}</h2>
+                  {canManageInvoices && ocrSupplierName && (
+                    <button type="button" onClick={() => { setDisplayNameDraft(invoiceDisplayName); setIsEditingDisplayName(true); }} className="rounded-full border border-surface-container-high px-3 py-1.5 font-sans text-[10px] font-extrabold text-primary">Edit Name</button>
+                  )}
+                </div>
+              )}
+              {invoiceSecondaryLabel && <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">{invoiceSecondaryLabel}</p>}
+              <p className="mt-2 font-sans text-xs font-bold text-outline">Uploaded file: {invoice.fileName}</p>
             </div>
             <div className="flex gap-2">
               <button type="button" onClick={() => setZoom(current => Math.max(0.75, current - 0.1))} className="rounded-full border border-surface-container-high p-2 text-primary"><ZoomOut className="h-4 w-4" /></button>

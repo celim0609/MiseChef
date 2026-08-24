@@ -6,6 +6,7 @@ export type { InvoiceImportMatch } from './invoiceImportService';
 export { invoiceLifecycleService } from './invoiceLifecycleService';
 export { recipeCostService } from './recipeCostService';
 export { invoiceService } from './invoiceService';
+export { formatInvoiceDate, getInvoiceDisplayName, getInvoiceSecondaryLabel, getInvoiceSupplierName } from './invoiceDisplay';
 export { invoiceOcrService } from './invoiceOcrService';
 export { invoiceProcessor, AiInvoiceOcrProcessingProvider, SimulatedInvoiceProcessingProvider } from './invoiceProcessor';
 export type { InvoiceProcessingProvider } from './invoiceProcessor';
