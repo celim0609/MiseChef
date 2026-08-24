@@ -717,6 +717,7 @@ export default function App() {
     }
 
     if (actionId === 'recipe') {
+      handleRootNavigate(action.targetTab);
       setAddingRecipe(true);
       return;
     }
