@@ -1,10 +1,14 @@
+import { useMemo } from 'react';
 import { Search } from 'lucide-react';
+import { DiscoverCarousel } from '../../components/discover';
 import type { Recipe } from '../../types';
 import { PublicChefCard, PublicRecipeCard, PublicSectionState, type PublicChefSummary, type PublicSectionStatus } from './PublicContent';
+import { createPublicHomeDiscoverItems, type PublicDiscoverStoreSummary } from './publicDiscoverModel';
 
 interface PublicHomePageProps {
   publicRecipes: Recipe[];
   publicChefs: PublicChefSummary[];
+  publicDiscoverStores: PublicDiscoverStoreSummary[];
   status?: PublicSectionStatus;
 }
 
@@ -18,9 +22,13 @@ const SectionHeading = ({ title, description, link, linkLabel }: { title: string
   </div>
 );
 
-export default function PublicHomePage({ publicRecipes, publicChefs, status = 'ready' }: PublicHomePageProps) {
+export default function PublicHomePage({ publicRecipes, publicChefs, publicDiscoverStores, status = 'ready' }: PublicHomePageProps) {
   const featuredRecipes = [...publicRecipes].sort((a, b) => Number(Boolean(b.isFeatured)) - Number(Boolean(a.isFeatured))).slice(0, 4);
   const featuredChefs = publicChefs.slice(0, 4);
+  const discoverItems = useMemo(
+    () => createPublicHomeDiscoverItems(publicRecipes, publicDiscoverStores),
+    [publicDiscoverStores, publicRecipes]
+  );
 
   return (
     <div className="space-y-20 pb-6">
@@ -38,6 +46,8 @@ export default function PublicHomePage({ publicRecipes, publicChefs, status = 'r
           <a href="/chefs" className="rounded-full border border-on-primary/25 px-5 py-3 font-sans text-sm font-extrabold text-on-primary">Meet Chefs</a>
         </div>
       </section>
+
+      <DiscoverCarousel items={discoverItems} ariaLabel="Discover new public MiseChef content" />
 
       <section>
         <SectionHeading title="Featured Recipes" description="Selected recipes from the MiseChef community." link="/recipes" linkLabel="View all recipes" />

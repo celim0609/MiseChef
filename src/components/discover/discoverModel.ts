@@ -12,7 +12,7 @@ export type DiscoverContentType =
   | 'featured-product'
   | 'announcement';
 
-export type DiscoverLabel = 'New' | 'Featured' | 'Recommended' | 'Discover' | 'Sponsored';
+export type DiscoverLabel = 'New' | 'Featured' | 'Recommended' | 'Discover' | 'MiseChef' | 'Sponsored';
 export type DiscoverDisclosure = 'organic' | 'sponsored';
 
 export type DiscoverDestination =

@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { Recipe } from '../../types';
+import PublicHomePage from '../../modules/public/PublicHomePage';
+import { createPublicHomeDiscoverItems } from '../../modules/public/publicDiscoverModel';
 import DiscoverCarousel from './DiscoverCarousel';
 import {
   DISCOVER_AUTOPLAY_MS,
@@ -20,6 +22,8 @@ import {
 const componentSource = readFileSync(new URL('./DiscoverCarousel.tsx', import.meta.url), 'utf8');
 const searchSource = readFileSync(new URL('../SearchTab.tsx', import.meta.url), 'utf8');
 const stylesSource = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
+const publicHomeSource = readFileSync(new URL('../../modules/public/PublicHomePage.tsx', import.meta.url), 'utf8');
+const publicRecipeServiceSource = readFileSync(new URL('../../modules/public/services/publicRecipeService.ts', import.meta.url), 'utf8');
 
 const recipe = (overrides: Partial<Recipe> = {}): Recipe => ({
   id: 'recipe-1',
@@ -128,4 +132,46 @@ test('Recipe Library contains exactly one Discover carousel before Categories', 
   assert.ok(searchSource.indexOf('<DiscoverCarousel') < searchSource.indexOf('<section className="bg-surface-container-low'));
   assert.match(searchSource, /createRecipeLibraryDiscoverItems\(recipes\)/);
   assert.match(searchSource, /onSelectRecipe\(recipe\)/);
+});
+
+test('public Discover uses only public recipe projections and minimal public Store fields', () => {
+  const storeSummary = {
+    slug: 'public-store',
+    name: 'Public Store',
+    description: 'Breakfast and drinks.',
+    imageUrl: 'https://images.example.com/store.jpg',
+    products: [
+      { id: 'available', name: 'Kopi', description: 'Fresh coffee.', imageUrl: 'https://images.example.com/kopi.jpg' }
+    ]
+  };
+  const items = createPublicHomeDiscoverItems([
+    recipe({ id: 'public-new', title: 'Public New', visibility: 'public' }),
+    recipe({ id: 'public-featured', title: 'Public Featured', visibility: 'public', isFeatured: true, createdAt: '2026-08-23T10:00:00.000Z' }),
+    recipe({ id: 'private', title: 'Private Recipe', visibility: 'private', chefName: 'Private Owner' })
+  ], [storeSummary]);
+
+  assert.deepEqual(items.map(entry => entry.type), ['new-recipe', 'featured-recipe', 'featured-store', 'featured-product', 'announcement']);
+  assert.doesNotMatch(JSON.stringify(items), /Private Recipe|Private Owner/);
+  assert.ok(items.every(entry => entry.destination.kind === 'href' && !entry.destination.href.startsWith('/app')));
+  assert.match(publicRecipeServiceSource, /collection\(db, 'publicRecipes'\)/);
+});
+
+test('public homepage keeps its Hero and Featured Recipes with one Discover placement between them', () => {
+  const heroIndex = publicHomeSource.indexOf('Discover recipes from chefs worth following.');
+  const discoverIndex = publicHomeSource.indexOf('<DiscoverCarousel');
+  const featuredIndex = publicHomeSource.indexOf('title="Featured Recipes"');
+  assert.ok(heroIndex >= 0 && heroIndex < discoverIndex && discoverIndex < featuredIndex);
+  assert.equal(publicHomeSource.split('<DiscoverCarousel').length - 1, 1);
+
+  const markup = renderToStaticMarkup(
+    <PublicHomePage
+      publicRecipes={[recipe({ visibility: 'public' })]}
+      publicChefs={[]}
+      publicDiscoverStores={[]}
+    />
+  );
+  assert.match(markup, /Discover recipes from chefs worth following\./);
+  assert.match(markup, /aria-label="Discover new public MiseChef content"/);
+  assert.match(markup, /Featured Recipes/);
+  assert.doesNotMatch(markup, /Private Recipe/);
 });

@@ -6,7 +6,8 @@ import { getRecipeCategories } from '../../utils/categoryUtils';
 import PublicHomePage from './PublicHomePage';
 import { PublicChefCard, PublicSectionState, type PublicChefSummary, type PublicSectionStatus } from './PublicContent';
 import { resolvePublicRoute, toPublicSlug } from './publicRoutes';
-import { publicChefProfileService, publicRecipeService } from './services';
+import { publicChefProfileService, publicDiscoverService, publicRecipeService } from './services';
+import type { PublicDiscoverStoreSummary } from './publicDiscoverModel';
 import PublicChefProfilePage from './PublicChefProfilePage';
 import PublicRecipeDiscoveryPage from './PublicRecipeDiscoveryPage';
 import { HostProgramPage, PublicGroupOrderPage, PublicStorePage } from '../store';
@@ -30,6 +31,7 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
   const route = resolvePublicRoute(pathname) || { page: 'home' as const };
   const [publicRecipes, setPublicRecipes] = useState<Recipe[]>([]);
   const [publicChefs, setPublicChefs] = useState<PublicChefSummary[]>([]);
+  const [publicDiscoverStores, setPublicDiscoverStores] = useState<PublicDiscoverStoreSummary[]>([]);
   const [chefSearch, setChefSearch] = useState('');
   const [recipeStatus, setRecipeStatus] = useState<PublicSectionStatus>('loading');
 
@@ -52,6 +54,18 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
     return () => {
       isCancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    let isCancelled = false;
+    publicDiscoverService.listFeaturedStores()
+      .then(stores => {
+        if (!isCancelled) setPublicDiscoverStores(stores);
+      })
+      .catch(() => {
+        if (!isCancelled) setPublicDiscoverStores([]);
+      });
+    return () => { isCancelled = true; };
   }, []);
 
   const filteredPublicChefs = useMemo(() => {
@@ -80,7 +94,7 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
 
   const renderPage = () => {
     if (route.page === 'home') {
-      return <PublicHomePage publicRecipes={publicRecipes} publicChefs={publicChefs} status={recipeStatus} />;
+      return <PublicHomePage publicRecipes={publicRecipes} publicChefs={publicChefs} publicDiscoverStores={publicDiscoverStores} status={recipeStatus} />;
     }
 
     if (route.page === 'recipes') {

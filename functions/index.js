@@ -58,6 +58,7 @@ import {
 import { createStoreSocialPreviewHandler } from './storeSocialPreview.js';
 import { recordPersonalExpenseSettlement as recordPersonalExpenseSettlementCore } from './personalExpenseSettlements.js';
 import { sanitizeExtractedPersonalExpenseMerchant } from './personalExpenseReceipt.js';
+import { loadPublicDiscoverStores } from './publicDiscover.js';
 
 initializeApp();
 
@@ -113,6 +114,31 @@ export const renderPublicStore = onRequest({
   maxInstances: 20,
   concurrency: 80
 }, publicStorePreviewHandler);
+
+export const getPublicDiscoverContent = onCall({
+  region: REGION,
+  timeoutSeconds: 10,
+  memory: '256MiB',
+  maxInstances: 10,
+  concurrency: 80
+}, async () => ({
+  stores: await loadPublicDiscoverStores({
+    loadStore: async slug => {
+      const snapshot = await db.collection('stores').where('slug', '==', slug).limit(1).get();
+      if (snapshot.empty) return null;
+      return { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+    },
+    loadAvailableProducts: async storeId => {
+      const snapshot = await db.collection('storeProducts')
+        .where('storeId', '==', storeId)
+        .where('available', '==', true)
+        .get();
+      return snapshot.docs
+        .map(document => ({ id: document.id, ...document.data() }))
+        .sort((a, b) => readString(b.updatedAt).localeCompare(readString(a.updatedAt)));
+    }
+  })
+}));
 
 export const provisionNewUserWorkspace = onCall({ region: REGION }, async request => provisionNewUser({
   db,
