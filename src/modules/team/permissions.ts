@@ -48,6 +48,7 @@ export const canAccessRootTab = (tab: RootTab, role?: WorkspaceMemberRole | null
     case 'profile':
     case 'statistics':
     case 'favorites':
+    case 'personalExpenses':
       return true;
     case 'search':
       return true;

@@ -36,6 +36,28 @@ service firebase.storage {
         );
     }
 
+    function isActiveWorkspaceMember(workspaceId) {
+      return signedIn()
+        && (
+          (
+            firestore.exists(/databases/(default)/documents/workspaces/$(workspaceId))
+            && firestore.get(/databases/(default)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid
+          )
+          || (
+            firestore.exists(/databases/(default)/documents/workspaceMembers/$(workspaceId + "_" + request.auth.uid))
+            && firestore.get(/databases/(default)/documents/workspaceMembers/$(workspaceId + "_" + request.auth.uid)).data.status == 'Active'
+          )
+        );
+    }
+
+    function isCommittedPersonalExpenseReceipt(workspaceId, userId, expenseId, fileName) {
+      return firestore.exists(/databases/(default)/documents/personalExpenses/$(expenseId))
+        && firestore.get(/databases/(default)/documents/personalExpenses/$(expenseId)).data.workspaceId == workspaceId
+        && firestore.get(/databases/(default)/documents/personalExpenses/$(expenseId)).data.createdBy == userId
+        && firestore.get(/databases/(default)/documents/personalExpenses/$(expenseId)).data.receiptPath
+          == "personal-expenses/" + workspaceId + "/" + userId + "/" + expenseId + "/" + fileName;
+    }
+
     function validImageUpload(maxBytes) {
       return request.resource != null
         && request.resource.size <= maxBytes
@@ -157,6 +179,22 @@ service firebase.storage {
         && validInvoiceUpload()
         && hasAuthorizedInvoiceUpload(invoiceId, fileName);
       allow delete: if ownsPath(userId);
+    }
+
+    match /personal-expenses/{workspaceId}/{userId}/{expenseId}/{fileName} {
+      allow read: if (ownsPath(userId) && isActiveWorkspaceMember(workspaceId))
+        || canManageWorkspace(workspaceId);
+      allow create: if ownsPath(userId)
+        && isActiveWorkspaceMember(workspaceId)
+        && !isCommittedPersonalExpenseReceipt(workspaceId, userId, expenseId, fileName)
+        && (validImageUpload(10 * 1024 * 1024) || validPdfUpload(10 * 1024 * 1024));
+      allow update: if ownsPath(userId)
+        && isActiveWorkspaceMember(workspaceId)
+        && !isCommittedPersonalExpenseReceipt(workspaceId, userId, expenseId, fileName)
+        && (validImageUpload(10 * 1024 * 1024) || validPdfUpload(10 * 1024 * 1024));
+      allow delete: if ownsPath(userId)
+        && isActiveWorkspaceMember(workspaceId)
+        && !isCommittedPersonalExpenseReceipt(workspaceId, userId, expenseId, fileName);
     }
 
     match /{allPaths=**} {

@@ -40,14 +40,15 @@ const loadMonthlyUsageBaseline = async ({ db, workspaceId, monthKey }) => {
     if (record.status !== 'success') return usage;
     usage.aiRequests += 1;
     if (record.feature === 'parseInvoiceToJson') usage.invoiceOcr += 1;
+    if (record.feature === 'extractPersonalExpenseReceipt') usage.personalExpenseOcr += 1;
     return usage;
-  }, { aiRequests: 0, invoiceOcr: 0 });
+  }, { aiRequests: 0, invoiceOcr: 0, personalExpenseOcr: 0 });
 };
 
 export const reserveMonthlySubscriptionUsage = async ({ db, entitlements, increments }) => {
   const monthKey = getMonthKey();
   const usageReference = db.collection('subscriptionUsage').doc(`${entitlements.workspaceId}_${monthKey}`);
-  let baseline = { aiRequests: 0, invoiceOcr: 0 };
+  let baseline = { aiRequests: 0, invoiceOcr: 0, personalExpenseOcr: 0 };
 
   try {
     const existingUsage = await usageReference.get();
@@ -69,7 +70,8 @@ export const reserveMonthlySubscriptionUsage = async ({ db, entitlements, increm
     const current = snapshot.exists ? snapshot.data() || {} : baseline;
     const next = {
       aiRequests: Number(current.aiRequests || 0) + Number(increments.aiRequests || 0),
-      invoiceOcr: Number(current.invoiceOcr || 0) + Number(increments.invoiceOcr || 0)
+      invoiceOcr: Number(current.invoiceOcr || 0) + Number(increments.invoiceOcr || 0),
+      personalExpenseOcr: Number(current.personalExpenseOcr || 0) + Number(increments.personalExpenseOcr || 0)
     };
 
     for (const resource of ['aiRequests', 'invoiceOcr']) {
@@ -101,6 +103,7 @@ export const releaseMonthlySubscriptionUsage = async ({ db, reservation }) => {
     transaction.update(reservation.usageReference, {
       aiRequests: Math.max(0, Number(current.aiRequests || 0) - Number(reservation.increments.aiRequests || 0)),
       invoiceOcr: Math.max(0, Number(current.invoiceOcr || 0) - Number(reservation.increments.invoiceOcr || 0)),
+      personalExpenseOcr: Math.max(0, Number(current.personalExpenseOcr || 0) - Number(reservation.increments.personalExpenseOcr || 0)),
       updatedAt: FieldValue.serverTimestamp()
     });
   });

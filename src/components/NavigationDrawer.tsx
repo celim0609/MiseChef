@@ -26,6 +26,7 @@ import {
   Store as StoreIcon,
   Truck,
   UsersRound,
+  WalletCards,
   X
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -34,6 +35,7 @@ import { RecipeCategory, RootTab, SubscriptionPlan, UserRole, WorkspaceMemberRol
 import { canAccessRootTab } from '../modules/team/permissions';
 import BrandLogo from './BrandLogo';
 import { subscriptionService, type PlanFeature } from '../services/subscriptionService';
+import { FINANCE_NAVIGATION } from '../navigation/financeNavigation';
 
 const PRODUCT_TAB_FEATURES: Partial<Record<RootTab, PlanFeature>> = {
   search: 'recipes',
@@ -94,6 +96,7 @@ export default function NavigationDrawer({
   const [recipesOpen, setRecipesOpen] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [businessOpen, setBusinessOpen] = useState(false);
+  const [financeOpen, setFinanceOpen] = useState(false);
   const [costingOpen, setCostingOpen] = useState(false);
   const [openCategoryMenuId, setOpenCategoryMenuId] = useState<string | null>(null);
   const [renamingCategory, setRenamingCategory] = useState<RecipeCategory | null>(null);
@@ -150,6 +153,7 @@ export default function NavigationDrawer({
     if (!isOpen) return;
     if (activeTab === 'search' || activeTab === 'favorites') setRecipesOpen(true);
     if (activeTab === 'business' || activeTab === 'businessSales') setBusinessOpen(true);
+    if (activeTab === FINANCE_NAVIGATION.tab) setFinanceOpen(true);
     if (activeTab === 'costing' || activeTab === 'costingIngredients' || activeTab === 'costingInvoices' || activeTab === 'costingInvoiceDetail' || activeTab === 'costingReports' || activeTab === 'businessSuppliers') setCostingOpen(true);
   }, [activeTab, isOpen]);
 
@@ -220,6 +224,9 @@ export default function NavigationDrawer({
     { label: 'Dashboard', icon: <BarChart3 className="w-4 h-4" />, tab: 'business' as RootTab },
     { label: 'Sales', icon: <CreditCard className="w-4 h-4" />, tab: 'businessSales' as RootTab }
   ].filter(item => canUseTabFeature(item.tab));
+  const financeMenuItems: Array<{ label: string; icon: React.ReactNode; tab: RootTab }> = [
+    { label: FINANCE_NAVIGATION.itemLabel, icon: <WalletCards className="w-4 h-4" />, tab: FINANCE_NAVIGATION.tab }
+  ].filter(item => canAccess(item.tab));
 
   const displayName = currentUser?.displayName || currentUser?.email?.split('@')[0] || 'MiseChef User';
   const displayEmail = currentUser?.email || 'Sign in to access your workspace';
@@ -526,6 +533,54 @@ export default function NavigationDrawer({
                   <ShieldCheck className="w-5 h-5" />
                   <span>Admin</span>
                 </button>
+              )}
+
+              {financeMenuItems.length > 0 && (
+                <div className="rounded-2xl overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setFinanceOpen(prev => !prev)}
+                    className={`w-full flex items-center gap-3 px-4 py-3.5 text-left font-sans font-extrabold text-sm transition-all ${
+                      activeTab === FINANCE_NAVIGATION.tab
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-primary hover:bg-surface-container'
+                    }`}
+                    aria-expanded={financeOpen}
+                  >
+                    <WalletCards className="w-5 h-5" />
+                    <span className="flex-1">{FINANCE_NAVIGATION.label}</span>
+                    <ChevronDown className={`w-4 h-4 transition-transform ${financeOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  <AnimatePresence initial={false}>
+                    {financeOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: 'easeOut' }}
+                        className="overflow-hidden"
+                      >
+                        <div className="ml-8 mr-2 mb-2 space-y-1 border-l border-surface-container-high pl-3">
+                          {financeMenuItems.map(item => (
+                            <button
+                              type="button"
+                              key={item.label}
+                              onClick={() => handleNavigate(item.tab)}
+                              className={`w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-left font-sans text-xs font-bold transition-all ${
+                                activeTab === item.tab
+                                  ? 'bg-primary text-on-primary shadow-sm'
+                                  : 'text-on-surface-variant hover:bg-surface-container hover:text-primary'
+                              }`}
+                            >
+                              {item.icon}
+                              <span>{item.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
               )}
 
               {businessMenuItems.length === 0 && currentUser && (

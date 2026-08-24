@@ -56,6 +56,8 @@ import {
   ResumeExtractionIncompleteError
 } from './resumeExtractionReliability.js';
 import { createStoreSocialPreviewHandler } from './storeSocialPreview.js';
+import { recordPersonalExpenseSettlement as recordPersonalExpenseSettlementCore } from './personalExpenseSettlements.js';
+import { sanitizeExtractedPersonalExpenseMerchant } from './personalExpenseReceipt.js';
 
 initializeApp();
 
@@ -875,6 +877,17 @@ const invoiceOcrResponseSchema = {
   }
 };
 
+const personalExpenseOcrResponseSchema = {
+  type: Type.OBJECT,
+  properties: {
+    amount: { type: Type.NUMBER },
+    expenseDate: { type: Type.STRING },
+    merchant: { type: Type.STRING },
+    description: { type: Type.STRING },
+    category: { type: Type.STRING }
+  }
+};
+
 const requireAuthenticatedUser = request => {
   const uid = request.auth?.uid;
   if (!uid) {
@@ -1531,6 +1544,108 @@ export const parseInvoiceToJson = onCall({
     throw wrapInternalError('AI invoice OCR failed. Please try again.', err, includeDiagnostics);
   }
 });
+
+export const extractPersonalExpenseReceipt = onCall({
+  region: REGION,
+  invoker: 'public',
+  secrets: [geminiApiKey],
+  timeoutSeconds: 120,
+  memory: '512MiB'
+}, async request => {
+  const requesterId = requireAuthenticatedUser(request);
+  const action = 'extractPersonalExpenseReceipt';
+  const includeDiagnostics = request.data?.debug === true;
+  const startedAt = Date.now();
+  let companyId = requesterId;
+  let attempts = 0;
+  let usageReservation;
+
+  try {
+    const workspaceId = readString(request.data?.workspaceId);
+    const receiptPath = readString(request.data?.receiptPath);
+    const receiptFileName = readString(request.data?.receiptFileName);
+    const expectedPrefix = `personal-expenses/${workspaceId}/${requesterId}/`;
+    if (!workspaceId || !receiptPath.startsWith(expectedPrefix) || receiptPath.includes('..')) {
+      throw new HttpsError('invalid-argument', 'Valid personal expense receipt details are required.');
+    }
+
+    const entitlements = await requireWorkspaceEntitlements({ db, uid: requesterId, workspaceId });
+    companyId = entitlements.workspaceId;
+    usageReservation = await reserveMonthlySubscriptionUsage({
+      db,
+      entitlements,
+      increments: { aiRequests: 1, personalExpenseOcr: 1 }
+    });
+
+    const receiptFile = getStorage().bucket().file(receiptPath);
+    const [exists] = await receiptFile.exists();
+    if (!exists) throw new HttpsError('not-found', 'Receipt file not found.');
+    const [metadata] = await receiptFile.getMetadata();
+    const mimeType = getInvoiceMimeType({ fileName: receiptFileName }, metadata.contentType);
+    if (!ALLOWED_INVOICE_OCR_MIME_TYPES.has(mimeType)) {
+      throw new HttpsError('invalid-argument', 'AI receipt extraction supports PDF, JPG, PNG, and WEBP files.');
+    }
+    const [fileBuffer] = await receiptFile.download();
+    if (!fileBuffer.length || fileBuffer.length > MAX_INVOICE_OCR_BYTES) {
+      throw new HttpsError('invalid-argument', 'Receipt files must be 10 MB or smaller.');
+    }
+
+    const ai = getAi();
+    const { response, attempts: usedAttempts } = await callGeminiWithRetry(() => ai.models.generateContent({
+      model: MODEL,
+      contents: [
+        { inlineData: { mimeType, data: fileBuffer.toString('base64') } },
+        {
+          text: [
+            'Extract the business expense details visible on this receipt.',
+            'Return ONLY valid JSON with this exact shape:',
+            '{"amount":0,"expenseDate":"","merchant":"","description":"","category":""}',
+            'Merchant must be only the exact short merchant or business name visibly printed near the receipt header.',
+            'If the merchant is uncertain, runs into other text, or contains receipt body text, commentary, inferred information, HTML, or unrelated prose, return an empty merchant string.',
+            'Never infer, summarize, translate, or add information to the merchant name.',
+            'Use the final paid total as amount and format expenseDate as YYYY-MM-DD when visible.',
+            'Write a short description of what was purchased based only on visible receipt items.',
+            'Choose the closest category from: Food & Ingredients, Equipment, Transport, Utilities, Office, Repairs & Maintenance, Other.',
+            'Do not invent unreadable or missing values; use an empty string or 0 instead.',
+            'Do not create an invoice, supplier record, accounting entry, or any commentary.'
+          ].join(' ')
+        }
+      ],
+      config: { responseMimeType: 'application/json', responseSchema: personalExpenseOcrResponseSchema }
+    }));
+    attempts = usedAttempts;
+    const source = parseJsonResponse(response.text, {}, includeDiagnostics);
+    const expense = {
+      amount: Math.max(0, readNumber(source.amount)),
+      expenseDate: readString(source.expenseDate),
+      merchant: sanitizeExtractedPersonalExpenseMerchant(source.merchant),
+      description: readString(source.description),
+      category: readString(source.category)
+    };
+    await logRequest({ requesterId, companyId, action, status: 'success', attempts, response, responseTime: Date.now() - startedAt });
+    return { expense };
+  } catch (err) {
+    await releaseMonthlySubscriptionUsage({ db, reservation: usageReservation }).catch(() => undefined);
+    attempts = attempts || 1;
+    const errorCode = err instanceof HttpsError ? err.code : 'internal';
+    logger.error('Personal expense receipt extraction failed', { requesterId, action, attempts, errorCode, ...getErrorDiagnostics(err) });
+    await logRequest({ requesterId, companyId, action, status: 'failed', attempts, errorCode, responseTime: Date.now() - startedAt }).catch(() => undefined);
+    if (err instanceof HttpsError) throw err;
+    throw wrapInternalError('AI receipt extraction failed. You can enter the details manually.', err, includeDiagnostics);
+  }
+});
+
+export const recordPersonalExpenseSettlement = onCall({
+  region: REGION,
+  timeoutSeconds: 30,
+  memory: '256MiB'
+}, async request => recordPersonalExpenseSettlementCore({
+  db,
+  requesterId: requireAuthenticatedUser(request),
+  workspaceId: request.data?.workspaceId,
+  memberId: request.data?.memberId,
+  amount: request.data?.amount
+}));
 
 export const generateRecipeSteps = onCall({
   region: REGION,

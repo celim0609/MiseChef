@@ -261,6 +261,7 @@ export type RootTab =
   | 'business'
   | 'businessSales'
   | 'businessSuppliers'
+  | 'personalExpenses'
   | 'costing'
   | 'costingIngredients'
   | 'costingInvoices'

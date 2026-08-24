@@ -181,6 +181,55 @@ service cloud.firestore {
         && hasProfessionalWorkspaceEntitlement(workspaceId);
     }
 
+    function isValidPersonalExpense(data, expenseId) {
+      return data.keys().hasAll([
+          'workspaceId', 'memberId', 'amount', 'expenseDate', 'description',
+          'category', 'createdBy', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'workspaceId', 'memberId', 'amount', 'expenseDate', 'description',
+          'category', 'merchant', 'receiptUrl', 'receiptPath', 'receiptFileName',
+          'createdBy', 'createdAt'
+        ])
+        && data.workspaceId is string
+        && data.memberId is string
+        && data.amount is number
+        && data.amount > 0
+        && data.amount <= 1000000000
+        && data.expenseDate is string
+        && data.description is string
+        && data.description.size() > 0
+        && data.description.size() <= 500
+        && data.category is string
+        && data.category.size() > 0
+        && data.category.size() <= 100
+        && data.createdBy == request.auth.uid
+        && data.createdAt is string
+        && (!data.keys().hasAny(['merchant']) || (
+          data.merchant is string
+          && data.merchant.size() > 0
+          && data.merchant.size() <= 120
+          && data.merchant.matches('^[^\\n\\r<>]+$')
+        ))
+        && (
+          !data.keys().hasAny(['receiptUrl', 'receiptPath', 'receiptFileName'])
+          || (
+            data.keys().hasAll(['receiptUrl', 'receiptPath', 'receiptFileName'])
+            && data.receiptUrl is string
+            && data.receiptUrl.size() > 0
+            && data.receiptUrl.size() <= 2000
+            && data.receiptPath is string
+            && data.receiptPath.matches('^personal-expenses/' + data.workspaceId + '/' + request.auth.uid + '/' + expenseId + '/[^/]+$')
+            && data.receiptFileName is string
+            && data.receiptFileName.size() > 0
+            && data.receiptFileName.size() <= 200
+          )
+        )
+        && exists(/databases/$(database)/documents/workspaceMembers/$(data.memberId))
+        && get(/databases/$(database)/documents/workspaceMembers/$(data.memberId)).data.workspaceId == data.workspaceId
+        && get(/databases/$(database)/documents/workspaceMembers/$(data.memberId)).data.status == 'Active';
+    }
+
     function canInviteTeam(workspaceId) {
       return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef'])
         && hasProfessionalWorkspaceEntitlement(workspaceId);
@@ -701,6 +750,23 @@ service cloud.firestore {
         && incomingWorkspaceId() == existingWorkspaceId()
         && (!isArchivedInvoiceWrite() || isWorkspaceOwnerOrManager(existingWorkspaceId()));
       allow delete: if isWorkspaceOwnerOrManager(existingWorkspaceId());
+    }
+
+    match /personalExpenses/{expenseId} {
+      allow create: if isWorkspaceMember(request.resource.data.workspaceId)
+        && isValidPersonalExpense(request.resource.data, expenseId);
+      allow read: if isWorkspaceOwnerOrManager(resource.data.workspaceId)
+        || (isWorkspaceMember(resource.data.workspaceId)
+          && (resource.data.createdBy == request.auth.uid
+            || resource.data.memberId == workspaceMemberId(resource.data.workspaceId)));
+      allow update, delete: if false;
+    }
+
+    match /personalExpenseSettlements/{settlementId} {
+      allow read: if isWorkspaceOwnerOrManager(resource.data.workspaceId)
+        || (isWorkspaceMember(resource.data.workspaceId)
+          && resource.data.memberId == workspaceMemberId(resource.data.workspaceId));
+      allow create, update, delete: if false;
     }
 
     match /ingredients/{ingredientId} {

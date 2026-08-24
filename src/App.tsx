@@ -27,6 +27,7 @@ import { ChefProfilePage } from './modules/chef-profile';
 import { CostingPage } from './modules/costing';
 import { recipeCostService } from './modules/costing/services';
 import { BusinessPage } from './modules/business';
+import { PersonalExpensesPage } from './modules/personal-expenses';
 import { TeamPage } from './modules/team';
 import { SubscriptionCenterPage } from './modules/subscription';
 import { IntentOnboarding, getOnboardingDestination, onboardingService, normalizeOnboarding, type OnboardingGoal, type UserOnboarding } from './modules/onboarding';
@@ -54,6 +55,7 @@ import {
   storeOrderService,
   type StoreNotification
 } from './modules/store';
+import { FINANCE_NAVIGATION, isFinancePath } from './navigation/financeNavigation';
 
 const STORAGE_RECIPES_KEY = 'my_cookbook_recipes_v2';
 const STORAGE_CATEGORIES_KEY = 'ce_lims_kitchen_categories_v1';
@@ -103,6 +105,7 @@ const ROOT_TAB_PATHS: Record<RootTab, string> = {
   business: '/app/business',
   businessSales: '/app/business/sales',
   businessSuppliers: '/app/business/suppliers',
+  personalExpenses: FINANCE_NAVIGATION.path,
   costing: '/app/costing',
   costingIngredients: '/app/costing/ingredients',
   costingInvoices: '/app/costing/invoices',
@@ -117,6 +120,7 @@ const getCostingInvoiceIdFromPath = (pathname: string) => {
 
 const getRootTabFromPath = (pathname: string): RootTab => {
   if (getCostingInvoiceIdFromPath(pathname)) return 'costingInvoiceDetail';
+  if (isFinancePath(pathname)) return FINANCE_NAVIGATION.tab;
 
   switch (pathname) {
     case '/app':
@@ -1855,6 +1859,15 @@ export default function App() {
       case 'businessSales':
       case 'businessSuppliers':
         return <BusinessPage activeTab={activeTab} userId={currentUser?.uid} workspaceId={activeWorkspaceId} />;
+      case 'personalExpenses':
+        return (
+          <PersonalExpensesPage
+            userId={currentUser?.uid}
+            workspaceId={activeWorkspaceId}
+            workspaceRole={currentWorkspaceRole}
+            workspaceMembers={currentWorkspace?.members || []}
+          />
+        );
       case 'team':
         return (
           <TeamPage
