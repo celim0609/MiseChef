@@ -56,7 +56,7 @@ test('canonical actions open existing module controls instead of duplicating for
   assert.match(source('../modules/costing/pages/Invoices/index.tsx'), /singleUploadInputRef\.current\?\.click\(\)/);
   assert.match(source('../modules/costing/pages/Ingredients/index.tsx'), /openCreateDrawer\(\);\s*onQuickAddHandled\?\.\(openCreateRequest\)/);
   assert.match(source('../modules/suppliers/pages/Supplier/index.tsx'), /openAddSupplier\(\);\s*onQuickAddHandled\?\.\(openCreateRequest\)/);
-  assert.match(source('../App.tsx'), /if \(actionId === 'recipe'\) \{\s*setAddingRecipe\(true\)/);
+  assert.match(source('../App.tsx'), /if \(actionId === 'recipe'\) \{\s*handleRootNavigate\(action\.targetTab\);\s*setAddingRecipe\(true\)/);
 });
 
 test('integrated module routes remain present alongside Quick Add', () => {
