@@ -1,6 +1,6 @@
 # MiseChef Beta release safety
 
-- Treat commit `7bf021cf8c1e542453165a109843a1d3adabc080` as the minimum integrated Beta baseline.
+- Treat commit `dfc581e1dd800bf268f95bb82df35078b0354ff9` as the minimum integrated Beta baseline.
 - Start future Beta work from the latest integrated Beta release HEAD. A final deploy candidate must be descended from the recorded baseline and include the new feature on top.
 - Never deploy Hosting from a stale or divergent feature branch/worktree.
 - Before every Beta deployment, run `npm run validate:beta-baseline` and compare the candidate with the currently recorded Beta release.

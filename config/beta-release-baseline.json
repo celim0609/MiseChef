@@ -1,6 +1,6 @@
 {
   "projectId": "misechef-beta-fa4bf",
-  "minimumCommit": "7bf021cf8c1e542453165a109843a1d3adabc080",
+  "minimumCommit": "dfc581e1dd800bf268f95bb82df35078b0354ff9",
   "protectedModules": [
     "Finance / Personal Expenses",
     "Costing / Supplier Invoices",
