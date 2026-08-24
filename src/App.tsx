@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Search, Plus, Home } from 'lucide-react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
+import { Search, Home } from 'lucide-react';
 import { getRedirectResult, onAuthStateChanged, signOut, type Unsubscribe, type User } from 'firebase/auth';
 import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { ChefProfile, CompanyRole, DEFAULT_CHEF_PROFILE, Recipe, RecipeCategory, RootTab, UserRole, Workspace, WorkspaceMemberRole } from './types';
@@ -56,6 +56,8 @@ import {
   type StoreNotification
 } from './modules/store';
 import { FINANCE_NAVIGATION, isFinancePath } from './navigation/financeNavigation';
+import GlobalQuickAdd from './components/GlobalQuickAdd';
+import { getAvailableQuickAddActions, getQuickAddAction, type QuickAddActionId, type QuickAddRequest } from './navigation/quickAdd';
 
 const STORAGE_RECIPES_KEY = 'my_cookbook_recipes_v2';
 const STORAGE_CATEGORIES_KEY = 'ce_lims_kitchen_categories_v1';
@@ -621,6 +623,7 @@ export default function App() {
   const [processingInvitationId, setProcessingInvitationId] = useState<string | null>(null);
   const [storeNotifications, setStoreNotifications] = useState<StoreNotification[]>([]);
   const [focusedStoreOrderId, setFocusedStoreOrderId] = useState('');
+  const [quickAddRequest, setQuickAddRequest] = useState<QuickAddRequest | null>(null);
   
   // Notification states
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
@@ -700,6 +703,31 @@ export default function App() {
     }
     window.history.replaceState(null, '', ROOT_TAB_PATHS[tab]);
   };
+
+  const availableQuickAddActions = getAvailableQuickAddActions(
+    currentWorkspaceRole,
+    currentUserRole === 'super_admin'
+  );
+
+  const handleQuickAdd = (actionId: QuickAddActionId) => {
+    const action = getQuickAddAction(actionId);
+    if (!action || !availableQuickAddActions.some(item => item.id === actionId)) {
+      triggerNotification('You do not have permission to perform that action.', 'info');
+      return;
+    }
+
+    if (actionId === 'recipe') {
+      setAddingRecipe(true);
+      return;
+    }
+
+    handleRootNavigate(action.targetTab);
+    setQuickAddRequest({ action: actionId, requestId: Date.now() });
+  };
+
+  const handleQuickAddHandled = useCallback((requestId: number) => {
+    setQuickAddRequest(current => current?.requestId === requestId ? null : current);
+  }, []);
 
   const handleStoreNotificationSelect = async (selectedNotification: StoreNotification) => {
     setFocusedStoreOrderId(selectedNotification.orderId);
@@ -1761,6 +1789,8 @@ export default function App() {
               quote: portfolioData.basicProfile.quote
             }}
             onCreateRecipe={() => setAddingRecipe(true)}
+            quickAddActions={availableQuickAddActions}
+            onQuickAdd={handleQuickAdd}
             onNavigate={handleRootNavigate}
             onboardingGoals={onboarding.goals}
           />
@@ -1854,11 +1884,11 @@ export default function App() {
       case 'costingInvoices':
       case 'costingInvoiceDetail':
       case 'costingReports':
-        return <CostingPage activeTab={activeTab} userId={currentUser?.uid} workspaceId={activeWorkspaceId} userRole={currentUserRole === 'super_admin' || currentWorkspaceRole === 'Owner' || currentWorkspaceRole === 'Manager' || currentWorkspaceRole === 'Head Chef' ? 'admin' : 'user'} invoiceId={selectedCostingInvoiceId} onOpenInvoice={handleOpenCostingInvoice} onBackToInvoices={() => handleRootNavigate('costingInvoices')} />;
+        return <CostingPage activeTab={activeTab} userId={currentUser?.uid} workspaceId={activeWorkspaceId} userRole={currentUserRole === 'super_admin' || currentWorkspaceRole === 'Owner' || currentWorkspaceRole === 'Manager' || currentWorkspaceRole === 'Head Chef' ? 'admin' : 'user'} invoiceId={selectedCostingInvoiceId} quickAddRequest={quickAddRequest} onQuickAddHandled={handleQuickAddHandled} onOpenInvoice={handleOpenCostingInvoice} onBackToInvoices={() => handleRootNavigate('costingInvoices')} />;
       case 'business':
       case 'businessSales':
       case 'businessSuppliers':
-        return <BusinessPage activeTab={activeTab} userId={currentUser?.uid} workspaceId={activeWorkspaceId} />;
+        return <BusinessPage activeTab={activeTab} userId={currentUser?.uid} workspaceId={activeWorkspaceId} quickAddRequest={quickAddRequest} onQuickAddHandled={handleQuickAddHandled} />;
       case 'personalExpenses':
         return (
           <PersonalExpensesPage
@@ -2276,16 +2306,9 @@ export default function App() {
         </nav>
       )}
 
-      {/* Persistent Desktop & Mobile Contextual floating Add Button (FAB) (Matches screenshot button!) */}
+      {/* Persistent workspace-wide Quick Add button */}
       {isProtectedShellVisible && !addingRecipe && !editingRecipe && activeTab !== 'storePos' && (
-        <button
-          onClick={() => setAddingRecipe(true)}
-          id="persistent-fab-add-recipe"
-          className="fixed bottom-24 right-6 md:bottom-8 md:right-8 w-14 h-14 bg-primary text-on-primary hover:bg-primary-container rounded-full shadow-lg shadow-primary/25 flex items-center justify-center active:scale-95 hover:scale-105 transition-all z-40 outline-none"
-          title="Write a new heirloom recipe"
-        >
-          <Plus className="w-7 h-7 text-white" />
-        </button>
+        <GlobalQuickAdd actions={availableQuickAddActions} onSelect={handleQuickAdd} />
       )}
 
       {/* Recipe Drawer Detail Overlay */}

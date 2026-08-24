@@ -36,6 +36,7 @@ import { getAuthenticatedGreeting } from '../utils/authenticatedUser';
 import { selectProvisionedDisplayName } from '../services/newUserProvisioningModel';
 import { formatRegionCurrency, useWorkspaceRegion } from '../regions';
 import type { OnboardingGoal } from '../modules/onboarding';
+import type { QuickAddActionDefinition, QuickAddActionId } from '../navigation/quickAdd';
 import {
   formatPurchaseCostPercentage,
   getInvoiceKpiDate,
@@ -69,6 +70,8 @@ interface HomeTabProps {
   workspaceRole?: WorkspaceMemberRole | null;
   allRecipes?: Recipe[];
   onboardingGoals?: OnboardingGoal[];
+  quickAddActions?: QuickAddActionDefinition[];
+  onQuickAdd?: (action: QuickAddActionId) => void;
 }
 
 interface ActivityItem {
@@ -131,7 +134,9 @@ export default function HomeTab({
   onToggleFavorite,
   workspaceRole = null,
   profile,
-  onboardingGoals = []
+  onboardingGoals = [],
+  quickAddActions = [],
+  onQuickAdd
 }: HomeTabProps) {
   const region = useWorkspaceRegion();
   const [dashboard, setDashboard] = useState<OwnerDashboardData | null>(null);
@@ -355,12 +360,16 @@ export default function HomeTab({
       .slice(0, 8);
   }, [dashboardRecipes, ingredients, invoices, suppliers]);
 
-  const quickActions = [
-    { label: 'Upload Invoice', detail: 'Add supplier invoices', icon: <FileUp className="h-5 w-5" />, onClick: () => onNavigate?.('costing') },
-    { label: 'Create Recipe', detail: 'Build a new recipe', icon: <Plus className="h-5 w-5" />, onClick: onCreateRecipe },
-    { label: 'Add Ingredient', detail: 'Update ingredient library', icon: <PackagePlus className="h-5 w-5" />, onClick: () => onNavigate?.('costingIngredients') },
-    { label: 'Add Supplier', detail: 'Manage supplier records', icon: <Store className="h-5 w-5" />, onClick: () => onNavigate?.('businessSuppliers') }
-  ];
+  const quickActionIcons = { invoice: FileUp, recipe: Plus, ingredient: PackagePlus, supplier: Store };
+  const quickActions = quickAddActions.map(action => {
+    const Icon = quickActionIcons[action.id];
+    return {
+      label: action.label,
+      detail: action.subtitle,
+      icon: <Icon className="h-5 w-5" />,
+      onClick: () => onQuickAdd?.(action.id)
+    };
+  });
 
   const snapshotItems = [
     { label: 'Recipes', value: String(dashboardRecipes.length), state: getMetricState(dashboard?.recipes, dashboardRecipes.length > 0, isLoading) },

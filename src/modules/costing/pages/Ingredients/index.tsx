@@ -16,6 +16,8 @@ import {
 interface CostingIngredientsPageProps {
   userId?: string;
   workspaceId?: string;
+  openCreateRequest?: number;
+  onQuickAddHandled?: (requestId: number) => void;
 }
 
 type SortKey = 'name' | 'category' | 'currentPrice' | 'updatedAt';
@@ -82,7 +84,7 @@ const formatCalculatedUnitCost = (value: number, currency: string) => (
   `${currency} ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`
 );
 
-export default function CostingIngredientsPage({ userId, workspaceId }: CostingIngredientsPageProps) {
+export default function CostingIngredientsPage({ userId, workspaceId, openCreateRequest, onQuickAddHandled }: CostingIngredientsPageProps) {
   const region = useWorkspaceRegion();
   const [ingredients, setIngredients] = useState<CostingIngredient[]>([]);
   const [selectedIngredient, setSelectedIngredient] = useState<CostingIngredient | null>(null);
@@ -157,6 +159,12 @@ export default function CostingIngredientsPage({ userId, workspaceId }: CostingI
     setMessage('');
     setIsDrawerOpen(true);
   };
+
+  useEffect(() => {
+    if (!openCreateRequest) return;
+    openCreateDrawer();
+    onQuickAddHandled?.(openCreateRequest);
+  }, [onQuickAddHandled, openCreateRequest]);
 
   const openEditDrawer = (ingredient: CostingIngredient) => {
     setSelectedIngredient(ingredient);

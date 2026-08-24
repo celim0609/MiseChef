@@ -9,6 +9,8 @@ interface CostingInvoicesPageProps {
   workspaceId?: string;
   canManageInvoices?: boolean;
   onOpenInvoice: (invoiceId: string) => void;
+  openUploadRequest?: number;
+  onQuickAddHandled?: (requestId: number) => void;
 }
 
 const statusClassName: Record<CostingInvoiceStatus, string> = {
@@ -51,7 +53,7 @@ const notifyInvoiceLifecycleChanged = () => {
   window.dispatchEvent(new CustomEvent('misechef:invoice-lifecycle-changed'));
 };
 
-export default function CostingInvoicesPage({ userId, workspaceId, canManageInvoices = false, onOpenInvoice }: CostingInvoicesPageProps) {
+export default function CostingInvoicesPage({ userId, workspaceId, canManageInvoices = false, openUploadRequest, onQuickAddHandled, onOpenInvoice }: CostingInvoicesPageProps) {
   const singleUploadInputRef = useRef<HTMLInputElement | null>(null);
   const multipleUploadInputRef = useRef<HTMLInputElement | null>(null);
   const [invoiceHistory, setInvoiceHistory] = useState<CostingInvoice[]>([]);
@@ -65,6 +67,12 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
   const [statusFilter, setStatusFilter] = useState<CostingInvoiceStatus | null>(getInitialStatusFilter);
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => {
+    if (!openUploadRequest) return;
+    singleUploadInputRef.current?.click();
+    onQuickAddHandled?.(openUploadRequest);
+  }, [onQuickAddHandled, openUploadRequest]);
 
   useEffect(() => {
     let isCancelled = false;

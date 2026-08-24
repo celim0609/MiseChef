@@ -21,9 +21,11 @@ const emptySummary: SupplierQuotationSummary = {
 interface SuppliersPageProps {
   userId?: string;
   workspaceId?: string;
+  openCreateRequest?: number;
+  onQuickAddHandled?: (requestId: number) => void;
 }
 
-export default function SuppliersPage({ userId, workspaceId }: SuppliersPageProps) {
+export default function SuppliersPage({ userId, workspaceId, openCreateRequest, onQuickAddHandled }: SuppliersPageProps) {
   const region = useWorkspaceRegion();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [summary, setSummary] = useState<SupplierQuotationSummary>(emptySummary);
@@ -76,6 +78,12 @@ export default function SuppliersPage({ userId, workspaceId }: SuppliersPageProp
     setMessage('');
     setErrorMessage('');
   };
+
+  useEffect(() => {
+    if (!openCreateRequest) return;
+    openAddSupplier();
+    onQuickAddHandled?.(openCreateRequest);
+  }, [onQuickAddHandled, openCreateRequest]);
 
   const openEditSupplier = (supplier: Supplier) => {
     setEditingSupplier(supplier);
