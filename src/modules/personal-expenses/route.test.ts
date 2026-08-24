@@ -7,6 +7,7 @@ const appSource = readFileSync(new URL('../../App.tsx', import.meta.url), 'utf8'
 const navigationSource = readFileSync(new URL('../../components/NavigationDrawer.tsx', import.meta.url), 'utf8');
 const navigationModelSource = readFileSync(new URL('../../navigation/financeNavigation.ts', import.meta.url), 'utf8');
 const serviceSource = readFileSync(new URL('./services/personalExpenseService.ts', import.meta.url), 'utf8');
+const firebaseConfig = JSON.parse(readFileSync(new URL('../../../firebase.json', import.meta.url), 'utf8'));
 
 test('Finance navigation exposes the existing Personal Expenses destination', () => {
   assert.match(navigationSource, /FINANCE_NAVIGATION\.label/);
@@ -29,6 +30,17 @@ test('Owner navigation cannot silently lose Finance during unrelated feature wor
   assert.match(navigationSource, /financeMenuItems\.length > 0/);
   assert.match(navigationSource, /handleNavigate\(item\.tab\)/);
   assert.match(appSource, /import \{ PersonalExpensesPage \} from '\.\/modules\/personal-expenses'/);
+});
+
+test('authenticated app routes revalidate the SPA shell after deployment', () => {
+  const appHeaders = firebaseConfig.hosting.headers.filter((entry: { source: string }) => (
+    entry.source === '/app' || entry.source === '/app/**'
+  ));
+  assert.equal(appHeaders.length, 2);
+  for (const entry of appHeaders) {
+    assert.equal(entry.headers[0].key, 'Cache-Control');
+    assert.match(entry.headers[0].value, /no-cache/);
+  }
 });
 
 test('every active Workspace role can enter the expense page while management remains page-level', () => {
