@@ -2,6 +2,7 @@
   "functions": {
     "source": "functions",
     "predeploy": [
+      "node scripts/validateBetaReleaseBaseline.mjs",
       "node scripts/prepareStoreSocialTemplate.mjs"
     ]
   },
@@ -36,7 +37,8 @@
   },
   "hosting": {
     "predeploy": [
-      "npm run validate:firebase-env"
+      "npm run validate:firebase-env",
+      "node scripts/validateBetaReleaseBaseline.mjs"
     ],
     "public": "dist",
     "ignore": [
