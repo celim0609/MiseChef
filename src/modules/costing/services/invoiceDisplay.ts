@@ -16,10 +16,25 @@ export const formatInvoiceDate = (value?: string) => {
   const normalized = readInvoiceValue(value);
   if (!normalized) return '';
 
-  const dateParts = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const isoParts = normalized.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  const dayFirstParts = normalized.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2}|\d{4})$/);
+  const dateParts = isoParts
+    ? { year: Number(isoParts[1]), month: Number(isoParts[2]), day: Number(isoParts[3]) }
+    : dayFirstParts
+      ? {
+        year: dayFirstParts[3].length === 2 ? 2000 + Number(dayFirstParts[3]) : Number(dayFirstParts[3]),
+        month: Number(dayFirstParts[2]),
+        day: Number(dayFirstParts[1])
+      }
+      : null;
   const parsedDate = dateParts
-    ? new Date(Number(dateParts[1]), Number(dateParts[2]) - 1, Number(dateParts[3]))
+    ? new Date(dateParts.year, dateParts.month - 1, dateParts.day)
     : new Date(normalized);
+  if (dateParts && (
+    parsedDate.getFullYear() !== dateParts.year
+    || parsedDate.getMonth() !== dateParts.month - 1
+    || parsedDate.getDate() !== dateParts.day
+  )) return normalized;
   if (!Number.isFinite(parsedDate.getTime())) return normalized;
 
   return new Intl.DateTimeFormat('en-MY', {

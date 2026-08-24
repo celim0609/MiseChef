@@ -72,4 +72,9 @@ describe('invoice display identity', () => {
   it('preserves an unparseable supplier date instead of hiding it', () => {
     assert.equal(formatInvoiceDate('date unavailable'), 'date unavailable');
   });
+
+  it('normalizes common day-first OCR date formats', () => {
+    assert.equal(formatInvoiceDate('14/08/2026'), '14 Aug 2026');
+    assert.equal(formatInvoiceDate('15-08-26'), '15 Aug 2026');
+  });
 });
