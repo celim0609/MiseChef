@@ -8,6 +8,7 @@ import { Check, Clock, Heart, Pencil, Plus, Search, Trash2, X } from 'lucide-rea
 import { Recipe, RecipeCategory } from '../types';
 import { getRecipeCategories, recipeHasCategory } from '../utils/categoryUtils';
 import { getRecipeSearchText } from '../utils/recipeSearch';
+import { DiscoverCarousel, createRecipeLibraryDiscoverItems, type DiscoverItem } from './discover';
 
 interface SearchTabProps {
   recipes: Recipe[];
@@ -58,6 +59,15 @@ export default function SearchTab({
       return matchesQuery && matchesCategory;
     });
   }, [recipes, searchQuery, selectedCategory]);
+
+  const discoverItems = useMemo(() => createRecipeLibraryDiscoverItems(recipes), [recipes]);
+
+  const handleDiscoverActivate = (item: DiscoverItem) => {
+    if (item.destination.kind !== 'recipe') return;
+    const recipeId = item.destination.recipeId;
+    const recipe = recipes.find(candidate => candidate.id === recipeId);
+    if (recipe) onSelectRecipe(recipe);
+  };
 
   const handleCreateCategory = () => {
     const createdCategory = onCreateCategory(newCategoryName);
@@ -122,6 +132,8 @@ export default function SearchTab({
           />
         </div>
       </section>
+
+      <DiscoverCarousel items={discoverItems} onActivate={handleDiscoverActivate} />
 
       <section className="bg-surface-container-low border border-surface-container-high rounded-2xl p-5 sm:p-6 shadow-sm space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

@@ -59,6 +59,50 @@
   to { transform: translateY(0); opacity: 1; }
 }
 
+@keyframes discover-enter-next {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes discover-exit-next {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(-18px); }
+}
+
+@keyframes discover-enter-previous {
+  from { opacity: 0; transform: translateX(-18px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes discover-exit-previous {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(18px); }
+}
+
+.discover-slide-enter-next,
+.discover-slide-enter-previous,
+.discover-slide-exit-next,
+.discover-slide-exit-previous {
+  animation-duration: 520ms;
+  animation-timing-function: ease-in-out;
+  animation-fill-mode: both;
+  will-change: opacity, transform;
+}
+
+.discover-slide-enter-next { animation-name: discover-enter-next; }
+.discover-slide-exit-next { animation-name: discover-exit-next; }
+.discover-slide-enter-previous { animation-name: discover-enter-previous; }
+.discover-slide-exit-previous { animation-name: discover-exit-previous; }
+
+@media (prefers-reduced-motion: reduce) {
+  .discover-slide-enter-next,
+  .discover-slide-enter-previous,
+  .discover-slide-exit-next,
+  .discover-slide-exit-previous {
+    animation: none;
+  }
+}
+
 body {
   font-family: var(--font-sans);
   background-color: var(--color-background);

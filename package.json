@@ -18,6 +18,7 @@
     "lint": "tsc --noEmit",
     "test:personal-expenses:model": "tsx --test src/modules/personal-expenses/*.test.ts",
     "test:quick-add": "tsx --test src/navigation/quickAdd.test.ts",
+    "test:discover": "tsx --test src/components/discover/DiscoverCarousel.test.tsx",
     "test:personal-expenses:rules": "firebase emulators:exec --only firestore,storage --project demo-misechef-personal-expense-rules \"node --test tests/personalExpenseAccessControl.test.mjs\"",
     "test": "npm run test:store-payments:model && npm --prefix functions test && npm run test:store-payments:rules",
     "test:store-payments:model": "tsx --test src/modules/store/*.test.ts src/modules/store/*.test.tsx src/components/StoreNotificationBell.test.tsx src/regions/regionService.test.ts",
