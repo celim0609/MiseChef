@@ -1,52 +1,62 @@
-name: Beta Authentication Diagnostic
+name: Beta Release
 
 on:
   workflow_dispatch:
+    inputs:
+      release_confirmation:
+        description: Type RELEASE BETA to confirm the protected full-resource release
+        required: true
+        type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: misechef-beta-deployment
+  cancel-in-progress: false
+
 jobs:
-  diagnose-beta-auth:
+  deploy-beta:
+    if: ${{ inputs.release_confirmation == 'RELEASE BETA' }}
     runs-on: ubuntu-latest
     environment: beta
-    timeout-minutes: 5
+    timeout-minutes: 45
+    env:
+      MISECHEF_BETA_PROTECTED_BASELINE: ${{ vars.MISECHEF_BETA_PROTECTED_BASELINE }}
+      MISECHEF_BETA_BOOTSTRAP_LIVE_ASSET: ${{ vars.MISECHEF_BETA_BOOTSTRAP_LIVE_ASSET }}
+      MISECHEF_BETA_CI_LOCK_ID: misechef-beta-deployment
+      FIREBASE_DEPLOY_TARGET: beta
     steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Java for Firebase Rules emulators
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
       - name: Authenticate to Beta only
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA }}
 
-      - name: Confirm authenticated Beta identity
-        shell: bash
-        run: |
-          node <<'NODE'
-          const fs = require('node:fs');
+      - name: Install application dependencies
+        run: npm ci
 
-          const expectedEmail = 'github-beta-deployer@misechef-beta-fa4bf.iam.gserviceaccount.com';
-          const expectedProject = 'misechef-beta-fa4bf';
-          const credentialPath = process.env.GOOGLE_GHA_CREDS_PATH;
+      - name: Install Functions dependencies
+        run: npm --prefix functions ci
 
-          if (!credentialPath) {
-            throw new Error('GOOGLE_GHA_CREDS_PATH is unavailable.');
-          }
+      - name: Install pinned Firebase CLI
+        run: npm install --global firebase-tools@14.22.0
 
-          const credential = JSON.parse(fs.readFileSync(credentialPath, 'utf8'));
-          const actualEmail = credential.client_email ?? null;
-          const actualProject = credential.project_id ?? null;
-          const emailMatches = actualEmail === expectedEmail;
-          const projectMatches = actualProject === expectedProject;
-
-          console.log(JSON.stringify({
-            authenticatedServiceAccount: actualEmail,
-            effectiveProject: actualProject,
-            expectedServiceAccount: expectedEmail,
-            expectedProject,
-            emailMatches,
-            projectMatches,
-          }, null, 2));
-
-          if (!emailMatches || !projectMatches) {
-            process.exitCode = 1;
-          }
-          NODE
+      - name: Run canonical protected Beta release
+        run: npm run deploy:beta
