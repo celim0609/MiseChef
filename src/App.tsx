@@ -16,6 +16,7 @@ import HomeTab from './components/HomeTab';
 import SearchTab from './components/SearchTab';
 import AddRecipeTab from './components/AddRecipeTab';
 import RecipeDetailModal from './components/RecipeDetailModal';
+import RecipeShareDialog from './components/RecipeShareDialog';
 import NavigationDrawer from './components/NavigationDrawer';
 import SettingsTab, { ImportedAppData } from './components/SettingsTab';
 import LoginTab from './components/LoginTab';
@@ -621,6 +622,7 @@ export default function App() {
   const [hasUnsavedRecipeChanges, setHasUnsavedRecipeChanges] = useState(false);
   const recipeSaveInFlightRef = useRef(false);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
+  const [sharingRecipe, setSharingRecipe] = useState<Recipe | null>(null);
   const [isNavigationDrawerOpen, setIsNavigationDrawerOpen] = useState(false);
   const [isCreateWorkspaceOpen, setIsCreateWorkspaceOpen] = useState(false);
   const [selectedHomeCategory, setSelectedHomeCategory] = useState<string | null>(null);
@@ -1371,36 +1373,7 @@ export default function App() {
     triggerNotification(`Duplicated "${recipe.title}".`, 'success');
   };
 
-  const handleShareRecipe = async (recipe: Recipe) => {
-    const shareText = [
-      recipe.title,
-      recipe.yield ? `Yield: ${recipe.yield}` : '',
-      '',
-      'Ingredients:',
-      ...recipe.ingredients.map(ingredient =>
-        [ingredient.qty, ingredient.unit, ingredient.name].filter(Boolean).join(' ')
-      ),
-      '',
-      'Method:',
-      ...recipe.method.map(step => `${step.stepNumber}. ${step.description}`)
-    ].filter(Boolean).join('\n');
-
-    try {
-      if (navigator.share) {
-        await navigator.share({
-          title: recipe.title,
-          text: shareText
-        });
-      } else if (navigator.clipboard) {
-        await navigator.clipboard.writeText(shareText);
-        triggerNotification('Recipe copied to clipboard.', 'success');
-      } else {
-        triggerNotification('Sharing is not available in this browser.', 'info');
-      }
-    } catch (err) {
-      triggerNotification('Share was cancelled or could not be completed.', 'info');
-    }
-  };
+  const handleShareRecipe = (recipe: Recipe) => setSharingRecipe(recipe);
 
   const handleDeleteRecipe = async (recipe: Recipe) => {
     const confirmed = window.confirm('Delete this recipe? This action cannot be undone.');
@@ -2348,6 +2321,9 @@ export default function App() {
           />
         )}
       </AnimatePresence>
+      {sharingRecipe && (
+        <RecipeShareDialog recipe={sharingRecipe} onClose={() => setSharingRecipe(null)} />
+      )}
       </div>
     </WorkspaceRegionProvider>
   );
