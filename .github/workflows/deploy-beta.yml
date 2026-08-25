@@ -20,9 +20,9 @@ jobs:
       - name: Query Beta default bucket API
         shell: bash
         run: |
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          import crypto from 'node:crypto';
+          node <<'NODE'
+          const fs = require('node:fs');
+          const crypto = require('node:crypto');
 
           const project = 'misechef-beta-fa4bf';
           const resourcePath = `projects/${project}/defaultBucket`;
