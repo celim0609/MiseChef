@@ -40,6 +40,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import BrandLogo from './components/BrandLogo';
 import { auth, authPersistenceReady, db } from './firebase';
 import { deleteRecipeCoverImage, deleteRecipeScanAttachment, isLocalImageDataUrl, uploadRecipeCoverImage, uploadRecipeScanAttachment, uploadRecipeStepImage } from './services/storage';
+import { preserveOriginalRecipeCreator } from './services/recipeCreator';
 import { FALLBACK_CATEGORY_NAME, getRecipeCategories, normalizeRecipeCategories, recipeHasCategory } from './utils/categoryUtils';
 import { normalizeIngredientForDisplay } from './utils/ingredientParser';
 import { getConfiguredRoleForUser, resolveUserRole } from './utils/userRoles';
@@ -1282,8 +1283,11 @@ export default function App() {
     setRecipeSaveError('');
 
     try {
+      const creatorSafeRecipe = editingRecipe
+        ? preserveOriginalRecipeCreator(editingRecipe, updatedRecipe)
+        : updatedRecipe;
       if (currentUser && db && !isGuestMode) {
-        const cloudRecipe = await getCloudReadyRecipe(updatedRecipe, currentUser, (progress, phase) => {
+        const cloudRecipe = await getCloudReadyRecipe(creatorSafeRecipe, currentUser, (progress, phase) => {
           triggerNotification(`Uploading ${phase === 'scan' ? 'recipe scan' : 'cover image'}... ${progress}%`, 'info');
         });
         const costedRecipe = await recipeCostService.applyCosting(cloudRecipe, currentUser.uid, activeWorkspaceId);
@@ -1296,10 +1300,10 @@ export default function App() {
         triggerNotification(`Updated "${costedRecipe.title}".`, 'success');
       } else {
         const updated = recipes.map(recipe =>
-          recipe.id === updatedRecipe.id ? updatedRecipe : recipe
+          recipe.id === creatorSafeRecipe.id ? creatorSafeRecipe : recipe
         );
         setRecipes(updated);
-        setSelectedRecipe(updatedRecipe);
+        setSelectedRecipe(creatorSafeRecipe);
         localStorage.setItem(STORAGE_RECIPES_KEY, JSON.stringify(updated));
         triggerNotification(`Updated "${updatedRecipe.title}".`, 'success');
       }
@@ -1915,6 +1919,7 @@ export default function App() {
             onDeleteCategory={handleDeleteCategory}
             onToggleFavorite={handleToggleFavorite}
             selectedCategory={selectedHomeCategory}
+            workspaceMembers={currentWorkspace?.members || []}
           />
         );
       case 'settings':
@@ -2318,6 +2323,7 @@ export default function App() {
             onShare={handleShareRecipe}
             onDelete={handleDeleteRecipe}
             onToggleFavorite={handleToggleFavorite}
+            workspaceMembers={currentWorkspace?.members || []}
           />
         )}
       </AnimatePresence>

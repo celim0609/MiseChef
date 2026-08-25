@@ -5,7 +5,8 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Check, Clock, Copy, Heart, MoreVertical, Pencil, Play, Scale, Share2, Trash2, Users, X } from 'lucide-react';
-import { Recipe } from '../types';
+import { Recipe, WorkspaceMemberSummary } from '../types';
+import { formatRecipeCreatorLine } from '../services/recipeCreator';
 import { motion } from 'motion/react';
 import { getRecipeCategories } from '../utils/categoryUtils';
 import RecipeCostAnalysis from './RecipeCostAnalysis';
@@ -77,6 +78,7 @@ interface RecipeDetailModalProps {
   onShare: (recipe: Recipe) => void;
   onDelete: (recipe: Recipe) => void;
   onToggleFavorite: (recipeId: string) => void;
+  workspaceMembers?: WorkspaceMemberSummary[];
 }
 
 export default function RecipeDetailModal({
@@ -86,7 +88,8 @@ export default function RecipeDetailModal({
   onDuplicate,
   onShare,
   onDelete,
-  onToggleFavorite
+  onToggleFavorite,
+  workspaceMembers = []
 }: RecipeDetailModalProps) {
   const [checkedIngredients, setCheckedIngredients] = useState<string[]>([]);
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
@@ -272,6 +275,10 @@ export default function RecipeDetailModal({
               <h2 className="font-display font-semibold text-2xl sm:text-3xl text-primary leading-tight">
                 {recipe.title}
               </h2>
+
+              <p className="font-sans text-xs font-semibold text-on-surface-variant">
+                {formatRecipeCreatorLine(recipe, workspaceMembers)}
+              </p>
 
               <div className="flex flex-wrap items-center gap-3 border-t border-b border-surface-container/50 py-3 text-xs sm:text-sm text-on-surface-variant font-semibold">
                 <div className="flex items-center gap-1">

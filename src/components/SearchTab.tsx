@@ -5,7 +5,8 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Check, Clock, Heart, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
-import { Recipe, RecipeCategory } from '../types';
+import { Recipe, RecipeCategory, WorkspaceMemberSummary } from '../types';
+import { formatRecipeCreatorLine } from '../services/recipeCreator';
 import { getRecipeCategories, recipeHasCategory } from '../utils/categoryUtils';
 import { getRecipeSearchText } from '../utils/recipeSearch';
 import { DiscoverCarousel, createRecipeLibraryDiscoverItems, type DiscoverItem } from './discover';
@@ -19,6 +20,7 @@ interface SearchTabProps {
   onDeleteCategory: (categoryId: string, targetCategoryName: string) => void;
   onToggleFavorite: (recipeId: string) => void;
   selectedCategory?: string | null;
+  workspaceMembers?: WorkspaceMemberSummary[];
 }
 
 export default function SearchTab({
@@ -29,7 +31,8 @@ export default function SearchTab({
   onRenameCategory,
   onDeleteCategory,
   onToggleFavorite,
-  selectedCategory: drawerSelectedCategory = null
+  selectedCategory: drawerSelectedCategory = null,
+  workspaceMembers = []
 }: SearchTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(drawerSelectedCategory);
@@ -296,6 +299,9 @@ export default function SearchTab({
                   <h3 className="font-display font-semibold text-base text-primary leading-snug group-hover:text-secondary duration-300 transition-colors line-clamp-1">
                     {recipe.title}
                   </h3>
+                  <p className="font-sans text-xs font-semibold text-on-surface-variant">
+                    {formatRecipeCreatorLine(recipe, workspaceMembers).split(' · ')[0]}
+                  </p>
                   <div className="flex items-center gap-1.5 text-xs text-outline font-semibold">
                     <Clock className="w-3.5 h-3.5" />
                     <span>{recipe.prepTime} mins</span>

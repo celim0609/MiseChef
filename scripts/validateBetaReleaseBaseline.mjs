@@ -39,7 +39,16 @@ const requiredSourceMarkers = [
   ['src/components/NavigationDrawer.tsx', 'FINANCE_NAVIGATION.label', 'Owner Finance navigation'],
   ['src/modules/personal-expenses/PersonalExpensesPage.tsx', 'Personal Expenses', 'Personal Expenses module'],
   ['src/modules/costing/pages/Invoices/index.tsx', 'Invoice History', 'Supplier Invoices module'],
+  ['src/modules/costing/pages/Invoices/index.tsx', 'Invoice OCR completed.', 'Invoice OCR workflow'],
   ['src/components/SearchTab.tsx', 'Recipe', 'Recipe Library'],
+  ['src/components/SearchTab.tsx', 'formatRecipeCreatorLine(recipe, workspaceMembers)', 'Recipe Library creator attribution'],
+  ['src/components/RecipeDetailModal.tsx', 'formatRecipeCreatorLine(recipe, workspaceMembers)', 'Recipe Detail creator attribution'],
+  ['src/services/recipeCreator.ts', "return emailName || 'Unknown member'", 'legacy Recipe creator safe fallback'],
+  ['src/App.tsx', 'preserveOriginalRecipeCreator(editingRecipe, updatedRecipe)', 'Recipe creator-preservation update path'],
+  ['src/components/RecipeShareDialog.tsx', 'Download QR', 'Recipe Share QR/link controls'],
+  ['src/modules/public/recipeSharing.ts', 'getPublicRecipeUrl', 'stable public Recipe links'],
+  ['functions/publicRecipeProjection.js', 'buildPublicRecipeProjection', 'hardened public Recipe projection'],
+  ['functions/index.js', 'syncPublicRecipeProjection', 'public Recipe projection sync'],
   ['src/components/RecipeCostAnalysis.tsx', 'Selling Price', 'Recipe Cost Analysis summary'],
   ['src/components/RecipeCostAnalysis.tsx', 'useWorkspaceRegion', 'Recipe Cost Analysis workspace currency'],
   ['src/components/RecipeCostAnalysis.tsx', 'formatRegionCurrency', 'Recipe Cost Analysis workspace formatter'],
@@ -50,6 +59,7 @@ const requiredSourceMarkers = [
   ['src/modules/costing/services/recipeEditorCostPreview.ts', 'calculateRecipeCosting', 'Edit Recipe shared calculator connection'],
   ['src/modules/costing/services/recipeCostService.ts', 'calculateRecipeCosting', 'saved Recipe shared calculator connection'],
   ['src/App.tsx', '<WorkspaceRegionProvider workspace={currentWorkspace}>', 'active Workspace currency provider'],
+  ['src/App.tsx', '<GlobalQuickAdd actions={availableQuickAddActions} onSelect={handleQuickAdd}', 'Global Quick Add'],
   ['src/modules/costing/pages/Ingredients/index.tsx', 'value={region.currency} readOnly', 'Ingredient currency follows active Workspace'],
   ['src/modules/costing/pages/InvoiceDetail/index.tsx', 'const currency = region.currency;', 'Invoice display currency follows active Workspace'],
   ['src/modules/store/StorePage.tsx', 'currency={region.currency}', 'Store operations currency follows active Workspace'],
@@ -68,6 +78,11 @@ const missing = requiredSourceMarkers.flatMap(([filePath, marker, label]) => {
 });
 
 const recipeEditorSource = readRepositoryFile('src/components/AddRecipeTab.tsx');
+const recipeCreatorSource = readRepositoryFile('src/services/recipeCreator.ts');
+const creatorFields = ['workspaceId', 'companyId', 'userId', 'createdBy', 'createdByName', 'createdAt'];
+if (!creatorFields.every(field => recipeCreatorSource.includes(`${field}: original.${field}`))) {
+  missing.push('Recipe creator attribution: edit/save must preserve all original creator and Workspace identity fields');
+}
 const recipeEditorOrder = [
   ['Cost Analysis', recipeEditorSource.indexOf('<RecipeCostAnalysis')],
   ['Ingredients', recipeEditorSource.indexOf('id="ingredients-section"')],
