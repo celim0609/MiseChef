@@ -72,7 +72,11 @@ test('dirty worktree fails unless the exact generated shell exception is supplie
   ));
 });
 
-test('Git porcelain parsing preserves the exact allowed generated shell path', () => {
+test('both Beta safety validators preserve the exact allowed generated shell path', () => {
+  const safetyEntryPoints = [
+    'validateBetaPredeploy.mjs',
+    'validateBetaReleaseBaseline.mjs'
+  ];
   const porcelain = ' M functions/generated/publicStoreAppShell.html\n';
   const parsedPaths = porcelain
     .trimEnd()
@@ -81,7 +85,12 @@ test('Git porcelain parsing preserves the exact allowed generated shell path', (
     .map(line => line.slice(3));
 
   assert.deepEqual(parsedPaths, ['functions/generated/publicStoreAppShell.html']);
-  assert.doesNotThrow(() => assertCleanSource(parsedPaths, ALLOWED_POST_BUILD_DIRTY_PATHS));
+  for (const entryPoint of safetyEntryPoints) {
+    const source = readFileSync(new URL(`./${entryPoint}`, import.meta.url), 'utf8');
+    assert.match(source, /const git = args =>[^\n]+\.trimEnd\(\);/);
+    assert.match(source, /git\(\['status', '--porcelain=v1', '--untracked-files=all'\]\)/);
+    assert.doesNotThrow(() => assertCleanSource(parsedPaths, ALLOWED_POST_BUILD_DIRTY_PATHS));
+  }
 });
 
 test('stale dist manifest fails before reading deploy assets', () => {

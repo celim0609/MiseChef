@@ -21,7 +21,7 @@ if (firebaseProjects.beta !== baseline.projectId || baseline.projectId !== 'mise
   throw new Error('Beta project mapping does not match the protected misechef-beta-fa4bf release target.');
 }
 
-const git = args => execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+const git = args => execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trimEnd();
 const candidateCommit = git(['rev-parse', 'HEAD']);
 const authorityBaseline = process.env.MISECHEF_BETA_PROTECTED_BASELINE || MANDATORY_BETA_BASELINE;
 assertAuthority({

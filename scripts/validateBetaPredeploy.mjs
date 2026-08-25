@@ -16,7 +16,7 @@ import {
 import { readLiveBetaFingerprint } from './betaLiveRelease.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const git = args => execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+const git = args => execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trimEnd();
 const firebaseProject = process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || '';
 
 if (firebaseProject !== BETA_PROJECT_ID) {
