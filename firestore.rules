@@ -691,7 +691,7 @@ service cloud.firestore {
       allow read: if isWorkspaceMember(existingWorkspaceId());
       allow delete: if canAccessRecipes(existingWorkspaceId());
       allow update: if canAccessRecipes(existingWorkspaceId())
-        && request.resource.data.diff(resource.data).affectedKeys().hasNone([
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'workspaceId',
           'companyId',
           'userId',
