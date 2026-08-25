@@ -11,3 +11,4 @@ coverage/
 !.env.beta
 !functions/.env.misechef-beta-fa4bf
 functions/.secret.local
+gha-creds-*.json
