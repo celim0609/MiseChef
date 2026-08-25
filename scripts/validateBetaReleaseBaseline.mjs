@@ -2,6 +2,11 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import {
+  MANDATORY_BETA_BASELINE,
+  assertAuthority,
+  assertCleanSource
+} from './betaDeploymentSafety.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const readRepositoryFile = filePath => readFileSync(path.join(repositoryRoot, filePath), 'utf8');
@@ -9,8 +14,7 @@ const baseline = JSON.parse(readRepositoryFile('config/beta-release-baseline.jso
 const firebaseProjects = JSON.parse(readRepositoryFile('.firebaserc')).projects || {};
 
 if (process.env.FIREBASE_DEPLOY_TARGET !== 'beta') {
-  console.log('Beta release baseline check skipped because FIREBASE_DEPLOY_TARGET is not beta.');
-  process.exit(0);
+  throw new Error('Beta release validation requires FIREBASE_DEPLOY_TARGET=beta; refusing to skip.');
 }
 
 if (firebaseProjects.beta !== baseline.projectId || baseline.projectId !== 'misechef-beta-fa4bf') {
@@ -19,17 +23,30 @@ if (firebaseProjects.beta !== baseline.projectId || baseline.projectId !== 'mise
 
 const git = args => execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const candidateCommit = git(['rev-parse', 'HEAD']);
+const authorityBaseline = process.env.MISECHEF_BETA_PROTECTED_BASELINE || MANDATORY_BETA_BASELINE;
+assertAuthority({
+  authorityBaseline,
+  documentedBaseline: baseline.minimumCommit,
+  head: candidateCommit,
+  isAncestor: (ancestor, descendant) => {
+    try {
+      execFileSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
+        cwd: repositoryRoot,
+        stdio: 'ignore'
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+});
 
-try {
-  execFileSync('git', ['merge-base', '--is-ancestor', baseline.minimumCommit, candidateCommit], {
-    cwd: repositoryRoot,
-    stdio: 'ignore'
-  });
-} catch {
-  throw new Error(
-    `Beta deploy candidate ${candidateCommit} is not descended from protected baseline ${baseline.minimumCommit}. ` +
-    'Integrate the latest Beta release before building or deploying.'
-  );
+if (process.env.MISECHEF_BETA_ENFORCE_CLEAN === '1') {
+  const dirtyPaths = git(['status', '--porcelain=v1', '--untracked-files=all'])
+    .split('\n')
+    .filter(Boolean)
+    .map(line => line.slice(3));
+  assertCleanSource(dirtyPaths);
 }
 
 const requiredSourceMarkers = [
@@ -49,6 +66,10 @@ const requiredSourceMarkers = [
   ['src/modules/public/recipeSharing.ts', 'getPublicRecipeUrl', 'stable public Recipe links'],
   ['functions/publicRecipeProjection.js', 'buildPublicRecipeProjection', 'hardened public Recipe projection'],
   ['functions/index.js', 'syncPublicRecipeProjection', 'public Recipe projection sync'],
+  ['src/components/SearchTab.tsx', '<DiscoverCarousel items={discoverItems}', 'Recipe Library Discover carousel'],
+  ['src/modules/public/PublicHomePage.tsx', '<DiscoverCarousel', 'public Discover carousel'],
+  ['src/modules/public/PublicLayout.tsx', '<PublicRecipeDiscoveryPage', 'public Discover Recipe route'],
+  ['src/modules/public/services/publicRecipeService.ts', "collection(db, 'publicRecipes')", 'public Discover projection source'],
   ['src/components/RecipeCostAnalysis.tsx', 'Selling Price', 'Recipe Cost Analysis summary'],
   ['src/components/RecipeCostAnalysis.tsx', 'useWorkspaceRegion', 'Recipe Cost Analysis workspace currency'],
   ['src/components/RecipeCostAnalysis.tsx', 'formatRegionCurrency', 'Recipe Cost Analysis workspace formatter'],
@@ -127,9 +148,23 @@ if (
   );
 }
 
+const navigationSource = readRepositoryFile('src/components/NavigationDrawer.tsx');
+for (const marker of ['FINANCE_NAVIGATION.label', '>Costing</span>', "label: 'Store'", "label: 'Team'"]) {
+  if (!navigationSource.includes(marker)) {
+    missing.push(`Owner navigation: missing ${marker}`);
+  }
+}
+
+const publicProjectionSource = readRepositoryFile('functions/publicRecipeProjection.js');
+for (const forbidden of ['workspaceId', 'sellingPrice', 'costing', 'ingredientId', 'supplierId', 'chefNotes']) {
+  if (publicProjectionSource.includes(`source.${forbidden}`)) {
+    missing.push(`Public Recipe projection: internal source field is accessed: ${forbidden}`);
+  }
+}
+
 if (missing.length > 0) {
   throw new Error(`Protected Beta module regression detected:\n- ${missing.join('\n- ')}`);
 }
 
-console.log(`Beta release baseline check passed: ${baseline.minimumCommit} -> ${candidateCommit}`);
+console.log(`Beta release baseline check passed: ${authorityBaseline} -> ${candidateCommit}`);
 console.log(`Protected modules present: ${baseline.protectedModules.join(', ')}`);

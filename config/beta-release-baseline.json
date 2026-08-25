@@ -1,15 +1,19 @@
 {
   "projectId": "misechef-beta-fa4bf",
-  "minimumCommit": "0bdae9098301216962b411f77b9876f3369cb7c0",
+  "minimumCommit": "4ae89ff2b49c5e5ec90baacab08de0fe9ffad86c",
   "protectedModules": [
     "Finance / Personal Expenses",
     "Costing / Supplier Invoices",
     "Recipe Library",
     "Recipe creator attribution",
     "Recipe Edit Cost Analysis",
+    "Active Workspace currency",
+    "Recipe Share / public projection",
+    "Global Quick Add",
     "Store",
     "Host Group Order",
     "Team",
+    "Discover / public Discover",
     "Owner navigation"
   ]
 }

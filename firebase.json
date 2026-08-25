@@ -2,16 +2,21 @@
   "functions": {
     "source": "functions",
     "predeploy": [
-      "node scripts/validateBetaReleaseBaseline.mjs",
-      "node scripts/prepareStoreSocialTemplate.mjs"
+      "node scripts/validateBetaPredeploy.mjs"
     ]
   },
   "firestore": {
     "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json"
+    "indexes": "firestore.indexes.json",
+    "predeploy": [
+      "node scripts/validateBetaPredeploy.mjs"
+    ]
   },
   "storage": {
-    "rules": "storage.rules"
+    "rules": "storage.rules",
+    "predeploy": [
+      "node scripts/validateBetaPredeploy.mjs"
+    ]
   },
   "emulators": {
     "auth": {
@@ -37,8 +42,7 @@
   },
   "hosting": {
     "predeploy": [
-      "npm run validate:firebase-env",
-      "node scripts/validateBetaReleaseBaseline.mjs"
+      "node scripts/validateBetaPredeploy.mjs"
     ],
     "public": "dist",
     "ignore": [
