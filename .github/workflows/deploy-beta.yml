@@ -1,0 +1,62 @@
+name: Beta Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_confirmation:
+        description: Type RELEASE BETA to confirm the protected full-resource release
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: misechef-beta-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy-beta:
+    if: ${{ inputs.release_confirmation == 'RELEASE BETA' }}
+    runs-on: ubuntu-latest
+    environment: beta
+    timeout-minutes: 45
+    env:
+      MISECHEF_BETA_PROTECTED_BASELINE: ${{ vars.MISECHEF_BETA_PROTECTED_BASELINE }}
+      MISECHEF_BETA_BOOTSTRAP_LIVE_ASSET: ${{ vars.MISECHEF_BETA_BOOTSTRAP_LIVE_ASSET }}
+      MISECHEF_BETA_CI_LOCK_ID: misechef-beta-deployment
+      FIREBASE_DEPLOY_TARGET: beta
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Java for Firebase Rules emulators
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Authenticate to Beta only
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA }}
+
+      - name: Install application dependencies
+        run: npm ci
+
+      - name: Install Functions dependencies
+        run: npm --prefix functions ci
+
+      - name: Install pinned Firebase CLI
+        run: npm install --global firebase-tools@14.22.0
+
+      - name: Run canonical protected Beta release
+        run: npm run deploy:beta
