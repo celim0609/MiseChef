@@ -180,13 +180,15 @@ test('Edit Recipe places Cost Analysis before Ingredients and Story/Chef Notes a
   const costIndex = source.indexOf('<RecipeCostAnalysis');
   const ingredientsIndex = source.indexOf('id="ingredients-section"');
   const instructionsIndex = source.indexOf('id="method-section"');
+  const recommendedProductsIndex = source.indexOf('aria-controls="recommended-products-editor"');
   const videoIndex = source.indexOf('{/* Video URL section */}');
   const storyIndex = source.indexOf('{/* Secondary narrative details */}');
-  const notesIndex = source.indexOf('Chef Notes', storyIndex);
+  const notesIndex = source.indexOf('value={chefNotes}', storyIndex);
 
   assert.ok(costIndex > 0 && costIndex < ingredientsIndex);
   assert.ok(ingredientsIndex < instructionsIndex);
-  assert.ok(instructionsIndex < videoIndex);
+  assert.ok(instructionsIndex < recommendedProductsIndex);
+  assert.ok(recommendedProductsIndex < videoIndex);
   assert.ok(videoIndex < storyIndex && storyIndex < notesIndex);
 });
 
@@ -197,4 +199,6 @@ test('Add Recipe remains available without exposing Edit-only live costing', () 
   assert.match(source, /\{!isEditing && \([\s\S]*Selling Price/);
   assert.match(source, /sellingPriceValue=\{sellingPrice\}/);
   assert.match(source, /onSellingPriceChange=\{value => \{[\s\S]*setSellingPrice\(value\)/);
+  assert.equal(source.split('sellingPriceValue={sellingPrice}').length - 1, 1);
+  assert.equal(readFileSync(new URL('./RecipeCostAnalysis.tsx', import.meta.url), 'utf8').split('type="number"').length - 1, 1);
 });

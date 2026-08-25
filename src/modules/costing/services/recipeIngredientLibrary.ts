@@ -14,6 +14,35 @@ export const getSelectableRecipeLibraryIngredients = (
   ingredient.workspaceId === workspaceId && ingredient.status === 'Active'
 ));
 
+type SearchableIngredientFields = {
+  sku?: unknown;
+  itemCode?: unknown;
+  code?: unknown;
+  supplierName?: unknown;
+  productName?: unknown;
+};
+
+export const filterRecipeLibraryIngredients = (
+  ingredients: CostingIngredient[],
+  searchQuery: string
+) => {
+  const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
+  if (!normalizedQuery) return ingredients;
+
+  return ingredients.filter(ingredient => {
+    const searchableIngredient = ingredient as CostingIngredient & SearchableIngredientFields;
+    return [
+      ingredient.name,
+      searchableIngredient.sku,
+      searchableIngredient.itemCode,
+      searchableIngredient.code,
+      searchableIngredient.supplierName,
+      searchableIngredient.productName,
+      ingredient.supplierId
+    ].some(value => String(value ?? '').toLocaleLowerCase().includes(normalizedQuery));
+  });
+};
+
 export const loadRecipeIngredientLibrary = async (
   workspaceId?: string,
   userId?: string,

@@ -4,6 +4,7 @@ import type { Ingredient } from '../../../types';
 import { normalizeIngredientForDisplay } from '../../../utils/ingredientParser';
 import type { CostingIngredient } from '../types';
 import {
+  filterRecipeLibraryIngredients,
   getSelectableRecipeLibraryIngredients,
   loadRecipeIngredientLibrary,
   updateRecipeIngredientLibraryLink
@@ -67,6 +68,19 @@ test('includes Purchase Unit = Unit and does not filter by a recipe row unit', (
   assert.deepEqual(selectable.map(ingredient => ingredient.id), ['eggs']);
   assert.equal(linked.ingredientId, 'eggs');
   assert.equal(linked.unit, 'dozen');
+});
+
+test('searches Recipe Ingredient Library names and operational metadata', () => {
+  const ingredient = makeLibraryIngredient('ceylon', {
+    name: '888 TEH CEYLON - YELLOW 1KG',
+    supplierId: 'supplier-42',
+    ...({ sku: 'TEA-888', itemCode: 'YLW-1KG', supplierName: 'Ceylon Imports', productName: 'Yellow Tea' } as Partial<CostingIngredient>)
+  });
+
+  for (const query of ['888', 'CEYLON', 'ylw-1', 'imports', 'yellow tea', 'supplier-42']) {
+    assert.deepEqual(filterRecipeLibraryIngredients([ingredient], query).map(item => item.id), ['ceylon']);
+  }
+  assert.deepEqual(filterRecipeLibraryIngredients([ingredient], 'dragon fruit'), []);
 });
 
 test('excludes inactive and other-workspace records', () => {

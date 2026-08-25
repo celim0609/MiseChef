@@ -42,10 +42,17 @@ const requiredSourceMarkers = [
   ['src/components/SearchTab.tsx', 'Recipe', 'Recipe Library'],
   ['src/components/RecipeCostAnalysis.tsx', 'Selling Price', 'Recipe Cost Analysis summary'],
   ['src/components/RecipeCostAnalysis.tsx', 'useWorkspaceRegion', 'Recipe Cost Analysis workspace currency'],
+  ['src/components/RecipeCostAnalysis.tsx', 'formatRegionCurrency', 'Recipe Cost Analysis workspace formatter'],
   ['src/components/AddRecipeTab.tsx', 'calculateRecipeEditorCostPreview', 'Edit Recipe live costing'],
   ['src/components/AddRecipeTab.tsx', 'sellingPriceValue={sellingPrice}', 'Edit Recipe canonical Selling Price binding'],
   ['src/components/RecipeDetailModal.tsx', '<RecipeCostAnalysis recipe={recipe} />', 'Recipe Detail shared Cost Analysis'],
   ['src/modules/costing/services/recipeCostCalculator.ts', 'calculateRecipeCosting', 'shared Recipe costing calculator'],
+  ['src/modules/costing/services/recipeEditorCostPreview.ts', 'calculateRecipeCosting', 'Edit Recipe shared calculator connection'],
+  ['src/modules/costing/services/recipeCostService.ts', 'calculateRecipeCosting', 'saved Recipe shared calculator connection'],
+  ['src/App.tsx', '<WorkspaceRegionProvider workspace={currentWorkspace}>', 'active Workspace currency provider'],
+  ['src/modules/costing/pages/Ingredients/index.tsx', 'value={region.currency} readOnly', 'Ingredient currency follows active Workspace'],
+  ['src/modules/costing/pages/InvoiceDetail/index.tsx', 'const currency = region.currency;', 'Invoice display currency follows active Workspace'],
+  ['src/modules/store/StorePage.tsx', 'currency={region.currency}', 'Store operations currency follows active Workspace'],
   ['src/modules/store/StorePage.tsx', 'Store', 'Store module'],
   ['src/modules/store/HostProgramPage.tsx', 'Host', 'Host Group Order module'],
   ['src/modules/store/services/groupOrderService.ts', 'groupOrder', 'Host Group Order service'],
@@ -65,7 +72,10 @@ const recipeEditorOrder = [
   ['Cost Analysis', recipeEditorSource.indexOf('<RecipeCostAnalysis')],
   ['Ingredients', recipeEditorSource.indexOf('id="ingredients-section"')],
   ['Instructions', recipeEditorSource.indexOf('id="method-section"')],
-  ['Story / Chef Notes', recipeEditorSource.indexOf('{/* Secondary narrative details */}')]
+  ['Recommended Products', recipeEditorSource.indexOf('aria-controls="recommended-products-editor"')],
+  ['Video', recipeEditorSource.indexOf('{/* Video URL section */}')],
+  ['Story', recipeEditorSource.indexOf('{/* Secondary narrative details */}')],
+  ['Chef Notes', recipeEditorSource.indexOf('value={chefNotes}', recipeEditorSource.indexOf('{/* Secondary narrative details */}'))]
 ];
 const recipeEditorOrderIsProtected = recipeEditorOrder.every(([, index]) => index >= 0)
   && recipeEditorOrder.every(([, index], position) => position === 0 || index > recipeEditorOrder[position - 1][1]);
@@ -77,9 +87,28 @@ if (!recipeEditorOrderIsProtected) {
 }
 
 const sellingPriceBindingCount = recipeEditorSource.split('sellingPriceValue={sellingPrice}').length - 1;
-if (sellingPriceBindingCount !== 1 || !recipeEditorSource.includes('{!isEditing && (')) {
+const sellingPriceChangeBindingCount = recipeEditorSource.split('onSellingPriceChange={value => {').length - 1;
+const recipeCostAnalysisSource = readRepositoryFile('src/components/RecipeCostAnalysis.tsx');
+const editableSellingPriceInputCount = recipeCostAnalysisSource.split('type="number"').length - 1;
+if (
+  sellingPriceBindingCount !== 1
+  || sellingPriceChangeBindingCount !== 1
+  || editableSellingPriceInputCount !== 1
+  || !recipeEditorSource.includes('{!isEditing && (')
+) {
   missing.push(
-    'Recipe Edit Cost Analysis: Selling Price must have one canonical Edit binding inside Cost Analysis while the legacy field remains Add-only'
+    'Recipe Edit Cost Analysis: Selling Price must have exactly one canonical Edit input inside Cost Analysis while the legacy field remains Add-only'
+  );
+}
+
+const workspaceRegionProviderSource = readRepositoryFile('src/regions/WorkspaceRegionProvider.tsx');
+if (
+  !workspaceRegionProviderSource.includes('getWorkspaceRegionConfiguration(workspace)')
+  || !workspaceRegionProviderSource.includes('[workspace?.country]')
+  || recipeCostAnalysisSource.includes('recipe.currency')
+) {
+  missing.push(
+    'Recipe currency: Cost Analysis must derive currency exclusively from the active Workspace region provider'
   );
 }
 

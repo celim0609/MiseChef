@@ -430,7 +430,7 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
 
   const extractedItems = reviewItems;
   const isProcessing = processingAction !== null || invoice.processingStatus === 'Processing';
-  const currency = invoice.currency ?? invoice.extractedData?.currency;
+  const currency = region.currency;
   const subtotal = invoice.subtotal ?? invoice.extractedData?.subtotal;
   const gst = invoice.gst ?? invoice.extractedData?.gst;
   const totalAmount = invoice.total ?? invoice.extractedData?.total;

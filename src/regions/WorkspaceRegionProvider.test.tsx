@@ -18,4 +18,5 @@ const renderRegion = (country: RegionCode) => renderToStaticMarkup(
 test('the shared provider follows the active workspace when accounts or workspaces switch', () => {
   assert.equal(renderRegion('MY'), '<span>MY:MYR</span>');
   assert.equal(renderRegion('SG'), '<span>SG:SGD</span>');
+  assert.equal(renderRegion('MY'), '<span>MY:MYR</span>');
 });

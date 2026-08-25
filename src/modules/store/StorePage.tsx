@@ -1107,8 +1107,8 @@ export default function StorePage({
       {activeView === 'orders' && (
         <StoreOrdersPanel
           workspaceId={workspace.id}
-          country={store.country}
-          currency={store.currency}
+          country={region.country}
+          currency={region.currency}
           storeName={store.name}
           focusOrderId={focusOrderId}
           notifications={notifications.filter(notification => !notification.readAt)}

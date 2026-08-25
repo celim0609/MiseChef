@@ -22,6 +22,7 @@ import { ApprovedProductSelector } from '../modules/products/components/Approved
 import { approvedProductService } from '../modules/products/services/approvedProductService';
 import RecipeCostAnalysis from './RecipeCostAnalysis';
 import { calculateRecipeEditorCostPreview } from '../modules/costing/services/recipeEditorCostPreview';
+import IngredientLibraryPicker from './IngredientLibraryPicker';
 
 const MAX_COVER_IMAGE_SIDE = 1200;
 const MAX_COVER_IMAGE_BYTES = 500 * 1024;
@@ -1883,22 +1884,15 @@ export default function AddRecipeTab({
                   className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold"
                 />
               </label>
-              <label className="col-span-2 space-y-1.5 sm:col-span-1">
+              <div className="col-span-2 space-y-1.5 sm:col-span-1">
                 <span className="px-1 font-sans text-[11px] font-bold text-outline">Ingredient Library (optional)</span>
-                <select
-                  value={ing.ingredientId || ''}
-                  onChange={e => handleIngredientLibrarySelect(ing.id, e.target.value)}
-                  className="w-full rounded-xl border border-outline-variant/40 bg-transparent p-4 font-sans text-xs font-semibold text-on-surface-variant sm:text-sm"
-                  aria-label={`Link ${ing.name || 'ingredient'} to Ingredient Library`}
-                >
-                  <option value="">Not linked</option>
-                  {libraryIngredients.map(libraryIngredient => (
-                    <option key={libraryIngredient.id} value={libraryIngredient.id}>
-                      {libraryIngredient.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                <IngredientLibraryPicker
+                  ingredients={libraryIngredients}
+                  selectedIngredientId={ing.ingredientId}
+                  onSelect={ingredientId => handleIngredientLibrarySelect(ing.id, ingredientId)}
+                  ariaLabel={`Link ${ing.name || 'ingredient'} to Ingredient Library`}
+                />
+              </div>
               <button
                 type="button"
                 onClick={() => removeIngredientRow(ing.id)}

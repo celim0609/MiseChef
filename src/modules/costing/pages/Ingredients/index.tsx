@@ -65,7 +65,7 @@ const toFormState = (ingredient: CostingIngredient | null | undefined, currency:
   recipeUnit: ingredient.recipeUnit,
   conversionFactor: ingredient.conversionFactor,
   currentPrice: ingredient.currentPrice,
-  currency: ingredient.currency,
+  currency,
   supplierId: ingredient.supplierId,
   yieldPercentage: ingredient.yieldPercentage,
   wastePercentage: ingredient.wastePercentage,
@@ -74,10 +74,10 @@ const toFormState = (ingredient: CostingIngredient | null | undefined, currency:
 
 const getIngredientPurchaseDisplay = (ingredient: CostingIngredient, fallbackCurrency: string) => {
   if (hasIngredientPackData(ingredient) && Number(ingredient.packQuantity) > 0 && ingredient.packUnit) {
-    return `${ingredient.packQuantity} ${ingredient.packUnit} · ${formatRegionCurrency(ingredient.packPrice, ingredient.currency || fallbackCurrency)}`;
+    return `${ingredient.packQuantity} ${ingredient.packUnit} · ${formatRegionCurrency(ingredient.packPrice, fallbackCurrency)}`;
   }
 
-  return `${ingredient.purchaseUnit || 'unit'} · ${formatRegionCurrency(ingredient.currentPrice, ingredient.currency || fallbackCurrency)}`;
+  return `${ingredient.purchaseUnit || 'unit'} · ${formatRegionCurrency(ingredient.currentPrice, fallbackCurrency)}`;
 };
 
 const formatCalculatedUnitCost = (value: number, currency: string) => (
@@ -100,6 +100,10 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
   const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
+    setSelectedIngredient(null);
+    setIsDrawerOpen(false);
+    setFormState(getEmptyForm(region.currency));
+
     let isCancelled = false;
 
     const loadIngredients = async () => {
@@ -120,7 +124,7 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
     return () => {
       isCancelled = true;
     };
-  }, [userId, workspaceId]);
+  }, [region.currency, userId, workspaceId]);
 
   const categories = useMemo(() => {
     const categorySet = new Set<string>(ingredients.map(ingredient => ingredient.category).filter(Boolean));
@@ -432,7 +436,7 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
 
                 {isEditingLegacyIngredient && !hasEnteredPackInformation && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
-                    This ingredient uses legacy pricing ({formatRegionCurrency(selectedIngredient?.currentPrice, selectedIngredient?.currency || region.currency)} per {selectedIngredient?.purchaseUnit || 'unit'}). Add complete pack information to move it to automatic pack costing.
+                    This ingredient uses legacy pricing ({formatRegionCurrency(selectedIngredient?.currentPrice, region.currency)} per {selectedIngredient?.purchaseUnit || 'unit'}). Add complete pack information to move it to automatic pack costing.
                   </div>
                 )}
 
@@ -458,7 +462,7 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
                   </label>
                   <label className="block">
                     <span className="font-sans text-xs font-extrabold uppercase tracking-[0.14em] text-primary">Currency</span>
-                    <input value={formState.currency} onChange={event => updateField('currency', event)} className="mt-2 w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" />
+                    <input value={region.currency} readOnly aria-readonly="true" className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none" />
                   </label>
                 </div>
               </section>
