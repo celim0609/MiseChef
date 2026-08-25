@@ -3,20 +3,75 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   FREE_TRIAL_DAYS,
+  requireWorkspaceFeature,
   resolveWorkspaceSubscription,
-  SUBSCRIPTION_PLANS
+  SUBSCRIPTION_PLANS,
+  UNLIMITED
 } from './subscriptionFoundation.js';
 
 const day = 24 * 60 * 60 * 1000;
 
-test('subscription foundation exposes exactly the four milestone tiers and feature flags', () => {
-  assert.deepEqual(Object.keys(SUBSCRIPTION_PLANS), ['free', 'starter', 'professional', 'business']);
+test('subscription foundation exposes public tiers plus the internal-only unlimited tier', () => {
+  assert.deepEqual(Object.keys(SUBSCRIPTION_PLANS), ['free', 'starter', 'professional', 'business', 'internal_unlimited']);
   for (const definition of Object.values(SUBSCRIPTION_PLANS)) {
     assert.equal(typeof definition.features.recipes, 'boolean');
     assert.equal(typeof definition.features.teamMembers, 'boolean');
     assert.equal(typeof definition.features.reports, 'boolean');
     assert.equal(typeof definition.features.inventory, 'boolean');
   }
+});
+
+test('Internal Unlimited is active, non-expiring, non-purchasable, and removes every current plan limit', () => {
+  const subscription = resolveWorkspaceSubscription({
+    data: {
+      subscriptionPlan: 'internal_unlimited',
+      subscriptionStatus: 'cancelled',
+      trialStartedAt: '2026-08-01T00:00:00.000Z',
+      trialEndsAt: '2026-08-15T00:00:00.000Z'
+    },
+    now: new Date('2026-08-25T00:00:00.000Z')
+  });
+
+  assert.equal(subscription.subscriptionPlan, 'internal_unlimited');
+  assert.equal(subscription.subscriptionStatus, 'active');
+  assert.equal(subscription.trialStartedAt, null);
+  assert.equal(subscription.trialEndsAt, null);
+  assert.equal(SUBSCRIPTION_PLANS.internal_unlimited.availability, 'internal');
+  assert.equal(SUBSCRIPTION_PLANS.internal_unlimited.requiresPayment, false);
+  assert.equal(SUBSCRIPTION_PLANS.internal_unlimited.expires, false);
+  assert.ok(Object.values(subscription.features).every(Boolean));
+  assert.ok(Object.values(subscription.limits).every(limit => limit === UNLIMITED));
+});
+
+test('active Workspace members inherit its plan independently of role and switching Workspace changes entitlement', async () => {
+  const roles = ['Manager', 'Head Chef', 'Sous Chef', 'Chef', 'Purchasing', 'Finance', 'Viewer'];
+  const workspaces = {
+    unlimited: { ownerId: 'owner', subscriptionPlan: 'internal_unlimited', subscriptionStatus: 'active', trialStartedAt: null, trialEndsAt: null },
+    free: { ownerId: 'other-owner', subscriptionPlan: 'free', subscriptionStatus: 'active' }
+  };
+  let role = 'Viewer';
+  const db = {
+    collection: collectionName => ({
+      doc: id => ({
+        get: async () => collectionName === 'workspaces'
+          ? { exists: Boolean(workspaces[id]), data: () => workspaces[id], ref: { set: async () => assert.fail('unexpected persistence') } }
+          : { exists: true, data: () => ({ userId: 'member', workspaceId: id.split('_member')[0], status: 'Active', role }) }
+      })
+    })
+  };
+
+  for (const memberRole of roles) {
+    role = memberRole;
+    const entitlement = await requireWorkspaceFeature({ db, uid: 'member', workspaceId: 'unlimited', feature: 'aiRequests' });
+    assert.equal(entitlement.role, memberRole);
+    assert.equal(entitlement.plan, 'internal_unlimited');
+    assert.equal(entitlement.limits.aiRequests, UNLIMITED);
+  }
+
+  role = 'Finance';
+  const switched = await requireWorkspaceFeature({ db, uid: 'member', workspaceId: 'free', feature: 'aiRequests' });
+  assert.equal(switched.plan, 'free');
+  assert.equal(switched.limits.aiRequests, 25);
 });
 
 test('subscription foundation has no payment-provider integration', () => {
@@ -67,5 +122,5 @@ test('Firestore rules keep subscription fields server-owned and enforce trial ex
   const rules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
   assert.match(rules, /affectedKeys\(\)\.hasNone\(\['subscriptionPlan', 'subscriptionStatus', 'trialStartedAt', 'trialEndsAt', 'subscriptionUpdatedAt'\]\)/);
   assert.match(rules, /request\.time < get\([\s\S]*trialEndsAt/);
-  assert.match(rules, /subscriptionPlan in \['professional', 'business'\]/);
+  assert.match(rules, /subscriptionPlan in \['professional', 'business', 'internal_unlimited'\]/);
 });

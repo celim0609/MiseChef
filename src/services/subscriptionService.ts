@@ -6,6 +6,7 @@ import {
   canPlanUseFeature,
   formatSubscriptionPlanName,
   getAllPlanDefinitions,
+  getPublicPlanDefinitions,
   getLimitValue,
   getPlanDefinition,
   getPlanLimits,
@@ -72,13 +73,19 @@ const normalizeWorkspaceSubscription = (workspaceId: string, data: Partial<Works
   const storedTrialEndsAt = readDate(data.trialEndsAt);
   const trialEndsAt = storedTrialEndsAt && storedTrialEndsAt <= canonicalTrialEndsAt ? storedTrialEndsAt : canonicalTrialEndsAt;
   const hasStoredSubscription = typeof data.subscriptionPlan === 'string' && Boolean(data.subscriptionPlan.trim());
+  const normalizedStoredPlan = hasStoredSubscription ? normalizeSubscriptionPlan(data.subscriptionPlan) : null;
+  const isInternalUnlimited = normalizedStoredPlan === 'internal_unlimited';
   const storedStatus = normalizeSubscriptionStatus(data.subscriptionStatus);
-  const isTrial = storedStatus === 'trialing' || !hasStoredSubscription;
+  const isTrial = !isInternalUnlimited && (storedStatus === 'trialing' || !hasStoredSubscription);
   const trialExpired = isTrial && now >= trialEndsAt;
-  const subscriptionPlan = trialExpired
+  const subscriptionPlan = isInternalUnlimited
+    ? 'internal_unlimited'
+    : trialExpired
     ? 'free'
-    : !hasStoredSubscription ? 'professional' : normalizeSubscriptionPlan(data.subscriptionPlan);
-  const subscriptionStatus = trialExpired ? 'active' : !hasStoredSubscription ? 'trialing' : storedStatus;
+    : !hasStoredSubscription ? 'professional' : normalizedStoredPlan || 'free';
+  const subscriptionStatus = isInternalUnlimited
+    ? 'active'
+    : trialExpired ? 'active' : !hasStoredSubscription ? 'trialing' : storedStatus;
   const trialDaysRemaining = subscriptionStatus === 'trialing'
     ? Math.max(0, Math.ceil((trialEndsAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))
     : 0;
@@ -92,8 +99,8 @@ const normalizeWorkspaceSubscription = (workspaceId: string, data: Partial<Works
     subscriptionStartedAt: readString(raw.subscriptionStartedAt),
     subscriptionRenewalAt: readString(raw.subscriptionRenewalAt),
     subscriptionCancelledAt: raw.subscriptionCancelledAt === null ? null : readString(raw.subscriptionCancelledAt) || null,
-    trialStartedAt: isTrial ? createdAt.toISOString() : readDate(data.trialStartedAt)?.toISOString() || null,
-    trialEndsAt: isTrial ? trialEndsAt.toISOString() : storedTrialEndsAt?.toISOString() || null,
+    trialStartedAt: isInternalUnlimited ? null : isTrial ? createdAt.toISOString() : readDate(data.trialStartedAt)?.toISOString() || null,
+    trialEndsAt: isInternalUnlimited ? null : isTrial ? trialEndsAt.toISOString() : storedTrialEndsAt?.toISOString() || null,
     trialDaysRemaining,
     limits: getPlanLimits(subscriptionPlan)
   };
@@ -110,6 +117,7 @@ export const isSubscriptionStatusActive = (status: SubscriptionStatus) => status
 export const subscriptionService = {
   getPlanDefinition,
   getAllPlanDefinitions,
+  getPublicPlanDefinitions,
   getPlanLimits,
   canPlanUseFeature,
   getLimitValue,
@@ -153,5 +161,5 @@ export const subscriptionService = {
   }
 };
 
-export { formatSubscriptionPlanName, getAllPlanDefinitions, getLimitValue, getPlanDefinition, getPlanLimits, getRequiredPlanForFeature, getRequiredPlanForLimit, normalizeSubscriptionPlan };
+export { formatSubscriptionPlanName, getAllPlanDefinitions, getPublicPlanDefinitions, getLimitValue, getPlanDefinition, getPlanLimits, getRequiredPlanForFeature, getRequiredPlanForLimit, normalizeSubscriptionPlan };
 export type { PlanFeature, PlanLimit };

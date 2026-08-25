@@ -49,7 +49,7 @@ const normalizeWorkspaceSubscription = (data: Partial<Workspace> | Record<string
   const storedTrialEnd = readDate(data.trialEndsAt);
   const trialEndsAt = storedTrialEnd && storedTrialEnd <= canonicalTrialEnd ? storedTrialEnd : canonicalTrialEnd;
   const storedPlan = typeof data.subscriptionPlan === 'string' ? data.subscriptionPlan.toLowerCase() : '';
-  const subscriptionPlan: SubscriptionPlan = storedPlan === 'starter' || storedPlan === 'professional' || storedPlan === 'business'
+  const subscriptionPlan: SubscriptionPlan = storedPlan === 'starter' || storedPlan === 'professional' || storedPlan === 'business' || storedPlan === 'internal_unlimited'
     ? storedPlan
     : storedPlan === 'enterprise' ? 'business' : 'free';
   const storedStatus = typeof data.subscriptionStatus === 'string' ? data.subscriptionStatus.toLowerCase() : '';
@@ -59,6 +59,7 @@ const normalizeWorkspaceSubscription = (data: Partial<Workspace> | Record<string
   const isImplicitTrial = !storedPlan && Date.now() < canonicalTrialEnd.getTime();
   const isExpiredTrial = (subscriptionStatus === 'trialing' || isImplicitTrial) && Date.now() >= trialEndsAt.getTime();
 
+  if (subscriptionPlan === 'internal_unlimited') return { subscriptionPlan, subscriptionStatus: 'active' as const, trialStartedAt: null, trialEndsAt: null };
   if (isExpiredTrial) return { subscriptionPlan: 'free' as const, subscriptionStatus: 'active' as const, trialStartedAt: createdAt.toISOString(), trialEndsAt: trialEndsAt.toISOString() };
   if (isImplicitTrial) return { subscriptionPlan: 'professional' as const, subscriptionStatus: 'trialing' as const, trialStartedAt: createdAt.toISOString(), trialEndsAt: trialEndsAt.toISOString() };
   return {

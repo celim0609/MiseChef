@@ -10,7 +10,7 @@ export interface NewUserProvisioningResult {
   workspaceName: string;
   role: 'Owner';
   userRole: 'super_admin' | 'admin' | 'user';
-  subscriptionPlan: 'free' | 'starter' | 'professional' | 'business';
+  subscriptionPlan: 'free' | 'starter' | 'professional' | 'business' | 'internal_unlimited';
   subscriptionStatus: 'active' | 'trialing' | 'past_due' | 'cancelled' | 'suspended';
   trialStartedAt: string | null;
   trialEndsAt: string | null;

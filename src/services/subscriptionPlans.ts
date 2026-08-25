@@ -1,4 +1,4 @@
-import type { PlanLimits, SubscriptionPlan } from '../types';
+import type { PlanLimits, PublicSubscriptionPlan, SubscriptionPlan } from '../types';
 
 export const UNLIMITED_PLAN_LIMIT = -1;
 
@@ -9,6 +9,9 @@ export type PlanFeature =
   | 'invoiceOcr'
   | 'aiRequests'
   | 'teamMembers'
+  | 'finance'
+  | 'store'
+  | 'orders'
   | 'reports'
   | 'export'
   | 'multipleWorkspaces'
@@ -31,6 +34,8 @@ export type PlanLimit =
   | 'teamMembers'
   | 'storageMB'
   | 'workspaces'
+  | 'products'
+  | 'ordersMonthly'
   | 'recipe'
   | 'supplier'
   | 'invoice'
@@ -40,11 +45,15 @@ export interface SubscriptionPlanDefinition {
   id: SubscriptionPlan;
   name: string;
   description: string;
+  availability: 'public' | 'internal';
+  requiresPayment: boolean;
+  expires: boolean;
   features: Record<Exclude<PlanFeature, 'ai' | 'invoice' | 'supplier' | 'team' | 'exportPDF'>, boolean>;
   limits: Record<Exclude<PlanLimit, 'recipe' | 'supplier' | 'invoice' | 'teamMember'>, number>;
 }
 
-export const SUBSCRIPTION_PLAN_ORDER: SubscriptionPlan[] = ['free', 'starter', 'professional', 'business'];
+export const SUBSCRIPTION_PLAN_ORDER: PublicSubscriptionPlan[] = ['free', 'starter', 'professional', 'business'];
+export const SUPPORTED_SUBSCRIPTION_PLAN_ORDER: SubscriptionPlan[] = [...SUBSCRIPTION_PLAN_ORDER, 'internal_unlimited'];
 
 const enabledCoreFeatures = {
   recipes: true,
@@ -53,6 +62,9 @@ const enabledCoreFeatures = {
   invoiceOcr: true,
   aiRequests: true,
   teamMembers: false,
+  finance: false,
+  store: true,
+  orders: true,
   reports: false,
   export: false,
   multipleWorkspaces: true,
@@ -64,6 +76,9 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, SubscriptionPlanDefini
     id: 'free',
     name: 'Free',
     description: 'Starter workspace for trying MiseChef.',
+    availability: 'public',
+    requiresPayment: false,
+    expires: false,
     features: {
       ...enabledCoreFeatures
     },
@@ -78,13 +93,18 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, SubscriptionPlanDefini
       aiCostBudgetUSD: 2,
       teamMembers: 1,
       storageMB: 250,
-      workspaces: UNLIMITED_PLAN_LIMIT
+      workspaces: UNLIMITED_PLAN_LIMIT,
+      products: 20,
+      ordersMonthly: 50
     }
   },
   starter: {
     id: 'starter',
     name: 'Starter',
     description: 'Small kitchen workspace with expanded capacity.',
+    availability: 'public',
+    requiresPayment: true,
+    expires: false,
     features: {
       ...enabledCoreFeatures,
       export: true
@@ -100,16 +120,22 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, SubscriptionPlanDefini
       aiCostBudgetUSD: 20,
       teamMembers: 3,
       storageMB: 1_000,
-      workspaces: UNLIMITED_PLAN_LIMIT
+      workspaces: UNLIMITED_PLAN_LIMIT,
+      products: UNLIMITED_PLAN_LIMIT,
+      ordersMonthly: UNLIMITED_PLAN_LIMIT
     }
   },
   professional: {
     id: 'professional',
     name: 'Professional',
     description: 'Professional restaurant workspace for demos and active operations.',
+    availability: 'public',
+    requiresPayment: true,
+    expires: false,
     features: {
       ...enabledCoreFeatures,
       teamMembers: true,
+      finance: true,
       reports: true,
       export: true
     },
@@ -124,16 +150,22 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, SubscriptionPlanDefini
       aiCostBudgetUSD: 75,
       teamMembers: 10,
       storageMB: 5_000,
-      workspaces: UNLIMITED_PLAN_LIMIT
+      workspaces: UNLIMITED_PLAN_LIMIT,
+      products: UNLIMITED_PLAN_LIMIT,
+      ordersMonthly: UNLIMITED_PLAN_LIMIT
     }
   },
   business: {
     id: 'business',
     name: 'Business',
     description: 'Multi-role restaurant operations workspace.',
+    availability: 'public',
+    requiresPayment: true,
+    expires: false,
     features: {
       ...enabledCoreFeatures,
       teamMembers: true,
+      finance: true,
       reports: true,
       export: true,
       inventory: true
@@ -149,7 +181,47 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, SubscriptionPlanDefini
       aiCostBudgetUSD: 250,
       teamMembers: 50,
       storageMB: 25_000,
-      workspaces: UNLIMITED_PLAN_LIMIT
+      workspaces: UNLIMITED_PLAN_LIMIT,
+      products: UNLIMITED_PLAN_LIMIT,
+      ordersMonthly: UNLIMITED_PLAN_LIMIT
+    }
+  },
+  internal_unlimited: {
+    id: 'internal_unlimited',
+    name: 'Internal Unlimited',
+    description: 'Internal MiseChef workspace with every current entitlement and no usage caps.',
+    availability: 'internal',
+    requiresPayment: false,
+    expires: false,
+    features: {
+      recipes: true,
+      ingredients: true,
+      suppliers: true,
+      invoiceOcr: true,
+      aiRequests: true,
+      teamMembers: true,
+      finance: true,
+      store: true,
+      orders: true,
+      reports: true,
+      export: true,
+      multipleWorkspaces: true,
+      inventory: true
+    },
+    limits: {
+      recipes: UNLIMITED_PLAN_LIMIT,
+      ingredients: UNLIMITED_PLAN_LIMIT,
+      suppliers: UNLIMITED_PLAN_LIMIT,
+      invoices: UNLIMITED_PLAN_LIMIT,
+      invoiceOcr: UNLIMITED_PLAN_LIMIT,
+      aiRequests: UNLIMITED_PLAN_LIMIT,
+      aiTokens: UNLIMITED_PLAN_LIMIT,
+      aiCostBudgetUSD: UNLIMITED_PLAN_LIMIT,
+      teamMembers: UNLIMITED_PLAN_LIMIT,
+      storageMB: UNLIMITED_PLAN_LIMIT,
+      workspaces: UNLIMITED_PLAN_LIMIT,
+      products: UNLIMITED_PLAN_LIMIT,
+      ordersMonthly: UNLIMITED_PLAN_LIMIT
     }
   }
 };
@@ -161,6 +233,9 @@ const featureAliases: Record<PlanFeature, keyof SubscriptionPlanDefinition['feat
   invoiceOcr: 'invoiceOcr',
   aiRequests: 'aiRequests',
   teamMembers: 'teamMembers',
+  finance: 'finance',
+  store: 'store',
+  orders: 'orders',
   reports: 'reports',
   export: 'export',
   multipleWorkspaces: 'multipleWorkspaces',
@@ -184,6 +259,8 @@ const limitAliases: Record<PlanLimit, keyof SubscriptionPlanDefinition['limits']
   teamMembers: 'teamMembers',
   storageMB: 'storageMB',
   workspaces: 'workspaces',
+  products: 'products',
+  ordersMonthly: 'ordersMonthly',
   recipe: 'recipes',
   supplier: 'suppliers',
   invoice: 'invoices',
@@ -195,6 +272,7 @@ export const normalizeSubscriptionPlan = (plan: unknown): SubscriptionPlan => {
   if (normalized === 'starter') return 'starter';
   if (normalized === 'professional') return 'professional';
   if (normalized === 'business') return 'business';
+  if (normalized === 'internal_unlimited') return 'internal_unlimited';
   // Legacy Enterprise workspaces receive the highest tier supported by this milestone.
   if (normalized === 'enterprise') return 'business';
   return 'free';
@@ -204,7 +282,9 @@ export const formatSubscriptionPlanName = (plan: unknown) => getPlanDefinition(p
 
 export const getPlanDefinition = (plan: unknown): SubscriptionPlanDefinition => SUBSCRIPTION_PLANS[normalizeSubscriptionPlan(plan)];
 
-export const getAllPlanDefinitions = (): SubscriptionPlanDefinition[] => SUBSCRIPTION_PLAN_ORDER.map(plan => SUBSCRIPTION_PLANS[plan]);
+export const getAllPlanDefinitions = (): SubscriptionPlanDefinition[] => SUPPORTED_SUBSCRIPTION_PLAN_ORDER.map(plan => SUBSCRIPTION_PLANS[plan]);
+
+export const getPublicPlanDefinitions = (): SubscriptionPlanDefinition[] => SUBSCRIPTION_PLAN_ORDER.map(plan => SUBSCRIPTION_PLANS[plan]);
 
 export const getPlanLimits = (plan: unknown): PlanLimits => {
   const definition = getPlanDefinition(plan);
@@ -222,6 +302,8 @@ export const getPlanLimits = (plan: unknown): PlanLimits => {
     invoiceLimit: definition.limits.invoices,
     supplierLimit: definition.limits.suppliers,
     workspaceLimit: definition.limits.workspaces,
+    productLimit: definition.limits.products,
+    monthlyOrderLimit: definition.limits.ordersMonthly,
     canExportPDF: definition.features.export,
     canUseAdvancedReports: definition.features.reports,
     canUseTeamManagement: definition.features.teamMembers,
@@ -268,7 +350,7 @@ export const getRequiredPlanForLimit = (limit: PlanLimit, requestedUsage = 1) =>
   }) || 'business';
 };
 
-export const PLAN_LIMITS: Record<SubscriptionPlan, PlanLimits> = SUBSCRIPTION_PLAN_ORDER.reduce((acc, plan) => {
+export const PLAN_LIMITS: Record<SubscriptionPlan, PlanLimits> = SUPPORTED_SUBSCRIPTION_PLAN_ORDER.reduce((acc, plan) => {
   acc[plan] = getPlanLimits(plan);
   return acc;
 }, {} as Record<SubscriptionPlan, PlanLimits>);

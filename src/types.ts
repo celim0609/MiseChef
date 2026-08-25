@@ -149,7 +149,8 @@ export type UserRole = 'super_admin' | 'admin' | 'user';
 
 export type CompanyRole = 'super_admin' | 'owner' | 'manager' | 'chef' | 'staff';
 
-export type SubscriptionPlan = 'free' | 'starter' | 'professional' | 'business';
+export type PublicSubscriptionPlan = 'free' | 'starter' | 'professional' | 'business';
+export type SubscriptionPlan = PublicSubscriptionPlan | 'internal_unlimited';
 export type SubscriptionStatus = 'active' | 'trialing' | 'past_due' | 'cancelled' | 'suspended';
 export type BillingCycle = 'monthly' | 'yearly';
 
@@ -222,6 +223,8 @@ export interface PlanLimits {
   invoiceLimit: number;
   supplierLimit: number;
   workspaceLimit: number;
+  productLimit: number;
+  monthlyOrderLimit: number;
   canExportPDF: boolean;
   canUseAdvancedReports: boolean;
   canUseTeamManagement: boolean;

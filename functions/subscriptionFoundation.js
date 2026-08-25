@@ -6,23 +6,33 @@ export const UNLIMITED = -1;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PLAN_ORDER = ['free', 'starter', 'professional', 'business'];
+const SUPPORTED_PLAN_ORDER = [...PLAN_ORDER, 'internal_unlimited'];
 
 export const SUBSCRIPTION_PLANS = Object.freeze({
   free: Object.freeze({
-    features: Object.freeze({ recipes: true, ingredients: true, suppliers: true, invoiceOcr: true, aiRequests: true, teamMembers: false, reports: false, export: false, multipleWorkspaces: true, inventory: false }),
-    limits: Object.freeze({ recipes: 25, ingredients: UNLIMITED, suppliers: 5, invoices: 10, invoiceOcr: 10, aiRequests: 25, teamMembers: 1, storageMB: 250, workspaces: UNLIMITED })
+    availability: 'public', requiresPayment: false, expires: false,
+    features: Object.freeze({ recipes: true, ingredients: true, suppliers: true, invoiceOcr: true, aiRequests: true, teamMembers: false, finance: false, store: true, orders: true, reports: false, export: false, multipleWorkspaces: true, inventory: false }),
+    limits: Object.freeze({ recipes: 25, ingredients: UNLIMITED, suppliers: 5, invoices: 10, invoiceOcr: 10, aiRequests: 25, aiTokens: 250_000, aiCostBudgetUSD: 2, teamMembers: 1, storageMB: 250, workspaces: UNLIMITED, products: 20, ordersMonthly: 50 })
   }),
   starter: Object.freeze({
-    features: Object.freeze({ recipes: true, ingredients: true, suppliers: true, invoiceOcr: true, aiRequests: true, teamMembers: false, reports: false, export: true, multipleWorkspaces: true, inventory: false }),
-    limits: Object.freeze({ recipes: 150, ingredients: UNLIMITED, suppliers: 25, invoices: 75, invoiceOcr: 75, aiRequests: 250, teamMembers: 3, storageMB: 1_000, workspaces: UNLIMITED })
+    availability: 'public', requiresPayment: true, expires: false,
+    features: Object.freeze({ recipes: true, ingredients: true, suppliers: true, invoiceOcr: true, aiRequests: true, teamMembers: false, finance: false, store: true, orders: true, reports: false, export: true, multipleWorkspaces: true, inventory: false }),
+    limits: Object.freeze({ recipes: 150, ingredients: UNLIMITED, suppliers: 25, invoices: 75, invoiceOcr: 75, aiRequests: 250, aiTokens: 2_500_000, aiCostBudgetUSD: 20, teamMembers: 3, storageMB: 1_000, workspaces: UNLIMITED, products: UNLIMITED, ordersMonthly: UNLIMITED })
   }),
   professional: Object.freeze({
-    features: Object.freeze({ recipes: true, ingredients: true, suppliers: true, invoiceOcr: true, aiRequests: true, teamMembers: true, reports: true, export: true, multipleWorkspaces: true, inventory: false }),
-    limits: Object.freeze({ recipes: 1_000, ingredients: UNLIMITED, suppliers: 100, invoices: 500, invoiceOcr: 500, aiRequests: 1_000, teamMembers: 10, storageMB: 5_000, workspaces: UNLIMITED })
+    availability: 'public', requiresPayment: true, expires: false,
+    features: Object.freeze({ recipes: true, ingredients: true, suppliers: true, invoiceOcr: true, aiRequests: true, teamMembers: true, finance: true, store: true, orders: true, reports: true, export: true, multipleWorkspaces: true, inventory: false }),
+    limits: Object.freeze({ recipes: 1_000, ingredients: UNLIMITED, suppliers: 100, invoices: 500, invoiceOcr: 500, aiRequests: 1_000, aiTokens: 10_000_000, aiCostBudgetUSD: 75, teamMembers: 10, storageMB: 5_000, workspaces: UNLIMITED, products: UNLIMITED, ordersMonthly: UNLIMITED })
   }),
   business: Object.freeze({
-    features: Object.freeze({ recipes: true, ingredients: true, suppliers: true, invoiceOcr: true, aiRequests: true, teamMembers: true, reports: true, export: true, multipleWorkspaces: true, inventory: true }),
-    limits: Object.freeze({ recipes: 5_000, ingredients: UNLIMITED, suppliers: 500, invoices: 2_500, invoiceOcr: 2_500, aiRequests: 5_000, teamMembers: 50, storageMB: 25_000, workspaces: UNLIMITED })
+    availability: 'public', requiresPayment: true, expires: false,
+    features: Object.freeze({ recipes: true, ingredients: true, suppliers: true, invoiceOcr: true, aiRequests: true, teamMembers: true, finance: true, store: true, orders: true, reports: true, export: true, multipleWorkspaces: true, inventory: true }),
+    limits: Object.freeze({ recipes: 5_000, ingredients: UNLIMITED, suppliers: 500, invoices: 2_500, invoiceOcr: 2_500, aiRequests: 5_000, aiTokens: 50_000_000, aiCostBudgetUSD: 250, teamMembers: 50, storageMB: 25_000, workspaces: UNLIMITED, products: UNLIMITED, ordersMonthly: UNLIMITED })
+  }),
+  internal_unlimited: Object.freeze({
+    availability: 'internal', requiresPayment: false, expires: false,
+    features: Object.freeze({ recipes: true, ingredients: true, suppliers: true, invoiceOcr: true, aiRequests: true, teamMembers: true, finance: true, store: true, orders: true, reports: true, export: true, multipleWorkspaces: true, inventory: true }),
+    limits: Object.freeze({ recipes: UNLIMITED, ingredients: UNLIMITED, suppliers: UNLIMITED, invoices: UNLIMITED, invoiceOcr: UNLIMITED, aiRequests: UNLIMITED, aiTokens: UNLIMITED, aiCostBudgetUSD: UNLIMITED, teamMembers: UNLIMITED, storageMB: UNLIMITED, workspaces: UNLIMITED, products: UNLIMITED, ordersMonthly: UNLIMITED })
   })
 });
 
@@ -38,7 +48,7 @@ const readDate = value => {
 
 const normalizePlan = value => {
   const plan = readString(value).toLowerCase();
-  if (PLAN_ORDER.includes(plan)) return plan;
+  if (SUPPORTED_PLAN_ORDER.includes(plan)) return plan;
   return plan === 'enterprise' ? 'business' : 'free';
 };
 
@@ -55,17 +65,19 @@ export const resolveWorkspaceSubscription = ({ data = {}, createTime, now = new 
   const requestedTrialEnd = readDate(data.trialEndsAt);
   const trialEnd = requestedTrialEnd && requestedTrialEnd <= canonicalTrialEnd ? requestedTrialEnd : canonicalTrialEnd;
   const hasSubscription = Boolean(readString(data.subscriptionPlan));
+  const storedPlan = hasSubscription ? normalizePlan(data.subscriptionPlan) : null;
+  const isInternalUnlimited = storedPlan === 'internal_unlimited';
   const storedStatus = normalizeStatus(data.subscriptionStatus);
-  const isTrial = !hasSubscription || storedStatus === 'trialing';
+  const isTrial = !isInternalUnlimited && (!hasSubscription || storedStatus === 'trialing');
   const expired = isTrial && now >= trialEnd;
-  const plan = expired ? 'free' : !hasSubscription ? 'professional' : normalizePlan(data.subscriptionPlan);
-  const status = expired ? 'active' : !hasSubscription ? 'trialing' : storedStatus;
+  const plan = isInternalUnlimited ? 'internal_unlimited' : expired ? 'free' : !hasSubscription ? 'professional' : storedPlan;
+  const status = isInternalUnlimited ? 'active' : expired ? 'active' : !hasSubscription ? 'trialing' : storedStatus;
 
   return {
     subscriptionPlan: plan,
     subscriptionStatus: status,
-    trialStartedAt: isTrial ? Timestamp.fromDate(createdAt) : data.trialStartedAt || null,
-    trialEndsAt: isTrial ? Timestamp.fromDate(trialEnd) : data.trialEndsAt || null,
+    trialStartedAt: isInternalUnlimited ? null : isTrial ? Timestamp.fromDate(createdAt) : data.trialStartedAt || null,
+    trialEndsAt: isInternalUnlimited ? null : isTrial ? Timestamp.fromDate(trialEnd) : data.trialEndsAt || null,
     trialDaysRemaining: status === 'trialing' ? Math.max(0, Math.ceil((trialEnd.getTime() - now.getTime()) / DAY_MS)) : 0,
     features: SUBSCRIPTION_PLANS[plan].features,
     limits: SUBSCRIPTION_PLANS[plan].limits
@@ -74,6 +86,8 @@ export const resolveWorkspaceSubscription = ({ data = {}, createTime, now = new 
 
 const needsPersistence = (data, subscription) => data.subscriptionPlan !== subscription.subscriptionPlan
   || data.subscriptionStatus !== subscription.subscriptionStatus
+  || (subscription.subscriptionPlan === 'internal_unlimited'
+    && (data.trialStartedAt != null || data.trialEndsAt != null))
   || (subscription.subscriptionStatus === 'trialing'
     && (!readDate(data.trialStartedAt) || !readDate(data.trialEndsAt)));
 

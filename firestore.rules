@@ -161,7 +161,7 @@ service cloud.firestore {
 
     function hasProfessionalWorkspaceEntitlement(workspaceId) {
       return hasActiveWorkspaceSubscription(workspaceId)
-        && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.subscriptionPlan in ['professional', 'business'];
+        && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.subscriptionPlan in ['professional', 'business', 'internal_unlimited'];
     }
 
     function canAccessRecipes(workspaceId) {

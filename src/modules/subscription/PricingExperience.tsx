@@ -1,8 +1,8 @@
 import { Check, Sparkles, X } from 'lucide-react';
-import type { SubscriptionPlan } from '../../types';
+import type { PublicSubscriptionPlan, SubscriptionPlan } from '../../types';
 
 type PlanExperience = {
-  id: SubscriptionPlan;
+  id: PublicSubscriptionPlan;
   name: string;
   eyebrow: string;
   description: string;
@@ -54,7 +54,7 @@ const PRICING_PLANS: PlanExperience[] = [
   }
 ];
 
-const COMPARISON_ROWS: Array<{ feature: string; values: Record<SubscriptionPlan, ComparisonValue> }> = [
+const COMPARISON_ROWS: Array<{ feature: string; values: Record<PublicSubscriptionPlan, ComparisonValue> }> = [
   { feature: 'Public Chef Profile', values: { free: true, starter: true, professional: true, business: true } },
   { feature: 'Public Store', values: { free: true, starter: true, professional: true, business: true } },
   { feature: 'QR Payments', values: { free: true, starter: true, professional: true, business: true } },
@@ -153,4 +153,3 @@ export default function PricingExperience({ currentPlan, inApp = false }: Pricin
     </div>
   );
 }
-

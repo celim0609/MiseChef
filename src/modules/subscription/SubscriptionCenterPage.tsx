@@ -133,6 +133,7 @@ export default function SubscriptionCenterPage({ workspaceId, currentWorkspace, 
 
   const activeSubscription = subscription;
   const currentPlan = subscriptionService.getPlanDefinition(activeSubscription.subscriptionPlan);
+  const isInternalPlan = currentPlan.availability === 'internal';
   const teamMembers = currentWorkspace?.members.filter(member => member.status === 'Active').length || 0;
   const reachedLimits = [
     { label: 'recipe', usage: recipeCount, limit: activeSubscription.limits.recipeLimit },
@@ -191,7 +192,8 @@ export default function SubscriptionCenterPage({ workspaceId, currentWorkspace, 
           <dl className="mt-5 space-y-3">
             {[
               ['Current Plan', currentPlan.name || 'Not available'],
-              ['Subscription Status', formatLabel(activeSubscription.subscriptionStatus)]
+              ['Subscription Status', formatLabel(activeSubscription.subscriptionStatus)],
+              ...(isInternalPlan ? [['Billing', 'Internal — no payment required']] : [])
             ].map(([label, value]) => (
               <div key={label} className="flex items-center justify-between gap-4 border-b border-surface-container-high pb-2.5 last:border-0">
                 <dt className="font-sans text-xs font-bold text-on-surface-variant">{label}</dt>
@@ -213,14 +215,14 @@ export default function SubscriptionCenterPage({ workspaceId, currentWorkspace, 
         </section>
       </div>
 
-      <section>
+      {!isInternalPlan && <section>
         <div className="mb-5">
           <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Choose what fits</p>
           <h2 className="mt-1 font-display text-3xl font-bold text-primary">Grow without outgrowing your tools</h2>
           <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">See exactly what each upgrade adds to your workspace.</p>
         </div>
         <PricingExperience currentPlan={activeSubscription.subscriptionPlan} inApp />
-      </section>
+      </section>}
     </div>
   );
 }
