@@ -5,13 +5,18 @@ import path from 'node:path';
 import {
   MANDATORY_BETA_BASELINE,
   assertAuthority,
-  assertCleanSource
+  assertCleanSource,
+  assertExplicitBetaStorageTarget
 } from './betaDeploymentSafety.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const readRepositoryFile = filePath => readFileSync(path.join(repositoryRoot, filePath), 'utf8');
 const baseline = JSON.parse(readRepositoryFile('config/beta-release-baseline.json'));
-const firebaseProjects = JSON.parse(readRepositoryFile('.firebaserc')).projects || {};
+const firebaseConfig = JSON.parse(readRepositoryFile('firebase.json'));
+const firebaseRc = JSON.parse(readRepositoryFile('.firebaserc'));
+const firebaseProjects = firebaseRc.projects || {};
+
+assertExplicitBetaStorageTarget({ firebaseConfig, firebaseRc });
 
 if (process.env.FIREBASE_DEPLOY_TARGET !== 'beta') {
   throw new Error('Beta release validation requires FIREBASE_DEPLOY_TARGET=beta; refusing to skip.');

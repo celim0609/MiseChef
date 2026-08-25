@@ -12,12 +12,15 @@
       "node scripts/validateBetaPredeploy.mjs"
     ]
   },
-  "storage": {
-    "rules": "storage.rules",
-    "predeploy": [
-      "node scripts/validateBetaPredeploy.mjs"
-    ]
-  },
+  "storage": [
+    {
+      "target": "beta-default",
+      "rules": "storage.rules",
+      "predeploy": [
+        "node scripts/validateBetaPredeploy.mjs"
+      ]
+    }
+  ],
   "emulators": {
     "auth": {
       "host": "127.0.0.1",

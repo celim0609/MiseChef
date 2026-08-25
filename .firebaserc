@@ -3,6 +3,14 @@
     "production": "misechef-fa4bf",
     "beta": "misechef-beta-fa4bf"
   },
-  "targets": {},
+  "targets": {
+    "misechef-beta-fa4bf": {
+      "storage": {
+        "beta-default": [
+          "misechef-beta-fa4bf.firebasestorage.app"
+        ]
+      }
+    }
+  },
   "etags": {}
 }

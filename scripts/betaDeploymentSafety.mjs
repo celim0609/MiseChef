@@ -4,6 +4,10 @@ import path from 'node:path';
 
 export const MANDATORY_BETA_BASELINE = '4ae89ff2b49c5e5ec90baacab08de0fe9ffad86c';
 export const BETA_PROJECT_ID = 'misechef-beta-fa4bf';
+export const PRODUCTION_PROJECT_ID = 'misechef-fa4bf';
+export const BETA_STORAGE_TARGET = 'beta-default';
+export const BETA_STORAGE_BUCKET = 'misechef-beta-fa4bf.firebasestorage.app';
+export const PINNED_FIREBASE_CLI_VERSION = '14.22.0';
 export const FULL_BETA_RESOURCE_PLAN = Object.freeze([
   'functions',
   'hosting',
@@ -31,6 +35,67 @@ export const assertExactResourcePlan = resources => {
       `Unsupported partial Beta resource plan: ${normalized.join(', ') || '(empty)'}. ` +
       `The canonical release must deploy ${required.join(', ')} together.`
     );
+  }
+};
+
+export const resolveStorageTarget = (firebaseRc, projectId, target) => (
+  firebaseRc?.targets?.[projectId]?.storage?.[target] || []
+);
+
+export const assertExplicitBetaStorageTarget = ({ firebaseConfig, firebaseRc }) => {
+  if (!Array.isArray(firebaseConfig?.storage) || firebaseConfig.storage.length !== 1) {
+    throw new Error('Beta Storage must use exactly one explicit array-based target configuration.');
+  }
+
+  const [storageConfig] = firebaseConfig.storage;
+  if (
+    storageConfig.target !== BETA_STORAGE_TARGET
+    || storageConfig.rules !== 'storage.rules'
+  ) {
+    throw new Error(`Beta Storage must target only ${BETA_STORAGE_TARGET} with storage.rules.`);
+  }
+  if (
+    firebaseRc?.projects?.beta !== BETA_PROJECT_ID
+    || firebaseRc?.projects?.production !== PRODUCTION_PROJECT_ID
+  ) {
+    throw new Error('Firebase project aliases do not match the protected Beta and Production projects.');
+  }
+
+  const betaBuckets = resolveStorageTarget(firebaseRc, BETA_PROJECT_ID, BETA_STORAGE_TARGET);
+  if (
+    !Array.isArray(betaBuckets)
+    || betaBuckets.length !== 1
+    || betaBuckets[0] !== BETA_STORAGE_BUCKET
+  ) {
+    throw new Error(`The protected Beta Storage target must resolve only to ${BETA_STORAGE_BUCKET}.`);
+  }
+
+  for (const [projectId, projectTargets] of Object.entries(firebaseRc?.targets || {})) {
+    if (projectId === BETA_PROJECT_ID) continue;
+    const storageTargets = projectTargets?.storage || {};
+    if (
+      Object.hasOwn(storageTargets, BETA_STORAGE_TARGET)
+      || Object.values(storageTargets).some(buckets => (
+        Array.isArray(buckets) && buckets.includes(BETA_STORAGE_BUCKET)
+      ))
+    ) {
+      throw new Error(`Beta Storage target or bucket must not resolve for non-Beta project ${projectId}.`);
+    }
+  }
+
+  if (resolveStorageTarget(firebaseRc, PRODUCTION_PROJECT_ID, BETA_STORAGE_TARGET).length !== 0) {
+    throw new Error('The Beta Storage target unexpectedly resolves for Production.');
+  }
+};
+
+export const assertPinnedFirebaseCliStorageBehavior = ({ version, prepareSource }) => {
+  if (version !== PINNED_FIREBASE_CLI_VERSION) {
+    throw new Error(`Protected Beta deployment requires Firebase CLI ${PINNED_FIREBASE_CLI_VERSION}; found ${version || '(missing)'}.`);
+  }
+  const defaultBucketCalls = String(prepareSource).match(/getDefaultBucket\s*\(/g) || [];
+  const arrayBypassGuard = /if\s*\(\s*!Array\.isArray\(rulesConfig\)\s*&&\s*options\.project\s*\)\s*\{[\s\S]*?getDefaultBucket\s*\(\s*options\.project\s*\)/;
+  if (defaultBucketCalls.length !== 1 || !arrayBypassGuard.test(String(prepareSource))) {
+    throw new Error('Pinned Firebase CLI no longer proves that explicit array-based Storage targets bypass defaultBucket discovery.');
   }
 };
 

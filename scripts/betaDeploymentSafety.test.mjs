@@ -8,14 +8,21 @@ import { fileURLToPath } from 'node:url';
 import {
   ALLOWED_POST_BUILD_DIRTY_PATHS,
   BETA_PROJECT_ID,
+  BETA_STORAGE_BUCKET,
+  BETA_STORAGE_TARGET,
   FULL_BETA_RESOURCE_PLAN,
   MANDATORY_BETA_BASELINE,
+  PINNED_FIREBASE_CLI_VERSION,
+  PRODUCTION_PROJECT_ID,
   assertArtifactCompatibility,
   assertAuthority,
   assertCanonicalContext,
   assertCleanSource,
+  assertExplicitBetaStorageTarget,
   assertExactResourcePlan,
   assertLiveReleaseUnchanged,
+  assertPinnedFirebaseCliStorageBehavior,
+  resolveStorageTarget,
   sha256File
 } from './betaDeploymentSafety.mjs';
 
@@ -62,6 +69,50 @@ test('direct Beta Hosting deploy and partial plans fail without the canonical fu
   assert.throws(() => assertExactResourcePlan(['hosting']), /Unsupported partial Beta resource plan/);
   assert.throws(() => assertExactResourcePlan(['firestore']), /Unsupported partial Beta resource plan/);
   assert.throws(() => assertExactResourcePlan(['storage']), /Unsupported partial Beta resource plan/);
+});
+
+test('explicit Storage target resolves only to the protected Beta bucket and fails closed for Production', () => {
+  const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const firebaseConfig = JSON.parse(readFileSync(path.join(repositoryRoot, 'firebase.json'), 'utf8'));
+  const firebaseRc = JSON.parse(readFileSync(path.join(repositoryRoot, '.firebaserc'), 'utf8'));
+
+  assert.doesNotThrow(() => assertExplicitBetaStorageTarget({ firebaseConfig, firebaseRc }));
+  assert.deepEqual(
+    resolveStorageTarget(firebaseRc, BETA_PROJECT_ID, BETA_STORAGE_TARGET),
+    [BETA_STORAGE_BUCKET]
+  );
+  assert.deepEqual(
+    resolveStorageTarget(firebaseRc, PRODUCTION_PROJECT_ID, BETA_STORAGE_TARGET),
+    []
+  );
+
+  const productionMappedRc = structuredClone(firebaseRc);
+  productionMappedRc.targets[PRODUCTION_PROJECT_ID] = {
+    storage: { [BETA_STORAGE_TARGET]: [BETA_STORAGE_BUCKET] }
+  };
+  assert.throws(
+    () => assertExplicitBetaStorageTarget({ firebaseConfig, firebaseRc: productionMappedRc }),
+    /must not resolve for non-Beta project/
+  );
+});
+
+test('pinned Firebase CLI preparation bypasses defaultBucket discovery for explicit Storage arrays', () => {
+  const guardedPrepareSource = `
+    let rulesConfig = options.config.get("storage");
+    if (!Array.isArray(rulesConfig) && options.project) {
+      const defaultBucket = await gcp.storage.getDefaultBucket(options.project);
+      rulesConfig = [Object.assign(rulesConfig, { bucket: defaultBucket })];
+    }
+    for (const ruleConfig of rulesConfig) {}
+  `;
+  assert.doesNotThrow(() => assertPinnedFirebaseCliStorageBehavior({
+    version: PINNED_FIREBASE_CLI_VERSION,
+    prepareSource: guardedPrepareSource
+  }));
+  assert.throws(() => assertPinnedFirebaseCliStorageBehavior({
+    version: PINNED_FIREBASE_CLI_VERSION,
+    prepareSource: 'const bucket = await gcp.storage.getDefaultBucket(options.project);'
+  }), /bypass defaultBucket discovery/);
 });
 
 test('dirty worktree fails unless the exact generated shell exception is supplied', () => {
@@ -184,7 +235,8 @@ test('every Firebase resource invokes the canonical predeploy guard', () => {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const firebase = JSON.parse(readFileSync(path.join(repositoryRoot, 'firebase.json'), 'utf8'));
   for (const resource of ['functions', 'hosting', 'firestore', 'storage']) {
-    assert.deepEqual(firebase[resource].predeploy, ['node scripts/validateBetaPredeploy.mjs'], resource);
+    const config = Array.isArray(firebase[resource]) ? firebase[resource][0] : firebase[resource];
+    assert.deepEqual(config.predeploy, ['node scripts/validateBetaPredeploy.mjs'], resource);
   }
   assert.equal(firebase.firestore.rules, 'firestore.rules');
   assert.equal(firebase.firestore.indexes, 'firestore.indexes.json');

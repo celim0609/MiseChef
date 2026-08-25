@@ -10,6 +10,7 @@ import {
   assertAuthority,
   assertCanonicalContext,
   assertCleanSource,
+  assertExplicitBetaStorageTarget,
   assertSession,
   assertLiveReleaseUnchanged
 } from './betaDeploymentSafety.mjs';
@@ -18,6 +19,10 @@ import { readLiveBetaFingerprint } from './betaLiveRelease.mjs';
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const git = args => execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trimEnd();
 const firebaseProject = process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || '';
+const firebaseConfig = JSON.parse(readFileSync(path.join(repositoryRoot, 'firebase.json'), 'utf8'));
+const firebaseRc = JSON.parse(readFileSync(path.join(repositoryRoot, '.firebaserc'), 'utf8'));
+
+assertExplicitBetaStorageTarget({ firebaseConfig, firebaseRc });
 
 if (firebaseProject !== BETA_PROJECT_ID) {
   if (firebaseProject === 'misechef-fa4bf' && process.env.FIREBASE_DEPLOY_TARGET === 'production') {

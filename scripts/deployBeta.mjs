@@ -21,9 +21,11 @@ import {
   assertAuthority,
   assertCanonicalContext,
   assertCleanSource,
+  assertExplicitBetaStorageTarget,
   assertExactResourcePlan,
   assertLiveBaseline,
-  assertLiveReleaseUnchanged
+  assertLiveReleaseUnchanged,
+  assertPinnedFirebaseCliStorageBehavior
 } from './betaDeploymentSafety.mjs';
 import { readLiveBetaFingerprint } from './betaLiveRelease.mjs';
 
@@ -45,6 +47,20 @@ const documentedBaseline = JSON.parse(
   readFileSync(path.join(repositoryRoot, 'config', 'beta-release-baseline.json'), 'utf8')
 ).minimumCommit;
 const head = git(['rev-parse', 'HEAD']);
+const firebaseConfig = JSON.parse(readFileSync(path.join(repositoryRoot, 'firebase.json'), 'utf8'));
+const firebaseRc = JSON.parse(readFileSync(path.join(repositoryRoot, '.firebaserc'), 'utf8'));
+
+assertExplicitBetaStorageTarget({ firebaseConfig, firebaseRc });
+const globalNpmRoot = execFileSync('npm', ['root', '--global'], { encoding: 'utf8' }).trim();
+const firebaseCliVersion = execFileSync('firebase', ['--version'], { encoding: 'utf8' }).trim();
+const firebaseStoragePrepareSource = readFileSync(
+  path.join(globalNpmRoot, 'firebase-tools', 'lib', 'deploy', 'storage', 'prepare.js'),
+  'utf8'
+);
+assertPinnedFirebaseCliStorageBehavior({
+  version: firebaseCliVersion,
+  prepareSource: firebaseStoragePrepareSource
+});
 
 assertAuthority({
   authorityBaseline,
