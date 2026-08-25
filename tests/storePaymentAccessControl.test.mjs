@@ -98,6 +98,7 @@ let environment;
 let anonymous;
 let ownerA;
 let managerA;
+let headChefA;
 let memberA;
 let ownerB;
 let managerB;
@@ -112,6 +113,7 @@ before(async () => {
   anonymous = environment.unauthenticatedContext();
   ownerA = environment.authenticatedContext('owner-a', { email: 'owner-a@example.test' });
   managerA = environment.authenticatedContext('manager-a', { email: 'manager-a@example.test' });
+  headChefA = environment.authenticatedContext('head-chef-a', { email: 'head-chef-a@example.test' });
   memberA = environment.authenticatedContext('member-a', { email: 'member-a@example.test' });
   ownerB = environment.authenticatedContext('owner-b', { email: 'owner-b@example.test' });
   managerB = environment.authenticatedContext('manager-b', { email: 'manager-b@example.test' });
@@ -128,6 +130,9 @@ before(async () => {
       }),
       db.doc(`workspaceMembers/${WORKSPACE_A}_manager-a`).set({
         workspaceId: WORKSPACE_A, userId: 'manager-a', role: 'Manager', status: 'Active'
+      }),
+      db.doc(`workspaceMembers/${WORKSPACE_A}_head-chef-a`).set({
+        workspaceId: WORKSPACE_A, userId: 'head-chef-a', role: 'Head Chef', status: 'Active'
       }),
       db.doc(`workspaceMembers/${WORKSPACE_A}_member-a`).set({
         workspaceId: WORKSPACE_A, userId: 'member-a', role: 'Chef', status: 'Active'
@@ -233,11 +238,11 @@ test('Host data is private to its account and all Host writes remain server-only
   await assertFails(hostA.firestore().doc('hostRewardLedger/reward-a').update({ rewardAmount: 999999 }));
 });
 
-test('only the matching Store team can read the protected order', async () => {
+test('only matching Workspace roles with View Orders can read the protected order', async () => {
   await assertSucceeds(ownerA.firestore().doc(`storeOrders/${ORDER_A}`).get());
   await assertSucceeds(managerA.firestore().doc(`storeOrders/${ORDER_A}`).get());
   await assertFails(anonymous.firestore().doc(`storeOrders/${ORDER_A}`).get());
-  await assertFails(memberA.firestore().doc(`storeOrders/${ORDER_A}`).get());
+  await assertSucceeds(memberA.firestore().doc(`storeOrders/${ORDER_A}`).get());
   await assertFails(ownerB.firestore().doc(`storeOrders/${ORDER_A}`).get());
   await assertFails(managerB.firestore().doc(`storeOrders/${ORDER_A}`).get());
 });
@@ -293,6 +298,26 @@ test('matching Owner can create and Manager can edit a persisted Store product',
     updatedAt: '2026-08-16T01:00:00.000Z'
   }));
   assert.equal((await assertSucceeds(productRef.get())).data().name, 'Beta Product Updated');
+});
+
+test('Head Chef can manage products but cannot change Store, payment, or Host settings', async () => {
+  await assertSucceeds(headChefA.firestore().doc('storeProducts/head-chef-product').set(
+    createProductRecord('head-chef-product', 'head-chef-a')
+  ));
+  await assertFails(headChefA.firestore().doc(`stores/${WORKSPACE_A}`).update({
+    name: 'Unauthorized Settings Change',
+    updatedAt: '2026-08-16T04:00:00.000Z'
+  }));
+
+  const productPhoto = headChefA.storage(BUCKET_URL)
+    .ref(`stores/${WORKSPACE_A}/products/head-chef-product/photo.png`);
+  await assertSucceeds(productPhoto.put(Uint8Array.from([137, 80, 78, 71]), { contentType: 'image/png' }));
+  await assertFails(headChefA.storage(BUCKET_URL)
+    .ref(`stores/${WORKSPACE_A}/branding/logo.png`)
+    .put(Uint8Array.from([137, 80, 78, 71]), { contentType: 'image/png' }));
+  await assertFails(headChefA.storage(BUCKET_URL)
+    .ref(`stores/${WORKSPACE_A}/payment-methods/duitnow_qr/merchant-qr.png`)
+    .put(Uint8Array.from([137, 80, 78, 71]), { contentType: 'image/png' }));
 });
 
 test('canonical Workspace ownerId authorizes a legacy Owner without a membership document', async () => {

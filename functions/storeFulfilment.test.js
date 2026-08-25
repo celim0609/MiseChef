@@ -214,6 +214,28 @@ test('active Manager can update fulfilment but another Workspace user is denied'
   assert.equal(otherUserDb.writes.length, 0);
 });
 
+test('active kitchen operators can process orders without Store settings authority', async () => {
+  for (const role of ['Head Chef', 'Sous Chef', 'Chef']) {
+    const uid = role.toLowerCase().replace(' ', '-');
+    const db = createFakeDb({
+      'storeOrders/order-a': paidOrder,
+      'workspaces/workspace-a': { ownerId: 'owner-a' },
+      [`workspaceMembers/workspace-a_${uid}`]: {
+        userId: uid,
+        workspaceId: 'workspace-a',
+        role,
+        status: 'Active'
+      }
+    });
+    await assert.doesNotReject(updateStoreOrderFulfilment({
+      db,
+      uid,
+      orderId: 'order-a',
+      nextStatus: 'Preparing'
+    }));
+  }
+});
+
 test('marking an order Ready creates one deterministic persistent notification', async () => {
   const db = createFakeDb({
     'storeOrders/order-a': { ...paidOrder, fulfilmentStatus: 'Preparing' },

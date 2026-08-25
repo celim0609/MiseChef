@@ -28,6 +28,15 @@ test('active Manager can manage products for the matching Workspace', () => {
   }), null);
 });
 
+test('active Head Chef can manage products without receiving Store settings authority', () => {
+  assert.equal(getStoreAuthorizationIssue({
+    ...baseContext,
+    authenticatedUid: 'head-chef-a',
+    requestedUserId: 'head-chef-a',
+    membership: { role: 'Head Chef', status: 'Active' }
+  }), null);
+});
+
 test('cross-Workspace user is rejected', () => {
   assert.equal(getStoreAuthorizationIssue({
     ...baseContext,

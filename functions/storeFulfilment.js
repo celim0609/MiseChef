@@ -106,12 +106,12 @@ export const updateStoreOrderFulfilment = async ({
     const workspace = workspaceSnapshot.exists ? workspaceSnapshot.data() || {} : {};
     const membership = membershipSnapshot.exists ? membershipSnapshot.data() || {} : {};
     const isOwner = readString(workspace.ownerId) === uid;
-    const isManager = membership.userId === uid
+    const isStoreOperator = membership.userId === uid
       && membership.workspaceId === workspaceId
       && membership.status === 'Active'
-      && membership.role === 'Manager';
-    if (!isOwner && !isManager) {
-      throw new HttpsError('permission-denied', 'Only the Store Owner or Manager can update orders.');
+      && ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef'].includes(membership.role);
+    if (!isOwner && !isStoreOperator) {
+      throw new HttpsError('permission-denied', 'Your Workspace role cannot process Store orders.');
     }
 
     const currentStatus = readString(order.fulfilmentStatus);

@@ -48,7 +48,7 @@ import { workspaceService } from './services/workspaceService';
 import { ensureNewUserProvisioned } from './services/newUserProvisioningService';
 import { shouldShowWorkspaceSetup } from './services/newUserProvisioningModel';
 import { usageLimitService } from './services/usageLimitService';
-import { canAccessRootTab, normalizeTeamRole } from './modules/team/permissions';
+import { canAccessRootTab, getStorePermissions, normalizeTeamRole } from './modules/team/permissions';
 import { getAuthenticatedDisplayName, getChefProfileStorageKey } from './utils/authenticatedUser';
 import { WorkspaceRegionProvider } from './regions';
 import {
@@ -669,7 +669,7 @@ export default function App() {
     if (
       !currentUser
       || !currentWorkspace
-      || (currentWorkspaceRole !== 'Owner' && currentWorkspaceRole !== 'Manager')
+      || !getStorePermissions(currentWorkspaceRole).viewOrders
     ) {
       return;
     }
@@ -1857,6 +1857,7 @@ export default function App() {
           <StorePage
             currentUser={currentUser}
             workspace={currentWorkspace}
+            workspaceRole={currentWorkspaceRole || 'Viewer'}
             focusOrderId={focusedStoreOrderId}
             notifications={storeNotifications}
             onNotificationClick={notification => void handleStoreNotificationSelect(notification)}

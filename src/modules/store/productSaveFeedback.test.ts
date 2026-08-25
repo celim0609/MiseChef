@@ -28,7 +28,7 @@ test('product save failures provide useful, customer-safe messages', () => {
   );
   assert.equal(
     getProductSaveErrorMessage({ code: 'storage/unauthorized' }, 'photo-upload'),
-    'Product photo upload was blocked. Confirm you are the Store Owner or Manager, then try again.'
+    'Product photo upload was blocked. Confirm you are the Store Owner, Manager, or Head Chef, then try again.'
   );
   assert.equal(
     getProductSaveErrorMessage(new Error('Product photo is required.'), 'validation'),

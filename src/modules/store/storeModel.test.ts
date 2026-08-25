@@ -570,9 +570,12 @@ test('legacy Stores receive safe default pre-order rules', () => {
   assert.deepEqual(store.unavailableDates, []);
 });
 
-test('only workspace owners and managers can manage Store settings and products', () => {
+test('Store visibility and POS access remain distinct role permissions', () => {
   assert.equal(canAccessRootTab('store', 'Owner'), true);
   assert.equal(canAccessRootTab('store', 'Manager'), true);
-  assert.equal(canAccessRootTab('store', 'Chef'), false);
-  assert.equal(canAccessRootTab('store', 'Viewer'), false);
+  assert.equal(canAccessRootTab('store', 'Chef'), true);
+  assert.equal(canAccessRootTab('store', 'Viewer'), true);
+  assert.equal(canAccessRootTab('storePos', 'Chef'), true);
+  assert.equal(canAccessRootTab('storePos', 'Finance'), false);
+  assert.equal(canAccessRootTab('storePos', 'Viewer'), false);
 });

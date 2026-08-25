@@ -72,9 +72,9 @@ test('clients cannot create or mutate Store orders and payment events', () => {
   assert.match(rules, /match \/storeNotifications\/\{notificationId\}[\s\S]*allow create, delete: if false/);
 });
 
-test('fulfilment changes are server-owned, sequential, audited, and Owner-Manager only', () => {
+test('fulfilment changes are server-owned, sequential, audited, and Store-operator only', () => {
   assert.match(functionsIndex, /export const updateStoreOrderStatus = onCall/);
-  assert.match(fulfilmentService, /membership\.role === 'Manager'/);
+  assert.match(fulfilmentService, /\['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef'\]\.includes\(membership\.role\)/);
   assert.match(fulfilmentService, /readString\(workspace\.ownerId\) === uid/);
   assert.match(fulfilmentService, /FieldValue\.serverTimestamp\(\)/);
   assert.match(fulfilmentService, /previousStatus: currentStatus/);

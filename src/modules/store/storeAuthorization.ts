@@ -50,7 +50,7 @@ export const getStoreAuthorizationIssue = (
   if (context.workspaceOwnerId === context.authenticatedUid) return null;
   if (!context.membership) return 'membership-missing';
   if (context.membership.status !== 'Active') return 'membership-inactive';
-  if (context.membership.role !== 'Owner' && context.membership.role !== 'Manager') return 'role-denied';
+  if (!['Owner', 'Manager', 'Head Chef'].includes(context.membership.role || '')) return 'role-denied';
   return null;
 };
 
@@ -63,7 +63,7 @@ export const getStoreAuthorizationMessage = (issue: StoreAuthorizationIssue) => 
     case 'membership-inactive':
       return 'Your Workspace membership is not active. Ask the Workspace Owner to restore your Store access.';
     case 'role-denied':
-      return 'Only the Workspace Owner or a Manager can manage Store products.';
+      return 'Only the Workspace Owner, Manager, or Head Chef can manage Store products.';
     case 'store-missing':
       return 'This Workspace does not have a Store yet. Return to Store Settings and create it first.';
     case 'store-identity-mismatch':

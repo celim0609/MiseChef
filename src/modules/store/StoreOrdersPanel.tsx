@@ -64,6 +64,8 @@ interface StoreOrdersPanelProps {
   focusOrderId: string;
   notifications: StoreNotification[];
   onNotificationClick: (notification: StoreNotification) => void;
+  canProcessOrders: boolean;
+  canReviewPayments: boolean;
 }
 
 export default function StoreOrdersPanel({
@@ -73,7 +75,9 @@ export default function StoreOrdersPanel({
   storeName,
   focusOrderId,
   notifications,
-  onNotificationClick
+  onNotificationClick,
+  canProcessOrders,
+  canReviewPayments
 }: StoreOrdersPanelProps) {
   const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState('');
@@ -310,7 +314,7 @@ export default function StoreOrdersPanel({
             </div>
 
             <div className="mt-7 flex flex-col gap-2 sm:flex-row">
-              {selectedOrder.payment.status === 'pending_verification' && (
+              {canReviewPayments && selectedOrder.payment.status === 'pending_verification' && (
                 <>
                   {selectedOrder.payment.receiptPath && (
                     <button type="button" disabled={isUpdating} onClick={() => storeOrderService.openReceipt(selectedOrder.payment.receiptPath).catch(error => setErrorMessage(error.message))} className="rounded-full bg-surface-container px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-50">View Receipt</button>
@@ -319,7 +323,7 @@ export default function StoreOrdersPanel({
                   <button type="button" disabled={isUpdating} onClick={() => reviewPayment('reject')} className="rounded-full bg-error/10 px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">Reject Payment</button>
                 </>
               )}
-              {NEXT_STATUS[selectedOrder.fulfilmentStatus as StoreFulfilmentStatus] && (
+              {canProcessOrders && NEXT_STATUS[selectedOrder.fulfilmentStatus as StoreFulfilmentStatus] && (
                 <button
                   type="button"
                   disabled={isUpdating}
@@ -336,7 +340,7 @@ export default function StoreOrdersPanel({
                 storeName={storeName}
                 className="flex-1"
               />
-              {selectedOrder.payment.refundStatus === 'refunded'
+              {canProcessOrders && selectedOrder.payment.refundStatus === 'refunded'
                 && !['Completed', 'Cancelled'].includes(selectedOrder.fulfilmentStatus) && (
                 <button type="button" disabled={isUpdating} onClick={() => updateStatus('Cancelled')} className="rounded-full bg-error/10 px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">
                   Mark Cancelled

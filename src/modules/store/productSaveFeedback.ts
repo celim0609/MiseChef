@@ -26,7 +26,7 @@ export const getProductSaveErrorMessage = (error: unknown, stage: ProductSaveSta
       : 'This product was rejected by the Store security checks. Refresh the page and confirm your Workspace access.';
   }
   if (code === 'storage/unauthorized') {
-    return 'Product photo upload was blocked. Confirm you are the Store Owner or Manager, then try again.';
+    return 'Product photo upload was blocked. Confirm you are the Store Owner, Manager, or Head Chef, then try again.';
   }
   if (code === 'unavailable' || code === 'firestore/unavailable' || code === 'storage/retry-limit-exceeded') {
     return 'The Store service is temporarily unavailable. Check your connection and try again.';

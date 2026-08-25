@@ -21,7 +21,8 @@ import {
   X
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
-import type { Workspace } from '../../types';
+import type { Workspace, WorkspaceMemberRole } from '../../types';
+import { getStorePermissions } from '../team/permissions';
 import { formatRegionCurrency, useWorkspaceRegion } from '../../regions';
 import {
   deleteStoreProductPhoto,
@@ -71,6 +72,7 @@ import {
 interface StorePageProps {
   currentUser: User;
   workspace: Workspace;
+  workspaceRole: WorkspaceMemberRole;
   focusOrderId?: string;
   notifications?: StoreNotification[];
   onNotificationClick?: (notification: StoreNotification) => void;
@@ -157,12 +159,19 @@ const viewItems: Array<{ id: StoreView; label: string; question: string; icon: t
 export default function StorePage({
   currentUser,
   workspace,
+  workspaceRole,
   focusOrderId = '',
   notifications = [],
   onNotificationClick = () => undefined,
   onOpenPos = () => undefined
 }: StorePageProps) {
   const region = useWorkspaceRegion();
+  const permissions = getStorePermissions(workspaceRole);
+  const visibleViewItems = viewItems.filter(item => (
+    item.id === 'products'
+    || (item.id === 'orders' && permissions.viewOrders)
+    || ((item.id === 'pickup' || item.id === 'settings') && permissions.manageStoreSettings)
+  ));
   const [activeView, setActiveView] = useState<StoreView>('products');
   const [store, setStore] = useState<WorkspaceStore | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<StoreSettingsDraft | null>(null);
@@ -202,6 +211,12 @@ export default function StorePage({
     const firstName = currentUser.displayName?.trim().split(/\s+/)[0] || 'My';
     return firstName === 'My' ? 'My Store' : `${firstName}'s Store`;
   });
+
+  useEffect(() => {
+    if (visibleViewItems.some(item => item.id === activeView)) return;
+    setActiveView('products');
+    setIsProductFormOpen(false);
+  }, [activeView, permissions.manageStoreSettings, permissions.viewOrders]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -773,7 +788,7 @@ export default function StorePage({
             <label htmlFor="store-name" className="block font-sans text-xs font-extrabold uppercase tracking-[0.14em] text-primary">Store name</label>
             <input id="store-name" value={storeName} onChange={event => setStoreName(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
             {errorMessage && <p role="alert" className="font-sans text-sm font-bold text-error">{errorMessage}</p>}
-            <button type="submit" disabled={isSaving} className="w-full rounded-full bg-primary px-6 py-3 font-sans text-sm font-extrabold text-on-primary shadow-sm disabled:opacity-50">{isSaving ? 'Setting up...' : 'Set Up Store'}</button>
+          {permissions.manageStoreSettings && <button type="submit" disabled={isSaving} className="w-full rounded-full bg-primary px-6 py-3 font-sans text-sm font-extrabold text-on-primary shadow-sm disabled:opacity-50">{isSaving ? 'Setting up...' : 'Set Up Store'}</button>}
           </form>
         </section>
       );
@@ -796,9 +811,9 @@ export default function StorePage({
           <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">{currentView.question}</p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
-          <button type="button" onClick={onOpenPos} className="inline-flex items-center justify-center gap-2 rounded-full bg-secondary px-5 py-3 font-sans text-xs font-extrabold text-on-secondary shadow-sm">
+          {permissions.processOrders && <button type="button" onClick={onOpenPos} className="inline-flex items-center justify-center gap-2 rounded-full bg-secondary px-5 py-3 font-sans text-xs font-extrabold text-on-secondary shadow-sm">
             <MonitorUp className="h-4 w-4" /> Open POS
-          </button>
+          </button>}
           <button type="button" onClick={() => setIsShareOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary shadow-sm">
             <Share2 className="h-4 w-4" /> Share & QR
           </button>
@@ -809,7 +824,7 @@ export default function StorePage({
       </header>
 
       <nav aria-label="Store management" className="flex gap-2 overflow-x-auto pb-1">
-        {viewItems.map(item => {
+        {visibleViewItems.map(item => {
           const Icon = item.icon;
           return (
             <button key={item.id} type="button" onClick={() => {
@@ -839,9 +854,9 @@ export default function StorePage({
         <section>
           <div className="flex items-center justify-between gap-4">
             <p className="font-sans text-sm font-bold text-on-surface-variant">{products.length} {products.length === 1 ? 'product' : 'products'}</p>
-            <button type="button" onClick={openNewProduct} className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">
+            {permissions.manageProducts && <button type="button" onClick={openNewProduct} className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">
               <Plus className="h-4 w-4" /> Add Product
-            </button>
+            </button>}
           </div>
 
           <label className="relative mt-5 block">
@@ -1080,9 +1095,9 @@ export default function StorePage({
                   </div>
                   {product.description && <p className="mt-3 line-clamp-2 font-sans text-xs font-bold leading-relaxed text-on-surface-variant">{product.description}</p>}
                   {product.optionGroupIds.length > 0 && <p className="mt-3 font-sans text-[11px] font-bold text-outline">{product.optionGroupIds.length} option {product.optionGroupIds.length === 1 ? 'group' : 'groups'}</p>}
-                  <button type="button" onClick={() => openProductEditor(product)} className="mt-4 inline-flex items-center gap-2 font-sans text-xs font-extrabold text-primary">
+                  {permissions.manageProducts && <button type="button" onClick={() => openProductEditor(product)} className="mt-4 inline-flex items-center gap-2 font-sans text-xs font-extrabold text-primary">
                     <Pencil className="h-3.5 w-3.5" /> Edit
-                  </button>
+                  </button>}
                 </div>
               </article>
             ))}
@@ -1113,6 +1128,8 @@ export default function StorePage({
           focusOrderId={focusOrderId}
           notifications={notifications.filter(notification => !notification.readAt)}
           onNotificationClick={onNotificationClick}
+          canProcessOrders={permissions.processOrders}
+          canReviewPayments={permissions.refundFinancialActions}
         />
       )}
 

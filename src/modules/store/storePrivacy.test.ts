@@ -27,18 +27,18 @@ test('guest orders can only be created by trusted payment Functions and read by 
   const orderRules = firestoreRules.slice(orderRulesStart, orderRulesEnd);
 
   assert.match(orderRules, /allow create: if false/);
-  assert.match(orderRules, /allow read: if isWorkspaceOwnerOrManager\(resource\.data\.workspaceId\)/);
+  assert.match(orderRules, /allow read: if canViewStoreOrders\(resource\.data\.workspaceId\)/);
   assert.doesNotMatch(orderRules, /allow read: if true/);
   assert.match(firestoreRules, /match \/storePaymentEvents\/\{eventId\}/);
 });
 
-test('option-group writes validate production selection fields and remain owner-manager scoped', () => {
+test('option-group writes validate production selection fields and remain product-manager scoped', () => {
   const rulesStart = firestoreRules.indexOf('match /storeOptionGroups/{groupId}');
   const rulesEnd = firestoreRules.indexOf('match /storeOrders/{orderId}', rulesStart);
   const optionRules = firestoreRules.slice(rulesStart, rulesEnd);
 
-  assert.match(optionRules, /isWorkspaceOwnerOrManager\(request\.resource\.data\.workspaceId\)/);
-  assert.match(optionRules, /isWorkspaceOwnerOrManager\(resource\.data\.workspaceId\)/);
+  assert.match(optionRules, /canManageStoreProducts\(request\.resource\.data\.workspaceId\)/);
+  assert.match(optionRules, /canManageStoreProducts\(resource\.data\.workspaceId\)/);
   assert.match(optionRules, /isValidStoreOptionGroup\(request\.resource\.data, groupId\)/);
   assert.match(optionRules, /'selectionType'/);
   assert.match(optionRules, /'minimumSelections'/);
@@ -56,14 +56,14 @@ test('merchant and customer option UX clearly distinguishes Optional from Requir
   assert.match(publicStorePage, /formatStoreOptionSelectionRequirement\(group\)/);
 });
 
-test('product deletion is scoped to the same Owner-Manager authorization as create and edit', () => {
+test('product deletion is scoped to the same product-manager authorization as create and edit', () => {
   const rulesStart = firestoreRules.indexOf('match /storeProducts/{productId}');
   const rulesEnd = firestoreRules.indexOf('match /storeOptionGroups/{groupId}', rulesStart);
   const productRules = firestoreRules.slice(rulesStart, rulesEnd);
 
-  assert.match(productRules, /allow create: if isWorkspaceOwnerOrManager\(request\.resource\.data\.workspaceId\)/);
-  assert.match(productRules, /allow update: if isWorkspaceOwnerOrManager\(resource\.data\.workspaceId\)/);
-  assert.match(productRules, /allow delete: if isWorkspaceOwnerOrManager\(resource\.data\.workspaceId\)/);
+  assert.match(productRules, /allow create: if canManageStoreProducts\(request\.resource\.data\.workspaceId\)/);
+  assert.match(productRules, /allow update: if canManageStoreProducts\(resource\.data\.workspaceId\)/);
+  assert.match(productRules, /allow delete: if canManageStoreProducts\(resource\.data\.workspaceId\)/);
   assert.doesNotMatch(productRules, /allow (create|update|delete): if true/);
 });
 
@@ -84,7 +84,7 @@ test('order timelines and notifications are private server-created Store team da
   const rulesEnd = firestoreRules.indexOf('match /publicChefProfileOwnership', rulesStart);
   const privateOrderRules = firestoreRules.slice(rulesStart, rulesEnd);
 
-  assert.match(privateOrderRules, /allow read: if isWorkspaceOwnerOrManager\(resource\.data\.workspaceId\)/);
+  assert.match(privateOrderRules, /allow read: if canViewStoreOrders\(resource\.data\.workspaceId\)/);
   assert.match(privateOrderRules, /allow create, update, delete: if false/);
   assert.match(privateOrderRules, /affectedKeys\(\)\.hasOnly\(\['readAt'\]\)/);
   assert.doesNotMatch(privateOrderRules, /allow read: if true/);

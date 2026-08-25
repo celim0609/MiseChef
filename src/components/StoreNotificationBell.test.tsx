@@ -46,7 +46,7 @@ test('notification selection marks the document read and routes to the related S
 test('notifications remain server-created and only their read timestamp is client writable', () => {
   const start = rulesSource.indexOf('match /storeNotifications/{notificationId}');
   const rules = rulesSource.slice(start, rulesSource.indexOf('match /publicChefProfileOwnership', start));
-  assert.match(rules, /allow read: if isWorkspaceOwnerOrManager/);
+  assert.match(rules, /allow read: if canViewStoreOrders/);
   assert.match(rules, /affectedKeys\(\)\.hasOnly\(\['readAt'\]\)/);
   assert.match(rules, /allow create, delete: if false/);
 });

@@ -146,6 +146,18 @@ service cloud.firestore {
       return isSuperAdmin() || hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef']);
     }
 
+    function canViewStore(workspaceId) {
+      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef', 'Purchasing', 'Finance', 'Viewer']);
+    }
+
+    function canViewStoreOrders(workspaceId) {
+      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef', 'Finance']);
+    }
+
+    function canManageStoreProducts(workspaceId) {
+      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef']);
+    }
+
     function hasActiveWorkspaceSubscription(workspaceId) {
       return signedIn()
         && exists(/databases/$(database)/documents/workspaces/$(workspaceId))
@@ -980,12 +992,12 @@ service cloud.firestore {
 
     match /storeProducts/{productId} {
       allow read: if resource.data.available == true
-        || isWorkspaceOwnerOrManager(resource.data.workspaceId);
-      allow create: if isWorkspaceOwnerOrManager(request.resource.data.workspaceId)
+        || canViewStore(resource.data.workspaceId);
+      allow create: if canManageStoreProducts(request.resource.data.workspaceId)
         && isValidStoreProduct(request.resource.data, productId)
         && request.resource.data.createdBy == request.auth.uid
         && exists(/databases/$(database)/documents/stores/$(request.resource.data.workspaceId));
-      allow update: if isWorkspaceOwnerOrManager(resource.data.workspaceId)
+      allow update: if canManageStoreProducts(resource.data.workspaceId)
         && isValidStoreProduct(request.resource.data, productId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'photoUrl',
@@ -996,16 +1008,16 @@ service cloud.firestore {
           'optionGroupIds',
           'updatedAt'
         ]);
-      allow delete: if isWorkspaceOwnerOrManager(resource.data.workspaceId);
+      allow delete: if canManageStoreProducts(resource.data.workspaceId);
     }
 
     match /storeOptionGroups/{groupId} {
       allow read: if true;
-      allow create: if isWorkspaceOwnerOrManager(request.resource.data.workspaceId)
+      allow create: if canManageStoreProducts(request.resource.data.workspaceId)
         && isValidStoreOptionGroup(request.resource.data, groupId)
         && request.resource.data.createdBy == request.auth.uid
         && exists(/databases/$(database)/documents/stores/$(request.resource.data.workspaceId));
-      allow update: if isWorkspaceOwnerOrManager(resource.data.workspaceId)
+      allow update: if canManageStoreProducts(resource.data.workspaceId)
         && isValidStoreOptionGroup(request.resource.data, groupId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'name',
@@ -1018,7 +1030,7 @@ service cloud.firestore {
           'options',
           'updatedAt'
         ]);
-      allow delete: if isWorkspaceOwnerOrManager(resource.data.workspaceId);
+      allow delete: if canManageStoreProducts(resource.data.workspaceId);
     }
 
     match /storeOrders/{orderId} {
@@ -1026,7 +1038,7 @@ service cloud.firestore {
       // re-prices the cart from current Store data. Clients can never write an
       // order or mark one paid.
       allow create: if false;
-      allow read: if isWorkspaceOwnerOrManager(resource.data.workspaceId);
+      allow read: if canViewStoreOrders(resource.data.workspaceId);
       allow update, delete: if false;
     }
 
@@ -1050,13 +1062,13 @@ service cloud.firestore {
     }
 
     match /storeOrderTimeline/{eventId} {
-      allow read: if isWorkspaceOwnerOrManager(resource.data.workspaceId);
+      allow read: if canViewStoreOrders(resource.data.workspaceId);
       allow create, update, delete: if false;
     }
 
     match /storeNotifications/{notificationId} {
-      allow read: if isWorkspaceOwnerOrManager(resource.data.workspaceId);
-      allow update: if isWorkspaceOwnerOrManager(resource.data.workspaceId)
+      allow read: if canViewStoreOrders(resource.data.workspaceId);
+      allow update: if canViewStoreOrders(resource.data.workspaceId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt'])
         && request.resource.data.readAt is timestamp;
       allow create, delete: if false;

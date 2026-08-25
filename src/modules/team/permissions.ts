@@ -26,7 +26,35 @@ const MANAGER_LEVEL_ROLES: WorkspaceMemberRole[] = ['Owner', 'Manager', 'Head Ch
 const INVOICE_ROLES: WorkspaceMemberRole[] = ['Owner', 'Manager', 'Head Chef', 'Purchasing'];
 const SUPPLIER_ROLES: WorkspaceMemberRole[] = ['Owner', 'Manager', 'Head Chef', 'Purchasing'];
 const BUSINESS_ROLES: WorkspaceMemberRole[] = ['Owner', 'Manager', 'Head Chef', 'Finance'];
-const STORE_MANAGER_ROLES: WorkspaceMemberRole[] = ['Owner', 'Manager'];
+export interface StorePermissions {
+  viewStore: boolean;
+  viewOrders: boolean;
+  processOrders: boolean;
+  manageProducts: boolean;
+  manageAvailability: boolean;
+  manageStoreSettings: boolean;
+  managePaymentSettings: boolean;
+  refundFinancialActions: boolean;
+  manageHostGroupOrders: boolean;
+}
+
+const STORE_VIEW_ROLES = new Set<WorkspaceMemberRole>(TEAM_ROLE_ORDER);
+const STORE_ORDER_VIEW_ROLES = new Set<WorkspaceMemberRole>(['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef', 'Finance']);
+const STORE_ORDER_PROCESS_ROLES = new Set<WorkspaceMemberRole>(['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef']);
+const STORE_PRODUCT_ROLES = new Set<WorkspaceMemberRole>(['Owner', 'Manager', 'Head Chef']);
+const STORE_ADMIN_ROLES = new Set<WorkspaceMemberRole>(['Owner', 'Manager']);
+
+export const getStorePermissions = (role?: WorkspaceMemberRole | null): StorePermissions => ({
+  viewStore: Boolean(role && STORE_VIEW_ROLES.has(role)),
+  viewOrders: Boolean(role && STORE_ORDER_VIEW_ROLES.has(role)),
+  processOrders: Boolean(role && STORE_ORDER_PROCESS_ROLES.has(role)),
+  manageProducts: Boolean(role && STORE_PRODUCT_ROLES.has(role)),
+  manageAvailability: Boolean(role && STORE_PRODUCT_ROLES.has(role)),
+  manageStoreSettings: Boolean(role && STORE_ADMIN_ROLES.has(role)),
+  managePaymentSettings: Boolean(role && STORE_ADMIN_ROLES.has(role)),
+  refundFinancialActions: Boolean(role && STORE_ADMIN_ROLES.has(role)),
+  manageHostGroupOrders: Boolean(role && STORE_ADMIN_ROLES.has(role))
+});
 
 export const normalizeTeamRole = (role: unknown): WorkspaceMemberRole => {
   return TEAM_ROLE_ORDER.includes(role as WorkspaceMemberRole) ? role as WorkspaceMemberRole : 'Viewer';
@@ -58,8 +86,9 @@ export const canAccessRootTab = (tab: RootTab, role?: WorkspaceMemberRole | null
     case 'businessSuppliers':
       return SUPPLIER_ROLES.includes(role);
     case 'store':
+      return getStorePermissions(role).viewStore;
     case 'storePos':
-      return STORE_MANAGER_ROLES.includes(role);
+      return getStorePermissions(role).processOrders;
     case 'costing':
     case 'costingInvoices':
     case 'costingInvoiceDetail':
