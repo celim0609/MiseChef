@@ -1304,7 +1304,8 @@ export default function App() {
 
       setHasUnsavedRecipeChanges(false);
       setEditingRecipe(null);
-      setActiveTab('home');
+      setSelectedRecipe(null);
+      setActiveTab('search');
     } catch (err) {
       const message = err instanceof Error
         ? err.message
