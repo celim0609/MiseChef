@@ -2,7 +2,7 @@
 
 The minimum integrated MiseChef Beta release is:
 
-`02fff9fd9ac89dfab1ed5b7c8f80f9b365ba796b`
+`9fd7a1ea346e5a81b6fccb4af37138b4af816a49`
 
 All future Beta deploy candidates must be based on the latest integrated Beta release, with feature work applied on top. Run:
 
