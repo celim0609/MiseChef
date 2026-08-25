@@ -13,27 +13,23 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Authenticate to Beta only
-        id: auth
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA }}
-          token_format: access_token
 
       - name: Query Beta default bucket API
         shell: bash
-        env:
-          DIAGNOSTIC_ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         run: |
           node <<'NODE'
           const fs = require('node:fs');
+          const crypto = require('node:crypto');
 
           const project = 'misechef-beta-fa4bf';
           const resourcePath = `projects/${project}/defaultBucket`;
           const expectedEmail = 'github-beta-deployer@misechef-beta-fa4bf.iam.gserviceaccount.com';
           const credentialPath = process.env.GOOGLE_GHA_CREDS_PATH;
-          const accessToken = process.env.DIAGNOSTIC_ACCESS_TOKEN;
 
-          if (!credentialPath || !accessToken) {
+          if (!credentialPath) {
             throw new Error('Required diagnostic authentication context is unavailable.');
           }
 
@@ -43,9 +39,34 @@ jobs:
             throw new Error('Authenticated service-account identity does not match the approved Beta deployer.');
           }
 
+          const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+          const issuedAt = Math.floor(Date.now() / 1000);
+          const unsignedJwt = `${encode({ alg: 'RS256', typ: 'JWT' })}.${encode({
+            iss: credential.client_email,
+            scope: 'https://www.googleapis.com/auth/cloud-platform',
+            aud: credential.token_uri,
+            iat: issuedAt,
+            exp: issuedAt + 3600,
+          })}`;
+          const signature = crypto.sign('RSA-SHA256', Buffer.from(unsignedJwt), credential.private_key)
+            .toString('base64url');
+          const assertion = `${unsignedJwt}.${signature}`;
+          const tokenResponse = await fetch(credential.token_uri, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+              assertion,
+            }),
+          });
+          const tokenBody = await tokenResponse.json().catch(() => ({}));
+          if (!tokenResponse.ok || typeof tokenBody.access_token !== 'string') {
+            throw new Error(`OAuth token exchange failed with HTTP ${tokenResponse.status}.`);
+          }
+
           const response = await fetch(
             `https://firebasestorage.googleapis.com/v1alpha/${resourcePath}`,
-            { headers: { Authorization: `Bearer ${accessToken}` } },
+            { headers: { Authorization: `Bearer ${tokenBody.access_token}` } },
           );
           const body = await response.json().catch(() => ({}));
           const rawMessage = typeof body?.error?.message === 'string'
