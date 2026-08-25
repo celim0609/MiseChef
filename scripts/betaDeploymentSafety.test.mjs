@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
+  ALLOWED_POST_BUILD_DIRTY_PATHS,
   BETA_PROJECT_ID,
   FULL_BETA_RESOURCE_PLAN,
   MANDATORY_BETA_BASELINE,
@@ -69,6 +70,18 @@ test('dirty worktree fails unless the exact generated shell exception is supplie
     ['functions/generated/publicStoreAppShell.html'],
     ['functions/generated/publicStoreAppShell.html']
   ));
+});
+
+test('Git porcelain parsing preserves the exact allowed generated shell path', () => {
+  const porcelain = ' M functions/generated/publicStoreAppShell.html\n';
+  const parsedPaths = porcelain
+    .trimEnd()
+    .split('\n')
+    .filter(Boolean)
+    .map(line => line.slice(3));
+
+  assert.deepEqual(parsedPaths, ['functions/generated/publicStoreAppShell.html']);
+  assert.doesNotThrow(() => assertCleanSource(parsedPaths, ALLOWED_POST_BUILD_DIRTY_PATHS));
 });
 
 test('stale dist manifest fails before reading deploy assets', () => {

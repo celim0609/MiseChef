@@ -29,7 +29,7 @@ import { readLiveBetaFingerprint } from './betaLiveRelease.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const verifyOnly = process.argv.includes('--verify-only');
-const git = args => execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+const git = args => execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trimEnd();
 const run = (command, args, extraEnv = {}) => execFileSync(command, args, {
   cwd: repositoryRoot,
   env: { ...process.env, ...extraEnv },
