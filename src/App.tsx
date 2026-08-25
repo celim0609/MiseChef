@@ -313,12 +313,27 @@ const removeUndefinedFields = <T,>(value: T): T => {
   return value;
 };
 
-const getFirestoreRecipePayload = (recipe: Recipe, user: User) => {
+type RecipeWriteMode = 'create' | 'update';
+
+const getFirestoreRecipePayload = (recipe: Recipe, user: User, mode: RecipeWriteMode = 'create') => {
   const imageUrl = recipe.imageUrl || recipe.coverImage || DEFAULT_COVER_IMAGE;
   const { scannedImageDataUrl, ...recipeForFirestore } = recipe;
   const categories = normalizeRecipeCategories(
     Array.isArray(recipe.categories) ? recipe.categories : [recipe.category]
   );
+  const creatorMetadata = mode === 'update'
+    ? {
+        userId: recipe.userId,
+        createdBy: recipe.createdBy,
+        createdByName: recipe.createdByName,
+        createdAt: recipe.createdAt
+      }
+    : {
+        userId: recipe.userId || user.uid,
+        createdBy: recipe.createdBy || recipe.userId || user.uid,
+        createdByName: recipe.createdByName || getAuthenticatedDisplayName(user),
+        createdAt: recipe.createdAt || new Date().toISOString()
+      };
 
   return removeUndefinedFields({
     ...recipeForFirestore,
@@ -327,9 +342,7 @@ const getFirestoreRecipePayload = (recipe: Recipe, user: User) => {
     visibility: recipe.visibility || 'private',
     coverImage: imageUrl,
     imageUrl,
-    userId: recipe.userId || user.uid,
-    createdBy: recipe.createdBy || recipe.userId || user.uid,
-    createdByName: recipe.createdByName || getAuthenticatedDisplayName(user),
+    ...creatorMetadata,
     updatedAt: new Date().toISOString()
   });
 };
@@ -499,16 +512,24 @@ const deleteCategoryFromFirestore = async (categoryId: string) => {
   await deleteDoc(doc(db, 'categories', categoryId));
 };
 
-const saveRecipeToFirestore = async (recipe: Recipe, user: User, workspaceId = user.uid) => {
+const saveRecipeToFirestore = async (
+  recipe: Recipe,
+  user: User,
+  workspaceId = user.uid,
+  mode: RecipeWriteMode = 'create'
+) => {
   if (!db) {
     return;
   }
 
-  await setDoc(doc(db, 'recipes', recipe.id), {
-    ...getFirestoreRecipePayload(recipe, user),
-    workspaceId,
-    companyId: workspaceId
-  }, { merge: true });
+  const workspaceMetadata = mode === 'update'
+    ? { workspaceId: recipe.workspaceId, companyId: recipe.companyId }
+    : { workspaceId, companyId: workspaceId };
+
+  await setDoc(doc(db, 'recipes', recipe.id), removeUndefinedFields({
+    ...getFirestoreRecipePayload(recipe, user, mode),
+    ...workspaceMetadata
+  }), { merge: true });
 };
 
 const deleteRecipeFromFirestore = async (recipeId: string) => {
@@ -1140,7 +1161,7 @@ export default function App() {
         saveCategoryToFirestore({ ...category, name: trimmedName, updatedAt: new Date().toISOString() }, currentUser, activeWorkspaceId),
         ...updatedRecipes
           .filter(recipe => recipeHasCategory(recipe, trimmedName))
-          .map(recipe => saveRecipeToFirestore(recipe, currentUser, activeWorkspaceId))
+          .map(recipe => saveRecipeToFirestore(recipe, currentUser, activeWorkspaceId, 'update'))
       ]).catch(() => {
         triggerNotification(`Renamed "${category.name}" on this device. Please refresh if it does not appear everywhere.`, 'info');
       });
@@ -1182,7 +1203,7 @@ export default function App() {
         deleteCategoryFromFirestore(category.id),
         ...updatedRecipes
           .filter(recipe => affectedRecipeIds.has(recipe.id))
-          .map(recipe => saveRecipeToFirestore(recipe, currentUser, activeWorkspaceId))
+          .map(recipe => saveRecipeToFirestore(recipe, currentUser, activeWorkspaceId, 'update'))
       ]).catch(() => {
         triggerNotification(`Deleted "${category.name}" on this device. Please refresh if it still appears elsewhere.`, 'info');
       });
@@ -1264,7 +1285,7 @@ export default function App() {
           triggerNotification(`Uploading ${phase === 'scan' ? 'recipe scan' : 'cover image'}... ${progress}%`, 'info');
         });
         const costedRecipe = await recipeCostService.applyCosting(cloudRecipe, currentUser.uid, activeWorkspaceId);
-        await saveRecipeToFirestore(costedRecipe, currentUser, activeWorkspaceId);
+        await saveRecipeToFirestore(costedRecipe, currentUser, activeWorkspaceId, 'update');
         const updated = recipes.map(recipe =>
           recipe.id === costedRecipe.id ? costedRecipe : recipe
         );
@@ -1438,7 +1459,7 @@ export default function App() {
       if (!updatedRecipe) return;
 
       try {
-        await saveRecipeToFirestore(updatedRecipe, currentUser, activeWorkspaceId);
+        await saveRecipeToFirestore(updatedRecipe, currentUser, activeWorkspaceId, 'update');
       } catch (err) {
         saveRecipesToStorage(recipes);
         const previousSelectedRecipe = recipes.find(recipe => recipe.id === selectedRecipe?.id);

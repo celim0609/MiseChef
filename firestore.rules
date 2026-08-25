@@ -691,12 +691,14 @@ service cloud.firestore {
       allow read: if isWorkspaceMember(existingWorkspaceId());
       allow delete: if canAccessRecipes(existingWorkspaceId());
       allow update: if canAccessRecipes(existingWorkspaceId())
-        && (!('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId)
-        && (!('createdBy' in request.resource.data)
-          || (('createdBy' in resource.data)
-            ? request.resource.data.createdBy == resource.data.createdBy
-            : request.resource.data.createdBy == resource.data.userId))
-        && incomingWorkspaceId() == existingWorkspaceId()
+        && request.resource.data.diff(resource.data).affectedKeys().hasNone([
+          'workspaceId',
+          'companyId',
+          'userId',
+          'createdBy',
+          'createdByName',
+          'createdAt'
+        ])
         && hasValidRecommendedProductIds()
         && preservesOrRemovesLegacyRecommendations();
     }

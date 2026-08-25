@@ -131,22 +131,69 @@ describe('Workspace Recipe visibility', () => {
     await assertFails(getDocs(query(collection(authDb('owner-b'), 'recipes'), where('workspaceId', '==', 'workspace-a'))));
   });
 
-  test('Recipe roles can edit/delete but cannot move a recipe or replace creator identity', async () => {
+  test('Recipe roles can edit without changing creator identity, costing, or ingredient links', async () => {
     const workspaceId = 'workspace-a';
     await seedWorkspace({
       workspaceId,
       ownerId: 'owner-a',
-      members: [{ userId: 'owner-a', role: 'Owner' }, { userId: 'chef-a', role: 'Head Chef' }]
+      members: [
+        { userId: 'owner-a', role: 'Owner' },
+        { userId: 'manager-a', role: 'Manager' },
+        { userId: 'head-chef-a', role: 'Head Chef' },
+        { userId: 'sous-chef-a', role: 'Sous Chef' },
+        { userId: 'chef-a', role: 'Chef' }
+      ]
     });
     await testEnv.withSecurityRulesDisabled(context =>
       setDoc(doc(context.firestore(), 'recipes', 'private-a'), recipe({ id: 'private-a', workspaceId, userId: 'owner-a' }))
     );
-    const reference = doc(authDb('chef-a'), 'recipes', 'private-a');
+    for (const userId of ['owner-a', 'manager-a', 'head-chef-a', 'sous-chef-a', 'chef-a']) {
+      await assertSucceeds(updateDoc(doc(authDb(userId), 'recipes', 'private-a'), {
+        title: `Updated by ${userId}`,
+        sellingPrice: 12.5,
+        costing: { totalRecipeCost: 2.25 },
+        ingredients: [{ id: 'tea', name: 'Tea', qty: '12', unit: 'g', ingredientId: 'ingredient-b' }]
+      }));
+    }
 
-    await assertSucceeds(updateDoc(reference, { title: 'Updated by teammate' }));
+    const reference = doc(authDb('chef-a'), 'recipes', 'private-a');
     await assertFails(updateDoc(reference, { workspaceId: 'workspace-b', companyId: 'workspace-b' }));
     await assertFails(updateDoc(reference, { userId: 'chef-a', createdBy: 'chef-a' }));
+    await assertFails(updateDoc(reference, { createdByName: 'Replacement Creator' }));
+    await assertFails(updateDoc(reference, { createdAt: '2026-08-25T00:00:00.000Z' }));
+
+    const updated = await assertSucceeds(getDoc(reference));
+    assert.equal(updated.data().userId, 'owner-a');
+    assert.equal(updated.data().createdBy, 'owner-a');
+    assert.equal(updated.data().createdByName, 'Chef owner-a');
+    assert.equal(updated.data().createdAt, '2026-08-23T00:00:00.000Z');
+    assert.equal(updated.data().sellingPrice, 12.5);
+    assert.equal(updated.data().costing.totalRecipeCost, 2.25);
+    assert.equal(updated.data().ingredients[0].ingredientId, 'ingredient-b');
     await assertSucceeds(deleteDoc(reference));
+  });
+
+  test('older recipes with absent creator metadata remain editable without backfilling it', async () => {
+    const workspaceId = 'workspace-a';
+    await seedWorkspace({
+      workspaceId,
+      ownerId: 'owner-a',
+      members: [{ userId: 'owner-a', role: 'Owner' }, { userId: 'manager-a', role: 'Manager' }]
+    });
+    const legacyRecipe = recipe({ id: 'legacy-a', workspaceId, userId: 'owner-a' });
+    delete legacyRecipe.createdBy;
+    delete legacyRecipe.createdByName;
+    await testEnv.withSecurityRulesDisabled(context =>
+      setDoc(doc(context.firestore(), 'recipes', 'legacy-a'), legacyRecipe)
+    );
+
+    const reference = doc(authDb('manager-a'), 'recipes', 'legacy-a');
+    await assertSucceeds(updateDoc(reference, { title: 'Legacy recipe updated' }));
+    await assertFails(updateDoc(reference, { createdBy: 'manager-a', createdByName: 'Manager' }));
+    const updated = await assertSucceeds(getDoc(reference));
+    assert.equal(updated.data().userId, 'owner-a');
+    assert.equal('createdBy' in updated.data(), false);
+    assert.equal('createdByName' in updated.data(), false);
   });
 
   test('embedded ingredient and costing data never crosses workspace boundaries', async () => {

@@ -1333,6 +1333,11 @@ export default function AddRecipeTab({
 
     const savedRecipe: Recipe = {
       id: initialRecipe?.id || `recipe_${Date.now()}`,
+      workspaceId: initialRecipe?.workspaceId,
+      companyId: initialRecipe?.companyId,
+      userId: initialRecipe?.userId,
+      createdBy: initialRecipe?.createdBy,
+      createdByName: initialRecipe?.createdByName,
       title: title.trim(),
       coverImage: coverImage || 'https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&q=80&w=800',
       imageUrl: initialRecipe?.imageUrl,
