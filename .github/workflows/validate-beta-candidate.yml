@@ -1,0 +1,53 @@
+name: Validate Beta Candidate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: misechef-beta-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-beta-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FIREBASE_DEPLOY_TARGET: beta
+      MISECHEF_BETA_PROTECTED_BASELINE: 06a37c0d30c47e037994454119a0461955df4ee3
+      MISECHEF_BETA_ENFORCE_CLEAN: 1
+    steps:
+      - name: Check out exact candidate and protected history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Java for Firebase Rules emulators
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install application dependencies
+        run: npm ci
+
+      - name: Install Functions dependencies
+        run: npm --prefix functions ci
+
+      - name: Install pinned Firebase CLI
+        run: npm install --global firebase-tools@14.22.0
+
+      - name: Validate protected baseline and capability contract
+        run: npm run validate:beta-baseline
+
+      - name: Run permanent protected regression gate
+        run: node scripts/runBetaProtectedTests.mjs
