@@ -81,7 +81,8 @@ jobs:
 
       - name: Report bootstrap validation mode
         if: ${{ steps.select-gate.outputs.full_validation_ready != 'true' }}
-        run: echo "Bootstrap integrity passed. Full Release #16 candidate validation becomes available after this trusted gate lands on main."
+        run: |
+          echo "Bootstrap integrity passed. Full Release #16 candidate validation becomes available after this trusted gate lands on main."
 
   validate-beta-candidate:
     needs: gate-integrity
