@@ -1,14 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, ChevronLeft, ChevronRight, Download, Eye, FileText, Pencil, Plus, RotateCw, Shield, Sparkles, Trash2, Upload, UserRound, X } from 'lucide-react';
 import { uploadPortfolioCertificatePdf, uploadUserProfilePhoto } from '../../services/storage';
+import { storage } from '../../firebase';
+import { getImmediateMediaUrl, resolveStorageUrl } from '../../services/storageReference';
+import { RESUME_IMPORT_SLOW_MESSAGE, subscribeToResumeImportJob, type ResumeImportServerTimings } from '../../services/resumeImportJobs';
 import type { Recipe } from '../../types';
 import type { Portfolio, PortfolioProfileSource } from '../portfolio/types';
 import { calculateCompletion, DEFAULT_SKILLS, emptyChefProfile, getNextAction, sanitizeProfile, slugifyProfile } from './model';
 import { chefProfileService } from './services/chefProfileService';
 import { exportChefProfilePdf } from './services/resumeExportService';
 import { importResume, retryResumeImport } from './services/resumeImportService';
+import type { ResumeImportClientTimings } from './services/resumeImportPipeline';
+import { mapResumeJobResult } from './services/resumeParsing';
 import { resumeManagementService, type ManagedChefResume } from './services/resumeManagementService';
 import { acquireResumeImportLock, applyResumeReviewChoices, assessResumeImport, defaultResumeReviewChoices, getResumeImportErrorMessage, type ResumeReviewChoice, type ResumeReviewSectionKey } from './services/resumeManagementModel';
+import { openResolvedMedia } from '../../services/mediaOpen';
 import type { ChefAward, ChefCertificate, ChefEducation, ChefExperience, ChefLanguage, ChefProfile, ImportedChefProfile, ResumeExportSettings } from './types';
 
 interface ChefProfilePageProps {
@@ -27,6 +33,16 @@ const emptyEducation = (): ChefEducation => ({ id: crypto.randomUUID(), schoolNa
 const emptyCertificate = (): ChefCertificate => ({ id: crypto.randomUUID(), name: '', showPublicly: false });
 const emptyAward = (): ChefAward => ({ id: crypto.randomUUID(), name: '' });
 const emptyLanguage = (): ChefLanguage => ({ id: crypto.randomUUID(), language: '' });
+const resumeJobStorageKey = (userId: string) => `misechef.resumeImportJob.${userId}`;
+const readStoredResumeJob = (userId: string) => {
+  try { return window.localStorage.getItem(resumeJobStorageKey(userId)) || ''; } catch { return ''; }
+};
+const storeResumeJob = (userId: string, jobId: string) => {
+  try { window.localStorage.setItem(resumeJobStorageKey(userId), jobId); } catch { /* Listener remains active in this tab. */ }
+};
+const clearStoredResumeJob = (userId: string) => {
+  try { window.localStorage.removeItem(resumeJobStorageKey(userId)); } catch { /* No persistent state to clear. */ }
+};
 const exportDefaults: ResumeExportSettings = {
   includeProfilePhoto: true, includeEmail: true, includePhone: false, includeLocation: true,
   includeCertificates: true, includeAwards: true, includePortfolioLink: true, includeMiseChefProfileLink: true
@@ -63,10 +79,69 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
   const [resumeAction, setResumeAction] = useState<'viewing' | 'retrying' | 'deleting' | ''>('');
   const [confirmResumeDelete, setConfirmResumeDelete] = useState(false);
   const [pendingResumeImport, setPendingResumeImport] = useState(false);
+  const [activeResumeJobId, setActiveResumeJobId] = useState('');
+  const [resumeJobMessage, setResumeJobMessage] = useState('');
   const [showExport, setShowExport] = useState(false);
   const [exportSettings, setExportSettings] = useState(exportDefaults);
   const [customSkill, setCustomSkill] = useState('');
+  const [resolvedProfilePhotoUrl, setResolvedProfilePhotoUrl] = useState('');
   const resumeImportInFlight = useRef(false);
+  const resumeImportStartedAt = useRef(0);
+  const resumeClientTimings = useRef<ResumeImportClientTimings | null>(null);
+  const reviewRenderTiming = useRef<{
+    startedAt: number;
+    jobId: string;
+    serverTimings: ResumeImportServerTimings | undefined;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!imported || !reviewChoices || !reviewRenderTiming.current) return;
+    const timing = reviewRenderTiming.current;
+    reviewRenderTiming.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        console.info('[Resume Import] End-to-end timings', {
+          jobId: timing.jobId,
+          ...resumeClientTimings.current,
+          ...timing.serverTimings,
+          reviewRenderingMs: performance.now() - timing.startedAt,
+          uploadToReviewMs: resumeImportStartedAt.current
+            ? performance.now() - resumeImportStartedAt.current
+            : undefined
+        });
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [imported, reviewChoices]);
+
+  useEffect(() => {
+    const storedPhoto = profile?.basicInfo.profilePhotoUrl || '';
+    let cancelled = false;
+    setResolvedProfilePhotoUrl(getImmediateMediaUrl(storedPhoto));
+    if (!storage || !storedPhoto) return () => { cancelled = true; };
+    resolveStorageUrl(storage, storedPhoto)
+      .then(url => {
+        if (!cancelled) setResolvedProfilePhotoUrl(url);
+      })
+      .catch(error => {
+        if (cancelled) return;
+        console.error('[Profile Media] Failed to resolve Chef Profile photo', {
+          storageReference: storedPhoto,
+          code: (error as { code?: string })?.code,
+          message: error instanceof Error ? error.message : String(error)
+        });
+        setResolvedProfilePhotoUrl('');
+      });
+    return () => { cancelled = true; };
+  }, [profile?.basicInfo.profilePhotoUrl]);
+
+  const profileWithResolvedMedia = useMemo(() => profile ? {
+    ...profile,
+    basicInfo: {
+      ...profile.basicInfo,
+      profilePhotoUrl: resolvedProfilePhotoUrl || undefined
+    }
+  } : null, [profile, resolvedProfilePhotoUrl]);
 
   useEffect(() => {
     if (!userId) {
@@ -104,6 +179,89 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
       .catch(() => setImportError('We could not load your saved resume details.'))
       .finally(() => setResumeLoading(false));
   }, [userId]);
+
+  useEffect(() => {
+    if (!userId || activeResumeJobId) return;
+    const savedJobId = readStoredResumeJob(userId);
+    if (savedJobId) {
+      setResumeJobMessage('Analyzing resume, this may take 30–60 seconds');
+      setActiveResumeJobId(savedJobId);
+    }
+  }, [activeResumeJobId, userId]);
+
+  useEffect(() => {
+    if (!userId || !activeResumeJobId) return;
+    let settling = false;
+    const slowTimer = window.setTimeout(() => {
+      if (!settling) {
+        setResumeJobMessage(RESUME_IMPORT_SLOW_MESSAGE);
+        setImportStage(0);
+        setResumeAction('');
+      }
+    }, 120_000);
+
+    const finishFailure = async (message: string) => {
+      if (settling) return;
+      settling = true;
+      window.clearTimeout(slowTimer);
+      await resumeManagementService.markFailed(userId, message).catch(() => undefined);
+      setManagedResume(current => current ? { ...current, importStatus: 'failed', lastError: message, draft: undefined } : current);
+      setImportError(message);
+      setImportStage(0);
+      setResumeAction('');
+      setResumeJobMessage('');
+      clearStoredResumeJob(userId);
+      setActiveResumeJobId('');
+    };
+
+    const unsubscribe = subscribeToResumeImportJob(userId, activeResumeJobId, job => {
+      if (job.status === 'pending' || job.status === 'processing') {
+        setImportStage(3);
+        setResumeJobMessage('Analyzing resume, this may take 30–60 seconds');
+        return;
+      }
+      if (job.status === 'failed') {
+        void finishFailure(job.error || 'AI analysis failed. Please retry.');
+        return;
+      }
+      if (job.status === 'done' && job.result && !settling) {
+        settling = true;
+        window.clearTimeout(slowTimer);
+        try {
+          const draft = mapResumeJobResult(job.result);
+          reviewRenderTiming.current = {
+            startedAt: performance.now(),
+            jobId: activeResumeJobId,
+            serverTimings: job.timings
+          };
+          setManagedResume(current => current ? { ...current, importStatus: 'review_required', draft, lastError: undefined } : current);
+          setImported(draft);
+          setReviewChoices(defaultResumeReviewChoices(draft));
+          setImportError('');
+          void resumeManagementService.saveDraft(userId, draft).catch(error => {
+            const message = error instanceof Error ? error.message : 'The resume was analyzed, but the review draft could not be saved.';
+            setImportError(message);
+          }).finally(() => {
+            setImportStage(0);
+            setResumeAction('');
+            setResumeJobMessage('');
+            clearStoredResumeJob(userId);
+            setActiveResumeJobId('');
+          });
+        } catch (error) {
+          settling = false;
+          void finishFailure(error instanceof Error ? error.message : 'AI analysis returned an invalid draft. Please retry.');
+        }
+      }
+    }, error => {
+      void finishFailure(error.message || 'Resume import status could not be loaded. Please retry.');
+    });
+
+    return () => {
+      window.clearTimeout(slowTimer);
+      unsubscribe();
+    };
+  }, [activeResumeJobId, userId]);
 
   const update = (recipe: (current: ChefProfile) => ChefProfile) => setProfile(current => current ? recipe(current) : current);
   const updateBasic = (key: keyof ChefProfile['basicInfo'], value: string) => update(current => ({
@@ -155,6 +313,8 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
     if (!file || !profile || !userId) return;
     const releaseImportLock = acquireResumeImportLock(resumeImportInFlight);
     if (!releaseImportLock) return;
+    resumeImportStartedAt.current = performance.now();
+    resumeClientTimings.current = null;
     setImportError('');
     setImported(null);
     setReviewChoices(null);
@@ -165,12 +325,11 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
         registeredResume = { ...record, uploadedAt: new Date() };
         setManagedResume(registeredResume);
       });
-      await resumeManagementService.saveDraft(userId, result.profile);
-      setManagedResume(current => current ? { ...current, importStatus: 'review_required', draft: result.profile, lastError: undefined } : current);
-      setImported(result.profile);
-      setReviewChoices(defaultResumeReviewChoices(result.profile));
+      resumeClientTimings.current = result.timings;
       setPendingResumeImport(false);
-      setImportStage(0);
+      setResumeJobMessage('Analyzing resume, this may take 30–60 seconds');
+      storeResumeJob(userId, result.jobId);
+      setActiveResumeJobId(result.jobId);
     } catch (error) {
       setImportStage(0);
       const message = getResumeImportErrorMessage(error, file.name);
@@ -188,24 +347,31 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
     if (!userId || !managedResume) return;
     const releaseImportLock = acquireResumeImportLock(resumeImportInFlight);
     if (!releaseImportLock) return;
+    resumeImportStartedAt.current = performance.now();
+    resumeClientTimings.current = null;
     setResumeAction('retrying');
     setImportError('');
     setImported(null);
     setReviewChoices(null);
+    let jobStarted = false;
     try {
-      const draft = await retryResumeImport(managedResume, userId, workspaceId || userId, setImportStage);
-      await resumeManagementService.saveDraft(userId, draft);
-      setManagedResume(current => current ? { ...current, importStatus: 'review_required', draft, lastError: undefined } : current);
-      setImported(draft);
-      setReviewChoices(defaultResumeReviewChoices(draft));
+      const retry = await retryResumeImport(managedResume, userId, workspaceId || userId, setImportStage);
+      const jobId = retry.jobId;
+      resumeClientTimings.current = retry.timings;
+      setResumeJobMessage('Analyzing resume, this may take 30–60 seconds');
+      storeResumeJob(userId, jobId);
+      setActiveResumeJobId(jobId);
+      jobStarted = true;
     } catch (error) {
       const message = getResumeImportErrorMessage(error, managedResume.fileName);
       await resumeManagementService.markFailed(userId, message).catch(() => undefined);
       setManagedResume(current => current ? { ...current, importStatus: 'failed', lastError: message, draft: undefined } : current);
       setImportError(message);
     } finally {
-      setImportStage(0);
-      setResumeAction('');
+      if (!jobStarted) {
+        setImportStage(0);
+        setResumeAction('');
+      }
       releaseImportLock();
     }
   };
@@ -228,17 +394,19 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
 
   const viewResume = async () => {
     if (!userId || !managedResume) return;
-    const preview = window.open('about:blank', '_blank');
-    if (preview) preview.opener = null;
     setResumeAction('viewing');
     setImportError('');
     try {
-      const url = await resumeManagementService.createViewUrl(userId, managedResume.storagePath);
-      if (preview) preview.location.replace(url);
-      else window.open(url, '_blank', 'noopener,noreferrer');
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch {
-      preview?.close();
+      await openResolvedMedia(
+        () => resumeManagementService.createViewUrl(userId, managedResume.storagePath),
+        window.open.bind(window)
+      );
+    } catch (error) {
+      console.error('[Resume Media] Failed to open resume', {
+        storageReference: managedResume.storagePath,
+        code: (error as { code?: string })?.code,
+        message: error instanceof Error ? error.message : String(error)
+      });
       setImportError('We could not open this resume. Please try again.');
     } finally {
       setResumeAction('');
@@ -307,7 +475,7 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
     <div className="mx-auto max-w-4xl space-y-6">
       <div><p className="font-sans text-xs font-extrabold uppercase tracking-[.18em] text-secondary">Chef Profile</p><h1 className="mt-2 font-display text-3xl font-bold text-primary">Create Your Chef Profile</h1><p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Choose how you want to begin.</p></div>
       <div className="grid gap-5 md:grid-cols-2">
-        <ResumeManagementCard resume={managedResume} loading={resumeLoading} importStage={importStage} action={resumeAction} confirmDelete={confirmResumeDelete} onFile={handleResume} onView={viewResume} onRetry={retryImport} onReview={() => { const draft = managedResume?.draft || null; setImported(draft); if (draft) setReviewChoices(defaultResumeReviewChoices(draft)); }} onDeleteRequest={() => setConfirmResumeDelete(true)} onDeleteCancel={() => setConfirmResumeDelete(false)} onDeleteConfirm={deleteResume} />
+        <ResumeManagementCard resume={managedResume} loading={resumeLoading} importStage={importStage} action={resumeAction} jobMessage={resumeJobMessage} jobActive={Boolean(activeResumeJobId)} confirmDelete={confirmResumeDelete} onFile={handleResume} onView={viewResume} onRetry={retryImport} onReview={() => { const draft = managedResume?.draft || null; setImported(draft); if (draft) setReviewChoices(defaultResumeReviewChoices(draft)); }} onDeleteRequest={() => setConfirmResumeDelete(true)} onDeleteCancel={() => setConfirmResumeDelete(false)} onDeleteConfirm={deleteResume} />
         <Card title="Build Manually" icon={<Pencil className="h-5 w-5" />}>
           <p className="mb-5 font-sans text-sm font-bold text-on-surface-variant">Create your professional profile step by step. Optional sections can be skipped.</p>
           <button type="button" onClick={() => { setStep(0); setScreen('builder'); }} className="w-full rounded-full border border-primary px-5 py-3 font-sans text-sm font-extrabold text-primary">Start Manually</button>
@@ -333,7 +501,7 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
         <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">Next: {getNextAction(profile)}</p>
         <p className="mt-1 font-sans text-xs font-extrabold text-secondary">{profile.visibility === 'public' ? 'Public profile' : 'Private profile'}</p>
       </Card>
-      <ResumeManagementCard resume={managedResume} loading={resumeLoading} importStage={importStage} action={resumeAction} confirmDelete={confirmResumeDelete} onFile={handleResume} onView={viewResume} onRetry={retryImport} onReview={() => { const draft = managedResume?.draft || null; setImported(draft); if (draft) setReviewChoices(defaultResumeReviewChoices(draft)); }} onDeleteRequest={() => setConfirmResumeDelete(true)} onDeleteCancel={() => setConfirmResumeDelete(false)} onDeleteConfirm={deleteResume} />
+      <ResumeManagementCard resume={managedResume} loading={resumeLoading} importStage={importStage} action={resumeAction} jobMessage={resumeJobMessage} jobActive={Boolean(activeResumeJobId)} confirmDelete={confirmResumeDelete} onFile={handleResume} onView={viewResume} onRetry={retryImport} onReview={() => { const draft = managedResume?.draft || null; setImported(draft); if (draft) setReviewChoices(defaultResumeReviewChoices(draft)); }} onDeleteRequest={() => setConfirmResumeDelete(true)} onDeleteCancel={() => setConfirmResumeDelete(false)} onDeleteConfirm={deleteResume} />
       {importError && <p role="alert" className="rounded-xl bg-error-container p-4 font-sans text-sm font-bold text-on-error-container">{importError}</p>}
       {imported && reviewChoices && <ImportReview current={profile} imported={imported} choices={reviewChoices} onChoices={setReviewChoices} onChange={setImported} onCancel={cancelImport} onConfirm={confirmImport} />}
       <div className="grid gap-4 lg:grid-cols-2">
@@ -347,7 +515,7 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
         <DashboardSection title="Social Links" value={Object.values(profile.socialLinks).filter(Boolean).join(' · ') || 'Not added'} onEdit={() => { setStep(6); setScreen('builder'); }} />
         <DashboardSection title="Portfolio" value={`${profile.portfolio.length} items`} onEdit={() => { setStep(7); setScreen('builder'); }} />
       </div>
-      {showExport && <ExportModal profile={profile} settings={exportSettings} onSettings={setExportSettings} onClose={() => setShowExport(false)} />}
+      {showExport && profileWithResolvedMedia && <ExportModal profile={profileWithResolvedMedia} settings={exportSettings} onSettings={setExportSettings} onClose={() => setShowExport(false)} />}
     </div>
   );
 
@@ -358,7 +526,7 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
         <button type="button" onClick={() => setScreen('dashboard')} className="rounded-full border border-surface-container-high p-2 text-primary" aria-label="Close builder"><X className="h-5 w-5" /></button>
       </div>
       <div className="flex gap-1" aria-label={`Step ${step + 1} of ${STEPS.length}`}>{STEPS.map((_, index) => <div key={index} className={`h-1.5 flex-1 rounded-full ${index <= step ? 'bg-primary' : 'bg-surface-container-high'}`} />)}</div>
-      <Card title={STEPS[step]}>{renderStep(step, profile, update, updateBasic, customSkill, setCustomSkill, uploadPhoto, uploadCertificate)}</Card>
+      <Card title={STEPS[step]}>{renderStep(step, profile, resolvedProfilePhotoUrl, update, updateBasic, customSkill, setCustomSkill, uploadPhoto, uploadCertificate)}</Card>
       <div className="flex items-center justify-between gap-3">
         <button type="button" onClick={() => step === 0 ? setScreen('entry') : setStep(value => value - 1)} className="inline-flex items-center gap-2 rounded-full border border-primary px-5 py-3 font-sans text-xs font-extrabold text-primary"><ChevronLeft className="h-4 w-4" />Back</button>
         {step < 7 ? <div className="flex gap-2">
@@ -376,6 +544,7 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
 function renderStep(
   step: number,
   profile: ChefProfile,
+  resolvedProfilePhotoUrl: string,
   update: (recipe: (current: ChefProfile) => ChefProfile) => void,
   updateBasic: (key: keyof ChefProfile['basicInfo'], value: string) => void,
   customSkill: string,
@@ -389,7 +558,7 @@ function renderStep(
     update(current => ({ ...current, [key]: current[key].filter(item => item.id !== id) }));
 
   if (step === 0) return <div className="grid gap-4 sm:grid-cols-2">
-    <label className={`${labelClass} sm:col-span-2`}><span>Profile photo</span><div className="flex items-center gap-4">{profile.basicInfo.profilePhotoUrl ? <img src={profile.basicInfo.profilePhotoUrl} alt="" className="h-20 w-20 rounded-full object-cover" /> : <div className="grid h-20 w-20 place-items-center rounded-full bg-surface-container-high"><UserRound className="h-7 w-7 text-outline" /></div>}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => uploadPhoto(event.target.files?.[0])} className="max-w-xs text-sm" /></div></label>
+    <label className={`${labelClass} sm:col-span-2`}><span>Profile photo</span><div className="flex items-center gap-4">{resolvedProfilePhotoUrl ? <img src={resolvedProfilePhotoUrl} alt="" className="h-20 w-20 rounded-full object-cover" /> : <div className="grid h-20 w-20 place-items-center rounded-full bg-surface-container-high"><UserRound className="h-7 w-7 text-outline" /></div>}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => uploadPhoto(event.target.files?.[0])} className="max-w-xs text-sm" /></div></label>
     <TextField label="Full name *" value={profile.basicInfo.fullName} onChange={value => updateBasic('fullName', value)} />
     <TextField label="Professional title *" value={profile.basicInfo.professionalTitle} onChange={value => updateBasic('professionalTitle', value)} placeholder="Executive Chef" />
     <TextField label="Location" value={profile.basicInfo.location} onChange={value => updateBasic('location', value)} />
@@ -405,7 +574,7 @@ function renderStep(
   if (step === 4) return <ArrayEditor items={profile.certificates} addLabel="Add certificate" onAdd={() => update(current => ({ ...current, certificates: [...current.certificates, emptyCertificate()] }))} render={(item: ChefCertificate) => <div className="grid gap-3 sm:grid-cols-2"><TextField label="Certificate name" value={item.name} onChange={value => updateArray<ChefCertificate>('certificates', item.id, { name: value })} /><TextField label="Issuing organisation" value={item.issuingOrganisation} onChange={value => updateArray<ChefCertificate>('certificates', item.id, { issuingOrganisation: value })} /><TextField label="Issue date" type="date" value={item.issueDate} onChange={value => updateArray<ChefCertificate>('certificates', item.id, { issueDate: value })} /><TextField label="Expiry date" type="date" value={item.expiryDate} onChange={value => updateArray<ChefCertificate>('certificates', item.id, { expiryDate: value })} /><TextField label="Credential URL" type="url" value={item.credentialUrl} onChange={value => updateArray<ChefCertificate>('certificates', item.id, { credentialUrl: value })} /><label className={labelClass}><span>Attachment (PDF)</span><input type="file" accept="application/pdf,.pdf" onChange={event => uploadCertificate(item.id, event.target.files?.[0])} className="text-sm font-bold" />{item.attachmentUrl && <span className="text-secondary">Uploaded privately</span>}</label><label className="flex items-center gap-2 self-end py-3 font-sans text-sm font-bold"><input type="checkbox" checked={item.showPublicly === true} onChange={event => updateArray<ChefCertificate>('certificates', item.id, { showPublicly: event.target.checked })} />Show certificate details publicly</label><RemoveButton onClick={() => removeArray('certificates', item.id)} /></div>} />;
   if (step === 5) return <div className="space-y-8"><ArrayEditor title="Awards" items={profile.awards} addLabel="Add award" onAdd={() => update(current => ({ ...current, awards: [...current.awards, emptyAward()] }))} render={(item: ChefAward) => <div className="grid gap-3 sm:grid-cols-2"><TextField label="Award name" value={item.name} onChange={value => updateArray<ChefAward>('awards', item.id, { name: value })} /><TextField label="Issuing organisation" value={item.issuingOrganisation} onChange={value => updateArray<ChefAward>('awards', item.id, { issuingOrganisation: value })} /><TextField label="Year" value={item.year} onChange={value => updateArray<ChefAward>('awards', item.id, { year: value })} /><RemoveButton onClick={() => removeArray('awards', item.id)} /></div>} /><ArrayEditor title="Languages" items={profile.languages} addLabel="Add language" onAdd={() => update(current => ({ ...current, languages: [...current.languages, emptyLanguage()] }))} render={(item: ChefLanguage) => <div className="grid gap-3 sm:grid-cols-2"><TextField label="Language" value={item.language} onChange={value => updateArray<ChefLanguage>('languages', item.id, { language: value })} /><label className={labelClass}><span>Proficiency</span><select value={item.proficiency || ''} onChange={event => updateArray<ChefLanguage>('languages', item.id, { proficiency: event.target.value })} className={fieldClass}><option value="">Select</option><option>Basic</option><option>Conversational</option><option>Professional</option><option>Native</option></select></label><RemoveButton onClick={() => removeArray('languages', item.id)} /></div>} /></div>;
   if (step === 6) return <div className="grid gap-4 sm:grid-cols-2">{(['instagram', 'tiktok', 'facebook', 'linkedin', 'youtube', 'website'] as const).map(key => <TextField key={key} label={key === 'website' ? 'Personal website' : key[0].toUpperCase() + key.slice(1)} type="url" value={profile.socialLinks[key]} onChange={value => update(current => ({ ...current, socialLinks: { ...current.socialLinks, [key]: value } }))} />)}</div>;
-  return <div className="space-y-5"><div className="rounded-2xl bg-white p-5"><div className="flex items-center gap-4">{profile.basicInfo.profilePhotoUrl && <img src={profile.basicInfo.profilePhotoUrl} className="h-16 w-16 rounded-full object-cover" alt="" />}<div><h2 className="font-display text-2xl font-bold text-primary">{profile.basicInfo.fullName || 'Needs Review'}</h2><p className="font-sans text-sm font-bold text-on-surface-variant">{profile.basicInfo.professionalTitle || 'Needs Review'}</p></div></div>{profile.basicInfo.summary && <p className="mt-4 font-sans text-sm leading-relaxed">{profile.basicInfo.summary}</p>}</div><ReviewLine label="Skills" value={`${profile.skills.length} selected`} /><ReviewLine label="Work Experience" value={`${profile.experiences.length} entries`} /><ReviewLine label="Education" value={`${profile.education.length} entries`} /><ReviewLine label="Certificates" value={`${profile.certificates.length} entries`} /><ReviewLine label="Awards" value={`${profile.awards.length} entries`} /><ReviewLine label="Languages" value={`${profile.languages.length} entries`} />
+  return <div className="space-y-5"><div className="rounded-2xl bg-white p-5"><div className="flex items-center gap-4">{resolvedProfilePhotoUrl && <img src={resolvedProfilePhotoUrl} className="h-16 w-16 rounded-full object-cover" alt="" />}<div><h2 className="font-display text-2xl font-bold text-primary">{profile.basicInfo.fullName || 'Needs Review'}</h2><p className="font-sans text-sm font-bold text-on-surface-variant">{profile.basicInfo.professionalTitle || 'Needs Review'}</p></div></div>{profile.basicInfo.summary && <p className="mt-4 font-sans text-sm leading-relaxed">{profile.basicInfo.summary}</p>}</div><ReviewLine label="Skills" value={`${profile.skills.length} selected`} /><ReviewLine label="Work Experience" value={`${profile.experiences.length} entries`} /><ReviewLine label="Education" value={`${profile.education.length} entries`} /><ReviewLine label="Certificates" value={`${profile.certificates.length} entries`} /><ReviewLine label="Awards" value={`${profile.awards.length} entries`} /><ReviewLine label="Languages" value={`${profile.languages.length} entries`} />
     <div className="space-y-3"><h3 className="font-display text-xl font-bold text-primary">Portfolio</h3>{profile.portfolio.map(item => <div key={item.id} className="grid gap-3 rounded-2xl border border-surface-container-high bg-white p-4 sm:grid-cols-2"><TextField label="Title" value={item.title} onChange={value => update(current => ({ ...current, portfolio: current.portfolio.map(entry => entry.id === item.id ? { ...entry, title: value } : entry) }))} /><TextField label="Project URL" type="url" value={item.projectUrl} onChange={value => update(current => ({ ...current, portfolio: current.portfolio.map(entry => entry.id === item.id ? { ...entry, projectUrl: value } : entry) }))} /><TextField label="Image URL" type="url" value={item.imageUrl} onChange={value => update(current => ({ ...current, portfolio: current.portfolio.map(entry => entry.id === item.id ? { ...entry, imageUrl: value } : entry) }))} /><label className={`${labelClass} sm:col-span-2`}><span>Description</span><textarea value={item.description || ''} onChange={event => update(current => ({ ...current, portfolio: current.portfolio.map(entry => entry.id === item.id ? { ...entry, description: event.target.value } : entry) }))} rows={2} className={fieldClass} /></label><RemoveButton onClick={() => update(current => ({ ...current, portfolio: current.portfolio.filter(entry => entry.id !== item.id) }))} /></div>)}<button type="button" onClick={() => update(current => ({ ...current, portfolio: [...current.portfolio, { id: crypto.randomUUID(), title: '', description: '', imageUrl: '' }] }))} className="inline-flex items-center gap-2 rounded-full border border-primary px-4 py-2.5 font-sans text-xs font-extrabold text-primary"><Plus className="h-4 w-4" />Add portfolio item</button></div>
     <TextField label="Public profile slug" value={profile.profileSlug} onChange={value => update(current => ({ ...current, profileSlug: slugifyProfile(value) }))} /><p className="flex items-center gap-2 font-sans text-xs font-bold text-on-surface-variant"><Shield className="h-4 w-4" />Only published profile fields will be shown publicly. Private contact and files stay hidden.</p></div>;
 }
@@ -437,6 +606,8 @@ function ResumeManagementCard({
   loading,
   importStage,
   action,
+  jobMessage,
+  jobActive,
   confirmDelete,
   onFile,
   onView,
@@ -450,6 +621,8 @@ function ResumeManagementCard({
   loading: boolean;
   importStage: 0 | 1 | 2 | 3;
   action: 'viewing' | 'retrying' | 'deleting' | '';
+  jobMessage: string;
+  jobActive: boolean;
   confirmDelete: boolean;
   onFile: (file?: File) => void;
   onView: () => void;
@@ -460,13 +633,13 @@ function ResumeManagementCard({
   onDeleteConfirm: () => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
-  const busy = importStage > 0 || Boolean(action);
+  const busy = importStage > 0 || Boolean(action) || jobActive;
   const stageLabel = importStage === 1
     ? 'Uploading your resume'
     : importStage === 2
       ? 'Reading your information'
       : importStage === 3
-        ? 'Preparing your profile draft'
+        ? 'Analyzing resume, this may take 30–60 seconds'
         : '';
 
   return <Card title={resume ? 'Resume Management' : 'Upload Resume'} icon={resume ? <FileText className="h-5 w-5" /> : <Upload className="h-5 w-5" />}>
@@ -482,6 +655,7 @@ function ResumeManagementCard({
         <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-[.14em] text-outline">Import status</dt><dd className="mt-1 font-sans text-sm font-extrabold text-secondary">{resumeStatusLabel[resume.importStatus]}</dd></div>
       </dl>
       <p className="font-sans text-xs font-bold text-on-surface-variant">Replacing this file creates a new review draft. Your existing Chef Profile stays unchanged until you complete review and save.</p>
+      {jobMessage && <p role="status" className="rounded-xl bg-secondary-container p-3 font-sans text-xs font-extrabold text-on-secondary-container">{jobMessage}</p>}
       {resume.lastError && <p role="alert" className="rounded-xl bg-error-container p-3 font-sans text-xs font-extrabold text-on-error-container">{resume.lastError}</p>}
       <div className="flex flex-wrap gap-2">
         <button type="button" disabled={busy} onClick={onView} className="inline-flex items-center gap-2 rounded-full border border-primary px-4 py-2.5 font-sans text-xs font-extrabold text-primary disabled:opacity-50"><Eye className="h-4 w-4" />{action === 'viewing' ? 'Opening...' : 'View Resume'}</button>
@@ -497,6 +671,7 @@ function ResumeManagementCard({
       </div>}
     </div> : <div>
       <p className="mb-5 font-sans text-sm font-bold text-on-surface-variant">Upload an existing PDF or DOCX resume and review every detail before saving.</p>
+      {jobMessage && <p role="status" className="mb-4 rounded-xl bg-secondary-container p-3 font-sans text-xs font-extrabold text-on-secondary-container">{jobMessage}</p>}
       <button type="button" disabled={busy} onClick={() => input.current?.click()} className="w-full rounded-full bg-primary px-5 py-3 font-sans text-sm font-extrabold text-on-primary disabled:opacity-50">{stageLabel || 'Upload Resume'}</button>
     </div>}
   </Card>;

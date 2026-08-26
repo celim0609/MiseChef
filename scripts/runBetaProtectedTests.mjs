@@ -30,5 +30,6 @@ try {
 }
 
 run('npm', ['run', 'test:recipes:rules']);
+run('npm', ['run', 'test:resume-import:rules']);
 run('npm', ['run', 'test:store-payments:rules']);
 console.log('All protected Beta integration suites passed.');

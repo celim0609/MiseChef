@@ -6,6 +6,10 @@ const MODEL_PRICING_USD_PER_MILLION_TOKENS = {
   'gemini-2.5-flash': {
     prompt: 0.30,
     completion: 2.50
+  },
+  'gemini-2.5-flash-lite': {
+    prompt: 0.10,
+    completion: 0.40
   }
 };
 

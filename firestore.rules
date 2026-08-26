@@ -586,6 +586,11 @@ service cloud.firestore {
       match /portfolio/{document=**} {
         allow read, create, update, delete: if ownsUserDocument(userId);
       }
+
+      match /resumeImportJobs/{jobId} {
+        allow read: if ownsUserDocument(userId);
+        allow create, update, delete: if false;
+      }
     }
 
     match /chefProfiles/{userId} {

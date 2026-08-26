@@ -245,7 +245,10 @@ test('every Firebase resource invokes the canonical predeploy guard', () => {
 test('the canonical deploy command is the only package Beta deploy entry point', () => {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const pkg = JSON.parse(readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8'));
+  const protectedTests = readFileSync(path.join(repositoryRoot, 'scripts', 'runBetaProtectedTests.mjs'), 'utf8');
   assert.equal(pkg.scripts['deploy:beta'], 'node scripts/deployBeta.mjs');
+  assert.match(pkg.scripts['test:resume-import:rules'], /resumeImportJobAccessControl\.test\.mjs/);
+  assert.match(protectedTests, /run\('npm', \['run', 'test:resume-import:rules'\]\)/);
   assert.doesNotMatch(JSON.stringify(pkg.scripts), /FIREBASE_DEPLOY_TARGET=beta firebase deploy/);
 });
 

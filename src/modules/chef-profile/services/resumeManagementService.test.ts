@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { acquireResumeImportLock, applyResumeReviewChoices, assessResumeImport, buildManagedResumeUpload, defaultResumeReviewChoices, getResumeImportErrorMessage, getResumeImportSummary, isOwnedResumeStoragePath, resumeFileNameFromObjectName } from './resumeManagementModel';
+import { acquireResumeImportLock, applyResumeReviewChoices, assessResumeImport, buildManagedResumeRegistration, buildManagedResumeUpload, defaultResumeReviewChoices, getResumeImportErrorMessage, getResumeImportSummary, isOwnedResumeStoragePath, resumeFileNameFromObjectName } from './resumeManagementModel';
 import { emptyChefProfile } from '../model';
 import type { ImportedChefProfile } from '../types';
 import { ResumeImportError } from './resumeImportErrors';
@@ -25,6 +25,18 @@ test('resume metadata contains only the private file and pending import draft', 
   assert.equal(record.importStatus, 'review_required');
   assert.equal('chefProfile' in record, false);
   assert.equal('publicChefProfile' in record, false);
+});
+
+test('resume registration preserves the Firestore timestamp sentinel', () => {
+  const sentinel = { _methodName: 'serverTimestamp' };
+  const record = buildManagedResumeRegistration('alice', {
+    originalStoragePath: 'users/alice/chef-profile/resume-imports/resume.pdf',
+    fileName: 'resume.pdf',
+    contentType: 'application/pdf',
+    fileSize: 2048
+  }, sentinel);
+  assert.equal(record.uploadedAt, sentinel);
+  assert.deepEqual(record.uploadedAt, { _methodName: 'serverTimestamp' });
 });
 
 test('resume operations are restricted to the signed-in user import path', () => {

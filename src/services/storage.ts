@@ -366,7 +366,7 @@ export const uploadUserProfilePhoto = async ({
       reject,
       async () => {
         try {
-          resolve(await getDownloadURL(uploadTask.snapshot.ref));
+          resolve(uploadTask.snapshot.ref.fullPath);
         } catch (err) {
           reject(err);
         }

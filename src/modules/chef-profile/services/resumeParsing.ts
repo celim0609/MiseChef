@@ -3,6 +3,7 @@ import { mapResumeDraftToChefProfile as mapResumeDraft } from './resumeImportMap
 import { isResumeImportError, ResumeImportError } from './resumeImportErrors';
 
 type ResumeParser = (text: string, workspaceId: string) => Promise<GeminiResumePortfolioDraft>;
+type ResumeJobStarter = (text: string, workspaceId: string) => Promise<string>;
 
 const isNetworkFailure = (error: unknown) => {
   const code = typeof error === 'object' && error ? String((error as { code?: unknown }).code || '') : '';
@@ -36,3 +37,22 @@ export const parseExtractedResumeText = async (text: string, workspaceId: string
     );
   }
 };
+
+export const startExtractedResumeJob = async (text: string, workspaceId: string, startJob: ResumeJobStarter) => {
+  if (text.trim().length < 80) {
+    throw new ResumeImportError('resume_text_too_short', 'text-validation', 'Extracted resume text is too short to parse reliably.');
+  }
+  try {
+    return await startJob(text, workspaceId);
+  } catch (error) {
+    if (isResumeImportError(error)) throw error;
+    throw new ResumeImportError(
+      isNetworkFailure(error) ? 'resume_parser_network_failed' : 'resume_parser_failed',
+      'resume-parser',
+      error instanceof Error ? error.message : 'Resume parser failed.',
+      { cause: error }
+    );
+  }
+};
+
+export const mapResumeJobResult = (draft: GeminiResumePortfolioDraft) => mapResumeDraft(draft);

@@ -1,7 +1,8 @@
 import { deleteDoc, deleteField, doc, getDoc, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
-import { deleteObject, getBlob, getMetadata, listAll, ref } from 'firebase/storage';
+import { deleteObject, getMetadata, listAll, ref } from 'firebase/storage';
 import { db, storage } from '../../../firebase';
-import { buildManagedResumeUpload, isOwnedResumeStoragePath, resumeFileNameFromObjectName, type ManagedChefResume, type ResumeFileUpload } from './resumeManagementModel';
+import { getStorageObjectPath, resolveStorageUrl } from '../../../services/storageReference';
+import { buildManagedResumeRegistration, isOwnedResumeStoragePath, resumeFileNameFromObjectName, type ManagedChefResume, type ResumeFileUpload } from './resumeManagementModel';
 import type { ImportedChefProfile } from '../types';
 export type { ManagedChefResume, ResumeFileUpload, ResumeImportStatus, ResumeUploadResult } from './resumeManagementModel';
 
@@ -16,16 +17,18 @@ const stripUndefined = (value: unknown): unknown => {
 };
 
 const assertOwnedPath = (userId: string, storagePath: string) => {
-  if (!isOwnedResumeStoragePath(userId, storagePath)) {
+  const normalizedPath = getStorageObjectPath(storagePath, storage?.app.options.storageBucket);
+  if (!normalizedPath || !isOwnedResumeStoragePath(userId, normalizedPath)) {
     throw new Error('This resume does not belong to the signed-in user.');
   }
+  return normalizedPath;
 };
 
 const deleteFile = async (userId: string, storagePath: string) => {
   if (!storage || !storagePath) return;
-  assertOwnedPath(userId, storagePath);
+  const normalizedPath = assertOwnedPath(userId, storagePath);
   try {
-    await deleteObject(ref(storage, storagePath));
+    await deleteObject(ref(storage, normalizedPath));
   } catch (error) {
     if ((error as { code?: string })?.code !== 'storage/object-not-found') throw error;
   }
@@ -60,19 +63,16 @@ export const resumeManagementService = {
     const snapshot = await getDoc(doc(db, 'chefResumeImports', userId));
     if (snapshot.exists()) return snapshot.data() as ManagedChefResume;
     const legacy = await discoverLegacyResume(userId);
-    if (legacy) await setDoc(doc(db, 'chefResumeImports', userId), stripUndefined(legacy)).catch(() => undefined);
+    if (legacy) await setDoc(doc(db, 'chefResumeImports', userId), legacy).catch(() => undefined);
     return legacy;
   },
 
   async registerUpload(userId: string, result: ResumeFileUpload, previous?: ManagedChefResume | null) {
     if (!db) throw new Error('Resume management is temporarily unavailable.');
     assertOwnedPath(userId, result.originalStoragePath);
-    const next = buildManagedResumeUpload(userId, result);
+    const next = buildManagedResumeRegistration(userId, result, serverTimestamp());
     try {
-      await setDoc(doc(db, 'chefResumeImports', userId), stripUndefined({
-        ...next,
-        uploadedAt: serverTimestamp()
-      }));
+      await setDoc(doc(db, 'chefResumeImports', userId), next);
     } catch (error) {
       await deleteFile(userId, result.originalStoragePath).catch(() => undefined);
       throw error;
@@ -81,7 +81,8 @@ export const resumeManagementService = {
     if (previous?.storagePath && previous.storagePath !== result.originalStoragePath) {
       await deleteFile(userId, previous.storagePath).catch(() => undefined);
     }
-    return next;
+    const { uploadedAt: _pendingServerTimestamp, ...registered } = next;
+    return registered;
   },
 
   async saveDraft(userId: string, draft: ImportedChefProfile) {
@@ -122,9 +123,8 @@ export const resumeManagementService = {
 
   async createViewUrl(userId: string, storagePath: string) {
     if (!storage) throw new Error('Resume viewing is temporarily unavailable.');
-    assertOwnedPath(userId, storagePath);
-    const blob = await getBlob(ref(storage, storagePath));
-    return URL.createObjectURL(blob);
+    const normalizedPath = assertOwnedPath(userId, storagePath);
+    return resolveStorageUrl(storage, normalizedPath);
   },
 
   async delete(userId: string, resume: ManagedChefResume) {

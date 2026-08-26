@@ -1,10 +1,13 @@
 import { deleteObject, getBlob, ref, uploadBytesResumable } from 'firebase/storage';
 import { storage } from '../../../firebase';
-import { parseResumeToPortfolioWithAI } from '../../../services/gemini';
+import { getStorageObjectPath } from '../../../services/storageReference';
+import { startResumeToPortfolioJob } from '../../../services/gemini';
 import type { ImportedChefProfile } from '../types';
 import { logResumeImportFailure, ResumeImportError } from './resumeImportErrors';
-import { parseExtractedResumeText } from './resumeParsing';
+import { startExtractedResumeJob } from './resumeParsing';
 import { extractChefResumeText } from './resumeTextExtraction';
+import { runResumeImportPipeline } from './resumeImportPipeline';
+import type { ResumeImportClientTimings } from './resumeImportPipeline';
 import { isOwnedResumeStoragePath, type ManagedChefResume, type ResumeFileUpload, type ResumeUploadResult } from './resumeManagementModel';
 
 const PDF = 'application/pdf';
@@ -27,51 +30,60 @@ export const importResume = async (
   validateResumeFile(file);
   if (!storage) throw new ResumeImportError('upload_failed', 'upload', 'Resume upload is temporarily unavailable.');
 
-  onStage(1);
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
   const storagePath = `users/${userId}/chef-profile/resume-imports/${crypto.randomUUID()}-${safeName}`;
-  const upload = uploadBytesResumable(ref(storage, storagePath), file, {
-    contentType: file.type,
-    customMetadata: { ownerId: userId, purpose: 'chef-profile-import', originalFileName: file.name.slice(0, 255) }
-  });
   let registeredForRetry = false;
   try {
-    await new Promise<void>((resolve, reject) => upload.on('state_changed', undefined, error => {
-      reject(new ResumeImportError('upload_failed', 'upload', 'Resume upload failed.', { cause: error }));
-    }, resolve));
-    if (onUploaded) {
-      try {
-        await onUploaded({
+    const pipeline = await runResumeImportPipeline({
+      onStage,
+      upload: async () => {
+        const upload = uploadBytesResumable(ref(storage, storagePath), file, {
+          contentType: file.type,
+          customMetadata: { ownerId: userId, purpose: 'chef-profile-import', originalFileName: file.name.slice(0, 255) }
+        });
+        await new Promise<void>((resolve, reject) => upload.on('state_changed', undefined, reject, resolve));
+      },
+      register: onUploaded ? () => onUploaded({
           originalStoragePath: storagePath,
           fileName: file.name,
           contentType: file.type,
           fileSize: file.size
+        }) : undefined,
+      extract: async () => {
+        const text = await extractChefResumeText(file);
+        console.info('[Resume Import] Text extraction complete', {
+          fileType: file.type,
+          characters: text.length,
+          lines: text.split(/\r?\n/).filter(line => line.trim()).length
         });
-      } catch (error) {
-        throw new ResumeImportError('upload_failed', 'upload', 'Resume upload registration failed.', { cause: error });
-      }
-      registeredForRetry = true;
-    }
-    onStage(2);
-    const text = await extractChefResumeText(file);
-    console.info('[Resume Import] Text extraction complete', {
-      fileType: file.type,
-      characters: text.length,
-      lines: text.split(/\r?\n/).filter(line => line.trim()).length
+        return text;
+      },
+      parse: text => startExtractedResumeJob(text, workspaceId, startResumeToPortfolioJob),
+      cleanup: () => deleteObject(ref(storage, storagePath)),
+      onTiming: timings => console.info('[Resume Import] Client timings', timings)
     });
-
-    onStage(3);
-    const profile = await parseExtractedResumeText(text, workspaceId, parseResumeToPortfolioWithAI);
+    registeredForRetry = pipeline.registeredForRetry;
     return {
-      profile,
+      jobId: pipeline.result,
       originalStoragePath: storagePath,
       fileName: file.name,
       contentType: file.type,
-      fileSize: file.size
+      fileSize: file.size,
+      timings: pipeline.timings
     };
   } catch (error) {
-    if (!registeredForRetry) await deleteObject(ref(storage, storagePath)).catch(() => undefined);
-    logResumeImportFailure(error, { fileName: file.name, registeredForRetry });
+    registeredForRetry = onUploaded
+      && error instanceof ResumeImportError
+      && !['upload_failed', 'upload_registration_failed'].includes(error.code);
+    logResumeImportFailure(error, {
+      fileName: file.name,
+      storagePath,
+      authenticatedUid: userId,
+      contentType: file.type,
+      fileSize: file.size,
+      storageBucket: storage.app.options.storageBucket,
+      registeredForRetry
+    });
     throw error;
   }
 };
@@ -82,9 +94,20 @@ const parseResumeFile = async (
   onStage: (stage: 1 | 2 | 3) => void
 ) => {
   onStage(2);
+  const extractionStartedAt = performance.now();
   const text = await extractChefResumeText(file);
+  const pdfExtractionMs = performance.now() - extractionStartedAt;
   onStage(3);
-  return parseExtractedResumeText(text, workspaceId, parseResumeToPortfolioWithAI);
+  const jobStartedAt = performance.now();
+  const jobId = await startExtractedResumeJob(text, workspaceId, startResumeToPortfolioJob);
+  const timings: ResumeImportClientTimings = {
+    uploadMs: 0,
+    metadataMs: 0,
+    pdfExtractionMs,
+    jobCreationMs: performance.now() - jobStartedAt
+  };
+  console.info('[Resume Import] Retry client timings', timings);
+  return { jobId, timings };
 };
 
 export const retryResumeImport = async (
@@ -94,11 +117,12 @@ export const retryResumeImport = async (
   onStage: (stage: 1 | 2 | 3) => void
 ) => {
   if (!storage) throw new ResumeImportError('download_failed', 'download', 'Resume import is temporarily unavailable.');
-  if (!isOwnedResumeStoragePath(userId, resume.storagePath)) {
+  const storagePath = getStorageObjectPath(resume.storagePath, storage.app.options.storageBucket);
+  if (!storagePath || !isOwnedResumeStoragePath(userId, storagePath)) {
     throw new Error('This resume does not belong to the signed-in user.');
   }
   try {
-    const blob = await getBlob(ref(storage, resume.storagePath)).catch(error => {
+    const blob = await getBlob(ref(storage, storagePath)).catch(error => {
       throw new ResumeImportError('download_failed', 'download', 'Saved resume download failed.', { cause: error });
     });
     const file = new File([blob], resume.fileName, { type: resume.contentType });

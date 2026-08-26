@@ -2,6 +2,7 @@ export type ResumeImportErrorCode =
   | 'unsupported_file'
   | 'file_too_large'
   | 'upload_failed'
+  | 'upload_registration_failed'
   | 'download_failed'
   | 'pdf_invalid'
   | 'pdf_corrupted'
@@ -14,7 +15,7 @@ export type ResumeImportErrorCode =
   | 'resume_parser_network_failed'
   | 'unknown';
 
-export type ResumeImportStage = 'validation' | 'upload' | 'download' | 'pdf-worker' | 'pdf-parse' | 'text-validation' | 'resume-parser';
+export type ResumeImportStage = 'validation' | 'upload' | 'metadata' | 'download' | 'pdf-worker' | 'pdf-parse' | 'text-validation' | 'resume-parser';
 
 export class ResumeImportError extends Error {
   readonly code: ResumeImportErrorCode;
@@ -55,17 +56,37 @@ export const classifyPdfFailure = (error: unknown) => {
   return new ResumeImportError('pdf_parse_failed', 'pdf-parse', 'PDF.js could not parse the document.', { cause: error });
 };
 
+export const getFirebaseErrorDetails = (error: unknown) => {
+  const value = error && typeof error === 'object' ? error as Record<string, unknown> : {};
+  const customData = value.customData && typeof value.customData === 'object'
+    ? value.customData as Record<string, unknown>
+    : {};
+  const serverResponse = value.serverResponse
+    ?? value.serverResponse_
+    ?? customData.serverResponse
+    ?? customData.serverResponse_;
+  const status = value.status ?? value.status_ ?? customData.status ?? customData.status_;
+  return {
+    firebaseCode: typeof value.code === 'string' ? value.code : undefined,
+    firebaseMessage: typeof value.message === 'string' ? value.message : undefined,
+    serverResponse: typeof serverResponse === 'string' ? serverResponse : serverResponse ? JSON.stringify(serverResponse) : undefined,
+    httpStatus: typeof status === 'number' || typeof status === 'string' ? status : undefined
+  };
+};
+
 export const logResumeImportFailure = (error: unknown, context: Record<string, unknown> = {}) => {
   const classified = isResumeImportError(error)
     ? error
     : new ResumeImportError('unknown', 'resume-parser', error instanceof Error ? error.message : 'Unknown resume import failure', { cause: error });
   const cause = classified.cause;
+  const details = getFirebaseErrorDetails(cause);
   console.error('[Resume Import] Failed', {
     stage: classified.stage,
     code: classified.code,
     message: classified.message,
     causeName: cause instanceof Error ? cause.name : undefined,
     causeMessage: cause instanceof Error ? cause.message : cause ? String(cause) : undefined,
+    ...details,
     ...context
   });
 };

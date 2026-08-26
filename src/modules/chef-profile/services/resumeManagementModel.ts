@@ -1,5 +1,6 @@
 import type { ChefProfile, ImportedChefProfile } from '../types';
 import { isResumeImportError, type ResumeImportErrorCode } from './resumeImportErrors';
+import type { ResumeImportClientTimings } from './resumeImportPipeline';
 
 export type ResumeImportStatus = 'imported' | 'review_required' | 'failed';
 
@@ -24,7 +25,8 @@ export interface ResumeFileUpload {
 }
 
 export interface ResumeUploadResult extends ResumeFileUpload {
-  profile: ImportedChefProfile;
+  jobId: string;
+  timings: ResumeImportClientTimings;
 }
 
 export const acquireResumeImportLock = (lock: { current: boolean }) => {
@@ -46,6 +48,7 @@ export const getResumeImportErrorMessage = (error: unknown, fileName = '') => {
       unsupported_file: 'Choose a PDF or DOCX resume.',
       file_too_large: 'Your resume must be 10 MB or smaller.',
       upload_failed: 'We could not upload this resume. Check your connection and try again.',
+      upload_registration_failed: 'The resume uploaded, but we could not register it for review. Please try again.',
       download_failed: 'We could not retrieve the saved resume for retry. Check your connection and try again.',
       pdf_invalid: 'This PDF is invalid, unsupported, or password protected. Try another PDF.',
       pdf_corrupted: 'This PDF appears to be damaged. Export a fresh copy and try again.',
@@ -163,4 +166,13 @@ export const buildManagedResumeUpload = (
   contentType: result.contentType,
   fileSize: result.fileSize,
   importStatus: 'review_required'
+});
+
+export const buildManagedResumeRegistration = (
+  userId: string,
+  result: ResumeFileUpload,
+  uploadedAt: unknown
+): ManagedChefResume => ({
+  ...buildManagedResumeUpload(userId, result),
+  uploadedAt
 });

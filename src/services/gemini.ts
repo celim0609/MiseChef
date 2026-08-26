@@ -4,7 +4,8 @@
  */
 
 import { httpsCallable } from 'firebase/functions';
-import { functions } from '../firebase';
+import { auth, functions } from '../firebase';
+import { waitForResumeImportJob } from './resumeImportJobs';
 import {
   normalizeResumePortfolioDraft as normalizeResumePortfolioDraftModel,
   type GeminiResumePortfolioDraft
@@ -217,14 +218,14 @@ export const scanRecipeImageWithGemini = async ({
   }
 };
 
-export const parseResumeToPortfolioWithAI = async (resumeText: string, workspaceId: string) => {
+export const startResumeToPortfolioJob = async (resumeText: string, workspaceId: string) => {
   if (!functions) {
     throw new Error('AI is temporarily unavailable. Please try again shortly.');
   }
 
   const parseResume = httpsCallable<
     { workspaceId: string; resumeText: string; debug?: boolean },
-    { portfolio: GeminiResumePortfolioDraft }
+    { jobId: string }
   >(functions, 'parseResumeToPortfolio');
 
   try {
@@ -234,8 +235,17 @@ export const parseResumeToPortfolioWithAI = async (resumeText: string, workspace
       debug: import.meta.env.DEV
     });
 
-    return normalizeResumePortfolioDraftModel(response.data?.portfolio);
+    const jobId = readString(response.data?.jobId);
+    if (!jobId) throw new Error('The resume importer did not return a job ID.');
+    return jobId;
   } catch (err) {
     throw new Error(getCallableErrorMessage(err, 'We could not import this resume. Please try again.'), { cause: err });
   }
+};
+
+export const parseResumeToPortfolioWithAI = async (resumeText: string, workspaceId: string) => {
+  const uid = auth?.currentUser?.uid;
+  if (!uid) throw new Error('Sign in to import a resume.');
+  const jobId = await startResumeToPortfolioJob(resumeText, workspaceId);
+  return normalizeResumePortfolioDraftModel(await waitForResumeImportJob(uid, jobId));
 };

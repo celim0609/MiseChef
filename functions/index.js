@@ -5,7 +5,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
-import { onDocumentWritten } from 'firebase-functions/v2/firestore';
+import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions';
@@ -59,6 +59,12 @@ import { createStoreSocialPreviewHandler } from './storeSocialPreview.js';
 import { recordPersonalExpenseSettlement as recordPersonalExpenseSettlementCore } from './personalExpenseSettlements.js';
 import { sanitizeExtractedPersonalExpenseMerchant } from './personalExpenseReceipt.js';
 import { loadPublicDiscoverStores } from './publicDiscover.js';
+import {
+  getResumeImportClientJobPath,
+  getResumeImportJobError,
+  withResumeImportTimeout
+} from './resumeImportJob.js';
+import { buildResumeImportPrompt } from './resumeImportPrompt.js';
 
 initializeApp();
 
@@ -69,7 +75,10 @@ const stripeWebhookSecret = defineSecret('STRIPE_WEBHOOK_SECRET');
 const sellingWorkspaceId = defineString('SELLING_WORKSPACE_ID', { default: '' });
 const publicSiteOrigin = defineString('PUBLIC_SITE_ORIGIN', { default: '' });
 const MODEL = 'gemini-2.5-flash';
+const RESUME_MODEL = 'gemini-2.5-flash-lite';
 const REGION = 'us-central1';
+const RESUME_GEMINI_REQUEST_TIMEOUT_MS = 15_000;
+const RESUME_IMPORT_TIMEOUT_MS = 35_000;
 const MAX_INVOICE_OCR_BYTES = 10 * 1024 * 1024;
 const ALLOWED_INVOICE_OCR_MIME_TYPES = new Set([
   'application/pdf',
@@ -1156,14 +1165,14 @@ const sanitizeInvoiceOcr = value => {
   };
 };
 
-const logRequest = async ({ requesterId, companyId, action, status, attempts, errorCode, response, responseTime }) => {
+const logRequest = async ({ requesterId, companyId, action, status, attempts, errorCode, response, responseTime, model = MODEL }) => {
   const legacyLog = db.collection('aiRequestLogs').add({
     requesterId,
     action,
     status,
     attempts,
     errorCode: errorCode || '',
-    model: MODEL,
+    model,
     createdAt: FieldValue.serverTimestamp()
   });
 
@@ -1173,7 +1182,7 @@ const logRequest = async ({ requesterId, companyId, action, status, attempts, er
     companyId,
     feature: action,
     provider: 'gemini',
-    model: MODEL,
+    model,
     response,
     responseTime,
     status
@@ -1775,105 +1784,169 @@ Rules:
 export const parseResumeToPortfolio = onCall({
   region: REGION,
   invoker: 'public',
-  secrets: [geminiApiKey],
-  timeoutSeconds: 90,
+  timeoutSeconds: 30,
   memory: '256MiB'
 }, async request => {
   const requesterId = requireAuthenticatedUser(request);
+  const resumeText = readString(request.data?.resumeText);
+  if (!resumeText || resumeText.length < 80) {
+    throw new HttpsError('invalid-argument', 'Resume text is too short to import.');
+  }
+  if (resumeText.length > 50_000) {
+    throw new HttpsError('invalid-argument', 'Resume text is too long to import.');
+  }
+
+  const jobReference = db.collection('resumeImportJobs').doc();
+  const clientJobReference = db.doc(getResumeImportClientJobPath(requesterId, jobReference.id));
+  const createdAt = FieldValue.serverTimestamp();
+  const workspaceId = readString(request.data?.workspaceId) || requesterId;
+  const job = {
+    status: 'pending',
+    uid: requesterId,
+    workspaceId,
+    resumeText,
+    debug: request.data?.debug === true,
+    createdAt,
+    updatedAt: createdAt
+  };
+  const clientJob = {
+    status: 'pending',
+    uid: requesterId,
+    createdAt,
+    updatedAt: createdAt
+  };
+
+  const batch = db.batch();
+  batch.create(jobReference, job);
+  batch.create(clientJobReference, clientJob);
+  await batch.commit();
+
+  logger.info('Resume import job queued', {
+    requesterId,
+    action: 'parseResumeToPortfolio',
+    jobId: jobReference.id,
+    textLength: resumeText.length
+  });
+  return { jobId: jobReference.id };
+});
+
+export const processResumeImportJob = onDocumentCreated({
+  document: 'resumeImportJobs/{jobId}',
+  region: REGION,
+  secrets: [geminiApiKey],
+  timeoutSeconds: 120,
+  memory: '256MiB',
+  minInstances: 1
+}, async event => {
+  const jobSnapshot = event.data;
+  if (!jobSnapshot) return;
+  const job = jobSnapshot.data() || {};
+  if (job.status !== 'pending') return;
+
+  const requesterId = readString(job.uid);
+  const workspaceId = readString(job.workspaceId) || requesterId;
+  const resumeText = readString(job.resumeText);
+  const includeDiagnostics = job.debug === true;
   const action = 'parseResumeToPortfolio';
-  const includeDiagnostics = request.data?.debug === true;
+  const jobId = event.params.jobId;
   const startedAt = Date.now();
+  const createdAtMs = jobSnapshot.createTime?.toMillis?.() || startedAt;
+  const timings = {
+    functionStartupMs: Math.max(0, startedAt - createdAtMs),
+    preGeminiMs: 0,
+    geminiResponseMs: 0,
+    jsonParsingMs: 0,
+    resultPublishMs: 0,
+    totalFunctionMs: 0,
+    geminiAttempts: []
+  };
+  const clientJobReference = db.doc(getResumeImportClientJobPath(requesterId, jobId));
   let companyId = requesterId;
   let attempts = 0;
   let usageReservation;
 
+  const updateJob = async values => {
+    const updatedAt = FieldValue.serverTimestamp();
+    const batch = db.batch();
+    batch.set(jobSnapshot.ref, { ...values, updatedAt }, { merge: true });
+    batch.set(clientJobReference, { ...values, uid: requesterId, updatedAt }, { merge: true });
+    await batch.commit();
+  };
+
   try {
-    const entitlements = await requireWorkspaceEntitlements({
+    if (!requesterId || !resumeText || resumeText.length < 80 || resumeText.length > 50_000) {
+      throw new HttpsError('invalid-argument', 'Resume import job data is invalid.');
+    }
+    const entitlementPromise = requireWorkspaceEntitlements({
       db,
       uid: requesterId,
-      workspaceId: request.data?.workspaceId
+      workspaceId
     });
+    const [, entitlements] = await Promise.all([
+      updateJob({ status: 'processing' }),
+      entitlementPromise
+    ]);
     companyId = entitlements.workspaceId;
-
-    const resumeText = readString(request.data?.resumeText);
-    if (!resumeText || resumeText.length < 80) {
-      throw new HttpsError('invalid-argument', 'Resume text is too short to import.');
-    }
-    if (resumeText.length > 50_000) {
-      throw new HttpsError('invalid-argument', 'Resume text is too long to import.');
-    }
-
     usageReservation = await reserveMonthlySubscriptionUsage({
       db,
       entitlements,
       increments: { aiRequests: 1 }
     });
 
-    const prompt = `
-Convert this resume into an editable chef portfolio draft.
+    const prompt = buildResumeImportPrompt(resumeText);
 
-Return ONLY valid JSON with this exact top-level shape:
-{
-  "basicProfile": {"fullName":"", "professionalTitle":"", "yearsExperience":"", "shortBio":"", "quote":"", "location":"", "specialties":[]},
-  "about": {"title":"", "body":"", "quote":"", "highlights":[]},
-  "experience": [{"role":"", "organization":"", "location":"", "employmentType":"", "startDate":"", "endDate":"", "isCurrent":false, "description":"", "achievements":[]}],
-  "skills": [{"name":"", "category":"", "level":"", "description":""}],
-  "certificates": [{"title":"", "issuer":"", "issueDate":"", "expiryDate":"", "credentialId":"", "credentialUrl":"", "description":"", "skillsCertified":[]}],
-  "education": [{"schoolName":"", "qualification":"", "fieldOfStudy":"", "startYear":"", "endYear":"", "description":""}],
-  "awards": [{"name":"", "issuingOrganisation":"", "year":"", "description":""}],
-  "languages": [{"language":"", "proficiency":""}],
-  "projects": [{"title":"", "role":"", "description":"", "url":"", "startDate":"", "endDate":""}],
-  "unmappedSections": [{"sectionName":"", "content":"", "reason":""}],
-  "socialLinks": {"instagram":"","tiktok":"","facebook":"","linkedin":"","youtube":"","website":""},
-  "contact": {"email":"", "phone":"", "location":"", "message":""}
-}
-
-Rules:
-- Scan the ENTIRE resume from beginning to end before generating any JSON.
-- Do not invent details that are not present in the resume.
-- Never guess dates, employers, certificates, awards, or qualifications.
-- Ignore ID and passport numbers, marital status, religion, salary, and full home addresses.
-- Extract every supported section when present: full name, headline/professional title, summary,
-  education, work experience, skills, certifications, languages, awards, projects, and contact information.
-- If a work experience, employment history, professional experience, career history, or experience
-  section exists, return EVERY distinct role and employer as a separate experience object.
-- Never omit a supported top-level property. Return an empty array only when that section is genuinely
-  absent from the resume.
-- Keep every work, education, certificate, award, language, and project entry separate.
-- Preserve an education entry when a qualification or field is present even if the institution is omitted.
-- Put resume projects in projects, not work experience.
-- Never silently discard an unknown section. Add it to unmappedSections with its heading,
-  original concise content, and why it cannot map to a supported field.
-- Only write shortBio when the resume contains enough professional information for an accurate summary.
-- Keep professional culinary language when the resume relates to food, hospitality, or chef work.
-- Preserve dates as written.
-- Use concise editable text.
-- If a field is not present, return an empty string or empty array.
-- Do not include markdown, notes, commentary, or confidence scores.
-
-Resume text:
-${resumeText}
-`;
-
-    logger.info('AI resume import requested', { requesterId, action, textLength: resumeText.length });
+    logger.info('AI resume import requested', { requesterId, action, jobId, textLength: resumeText.length });
     const ai = getAi();
     let extraction;
     try {
-      extraction = await extractResumeWithCompletenessRetry({
+      const firstGeminiRequestAt = Date.now();
+      timings.preGeminiMs = firstGeminiRequestAt - startedAt;
+      extraction = await withResumeImportTimeout(() => extractResumeWithCompletenessRetry({
         resumeText,
         extract: async retryInstruction => {
-          const result = await callGeminiWithRetry(() => ai.models.generateContent({
-            model: MODEL,
-            contents: `${prompt}${retryInstruction}`,
-            config: {
-              responseMimeType: 'application/json',
-              responseSchema: portfolioResumeResponseSchema
-            }
-          }));
-          attempts += result.attempts;
+          const geminiStartedAt = Date.now();
+          attempts += 1;
+          let response;
+          try {
+            response = await ai.models.generateContent({
+              model: RESUME_MODEL,
+              contents: `${prompt}${retryInstruction}`,
+              config: {
+                responseMimeType: 'application/json',
+                responseSchema: portfolioResumeResponseSchema,
+                thinkingConfig: { thinkingBudget: 0 },
+                httpOptions: { timeout: RESUME_GEMINI_REQUEST_TIMEOUT_MS }
+              }
+            });
+          } catch (error) {
+            const responseMs = Date.now() - geminiStartedAt;
+            timings.geminiResponseMs += responseMs;
+            timings.geminiAttempts.push({
+              attempt: attempts,
+              responseMs,
+              retryForCompleteness: Boolean(retryInstruction),
+              errorStatus: error?.status || '',
+              errorCode: error?.code || ''
+            });
+            throw error;
+          }
+          const responseMs = Date.now() - geminiStartedAt;
+          timings.geminiResponseMs += responseMs;
+          timings.geminiAttempts.push({
+            attempt: attempts,
+            responseMs,
+            retryForCompleteness: Boolean(retryInstruction),
+            promptTokens: response.usageMetadata?.promptTokenCount || 0,
+            responseTokens: response.usageMetadata?.candidatesTokenCount || 0,
+            thinkingTokens: response.usageMetadata?.thoughtsTokenCount || 0,
+            serviceTier: response.usageMetadata?.serviceTier || ''
+          });
+          const parseStartedAt = Date.now();
+          const parsed = parseJsonResponse(response.text, {}, includeDiagnostics);
+          timings.jsonParsingMs += Date.now() - parseStartedAt;
           return {
-            response: result.response,
-            parsed: parseJsonResponse(result.response.text, {}, includeDiagnostics)
+            response,
+            parsed
           };
         },
         onIncomplete: (validation, extractionAttempt) => {
@@ -1890,7 +1963,7 @@ ${resumeText}
             detectedSections: validation.detectedSections
           });
         }
-      });
+      }), RESUME_IMPORT_TIMEOUT_MS);
     } catch (err) {
       if (err instanceof ResumeExtractionIncompleteError) {
         throw new HttpsError('failed-precondition', 'AI extraction incomplete.', {
@@ -1918,18 +1991,37 @@ ${resumeText}
         }))
       });
     }
-    await logRequest({ requesterId, companyId, action, status: 'success', attempts, response, responseTime: Date.now() - startedAt });
-    return { portfolio };
+    const publishStartedAt = Date.now();
+    timings.totalFunctionMs = publishStartedAt - startedAt;
+    await updateJob({
+      status: 'done',
+      result: portfolio,
+      timings,
+      completedAt: FieldValue.serverTimestamp(),
+      resumeText: FieldValue.delete(),
+      error: FieldValue.delete()
+    });
+    timings.resultPublishMs = Date.now() - publishStartedAt;
+    logger.info('AI resume import timings', { requesterId, jobId, model: RESUME_MODEL, timings });
+    await logRequest({ requesterId, companyId, action, status: 'success', attempts, response, responseTime: Date.now() - startedAt, model: RESUME_MODEL });
   } catch (err) {
+    attempts = attempts || 1;
+    const errorCode = err instanceof HttpsError ? err.code : 'internal';
+    const error = getResumeImportJobError(err);
+    timings.totalFunctionMs = Date.now() - startedAt;
+    logger.error('AI resume import failed', { requesterId, action, jobId, attempts, errorCode, timings, ...getErrorDiagnostics(err) });
+    await updateJob({
+      status: 'failed',
+      error,
+      errorCode,
+      timings,
+      completedAt: FieldValue.serverTimestamp(),
+      resumeText: FieldValue.delete(),
+      diagnostics: includeDiagnostics ? getErrorDiagnostics(err) : FieldValue.delete()
+    });
     await releaseMonthlySubscriptionUsage({ db, reservation: usageReservation }).catch(releaseError => {
       logger.warn('Unable to release resume import subscription usage', { requesterId, ...getErrorDiagnostics(releaseError) });
     });
-    attempts = attempts || 1;
-    const errorCode = err instanceof HttpsError ? err.code : 'internal';
-    logger.error('AI resume import failed', { requesterId, action, attempts, errorCode, ...getErrorDiagnostics(err) });
-    await logRequest({ requesterId, companyId, action, status: 'failed', attempts, errorCode, responseTime: Date.now() - startedAt }).catch(() => undefined);
-
-    if (err instanceof HttpsError) throw err;
-    throw wrapInternalError('AI resume import failed. Please try again.', err, includeDiagnostics);
+    await logRequest({ requesterId, companyId, action, status: 'failed', attempts, errorCode, responseTime: Date.now() - startedAt, model: RESUME_MODEL }).catch(() => undefined);
   }
 });

@@ -38,9 +38,10 @@ import { MarketingPage } from './modules/marketing';
 import { isPublicExperiencePath, PublicLayout } from './modules/public';
 import { AnimatePresence, motion } from 'motion/react';
 import BrandLogo from './components/BrandLogo';
-import { auth, authPersistenceReady, db } from './firebase';
+import { auth, authPersistenceReady, db, storage } from './firebase';
 import { deleteRecipeCoverImage, deleteRecipeScanAttachment, isLocalImageDataUrl, uploadRecipeCoverImage, uploadRecipeScanAttachment, uploadRecipeStepImage } from './services/storage';
 import { preserveOriginalRecipeCreator } from './services/recipeCreator';
+import { getImmediateMediaUrl, resolveStorageUrl, selectResolvedMediaUrl } from './services/storageReference';
 import { FALLBACK_CATEGORY_NAME, getRecipeCategories, normalizeRecipeCategories, recipeHasCategory } from './utils/categoryUtils';
 import { normalizeIngredientForDisplay } from './utils/ingredientParser';
 import { getConfiguredRoleForUser, resolveUserRole } from './utils/userRoles';
@@ -652,6 +653,32 @@ export default function App() {
   // Notification states
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
 
+  useEffect(() => {
+    const storedPhoto = chefProfile.photo;
+    const fallbackPhoto = currentUser?.photoURL || '';
+    const immediatePhoto = getImmediateMediaUrl(storedPhoto);
+    let cancelled = false;
+
+    setCustomAvatarUrl(immediatePhoto || fallbackPhoto);
+    if (!storage || !storedPhoto) return () => { cancelled = true; };
+
+    resolveStorageUrl(storage, storedPhoto)
+      .then(url => {
+        if (!cancelled) setCustomAvatarUrl(url || fallbackPhoto);
+      })
+      .catch(error => {
+        if (cancelled) return;
+        console.error('[Profile Media] Failed to resolve avatar', {
+          storageReference: storedPhoto,
+          code: (error as { code?: string })?.code,
+          message: error instanceof Error ? error.message : String(error)
+        });
+        setCustomAvatarUrl(fallbackPhoto);
+      });
+
+    return () => { cancelled = true; };
+  }, [chefProfile.photo, currentUser?.photoURL]);
+
   const currentWorkspaceRole: WorkspaceMemberRole | null = currentUserRole === 'super_admin'
     ? 'Owner'
     : currentUser && currentWorkspace
@@ -816,7 +843,7 @@ export default function App() {
     const cachedCategories = localStorage.getItem(STORAGE_CATEGORIES_KEY);
     const localProfile = loadLocalProfile();
     setChefProfile(localProfile);
-    setCustomAvatarUrl(localProfile.photo);
+    setCustomAvatarUrl(getImmediateMediaUrl(localProfile.photo));
     let loadedRecipes = INITIAL_RECIPES;
 
     if (cachedRecipes) {
@@ -897,7 +924,7 @@ export default function App() {
           if (user) {
             const localProfile = loadLocalProfile(user);
             setChefProfile(localProfile);
-            setCustomAvatarUrl(localProfile.photo);
+            setCustomAvatarUrl(getImmediateMediaUrl(localProfile.photo));
             setCurrentUserRole(getConfiguredRoleForUser(user));
             setIsGuestMode(false);
             const pathname = window.location.pathname;
@@ -921,7 +948,7 @@ export default function App() {
           setCurrentUserRole('user');
           const guestProfile = loadLocalProfile();
           setChefProfile(guestProfile);
-          setCustomAvatarUrl(guestProfile.photo);
+          setCustomAvatarUrl(getImmediateMediaUrl(guestProfile.photo));
           setWorkspaces([]);
           setCurrentWorkspace(null);
           setAddingRecipe(false);
@@ -1038,7 +1065,7 @@ export default function App() {
         setOnboarding(loadedOnboarding);
         if (cloudProfile) {
           setChefProfile(cloudProfile);
-          setCustomAvatarUrl(cloudProfile.photo);
+          setCustomAvatarUrl(getImmediateMediaUrl(cloudProfile.photo));
           localStorage.setItem(getChefProfileStorageKey(currentUser.uid), JSON.stringify(cloudProfile));
         }
         setWorkspaceSetupStatus('ready');
@@ -1557,7 +1584,7 @@ export default function App() {
       setCurrentUserRole('user');
       const guestProfile = loadLocalProfile();
       setChefProfile(guestProfile);
-      setCustomAvatarUrl(guestProfile.photo);
+      setCustomAvatarUrl(getImmediateMediaUrl(guestProfile.photo));
       setWorkspaces([]);
       setCurrentWorkspace(null);
       setOnboarding(normalizeOnboarding(null));
@@ -1651,7 +1678,7 @@ export default function App() {
 
   const portfolioProfile = {
     displayName: chefProfile.name || currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Chef',
-    avatarUrl: customAvatarUrl || chefProfile.photo || currentUser?.photoURL || '',
+    avatarUrl: selectResolvedMediaUrl(chefProfile.photo, customAvatarUrl, currentUser?.photoURL),
     email: currentUser?.email || ''
   };
 
@@ -1684,7 +1711,7 @@ export default function App() {
     setIsGuestMode(true);
     const localProfile = loadLocalProfile();
     setChefProfile(localProfile);
-    setCustomAvatarUrl(localProfile.photo);
+    setCustomAvatarUrl(getImmediateMediaUrl(localProfile.photo));
     setRecipes(loadLocalRecipes());
     handleRootNavigate('home');
   };
@@ -1938,7 +1965,7 @@ export default function App() {
             onCustomAvatarChange={setCustomAvatarUrl}
             onProfileChange={nextProfile => {
               setChefProfile(nextProfile);
-              setCustomAvatarUrl(nextProfile.photo);
+              setCustomAvatarUrl(getImmediateMediaUrl(nextProfile.photo));
             }}
             onSignOut={handleSignOut}
             onNotify={triggerNotification}
@@ -1967,7 +1994,7 @@ export default function App() {
             onCustomAvatarChange={setCustomAvatarUrl}
             onProfileChange={nextProfile => {
               setChefProfile(nextProfile);
-              setCustomAvatarUrl(nextProfile.photo);
+              setCustomAvatarUrl(getImmediateMediaUrl(nextProfile.photo));
             }}
             onSignOut={handleSignOut}
             onNotify={triggerNotification}
@@ -2059,7 +2086,7 @@ export default function App() {
       title: "MiseChef",
       isSubpage: false,
       activeTab: activeTab,
-      chefAvatarUrl: customAvatarUrl || chefProfile.photo || currentUser?.photoURL || undefined,
+      chefAvatarUrl: selectResolvedMediaUrl(chefProfile.photo, customAvatarUrl, currentUser?.photoURL) || undefined,
       chefName: chefProfile.name || currentUser?.displayName || currentUser?.email || 'User profile',
       showAvatar: Boolean(currentUser),
       onAvatarClick: handleAvatarClick,
