@@ -3,6 +3,16 @@ name: Validate Beta Candidate
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      candidate_ref:
+        description: Branch, tag, or commit to validate
+        required: true
+        default: fix/recipe-creator-attribution-integrated-beta
+        type: string
+      expected_candidate_sha:
+        description: Optional exact 40-character SHA that the selected ref must resolve to
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -12,42 +22,137 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  validate-beta-candidate:
+  gate-integrity:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      FIREBASE_DEPLOY_TARGET: beta
-      MISECHEF_BETA_PROTECTED_BASELINE: 06a37c0d30c47e037994454119a0461955df4ee3
-      MISECHEF_BETA_ENFORCE_CLEAN: 1
+    timeout-minutes: 10
+    outputs:
+      full_validation_ready: ${{ steps.select-gate.outputs.full_validation_ready }}
+      trusted_sha: ${{ steps.select-gate.outputs.trusted_sha }}
     steps:
-      - name: Check out exact candidate and protected history
+      - name: Check out trusted default branch
         uses: actions/checkout@v4
         with:
+          ref: main
+          path: trusted-main
           fetch-depth: 0
+
+      - name: Check out proposed bootstrap gate
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: proposed-gate
+          fetch-depth: 0
+
+      - name: Select trusted or proposed gate for integrity testing
+        id: select-gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ -f "$GITHUB_WORKSPACE/trusted-main/scripts/validateBetaGateSelf.mjs" ]]; then
+            gate_root="$GITHUB_WORKSPACE/trusted-main"
+            full_validation_ready=true
+          elif [[ "$EVENT_NAME" == "pull_request" && -f "$GITHUB_WORKSPACE/proposed-gate/scripts/validateBetaGateSelf.mjs" ]]; then
+            gate_root="$GITHUB_WORKSPACE/proposed-gate"
+            full_validation_ready=false
+          else
+            echo "Trusted gate infrastructure is absent and no complete bootstrap proposal is available." >&2
+            exit 1
+          fi
+          trusted_sha="$(git -C "$gate_root" rev-parse HEAD)"
+          echo "gate_root=$gate_root" >> "$GITHUB_OUTPUT"
+          echo "full_validation_ready=$full_validation_ready" >> "$GITHUB_OUTPUT"
+          echo "trusted_sha=$trusted_sha" >> "$GITHUB_OUTPUT"
+          echo "Gate integrity source: $trusted_sha"
 
       - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
-      - name: Set up Java for Firebase Rules emulators
+      - name: Install trusted gate dependencies
+        run: npm --prefix "${{ steps.select-gate.outputs.gate_root }}" ci
+
+      - name: Validate trusted gate authority
+        run: npm --prefix "${{ steps.select-gate.outputs.gate_root }}" run validate:beta-gate-self
+
+      - name: Run trusted gate anti-tampering tests
+        run: npm --prefix "${{ steps.select-gate.outputs.gate_root }}" run test:beta-gate
+
+      - name: Report bootstrap validation mode
+        if: ${{ steps.select-gate.outputs.full_validation_ready != 'true' }}
+        run: echo "Bootstrap integrity passed. Full Release #16 candidate validation becomes available after this trusted gate lands on main."
+
+  validate-beta-candidate:
+    needs: gate-integrity
+    if: ${{ needs.gate-integrity.outputs.full_validation_ready == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FIREBASE_DEPLOY_TARGET: beta
+      MISECHEF_BETA_PROTECTED_BASELINE: 06a37c0d30c47e037994454119a0461955df4ee3
+      MISECHEF_BETA_ENFORCE_CLEAN: 1
+    steps:
+      - name: Check out exact trusted gate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate-integrity.outputs.trusted_sha }}
+          path: trusted-gate
+          fetch-depth: 0
+
+      - name: Check out exact candidate tree
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.candidate_ref }}
+          path: candidate
+          fetch-depth: 0
+
+      - name: Resolve and verify exact candidate SHA
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.expected_candidate_sha }}
+        run: |
+          resolved_sha="$(git -C "$GITHUB_WORKSPACE/candidate" rev-parse HEAD)"
+          echo "Resolved candidate SHA: $resolved_sha"
+          if [[ -n "$EXPECTED_SHA" && ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected candidate SHA must be an exact lowercase 40-character Git SHA." >&2
+            exit 1
+          fi
+          if [[ -n "$EXPECTED_SHA" && "$resolved_sha" != "$EXPECTED_SHA" ]]; then
+            echo "Candidate SHA mismatch: expected $EXPECTED_SHA but resolved $resolved_sha" >&2
+            exit 1
+          fi
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Java 21 for mandatory Firebase Rules suites
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
 
-      - name: Install application dependencies
-        run: npm ci
+      - name: Install trusted gate dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/trusted-gate" ci
 
-      - name: Install Functions dependencies
-        run: npm --prefix functions ci
+      - name: Install candidate application dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/candidate" ci
+
+      - name: Install candidate Functions dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/candidate/functions" ci
 
       - name: Install pinned Firebase CLI
         run: npm install --global firebase-tools@14.22.0
 
       - name: Validate protected baseline and capability contract
-        run: npm run validate:beta-baseline
+        run: >-
+          node "$GITHUB_WORKSPACE/trusted-gate/scripts/validateBetaReleaseBaseline.mjs"
+          --trusted-root "$GITHUB_WORKSPACE/trusted-gate"
+          --candidate-root "$GITHUB_WORKSPACE/candidate"
 
-      - name: Run permanent protected regression gate
-        run: node scripts/runBetaProtectedTests.mjs
+      - name: Run permanent candidate regression gate
+        run: >-
+          node "$GITHUB_WORKSPACE/trusted-gate/scripts/runBetaProtectedTests.mjs"
+          --trusted-root "$GITHUB_WORKSPACE/trusted-gate"
+          --candidate-root "$GITHUB_WORKSPACE/candidate"

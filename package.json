@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
+    "validate:beta-gate-self": "node scripts/validateBetaGateSelf.mjs --trusted-root .",
+    "test:beta-gate": "node --test scripts/betaCapabilities.test.mjs",
     "validate:firebase-env": "node scripts/validateFirebaseEnv.mjs",
     "prebuild": "npm run validate:firebase-env",
     "build": "vite build",
