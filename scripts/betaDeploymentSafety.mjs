@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
-export const MANDATORY_BETA_BASELINE = '4ae89ff2b49c5e5ec90baacab08de0fe9ffad86c';
+export const MANDATORY_BETA_BASELINE = '06a37c0d30c47e037994454119a0461955df4ee3';
 export const BETA_PROJECT_ID = 'misechef-beta-fa4bf';
 export const PRODUCTION_PROJECT_ID = 'misechef-fa4bf';
 export const BETA_STORAGE_TARGET = 'beta-default';

@@ -1,6 +1,6 @@
 # MiseChef Beta release safety
 
-- Treat commit `4ae89ff2b49c5e5ec90baacab08de0fe9ffad86c` as the mandatory protected Beta baseline until the protected CI release authority is advanced after a successful release and live QA.
+- Treat commit `06a37c0d30c47e037994454119a0461955df4ee3` (Beta Release #16) as the mandatory protected Beta baseline until the protected CI release authority is advanced after a successful release and live QA.
 - Start future Beta work from the latest integrated Beta release HEAD. A final deploy candidate must be descended from the recorded baseline and include the new feature on top.
 - Never deploy Hosting from a stale or divergent feature branch/worktree.
 - The only supported Beta deployment entry point is the protected CI **Beta Release** workflow, which runs `npm run deploy:beta`. Direct `firebase deploy` commands are unsupported.

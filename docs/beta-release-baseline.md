@@ -2,7 +2,7 @@
 
 The mandatory protected Beta baseline is:
 
-`4ae89ff2b49c5e5ec90baacab08de0fe9ffad86c`
+`06a37c0d30c47e037994454119a0461955df4ee3` (Beta Release #16)
 
 The repository copy is documentation, not the sole authority. The protected CI `beta` environment must provide the same value through the `MISECHEF_BETA_PROTECTED_BASELINE` repository/environment variable. A candidate must match that external value and descend from it.
 
@@ -22,7 +22,7 @@ Direct `firebase deploy`, resource-only deployment, deployment from dirty source
 
 GitHub environment/repository configuration must define:
 
-- `MISECHEF_BETA_PROTECTED_BASELINE=4ae89ff2b49c5e5ec90baacab08de0fe9ffad86c`
+- `MISECHEF_BETA_PROTECTED_BASELINE=06a37c0d30c47e037994454119a0461955df4ee3`
 - `MISECHEF_BETA_BOOTSTRAP_LIVE_ASSET=/assets/index-CxlZYCEu.js` until the first hardened release publishes live release metadata
 - `FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA` with credentials restricted to the Beta project
 
