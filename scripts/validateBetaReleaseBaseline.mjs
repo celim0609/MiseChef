@@ -8,6 +8,7 @@ import {
   assertCleanSource,
   assertExplicitBetaStorageTarget
 } from './betaDeploymentSafety.mjs';
+import { assertBetaCapabilities } from './betaCapabilities.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const readRepositoryFile = filePath => readFileSync(path.join(repositoryRoot, filePath), 'utf8');
@@ -15,6 +16,8 @@ const baseline = JSON.parse(readRepositoryFile('config/beta-release-baseline.jso
 const firebaseConfig = JSON.parse(readRepositoryFile('firebase.json'));
 const firebaseRc = JSON.parse(readRepositoryFile('.firebaserc'));
 const firebaseProjects = firebaseRc.projects || {};
+
+const capabilityReport = assertBetaCapabilities({ repositoryRoot });
 
 assertExplicitBetaStorageTarget({ firebaseConfig, firebaseRc });
 
@@ -180,3 +183,4 @@ if (missing.length > 0) {
 
 console.log(`Beta release baseline check passed: ${authorityBaseline} -> ${candidateCommit}`);
 console.log(`Protected modules present: ${baseline.protectedModules.join(', ')}`);
+console.log(`Capability contract present: ${capabilityReport.counts.protectedFunctions} Functions, ${capabilityReport.counts.routes} routes, ${capabilityReport.counts.storageCapabilities} Storage paths, ${capabilityReport.counts.indexes} indexes, ${capabilityReport.counts.hostingRewrites} Hosting rewrites`);
