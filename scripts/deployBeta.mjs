@@ -126,7 +126,12 @@ try {
   const liveBefore = await readLiveBetaFingerprint();
   assertLiveBaseline({
     liveFingerprint: liveBefore,
-    authorityBaseline
+    resolveSourceTree: commit => git(['rev-parse', `${commit}^{tree}`]),
+    isAncestor: (ancestor, descendant) => spawnSync(
+      'git',
+      ['merge-base', '--is-ancestor', ancestor, descendant],
+      { cwd: repositoryRoot, stdio: 'ignore' }
+    ).status === 0
   });
   if (liveBefore.releaseCommit) {
     const liveIsAncestor = spawnSync('git', ['merge-base', '--is-ancestor', liveBefore.releaseCommit, head], {

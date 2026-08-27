@@ -162,15 +162,36 @@ export const assertLiveReleaseUnchanged = (before, current) => {
   }
 };
 
-export const assertLiveBaseline = ({ liveFingerprint, authorityBaseline }) => {
+export const assertLiveBaseline = ({ liveFingerprint, resolveSourceTree, isAncestor }) => {
   const liveCommit = liveFingerprint?.releaseCommit;
-  if (!/^[0-9a-f]{40}$/.test(liveCommit || '')) {
+  const liveSourceTree = liveFingerprint?.releaseSourceTree;
+  const liveProtectedBaseline = liveFingerprint?.releaseProtectedBaseline;
+  if (
+    !/^[0-9a-f]{40}$/.test(liveCommit || '')
+    || !/^[0-9a-f]{40}$/.test(liveSourceTree || '')
+    || !/^[0-9a-f]{40}$/.test(liveProtectedBaseline || '')
+  ) {
     throw new Error(
       'Live Beta release metadata is missing or unreadable. Deployment is blocked until a manifest-bearing approved release is restored.'
     );
   }
-  if (liveFingerprint.releaseProtectedBaseline !== authorityBaseline) {
-    throw new Error('Live Beta release metadata does not match the authoritative protected baseline.');
+  let resolvedSourceTree;
+  try {
+    resolvedSourceTree = resolveSourceTree(liveCommit);
+  } catch {
+    throw new Error('Live Beta release sourceCommit cannot be resolved in Git.');
+  }
+  if (resolvedSourceTree !== liveSourceTree) {
+    throw new Error('Live Beta release sourceTree does not match its sourceCommit Git tree.');
+  }
+  let baselineIsAncestor = false;
+  try {
+    baselineIsAncestor = isAncestor(liveProtectedBaseline, liveCommit);
+  } catch {
+    baselineIsAncestor = false;
+  }
+  if (!baselineIsAncestor) {
+    throw new Error('Live Beta release protectedBaseline is not an ancestor of its sourceCommit.');
   }
   if (!liveFingerprint.rootAsset || liveFingerprint.rootAsset !== liveFingerprint.storeAsset) {
     throw new Error('Live Beta Hosting and public Store assets do not identify one coherent release.');

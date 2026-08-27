@@ -189,28 +189,73 @@ test('concurrent or newer live Beta release fails', () => {
 });
 
 test('missing, unreadable, or incoherent live release manifests block deployment', () => {
+  const sourceCommit = 'a'.repeat(40);
+  const sourceTree = 'b'.repeat(40);
+  const protectedBaseline = 'c'.repeat(40);
+  const validGitChecks = {
+    resolveSourceTree: commit => commit === sourceCommit ? sourceTree : null,
+    isAncestor: (ancestor, descendant) => ancestor === protectedBaseline && descendant === sourceCommit
+  };
   assert.throws(() => assertLiveBaseline({
     liveFingerprint: { releaseCommit: null, rootAsset: '/assets/index-old.js', storeAsset: null },
-    authorityBaseline: MANDATORY_BETA_BASELINE
+    ...validGitChecks
   }), /metadata is missing or unreadable/);
   assert.throws(() => assertLiveBaseline({
     liveFingerprint: {
-      releaseCommit: 'a'.repeat(40),
-      releaseProtectedBaseline: MANDATORY_BETA_BASELINE,
+      releaseCommit: sourceCommit,
+      releaseSourceTree: sourceTree,
+      releaseProtectedBaseline: protectedBaseline,
       rootAsset: '/assets/index-a.js',
       storeAsset: '/assets/index-b.js'
     },
-    authorityBaseline: MANDATORY_BETA_BASELINE
+    ...validGitChecks
   }), /do not identify one coherent release/);
   assert.doesNotThrow(() => assertLiveBaseline({
     liveFingerprint: {
-      releaseCommit: 'a'.repeat(40),
-      releaseProtectedBaseline: MANDATORY_BETA_BASELINE,
+      releaseCommit: sourceCommit,
+      releaseSourceTree: sourceTree,
+      releaseProtectedBaseline: protectedBaseline,
       rootAsset: '/assets/index-a.js',
       storeAsset: '/assets/index-a.js'
     },
-    authorityBaseline: MANDATORY_BETA_BASELINE
+    ...validGitChecks
   }));
+});
+
+test('historical live manifests require exact SHAs, a matching source tree, and valid history', () => {
+  const sourceCommit = 'a'.repeat(40);
+  const sourceTree = 'b'.repeat(40);
+  const historicalBaseline = 'c'.repeat(40);
+  const liveFingerprint = {
+    releaseCommit: sourceCommit,
+    releaseSourceTree: sourceTree,
+    releaseProtectedBaseline: historicalBaseline,
+    rootAsset: '/assets/index-a.js',
+    storeAsset: '/assets/index-a.js'
+  };
+
+  assert.doesNotThrow(() => assertLiveBaseline({
+    liveFingerprint,
+    resolveSourceTree: () => sourceTree,
+    isAncestor: (ancestor, descendant) => ancestor === historicalBaseline && descendant === sourceCommit
+  }));
+  for (const field of ['releaseCommit', 'releaseSourceTree', 'releaseProtectedBaseline']) {
+    assert.throws(() => assertLiveBaseline({
+      liveFingerprint: { ...liveFingerprint, [field]: 'not-a-sha' },
+      resolveSourceTree: () => sourceTree,
+      isAncestor: () => true
+    }), /metadata is missing or unreadable/);
+  }
+  assert.throws(() => assertLiveBaseline({
+    liveFingerprint,
+    resolveSourceTree: () => 'd'.repeat(40),
+    isAncestor: () => true
+  }), /sourceTree does not match/);
+  assert.throws(() => assertLiveBaseline({
+    liveFingerprint,
+    resolveSourceTree: () => sourceTree,
+    isAncestor: () => false
+  }), /protectedBaseline is not an ancestor/);
 });
 
 test('a clean current integrated candidate with matching artifacts and CI lock passes', () => {

@@ -41,6 +41,7 @@ export const readLiveBetaFingerprint = async ({
     rootAsset: extractAsset(root.text),
     storeAsset: extractAsset(store.text),
     releaseCommit: releaseMetadata?.sourceCommit || null,
+    releaseSourceTree: releaseMetadata?.sourceTree || null,
     releaseProtectedBaseline: releaseMetadata?.protectedBaseline || null,
     releaseBuildId: releaseMetadata?.buildId || null,
     rootEtag: root.etag,
