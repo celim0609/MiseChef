@@ -187,7 +187,76 @@ const validateDraft = (store, draft, currentDate) => {
   }
 };
 
-export const buildOrderItems = (selections, products, optionGroups) => selections.map(selection => {
+const buildSetOrderItem = (selection, sets, products) => {
+  const set = sets.find(candidate => candidate.id === readString(selection.setId) && candidate.available === true);
+  if (!set) throw new Error('A set in your cart is no longer available.');
+  const groups = Array.isArray(set.groups) ? [...set.groups].sort((a, b) => readNumber(a.sortOrder) - readNumber(b.sortOrder)) : [];
+  const choices = Array.isArray(selection.selectedSetItems) ? selection.selectedSetItems : [];
+  const selectedGroups = [];
+  for (const group of groups) {
+    const groupId = readString(group.id);
+    const groupName = readString(group.name) || 'Selection';
+    const selectionCount = Number.isInteger(group.selectionCount) && group.selectionCount > 0 ? group.selectionCount : 1;
+    const required = typeof group.required === 'boolean' ? group.required : true;
+    const groupChoices = choices.filter(choice => readString(choice.groupId) === groupId);
+    if ((required && groupChoices.length !== selectionCount) || (!required && groupChoices.length > selectionCount)) {
+      throw new Error(required
+        ? `Choose ${selectionCount} ${groupName} option${selectionCount === 1 ? '' : 's'} for ${readString(set.name) || 'this set'}.`
+        : `Choose up to ${selectionCount} ${groupName} option${selectionCount === 1 ? '' : 's'} for ${readString(set.name) || 'this set'}.`);
+    }
+    if (new Set(groupChoices.map(choice => readString(choice.productId))).size !== groupChoices.length) {
+      throw new Error(`Choose each ${groupName} product only once.`);
+    }
+    const options = Array.isArray(group.options) ? group.options : [];
+    for (const choice of groupChoices) {
+      const productId = readString(choice.productId);
+      const option = options.find(candidate => readString(candidate.productId) === productId);
+      const product = products.find(candidate => candidate.id === productId && candidate.available === true);
+      if (!option || !product) throw new Error(`Choose an available ${groupName} option for ${readString(set.name) || 'this set'}.`);
+      selectedGroups.push({
+        groupId,
+        groupName,
+        productId: product.id,
+        productName: readString(product.name),
+        standalonePrice: roundMoney(Math.max(0, readNumber(product.price))),
+        ...(Number.isFinite(product.estimatedCost) && product.estimatedCost >= 0
+          ? { estimatedCost: roundMoney(product.estimatedCost) }
+          : {}),
+        priceAdjustment: roundMoney(Math.max(0, readNumber(option.priceAdjustment)))
+      });
+    }
+  }
+  if (choices.some(choice => !groups.some(group => readString(group.id) === readString(choice.groupId)))) {
+    throw new Error(`A selection for ${readString(set.name) || 'this set'} is no longer available.`);
+  }
+  const basePrice = roundMoney(Math.max(0, readNumber(set.price)));
+  const upgradeTotal = roundMoney(selectedGroups.reduce((sum, item) => sum + item.priceAdjustment, 0));
+  const unitPrice = roundMoney(basePrice + upgradeTotal);
+  const regularValue = roundMoney(selectedGroups.reduce((sum, item) => sum + item.standalonePrice, 0));
+  return {
+    itemType: 'set',
+    productId: set.id,
+    productName: readString(set.name),
+    photoUrl: readString(set.photoUrl),
+    quantity: selection.quantity,
+    basePrice,
+    unitPrice,
+    lineTotal: roundMoney(unitPrice * selection.quantity),
+    selectedOptions: [],
+    setSnapshot: {
+      setId: set.id,
+      setName: readString(set.name),
+      category: readString(set.category),
+      baseSetPrice: basePrice,
+      regularValue,
+      customerSaving: roundMoney(Math.max(0, regularValue - unitPrice)),
+      selectedGroups
+    }
+  };
+};
+
+export const buildOrderItems = (selections, products, optionGroups, sets = []) => selections.map(selection => {
+  if (readString(selection.setId)) return buildSetOrderItem(selection, sets, products);
   const product = products.find(candidate => (
     candidate.id === readString(selection.productId) && candidate.available === true
   ));
@@ -250,6 +319,7 @@ export const buildOrderItems = (selections, products, optionGroups) => selection
     basePrice + selectedOptions.reduce((sum, option) => sum + option.priceAdjustment, 0)
   ));
   return {
+    itemType: 'product',
     productId: product.id,
     productName: readString(product.name),
     photoUrl: readString(product.photoUrl),
@@ -268,6 +338,7 @@ export const buildPendingOrder = ({
   store,
   products,
   optionGroups,
+  sets = [],
   paymentProvider,
   paymentProviderMode,
   paymentMethod,
@@ -287,7 +358,7 @@ export const buildPendingOrder = ({
     id: 'stripe',
     name: 'Secure online payment'
   };
-  const items = buildOrderItems(draft.selections, products, optionGroups);
+  const items = buildOrderItems(draft.selections, products, optionGroups, sets);
   const pickupLocation = store.pickupLocations.find(
     location => readString(location.id) === readString(draft.pickupLocationId)
   );

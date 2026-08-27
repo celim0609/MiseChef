@@ -25,19 +25,24 @@ const loadStoreCheckoutData = async (db, slug) => {
   if (!storeDocument) throw new Error('This Store is no longer available.');
 
   const store = { id: storeDocument.id, ...storeDocument.data() };
-  const [productSnapshot, optionGroupSnapshot] = await Promise.all([
+  const [productSnapshot, optionGroupSnapshot, setSnapshot] = await Promise.all([
     db.collection('storeProducts')
       .where('storeId', '==', storeDocument.id)
       .where('available', '==', true)
       .get(),
     db.collection('storeOptionGroups')
       .where('storeId', '==', storeDocument.id)
+      .get(),
+    db.collection('storeSets')
+      .where('storeId', '==', storeDocument.id)
+      .where('available', '==', true)
       .get()
   ]);
   return {
     store,
     products: productSnapshot.docs.map(document => ({ id: document.id, ...document.data() })),
-    optionGroups: optionGroupSnapshot.docs.map(document => ({ id: document.id, ...document.data() }))
+    optionGroups: optionGroupSnapshot.docs.map(document => ({ id: document.id, ...document.data() })),
+    sets: setSnapshot.docs.map(document => ({ id: document.id, ...document.data() }))
   };
 };
 

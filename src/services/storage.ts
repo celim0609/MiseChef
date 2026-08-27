@@ -168,6 +168,30 @@ export const uploadStoreProductPhoto = async ({
   }
 };
 
+export const uploadStoreSetImage = async ({
+  workspaceId,
+  setId,
+  file,
+  onProgress
+}: {
+  workspaceId: string;
+  setId: string;
+  file: File;
+  onProgress?: (progress: number) => void;
+}) => {
+  const extension = requireSupportedImageExtension(file);
+  try {
+    return await uploadFile({
+      path: `stores/${workspaceId}/sets/${setId}/image.${extension}`,
+      file,
+      cacheControl: 'public,max-age=31536000',
+      onProgress
+    });
+  } catch (error) {
+    throw new Error(getStorageUploadErrorMessage(error, 'Set image'));
+  }
+};
+
 export const uploadStorePaymentQr = async ({
   workspaceId,
   methodId,

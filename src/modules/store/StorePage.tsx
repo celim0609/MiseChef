@@ -7,6 +7,7 @@ import {
   Download,
   ExternalLink,
   ImagePlus,
+  Layers3,
   MapPin,
   MonitorUp,
   Package,
@@ -32,6 +33,7 @@ import {
 } from '../../services/storage';
 import { storeService } from './services';
 import StoreOrdersPanel from './StoreOrdersPanel';
+import StoreSetsPanel from './StoreSetsPanel';
 import {
   createStoreQrBlob,
   createStoreQrDataUrl,
@@ -54,6 +56,7 @@ import type {
   StoreNotification,
   StoreProduct,
   StoreProductDraft,
+  StoreSet,
   StoreSettingsDraft,
   WorkspaceStore
 } from './types';
@@ -79,7 +82,7 @@ interface StorePageProps {
   onOpenPos?: () => void;
 }
 
-type StoreView = 'products' | 'orders' | 'pickup' | 'settings';
+type StoreView = 'products' | 'sets' | 'orders' | 'pickup' | 'settings';
 
 interface ProductOptionEditor {
   id: string;
@@ -151,6 +154,7 @@ const moveItem = <T,>(items: T[], fromIndex: number, toIndex: number) => {
 
 const viewItems: Array<{ id: StoreView; label: string; question: string; icon: typeof Package }> = [
   { id: 'products', label: 'Products', question: 'What am I selling?', icon: Package },
+  { id: 'sets', label: 'Sets & Combos', question: 'Which products can customers enjoy together?', icon: Layers3 },
   { id: 'orders', label: 'Orders', question: 'What have customers ordered?', icon: ClipboardList },
   { id: 'pickup', label: 'Pickup', question: 'Where and when do customers collect?', icon: MapPin },
   { id: 'settings', label: 'Store Settings', question: 'How does my store look?', icon: Settings }
@@ -169,6 +173,7 @@ export default function StorePage({
   const permissions = getStorePermissions(workspaceRole);
   const visibleViewItems = viewItems.filter(item => (
     item.id === 'products'
+    || (item.id === 'sets' && permissions.manageProducts)
     || (item.id === 'orders' && permissions.viewOrders)
     || ((item.id === 'pickup' || item.id === 'settings') && permissions.manageStoreSettings)
   ));
@@ -176,6 +181,7 @@ export default function StorePage({
   const [store, setStore] = useState<WorkspaceStore | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<StoreSettingsDraft | null>(null);
   const [products, setProducts] = useState<StoreProduct[]>([]);
+  const [sets, setSets] = useState<StoreSet[]>([]);
   const [productSearch, setProductSearch] = useState('');
   const [optionGroups, setOptionGroups] = useState<StoreOptionGroup[]>([]);
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -231,16 +237,19 @@ export default function StorePage({
         setStore(loadedStore);
         setSettingsDraft(loadedStore ? toSettingsDraft(loadedStore) : null);
         if (loadedStore) {
-          const [loadedProducts, loadedOptionGroups] = await Promise.all([
+          const [loadedProducts, loadedOptionGroups, loadedSets] = await Promise.all([
             storeService.listAdminProducts(workspace.id),
-            storeService.listOptionGroups(workspace.id)
+            storeService.listOptionGroups(workspace.id),
+            storeService.listSets(workspace.id)
           ]);
           if (isCancelled) return;
           setProducts(loadedProducts);
           setOptionGroups(loadedOptionGroups);
+          setSets(loadedSets);
         } else {
           setProducts([]);
           setOptionGroups([]);
+          setSets([]);
         }
         setActiveView(focusOrderId ? 'orders' : 'products');
       } catch (error) {
@@ -1117,6 +1126,26 @@ export default function StorePage({
             )}
           </div>
         </section>
+      )}
+
+      {activeView === 'sets' && (
+        <StoreSetsPanel
+          currentUser={currentUser}
+          workspaceId={workspace.id}
+          currency={region.currency}
+          products={products}
+          sets={sets}
+          onSetsChange={setSets}
+          onMessage={(nextMessage, isError = false) => {
+            if (isError) {
+              setMessage('');
+              setErrorMessage(nextMessage);
+            } else {
+              setErrorMessage('');
+              setMessage(nextMessage);
+            }
+          }}
+        />
       )}
 
       {activeView === 'orders' && (

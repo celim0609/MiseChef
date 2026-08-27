@@ -48,6 +48,18 @@ test('option-group writes validate production selection fields and remain produc
   assert.doesNotMatch(optionRules, /allow (create|update|delete): if true/);
 });
 
+test('set management uses the integrated product-manager scope while public reads require availability', () => {
+  const rulesStart = firestoreRules.indexOf('match /storeSets/{setId}');
+  const rulesEnd = firestoreRules.indexOf('match /storeOrders/{orderId}', rulesStart);
+  const setRules = firestoreRules.slice(rulesStart, rulesEnd);
+
+  assert.match(setRules, /canManageStoreProducts\(request\.resource\.data\.workspaceId\)/);
+  assert.match(setRules, /canManageStoreProducts\(resource\.data\.workspaceId\)/);
+  assert.match(setRules, /isValidStoreSet\(request\.resource\.data, setId\)/);
+  assert.match(setRules, /allow read: if resource\.data\.available == true/);
+  assert.doesNotMatch(setRules, /allow (create|update|delete): if true/);
+});
+
 test('merchant and customer option UX clearly distinguishes Optional from Required', () => {
   assert.match(storePage, />Selection requirement</);
   assert.match(storePage, /<option value="optional">Optional<\/option>/);

@@ -260,8 +260,8 @@ export default function StoreOrdersPanel({
             </dl>
 
             <div className="mt-6 space-y-3">
-              {selectedOrder.items.map(item => (
-                <div key={`${selectedOrder.id}_${item.productId}`} className="rounded-2xl border border-surface-container-high p-4">
+              {selectedOrder.items.map((item, itemIndex) => (
+                <div key={`${selectedOrder.id}_${item.productId}_${itemIndex}`} className="rounded-2xl border border-surface-container-high p-4">
                   <div className="flex justify-between gap-4">
                     <div>
                       <h3 className="font-sans text-sm font-extrabold text-primary">{item.quantity} × {item.productName}</h3>
@@ -269,6 +269,16 @@ export default function StoreOrdersPanel({
                     </div>
                     <p className="font-sans text-sm font-extrabold text-primary">{formatRegionCurrency(item.lineTotal, currency)}</p>
                   </div>
+                  {item.setSnapshot && (
+                    <ul className="mt-3 space-y-1.5">
+                      {item.setSnapshot.selectedGroups.map((selection, index) => (
+                        <li key={`${selection.groupId}_${selection.productId}_${index}`} className="flex justify-between gap-3 font-sans text-xs font-bold text-on-surface-variant">
+                          <span>{selection.groupName}: {selection.productName}</span>
+                          <span>{selection.priceAdjustment > 0 ? `+${formatRegionCurrency(selection.priceAdjustment, currency)}` : 'Included'}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                   {item.selectedOptions.length > 0 && (
                     <ul className="mt-3 space-y-1.5">
                       {item.selectedOptions.map(option => (

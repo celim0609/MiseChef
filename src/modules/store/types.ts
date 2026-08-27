@@ -171,6 +171,8 @@ export interface StoreProduct {
   name: string;
   description: string;
   price: number;
+  /** Current per-item cost when the Store product has costing data attached. */
+  estimatedCost?: number;
   available: boolean;
   optionGroupIds: string[];
   createdBy: string;
@@ -187,19 +189,88 @@ export interface StoreProductDraft {
   optionGroupIds: string[];
 }
 
+export interface StoreSetOption {
+  productId: string;
+  priceAdjustment: number;
+  sortOrder: number;
+}
+
+export interface StoreSetGroup {
+  id: string;
+  name: string;
+  required: boolean;
+  selectionCount: number;
+  sortOrder: number;
+  options: StoreSetOption[];
+}
+
+export interface StoreSet {
+  id: string;
+  storeId: string;
+  workspaceId: string;
+  name: string;
+  description: string;
+  photoUrl: string;
+  category: string;
+  price: number;
+  available: boolean;
+  sortOrder: number;
+  groups: StoreSetGroup[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoreSetDraft {
+  name: string;
+  description: string;
+  photoUrl: string;
+  category: string;
+  price: number;
+  available: boolean;
+  sortOrder: number;
+  groups: StoreSetGroup[];
+}
+
 export interface PublicStoreData {
   store: WorkspaceStore;
   products: StoreProduct[];
   optionGroups: StoreOptionGroup[];
+  sets: StoreSet[];
 }
 
 export interface CartSelection {
   productId: string;
+  setId?: string;
   quantity: number;
   selectedOptions: Array<{
     groupId: string;
     optionId: string;
   }>;
+  selectedSetItems?: Array<{
+    groupId: string;
+    productId: string;
+  }>;
+}
+
+export interface StoreOrderSetSelection {
+  groupId: string;
+  groupName: string;
+  productId: string;
+  productName: string;
+  standalonePrice: number;
+  estimatedCost?: number;
+  priceAdjustment: number;
+}
+
+export interface StoreOrderSetSnapshot {
+  setId: string;
+  setName: string;
+  category: string;
+  baseSetPrice: number;
+  regularValue: number;
+  customerSaving: number;
+  selectedGroups: StoreOrderSetSelection[];
 }
 
 export interface StoreOrderItemOption {
@@ -211,6 +282,7 @@ export interface StoreOrderItemOption {
 }
 
 export interface StoreOrderItem {
+  itemType?: 'product' | 'set';
   productId: string;
   productName: string;
   photoUrl: string;
@@ -219,6 +291,7 @@ export interface StoreOrderItem {
   unitPrice: number;
   lineTotal: number;
   selectedOptions: StoreOrderItemOption[];
+  setSnapshot?: StoreOrderSetSnapshot;
 }
 
 export type StoreOrderSource = 'online' | 'pos';

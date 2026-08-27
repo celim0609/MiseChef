@@ -28,6 +28,9 @@ export type {
   PublicStoreOrderResult,
   StoreProduct,
   StoreProductDraft,
+  StoreSet,
+  StoreSetDraft,
+  StoreSetGroup,
   StoreSettingsDraft,
   WorkspaceStore
 } from './types';

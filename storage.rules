@@ -136,6 +136,13 @@ service firebase.storage {
       allow delete: if canManageStoreProducts(workspaceId);
     }
 
+    match /stores/{workspaceId}/sets/{setId}/{fileName} {
+      allow read: if true;
+      allow create, update: if canManageStoreProducts(workspaceId)
+        && validImageUpload(10 * 1024 * 1024);
+      allow delete: if canManageStoreProducts(workspaceId);
+    }
+
     match /stores/{workspaceId}/{allPaths=**} {
       allow read: if true;
       allow create, update: if canManageWorkspace(workspaceId)

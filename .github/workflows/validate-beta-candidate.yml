@@ -3,6 +3,11 @@ name: Validate Beta Candidate
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      expected_candidate_sha:
+        description: Optional exact 40-character SHA expected for this candidate
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -14,40 +19,75 @@ concurrency:
 jobs:
   validate-beta-candidate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       FIREBASE_DEPLOY_TARGET: beta
       MISECHEF_BETA_PROTECTED_BASELINE: 06a37c0d30c47e037994454119a0461955df4ee3
       MISECHEF_BETA_ENFORCE_CLEAN: 1
     steps:
-      - name: Check out exact candidate and protected history
+      - name: Check out immutable trusted Beta gate
         uses: actions/checkout@v4
         with:
+          ref: 9c2173b9f9ae42b1fc09826c57cef46697759452
+          path: trusted-gate
           fetch-depth: 0
+
+      - name: Check out exact candidate tree
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          path: candidate
+          fetch-depth: 0
+
+      - name: Resolve and verify exact candidate SHA
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.expected_candidate_sha }}
+        run: |
+          resolved_sha="$(git -C "$GITHUB_WORKSPACE/candidate" rev-parse HEAD)"
+          echo "Resolved candidate SHA: $resolved_sha"
+          if [[ -n "$EXPECTED_SHA" && ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected candidate SHA must be an exact lowercase 40-character Git SHA." >&2
+            exit 1
+          fi
+          if [[ -n "$EXPECTED_SHA" && "$resolved_sha" != "$EXPECTED_SHA" ]]; then
+            echo "Candidate SHA mismatch: expected $EXPECTED_SHA but resolved $resolved_sha" >&2
+            exit 1
+          fi
 
       - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
-      - name: Set up Java for Firebase Rules emulators
+      - name: Set up Java 21 for mandatory Firebase Rules suites
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
 
-      - name: Install application dependencies
-        run: npm ci
+      - name: Install immutable trusted gate dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/trusted-gate" ci
 
-      - name: Install Functions dependencies
-        run: npm --prefix functions ci
+      - name: Install candidate application dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/candidate" ci
+
+      - name: Install candidate Functions dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/candidate/functions" ci
 
       - name: Install pinned Firebase CLI
         run: npm install --global firebase-tools@14.22.0
 
-      - name: Validate protected baseline and capability contract
-        run: npm run validate:beta-baseline
+      - name: Validate the actual candidate against the immutable trusted baseline
+        run: >-
+          node "$GITHUB_WORKSPACE/trusted-gate/scripts/validateBetaReleaseBaseline.mjs"
+          --trusted-root "$GITHUB_WORKSPACE/trusted-gate"
+          --candidate-root "$GITHUB_WORKSPACE/candidate"
 
-      - name: Run permanent protected regression gate
-        run: node scripts/runBetaProtectedTests.mjs
+      - name: Run the complete immutable trusted candidate regression gate
+        run: >-
+          node "$GITHUB_WORKSPACE/trusted-gate/scripts/runBetaProtectedTests.mjs"
+          --trusted-root "$GITHUB_WORKSPACE/trusted-gate"
+          --candidate-root "$GITHUB_WORKSPACE/candidate"
+
+      - name: Run Store Sets Firestore authorization suite
+        run: npm --prefix "$GITHUB_WORKSPACE/candidate" run test:store-sets:rules

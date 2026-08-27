@@ -18,7 +18,7 @@ const sourceTests = readdirSync(path.join(repositoryRoot, 'src'), { recursive: t
 run('npm', ['run', 'lint']);
 run('npm', ['run', 'validate:beta-capabilities']);
 run('npm', ['run', 'test:beta-capabilities']);
-run('npx', ['tsx', '--test', ...sourceTests]);
+run('node', ['--import', 'tsx', '--test', ...sourceTests]);
 run('npm', ['--prefix', 'functions', 'test']);
 
 try {
@@ -36,4 +36,5 @@ run('npm', ['run', 'test:resume-import:rules']);
 run('npm', ['run', 'test:chef-profile:rules']);
 run('npm', ['run', 'test:personal-expenses:rules']);
 run('npm', ['run', 'test:store-payments:rules']);
+run('npm', ['run', 'test:store-sets:rules']);
 console.log('All protected Beta integration suites passed.');

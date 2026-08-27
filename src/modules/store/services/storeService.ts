@@ -22,12 +22,15 @@ import {
   validateStoreProduct,
   validateStoreSettings
 } from '../storeModel';
+import { normalizeStoreSet, validateStoreSet } from '../storeSetModel';
 import type {
   PublicStoreData,
   StoreOptionGroup,
   StoreOptionGroupDraft,
   StoreProduct,
   StoreProductDraft,
+  StoreSet,
+  StoreSetDraft,
   StoreSettingsDraft,
   WorkspaceStore
 } from '../types';
@@ -225,6 +228,16 @@ export const storeService = {
     return doc(collection(db, 'storePickupLocationIds')).id;
   },
 
+  createSetId() {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    return doc(collection(db, 'storeSets')).id;
+  },
+
+  createSetGroupId() {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    return doc(collection(db, 'storeSetGroupIds')).id;
+  },
+
   async listOptionGroups(workspaceId: string): Promise<StoreOptionGroup[]> {
     if (!db || !workspaceId) return [];
     const groupsQuery = query(
@@ -377,6 +390,75 @@ export const storeService = {
     await deleteDoc(doc(db, 'storeProducts', productId));
   },
 
+  async listSets(workspaceId: string): Promise<StoreSet[]> {
+    if (!db || !workspaceId) return [];
+    const snapshot = await getDocs(query(collection(db, 'storeSets'), where('workspaceId', '==', workspaceId)));
+    return snapshot.docs
+      .map(setDocument => normalizeStoreSet(setDocument.id, setDocument.data() as Record<string, unknown>))
+      .sort((a, b) => a.sortOrder - b.sortOrder || b.updatedAt.localeCompare(a.updatedAt));
+  },
+
+  async createSet({ id, workspaceId, draft, createdBy }: {
+    id: string;
+    workspaceId: string;
+    draft: StoreSetDraft;
+    createdBy: string;
+  }): Promise<StoreSet> {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    const validationError = validateStoreSet(draft);
+    if (validationError) throw new Error(validationError);
+    const now = new Date().toISOString();
+    const set: StoreSet = {
+      id,
+      storeId: workspaceId,
+      workspaceId,
+      ...draft,
+      name: draft.name.trim(),
+      description: draft.description.trim(),
+      photoUrl: draft.photoUrl.trim(),
+      category: draft.category.trim(),
+      groups: draft.groups.map((group, groupIndex) => ({
+        ...group,
+        name: group.name.trim(),
+        sortOrder: groupIndex,
+        options: group.options.map((option, optionIndex) => ({ ...option, sortOrder: optionIndex }))
+      })),
+      createdBy,
+      createdAt: now,
+      updatedAt: now
+    };
+    await setDoc(doc(db, 'storeSets', id), removeUndefinedFields(set));
+    return set;
+  },
+
+  async updateSet(set: StoreSet, draft: StoreSetDraft): Promise<StoreSet> {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    const validationError = validateStoreSet(draft);
+    if (validationError) throw new Error(validationError);
+    const updated: StoreSet = {
+      ...set,
+      ...draft,
+      name: draft.name.trim(),
+      description: draft.description.trim(),
+      photoUrl: draft.photoUrl.trim(),
+      category: draft.category.trim(),
+      groups: draft.groups.map((group, groupIndex) => ({
+        ...group,
+        name: group.name.trim(),
+        sortOrder: groupIndex,
+        options: group.options.map((option, optionIndex) => ({ ...option, sortOrder: optionIndex }))
+      })),
+      updatedAt: new Date().toISOString()
+    };
+    await setDoc(doc(db, 'storeSets', set.id), removeUndefinedFields(updated), { merge: true });
+    return updated;
+  },
+
+  async deleteSet(setId: string): Promise<void> {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    await deleteDoc(doc(db, 'storeSets', setId));
+  },
+
   async getPublicStore(slug: string): Promise<PublicStoreData | null> {
     if (import.meta.env.DEV && import.meta.env.VITE_STORE_QA_FIXTURE === 'true') {
       const { createPublicStoreQaFixture } = await import('../testing/publicStoreQaFixture');
@@ -406,9 +488,15 @@ export const storeService = {
       collection(db, 'storeOptionGroups'),
       where('storeId', '==', store.id)
     );
-    const [productSnapshot, optionGroupSnapshot] = await Promise.all([
+    const setsQuery = query(
+      collection(db, 'storeSets'),
+      where('storeId', '==', store.id),
+      where('available', '==', true)
+    );
+    const [productSnapshot, optionGroupSnapshot, setSnapshot] = await Promise.all([
       getDocs(productsQuery),
-      getDocs(optionGroupsQuery)
+      getDocs(optionGroupsQuery),
+      getDocs(setsQuery)
     ]);
     const products = filterPublicAvailableProducts(productSnapshot.docs
       .map(productDoc => normalizeStoreProduct(productDoc.id, productDoc.data() as Record<string, unknown>))
@@ -418,7 +506,10 @@ export const storeService = {
       .map(groupDoc => normalizeStoreOptionGroup(groupDoc.id, groupDoc.data() as Record<string, unknown>))
       .filter(group => referencedGroupIds.has(group.id))
       .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+    const sets = setSnapshot.docs
+      .map(setDocument => normalizeStoreSet(setDocument.id, setDocument.data() as Record<string, unknown>))
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
 
-    return { store, products, optionGroups };
+    return { store, products, optionGroups, sets };
   }
 };

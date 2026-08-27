@@ -21,6 +21,7 @@ import {
   assertExplicitBetaStorageTarget,
   assertExactResourcePlan,
   assertLiveReleaseUnchanged,
+  assertLiveBaseline,
   assertPinnedFirebaseCliStorageBehavior,
   resolveStorageTarget,
   sha256File
@@ -187,6 +188,31 @@ test('concurrent or newer live Beta release fails', () => {
   ), /Live Beta release changed/);
 });
 
+test('missing, unreadable, or incoherent live release manifests block deployment', () => {
+  assert.throws(() => assertLiveBaseline({
+    liveFingerprint: { releaseCommit: null, rootAsset: '/assets/index-old.js', storeAsset: null },
+    authorityBaseline: MANDATORY_BETA_BASELINE
+  }), /metadata is missing or unreadable/);
+  assert.throws(() => assertLiveBaseline({
+    liveFingerprint: {
+      releaseCommit: 'a'.repeat(40),
+      releaseProtectedBaseline: MANDATORY_BETA_BASELINE,
+      rootAsset: '/assets/index-a.js',
+      storeAsset: '/assets/index-b.js'
+    },
+    authorityBaseline: MANDATORY_BETA_BASELINE
+  }), /do not identify one coherent release/);
+  assert.doesNotThrow(() => assertLiveBaseline({
+    liveFingerprint: {
+      releaseCommit: 'a'.repeat(40),
+      releaseProtectedBaseline: MANDATORY_BETA_BASELINE,
+      rootAsset: '/assets/index-a.js',
+      storeAsset: '/assets/index-a.js'
+    },
+    authorityBaseline: MANDATORY_BETA_BASELINE
+  }));
+});
+
 test('a clean current integrated candidate with matching artifacts and CI lock passes', () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'misechef-beta-valid-'));
   try {
@@ -249,6 +275,7 @@ test('the canonical deploy command is the only package Beta deploy entry point',
   assert.equal(pkg.scripts['deploy:beta'], 'node scripts/deployBeta.mjs');
   assert.match(pkg.scripts['test:resume-import:rules'], /resumeImportJobAccessControl\.test\.mjs/);
   assert.match(protectedTests, /run\('npm', \['run', 'test:resume-import:rules'\]\)/);
+  assert.match(protectedTests, /run\('npm', \['run', 'test:store-sets:rules'\]\)/);
   assert.doesNotMatch(JSON.stringify(pkg.scripts), /FIREBASE_DEPLOY_TARGET=beta firebase deploy/);
 });
 
@@ -266,11 +293,20 @@ test('baseline validation fails instead of skipping when target context is missi
 test('protected CI supplies external authority and an authoritative concurrency group', () => {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const workflow = readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'deploy-beta.yml'), 'utf8');
+  const validationWorkflow = readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'validate-beta-candidate.yml'), 'utf8');
   assert.match(workflow, /group: misechef-beta-deployment/);
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /vars\.MISECHEF_BETA_PROTECTED_BASELINE/);
   assert.match(workflow, /secrets\.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA/);
+  assert.match(workflow, /expected_candidate_sha/);
+  assert.match(workflow, /ref: 9c2173b9f9ae42b1fc09826c57cef46697759452/);
+  assert.match(workflow, /validateBetaReleaseBaseline\.mjs/);
+  assert.match(workflow, /runBetaProtectedTests\.mjs/);
   assert.match(workflow, /npm run deploy:beta/);
+  assert.match(validationWorkflow, /ref: 9c2173b9f9ae42b1fc09826c57cef46697759452/);
+  assert.match(validationWorkflow, /--trusted-root/);
+  assert.match(validationWorkflow, /--candidate-root/);
+  assert.match(validationWorkflow, /test:store-sets:rules/);
 });
 
 test('repository baseline and documentation contain no stale protected-baseline references', () => {

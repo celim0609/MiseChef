@@ -162,15 +162,18 @@ export const assertLiveReleaseUnchanged = (before, current) => {
   }
 };
 
-export const assertLiveBaseline = ({ liveFingerprint, authorityBaseline, bootstrapAsset }) => {
+export const assertLiveBaseline = ({ liveFingerprint, authorityBaseline }) => {
   const liveCommit = liveFingerprint?.releaseCommit;
-  if (liveCommit) {
-    return;
-  }
-  if (!bootstrapAsset || liveFingerprint?.rootAsset !== bootstrapAsset) {
+  if (!/^[0-9a-f]{40}$/.test(liveCommit || '')) {
     throw new Error(
-      'Live Beta has no hardened release metadata and does not match the externally approved bootstrap asset.'
+      'Live Beta release metadata is missing or unreadable. Deployment is blocked until a manifest-bearing approved release is restored.'
     );
+  }
+  if (liveFingerprint.releaseProtectedBaseline !== authorityBaseline) {
+    throw new Error('Live Beta release metadata does not match the authoritative protected baseline.');
+  }
+  if (!liveFingerprint.rootAsset || liveFingerprint.rootAsset !== liveFingerprint.storeAsset) {
+    throw new Error('Live Beta Hosting and public Store assets do not identify one coherent release.');
   }
 };
 

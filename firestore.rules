@@ -409,6 +409,7 @@ service cloud.firestore {
           'name',
           'description',
           'price',
+          'estimatedCost',
           'available',
           'optionGroupIds',
           'createdBy',
@@ -426,6 +427,7 @@ service cloud.firestore {
         && data.description.size() <= 1200
         && data.price is number
         && data.price >= 0
+        && (!('estimatedCost' in data) || (data.estimatedCost is number && data.estimatedCost >= 0))
         && data.available is bool
         && data.optionGroupIds is list
         && data.optionGroupIds.size() <= 10
@@ -480,6 +482,47 @@ service cloud.firestore {
         && isValidStoreOptionAt(options, 17)
         && isValidStoreOptionAt(options, 18)
         && isValidStoreOptionAt(options, 19);
+    }
+
+    function isValidStoreSet(data, setId) {
+      return data.keys().hasOnly([
+          'id',
+          'storeId',
+          'workspaceId',
+          'name',
+          'description',
+          'photoUrl',
+          'category',
+          'price',
+          'available',
+          'sortOrder',
+          'groups',
+          'createdBy',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.id == setId
+        && data.storeId == data.workspaceId
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 160
+        && data.description is string
+        && data.description.size() <= 1200
+        && data.photoUrl is string
+        && data.photoUrl.size() > 0
+        && data.category is string
+        && data.category.size() <= 80
+        && data.price is number
+        && data.price >= 0
+        && data.available is bool
+        && data.sortOrder is int
+        && data.sortOrder >= 0
+        && data.groups is list
+        && data.groups.size() > 0
+        && data.groups.size() <= 10
+        && data.createdBy is string
+        && data.createdAt is string
+        && data.updatedAt is string;
     }
 
     function isValidStoreOptionGroup(data, groupId) {
@@ -1033,6 +1076,31 @@ service cloud.firestore {
           'sortOrder',
           'available',
           'options',
+          'updatedAt'
+        ]);
+      allow delete: if canManageStoreProducts(resource.data.workspaceId);
+    }
+
+    match /storeSets/{setId} {
+      allow read: if resource.data.available == true
+        || canViewStore(resource.data.workspaceId);
+      allow create: if canManageStoreProducts(request.resource.data.workspaceId)
+        && isValidStoreSet(request.resource.data, setId)
+        && request.resource.data.createdBy == request.auth.uid
+        && exists(/databases/$(database)/documents/stores/$(request.resource.data.workspaceId));
+      allow update: if canManageStoreProducts(resource.data.workspaceId)
+        && request.resource.data.workspaceId == resource.data.workspaceId
+        && request.resource.data.storeId == resource.data.storeId
+        && isValidStoreSet(request.resource.data, setId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name',
+          'description',
+          'photoUrl',
+          'category',
+          'price',
+          'available',
+          'sortOrder',
+          'groups',
           'updatedAt'
         ]);
       allow delete: if canManageStoreProducts(resource.data.workspaceId);

@@ -31,6 +31,12 @@ import {
   storePaymentMethodRequiresReceipt,
   validateStoreProductOptionSelections
 } from './storeModel';
+import {
+  calculateStoreSetAnalysis,
+  getDefaultStoreSetSelections,
+  getStoreSetUnavailableReason,
+  validateStoreSetSelections
+} from './storeSetModel';
 import { getBusinessWhatsAppUrl } from './selling';
 import type {
   CartSelection,
@@ -40,7 +46,8 @@ import type {
   StorePaymentProviderId,
   StorePaymentMethodId,
   StorePaymentSession,
-  StoreProduct
+  StoreProduct,
+  StoreSet
 } from './types';
 
 interface CartLine extends CartSelection {
@@ -81,6 +88,8 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const [configuringProduct, setConfiguringProduct] = useState<StoreProduct | null>(null);
+  const [configuringSet, setConfiguringSet] = useState<StoreSet | null>(null);
+  const [configuredSetItems, setConfiguredSetItems] = useState<Record<string, string[]>>({});
   const [configuredOptions, setConfiguredOptions] = useState<Record<string, string[]>>({});
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customerName, setCustomerName] = useState('');
@@ -204,17 +213,25 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
   );
 
   const cartDetails = useMemo(() => cart.map(line => {
+    const set = line.setId ? data?.sets.find(candidate => candidate.id === line.setId) : undefined;
     const product = data?.products.find(candidate => candidate.id === line.productId);
     const options = line.selectedOptions.map(selection => {
       const group = optionGroupsById.get(selection.groupId);
       const option = group?.options.find(candidate => candidate.id === selection.optionId);
       return { group, option };
     });
-    const unitPrice = calculateStoreOptionAdjustedPrice(
-      product?.price || 0,
-      options.map(item => item.option?.priceAdjustment || 0)
+    const setSelections = line.selectedSetItems || [];
+    const setAnalysis = set ? calculateStoreSetAnalysis(set, data?.products || [], setSelections) : null;
+    const unitPrice = setAnalysis?.sellingPrice ?? calculateStoreOptionAdjustedPrice(
+      product?.price || 0, options.map(item => item.option?.priceAdjustment || 0)
     );
-    return { line, product, options, unitPrice, lineTotal: unitPrice * line.quantity };
+    const setItems = setSelections.map(selection => ({
+      group: set?.groups.find(group => group.id === selection.groupId),
+      product: data?.products.find(candidate => candidate.id === selection.productId),
+      adjustment: set?.groups.find(group => group.id === selection.groupId)
+        ?.options.find(option => option.productId === selection.productId)?.priceAdjustment || 0
+    }));
+    return { line, product, set, options, setItems, unitPrice, lineTotal: unitPrice * line.quantity };
   }), [cart, data, optionGroupsById]);
 
   const configuredProductPrice = useMemo(() => {
@@ -243,6 +260,17 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
       configuredSelections
     );
   }, [configuredSelections, configuringProduct, data]);
+
+  const configuredSetSelections = useMemo<NonNullable<CartSelection['selectedSetItems']>>(() => (
+    (Object.entries(configuredSetItems) as Array<[string, string[]]>)
+      .flatMap(([groupId, productIds]) => productIds.map(productId => ({ groupId, productId })))
+  ), [configuredSetItems]);
+  const configuredSetAnalysis = useMemo(() => configuringSet && data
+    ? calculateStoreSetAnalysis(configuringSet, data.products, configuredSetSelections)
+    : null, [configuredSetSelections, configuringSet, data]);
+  const configuredSetError = useMemo(() => configuringSet && data
+    ? validateStoreSetSelections(configuringSet, data.products, configuredSetSelections)
+    : '', [configuredSetSelections, configuringSet, data]);
 
   const hasAvailableProductOptions = (product: StoreProduct) => (
     product.optionGroupIds.every(groupId => {
@@ -280,6 +308,31 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
     });
     setConfiguringProduct(null);
     setConfiguredOptions({});
+    setPlacedOrder(null);
+    setPaymentSession(null);
+    setCheckoutError('');
+  };
+
+  const startAddingSet = (set: StoreSet) => {
+    if (!data || getStoreSetUnavailableReason(set, data.products)) return;
+    const defaults = getDefaultStoreSetSelections(set, data.products);
+    setConfiguredSetItems(Object.fromEntries(set.groups.map(group => [
+      group.id,
+      defaults.filter(item => item.groupId === group.id).map(item => item.productId)
+    ])));
+    setConfiguringSet(set);
+  };
+
+  const addConfiguredSet = (set: StoreSet) => {
+    const selectedSetItems = configuredSetSelections;
+    const key = `set:${set.id}:${selectedSetItems.map(item => `${item.groupId}=${item.productId}`).sort().join('|')}`;
+    setCart(current => {
+      const existing = current.find(line => line.key === key);
+      if (existing) return current.map(line => line.key === key ? { ...line, quantity: Math.min(20, line.quantity + 1) } : line);
+      return [...current, { key, productId: set.id, setId: set.id, quantity: 1, selectedOptions: [], selectedSetItems }];
+    });
+    setConfiguringSet(null);
+    setConfiguredSetItems({});
     setPlacedOrder(null);
     setPaymentSession(null);
     setCheckoutError('');
@@ -323,10 +376,12 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
         pickupSession,
         pickupLocationId,
         notes,
-        selections: cart.map(({ productId, quantity, selectedOptions }) => ({
+        selections: cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({
           productId,
+          ...(setId ? { setId } : {}),
           quantity,
-          selectedOptions
+          selectedOptions,
+          ...(selectedSetItems ? { selectedSetItems } : {})
         })),
         ...(groupOrder ? { groupShareCode: groupOrder.shareCode } : {})
       }, paymentReturnUrl);
@@ -373,7 +428,7 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
     );
   }
 
-  const { store, products } = data;
+  const { store, products, sets } = data;
   const region = getRegionConfiguration(store.country);
   const storeWhatsApp = store.storeContact.whatsapp;
   const bulkOrderWhatsAppUrl = getBusinessWhatsAppUrl(storeWhatsApp);
@@ -473,10 +528,24 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
 
       <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_23rem]">
         <section>
-          <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Products</p>
+          <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Products &amp; Sets</p>
           <h2 className="mt-2 font-display text-3xl font-bold text-primary">Available now</h2>
-          {products.length > 0 ? (
+          {products.length > 0 || sets.length > 0 ? (
             <div className="mt-6 grid gap-5 sm:grid-cols-2">
+              {sets.map(set => {
+                const unavailableReason = getStoreSetUnavailableReason(set, products);
+                return <article key={`set-${set.id}`} className="overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
+                  {set.photoUrl && <img src={set.photoUrl} alt={set.name} className="h-52 w-full object-cover" referrerPolicy="no-referrer" />}
+                  <div className="p-5">
+                    <p className="text-[10px] font-extrabold uppercase tracking-wider text-secondary">{set.category || 'Set & Combo'}</p>
+                    <h3 className="mt-1 font-display text-2xl font-bold text-primary">{set.name}</h3>
+                    <p className="mt-2 font-sans text-lg font-extrabold text-secondary">{formatRegionCurrency(set.price, store.currency)}</p>
+                    {set.description && <p className="mt-3 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{set.description}</p>}
+                    {unavailableReason && <p className="mt-3 text-xs font-bold text-error">{unavailableReason}</p>}
+                    {canOrderPickup && <button type="button" disabled={Boolean(unavailableReason)} onClick={() => startAddingSet(set)} className="mt-5 w-full rounded-full bg-primary px-5 py-3 text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">{unavailableReason ? 'Currently unavailable' : 'Choose Set'}</button>}
+                  </div>
+                </article>;
+              })}
               {products.map(product => (
                 <article key={product.id} className="overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
                   {product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-52 w-full object-cover" referrerPolicy="no-referrer" />}
@@ -498,7 +567,7 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
           ) : (
             <div className="mt-6 rounded-3xl border border-dashed border-outline-variant bg-surface-container-low px-6 py-14 text-center">
               <PackageOpen className="mx-auto h-8 w-8 text-primary" />
-              <h3 className="mt-4 font-display text-2xl font-bold text-primary">No products available</h3>
+              <h3 className="mt-4 font-display text-2xl font-bold text-primary">No products or sets available</h3>
               <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Please check back soon.</p>
             </div>
           )}
@@ -582,11 +651,17 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
           ) : cartDetails.length > 0 ? (
             <>
               <div className="mt-5 space-y-4">
-                {cartDetails.map(({ line, product, options, lineTotal }) => product && (
+                {cartDetails.map(({ line, product, set, options, setItems, lineTotal }) => (product || set) && (
                   <div key={line.key} className="border-b border-surface-container-high pb-4">
                     <div className="flex justify-between gap-3">
                       <div>
-                        <p className="font-sans text-sm font-extrabold text-primary">{product.name}</p>
+                        <p className="font-sans text-sm font-extrabold text-primary">{set?.name || product?.name}</p>
+                        {setItems.map(({ group, product: selectedProduct, adjustment }, index) => group && selectedProduct && (
+                          <p key={`${group.id}-${selectedProduct.id}-${index}`} className="mt-0.5 font-sans text-[11px] font-bold text-on-surface-variant">
+                            {group.name}: {selectedProduct.name}
+                            {adjustment > 0 && ` (+${formatRegionCurrency(adjustment, store.currency)})`}
+                          </p>
+                        ))}
                         {options.map(({ group, option }) => group && option && (
                           <p key={group.id} className="mt-0.5 font-sans text-[11px] font-bold text-on-surface-variant">
                             {group.name}: {option.name}
@@ -597,9 +672,9 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
                       <p className="font-sans text-sm font-extrabold text-secondary">{formatRegionCurrency(lineTotal, store.currency)}</p>
                     </div>
                     <div className="mt-3 flex items-center gap-2">
-                      <button type="button" aria-label={`Remove one ${product.name}`} onClick={() => setCart(current => current.flatMap(item => item.key !== line.key ? [item] : item.quantity > 1 ? [{ ...item, quantity: item.quantity - 1 }] : []))} className="rounded-full bg-surface-container p-2 text-primary"><Minus className="h-3.5 w-3.5" /></button>
+                      <button type="button" aria-label={`Remove one ${set?.name || product?.name}`} onClick={() => setCart(current => current.flatMap(item => item.key !== line.key ? [item] : item.quantity > 1 ? [{ ...item, quantity: item.quantity - 1 }] : []))} className="rounded-full bg-surface-container p-2 text-primary"><Minus className="h-3.5 w-3.5" /></button>
                       <span className="min-w-6 text-center font-sans text-xs font-extrabold text-primary">{line.quantity}</span>
-                      <button type="button" aria-label={`Add one ${product.name}`} onClick={() => setCart(current => current.map(item => item.key === line.key ? { ...item, quantity: Math.min(20, item.quantity + 1) } : item))} className="rounded-full bg-surface-container p-2 text-primary"><Plus className="h-3.5 w-3.5" /></button>
+                      <button type="button" aria-label={`Add one ${set?.name || product?.name}`} onClick={() => setCart(current => current.map(item => item.key === line.key ? { ...item, quantity: Math.min(20, item.quantity + 1) } : item))} className="rounded-full bg-surface-container p-2 text-primary"><Plus className="h-3.5 w-3.5" /></button>
                     </div>
                   </div>
                 ))}
@@ -705,7 +780,7 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
               </form>
             </>
           ) : !placedOrder && canOrderPickup ? (
-            <p className="mt-5 font-sans text-sm font-bold text-on-surface-variant">Add a product to start your pickup pre-order.</p>
+            <p className="mt-5 font-sans text-sm font-bold text-on-surface-variant">Add a product or set to start your pickup pre-order.</p>
           ) : null}
         </aside>
       </div>
@@ -735,6 +810,35 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
           <span className="font-sans text-sm font-extrabold">View order · {cartCount}</span>
           <span className="font-sans text-sm font-extrabold">{formatRegionCurrency(cartTotal, store.currency)}</span>
         </a>
+      )}
+
+      {configuringSet && configuredSetAnalysis && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-primary/50 p-0 sm:items-center sm:p-6">
+          <section role="dialog" aria-modal="true" aria-labelledby="set-options-title" className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-6 shadow-2xl sm:rounded-3xl">
+            <div className="flex items-start justify-between gap-3">
+              <div><p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Build your set</p><h2 id="set-options-title" className="mt-1 font-display text-3xl font-bold text-primary">{configuringSet.name}</h2><p className="mt-2 text-sm font-extrabold text-secondary">{formatRegionCurrency(configuredSetAnalysis.sellingPrice, store.currency)}</p></div>
+              <button type="button" aria-label="Close set options" onClick={() => setConfiguringSet(null)} className="rounded-full bg-surface-container p-2 text-primary"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="mt-6 space-y-5">{configuringSet.groups.map(group => {
+              const availableOptions = group.options.flatMap(option => {
+                const product = products.find(candidate => candidate.id === option.productId && candidate.available);
+                return product ? [{ option, product }] : [];
+              });
+              const selectedIds = configuredSetItems[group.id] || [];
+              return <fieldset key={group.id}>
+                <legend className="text-sm font-extrabold text-primary">Choose your {group.name}{group.required && <span className="ml-1 text-error">*</span>}</legend>
+                <p className="mt-1 text-[11px] font-bold text-on-surface-variant">{group.required ? `Choose ${group.selectionCount}` : `Optional · choose up to ${group.selectionCount}`}</p>
+                <div className="mt-2 space-y-2">
+                  {!group.required && <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3"><input type={group.selectionCount === 1 ? 'radio' : 'checkbox'} name={`set-${group.id}`} checked={selectedIds.length === 0} onChange={() => setConfiguredSetItems(current => ({ ...current, [group.id]: [] }))} /><span className="text-sm font-extrabold text-primary">No selection</span></label>}
+                  {availableOptions.map(({ option, product }) => <label key={product.id} className="flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3"><span className="flex min-w-0 items-center gap-3"><input type={group.selectionCount === 1 ? 'radio' : 'checkbox'} name={`set-${group.id}`} checked={selectedIds.includes(product.id)} disabled={group.selectionCount > 1 && !selectedIds.includes(product.id) && selectedIds.length >= group.selectionCount} onChange={() => setConfiguredSetItems(current => ({ ...current, [group.id]: group.selectionCount === 1 ? [product.id] : selectedIds.includes(product.id) ? selectedIds.filter(id => id !== product.id) : [...selectedIds, product.id] }))} /><span className="truncate text-sm font-extrabold text-primary">{product.name}</span></span><span className="shrink-0 text-xs font-bold text-on-surface-variant">{option.priceAdjustment > 0 ? `+${formatRegionCurrency(option.priceAdjustment, store.currency)}` : 'Included'}</span></label>)}
+                </div>
+              </fieldset>;
+            })}</div>
+            {configuredSetError && <p className="mt-5 rounded-2xl bg-error/10 p-3 text-xs font-bold text-error">{configuredSetError}</p>}
+            <dl className="mt-6 rounded-2xl bg-surface-container-low p-4 text-xs"><div className="flex justify-between gap-3 text-on-surface-variant"><dt>Regular Value</dt><dd className="font-bold">{formatRegionCurrency(configuredSetAnalysis.regularValue, store.currency)}</dd></div><div className="mt-2 flex justify-between gap-3 text-primary"><dt className="font-extrabold">Set</dt><dd className="font-extrabold">{formatRegionCurrency(configuredSetAnalysis.sellingPrice, store.currency)}</dd></div><div className="mt-2 flex justify-between gap-3 text-green-700"><dt className="font-extrabold">Save</dt><dd className="font-extrabold">{formatRegionCurrency(configuredSetAnalysis.customerSaving, store.currency)}</dd></div></dl>
+            <button type="button" disabled={Boolean(configuredSetError)} onClick={() => addConfiguredSet(configuringSet)} className="mt-4 w-full rounded-full bg-primary px-5 py-3.5 text-sm font-extrabold text-on-primary disabled:opacity-45">Add to Cart · {formatRegionCurrency(configuredSetAnalysis.sellingPrice, store.currency)}</button>
+          </section>
+        </div>
       )}
 
       {configuringProduct && (

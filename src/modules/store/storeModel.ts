@@ -10,11 +10,13 @@ import type {
   StoreOrderItem,
   StoreOrderDraft,
   StoreOrderDay,
+  StoreSet,
   StorePaymentMethodConfig,
   StoreContact,
   StoreSettingsDraft,
   WorkspaceStore
 } from './types';
+import { buildStoreSetOrderItem } from './storeSetModel';
 
 export const DEFAULT_STORE_BUSINESS_HOURS = 'Monday–Sunday, 9:00 AM–9:00 PM';
 export const STORE_ORDER_DAYS: Array<{ id: StoreOrderDay; label: string; dayIndex: number }> = [
@@ -318,6 +320,9 @@ export const normalizeStoreProduct = (
   name: readString(data.name, 'Product'),
   description: readString(data.description),
   price: readPrice(data.price),
+  ...(Number.isFinite(Number(data.estimatedCost)) && Number(data.estimatedCost) >= 0
+    ? { estimatedCost: Number(data.estimatedCost) }
+    : {}),
   available: readBoolean(data.available),
   optionGroupIds: Array.isArray(data.optionGroupIds)
     ? [...new Set(data.optionGroupIds.filter((groupId): groupId is string => typeof groupId === 'string' && Boolean(groupId.trim())).map(groupId => groupId.trim()))]
@@ -589,8 +594,14 @@ export const validateStoreProductOptionSelections = (
 export const buildStoreOrderItems = (
   selections: CartSelection[],
   products: StoreProduct[],
-  optionGroups: StoreOptionGroup[]
+  optionGroups: StoreOptionGroup[],
+  sets: StoreSet[] = []
 ): StoreOrderItem[] => selections.map(selection => {
+  if (selection.setId) {
+    const set = sets.find(candidate => candidate.id === selection.setId);
+    if (!set) throw new Error('A set in your cart is no longer available.');
+    return buildStoreSetOrderItem(selection, set, products);
+  }
   const product = products.find(candidate => candidate.id === selection.productId && candidate.available);
   if (!product) throw new Error('A product in your cart is no longer available.');
   const selectionError = validateStoreProductOptionSelections(product, optionGroups, selection.selectedOptions);
@@ -619,6 +630,7 @@ export const buildStoreOrderItems = (
   );
 
   return {
+    itemType: 'product',
     productId: product.id,
     productName: product.name,
     photoUrl: product.photoUrl,

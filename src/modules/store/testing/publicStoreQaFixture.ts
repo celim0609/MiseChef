@@ -65,6 +65,29 @@ export const createPublicStoreQaFixture = (slug: string): PublicStoreData | null
       createdBy: 'qa-owner',
       createdAt: now,
       updatedAt: now
+    }, {
+      id: 'qa-nasi-lemak', storeId: 'qa-ce-lim-workspace', workspaceId: 'qa-ce-lim-workspace',
+      photoUrl: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22640%22 height=%22400%22%3E%3Crect width=%22640%22 height=%22400%22 fill=%22%23f6e7c8%22/%3E%3Ctext x=%22320%22 y=%22210%22 text-anchor=%22middle%22 font-family=%22sans-serif%22 font-size=%2232%22 fill=%22%235f4728%22%3ENasi Lemak%3C/text%3E%3C/svg%3E',
+      name: 'Nasi Lemak', description: 'Coconut rice with sambal.', price: 5.9, estimatedCost: 1.83,
+      available: true, optionGroupIds: [], createdBy: 'qa-owner', createdAt: now, updatedAt: now
+    }, {
+      id: 'qa-kopi-o', storeId: 'qa-ce-lim-workspace', workspaceId: 'qa-ce-lim-workspace',
+      photoUrl: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22640%22 height=%22400%22%3E%3Crect width=%22640%22 height=%22400%22 fill=%22%23d9c6b3%22/%3E%3Ctext x=%22320%22 y=%22210%22 text-anchor=%22middle%22 font-family=%22sans-serif%22 font-size=%2232%22 fill=%22%234c3228%22%3EKopi O%3C/text%3E%3C/svg%3E',
+      name: 'Kopi O 8oz', description: '', price: 3.5, estimatedCost: 1.05,
+      available: true, optionGroupIds: [], createdBy: 'qa-owner', createdAt: now, updatedAt: now
+    }, {
+      id: 'qa-kopi-ice', storeId: 'qa-ce-lim-workspace', workspaceId: 'qa-ce-lim-workspace',
+      photoUrl: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22640%22 height=%22400%22%3E%3Crect width=%22640%22 height=%22400%22 fill=%22%23c9dbe7%22/%3E%3Ctext x=%22320%22 y=%22210%22 text-anchor=%22middle%22 font-family=%22sans-serif%22 font-size=%2232%22 fill=%22%23304d5e%22%3EKopi Ice%3C/text%3E%3C/svg%3E',
+      name: 'Kopi Ice', description: '', price: 4, estimatedCost: 1.2,
+      available: true, optionGroupIds: [], createdBy: 'qa-owner', createdAt: now, updatedAt: now
+    }],
+    sets: [{
+      id: 'qa-breakfast-set', storeId: 'qa-ce-lim-workspace', workspaceId: 'qa-ce-lim-workspace',
+      name: 'Breakfast Set', description: 'Choose one main and one drink.',
+      photoUrl: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22640%22 height=%22400%22%3E%3Crect width=%22640%22 height=%22400%22 fill=%22%23efe9dc%22/%3E%3Ctext x=%22320%22 y=%22210%22 text-anchor=%22middle%22 font-family=%22sans-serif%22 font-size=%2232%22 fill=%22%233e5641%22%3EBreakfast Set%3C/text%3E%3C/svg%3E',
+      category: 'Breakfast', price: 7.9, available: true, sortOrder: 0,
+      groups: [{ id: 'qa-main', name: 'Main', required: true, selectionCount: 1, sortOrder: 0, options: [{ productId: 'qa-nasi-lemak', priceAdjustment: 0, sortOrder: 0 }] }, { id: 'qa-drink', name: 'Drink', required: true, selectionCount: 1, sortOrder: 1, options: [{ productId: 'qa-kopi-o', priceAdjustment: 0, sortOrder: 0 }, { productId: 'qa-kopi-ice', priceAdjustment: 0.5, sortOrder: 1 }] }],
+      createdBy: 'qa-owner', createdAt: now, updatedAt: now
     }],
     optionGroups: [{
       id: 'qa-size',
