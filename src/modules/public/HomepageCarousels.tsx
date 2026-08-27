@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type FocusEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FocusEvent } from 'react';
 import { ArrowRight, ChevronLeft, ChevronRight, Pause, Play, Sparkles } from 'lucide-react';
-import type { HomepagePromotion } from './homepagePromotions';
+import { createLoopingHomepagePromotionItems, type HomepagePromotion } from './homepagePromotions';
 
 const announcements = [
   { id: 'launch', message: 'A more beautiful MiseChef is arriving for every kitchen.', href: '/login', cta: 'Open MiseChef' },
@@ -59,29 +59,54 @@ export function HomepageAnnouncementCarousel() {
 
 export function HomepagePromotionCarousel({ promotions }: { promotions: HomepagePromotion[] }) {
   const railRef = useRef<HTMLDivElement>(null);
+  const loopResetTimerRef = useRef<number | undefined>(undefined);
   const [isPaused, setIsPaused] = useState(false);
   const [isInteracting, setIsInteracting] = useState(false);
+  const [movementTick, setMovementTick] = useState(0);
   const reducedMotion = useReducedMotion();
   const cardCount = promotions.length;
+  const carouselItems = useMemo(() => createLoopingHomepagePromotionItems(promotions), [promotions]);
 
-  const move = (direction: 1 | -1) => {
+  const getCardDistance = useCallback(() => {
     const rail = railRef.current;
-    if (!rail) return;
-    const card = rail.querySelector<HTMLElement>('[data-promotion-card]');
-    const distance = (card?.offsetWidth || rail.clientWidth * 0.8) + 16;
-    const atEnd = rail.scrollLeft + rail.clientWidth >= rail.scrollWidth - 8;
-    const atStart = rail.scrollLeft <= 8;
-    rail.scrollTo({
-      left: direction === 1 && atEnd ? 0 : direction === -1 && atStart ? rail.scrollWidth : rail.scrollLeft + direction * distance,
-      behavior: reducedMotion ? 'auto' : 'smooth'
-    });
-  };
+    const cards = rail?.querySelectorAll<HTMLElement>('[data-promotion-card]');
+    if (!rail || !cards?.length) return 0;
+    return cards[1] ? cards[1].offsetLeft - cards[0].offsetLeft : cards[0].offsetWidth + 16;
+  }, []);
+
+  const move = useCallback((direction: 1 | -1) => {
+    const rail = railRef.current;
+    const distance = getCardDistance();
+    if (!rail || !distance || cardCount < 2) return;
+    if (loopResetTimerRef.current) window.clearTimeout(loopResetTimerRef.current);
+    const rawIndex = Math.max(0, Math.round(rail.scrollLeft / distance));
+    const logicalIndex = rawIndex % cardCount;
+    const behavior = reducedMotion ? 'auto' : 'smooth';
+
+    if (direction === -1 && logicalIndex === 0) {
+      rail.scrollTo({ left: cardCount * distance, behavior: 'auto' });
+      window.requestAnimationFrame(() => rail.scrollTo({ left: (cardCount - 1) * distance, behavior }));
+    } else {
+      const targetIndex = direction === 1 ? rawIndex + 1 : rawIndex - 1;
+      rail.scrollTo({ left: targetIndex * distance, behavior });
+      if (direction === 1 && targetIndex >= cardCount) {
+        loopResetTimerRef.current = window.setTimeout(() => {
+          rail.scrollTo({ left: (targetIndex % cardCount) * distance, behavior: 'auto' });
+        }, reducedMotion ? 0 : 550);
+      }
+    }
+    setMovementTick(current => current + 1);
+  }, [cardCount, getCardDistance, reducedMotion]);
+
+  useEffect(() => () => {
+    if (loopResetTimerRef.current) window.clearTimeout(loopResetTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (cardCount < 2 || reducedMotion || isPaused || isInteracting) return;
     const timer = window.setTimeout(() => move(1), 7_500);
     return () => window.clearTimeout(timer);
-  });
+  }, [cardCount, isInteracting, isPaused, move, movementTick, reducedMotion]);
 
   if (!promotions.length) return null;
 
@@ -108,8 +133,18 @@ export function HomepagePromotionCarousel({ promotions }: { promotions: Homepage
         </div>
       </div>
       <div ref={railRef} className="homepage-promotion-rail" aria-label="Homepage promotions">
-        {promotions.map((promotion, index) => (
-          <a key={promotion.id} data-promotion-card href={promotion.href} className="homepage-promotion-card group">
+        {carouselItems.map(({ promotion, key, isClone }) => (
+          <a
+            key={key}
+            data-promotion-card
+            data-promotion-clone={isClone ? 'true' : undefined}
+            href={promotion.href}
+            target={promotion.linkType === 'internal' ? undefined : '_blank'}
+            rel={promotion.linkType === 'internal' ? undefined : 'noopener noreferrer'}
+            tabIndex={isClone ? -1 : undefined}
+            aria-hidden={isClone || undefined}
+            className="homepage-promotion-card group"
+          >
             <div className="relative h-32 overflow-hidden bg-gradient-to-br from-[#294b35] to-[#172b20]">
               {promotion.imageUrl ? <img src={promotion.imageUrl} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]" /> : <Sparkles className="absolute bottom-4 right-4 h-12 w-12 text-[#f7a24b]/45" aria-hidden="true" />}
               <span className="absolute left-4 top-4 rounded-full bg-[#fffaf0]/95 px-3 py-1 font-sans text-[9px] font-extrabold uppercase tracking-[0.16em] text-[#203b2a] shadow-sm">{promotion.eyebrow}</span>

@@ -624,7 +624,10 @@ service cloud.firestore {
           'description',
           'ctaLabel',
           'href',
+          'linkType',
+          'socialPlatform',
           'imageUrl',
+          'imagePath',
           'active',
           'sortOrder',
           'createdAt',
@@ -646,9 +649,22 @@ service cloud.firestore {
         && request.resource.data.href is string
         && request.resource.data.href.size() > 0
         && request.resource.data.href.size() <= 2048
-        && (request.resource.data.href == '/'
-          || request.resource.data.href.matches('^/[^/].*$')
-          || request.resource.data.href.matches('^https://.*$'))
+        && (!('linkType' in request.resource.data)
+          || request.resource.data.linkType in ['internal', 'external', 'social'])
+        && (
+          (!('linkType' in request.resource.data)
+            && (request.resource.data.href == '/'
+              || request.resource.data.href.matches('^/[^/].*$')
+              || request.resource.data.href.matches('^https://.*$')))
+          || (request.resource.data.linkType == 'internal'
+            && (request.resource.data.href == '/'
+              || request.resource.data.href.matches('^/[^/].*$')))
+          || (request.resource.data.linkType in ['external', 'social']
+            && request.resource.data.href.matches('^https://.*$'))
+        )
+        && (!('socialPlatform' in request.resource.data)
+          || (request.resource.data.linkType == 'social'
+            && request.resource.data.socialPlatform in ['instagram', 'tiktok', 'facebook', 'youtube', 'other']))
         && request.resource.data.active is bool
         && request.resource.data.sortOrder is int
         && request.resource.data.sortOrder >= 0
@@ -659,7 +675,11 @@ service cloud.firestore {
         && (!('imageUrl' in request.resource.data)
           || (request.resource.data.imageUrl is string
             && request.resource.data.imageUrl.matches('^https://.*$')
-            && request.resource.data.imageUrl.size() <= 2048));
+            && request.resource.data.imageUrl.size() <= 2048))
+        && (!('imagePath' in request.resource.data)
+          || (request.resource.data.imagePath is string
+            && request.resource.data.imagePath.matches('^homepage-promotions/[A-Za-z0-9_-]+/[^/]+[.]jpg$')
+            && request.resource.data.imagePath.size() <= 512));
     }
 
     function isArchivedInvoiceWrite() {
@@ -833,7 +853,7 @@ service cloud.firestore {
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.updatedBy == request.auth.uid;
-      allow delete: if false;
+      allow delete: if isSuperAdmin();
     }
 
     match /publicRecipes/{recipeId} {

@@ -129,6 +129,15 @@ service firebase.storage {
       allow delete: if isSuperAdmin();
     }
 
+    match /homepage-promotions/{promotionId}/{fileName} {
+      allow read: if true;
+      allow create, update: if isSuperAdmin()
+        && request.resource != null
+        && request.resource.size <= 2 * 1024 * 1024
+        && request.resource.contentType == 'image/jpeg';
+      allow delete: if isSuperAdmin();
+    }
+
     match /stores/{workspaceId}/products/{productId}/{fileName} {
       allow read: if true;
       allow create, update: if canManageStoreProducts(workspaceId)

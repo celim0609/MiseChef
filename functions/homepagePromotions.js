@@ -2,8 +2,14 @@ const readString = (value, maximumLength) => (
   typeof value === 'string' ? value.trim().slice(0, maximumLength) : ''
 );
 
-const isSafeHref = value => {
-  if (value.startsWith('/') && !value.startsWith('//')) return true;
+const inferLinkType = (value, href) => (
+  ['internal', 'external', 'social'].includes(value)
+    ? value
+    : href.startsWith('/') && !href.startsWith('//') ? 'internal' : 'external'
+);
+
+const isSafeHref = (value, linkType) => {
+  if (linkType === 'internal') return value.startsWith('/') && !value.startsWith('//');
   try {
     return new URL(value).protocol === 'https:';
   } catch {
@@ -14,7 +20,8 @@ const isSafeHref = value => {
 export const toPublicHomepagePromotion = (id, value = {}) => {
   const title = readString(value.title, 160);
   const href = readString(value.href, 2048);
-  if (!id || value.active !== true || !title || !isSafeHref(href)) return null;
+  const linkType = inferLinkType(value.linkType, href);
+  if (!id || value.active !== true || !title || !isSafeHref(href, linkType)) return null;
 
   const imageUrl = readString(value.imageUrl, 2048);
   return {
@@ -24,7 +31,11 @@ export const toPublicHomepagePromotion = (id, value = {}) => {
     description: readString(value.description, 320),
     ctaLabel: readString(value.ctaLabel, 80) || 'Learn more',
     href,
-    ...(imageUrl && isSafeHref(imageUrl) && !imageUrl.startsWith('/') ? { imageUrl } : {}),
+    linkType,
+    ...(linkType === 'social' && ['instagram', 'tiktok', 'facebook', 'youtube', 'other'].includes(value.socialPlatform)
+      ? { socialPlatform: value.socialPlatform }
+      : {}),
+    ...(imageUrl && isSafeHref(imageUrl, 'external') ? { imageUrl } : {}),
     active: true,
     sortOrder: Number.isInteger(value.sortOrder) ? Math.max(0, value.sortOrder) : 0
   };

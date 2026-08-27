@@ -9,6 +9,7 @@ test('homepage promotion projection exposes only presentation fields for active 
     description: 'A short story.',
     ctaLabel: 'Explore',
     href: '/recipes',
+    linkType: 'internal',
     imageUrl: 'https://images.example.com/menu.jpg',
     active: true,
     sortOrder: 2,
@@ -20,6 +21,7 @@ test('homepage promotion projection exposes only presentation fields for active 
     description: 'A short story.',
     ctaLabel: 'Explore',
     href: '/recipes',
+    linkType: 'internal',
     imageUrl: 'https://images.example.com/menu.jpg',
     active: true,
     sortOrder: 2
@@ -29,6 +31,21 @@ test('homepage promotion projection exposes only presentation fields for active 
 test('homepage promotion projection rejects inactive and unsafe destinations', () => {
   assert.equal(toPublicHomepagePromotion('inactive', { title: 'Hidden', href: '/recipes', active: false }), null);
   assert.equal(toPublicHomepagePromotion('unsafe', { title: 'Unsafe', href: 'javascript:alert(1)', active: true }), null);
+});
+
+test('homepage promotion projection supports external, social, and legacy links safely', () => {
+  assert.equal(toPublicHomepagePromotion('external', {
+    title: 'Campaign', href: 'https://misechef.example/campaign', linkType: 'external', active: true
+  }).linkType, 'external');
+  assert.equal(toPublicHomepagePromotion('social', {
+    title: 'Social', href: 'https://instagram.com/misechef', linkType: 'social', socialPlatform: 'instagram', active: true
+  }).socialPlatform, 'instagram');
+  assert.equal(toPublicHomepagePromotion('legacy', {
+    title: 'Legacy', href: '/recipes', active: true
+  }).linkType, 'internal');
+  assert.equal(toPublicHomepagePromotion('mismatch', {
+    title: 'Mismatch', href: '/recipes', linkType: 'external', active: true
+  }), null);
 });
 
 test('public homepage promotions are sorted and capped', async () => {
