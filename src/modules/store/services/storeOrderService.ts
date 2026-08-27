@@ -17,11 +17,11 @@ import { httpsCallable } from 'firebase/functions';
 import { getBlob, ref } from 'firebase/storage';
 import { db, functions, storage } from '../../../firebase';
 import { getOrderPickupCode } from '../selling';
+import { normalizeStoreOrderItem } from '../storeOrderSnapshot';
 import type {
   StoreFulfilmentStatus,
   StoreNotification,
   StoreOrder,
-  StoreOrderItem,
   StoreOrderTimelineEvent
 } from '../types';
 
@@ -39,33 +39,6 @@ const readTimestamp = (value: unknown) => {
     return timestamp.toDate instanceof Function ? timestamp.toDate().toISOString() : '';
   }
   return readString(value);
-};
-
-const normalizeOrderItem = (value: unknown): StoreOrderItem => {
-  const item = value && typeof value === 'object' ? value as Record<string, unknown> : {};
-  return {
-    productId: readString(item.productId),
-    productName: readString(item.productName, 'Product'),
-    photoUrl: readString(item.photoUrl),
-    quantity: Math.max(1, Math.round(readNumber(item.quantity))),
-    basePrice: readNumber(item.basePrice),
-    unitPrice: readNumber(item.unitPrice),
-    lineTotal: readNumber(item.lineTotal),
-    selectedOptions: Array.isArray(item.selectedOptions)
-      ? item.selectedOptions.map(optionValue => {
-        const option = optionValue && typeof optionValue === 'object'
-          ? optionValue as Record<string, unknown>
-          : {};
-        return {
-          groupId: readString(option.groupId),
-          groupName: readString(option.groupName, 'Options'),
-          optionId: readString(option.optionId),
-          optionName: readString(option.optionName, 'Option'),
-          priceAdjustment: readNumber(option.priceAdjustment)
-        };
-      })
-      : []
-  };
 };
 
 const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrder => {
@@ -108,7 +81,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     pickupLocationAddress: readString(data.pickupLocationAddress),
     pickupLocationNotes: readString(data.pickupLocationNotes),
     notes: readString(data.notes),
-    items: Array.isArray(data.items) ? data.items.map(normalizeOrderItem) : [],
+    items: Array.isArray(data.items) ? data.items.map(normalizeStoreOrderItem) : [],
     itemCount: readNumber(data.itemCount),
     total: readNumber(data.total),
     fulfilmentStatus: (
