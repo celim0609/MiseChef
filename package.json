@@ -29,6 +29,7 @@
     "test:store-payments:rules": "firebase emulators:exec --only firestore,storage --project demo-misechef-store-payment-rules \"node --test tests/storePaymentAccessControl.test.mjs tests/storeOrderHistoryIntegration.test.mjs\"",
     "test:resume-import:rules": "firebase emulators:exec --only firestore --project demo-misechef-resume-import-rules \"node --test tests/resumeImportJobAccessControl.test.mjs\"",
     "test:chef-profile:rules": "firebase emulators:exec --only firestore,storage --project demo-misechef-chef-profile-rules \"node --test tests/chefProfileAccessControl.test.mjs\"",
+    "test:homepage-promotions:rules": "firebase emulators:exec --only firestore --project demo-misechef-homepage-promotion-rules \"node --test tests/homepagePromotionAccessControl.test.mjs\"",
     "test:store-sets:rules": "firebase emulators:exec --only firestore,storage --project demo-misechef-store-sets-rules \"node --test tests/storeSetsAccessControl.test.mjs\"",
     "test:recipes:rules": "firebase emulators:exec --only firestore --project demo-misechef-recipe-rules \"node --test tests/recipeWorkspaceAccessControl.test.mjs\""
   },

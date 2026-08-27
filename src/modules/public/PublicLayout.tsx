@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ChefHat, Search } from 'lucide-react';
+import { ChefHat, Moon, Search, Sun, UserRound } from 'lucide-react';
 import BrandLogo from '../../components/BrandLogo';
 import type { Recipe } from '../../types';
 import { getRecipeCategories } from '../../utils/categoryUtils';
@@ -11,6 +11,8 @@ import type { PublicDiscoverStoreSummary } from './publicDiscoverModel';
 import PublicChefProfilePage from './PublicChefProfilePage';
 import PublicRecipeDiscoveryPage from './PublicRecipeDiscoveryPage';
 import { HostProgramPage, PublicGroupOrderPage, PublicStorePage } from '../store';
+import { HomepageAnnouncementCarousel } from './HomepageCarousels';
+import type { HomepagePromotion } from './homepagePromotions';
 
 const publicNavigation = [
   { label: 'Home', href: '/' },
@@ -32,8 +34,17 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
   const [publicRecipes, setPublicRecipes] = useState<Recipe[]>([]);
   const [publicChefs, setPublicChefs] = useState<PublicChefSummary[]>([]);
   const [publicDiscoverStores, setPublicDiscoverStores] = useState<PublicDiscoverStoreSummary[]>([]);
+  const [homepagePromotions, setHomepagePromotions] = useState<HomepagePromotion[]>([]);
   const [chefSearch, setChefSearch] = useState('');
   const [recipeStatus, setRecipeStatus] = useState<PublicSectionStatus>('loading');
+  const [isNightMode, setIsNightMode] = useState(() => typeof document !== 'undefined' && document.documentElement.dataset.appearance === 'dark');
+
+  const toggleAppearance = () => {
+    const nextMode = isNightMode ? 'light' : 'dark';
+    document.documentElement.dataset.appearance = nextMode;
+    localStorage.setItem('ce_lims_kitchen_appearance_v1', nextMode);
+    setIsNightMode(!isNightMode);
+  };
 
   useEffect(() => {
     let isCancelled = false;
@@ -58,12 +69,18 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
 
   useEffect(() => {
     let isCancelled = false;
-    publicDiscoverService.listFeaturedStores()
-      .then(stores => {
-        if (!isCancelled) setPublicDiscoverStores(stores);
+    publicDiscoverService.getHomepageContent()
+      .then(content => {
+        if (!isCancelled) {
+          setPublicDiscoverStores(content.stores);
+          setHomepagePromotions(content.promotions);
+        }
       })
       .catch(() => {
-        if (!isCancelled) setPublicDiscoverStores([]);
+        if (!isCancelled) {
+          setPublicDiscoverStores([]);
+          setHomepagePromotions([]);
+        }
       });
     return () => { isCancelled = true; };
   }, []);
@@ -94,7 +111,7 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
 
   const renderPage = () => {
     if (route.page === 'home') {
-      return <PublicHomePage publicRecipes={publicRecipes} publicChefs={publicChefs} publicDiscoverStores={publicDiscoverStores} status={recipeStatus} />;
+      return <PublicHomePage publicRecipes={publicRecipes} publicChefs={publicChefs} publicDiscoverStores={publicDiscoverStores} promotions={homepagePromotions} status={recipeStatus} />;
     }
 
     if (route.page === 'recipes') {
@@ -171,8 +188,9 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
 
   return (
     <div className="min-h-screen bg-background text-on-surface">
+      {route.page === 'home' && <HomepageAnnouncementCarousel />}
       <header className="sticky top-0 z-50 border-b border-surface-container-high bg-background/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8">
+        <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <a href="/" className="flex items-center gap-3" aria-label="MiseChef public home">
             <BrandLogo className="h-8 w-auto" />
             <div>
@@ -180,14 +198,19 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
               <p className="font-sans text-[9px] font-extrabold uppercase tracking-[0.18em] text-outline">Recipes, chefs, and stores</p>
             </div>
           </a>
-          <nav className="flex flex-wrap items-center gap-1" aria-label="Public navigation">
+          <form action="/recipes" method="get" className="ml-auto hidden max-w-xs flex-1 items-center gap-2 rounded-full border border-surface-container-high bg-surface-container-low px-4 py-2.5 lg:flex">
+            <Search className="h-4 w-4 shrink-0 text-outline" aria-hidden="true" />
+            <input name="q" type="search" placeholder="Search recipes or chefs" aria-label="Search recipes or chefs" className="min-w-0 flex-1 bg-transparent font-sans text-xs font-bold text-on-surface outline-none placeholder:text-outline" />
+          </form>
+          <nav className="ml-auto flex items-center gap-1 lg:ml-0" aria-label="Public navigation">
             {publicNavigation.map(item => (
-              <a key={item.href} href={item.href} className={`rounded-full px-4 py-2 font-sans text-xs font-extrabold ${item.label === 'Login' ? 'bg-primary text-on-primary' : 'text-primary hover:bg-surface-container'}`}>{item.label}</a>
+              <a key={item.href} href={item.href} className={`rounded-full px-3 py-2 font-sans text-xs font-extrabold transition active:scale-95 sm:px-4 ${item.label === 'Login' ? 'inline-flex items-center gap-2 bg-primary text-on-primary hover:bg-primary-container' : 'hidden text-primary hover:bg-surface-container sm:inline-flex'}`}>{item.label === 'Login' && <UserRound className="h-4 w-4" />}{item.label}</a>
             ))}
+            <button type="button" onClick={toggleAppearance} aria-label={isNightMode ? 'Switch to Light Mode' : 'Switch to Night Mode'} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-surface-container-high text-primary transition hover:bg-surface-container active:scale-95">{isNightMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</button>
           </nav>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">{renderPage()}</main>
+      <main className={`mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 ${route.page === 'home' ? 'py-6 sm:py-8' : 'py-10'}`}>{renderPage()}</main>
       <footer className="border-t border-surface-container-high bg-surface-container-low">
         <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-8 sm:px-6 md:flex-row md:items-center md:justify-between lg:px-8">
           <p className="font-display text-xl font-bold italic text-primary">MiseChef</p>

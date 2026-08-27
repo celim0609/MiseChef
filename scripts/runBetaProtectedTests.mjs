@@ -34,6 +34,7 @@ try {
 run('npm', ['run', 'test:recipes:rules']);
 run('npm', ['run', 'test:resume-import:rules']);
 run('npm', ['run', 'test:chef-profile:rules']);
+run('npm', ['run', 'test:homepage-promotions:rules']);
 run('npm', ['run', 'test:personal-expenses:rules']);
 run('npm', ['run', 'test:store-payments:rules']);
 run('npm', ['run', 'test:store-sets:rules']);

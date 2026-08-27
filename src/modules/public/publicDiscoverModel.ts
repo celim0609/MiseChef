@@ -100,5 +100,30 @@ export const createPublicHomeDiscoverItems = (
     destination: { kind: 'href', href: '/chefs' }
   });
 
+  if (items.length === 1) {
+    items.unshift(
+      {
+        id: 'public-announcement-recipes-worth-keeping',
+        type: 'announcement',
+        label: 'Discover',
+        disclosure: 'organic',
+        title: 'Recipes worth keeping, stories worth sharing',
+        description: 'Build a culinary library around the food that matters to you.',
+        ctaLabel: 'Explore Recipes',
+        destination: { kind: 'href', href: '/recipes' }
+      },
+      {
+        id: 'public-announcement-kitchen-business',
+        type: 'announcement',
+        label: 'MiseChef',
+        disclosure: 'organic',
+        title: 'One home for the craft and business of food',
+        description: 'Move from recipe ideas to a more organised kitchen with MiseChef.',
+        ctaLabel: 'Open MiseChef',
+        destination: { kind: 'href', href: '/login' }
+      }
+    );
+  }
+
   return items;
 };

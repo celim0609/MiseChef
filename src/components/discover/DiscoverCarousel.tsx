@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FocusEvent, type PointerEvent } from 'react';
-import { ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Pause, Play, Sparkles } from 'lucide-react';
 import {
   DISCOVER_AUTOPLAY_MS,
   DISCOVER_TRANSITION_MS,
@@ -17,6 +17,8 @@ interface DiscoverCarouselProps {
   onActivate?: (item: DiscoverItem) => void;
   onImpression?: (item: DiscoverItem) => void;
   onClick?: (item: DiscoverItem) => void;
+  autoplayMs?: number;
+  variant?: 'standard' | 'hero';
 }
 
 const usePrefersReducedMotion = () => {
@@ -40,7 +42,9 @@ export default function DiscoverCarousel({
   ariaLabel = 'Discover featured MiseChef content',
   onActivate,
   onImpression,
-  onClick
+  onClick,
+  autoplayMs = DISCOVER_AUTOPLAY_MS,
+  variant = 'standard'
 }: DiscoverCarouselProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [previousIndex, setPreviousIndex] = useState<number | null>(null);
@@ -49,10 +53,11 @@ export default function DiscoverCarousel({
   const [isHovering, setIsHovering] = useState(false);
   const [hasFocusWithin, setHasFocusWithin] = useState(false);
   const [isPointerActive, setIsPointerActive] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const pointerStartX = useRef<number | null>(null);
   const transitionTimer = useRef<number | null>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
-  const isInteracting = isHovering || hasFocusWithin || isPointerActive;
+  const isInteracting = isHovering || hasFocusWithin || isPointerActive || isPaused;
 
   useEffect(() => {
     setActiveIndex(current => Math.min(current, Math.max(0, items.length - 1)));
@@ -90,9 +95,9 @@ export default function DiscoverCarousel({
 
   useEffect(() => {
     if (!shouldAutoPlayDiscover({ itemCount: items.length, prefersReducedMotion, isInteracting })) return;
-    const timer = window.setTimeout(moveNext, DISCOVER_AUTOPLAY_MS);
+    const timer = window.setTimeout(moveNext, autoplayMs);
     return () => window.clearTimeout(timer);
-  }, [activeIndex, isInteracting, items.length, moveNext, prefersReducedMotion]);
+  }, [activeIndex, autoplayMs, isInteracting, items.length, moveNext, prefersReducedMotion]);
 
   const activeItem = items[activeIndex];
   useEffect(() => {
@@ -133,7 +138,7 @@ export default function DiscoverCarousel({
       <article
         key={`${phase}-${item.id}`}
         aria-hidden={isPrevious || undefined}
-        className={`absolute inset-0 overflow-hidden rounded-3xl border border-surface-container-high bg-surface-container-low shadow-sm ${animationClass}`}
+        className={`absolute inset-0 overflow-hidden rounded-[2rem] border border-surface-container-high bg-surface-container-low shadow-sm ${variant === 'hero' ? 'homepage-hero-slide' : ''} ${animationClass}`}
       >
         {item.imageUrl ? (
           <>
@@ -143,9 +148,9 @@ export default function DiscoverCarousel({
               loading="lazy"
               decoding="async"
               referrerPolicy="no-referrer"
-              className="absolute inset-y-0 right-0 hidden h-full w-[42%] object-cover sm:block"
+              className={`absolute inset-y-0 right-0 h-full object-cover ${variant === 'hero' ? 'w-full opacity-30 sm:w-[48%] sm:opacity-100' : 'hidden w-[42%] sm:block'}`}
             />
-            <div className="absolute inset-0 hidden bg-gradient-to-r from-surface-container-low via-surface-container-low/95 to-surface-container-low/25 sm:right-[32%] sm:block" />
+            <div className={`${variant === 'hero' ? 'absolute inset-0 bg-gradient-to-r from-surface-container-low via-surface-container-low/95 to-surface-container-low/20 sm:right-[36%]' : 'absolute inset-0 hidden bg-gradient-to-r from-surface-container-low via-surface-container-low/95 to-surface-container-low/25 sm:right-[32%] sm:block'}`} />
           </>
         ) : (
           <div className="absolute inset-y-0 right-0 hidden w-2/5 items-center justify-center bg-gradient-to-br from-primary/10 to-secondary/15 sm:flex">
@@ -153,10 +158,10 @@ export default function DiscoverCarousel({
           </div>
         )}
 
-        <div className="relative z-10 flex h-full max-w-full flex-col justify-center px-6 pb-12 pt-8 sm:max-w-[66%] sm:px-8 sm:pb-11">
+        <div className={`relative z-10 flex h-full max-w-full flex-col justify-center px-6 pb-12 pt-8 sm:px-10 sm:pb-11 ${variant === 'hero' ? 'sm:max-w-[61%] lg:px-14' : 'sm:max-w-[66%] sm:px-8'}`}>
           <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">{displayLabel}</p>
-          <h2 className="mt-2 line-clamp-2 font-display text-3xl font-bold leading-tight text-primary sm:text-4xl">{item.title}</h2>
-          <p className="mt-2 line-clamp-2 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{item.description}</p>
+          <h2 className={`mt-2 font-display font-bold leading-[0.98] text-primary ${variant === 'hero' ? 'line-clamp-3 text-4xl sm:text-5xl lg:text-6xl' : 'line-clamp-2 text-3xl sm:text-4xl'}`}>{item.title}</h2>
+          <p className={`mt-3 line-clamp-2 font-sans font-bold leading-relaxed text-on-surface-variant ${variant === 'hero' ? 'max-w-xl text-sm sm:text-base' : 'text-sm'}`}>{item.description}</p>
           <div className="mt-4">
             {isPrevious ? (
               <span className="font-sans text-sm font-extrabold text-secondary">{item.ctaLabel} →</span>
@@ -192,7 +197,7 @@ export default function DiscoverCarousel({
         pointerStartX.current = null;
         setIsPointerActive(false);
       }}
-      className="relative h-[292px] touch-pan-y sm:h-[252px]"
+      className={`relative touch-pan-y ${variant === 'hero' ? 'h-[430px] sm:h-[470px] lg:h-[520px]' : 'h-[292px] sm:h-[252px]'}`}
     >
       <div className="absolute inset-0" aria-live="polite">
         {previousIndex !== null && items[previousIndex] ? renderSlide(items[previousIndex], 'previous') : null}
@@ -202,6 +207,9 @@ export default function DiscoverCarousel({
       {items.length > 1 && (
         <>
           <div className="absolute right-4 top-4 z-20 flex gap-2">
+            <button type="button" onClick={() => setIsPaused(current => !current)} aria-label={isPaused ? 'Play Discover carousel' : 'Pause Discover carousel'} className="flex h-10 w-10 items-center justify-center rounded-full border border-surface-container-high bg-background/90 text-primary shadow-sm backdrop-blur-sm transition-all hover:bg-surface-container active:scale-95 focus:outline-none focus:ring-4 focus:ring-primary/20">
+              {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+            </button>
             <button type="button" onClick={movePrevious} aria-label="Previous Discover item" className="flex h-10 w-10 items-center justify-center rounded-full border border-surface-container-high bg-background/90 text-primary shadow-sm backdrop-blur-sm transition-colors hover:bg-surface-container focus:outline-none focus:ring-4 focus:ring-primary/20">
               <ChevronLeft className="h-5 w-5" />
             </button>

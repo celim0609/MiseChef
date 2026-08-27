@@ -617,6 +617,51 @@ service cloud.firestore {
           || (request.resource.data.imageUrl is string && request.resource.data.imageUrl.size() <= 2048));
     }
 
+    function isValidHomepagePromotion() {
+      return request.resource.data.keys().hasOnly([
+          'eyebrow',
+          'title',
+          'description',
+          'ctaLabel',
+          'href',
+          'imageUrl',
+          'active',
+          'sortOrder',
+          'createdAt',
+          'updatedAt',
+          'createdBy',
+          'updatedBy'
+        ])
+        && request.resource.data.eyebrow is string
+        && request.resource.data.eyebrow.size() > 0
+        && request.resource.data.eyebrow.size() <= 80
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 160
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 320
+        && request.resource.data.ctaLabel is string
+        && request.resource.data.ctaLabel.size() > 0
+        && request.resource.data.ctaLabel.size() <= 80
+        && request.resource.data.href is string
+        && request.resource.data.href.size() > 0
+        && request.resource.data.href.size() <= 2048
+        && (request.resource.data.href == '/'
+          || request.resource.data.href.matches('^/[^/].*$')
+          || request.resource.data.href.matches('^https://.*$'))
+        && request.resource.data.active is bool
+        && request.resource.data.sortOrder is int
+        && request.resource.data.sortOrder >= 0
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.createdBy is string
+        && request.resource.data.updatedBy is string
+        && (!('imageUrl' in request.resource.data)
+          || (request.resource.data.imageUrl is string
+            && request.resource.data.imageUrl.matches('^https://.*$')
+            && request.resource.data.imageUrl.size() <= 2048));
+    }
+
     function isArchivedInvoiceWrite() {
       return request.resource.data.processingStatus == 'Archived'
         || request.resource.data.status == 'Archived';
@@ -771,6 +816,20 @@ service cloud.firestore {
         && request.resource.data.updatedBy == request.auth.uid;
       allow update: if isSuperAdmin()
         && isValidApprovedProduct()
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    match /homepagePromotions/{promotionId} {
+      allow read: if isSuperAdmin();
+      allow create: if isSuperAdmin()
+        && isValidHomepagePromotion()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow update: if isSuperAdmin()
+        && isValidHomepagePromotion()
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.updatedBy == request.auth.uid;

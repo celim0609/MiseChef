@@ -59,6 +59,7 @@ import { createStoreSocialPreviewHandler } from './storeSocialPreview.js';
 import { recordPersonalExpenseSettlement as recordPersonalExpenseSettlementCore } from './personalExpenseSettlements.js';
 import { sanitizeExtractedPersonalExpenseMerchant } from './personalExpenseReceipt.js';
 import { loadPublicDiscoverStores } from './publicDiscover.js';
+import { loadPublicHomepagePromotions } from './homepagePromotions.js';
 import {
   getResumeImportClientJobPath,
   getResumeImportJobError,
@@ -145,6 +146,12 @@ export const getPublicDiscoverContent = onCall({
       return snapshot.docs
         .map(document => ({ id: document.id, ...document.data() }))
         .sort((a, b) => readString(b.updatedAt).localeCompare(readString(a.updatedAt)));
+    }
+  }),
+  promotions: await loadPublicHomepagePromotions({
+    loadPromotions: async () => {
+      const snapshot = await db.collection('homepagePromotions').orderBy('sortOrder').get();
+      return snapshot.docs.map(document => ({ id: document.id, ...document.data() }));
     }
   })
 }));
