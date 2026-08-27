@@ -878,7 +878,7 @@ const portfolioResumeResponseSchema = {
       properties: {
         instagram: { type: Type.STRING }, tiktok: { type: Type.STRING },
         facebook: { type: Type.STRING }, linkedin: { type: Type.STRING },
-        youtube: { type: Type.STRING }, website: { type: Type.STRING }
+        youtube: { type: Type.STRING }
       }
     },
     contact: {

@@ -1,5 +1,6 @@
 import type { ChefProfile } from './types';
 import type { Portfolio } from '../portfolio/types';
+import { sanitizeChefSocialLinks } from './socialLinks';
 
 export const DEFAULT_SKILLS = [
   'Western Cuisine', 'Chinese Cuisine', 'Japanese Cuisine', 'Italian Cuisine',
@@ -33,7 +34,7 @@ export const calculateCompletion = (profile: ChefProfile) => {
     profile.education.length ? 10 : 0,
     profile.certificates.length ? 10 : 0,
     profile.languages.length ? 5 : 0,
-    Object.values(profile.socialLinks).some(Boolean) ? 5 : 0,
+    Object.values(sanitizeChefSocialLinks(profile.socialLinks)).some(Boolean) ? 5 : 0,
     profile.portfolio.length ? 10 : 0
   ];
   return scores.reduce((sum, value) => sum + value, 0);
@@ -47,7 +48,7 @@ export const getNextAction = (profile: ChefProfile) => {
   if (!profile.education.length) return 'Add education';
   if (!profile.certificates.length) return 'Add a certificate';
   if (!profile.languages.length) return 'Add a language';
-  if (!Object.values(profile.socialLinks).some(Boolean)) return 'Add a social link';
+  if (!Object.values(sanitizeChefSocialLinks(profile.socialLinks)).some(Boolean)) return 'Add a social link';
   if (!profile.portfolio.length) return 'Add portfolio work';
   return 'Your profile is ready to share';
 };
@@ -151,9 +152,7 @@ export const sanitizeProfile = (value: ChefProfile): ChefProfile => {
     languages: value.languages.slice(0, 20).map(item => ({
       id: text(item.id, 128), language: text(item.language, 80), proficiency: text(item.proficiency, 40)
     })).filter(item => item.language),
-    socialLinks: Object.fromEntries(Object.entries(value.socialLinks)
-      .map(([key, item]) => [key, url(item)])
-      .filter(([, item]) => Boolean(item))),
+    socialLinks: sanitizeChefSocialLinks(value.socialLinks),
     portfolio: value.portfolio.slice(0, 30).map(item => ({
       id: text(item.id, 128), title: text(item.title, 160), description: text(item.description, 2000),
       projectUrl: url(item.projectUrl), imageUrl: url(item.imageUrl), videoUrl: url(item.videoUrl)

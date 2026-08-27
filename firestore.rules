@@ -682,6 +682,26 @@ service cloud.firestore {
             && request.resource.data.imagePath.size() <= 512));
     }
 
+    function isValidChefSocialLinks(links) {
+      return links is map
+        && links.keys().hasOnly([
+          'instagram', 'tiktok', 'facebook', 'linkedin', 'youtube',
+          'website', 'personalWebsite'
+        ])
+        && (!('instagram' in links)
+          || (links.instagram is string && links.instagram.matches('^https://([^/]+[.])?instagram[.]com(/.*)?$')))
+        && (!('tiktok' in links)
+          || (links.tiktok is string && links.tiktok.matches('^https://([^/]+[.])?tiktok[.]com(/.*)?$')))
+        && (!('facebook' in links)
+          || (links.facebook is string && links.facebook.matches('^https://([^/]+[.])?(facebook[.]com|fb[.]com)(/.*)?$')))
+        && (!('linkedin' in links)
+          || (links.linkedin is string && links.linkedin.matches('^https://([^/]+[.])?linkedin[.]com(/.*)?$')))
+        && (!('youtube' in links)
+          || (links.youtube is string && links.youtube.matches('^https://([^/]+[.])?(youtube[.]com|youtu[.]be)(/.*)?$')))
+        && (!('website' in links) || (links.website is string && links.website.size() <= 2048))
+        && (!('personalWebsite' in links) || (links.personalWebsite is string && links.personalWebsite.size() <= 2048));
+    }
+
     function isArchivedInvoiceWrite() {
       return request.resource.data.processingStatus == 'Archived'
         || request.resource.data.status == 'Archived';
@@ -733,6 +753,7 @@ service cloud.firestore {
         && request.resource.data.awards.size() <= 30
         && request.resource.data.languages is list
         && request.resource.data.languages.size() <= 20
+        && isValidChefSocialLinks(request.resource.data.socialLinks)
         && request.resource.data.portfolio is list
         && request.resource.data.portfolio.size() <= 30;
       allow delete: if false;
