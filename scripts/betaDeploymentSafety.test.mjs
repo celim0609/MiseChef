@@ -26,6 +26,51 @@ import {
   resolveStorageTarget,
   sha256File
 } from './betaDeploymentSafety.mjs';
+import {
+  RELEASE_28_INCIDENT,
+  RELEASE_28_RECOVERY_AUTHORIZATION,
+  RELEASE_28_RECOVERY_CONFIRMATION,
+  assertRelease28CandidateArtifact,
+  assertRelease28FailedRun,
+  assertRelease28PartialState,
+  assertRelease28RecoveryConverged,
+  resolveRelease28RecoveryMode
+} from './betaRelease28Recovery.mjs';
+
+const release28Functions = () => Object.entries(RELEASE_28_INCIDENT.functions).map(([id, value]) => ({
+  id,
+  generation: value.generation,
+  hash: value.hash,
+  state: 'ACTIVE'
+}));
+
+const release28Live = () => ({
+  rootAsset: RELEASE_28_INCIDENT.rootAsset,
+  storeAsset: RELEASE_28_INCIDENT.storeAsset,
+  releaseMetadata: structuredClone(RELEASE_28_INCIDENT.priorManifest),
+  releaseCommit: RELEASE_28_INCIDENT.priorCommit,
+  releaseSourceTree: RELEASE_28_INCIDENT.priorSourceTree,
+  releaseProtectedBaseline: MANDATORY_BETA_BASELINE,
+  releaseBuildId: RELEASE_28_INCIDENT.priorManifest.buildId
+});
+
+const release28GitChecks = {
+  resolveSourceTree: commit => commit === RELEASE_28_INCIDENT.priorCommit
+    ? RELEASE_28_INCIDENT.priorSourceTree
+    : null,
+  isAncestor: (ancestor, descendant) => (
+    ancestor === MANDATORY_BETA_BASELINE && descendant === RELEASE_28_INCIDENT.priorCommit
+  )
+};
+
+const assertKnownRelease28Partial = overrides => assertRelease28PartialState({
+  head: RELEASE_28_INCIDENT.candidateCommit,
+  sourceTree: RELEASE_28_INCIDENT.candidateSourceTree,
+  liveFingerprint: release28Live(),
+  functions: release28Functions(),
+  ...release28GitChecks,
+  ...overrides
+});
 
 test('stale branch, Firestore-only, and Storage-only candidates fail ancestry', () => {
   for (const resource of ['firestore', 'storage']) {
@@ -222,6 +267,133 @@ test('missing, unreadable, or incoherent live release manifests block deployment
   }));
 });
 
+test('the exact protected Release #28 partial state is accepted only in incident recovery mode', () => {
+  assert.equal(resolveRelease28RecoveryMode({
+    confirmation: '',
+    authorization: RELEASE_28_RECOVERY_AUTHORIZATION,
+    githubActions: true,
+    ciLockId: 'misechef-beta-deployment'
+  }), false);
+  assert.equal(resolveRelease28RecoveryMode({
+    confirmation: RELEASE_28_RECOVERY_CONFIRMATION,
+    authorization: RELEASE_28_RECOVERY_AUTHORIZATION,
+    githubActions: true,
+    ciLockId: 'misechef-beta-deployment'
+  }), true);
+  assert.match(assertKnownRelease28Partial().fingerprint, /^[0-9a-f]{64}$/);
+  assert.throws(() => resolveRelease28RecoveryMode({
+    confirmation: RELEASE_28_RECOVERY_CONFIRMATION,
+    authorization: '',
+    githubActions: true,
+    ciLockId: 'misechef-beta-deployment'
+  }), /protected Beta environment/);
+});
+
+test('Release #28 recovery is bound to the exact failed protected run evidence', () => {
+  const successfulSteps = [
+    'Verify exact approved candidate SHA',
+    'Validate actual release candidate with immutable trusted gate',
+    'Run complete immutable trusted candidate regression gate',
+    'Run Store Sets Firestore authorization suite',
+    'Authenticate to Beta only'
+  ].map(name => ({ name, conclusion: 'success' }));
+  const evidence = {
+    run: {
+      id: Number(RELEASE_28_INCIDENT.failedRunId),
+      name: 'Beta Release',
+      run_number: 28,
+      head_sha: RELEASE_28_INCIDENT.candidateCommit,
+      conclusion: 'failure',
+      path: '.github/workflows/deploy-beta.yml'
+    },
+    jobs: [{ steps: [...successfulSteps, {
+      name: 'Run canonical protected full-resource Beta release', conclusion: 'failure'
+    }] }]
+  };
+  assert.doesNotThrow(() => assertRelease28FailedRun(evidence));
+  assert.throws(() => assertRelease28FailedRun({
+    ...evidence,
+    run: { ...evidence.run, head_sha: RELEASE_28_INCIDENT.priorCommit }
+  }), /authorized failed Release #28/);
+});
+
+test('Release #28 recovery rejects any changed root asset', () => {
+  assert.throws(() => assertKnownRelease28Partial({
+    liveFingerprint: { ...release28Live(), rootAsset: '/assets/index-third.js' }
+  }), /root or public Store asset/);
+});
+
+test('Release #28 recovery rejects any changed Store asset', () => {
+  assert.throws(() => assertKnownRelease28Partial({
+    liveFingerprint: { ...release28Live(), storeAsset: '/assets/index-third.js' }
+  }), /root or public Store asset/);
+});
+
+test('Release #28 recovery rejects any unexpected Function generation', () => {
+  const functions = release28Functions();
+  functions[0] = { ...functions[0], generation: `${functions[0].generation}9` };
+  assert.throws(() => assertKnownRelease28Partial({ functions }), /recorded 18\/19 split/);
+});
+
+test('Release #28 recovery rejects a third or unknown release state', () => {
+  const functions = release28Functions();
+  functions.push({ id: 'unknownThirdReleaseFunction', generation: '1', hash: 'third', state: 'ACTIVE' });
+  assert.throws(() => assertKnownRelease28Partial({ functions }), /recorded 18\/19 split/);
+  assert.throws(() => assertKnownRelease28Partial({
+    liveFingerprint: {
+      ...release28Live(),
+      releaseMetadata: {
+        ...RELEASE_28_INCIDENT.priorManifest,
+        sourceCommit: RELEASE_28_INCIDENT.candidateCommit
+      }
+    }
+  }), /manifest metadata/);
+});
+
+test('normal releases still reject the known incoherent Release #28 baseline', () => {
+  assert.throws(() => assertLiveBaseline({
+    liveFingerprint: release28Live(),
+    ...release28GitChecks
+  }), /do not identify one coherent release/);
+});
+
+test('Release #28 recovery becomes invalid after exact candidate convergence', () => {
+  const manifest = {
+    kind: 'misechef-beta-release',
+    version: 1,
+    buildId: 'recovery-build',
+    builtAt: new Date().toISOString(),
+    sourceCommit: RELEASE_28_INCIDENT.candidateCommit,
+    sourceTree: RELEASE_28_INCIDENT.candidateSourceTree,
+    protectedBaseline: MANDATORY_BETA_BASELINE,
+    entryAsset: RELEASE_28_INCIDENT.storeAsset,
+    entryAssetSha256: 'a'.repeat(64),
+    storeShellAsset: RELEASE_28_INCIDENT.storeAsset
+  };
+  const functions = release28Functions().map(item => (
+    RELEASE_28_INCIDENT.functions[item.id].phase === 'retained'
+      ? { ...item, generation: `${item.generation}1` }
+      : item
+  ));
+  const liveFingerprint = {
+    rootAsset: manifest.entryAsset,
+    storeAsset: manifest.entryAsset,
+    releaseMetadata: manifest,
+    releaseCommit: manifest.sourceCommit,
+    releaseSourceTree: manifest.sourceTree,
+    releaseProtectedBaseline: manifest.protectedBaseline
+  };
+
+  assert.doesNotThrow(() => assertRelease28CandidateArtifact(manifest));
+  assert.doesNotThrow(() => assertRelease28RecoveryConverged({
+    liveFingerprint,
+    functions,
+    manifest,
+    assetProof: { status: 200, contentType: 'text/javascript; charset=utf-8', sha256: manifest.entryAssetSha256 }
+  }));
+  assert.throws(() => assertKnownRelease28Partial({ liveFingerprint, functions }), /manifest metadata/);
+});
+
 test('historical live manifests require exact SHAs, a matching source tree, and valid history', () => {
   const sourceCommit = 'a'.repeat(40);
   const sourceTree = 'b'.repeat(40);
@@ -324,6 +496,23 @@ test('the canonical deploy command is the only package Beta deploy entry point',
   assert.doesNotMatch(JSON.stringify(pkg.scripts), /FIREBASE_DEPLOY_TARGET=beta firebase deploy/);
 });
 
+test('Release #28 recovery controller retains the full plan and every convergence proof', () => {
+  const controller = readFileSync(new URL('./recoverBetaRelease28.mjs', import.meta.url), 'utf8');
+  for (const marker of [
+    'assertRelease28PartialState',
+    'verifyRelease28FailedRun',
+    'assertRelease28CandidateArtifact',
+    'assertArtifactCompatibility',
+    'assertPinnedFirebaseCliStorageBehavior',
+    'assertRelease28RecoveryConverged',
+    'readLiveAssetProof',
+    'readBetaFunctionState',
+    'FULL_BETA_RESOURCE_PLAN.join'
+  ]) assert.match(controller, new RegExp(marker));
+  assert.match(controller, /firebase', \[\s+'deploy'/);
+  assert.doesNotMatch(controller, /--only',\s+'(?:functions|hosting|firestore|storage)'/);
+});
+
 test('baseline validation fails instead of skipping when target context is missing', () => {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const result = spawnSync('node', ['scripts/validateBetaReleaseBaseline.mjs'], {
@@ -338,12 +527,14 @@ test('baseline validation fails instead of skipping when target context is missi
 test('protected CI supplies external authority and an authoritative concurrency group', () => {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const workflow = readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'deploy-beta.yml'), 'utf8');
+  const recoveryWorkflow = readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'recover-beta-release-28.yml'), 'utf8');
   const validationWorkflow = readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'validate-beta-candidate.yml'), 'utf8');
   assert.match(workflow, /group: misechef-beta-deployment/);
   assert.match(workflow, /cancel-in-progress: false/);
   assert.match(workflow, /vars\.MISECHEF_BETA_PROTECTED_BASELINE/);
   assert.match(workflow, /secrets\.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA/);
   assert.match(workflow, /expected_candidate_sha/);
+  assert.doesNotMatch(workflow, /release_28_recovery|RECOVER BETA RELEASE 28/);
   assert.match(workflow, /ref: 9c2173b9f9ae42b1fc09826c57cef46697759452/);
   assert.match(workflow, /validateBetaReleaseBaseline\.mjs/);
   assert.match(workflow, /runBetaProtectedTests\.mjs/);
@@ -352,6 +543,13 @@ test('protected CI supplies external authority and an authoritative concurrency 
   assert.match(validationWorkflow, /--trusted-root/);
   assert.match(validationWorkflow, /--candidate-root/);
   assert.match(validationWorkflow, /test:store-sets:rules/);
+  assert.match(recoveryWorkflow, /group: misechef-beta-deployment/);
+  assert.match(recoveryWorkflow, /vars\.MISECHEF_BETA_RELEASE_28_RECOVERY_GATE_SHA/);
+  assert.match(recoveryWorkflow, /vars\.MISECHEF_BETA_RELEASE_28_RECOVERY_AUTHORIZATION/);
+  assert.match(recoveryWorkflow, /github\.token/);
+  assert.match(recoveryWorkflow, new RegExp(RELEASE_28_INCIDENT.candidateCommit));
+  assert.match(recoveryWorkflow, /functions,hosting,firestore,storage|recoverBetaRelease28\.mjs/);
+  assert.doesNotMatch(recoveryWorkflow, new RegExp(RELEASE_28_RECOVERY_AUTHORIZATION));
 });
 
 test('repository baseline and documentation contain no stale protected-baseline references', () => {
