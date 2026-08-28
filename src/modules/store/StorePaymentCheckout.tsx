@@ -7,6 +7,7 @@ export default function StorePaymentCheckout({
   phone,
   currency,
   total,
+  storeSlug,
   storeName,
   storeWhatsApp,
   returnUrl,
@@ -40,6 +41,7 @@ export default function StorePaymentCheckout({
         phone={phone}
         currency={currency}
         total={total}
+        storeSlug={storeSlug}
         storeName={storeName}
         storeWhatsApp={storeWhatsApp}
         returnUrl={returnUrl}

@@ -5,8 +5,8 @@ import { formatRegionCurrency } from '../../regions';
 import { formatPickupDateLabel, getValidPickupDates } from './storeModel';
 import { groupOrderService, storeService } from './services';
 import type { HostGroupOrder, HostGroupOrderSummary, PublicStoreData } from './types';
+import { getCanonicalGroupUrl, getGroupShareData } from './groupSharing';
 
-const shareUrl = (code: string) => `${window.location.origin}/group/${encodeURIComponent(code)}`;
 const statusLabel = (status: HostGroupOrder['status']) => status[0].toUpperCase() + status.slice(1);
 
 export default function HostProgramPage({ slug, currentUser }: { slug: string; currentUser: User | null }) {
@@ -103,17 +103,17 @@ export default function HostProgramPage({ slug, currentUser }: { slug: string; c
   };
 
   const share = async (group: Pick<HostGroupOrder, 'shareCode' | 'name' | 'storeName'>) => {
-    const url = shareUrl(group.shareCode);
+    const shareData = getGroupShareData(window.location.origin, group);
     if (navigator.share) {
-      await navigator.share({ title: group.name, text: `Join my MiseChef Group Order for ${group.storeName}.`, url });
+      await navigator.share(shareData);
     } else {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(shareData.url);
       setMessage('Group link copied.');
     }
   };
 
   const copyShareCode = async (code: string) => {
-    await navigator.clipboard.writeText(shareUrl(code));
+    await navigator.clipboard.writeText(getCanonicalGroupUrl(window.location.origin, code));
     setMessage('Group link copied.');
   };
 

@@ -1,18 +1,21 @@
 import { useState } from 'react';
-import { CheckCircle2, Upload } from 'lucide-react';
+import { CheckCircle2, Download, Upload } from 'lucide-react';
 import { formatRegionCurrency } from '../../../regions';
 import { storePaymentService } from '../services';
+import { downloadConfiguredPaymentQr, isValidConfiguredPaymentQrUrl } from '../paymentQrDownload';
 import type { PaymentProviderCheckoutProps, PaymentProviderClientAdapter } from './types';
 
-function ManualCheckout({ session, currency, onComplete, onBack }: PaymentProviderCheckoutProps) {
+function ManualCheckout({ session, currency, storeSlug, onComplete, onBack }: PaymentProviderCheckoutProps) {
   const [receipt, setReceipt] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDownloadingQr, setIsDownloadingQr] = useState(false);
   const [error, setError] = useState('');
   if (session.checkout.type !== 'manual_payment') return null;
   const checkout = session.checkout;
   const isCash = checkout.methodId === 'cash_on_pickup';
   const isTouchNGo = checkout.methodId === 'touch_n_go_qr';
   const requiresReceipt = checkout.receiptAllowed && !isCash;
+  const canDownloadQr = isValidConfiguredPaymentQrUrl(checkout.qrCodeUrl);
   const authoritativeTotal = checkout.amountMinor / 100;
   const amountLabel = isTouchNGo
     ? `RM ${authoritativeTotal.toFixed(2)}`
@@ -23,14 +26,26 @@ function ManualCheckout({ session, currency, onComplete, onBack }: PaymentProvid
     setIsSubmitting(true);
     setError('');
     try {
-      const slug = window.location.pathname.split('/store/')[1]?.split('/')[0] || '';
-      if (receipt) await storePaymentService.uploadReceipt(slug, session, receipt);
-      await storePaymentService.submitManual(slug, session);
+      if (receipt) await storePaymentService.uploadReceipt(storeSlug, session, receipt);
+      await storePaymentService.submitManual(storeSlug, session);
       await onComplete(session.paymentSessionId);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Payment could not be submitted. Please try again.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const downloadQr = async () => {
+    if (!canDownloadQr || isDownloadingQr) return;
+    setIsDownloadingQr(true);
+    setError('');
+    try {
+      await downloadConfiguredPaymentQr(checkout.qrCodeUrl);
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : 'The payment QR could not be downloaded.');
+    } finally {
+      setIsDownloadingQr(false);
     }
   };
 
@@ -42,7 +57,14 @@ function ManualCheckout({ session, currency, onComplete, onBack }: PaymentProvid
         <p className="mt-1 font-display text-3xl font-bold text-primary">{amountLabel}</p>
         <p className="mt-1 font-sans text-xs font-extrabold text-error">Pay this exact amount.</p>
       </div>
-      {checkout.qrCodeUrl && <img src={checkout.qrCodeUrl} alt={`${checkout.methodName} merchant QR code`} className="mx-auto mt-4 max-h-64 w-full rounded-2xl bg-white object-contain p-3" />}
+      {canDownloadQr && (
+        <div className="mt-4 rounded-2xl bg-white p-3 text-center">
+          <img src={checkout.qrCodeUrl} alt={`${checkout.methodName} merchant QR code`} className="mx-auto max-h-64 w-full object-contain" />
+          <button type="button" disabled={isDownloadingQr} onClick={() => void downloadQr()} className="mt-3 inline-flex items-center justify-center gap-2 rounded-full border border-primary px-4 py-2.5 font-sans text-xs font-extrabold text-primary disabled:opacity-50">
+            <Download className="h-4 w-4" /> {isDownloadingQr ? 'Downloading…' : 'Download QR'}
+          </button>
+        </div>
+      )}
       {isTouchNGo && (
         <ol className="mt-4 list-decimal space-y-2 rounded-2xl bg-white p-4 pl-9 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">
           <li>Scan the QR using Touch ’n Go eWallet.</li>

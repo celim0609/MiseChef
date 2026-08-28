@@ -624,6 +624,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
                 phone={phone}
                 currency={store.currency}
                 total={cartTotal}
+                storeSlug={store.slug}
                 storeName={store.name}
                 storeWhatsApp={storeWhatsApp}
                 returnUrl={(() => {

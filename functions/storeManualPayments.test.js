@@ -252,6 +252,45 @@ test('payment proof submission and approval preserve the New fulfilment state', 
   assert.equal(db.documents['storeOrders/order-a'].payment.status, 'paid');
 });
 
+test('Group and non-Group manual payments require the same canonical Store slug', async () => {
+  const accessToken = 'guest-checkout-token';
+  const order = {
+    ...pendingOrder,
+    id: 'order-a',
+    orderNumber: 'MC-0822-GRP0',
+    paymentMethodId: 'touch_n_go_qr',
+    payment: {
+      ...pendingOrder.payment,
+      status: 'pending',
+      checkoutAccessTokenHash: createHash('sha256').update(accessToken).digest('hex')
+    }
+  };
+  const normalDb = createFakeDb({
+    'storeOrders/order-a': order,
+    'stores/workspace-a': { slug: 'store-a' }
+  });
+  const groupDb = createFakeDb({
+    'storeOrders/order-a': { ...order, groupOrder: { id: 'group-a', rewardPercent: 5 } },
+    'stores/workspace-a': { slug: 'store-a' }
+  });
+
+  await assert.doesNotReject(submitManualStorePayment({
+    db: normalDb, slug: 'store-a', orderId: 'order-a', checkoutAccessToken: accessToken
+  }));
+  await assert.doesNotReject(submitManualStorePayment({
+    db: groupDb, slug: 'store-a', orderId: 'order-a', checkoutAccessToken: accessToken
+  }));
+
+  const mismatchedDb = createFakeDb({
+    'storeOrders/order-a': { ...order, groupOrder: { id: 'group-a', rewardPercent: 5 } },
+    'stores/workspace-a': { slug: 'store-a' }
+  });
+  await assert.rejects(submitManualStorePayment({
+    db: mismatchedDb, slug: '', orderId: 'order-a', checkoutAccessToken: accessToken
+  }), /This payment does not belong to this Store/);
+  assert.equal(mismatchedDb.writes.length, 0);
+});
+
 test('payment confirmation atomically projects Group Sales and remains idempotent', async () => {
   const db = createFakeDb({
     'storeOrders/order-a': {
