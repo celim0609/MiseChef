@@ -45,12 +45,12 @@ test('direct and indirect circular recipe references are rejected', () => {
   assert.throws(() => calculateRecipeCosting(a, [], 'now', [a, b]), /Circular recipe dependency/);
 });
 
-test('Store linked recipe cost drives profit while legacy unlinked cost remains supported', () => {
+test('Store linked recipe cost drives profit while unlinked cost remains unavailable', () => {
   const linked = recipe('nasi', 'Nasi Lemak', '', '');
-  linked.costing = { totalRecipeCost: 3.45, costPerPortion: 3.45, sellingPrice: 0, foodCostPercentage: 0, grossProfitPercentage: 0, breakdown: [], lastCalculatedAt: 'now' };
-  const analysis = calculateStoreProductCostAnalysis({ price: 7.9, linkedRecipeId: 'nasi', estimatedCost: 99 }, [linked]);
+  linked.costing = { totalRecipeCost: 3.45, costPerPortion: 3.45, sellingPrice: 0, foodCostPercentage: 0, grossProfitPercentage: 0, breakdown: [{ recipeIngredientId: 'row', itemType: 'ingredient', ingredientName: 'Rice', quantity: 1, unit: 'g', unitCost: 3.45, ingredientCost: 3.45, percentageOfTotalRecipeCost: 100 }], lastCalculatedAt: 'now' };
+  const analysis = calculateStoreProductCostAnalysis({ price: 7.9, recipeId: 'nasi' }, [linked]);
   assert.deepEqual(analysis, { sellingPrice: 7.9, estimatedCost: 3.45, grossProfit: 4.45, grossMargin: 56.33 });
-  assert.equal(calculateStoreProductCostAnalysis({ price: 5, estimatedCost: 2 }, []).estimatedCost, 2);
+  assert.equal(calculateStoreProductCostAnalysis({ price: 5 }, []).estimatedCost, null);
 });
 
 test('public attribution uses a valid public profile name and never exposes internal fallbacks', () => {

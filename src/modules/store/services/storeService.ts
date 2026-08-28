@@ -364,9 +364,7 @@ export const storeService = {
       name: draft.name.trim(),
       description: draft.description.trim(),
       price: draft.price,
-      linkedRecipeId: draft.linkedRecipeId?.trim() || undefined,
-      linkedRecipeTitle: draft.linkedRecipeTitle?.trim() || undefined,
-      estimatedCost: Number.isFinite(draft.estimatedCost) ? draft.estimatedCost : undefined,
+      recipeId: draft.recipeId?.trim() || undefined,
       available: draft.available,
       optionGroupIds: [...draft.optionGroupIds],
       createdBy,
@@ -387,11 +385,14 @@ export const storeService = {
 
     await setDoc(doc(db, 'storeProducts', product.id), {
       ...removeUndefinedFields(updatedProduct),
-      ...(!draft.linkedRecipeId ? {
-        linkedRecipeId: deleteField(),
-        linkedRecipeTitle: deleteField(),
-        estimatedCost: deleteField()
-      } : {})
+      ...(!draft.recipeId ? {
+        recipeId: deleteField()
+      } : {}),
+      // Remove fields written by the short-lived copied-cost implementation.
+      // Existing documents remain readable through normalization until edited.
+      linkedRecipeId: deleteField(),
+      linkedRecipeTitle: deleteField(),
+      estimatedCost: deleteField()
     }, { merge: true });
     return updatedProduct;
   },

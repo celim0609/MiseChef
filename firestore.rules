@@ -409,6 +409,7 @@ service cloud.firestore {
           'name',
           'description',
           'price',
+          'recipeId',
           'linkedRecipeId',
           'linkedRecipeTitle',
           'estimatedCost',
@@ -429,6 +430,11 @@ service cloud.firestore {
         && data.description.size() <= 1200
         && data.price is number
         && data.price >= 0
+        && (!('recipeId' in data)
+          || (data.recipeId is string
+            && data.recipeId.size() > 0
+            && exists(/databases/$(database)/documents/recipes/$(data.recipeId))
+            && get(/databases/$(database)/documents/recipes/$(data.recipeId)).data.workspaceId == data.workspaceId))
         && ((!('linkedRecipeId' in data) && !('linkedRecipeTitle' in data))
           || (data.linkedRecipeId is string
             && data.linkedRecipeId.size() > 0
@@ -1162,6 +1168,7 @@ service cloud.firestore {
           'name',
           'description',
           'price',
+          'recipeId',
           'linkedRecipeId',
           'linkedRecipeTitle',
           'estimatedCost',

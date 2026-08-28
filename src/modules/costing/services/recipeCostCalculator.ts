@@ -8,6 +8,17 @@ const roundMoney = (value: number) => Number((Number.isFinite(value) ? value : 0
 const roundQuantity = (value: number) => Number((Number.isFinite(value) ? value : 0).toFixed(6));
 const roundPercent = (value: number) => Number((Number.isFinite(value) ? value : 0).toFixed(1));
 
+export const resolveRecipePerPortionCost = (recipe: Recipe | undefined): number | null => {
+  const cost = Number(recipe?.costing?.costPerPortion);
+  const hasCanonicalBreakdown = Boolean(recipe?.costing?.breakdown?.length);
+  return hasCanonicalBreakdown
+    && Number(recipe?.servings || 0) > 0
+    && Number.isFinite(cost)
+    && cost >= 0
+    ? roundMoney(cost)
+    : null;
+};
+
 const removeCalculatedIngredientCost = (ingredient: Ingredient, costingWarning?: string): Ingredient => {
   const {
     unitCost: _unitCost,

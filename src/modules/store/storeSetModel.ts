@@ -6,6 +6,8 @@ import type {
   StoreSetDraft,
   StoreSetGroup
 } from './types';
+import type { Recipe } from '../../types';
+import { resolveStoreProductEstimatedCost } from './storeCostModel';
 
 const readString = (value: unknown, fallback = '') => (
   typeof value === 'string' && value.trim() ? value.trim() : fallback
@@ -130,7 +132,8 @@ export const validateStoreSetSelections = (
 export const calculateStoreSetAnalysis = (
   set: Pick<StoreSet, 'price' | 'groups'>,
   products: StoreProduct[],
-  selectedItems: NonNullable<CartSelection['selectedSetItems']>
+  selectedItems: NonNullable<CartSelection['selectedSetItems']>,
+  recipes: Recipe[] = []
 ) => {
   const resolved = selectedItems.flatMap(item => {
     const group = set.groups.find(candidate => candidate.id === item.groupId);
@@ -141,7 +144,9 @@ export const calculateStoreSetAnalysis = (
   const upgradeTotal = roundMoney(resolved.reduce((sum, item) => sum + item.option.priceAdjustment, 0));
   const sellingPrice = roundMoney(set.price + upgradeTotal);
   const regularValue = roundMoney(resolved.reduce((sum, item) => sum + item.product.price, 0));
-  const costs = resolved.map(item => item.product.estimatedCost).filter((cost): cost is number => Number.isFinite(cost));
+  const costs = resolved
+    .map(item => resolveStoreProductEstimatedCost(item.product, recipes))
+    .filter((cost): cost is number => cost !== null);
   const hasCompleteCost = resolved.length > 0 && costs.length === resolved.length;
   const estimatedCost = hasCompleteCost ? roundMoney(costs.reduce((sum, cost) => sum + cost, 0)) : null;
   const grossProfit = estimatedCost === null ? null : roundMoney(sellingPrice - estimatedCost);
@@ -207,4 +212,3 @@ export const buildStoreSetOrderItem = (
     }
   };
 };
-

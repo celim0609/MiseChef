@@ -171,9 +171,8 @@ export interface StoreProduct {
   name: string;
   description: string;
   price: number;
-  linkedRecipeId?: string;
-  linkedRecipeTitle?: string;
-  /** Current per-item cost when the Store product has costing data attached. */
+  recipeId?: string;
+  /** Legacy field retained only for existing order/data compatibility. */
   estimatedCost?: number;
   available: boolean;
   optionGroupIds: string[];
@@ -187,10 +186,7 @@ export interface StoreProductDraft {
   name: string;
   description: string;
   price: number;
-  linkedRecipeId?: string;
-  linkedRecipeTitle?: string;
-  /** Derived from linkedRecipeId; never entered manually. */
-  estimatedCost?: number;
+  recipeId?: string;
   available: boolean;
   optionGroupIds: string[];
 }

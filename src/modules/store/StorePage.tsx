@@ -72,6 +72,7 @@ import {
   getStoreProductValidationTarget
 } from './storeProductVisibility';
 import { calculateStoreProductCostAnalysis, resolveStoreProductEstimatedCost } from './storeCostModel';
+import { recipeCostService } from '../costing/services';
 
 interface StorePageProps {
   currentUser: User;
@@ -184,6 +185,7 @@ export default function StorePage({
   const [store, setStore] = useState<WorkspaceStore | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<StoreSettingsDraft | null>(null);
   const [products, setProducts] = useState<StoreProduct[]>([]);
+  const [currentRecipeCosting, setCurrentRecipeCosting] = useState<Recipe[]>([]);
   const [sets, setSets] = useState<StoreSet[]>([]);
   const [productSearch, setProductSearch] = useState('');
   const [optionGroups, setOptionGroups] = useState<StoreOptionGroup[]>([]);
@@ -271,13 +273,24 @@ export default function StorePage({
     };
   }, [currentUser.uid, workspace]);
 
-  const costAwareProducts = useMemo(() => products.map(product => {
-    const estimatedCost = resolveStoreProductEstimatedCost(product, recipes);
-    return estimatedCost === null ? product : { ...product, estimatedCost };
-  }), [products, recipes]);
+  useEffect(() => {
+    let isCancelled = false;
+    setCurrentRecipeCosting([]);
+    recipeCostService.resolveCurrentWorkspaceRecipeCosting(workspace.id)
+      .then(costedRecipes => {
+        if (!isCancelled) setCurrentRecipeCosting(costedRecipes);
+      })
+      .catch(() => {
+        if (!isCancelled) setCurrentRecipeCosting([]);
+      });
+    return () => {
+      isCancelled = true;
+    };
+  }, [recipes, workspace.id]);
+
   const visibleProducts = useMemo(
-    () => filterAdminStoreProducts(costAwareProducts, workspace.id, productSearch),
-    [costAwareProducts, productSearch, workspace.id]
+    () => filterAdminStoreProducts(products, workspace.id, productSearch),
+    [productSearch, products, workspace.id]
   );
   const productEditorPresentation = getStoreProductEditorPresentation(editingProduct);
 
@@ -665,10 +678,7 @@ export default function StorePage({
       const nextDraft: StoreProductDraft = {
         ...productDraft,
         photoUrl,
-        optionGroupIds: savedGroups.map(group => group.id),
-        estimatedCost: productDraft.linkedRecipeId
-          ? Number(recipes.find(recipe => recipe.id === productDraft.linkedRecipeId)?.costing?.costPerPortion || 0)
-          : productDraft.estimatedCost
+        optionGroupIds: savedGroups.map(group => group.id)
       };
       saveStage = 'product-write';
       const savedProduct = editingProduct
@@ -936,14 +946,12 @@ export default function StorePage({
                 <label className="block md:col-span-2">
                   <span className="font-sans text-xs font-extrabold text-primary">Linked Recipe (cost source)</span>
                   <select
-                    value={productDraft.linkedRecipeId || ''}
+                    value={productDraft.recipeId || ''}
                     onChange={event => {
                       const linkedRecipe = recipes.find(recipe => recipe.id === event.target.value);
                       setProductDraft(current => ({
                         ...current,
-                        linkedRecipeId: linkedRecipe?.id || undefined,
-                        linkedRecipeTitle: linkedRecipe?.title || undefined,
-                        estimatedCost: linkedRecipe ? Number(linkedRecipe.costing?.costPerPortion || 0) : undefined
+                        recipeId: linkedRecipe?.id || undefined
                       }));
                     }}
                     className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary"
@@ -953,13 +961,12 @@ export default function StorePage({
                   </select>
                   <span className="mt-1 block font-sans text-[11px] font-bold text-outline">When linked, Estimated Cost follows the recipe's current per-portion cost.</span>
                 </label>
-                {productDraft.linkedRecipeId && (() => {
+                {productDraft.recipeId && (() => {
                   const analysis = calculateStoreProductCostAnalysis({
                     price: productDraft.price,
-                    linkedRecipeId: productDraft.linkedRecipeId,
-                    estimatedCost: productDraft.estimatedCost
-                  }, recipes);
-                  return <div className="md:col-span-2 rounded-2xl border border-primary/15 bg-primary/5 p-4"><h3 className="font-display text-lg font-bold text-primary">Cost Analysis</h3><dl className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4"><div><dt className="font-bold text-outline">Estimated Cost</dt><dd className="mt-1 font-extrabold text-primary">{analysis.estimatedCost === null ? 'Not available' : formatRegionCurrency(analysis.estimatedCost, region.currency)}</dd></div><div><dt className="font-bold text-outline">Selling Price</dt><dd className="mt-1 font-extrabold text-primary">{formatRegionCurrency(analysis.sellingPrice, region.currency)}</dd></div><div><dt className="font-bold text-outline">Gross Profit</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossProfit === null ? 'Not available' : formatRegionCurrency(analysis.grossProfit, region.currency)}</dd></div><div><dt className="font-bold text-outline">Gross Margin</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossMargin === null ? 'Not available' : `${analysis.grossMargin.toFixed(2)}%`}</dd></div></dl></div>;
+                    recipeId: productDraft.recipeId
+                  }, currentRecipeCosting);
+                  return <div className="md:col-span-2 rounded-2xl border border-primary/15 bg-primary/5 p-4"><h3 className="font-display text-lg font-bold text-primary">Cost Analysis</h3><dl className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4"><div><dt className="font-bold text-outline">Estimated Cost</dt><dd className="mt-1 font-extrabold text-primary">{analysis.estimatedCost === null ? 'Cost unavailable' : formatRegionCurrency(analysis.estimatedCost, region.currency)}</dd></div><div><dt className="font-bold text-outline">Selling Price</dt><dd className="mt-1 font-extrabold text-primary">{formatRegionCurrency(analysis.sellingPrice, region.currency)}</dd></div><div><dt className="font-bold text-outline">Gross Profit</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossProfit === null ? 'Missing recipe cost' : formatRegionCurrency(analysis.grossProfit, region.currency)}</dd></div><div><dt className="font-bold text-outline">Gross Margin</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossMargin === null ? 'Missing recipe cost' : `${analysis.grossMargin.toFixed(2)}%`}</dd></div></dl></div>;
                 })()}
                 <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Product Photo <span aria-hidden="true">*</span></span>
@@ -1141,7 +1148,11 @@ export default function StorePage({
                     </span>
                   </div>
                   {product.description && <p className="mt-3 line-clamp-2 font-sans text-xs font-bold leading-relaxed text-on-surface-variant">{product.description}</p>}
-                  {product.linkedRecipeId && <p className="mt-3 font-sans text-[11px] font-bold text-outline">Recipe cost: {formatRegionCurrency(Number(product.estimatedCost || 0), region.currency)} · {product.linkedRecipeTitle || 'Linked recipe'}</p>}
+                  {product.recipeId && (() => {
+                    const recipe = recipes.find(candidate => candidate.id === product.recipeId);
+                    const cost = resolveStoreProductEstimatedCost(product, currentRecipeCosting);
+                    return <p className="mt-3 font-sans text-[11px] font-bold text-outline">Recipe cost: {cost === null ? 'Cost unavailable' : formatRegionCurrency(cost, region.currency)} · {recipe?.title || 'Missing recipe'}</p>;
+                  })()}
                   {product.optionGroupIds.length > 0 && <p className="mt-3 font-sans text-[11px] font-bold text-outline">{product.optionGroupIds.length} option {product.optionGroupIds.length === 1 ? 'group' : 'groups'}</p>}
                   {permissions.manageProducts && <button type="button" onClick={() => openProductEditor(product)} className="mt-4 inline-flex items-center gap-2 font-sans text-xs font-extrabold text-primary">
                     <Pencil className="h-3.5 w-3.5" /> Edit
@@ -1172,7 +1183,8 @@ export default function StorePage({
           currentUser={currentUser}
           workspaceId={workspace.id}
           currency={region.currency}
-          products={costAwareProducts}
+          products={products}
+          recipes={currentRecipeCosting}
           sets={sets}
           onSetsChange={setSets}
           onMessage={(nextMessage, isError = false) => {

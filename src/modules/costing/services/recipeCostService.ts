@@ -40,6 +40,17 @@ export const recipeCostService = {
     ]);
   },
 
+  async resolveCurrentWorkspaceRecipeCosting(workspaceId: string): Promise<Recipe[]> {
+    if (!db || !workspaceId) return [];
+    const [ingredients, recipesSnapshot] = await Promise.all([
+      ingredientService.listIngredients(workspaceId),
+      getDocs(query(collection(db, 'recipes'), where('workspaceId', '==', workspaceId)))
+    ]);
+    const recipes = recipesSnapshot.docs.map(recipeDoc => ({ id: recipeDoc.id, ...recipeDoc.data() } as Recipe));
+    const calculatedAt = new Date().toISOString();
+    return recipes.map(recipe => calculateRecipeCosting(recipe, ingredients, calculatedAt, recipes));
+  },
+
   async recalculateDependentRecipes(changedRecipeId: string, workspaceId: string) {
     if (!db || !changedRecipeId || !workspaceId) return [];
     const [ingredients, recipesSnapshot] = await Promise.all([

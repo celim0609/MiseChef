@@ -8,19 +8,31 @@ import {
   validateStoreSet,
   validateStoreSetSelections
 } from './storeSetModel';
+import type { Recipe } from '../../types';
 import type { StoreProduct, StoreSet } from './types';
 
 const now = '2026-08-26T00:00:00.000Z';
 const products: StoreProduct[] = [{
   id: 'nasi', storeId: 'store', workspaceId: 'store', photoUrl: 'nasi.jpg', name: 'Nasi Lemak', description: '',
-  price: 5.9, estimatedCost: 1.83, available: true, optionGroupIds: [], createdBy: 'owner', createdAt: now, updatedAt: now
+  price: 5.9, recipeId: 'nasi-recipe', estimatedCost: 1.83, available: true, optionGroupIds: [], createdBy: 'owner', createdAt: now, updatedAt: now
 }, {
   id: 'kopi', storeId: 'store', workspaceId: 'store', photoUrl: 'kopi.jpg', name: 'Kopi O 8oz', description: '',
-  price: 3.5, estimatedCost: 1.05, available: true, optionGroupIds: [], createdBy: 'owner', createdAt: now, updatedAt: now
+  price: 3.5, recipeId: 'kopi-recipe', estimatedCost: 1.05, available: true, optionGroupIds: [], createdBy: 'owner', createdAt: now, updatedAt: now
 }, {
   id: 'kopi-ice', storeId: 'store', workspaceId: 'store', photoUrl: 'ice.jpg', name: 'Kopi Ice', description: '',
-  price: 4, estimatedCost: 1.2, available: true, optionGroupIds: [], createdBy: 'owner', createdAt: now, updatedAt: now
+  price: 4, recipeId: 'kopi-ice-recipe', estimatedCost: 1.2, available: true, optionGroupIds: [], createdBy: 'owner', createdAt: now, updatedAt: now
 }];
+
+const costedRecipe = (id: string, cost: number): Recipe => ({
+  id, title: id, coverImage: '', category: '', prepTime: 0, servings: 1, yield: '1 portion', difficulty: 'Easy', story: '',
+  ingredients: [], method: [], videoLink: '', chefName: '', isSaved: false, collections: [],
+  costing: {
+    totalRecipeCost: cost, costPerPortion: cost, sellingPrice: 0, foodCostPercentage: 0, grossProfitPercentage: 0,
+    breakdown: [{ recipeIngredientId: `${id}-cost`, itemType: 'ingredient', ingredientName: 'Costed ingredient', quantity: 1, unit: 'unit', unitCost: cost, ingredientCost: cost, percentageOfTotalRecipeCost: 100 }],
+    lastCalculatedAt: now
+  }
+});
+const recipes = [costedRecipe('nasi-recipe', 1.83), costedRecipe('kopi-recipe', 1.05), costedRecipe('kopi-ice-recipe', 1.2)];
 
 const breakfastSet: StoreSet = normalizeStoreSet('breakfast', {
   storeId: 'store', workspaceId: 'store', name: 'Breakfast Set', description: '', photoUrl: 'set.jpg', category: 'Breakfast',
@@ -40,7 +52,7 @@ test('owner can define a generic set that references existing product ids', () =
 test('included selections, regular value, saving, cost, profit and margin calculate automatically', () => {
   const selections = [{ groupId: 'main', productId: 'nasi' }, { groupId: 'drink', productId: 'kopi' }];
   assert.equal(validateStoreSetSelections(breakfastSet, products, selections), '');
-  const analysis = calculateStoreSetAnalysis(breakfastSet, products, selections);
+  const analysis = calculateStoreSetAnalysis(breakfastSet, products, selections, recipes);
   assert.deepEqual(analysis, {
     upgradeTotal: 0,
     sellingPrice: 7.9,
@@ -97,4 +109,3 @@ test('standalone product order behavior remains backward compatible', () => {
   assert.equal(item.lineTotal, 7);
   assert.equal(item.setSnapshot, undefined);
 });
-

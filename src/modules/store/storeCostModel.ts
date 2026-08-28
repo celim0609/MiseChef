@@ -1,23 +1,19 @@
 import type { Recipe } from '../../types';
+import { resolveRecipePerPortionCost } from '../costing/services/recipeCostCalculator';
 import type { StoreProduct } from './types';
 
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 export const resolveStoreProductEstimatedCost = (
-  product: Pick<StoreProduct, 'linkedRecipeId' | 'estimatedCost'>,
+  product: Pick<StoreProduct, 'recipeId'>,
   recipes: Recipe[]
 ) => {
-  if (product.linkedRecipeId) {
-    const recipe = recipes.find(candidate => candidate.id === product.linkedRecipeId);
-    const recipeCost = Number(recipe?.costing?.costPerPortion);
-    return Number.isFinite(recipeCost) && recipeCost >= 0 ? roundMoney(recipeCost) : null;
-  }
-  const legacyCost = Number(product.estimatedCost);
-  return Number.isFinite(legacyCost) && legacyCost >= 0 ? roundMoney(legacyCost) : null;
+  if (!product.recipeId) return null;
+  return resolveRecipePerPortionCost(recipes.find(candidate => candidate.id === product.recipeId));
 };
 
 export const calculateStoreProductCostAnalysis = (
-  product: Pick<StoreProduct, 'price' | 'linkedRecipeId' | 'estimatedCost'>,
+  product: Pick<StoreProduct, 'price' | 'recipeId'>,
   recipes: Recipe[]
 ) => {
   const sellingPrice = roundMoney(Number(product.price) || 0);
