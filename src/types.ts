@@ -25,12 +25,22 @@ export interface Ingredient {
 export interface RecipeCostBreakdownItem {
   recipeIngredientId: string;
   ingredientId?: string;
+  linkedRecipeId?: string;
+  itemType?: 'ingredient' | 'linkedRecipe';
   ingredientName: string;
   quantity: number;
   unit: string;
   unitCost: number;
   ingredientCost: number;
   percentageOfTotalRecipeCost: number;
+}
+
+export interface LinkedRecipeComponent {
+  id: string;
+  recipeId: string;
+  recipeTitle?: string;
+  quantity: number;
+  unit: 'portion';
 }
 
 export interface RecipeCosting {
@@ -102,6 +112,7 @@ export interface Recipe {
   story: string;
   chefNotes?: string;
   ingredients: Ingredient[];
+  linkedRecipes?: LinkedRecipeComponent[];
   method: MethodStep[];
   recommendedProducts?: RecommendedProduct[];
   recommendedProductIds?: string[];
@@ -110,6 +121,8 @@ export interface Recipe {
   costing?: RecipeCosting;
   recipeCostLastCalculatedAt?: string;
   chefName: string;
+  chefUsername?: string;
+  publicDisplayName?: string;
   chefAvatar?: string;
   isSaved: boolean;
   collections: string[]; // collection IDs

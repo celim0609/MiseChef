@@ -1278,7 +1278,9 @@ export default function App() {
         });
         const costedRecipe = await recipeCostService.applyCosting(cloudRecipe, currentUser.uid, activeWorkspaceId);
         await saveRecipeToFirestore(costedRecipe, currentUser, activeWorkspaceId);
-        const updated = [costedRecipe, ...recipes];
+        const dependents = await recipeCostService.recalculateDependentRecipes(costedRecipe.id, activeWorkspaceId);
+        const dependentById = new Map(dependents.map(recipe => [recipe.id, recipe]));
+        const updated = [costedRecipe, ...recipes.map(recipe => dependentById.get(recipe.id) || recipe)];
         setRecipes(updated);
         triggerNotification(`Saved "${costedRecipe.title}" to your cookbook.`, 'success');
       } else {
@@ -1319,9 +1321,11 @@ export default function App() {
         });
         const costedRecipe = await recipeCostService.applyCosting(cloudRecipe, currentUser.uid, activeWorkspaceId);
         await saveRecipeToFirestore(costedRecipe, currentUser, activeWorkspaceId, 'update');
-        const updated = recipes.map(recipe =>
-          recipe.id === costedRecipe.id ? costedRecipe : recipe
-        );
+        const dependents = await recipeCostService.recalculateDependentRecipes(costedRecipe.id, activeWorkspaceId);
+        const dependentById = new Map(dependents.map(recipe => [recipe.id, recipe]));
+        const updated = recipes.map(recipe => recipe.id === costedRecipe.id
+          ? costedRecipe
+          : dependentById.get(recipe.id) || recipe);
         setRecipes(updated);
         setSelectedRecipe(costedRecipe);
         triggerNotification(`Updated "${costedRecipe.title}".`, 'success');
@@ -1884,6 +1888,7 @@ export default function App() {
           <StorePage
             currentUser={currentUser}
             workspace={currentWorkspace}
+            recipes={recipes}
             workspaceRole={currentWorkspaceRole || 'Viewer'}
             focusOrderId={focusedStoreOrderId}
             notifications={storeNotifications}
@@ -2285,6 +2290,7 @@ export default function App() {
             userRole={currentUserRole}
             userId={currentUser?.uid}
             workspaceId={activeWorkspaceId}
+            recipes={recipes}
           />
         ) : addingRecipe ? (
           <AddRecipeTab
@@ -2300,6 +2306,7 @@ export default function App() {
             userRole={currentUserRole}
             userId={currentUser?.uid}
             workspaceId={activeWorkspaceId}
+            recipes={recipes}
           />
         ) : (
           renderTabContent()

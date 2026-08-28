@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteField,
   deleteDoc,
   doc,
   getDoc,
@@ -363,6 +364,9 @@ export const storeService = {
       name: draft.name.trim(),
       description: draft.description.trim(),
       price: draft.price,
+      linkedRecipeId: draft.linkedRecipeId?.trim() || undefined,
+      linkedRecipeTitle: draft.linkedRecipeTitle?.trim() || undefined,
+      estimatedCost: Number.isFinite(draft.estimatedCost) ? draft.estimatedCost : undefined,
       available: draft.available,
       optionGroupIds: [...draft.optionGroupIds],
       createdBy,
@@ -381,7 +385,14 @@ export const storeService = {
 
     const updatedProduct = buildUpdatedStoreProduct(product, draft, new Date().toISOString());
 
-    await setDoc(doc(db, 'storeProducts', product.id), removeUndefinedFields(updatedProduct), { merge: true });
+    await setDoc(doc(db, 'storeProducts', product.id), {
+      ...removeUndefinedFields(updatedProduct),
+      ...(!draft.linkedRecipeId ? {
+        linkedRecipeId: deleteField(),
+        linkedRecipeTitle: deleteField(),
+        estimatedCost: deleteField()
+      } : {})
+    }, { merge: true });
     return updatedProduct;
   },
 

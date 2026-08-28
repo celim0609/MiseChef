@@ -13,6 +13,7 @@ import PublicRecipeDiscoveryPage from './PublicRecipeDiscoveryPage';
 import { HostProgramPage, PublicGroupOrderPage, PublicStorePage } from '../store';
 import { HomepageAnnouncementCarousel } from './HomepageCarousels';
 import type { HomepagePromotion } from './homepagePromotions';
+import { resolvePublicRecipeAuthors } from './publicRecipeAuthor';
 
 const publicNavigation = [
   { label: 'Home', href: '/' },
@@ -97,6 +98,11 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
     ].filter(Boolean).join(' ').toLowerCase().includes(searchTerm));
   }, [chefSearch, publicChefs]);
 
+  const resolvedPublicRecipes = useMemo(
+    () => resolvePublicRecipeAuthors(publicRecipes, publicChefs),
+    [publicChefs, publicRecipes]
+  );
+
   useEffect(() => {
     let isCancelled = false;
     publicChefProfileService.listPublicProfiles()
@@ -111,7 +117,7 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
 
   const renderPage = () => {
     if (route.page === 'home') {
-      return <PublicHomePage publicRecipes={publicRecipes} publicChefs={publicChefs} publicDiscoverStores={publicDiscoverStores} promotions={homepagePromotions} status={recipeStatus} />;
+      return <PublicHomePage publicRecipes={resolvedPublicRecipes} publicChefs={publicChefs} publicDiscoverStores={publicDiscoverStores} promotions={homepagePromotions} status={recipeStatus} />;
     }
 
     if (route.page === 'recipes') {
@@ -121,15 +127,15 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
           <h1 className="mt-2 font-display text-4xl font-bold text-primary">Recipes</h1>
           <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Only recipes shared publicly appear here.</p>
           <div className="mt-6">
-            <PublicSectionState status={recipeStatus} isEmpty={publicRecipes.length === 0} emptyTitle="No public recipes yet" emptyMessage="Recipes marked public will appear here. Private and workspace recipes remain hidden.">
+            <PublicSectionState status={recipeStatus} isEmpty={resolvedPublicRecipes.length === 0} emptyTitle="No public recipes yet" emptyMessage="Recipes marked public will appear here. Private and workspace recipes remain hidden.">
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {publicRecipes.map(recipe => (
+              {resolvedPublicRecipes.map(recipe => (
                 <a key={recipe.id} href={`/recipes/${toPublicSlug(recipe.title) || recipe.id}`} className="overflow-hidden rounded-3xl border border-surface-container-high bg-background shadow-sm">
                   <img src={recipe.coverImage} alt={recipe.title} className="h-44 w-full object-cover" referrerPolicy="no-referrer" />
                   <div className="p-5">
                     <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.14em] text-secondary">{getRecipeCategories(recipe).join(', ')}</p>
                     <h2 className="mt-2 font-display text-xl font-semibold text-primary">{recipe.title}</h2>
-                    <p className="mt-2 font-sans text-xs font-bold text-on-surface-variant">By {recipe.chefName || 'MiseChef'}</p>
+                    <p className="mt-2 font-sans text-xs font-bold text-on-surface-variant">By {recipe.publicDisplayName || 'MiseChef'}</p>
                   </div>
                 </a>
               ))}
@@ -147,8 +153,8 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
       if (recipeStatus === 'error') {
         return <EmptyPublicState title="Recipe temporarily unavailable" message="This public recipe could not be loaded. Please try again later." icon={<Search className="h-5 w-5" />} />;
       }
-      const recipe = publicRecipes.find(item => toPublicSlug(item.title) === route.slug || item.id === route.slug);
-      return recipe ? <PublicRecipeDiscoveryPage recipe={recipe} publicRecipes={publicRecipes} publicChefs={publicChefs} /> : <EmptyPublicState title="Recipe not available" message="This recipe is not public or could not be found." icon={<Search className="h-5 w-5" />} />;
+      const recipe = resolvedPublicRecipes.find(item => toPublicSlug(item.title) === route.slug || item.id === route.slug);
+      return recipe ? <PublicRecipeDiscoveryPage recipe={recipe} publicRecipes={resolvedPublicRecipes} publicChefs={publicChefs} /> : <EmptyPublicState title="Recipe not available" message="This recipe is not public or could not be found." icon={<Search className="h-5 w-5" />} />;
     }
 
     if (route.page === 'store') {

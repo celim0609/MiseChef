@@ -35,6 +35,7 @@ const listPublicProfiles = async (): Promise<PublicChefProfileSummary[]> => {
     return [{
       username: profile.username,
       name: profile.displayName,
+      publicDisplayName: profile.displayName,
       avatar: profile.avatarUrl,
       cover: profile.coverImageUrl,
       professionalTitle: profile.professionalTitle,

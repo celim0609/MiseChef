@@ -544,15 +544,33 @@ const syncPublicRecipeProjection = async (recipeId, recipe) => {
   await deletePublicRecipeAssets(obsoleteAssets);
 };
 
+const syncLinkedStoreProductCosts = async (recipeId, recipe) => {
+  const snapshot = await db.collection('storeProducts').where('linkedRecipeId', '==', recipeId).get();
+  if (snapshot.empty) return;
+  const costPerPortion = Number(recipe?.costing?.costPerPortion);
+  const hasCost = Number.isFinite(costPerPortion) && costPerPortion >= 0;
+  const batch = db.batch();
+  snapshot.docs.forEach(productDocument => {
+    batch.update(productDocument.ref, {
+      ...(!recipe ? { linkedRecipeId: FieldValue.delete() } : {}),
+      estimatedCost: hasCost ? Math.round((costPerPortion + Number.EPSILON) * 100) / 100 : FieldValue.delete(),
+      linkedRecipeTitle: recipe ? readString(recipe.title) : FieldValue.delete(),
+      updatedAt: FieldValue.serverTimestamp()
+    });
+  });
+  await batch.commit();
+};
+
 export const syncPublicRecipe = onDocumentWritten({
   document: 'recipes/{recipeId}',
   region: REGION
 }, async event => {
   const recipeSnapshot = event.data?.after;
-  await syncPublicRecipeProjection(
-    event.params.recipeId,
-    recipeSnapshot?.exists ? recipeSnapshot.data() : null
-  );
+  const recipe = recipeSnapshot?.exists ? recipeSnapshot.data() : null;
+  await Promise.all([
+    syncPublicRecipeProjection(event.params.recipeId, recipe),
+    syncLinkedStoreProductCosts(event.params.recipeId, recipe)
+  ]);
 });
 
 export const syncApprovedProductRecipes = onDocumentWritten({

@@ -171,6 +171,8 @@ export interface StoreProduct {
   name: string;
   description: string;
   price: number;
+  linkedRecipeId?: string;
+  linkedRecipeTitle?: string;
   /** Current per-item cost when the Store product has costing data attached. */
   estimatedCost?: number;
   available: boolean;
@@ -185,6 +187,10 @@ export interface StoreProductDraft {
   name: string;
   description: string;
   price: number;
+  linkedRecipeId?: string;
+  linkedRecipeTitle?: string;
+  /** Derived from linkedRecipeId; never entered manually. */
+  estimatedCost?: number;
   available: boolean;
   optionGroupIds: string[];
 }

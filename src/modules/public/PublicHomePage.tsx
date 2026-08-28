@@ -8,6 +8,7 @@ import { HomepagePromotionCarousel } from './HomepageCarousels';
 import { DEFAULT_HOMEPAGE_PROMOTIONS, type HomepagePromotion } from './homepagePromotions';
 import { createPublicHomeDiscoverItems, type PublicDiscoverStoreSummary } from './publicDiscoverModel';
 import { toPublicSlug } from './publicRoutes';
+import { safePublicDisplayName } from './publicRecipeAuthor';
 
 interface PublicHomePageProps {
   publicRecipes: Recipe[];
@@ -41,7 +42,7 @@ const RecipeRailCard = ({ recipe }: { recipe: Recipe; key?: Key }) => (
     <div className="flex min-w-0 flex-1 flex-col justify-center p-5 sm:p-6">
       <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.16em] text-secondary">{getRecipeCategories(recipe).slice(0, 2).join(' · ') || 'Recipe'}</p>
       <h3 className="mt-2 line-clamp-2 font-display text-2xl font-bold leading-tight text-primary sm:text-3xl">{recipe.title}</h3>
-      <p className="mt-3 font-sans text-xs font-bold text-on-surface-variant">By {recipe.chefName || 'MiseChef'}</p>
+      <p className="mt-3 font-sans text-xs font-bold text-on-surface-variant">By {safePublicDisplayName(recipe.publicDisplayName || recipe.chefName) || 'MiseChef'}</p>
       <span className="mt-4 inline-flex items-center gap-1 font-sans text-xs font-extrabold text-secondary">View recipe <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" /></span>
     </div>
   </a>

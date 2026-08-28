@@ -320,6 +320,8 @@ export const normalizeStoreProduct = (
   name: readString(data.name, 'Product'),
   description: readString(data.description),
   price: readPrice(data.price),
+  linkedRecipeId: readString(data.linkedRecipeId) || undefined,
+  linkedRecipeTitle: readString(data.linkedRecipeTitle) || undefined,
   ...(Number.isFinite(Number(data.estimatedCost)) && Number(data.estimatedCost) >= 0
     ? { estimatedCost: Number(data.estimatedCost) }
     : {}),
