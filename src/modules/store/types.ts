@@ -118,6 +118,18 @@ export interface HostGroupOrder extends PublicGroupOrder {
   estimatedReward: number;
 }
 
+export interface HostGroupOrderSummary {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  itemCount: number;
+  total: number;
+  currency: RegionCurrency;
+  paymentStatus: StoreOrder['payment']['status'];
+  fulfilmentStatus: StoreFulfilmentStatus | '';
+  createdAt: string;
+}
+
 export interface StorePickupLocation {
   id: string;
   name: string;

@@ -48,8 +48,10 @@ import {
   activateHostProfile,
   createGroupOrder,
   getPublicGroupOrder,
+  listHostGroupOrdersDetail,
   listHostGroupOrders,
-  projectGroupReward
+  projectGroupReward,
+  transitionGroupOrder
 } from './groupOrders.js';
 import {
   extractResumeWithCompletenessRetry,
@@ -189,6 +191,19 @@ export const listMyMiseChefGroupOrders = onCall({ region: REGION }, async reques
   db,
   uid: request.auth?.uid,
   slug: request.data?.slug
+}));
+
+export const getMyMiseChefGroupOrder = onCall({ region: REGION }, async request => listHostGroupOrdersDetail({
+  db,
+  uid: request.auth?.uid,
+  groupId: request.data?.groupId
+}));
+
+export const updateMyMiseChefGroupOrderStatus = onCall({ region: REGION }, async request => transitionGroupOrder({
+  db,
+  uid: request.auth?.uid,
+  groupId: request.data?.groupId,
+  nextStatus: request.data?.nextStatus
 }));
 
 export const syncMiseChefGroupReward = onDocumentWritten({

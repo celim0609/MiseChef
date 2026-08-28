@@ -2123,7 +2123,7 @@ export default function App() {
   }
 
   if (isPublicExperiencePath(window.location.pathname)) {
-    return <PublicLayout pathname={window.location.pathname} />;
+    return <PublicLayout pathname={window.location.pathname} currentUser={currentUser} />;
   }
 
   if (isMarketingPath(window.location.pathname)) {

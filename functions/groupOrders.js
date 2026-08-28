@@ -6,6 +6,12 @@ import { getValidPickupDates, readString } from './storePaymentsCore.js';
 const roundMoney = value => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 const publicCode = () => randomBytes(18).toString('base64url');
 const toIso = value => value?.toDate ? value.toDate().toISOString() : readString(value);
+const groupStatus = (data, now = new Date()) => {
+  if (data?.status === 'cancelled') return 'cancelled';
+  if (data?.status === 'closed') return 'closed';
+  const closesAt = new Date(toIso(data?.closesAt));
+  return !Number.isNaN(closesAt.getTime()) && closesAt <= now ? 'closed' : 'open';
+};
 
 const loadEnabledStore = async (db, slug) => {
   const snapshot = await db.collection('stores')
@@ -119,7 +125,7 @@ const publicGroup = (id, data, now = new Date()) => ({
   pickupLocationName: readString(data.pickupLocationName),
   pickupLocationAddress: readString(data.pickupLocationAddress),
   closesAt: toIso(data.closesAt),
-  status: data.status === 'cancelled' ? 'cancelled' : new Date(toIso(data.closesAt)) <= now ? 'closed' : 'open'
+  status: groupStatus(data, now)
 });
 
 export const getPublicGroupOrder = async ({ db, shareCode, now = new Date() }) => {
@@ -156,6 +162,83 @@ export const listHostGroupOrders = async ({ db, uid, slug, now = new Date() }) =
   return { hostActive: true, groups };
 };
 
+export const transitionGroupOrder = async ({ db, uid, groupId, nextStatus, now = new Date() }) => {
+  if (!uid) throw new HttpsError('unauthenticated', 'Sign in to manage Group Orders.');
+  const normalizedGroupId = readString(groupId);
+  if (!normalizedGroupId) throw new HttpsError('invalid-argument', 'Choose a Group Order.');
+  if (!['closed', 'cancelled'].includes(nextStatus)) {
+    throw new HttpsError('invalid-argument', 'Choose a valid Group status.');
+  }
+  return db.runTransaction(async transaction => {
+    const reference = db.collection('groupOrders').doc(normalizedGroupId);
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists) throw new HttpsError('not-found', 'This Group Order could not be found.');
+    const group = snapshot.data();
+    if (readString(group.hostId) !== uid) {
+      throw new HttpsError('permission-denied', 'You can manage only your own Group Orders.');
+    }
+    const currentStatus = groupStatus(group, now);
+    if (currentStatus === nextStatus) {
+      return { groupId: normalizedGroupId, status: nextStatus };
+    }
+    if (currentStatus !== 'open') {
+      throw new HttpsError('failed-precondition', 'A closed or cancelled Group cannot be changed.');
+    }
+    const auditPrefix = nextStatus === 'closed' ? 'closed' : 'cancelled';
+    transaction.update(reference, {
+      status: nextStatus,
+      [`${auditPrefix}At`]: FieldValue.serverTimestamp(),
+      [`${auditPrefix}By`]: uid,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    return { groupId: normalizedGroupId, status: nextStatus };
+  });
+};
+
+const hostOrder = document => {
+  const data = document.data();
+  return {
+    id: document.id,
+    orderNumber: readString(data.orderNumber),
+    customerName: readString(data.customerName) || 'Customer',
+    itemCount: Math.max(0, Number(data.itemCount) || 0),
+    total: roundMoney(Math.max(0, Number(data.total) || 0)),
+    currency: data.currency === 'SGD' ? 'SGD' : 'MYR',
+    paymentStatus: readString(data.payment?.status) || 'pending',
+    fulfilmentStatus: readString(data.fulfilmentStatus) || 'New',
+    createdAt: toIso(data.createdAt)
+  };
+};
+
+export const listHostGroupOrdersDetail = async ({ db, uid, groupId, now = new Date() }) => {
+  if (!uid) throw new HttpsError('unauthenticated', 'Sign in to manage Group Orders.');
+  const normalizedGroupId = readString(groupId);
+  if (!normalizedGroupId) throw new HttpsError('invalid-argument', 'Choose a Group Order.');
+  const groupSnapshot = await db.collection('groupOrders').doc(normalizedGroupId).get();
+  if (!groupSnapshot.exists) throw new HttpsError('not-found', 'This Group Order could not be found.');
+  const group = groupSnapshot.data();
+  if (readString(group.hostId) !== uid) {
+    throw new HttpsError('permission-denied', 'You can view only your own Group Orders.');
+  }
+  const ordersSnapshot = await db.collection('storeOrders')
+    .where('groupOrder.id', '==', normalizedGroupId)
+    .get();
+  const orders = ordersSnapshot.docs
+    .map(hostOrder)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return {
+    group: {
+      ...publicGroup(groupSnapshot.id, group, now),
+      rewardPercent: Number(group.rewardPercent) || 0,
+      minimumQualifyingSales: Number(group.minimumQualifyingSales) || 0,
+      orderCount: Number(group.orderCount) || 0,
+      eligibleSales: Number(group.eligibleSales) || 0,
+      estimatedReward: Number(group.estimatedReward) || 0
+    },
+    orders
+  };
+};
+
 export const resolveCheckoutGroup = async ({ db, store, draft, now = new Date() }) => {
   const shareCode = readString(draft?.groupShareCode);
   if (!shareCode) return null;
@@ -175,6 +258,29 @@ export const resolveCheckoutGroup = async ({ db, store, draft, now = new Date() 
     name: group.name,
     hostId: readString(data.hostId),
     hostName: group.hostName,
+    rewardPercent: Number(data.rewardPercent) || 0
+  };
+};
+
+export const revalidateCheckoutGroupInTransaction = async ({ db, transaction, groupOrder, store, draft, now = new Date() }) => {
+  if (!groupOrder?.id) return null;
+  const snapshot = await transaction.get(db.collection('groupOrders').doc(groupOrder.id));
+  const data = snapshot.data();
+  if (!snapshot.exists || readString(data?.storeId) !== readString(store.id)) {
+    throw new Error('This Group Order belongs to a different Store.');
+  }
+  if (groupStatus(data, now) !== 'open') throw new Error('This Group Order is closed.');
+  if (readString(draft.pickupDate) !== readString(data.pickupDate)
+    || readString(draft.pickupSession) !== readString(data.pickupSession)
+    || readString(draft.pickupLocationId) !== readString(data.pickupLocationId)) {
+    throw new Error('Pickup details must match this Group Order.');
+  }
+  return {
+    id: snapshot.id,
+    shareCode: readString(data.shareCode),
+    name: readString(data.name),
+    hostId: readString(data.hostId),
+    hostName: readString(data.hostName),
     rewardPercent: Number(data.rewardPercent) || 0
   };
 };

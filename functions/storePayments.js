@@ -14,7 +14,7 @@ import {
   getStoreNotificationId,
   STORE_NOTIFICATION_TYPE
 } from './storeNotifications.js';
-import { resolveCheckoutGroup } from './groupOrders.js';
+import { revalidateCheckoutGroupInTransaction, resolveCheckoutGroup } from './groupOrders.js';
 
 const loadStoreCheckoutData = async (db, slug) => {
   const storeSnapshot = await db.collection('stores')
@@ -295,6 +295,14 @@ export const createStorePayment = async ({
   const checkoutAccessToken = randomBytes(32).toString('hex');
   const storeId = readString(checkoutData.store.id) || readString(checkoutData.store.workspaceId);
   const { order } = await db.runTransaction(async transaction => {
+    const currentGroupOrder = await revalidateCheckoutGroupInTransaction({
+      db,
+      transaction,
+      groupOrder,
+      store: checkoutData.store,
+      draft,
+      now
+    });
     const reference = await createAvailableOrderReference({
       date: now,
       exists: async ({ orderNumber, pickupCode, businessDateKey }) => {
@@ -321,7 +329,7 @@ export const createStorePayment = async ({
       paymentProvider: activeAdapter.provider,
       paymentProviderMode: activeAdapter.mode,
       paymentMethod,
-      groupOrder,
+      groupOrder: currentGroupOrder,
       draft,
       now
     });

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import type { User } from 'firebase/auth';
 import {
   ArrowRight,
   Banknote,
@@ -82,7 +83,7 @@ function PaymentMethodIcon({ methodId }: { methodId: StorePaymentMethodId }) {
   return <QrCode className={iconClassName} aria-hidden="true" />;
 }
 
-export default function PublicStorePage({ slug, groupOrder }: { slug: string; groupOrder?: PublicGroupOrder }) {
+export default function PublicStorePage({ slug, groupOrder, currentUser }: { slug: string; groupOrder?: PublicGroupOrder; currentUser?: User | null }) {
   const checkoutSectionRef = useRef<HTMLElement | null>(null);
   const [data, setData] = useState<PublicStoreData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -439,6 +440,8 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
     && store.pickupSessions.length > 0
     && validPickupDates.length > 0
     && (!groupOrder || groupOrder.status === 'open');
+  const hostPath = `/host/${encodeURIComponent(store.slug)}`;
+  const hostEntryHref = currentUser ? hostPath : `/login?returnTo=${encodeURIComponent(hostPath)}`;
   const paymentReturnUrl = (() => {
     const url = new URL(window.location.href);
     url.search = '';
@@ -452,14 +455,9 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
       {groupOrder && (
         <section className="rounded-3xl border border-secondary/30 bg-secondary/10 p-6">
           <p className="font-sans text-xs font-extrabold uppercase tracking-[0.18em] text-secondary">MiseChef Group Order</p>
-          <h1 className="mt-2 font-display text-3xl font-bold text-primary">You’re joining {groupOrder.hostName}’s Group Order</h1>
-          <p className="mt-2 font-display text-xl font-bold text-primary">{groupOrder.name}</p>
-          <dl className="mt-4 grid gap-3 font-sans text-sm font-bold text-on-surface-variant sm:grid-cols-3">
-            <div><dt className="text-[10px] font-extrabold uppercase text-outline">Store</dt><dd>{groupOrder.storeName}</dd></div>
-            <div><dt className="text-[10px] font-extrabold uppercase text-outline">Pickup</dt><dd>{formatPickupDateLabel(groupOrder.pickupDate, store.country)} · {groupOrder.pickupSession}</dd></div>
-            <div><dt className="text-[10px] font-extrabold uppercase text-outline">Orders close</dt><dd>{new Date(groupOrder.closesAt).toLocaleString()}</dd></div>
-          </dl>
-          {groupOrder.status !== 'open' && <p className="mt-4 rounded-2xl bg-white/70 p-3 font-sans text-sm font-extrabold text-error">This Group Order is closed. New orders are no longer accepted.</p>}
+          <h1 className="mt-2 font-display text-3xl font-bold text-primary">Ordering with {groupOrder.name}</h1>
+          <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Order before {new Date(groupOrder.closesAt).toLocaleString()} · Pickup {formatPickupDateLabel(groupOrder.pickupDate, store.country)} at {groupOrder.pickupSession}, {groupOrder.pickupLocationName}</p>
+          {groupOrder.status !== 'open' && <p className="mt-4 rounded-2xl bg-white/70 p-3 font-sans text-sm font-extrabold text-error">This Group Order is {groupOrder.status}. New orders are no longer accepted.</p>}
         </section>
       )}
       <section className="overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
@@ -508,7 +506,7 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:min-w-44">
-              <a href={`/host/${encodeURIComponent(store.slug)}`} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">Become a Host <ArrowRight className="h-4 w-4" /></a>
+              <a href={hostEntryHref} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">Start a Group Order <ArrowRight className="h-4 w-4" /></a>
               <button type="button" aria-expanded={isHostInfoOpen} aria-controls="host-opportunity-details" onClick={() => setIsHostInfoOpen(current => !current)} className="rounded-full border border-surface-container-high bg-surface px-5 py-3 font-sans text-xs font-extrabold text-primary">
                 {isHostInfoOpen ? 'Show less' : 'Learn more'}
               </button>

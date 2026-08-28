@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChefHat, Moon, Search, Sun, UserRound } from 'lucide-react';
+import type { User } from 'firebase/auth';
 import BrandLogo from '../../components/BrandLogo';
 import type { Recipe } from '../../types';
 import { getRecipeCategories } from '../../utils/categoryUtils';
@@ -18,8 +19,7 @@ import { resolvePublicRecipeAuthors } from './publicRecipeAuthor';
 const publicNavigation = [
   { label: 'Home', href: '/' },
   { label: 'Recipes', href: '/recipes' },
-  { label: 'Chefs', href: '/chefs' },
-  { label: 'Login', href: '/login' }
+  { label: 'Chefs', href: '/chefs' }
 ];
 
 const EmptyPublicState = ({ title, message, icon }: { title: string; message: string; icon: ReactNode }) => (
@@ -30,8 +30,12 @@ const EmptyPublicState = ({ title, message, icon }: { title: string; message: st
   </section>
 );
 
-export default function PublicLayout({ pathname }: { pathname: string }) {
+export default function PublicLayout({ pathname, currentUser }: { pathname: string; currentUser: User | null }) {
   const route = resolvePublicRoute(pathname) || { page: 'home' as const };
+  const hostReturnTo = route.page === 'host' ? `/host/${encodeURIComponent(route.slug)}` : '';
+  const accountLink = currentUser
+    ? { label: route.page === 'host' ? 'Host Center' : 'My MiseChef', href: route.page === 'host' ? hostReturnTo : '/app' }
+    : { label: 'Login', href: hostReturnTo ? `/login?returnTo=${encodeURIComponent(hostReturnTo)}` : '/login' };
   const [publicRecipes, setPublicRecipes] = useState<Recipe[]>([]);
   const [publicChefs, setPublicChefs] = useState<PublicChefSummary[]>([]);
   const [publicDiscoverStores, setPublicDiscoverStores] = useState<PublicDiscoverStoreSummary[]>([]);
@@ -158,11 +162,11 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
     }
 
     if (route.page === 'store') {
-      return <PublicStorePage slug={route.slug} />;
+      return <PublicStorePage slug={route.slug} currentUser={currentUser} />;
     }
 
     if (route.page === 'host') {
-      return <HostProgramPage slug={route.slug} />;
+      return <HostProgramPage slug={route.slug} currentUser={currentUser} />;
     }
 
     if (route.page === 'group') {
@@ -210,8 +214,9 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
           </form>
           <nav className="ml-auto flex items-center gap-1 lg:ml-0" aria-label="Public navigation">
             {publicNavigation.map(item => (
-              <a key={item.href} href={item.href} className={`rounded-full px-3 py-2 font-sans text-xs font-extrabold transition active:scale-95 sm:px-4 ${item.label === 'Login' ? 'inline-flex items-center gap-2 bg-primary text-on-primary hover:bg-primary-container' : 'hidden text-primary hover:bg-surface-container sm:inline-flex'}`}>{item.label === 'Login' && <UserRound className="h-4 w-4" />}{item.label}</a>
+              <a key={item.href} href={item.href} className="hidden rounded-full px-3 py-2 font-sans text-xs font-extrabold text-primary transition hover:bg-surface-container active:scale-95 sm:inline-flex sm:px-4">{item.label}</a>
             ))}
+            <a href={accountLink.href} className="inline-flex items-center gap-2 rounded-full bg-primary px-3 py-2 font-sans text-xs font-extrabold text-on-primary transition hover:bg-primary-container active:scale-95 sm:px-4"><UserRound className="h-4 w-4" />{accountLink.label}</a>
             <button type="button" onClick={toggleAppearance} aria-label={isNightMode ? 'Switch to Light Mode' : 'Switch to Night Mode'} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-surface-container-high text-primary transition hover:bg-surface-container active:scale-95">{isNightMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</button>
           </nav>
         </div>
@@ -225,7 +230,7 @@ export default function PublicLayout({ pathname }: { pathname: string }) {
               { label: 'Recipes', href: '/recipes' },
               { label: 'Chefs', href: '/chefs' },
               { label: 'Pricing', href: '/pricing' },
-              { label: 'Login', href: '/login' },
+              accountLink,
               { label: 'Contact', href: '/contact' }
             ].map(item => <a key={item.href} href={item.href} className="font-sans text-xs font-extrabold text-on-surface-variant hover:text-primary">{item.label}</a>)}
           </nav>

@@ -7,10 +7,12 @@ import { createDefaultWorkspaceStore, normalizeWorkspaceStore, validateStoreSett
 const publicStorePage = readFileSync(new URL('./PublicStorePage.tsx', import.meta.url), 'utf8');
 const hostPage = readFileSync(new URL('./HostProgramPage.tsx', import.meta.url), 'utf8');
 const appSource = readFileSync(new URL('../../App.tsx', import.meta.url), 'utf8');
+const publicLayout = readFileSync(new URL('../public/PublicLayout.tsx', import.meta.url), 'utf8');
 const paymentService = readFileSync(new URL('./services/paymentService.ts', import.meta.url), 'utf8');
 const groupService = readFileSync(new URL('./services/groupOrderService.ts', import.meta.url), 'utf8');
 const rules = readFileSync(new URL('../../../firestore.rules', import.meta.url), 'utf8');
 const backend = readFileSync(new URL('../../../functions/groupOrders.js', import.meta.url), 'utf8');
+const storePayments = readFileSync(new URL('../../../functions/storePayments.js', import.meta.url), 'utf8');
 
 test('Host and Group links are isolated public routes outside the authenticated app shell', () => {
   assert.deepEqual(resolvePublicRoute('/host/ce-lim-kitchen'), { page: 'host', slug: 'ce-lim-kitchen' });
@@ -42,19 +44,62 @@ test('the Host CTA is conditional and Group checkout reuses PublicStorePage', ()
   assert.doesNotMatch(publicStorePage, /Earn 5% on qualifying group orders/);
   assert.match(publicStorePage, /groupShareCode: groupOrder\.shareCode/);
   assert.match(publicStorePage, /disabled=\{Boolean\(groupOrder\)\}/);
+  assert.match(publicStorePage, /Start a Group Order/);
+  assert.match(publicStorePage, /\/login\?returnTo=/);
   assert.match(paymentService, /createPublicStorePayment/);
 });
 
-test('Host activation uses the current account and sharing supports native Share and Copy Link', () => {
+test('Host auth is passed explicitly, returnTo is preserved, and the header reflects the account', () => {
   assert.match(groupService, /activateMiseChefHost/);
   assert.match(hostPage, /existing MiseChef account/);
+  assert.match(appSource, /<PublicLayout pathname=\{window\.location\.pathname\} currentUser=\{currentUser\}/);
+  assert.match(publicLayout, /<HostProgramPage slug=\{route\.slug\} currentUser=\{currentUser\}/);
+  assert.match(hostPage, /currentUser: User \| null/);
+  assert.match(hostPage, /if \(!currentUser\)/);
+  assert.match(publicLayout, /currentUser\s*\? \{ label: route\.page === 'host' \? 'Host Center' : 'My MiseChef'/);
   assert.match(appSource, /window\.location\.pathname !== '\/login'/);
   assert.match(appSource, /new URLSearchParams\(window\.location\.search\)\.get\('returnTo'\)/);
   assert.match(appSource, /pathname === '\/login'/);
   assert.match(appSource, /window\.location\.assign\(hostReturnTo\)/);
   assert.match(hostPage, /navigator\.share/);
   assert.match(hostPage, /navigator\.clipboard\.writeText/);
-  assert.match(hostPage, /Login or Register/);
+  assert.match(hostPage, /Login \/ Become a Host/);
+});
+
+test('Host Center is the single compact dashboard with Create, summaries, Share and Manage', () => {
+  for (const label of [
+    'Host Center',
+    'Your group orders &amp; rewards',
+    'Active Groups',
+    'Group Sales',
+    'Estimated Rewards',
+    '+ Start a Group Order',
+    'Create &amp; Share',
+    'My Groups',
+    'Qualifying paid orders',
+    'Close Group',
+    'Cancel Group'
+  ]) assert.match(hostPage, new RegExp(label.replace(/[+]/g, '\\+')));
+  assert.match(groupService, /getMyMiseChefGroupOrder/);
+  assert.match(groupService, /updateMyMiseChefGroupOrderStatus/);
+  assert.doesNotMatch(hostPage, /cash.?out|wallet/i);
+});
+
+test('customer Group context stays compact and contains no Host management UI', () => {
+  assert.match(publicStorePage, /Ordering with \{groupOrder\.name\}/);
+  assert.match(publicStorePage, /Order before \{new Date\(groupOrder\.closesAt\)\.toLocaleString\(\)\} · Pickup/);
+  assert.doesNotMatch(publicStorePage, /joining \{groupOrder\.hostName\}/);
+  assert.match(publicStorePage, /groupOrder\.status === 'open'/);
+});
+
+test('Group lifecycle is owner-only and revalidated inside order creation transaction', () => {
+  assert.match(backend, /readString\(group\.hostId\) !== uid/);
+  assert.match(backend, /currentStatus === nextStatus/);
+  assert.match(backend, /currentStatus !== 'open'/);
+  assert.match(backend, /data\?\.status === 'closed'/);
+  assert.match(backend, /data\?\.status === 'cancelled'/);
+  assert.match(storePayments, /runTransaction\(async transaction => \{\s+const currentGroupOrder = await revalidateCheckoutGroupInTransaction/);
+  assert.match(storePayments, /groupOrder: currentGroupOrder/);
 });
 
 test('Group ownership, tenant values, reward configuration, and totals are server-derived', () => {

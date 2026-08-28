@@ -1,6 +1,6 @@
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../../../firebase';
-import type { HostGroupOrder, PublicGroupOrder } from '../types';
+import type { HostGroupOrder, HostGroupOrderSummary, PublicGroupOrder } from '../types';
 
 const requireFunctions = () => {
   if (!functions) throw new Error('The Host Program is temporarily unavailable.');
@@ -39,6 +39,22 @@ export const groupOrderService = {
       { slug: string },
       { hostActive: boolean; groups: HostGroupOrder[] }
     >(requireFunctions(), 'listMyMiseChefGroupOrders')({ slug });
+    return response.data;
+  },
+
+  async getMine(groupId: string): Promise<{ group: HostGroupOrder; orders: HostGroupOrderSummary[] }> {
+    const response = await httpsCallable<
+      { groupId: string },
+      { group: HostGroupOrder; orders: HostGroupOrderSummary[] }
+    >(requireFunctions(), 'getMyMiseChefGroupOrder')({ groupId });
+    return response.data;
+  },
+
+  async updateStatus(groupId: string, nextStatus: 'closed' | 'cancelled'): Promise<{ groupId: string; status: 'closed' | 'cancelled' }> {
+    const response = await httpsCallable<
+      { groupId: string; nextStatus: 'closed' | 'cancelled' },
+      { groupId: string; status: 'closed' | 'cancelled' }
+    >(requireFunctions(), 'updateMyMiseChefGroupOrderStatus')({ groupId, nextStatus });
     return response.data;
   }
 };
