@@ -22,7 +22,8 @@ test('POS extends the shared realtime service with a tenant-safe ordered Store q
   assert.match(serviceSource, /where\('storeId', '==', storeId\)/);
   assert.match(serviceSource, /where\('workspaceId', '==', workspaceId\)/);
   assert.match(serviceSource, /orderBy\('createdAt', 'desc'\)/);
-  assert.match(serviceSource, /change\.type === 'added'/);
+  assert.match(serviceSource, /isOrderOperationallyEligible/);
+  assert.match(serviceSource, /!knownOperationalOrderIds\.has\(order\.id\)/);
   assert.match(pageSource, /addedNewOrderIds\.length > 0/);
   assert.match(pageSource, /audioRef\.current\.play\(\)/);
 });

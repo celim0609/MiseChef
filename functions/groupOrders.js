@@ -192,45 +192,54 @@ export const calculateRewardContribution = order => {
   return { eligibleSales, rewardAmount, eligible: eligibleSales > 0 };
 };
 
-export const projectGroupReward = async ({ db, orderId, order }) => {
+export const projectGroupRewardInTransaction = async ({ db, transaction, orderId, order }) => {
   const entryReference = db.collection('hostRewardLedger').doc(orderId);
+  const previousSnapshot = await transaction.get(entryReference);
+  const previous = previousSnapshot.exists ? previousSnapshot.data() : null;
+  const previousGroupId = readString(previous?.groupId);
+  const nextGroupId = readString(order?.groupOrder?.id);
+  if (previousGroupId && nextGroupId && previousGroupId !== nextGroupId) {
+    throw new Error('An order cannot move between Group Orders.');
+  }
+  const groupId = nextGroupId || previousGroupId;
+  if (!groupId) return;
+  const groupReference = db.collection('groupOrders').doc(groupId);
+  const groupSnapshot = await transaction.get(groupReference);
+  if (!groupSnapshot.exists) return;
+  const group = groupSnapshot.data();
+  const contribution = order ? calculateRewardContribution(order) : { eligibleSales: 0, rewardAmount: 0, eligible: false };
+  const previousSales = Number(previous?.eligibleSales) || 0;
+  const previousEligible = previous?.eligible === true;
+  const orderCount = Math.max(0, (Number(group.orderCount) || 0) + (contribution.eligible ? 1 : 0) - (previousEligible ? 1 : 0));
+  const eligibleSales = roundMoney(Math.max(0, (Number(group.eligibleSales) || 0) + contribution.eligibleSales - previousSales));
+  const minimum = Number(group.minimumQualifyingSales) || 0;
+  const estimatedReward = eligibleSales >= minimum
+    ? roundMoney(eligibleSales * (Number(group.rewardPercent) || 0) / 100)
+    : 0;
+  transaction.set(groupReference, { orderCount, eligibleSales, estimatedReward, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  transaction.set(entryReference, {
+    orderId,
+    groupId,
+    hostId: readString(group.hostId),
+    workspaceId: readString(group.workspaceId),
+    storeId: readString(group.storeId),
+    eligible: contribution.eligible,
+    eligibleSales: contribution.eligibleSales,
+    rewardAmount: contribution.rewardAmount,
+    status: contribution.eligible ? 'pending' : 'excluded',
+    reason: contribution.eligible ? '' : 'not_paid_cancelled_or_refunded',
+    updatedAt: FieldValue.serverTimestamp()
+  }, { merge: true });
+};
+
+export const projectGroupReward = async ({ db, orderId }) => {
   await db.runTransaction(async transaction => {
-    const previousSnapshot = await transaction.get(entryReference);
-    const previous = previousSnapshot.exists ? previousSnapshot.data() : null;
-    const previousGroupId = readString(previous?.groupId);
-    const nextGroupId = readString(order?.groupOrder?.id);
-    if (previousGroupId && nextGroupId && previousGroupId !== nextGroupId) {
-      throw new Error('An order cannot move between Group Orders.');
-    }
-    const groupId = nextGroupId || previousGroupId;
-    if (!groupId) return;
-    const groupReference = db.collection('groupOrders').doc(groupId);
-    const groupSnapshot = await transaction.get(groupReference);
-    if (!groupSnapshot.exists) return;
-    const group = groupSnapshot.data();
-    const contribution = order ? calculateRewardContribution(order) : { eligibleSales: 0, rewardAmount: 0, eligible: false };
-    const previousSales = Number(previous?.eligibleSales) || 0;
-    const previousReward = Number(previous?.rewardAmount) || 0;
-    const previousEligible = previous?.eligible === true;
-    const orderCount = Math.max(0, (Number(group.orderCount) || 0) + (contribution.eligible ? 1 : 0) - (previousEligible ? 1 : 0));
-    const eligibleSales = roundMoney(Math.max(0, (Number(group.eligibleSales) || 0) + contribution.eligibleSales - previousSales));
-    const minimum = Number(group.minimumQualifyingSales) || 0;
-    const estimatedReward = eligibleSales >= minimum
-      ? roundMoney(eligibleSales * (Number(group.rewardPercent) || 0) / 100)
-      : 0;
-    transaction.set(groupReference, { orderCount, eligibleSales, estimatedReward, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-    transaction.set(entryReference, {
+    const orderSnapshot = await transaction.get(db.collection('storeOrders').doc(orderId));
+    await projectGroupRewardInTransaction({
+      db,
+      transaction,
       orderId,
-      groupId,
-      hostId: readString(group.hostId),
-      workspaceId: readString(group.workspaceId),
-      storeId: readString(group.storeId),
-      eligible: contribution.eligible,
-      eligibleSales: contribution.eligibleSales,
-      rewardAmount: contribution.rewardAmount,
-      status: contribution.eligible ? 'pending' : 'excluded',
-      reason: contribution.eligible ? '' : 'not_paid_cancelled_or_refunded',
-      updatedAt: FieldValue.serverTimestamp()
-    }, { merge: true });
+      order: orderSnapshot.exists ? { id: orderSnapshot.id, ...orderSnapshot.data() } : null
+    });
   });
 };

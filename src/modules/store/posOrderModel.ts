@@ -13,8 +13,18 @@ export const toActivePosStatus = (
   return null;
 };
 
+export const isOrderOperationallyEligible = (
+  order: Pick<StoreOrder, 'orderSource' | 'paymentMethodId' | 'payment'>
+) => (
+  order.orderSource === 'pos'
+  || order.payment.status === 'paid'
+  || order.paymentMethodId === 'cash_on_pickup'
+);
+
 export const countActiveOnlineOrders = (orders: StoreOrder[]) => orders.filter(
-  order => order.orderSource === 'online' && toActivePosStatus(order.fulfilmentStatus)
+  order => order.orderSource === 'online'
+    && isOrderOperationallyEligible(order)
+    && toActivePosStatus(order.fulfilmentStatus)
 ).length;
 
 export const getOrderCompletionTimestamp = (order: StoreOrder) => (

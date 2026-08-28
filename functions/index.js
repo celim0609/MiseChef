@@ -196,8 +196,7 @@ export const syncMiseChefGroupReward = onDocumentWritten({
   region: REGION
 }, async event => projectGroupReward({
   db,
-  orderId: event.params.orderId,
-  order: event.data?.after?.exists ? event.data.after.data() : null
+  orderId: event.params.orderId
 }));
 
 export const getWorkspaceSubscription = onCall({ region: REGION }, async request => {

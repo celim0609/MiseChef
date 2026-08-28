@@ -118,7 +118,9 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
         setPickupDate(groupOrder?.pickupDate || (storeData ? getValidPickupDates(storeData.store)[0] || '' : ''));
         setPickupSession(groupOrder?.pickupSession || storeData?.store.pickupSessions[0] || '');
         setPickupLocationId(groupOrder?.pickupLocationId || storeData?.store.pickupLocations[0]?.id || '');
-        setPaymentMethodId(storeData?.store.paymentMethods.find(method => method.enabled)?.id || 'stripe');
+        setPaymentMethodId(storeData?.store.paymentMethods.find(
+          method => method.enabled && method.id !== 'cash_on_pickup'
+        )?.id || 'stripe');
       })
       .catch(() => {
         if (!isCancelled) {
@@ -292,7 +294,7 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
     location => location.id === pickupLocationId
   );
   const selectedPaymentMethod = data?.store.paymentMethods.find(
-    method => method.id === paymentMethodId && method.enabled
+    method => method.id === paymentMethodId && method.enabled && method.id !== 'cash_on_pickup'
   );
 
   const addConfiguredProduct = (product: StoreProduct, selectedOptions: CartSelection['selectedOptions']) => {
@@ -590,12 +592,14 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
           {placedOrder && (
             <div className="mt-5 rounded-2xl bg-green-50 p-4 text-green-800">
               <CheckCircle2 className="h-6 w-6" />
-              <p className="mt-2 font-display text-xl font-bold">Thank you</p>
+              <p className="mt-2 font-display text-xl font-bold">
+                {placedOrder.paymentStatus === 'pending_verification' ? 'Payment Submitted' : 'Thank you'}
+              </p>
               <p className="mt-1 font-sans text-sm font-bold">
                 {placedOrder.paymentStatus === 'paid'
                   ? 'Your payment was received and your order is confirmed.'
                   : placedOrder.paymentStatus === 'pending_verification'
-                    ? 'Your order was received. The Store will verify your payment.'
+                    ? 'Waiting for Confirmation. The Store will verify your payment.'
                     : 'Your order is confirmed. Please pay when you collect it.'}
               </p>
               <dl className="mt-4 grid gap-3 rounded-2xl bg-white/70 p-4">
@@ -604,7 +608,7 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Date</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{formatPickupDateLabel(placedOrder.pickupDate, store.country)}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Location</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupLocationName}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Time</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupSession}</dd></div>
-                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Payment Status</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.paymentStatus === 'paid' ? 'Paid' : placedOrder.paymentStatus === 'pending_verification' ? 'Pending Verification' : 'Cash on Pickup'}</dd></div>
+                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Payment Status</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.paymentStatus === 'paid' ? 'Paid' : placedOrder.paymentStatus === 'pending_verification' ? 'Waiting for Confirmation' : 'Cash on Pickup'}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Payment Method</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.paymentMethodName}</dd></div>
               </dl>
               <div className="mt-4 flex flex-col gap-2">
@@ -688,7 +692,9 @@ export default function PublicStorePage({ slug, groupOrder }: { slug: string; gr
                 <fieldset>
                   <legend className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Payment Method</legend>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    {store.paymentMethods.filter(method => method.enabled).map(method => {
+                    {store.paymentMethods.filter(
+                      method => method.enabled && method.id !== 'cash_on_pickup'
+                    ).map(method => {
                       const isSelected = paymentMethodId === method.id;
                       return (
                         <label key={method.id} className={`relative flex min-h-28 cursor-pointer flex-col rounded-2xl border p-3.5 transition-colors ${isSelected ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20' : 'border-surface-container-high bg-white hover:border-outline-variant'}`}>

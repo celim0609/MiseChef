@@ -79,6 +79,10 @@ const isMarketingPath = (pathname: string) => MARKETING_PATHS.has(pathname);
 
 const APP_ROOT_PATH = '/app';
 const isAppPath = (pathname: string) => pathname === APP_ROOT_PATH || pathname.startsWith(`${APP_ROOT_PATH}/`);
+const getHostReturnTo = () => {
+  const returnTo = new URLSearchParams(window.location.search).get('returnTo');
+  return returnTo && /^\/host\/[a-z0-9-]+\/?$/i.test(returnTo) ? returnTo : '';
+};
 
 const SUBSCRIPTION_GATED_PRODUCT_TABS = new Set<RootTab>([
   'search',
@@ -929,6 +933,14 @@ export default function App() {
             setIsGuestMode(false);
             const pathname = window.location.pathname;
 
+            if (pathname === '/login') {
+              const hostReturnTo = getHostReturnTo();
+              if (hostReturnTo) {
+                window.location.assign(hostReturnTo);
+                return;
+              }
+            }
+
             if (isPublicExperiencePath(pathname) || isMarketingPath(pathname)) {
               setSelectedCostingInvoiceId(null);
               setActiveTab('home');
@@ -1698,9 +1710,9 @@ export default function App() {
   // Renders correct active screen body
   const handleAuthenticated = () => {
     setIsGuestMode(false);
-    const returnTo = new URLSearchParams(window.location.search).get('returnTo');
-    if (returnTo && /^\/host\/[a-z0-9-]+\/?$/i.test(returnTo)) {
-      window.location.assign(returnTo);
+    const hostReturnTo = getHostReturnTo();
+    if (hostReturnTo) {
+      window.location.assign(hostReturnTo);
       return;
     }
     handleRootNavigate('home');

@@ -16,6 +16,7 @@ test('actual new-order writes remain queryable after Completed and Cancelled tra
   const app = initializeApp({ projectId: 'demo-misechef-store-payment-rules' }, `order-history-${process.pid}`);
   const db = getFirestore(app);
   const workspaceId = `order-history-${process.pid}`;
+  const groupId = `${workspaceId}-group`;
   const slug = `${workspaceId}-store`;
   const ownerId = `${workspaceId}-owner`;
   const paymentMethod = {
@@ -28,7 +29,8 @@ test('actual new-order writes remain queryable after Completed and Cancelled tra
     pickupLocations: [{ id: 'counter', name: 'Main Counter', address: '', notes: '' }],
     orderDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'],
     earliestPickupDays: 0, maximumAdvanceDays: 14, unavailableDates: [],
-    paymentMethods: [paymentMethod]
+    paymentMethods: [paymentMethod],
+    hostProgram: { enabled: true, rewardPercent: 5, minimumQualifyingSales: 0 }
   };
   const product = {
     storeId: workspaceId, workspaceId, name: 'Breakfast Set', photoUrl: '',
@@ -37,7 +39,30 @@ test('actual new-order writes remain queryable after Completed and Cancelled tra
   await Promise.all([
     db.collection('workspaces').doc(workspaceId).set({ ownerId }),
     db.collection('stores').doc(workspaceId).set(store),
-    db.collection('storeProducts').doc(`${workspaceId}-product`).set(product)
+    db.collection('storeProducts').doc(`${workspaceId}-product`).set(product),
+    db.collection('groupOrders').doc(groupId).set({
+      id: groupId,
+      shareCode: `${workspaceId}-share`,
+      workspaceId,
+      storeId: workspaceId,
+      storeSlug: slug,
+      storeName: store.name,
+      hostId: `${workspaceId}-host`,
+      hostName: 'Test Host',
+      name: 'Regression Group',
+      pickupDate: '2026-08-22',
+      pickupSession: 'Breakfast',
+      pickupLocationId: 'counter',
+      pickupLocationName: 'Main Counter',
+      pickupLocationAddress: '',
+      closesAt: Timestamp.fromDate(new Date('2026-08-22T10:00:00.000Z')),
+      status: 'open',
+      rewardPercent: 5,
+      minimumQualifyingSales: 0,
+      orderCount: 0,
+      eligibleSales: 0,
+      estimatedReward: 0
+    })
   ]);
   const adapter = createManualPaymentAdapter(paymentMethod);
   const draft = suffix => ({
@@ -48,7 +73,13 @@ test('actual new-order writes remain queryable after Completed and Cancelled tra
   });
 
   try {
-    const completedResult = await createStorePayment({ db, adapter, slug, draft: draft('completed'), now: NOW });
+    const completedResult = await createStorePayment({
+      db,
+      adapter,
+      slug,
+      draft: { ...draft('completed'), groupShareCode: `${workspaceId}-share` },
+      now: NOW
+    });
     const cancelledResult = await createStorePayment({ db, adapter, slug, draft: draft('cancelled'), now: NOW });
     const loadByNumber = async orderNumber => (await db.collection('storeOrders')
       .where('storeId', '==', workspaceId).where('orderNumber', '==', orderNumber).limit(1).get()).docs[0];
@@ -70,10 +101,23 @@ test('actual new-order writes remain queryable after Completed and Cancelled tra
       orderId: completedDocument.id,
       checkoutAccessToken: completedResult.checkoutAccessToken
     });
+    const groupBeforeConfirmation = (await db.collection('groupOrders').doc(groupId).get()).data();
+    assert.equal(groupBeforeConfirmation.orderCount, 0);
+    assert.equal(groupBeforeConfirmation.eligibleSales, 0);
     await reviewManualStorePayment({ db, uid: ownerId, orderId: completedDocument.id, decision: 'approve' });
+    const repeatedConfirmation = await reviewManualStorePayment({
+      db, uid: ownerId, orderId: completedDocument.id, decision: 'approve'
+    });
+    assert.equal(repeatedConfirmation.alreadyConfirmed, true);
     const paidDocument = await completedDocument.ref.get();
     assert.equal(paidDocument.data().status, 'Paid');
     assert.equal(paidDocument.data().payment.status, 'paid');
+    const groupAfterConfirmation = (await db.collection('groupOrders').doc(groupId).get()).data();
+    assert.equal(groupAfterConfirmation.orderCount, 1);
+    assert.equal(groupAfterConfirmation.eligibleSales, 5.9);
+    assert.equal(groupAfterConfirmation.estimatedReward, 0.3);
+    const rewardLedger = (await db.collection('hostRewardLedger').doc(completedDocument.id).get()).data();
+    assert.equal(rewardLedger.eligibleSales, 5.9);
 
     for (const nextStatus of ['Preparing', 'Ready', 'Completed']) {
       await updateStoreOrderFulfilment({ db, uid: ownerId, orderId: completedDocument.id, nextStatus });

@@ -6,6 +6,7 @@ import {
   submitManualStorePayment,
   uploadManualStorePaymentReceipt
 } from './storeManualPayments.js';
+import { projectGroupReward } from './groupOrders.js';
 
 const makeSnapshot = (id, value) => ({
   id,
@@ -59,9 +60,11 @@ const createFakeDb = documents => {
           writes.push({ operation: 'create', ref, data });
           documents[ref.key] = data;
         },
-        set: (ref, data) => {
+        set: (ref, data, options) => {
           writes.push({ operation: 'set', ref, data });
-          documents[ref.key] = data;
+          documents[ref.key] = options?.merge
+            ? { ...(documents[ref.key] || {}), ...data }
+            : data;
         }
       }));
       transactionQueue = run.catch(() => undefined);
@@ -247,6 +250,76 @@ test('payment proof submission and approval preserve the New fulfilment state', 
   });
   assert.equal(db.documents['storeOrders/order-a'].fulfilmentStatus, 'New');
   assert.equal(db.documents['storeOrders/order-a'].payment.status, 'paid');
+});
+
+test('payment confirmation atomically projects Group Sales and remains idempotent', async () => {
+  const db = createFakeDb({
+    'storeOrders/order-a': {
+      ...pendingOrder,
+      id: 'order-a',
+      orderNumber: 'MC-0822-GRP1',
+      orderSource: 'online',
+      total: 100,
+      groupOrder: { id: 'group-a', rewardPercent: 5 }
+    },
+    'workspaces/workspace-a': { ownerId: 'owner-a' },
+    'groupOrders/group-a': {
+      hostId: 'host-a', workspaceId: 'workspace-a', storeId: 'workspace-a',
+      rewardPercent: 5, minimumQualifyingSales: 0,
+      orderCount: 0, eligibleSales: 0, estimatedReward: 0
+    }
+  });
+
+  const first = await reviewManualStorePayment({
+    db, uid: 'owner-a', orderId: 'order-a', decision: 'approve'
+  });
+  const repeated = await reviewManualStorePayment({
+    db, uid: 'owner-a', orderId: 'order-a', decision: 'approve'
+  });
+  await projectGroupReward({
+    db,
+    orderId: 'order-a'
+  });
+
+  assert.equal(first.alreadyConfirmed, false);
+  assert.equal(repeated.alreadyConfirmed, true);
+  assert.equal(db.documents['storeOrders/order-a'].payment.status, 'paid');
+  assert.equal(db.documents['groupOrders/group-a'].orderCount, 1);
+  assert.equal(db.documents['groupOrders/group-a'].eligibleSales, 100);
+  assert.equal(db.documents['groupOrders/group-a'].estimatedReward, 5);
+  assert.equal(db.documents['hostRewardLedger/order-a'].eligibleSales, 100);
+  assert.equal(db.writes.filter(write => write.ref.key === 'storeOrders/order-a').length, 1);
+});
+
+test('concurrent payment confirmations both succeed but write one decision and one reward contribution', async () => {
+  const db = createFakeDb({
+    'storeOrders/order-a': {
+      ...pendingOrder,
+      id: 'order-a',
+      orderNumber: 'MC-0822-GRP2',
+      orderSource: 'online',
+      total: 80,
+      groupOrder: { id: 'group-a', rewardPercent: 5 }
+    },
+    'workspaces/workspace-a': { ownerId: 'owner-a' },
+    'groupOrders/group-a': {
+      hostId: 'host-a', workspaceId: 'workspace-a', storeId: 'workspace-a',
+      rewardPercent: 5, minimumQualifyingSales: 0,
+      orderCount: 0, eligibleSales: 0, estimatedReward: 0
+    }
+  });
+
+  const results = await Promise.all([
+    reviewManualStorePayment({ db, uid: 'owner-a', orderId: 'order-a', decision: 'approve' }),
+    reviewManualStorePayment({ db, uid: 'owner-a', orderId: 'order-a', decision: 'approve' })
+  ]);
+
+  assert.deepEqual(results.map(result => result.paymentStatus), ['paid', 'paid']);
+  assert.equal(results.filter(result => result.alreadyConfirmed).length, 1);
+  assert.equal(db.documents['groupOrders/group-a'].orderCount, 1);
+  assert.equal(db.documents['groupOrders/group-a'].eligibleSales, 80);
+  assert.equal(db.writes.filter(write => write.ref.key === 'storeOrders/order-a').length, 1);
+  assert.equal(db.writes.filter(write => write.ref.collectionName === 'storeOrderTimeline').length, 1);
 });
 
 test('a submitted receipt is immutable even with the matching checkout token', async () => {

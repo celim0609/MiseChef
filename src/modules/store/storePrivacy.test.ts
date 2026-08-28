@@ -11,6 +11,7 @@ const publicStorePage = readFileSync(
   'utf8'
 );
 const storePage = readFileSync(new URL('./StorePage.tsx', import.meta.url), 'utf8');
+const storeOrdersPanel = readFileSync(new URL('./StoreOrdersPanel.tsx', import.meta.url), 'utf8');
 const storeOrderService = readFileSync(
   new URL('./services/storeOrderService.ts', import.meta.url),
   'utf8'
@@ -104,6 +105,15 @@ test('order timelines and notifications are private server-created Store team da
   assert.match(storeOrderService, /where\('orderId', '==', orderId\)/);
 });
 
+test('Payment Review and operational New orders use their respective status fields', () => {
+  assert.match(storeOrdersPanel, /activeFilter === 'Payment Review'.*order\.payment\.status === 'pending_verification'/s);
+  assert.match(storeOrdersPanel, /activeFilter === 'Paid'.*order\.payment\.status === 'paid'/s);
+  assert.match(storeOrdersPanel, /activeFilter === 'New'.*order\.payment\.status === 'paid'.*order\.fulfilmentStatus === 'New'/s);
+  assert.match(storeOrdersPanel, /New: 'Preparing'/);
+  assert.match(storeOrdersPanel, /isOrderOperationallyEligible\(selectedOrder\)/);
+  assert.match(storeOrdersPanel, />Confirm Payment</);
+});
+
 test('the public Store UI does not render private contact details or internal order ids', () => {
   assert.doesNotMatch(publicStorePage, /store\.contactInformation/);
   assert.doesNotMatch(publicStorePage, /placedOrder\.id/);
@@ -112,7 +122,8 @@ test('the public Store UI does not render private contact details or internal or
   assert.match(publicStorePage, /placedOrder\.pickupLocationName/);
   assert.match(publicStorePage, /placedOrder\.pickupSession/);
   assert.match(publicStorePage, /placedOrder\.paymentMethodName/);
-  assert.match(publicStorePage, />Thank you</);
+  assert.match(publicStorePage, /'Payment Submitted' : 'Thank you'/);
+  assert.match(publicStorePage, /Waiting for Confirmation/);
   assert.match(publicStorePage, /placedOrder\.paymentStatus/);
   assert.match(publicStorePage, />Pickup Time</);
   assert.match(publicStorePage, /store\.storeContact\.whatsapp/);
@@ -151,7 +162,7 @@ test('checkout presents only enabled methods as polished cards in the requested 
 
   assert.ok(sectionOrder.every(index => index >= 0));
   assert.deepEqual([...sectionOrder].sort((a, b) => a - b), sectionOrder);
-  assert.match(publicStorePage, /paymentMethods\.filter\(method => method\.enabled\)/);
+  assert.match(publicStorePage, /method => method\.enabled && method\.id !== 'cash_on_pickup'/);
   assert.match(publicStorePage, /<PaymentMethodIcon methodId=\{method\.id\}/);
   assert.match(publicStorePage, /getPaymentMethodDescription\(method\.id\)/);
   assert.match(publicStorePage, /getPaymentActionLabel\(paymentMethodId\)/);

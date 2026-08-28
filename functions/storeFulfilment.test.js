@@ -150,6 +150,27 @@ test('Workspace Owner can update fulfilment and a permanent server timeline even
   assert.equal(db.writes[1].data.actingUserId, 'owner-a');
 });
 
+test('an online manual order cannot enter operations until payment is confirmed', async () => {
+  const db = createFakeDb({
+    'storeOrders/order-a': {
+      ...paidOrder,
+      fulfilmentStatus: 'New',
+      orderSource: 'online',
+      paymentMethodId: 'duitnow_qr',
+      payment: { status: 'pending_verification', refundStatus: 'none' }
+    },
+    'workspaces/workspace-a': { ownerId: 'owner-a' }
+  });
+
+  await assert.rejects(updateStoreOrderFulfilment({
+    db,
+    uid: 'owner-a',
+    orderId: 'order-a',
+    nextStatus: 'Preparing'
+  }), error => error.code === 'failed-precondition' && /Confirm payment/.test(error.message));
+  assert.equal(db.writes.length, 0);
+});
+
 test('completion writes a canonical completion clock without changing payment or creation fields', async () => {
   const db = createFakeDb({
     'storeOrders/order-a': {

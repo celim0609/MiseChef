@@ -115,6 +115,15 @@ export const updateStoreOrderFulfilment = async ({
     }
 
     const currentStatus = readString(order.fulfilmentStatus);
+    const isLegacyCashOnPickup = readString(order.paymentMethodId) === 'cash_on_pickup';
+    const requiresConfirmedPayment = readString(order.orderSource) === 'online' && !isLegacyCashOnPickup;
+    if (
+      normalizedNextStatus !== STORE_FULFILMENT_STATUS.cancelled
+      && requiresConfirmedPayment
+      && readString(order.payment?.status) !== 'paid'
+    ) {
+      throw new HttpsError('failed-precondition', 'Confirm payment before processing this order.');
+    }
     if (!canTransitionStoreFulfilment({
       currentStatus,
       nextStatus: normalizedNextStatus

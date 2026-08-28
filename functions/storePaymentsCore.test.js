@@ -436,7 +436,14 @@ test('manual checkout receives the authoritative server amount and currency', as
 
 test('legacy Stores remain Stripe-only until the owner enables another method', () => {
   assert.equal(getEnabledStorePaymentMethod(store, 'stripe').provider, 'stripe');
-  assert.throws(() => getEnabledStorePaymentMethod(store, 'cash_on_pickup'), /no longer available/);
+  assert.throws(() => getEnabledStorePaymentMethod(store, 'cash_on_pickup'), /temporarily unavailable/);
+});
+
+test('Cash on Pickup stays unavailable to Production checkout even when configured on the Store', () => {
+  assert.throws(() => getEnabledStorePaymentMethod({
+    ...store,
+    paymentMethods: [{ id: 'cash_on_pickup', enabled: true, qrCodeUrl: '', instructions: 'Pay later.' }]
+  }, 'cash_on_pickup'), /temporarily unavailable/);
 });
 
 test('Stripe lifecycle maps to stable MiseChef payment states', () => {

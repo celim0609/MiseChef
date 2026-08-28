@@ -18,6 +18,7 @@ import { getBlob, ref } from 'firebase/storage';
 import { db, functions, storage } from '../../../firebase';
 import { getOrderPickupCode } from '../selling';
 import { normalizeStoreOrderItem } from '../storeOrderSnapshot';
+import { isOrderOperationallyEligible } from '../posOrderModel';
 import type {
   StoreFulfilmentStatus,
   StoreNotification,
@@ -160,6 +161,7 @@ export const storeOrderService = {
       onData([], []);
       return () => undefined;
     }
+    let knownOperationalOrderIds = new Set<string>();
     return onSnapshot(
       query(
         collection(db, 'storeOrders'),
@@ -167,12 +169,16 @@ export const storeOrderService = {
         where('workspaceId', '==', workspaceId),
         orderBy('createdAt', 'desc')
       ),
-      snapshot => onData(
-        snapshot.docs.map(normalizeOrder),
-        snapshot.docChanges()
-          .filter(change => change.type === 'added' && readString(change.doc.data().fulfilmentStatus) === 'New')
-          .map(change => change.doc.id)
-      ),
+      snapshot => {
+        const orders = snapshot.docs.map(normalizeOrder);
+        const operationalOrders = orders.filter(isOrderOperationallyEligible);
+        const nextOperationalOrderIds = new Set(operationalOrders.map(order => order.id));
+        const addedNewOrderIds = operationalOrders
+          .filter(order => order.fulfilmentStatus === 'New' && !knownOperationalOrderIds.has(order.id))
+          .map(order => order.id);
+        knownOperationalOrderIds = nextOperationalOrderIds;
+        onData(operationalOrders, addedNewOrderIds);
+      },
       error => onError(error)
     );
   },

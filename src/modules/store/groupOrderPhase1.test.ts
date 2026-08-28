@@ -50,6 +50,8 @@ test('Host activation uses the current account and sharing supports native Share
   assert.match(hostPage, /existing MiseChef account/);
   assert.match(appSource, /window\.location\.pathname !== '\/login'/);
   assert.match(appSource, /new URLSearchParams\(window\.location\.search\)\.get\('returnTo'\)/);
+  assert.match(appSource, /pathname === '\/login'/);
+  assert.match(appSource, /window\.location\.assign\(hostReturnTo\)/);
   assert.match(hostPage, /navigator\.share/);
   assert.match(hostPage, /navigator\.clipboard\.writeText/);
   assert.match(hostPage, /Login or Register/);

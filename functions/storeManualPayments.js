@@ -2,6 +2,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { randomBytes } from 'node:crypto';
 import { PAYMENT_STATUS, readString, toPublicOrderResult } from './storePaymentsCore.js';
 import { hasValidCheckoutAccessToken } from './storePayments.js';
+import { projectGroupRewardInTransaction } from './groupOrders.js';
 import {
   buildStoreNotification,
   getStoreNotificationId,
@@ -162,6 +163,9 @@ export const reviewManualStorePayment = async ({ db, uid, orderId, decision }) =
   const order = { id: snapshot.id, ...snapshot.data() };
   await requireManager({ db, uid, workspaceId: readString(order.workspaceId) });
   if (!['approve', 'reject'].includes(decision)) throw new Error('Choose Approve or Reject.');
+  if (decision === 'approve' && order.payment?.status === PAYMENT_STATUS.paid) {
+    return { orderId: order.id, paymentStatus: PAYMENT_STATUS.paid, alreadyConfirmed: true };
+  }
   if (order.payment?.status !== PAYMENT_STATUS.pendingVerification) {
     throw new Error('Only a payment pending verification can be reviewed.');
   }
@@ -182,13 +186,29 @@ export const reviewManualStorePayment = async ({ db, uid, orderId, decision }) =
   const notification = db.collection('storeNotifications').doc(
     getStoreNotificationId(notificationType, order.id)
   );
-  await db.runTransaction(async transaction => {
+  const alreadyConfirmed = await db.runTransaction(async transaction => {
     const fresh = await transaction.get(reference);
+    if (approved && fresh.data()?.payment?.status === PAYMENT_STATUS.paid) {
+      return true;
+    }
     if (fresh.data()?.payment?.status !== PAYMENT_STATUS.pendingVerification) {
       throw new Error('Only a payment pending verification can be reviewed.');
     }
     if (approved && !hasValidManualPaymentReceipt({ id: fresh.id, ...fresh.data() })) {
       throw new Error('Payment proof is required before this payment can be approved.');
+    }
+    if (approved) {
+      const freshOrder = { id: fresh.id, ...fresh.data() };
+      await projectGroupRewardInTransaction({
+        db,
+        transaction,
+        orderId: fresh.id,
+        order: {
+          ...freshOrder,
+          status: 'Paid',
+          payment: { ...freshOrder.payment, status: PAYMENT_STATUS.paid }
+        }
+      });
     }
     transaction.update(reference, update);
     transaction.create(timeline, {
@@ -205,6 +225,11 @@ export const reviewManualStorePayment = async ({ db, uid, orderId, decision }) =
       message: `${order.orderNumber} payment was ${approved ? 'approved' : 'rejected'}.`,
       createdAt: FieldValue.serverTimestamp()
     }));
+    return false;
   });
-  return { orderId: order.id, paymentStatus: approved ? PAYMENT_STATUS.paid : PAYMENT_STATUS.rejected };
+  return {
+    orderId: order.id,
+    paymentStatus: approved ? PAYMENT_STATUS.paid : PAYMENT_STATUS.rejected,
+    alreadyConfirmed
+  };
 };

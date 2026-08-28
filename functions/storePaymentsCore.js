@@ -48,6 +48,9 @@ export const getEnabledStorePaymentMethod = (store, methodId) => {
   const id = readString(methodId) || 'stripe';
   const definition = STORE_PAYMENT_METHODS[id];
   if (!definition) throw new Error('Choose a valid payment method.');
+  if (id === 'cash_on_pickup') {
+    throw new Error('Cash on Pickup is temporarily unavailable.');
+  }
   if (id === 'touch_n_go_qr' && readString(store.country) !== 'MY') {
     throw new Error('Touch ’n Go eWallet is available only for Malaysia Stores.');
   }
