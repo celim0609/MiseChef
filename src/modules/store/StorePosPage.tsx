@@ -20,7 +20,7 @@ import {
 import { storeOrderService, storeService } from './services';
 import { formatStoreOrderSetSelection } from './storeOrderSnapshot';
 import WhatsAppCustomerButton from './WhatsAppCustomerButton';
-import { buildGroupKitchenEntries } from './groupKitchenOrderModel';
+import { buildGroupKitchenEntries, type GroupKitchenEntry } from './groupKitchenOrderModel';
 import {
   countActiveOnlineOrders,
   filterHistoryOrders,
@@ -161,9 +161,11 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const [storeDisplayName, setStoreDisplayName] = useState('Loading Store…');
   const [storeNameForMessages, setStoreNameForMessages] = useState('');
   const [storeCountry, setStoreCountry] = useState<'MY' | 'SG' | ''>('');
+  const [storePickupSessions, setStorePickupSessions] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState('');
   const [updatingOrderId, setUpdatingOrderId] = useState('');
+  const [updatingGroupId, setUpdatingGroupId] = useState('');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [isNightMode, setIsNightMode] = useState(false);
@@ -211,6 +213,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
           setStoreDisplayName(store?.name || 'Store not configured');
           setStoreNameForMessages(store?.name || '');
           setStoreCountry(store?.country === 'SG' ? 'SG' : 'MY');
+          setStorePickupSessions(store?.pickupSessions || []);
         }
       })
       .catch(() => {
@@ -218,6 +221,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
           setStoreDisplayName('Store unavailable');
           setStoreNameForMessages('');
           setStoreCountry('');
+          setStorePickupSessions([]);
         }
       });
     return () => {
@@ -295,11 +299,11 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
 
   const groupedOrders = useMemo(() => ACTIVE_COLUMNS.reduce<Record<ActivePosStatus, ReturnType<typeof buildGroupKitchenEntries>>>(
     (groups, column) => {
-      groups[column.status] = buildGroupKitchenEntries(orders, column.status);
+      groups[column.status] = buildGroupKitchenEntries(orders, column.status, storePickupSessions);
       return groups;
     },
     { New: [], Preparing: [], Ready: [] }
-  ), [orders]);
+  ), [orders, storePickupSessions]);
 
   const todayKey = toMalaysiaDateKey(now);
   const completedTodayOrders = completedOrders.filter(order => isOrderCompletedOnMalaysiaDate(order, todayKey));
@@ -327,6 +331,19 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       setErrorMessage(error instanceof Error ? error.message : 'Unable to update this order.');
     } finally {
       setUpdatingOrderId('');
+    }
+  };
+
+  const advanceGroup = async (entry: Extract<GroupKitchenEntry, { kind: 'group' }>) => {
+    if (!entry.batchAction || updatingGroupId || updatingOrderId) return;
+    setUpdatingGroupId(entry.groupId);
+    setErrorMessage('');
+    try {
+      await storeOrderService.updateGroupFulfilment(entry.groupId, entry.batchAction);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to update this Group.');
+    } finally {
+      setUpdatingGroupId('');
     }
   };
 
@@ -428,16 +445,18 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                     <div className="flex-1 space-y-3">
                       {columnOrders.map(entry => entry.kind === 'group' ? (
                         <article key={entry.key} data-group-order-id={entry.groupId} className={`pos-light-surface rounded-2xl border-2 p-4 shadow-md ${isNightMode ? 'border-blue-500/60 bg-[#081321]' : 'border-blue-300 bg-white'}`}>
-                          <div className="flex items-start justify-between gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${column.badge}`}>Group Order · {column.label}</span><span className={`text-sm font-black ${isNightMode ? 'text-blue-200' : 'text-blue-800'}`}>{entry.members.length} members</span></div>
+                          <div className="flex items-start justify-between gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${column.badge}`}>Group Order · {column.label}</span><span className={`text-sm font-black ${isNightMode ? 'text-blue-200' : 'text-blue-800'}`}>{entry.memberCount} members</span></div>
                           <h3 className={`pos-card-title mt-4 text-2xl font-black leading-none ${isNightMode ? 'text-white' : 'text-slate-950'}`}>{entry.groupName}</h3>
                           <p className={`mt-2 text-sm font-extrabold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>Host: {entry.hostName}</p>
-                          <p className={`mt-1 text-sm font-extrabold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>Pickup: {entry.pickupSession} · {entry.pickupLocationName}</p>
+                          <div className={`mt-3 rounded-xl px-3 py-3 ${isNightMode ? 'bg-blue-500/10 text-blue-100' : 'bg-blue-50 text-blue-950'}`}><p className="text-xs font-black uppercase tracking-wide">Group Pickup</p><p className="mt-1 text-base font-black">{formatMalaysiaBusinessDate(entry.pickupDate)} · {entry.pickupSession}</p><p className="mt-1 text-sm font-extrabold">{entry.pickupLocationName}</p></div>
+                          <p className={`mt-3 text-sm font-black ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{entry.paidOrderCount} paid · {entry.eligibleOrderCount} eligible</p>
                           <div className={`mt-4 space-y-4 border-t pt-4 ${isNightMode ? 'border-slate-700' : 'border-slate-200'}`}>
                             {entry.members.map(member => {
                               const order = member.order;
-                              return <section key={order.id} data-store-order-id={order.id} className={`rounded-xl border p-3 ${isNightMode ? 'border-slate-700 bg-slate-900/60' : 'border-slate-200 bg-slate-50'}`}><div className="flex items-start justify-between gap-3"><div><h4 className="text-base font-black">{member.position} / {member.total} — {order.customerName}</h4><p className={`mt-1 text-xs font-black ${paymentClass(order)}`}>{paymentStatusLabel(order.payment.status)} · {order.fulfilmentStatus || 'New'}</p></div><span className={`text-xs font-black ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>{order.orderNumber}</span></div><ul className="mt-3 space-y-2">{order.items.map((item, index) => <li key={`${order.id}-${item.productId}-${index}`} className="flex gap-2 text-base font-black leading-tight"><span className="min-w-7 text-right">{item.quantity}×</span><span>{item.productName}{item.setSnapshot && <span className={`mt-1 block text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.setSnapshot.selectedGroups.map(selection => formatStoreOrderSetSelection(selection, storeCountry === 'SG' ? 'SGD' : 'MYR')).join(' · ')}</span>}{item.selectedOptions.length > 0 && <span className={`mt-1 block text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.selectedOptions.map(option => `${option.groupName}: ${option.optionName}`).join(' · ')}</span>}</span></li>)}</ul>{order.notes && <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm font-extrabold text-amber-950">Remark: {order.notes}</p>}{member.actionable ? <><button type="button" disabled={Boolean(updatingOrderId)} onClick={() => void advanceOrder(order)} className={`mt-3 min-h-12 w-full rounded-xl px-3 text-sm font-black shadow active:scale-[0.98] disabled:opacity-50 ${column.action}`}>{updatingOrderId === order.id ? 'Updating…' : column.actionLabel}</button>{storeCountry && <WhatsAppCustomerButton order={order} country={storeCountry} storeName={storeNameForMessages} className="mt-2 w-full" />}<button type="button" disabled={Boolean(updatingOrderId)} onClick={() => openCancellation(order)} className={`mt-2 min-h-11 w-full rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-rose-400/50 text-rose-200' : 'border-rose-300 bg-rose-50 text-rose-800'}`}>Cancel Order</button></> : <p className={`mt-3 rounded-lg px-3 py-2 text-xs font-black ${isNightMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-200 text-slate-700'}`}>Not actionable in this Kitchen stage</p>}</section>;
+                              return <section key={order.id} data-store-order-id={order.id} className={`rounded-xl border p-3 ${isNightMode ? 'border-slate-700 bg-slate-900/60' : 'border-slate-200 bg-slate-50'}`}><div className="flex items-start justify-between gap-3"><div><h4 className="text-base font-black">{member.position} / {member.total} — {order.customerName}</h4><p className={`mt-1 text-xs font-black ${paymentClass(order)}`}>{paymentStatusLabel(order.payment.status)} · {order.fulfilmentStatus || 'New'}</p></div><span className={`text-xs font-black ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>{order.orderNumber}</span></div><ul className="mt-3 space-y-2">{order.items.map((item, index) => <li key={`${order.id}-${item.productId}-${index}`} className="flex gap-2 text-base font-black leading-tight"><span className="min-w-7 text-right">{item.quantity}×</span><span>{item.productName}{item.setSnapshot && <span className={`mt-1 block text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.setSnapshot.selectedGroups.map(selection => formatStoreOrderSetSelection(selection, storeCountry === 'SG' ? 'SGD' : 'MYR')).join(' · ')}</span>}{item.selectedOptions.length > 0 && <span className={`mt-1 block text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.selectedOptions.map(option => `${option.groupName}: ${option.optionName}`).join(' · ')}</span>}</span></li>)}</ul>{order.notes && <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm font-extrabold text-amber-950">Remark: {order.notes}</p>}{member.actionable && <>{storeCountry && <WhatsAppCustomerButton order={order} country={storeCountry} storeName={storeNameForMessages} className="mt-2 w-full" />}<button type="button" disabled={Boolean(updatingOrderId || updatingGroupId)} onClick={() => openCancellation(order)} className={`mt-2 min-h-11 w-full rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-rose-400/50 text-rose-200' : 'border-rose-300 bg-rose-50 text-rose-800'}`}>Cancel Order</button></>}</section>;
                             })}
                           </div>
+                          {entry.batchAction ? <button type="button" disabled={Boolean(updatingGroupId || updatingOrderId)} onClick={() => void advanceGroup(entry)} className={`mt-4 min-h-14 w-full rounded-xl px-4 text-lg font-black shadow-md active:scale-[0.98] disabled:opacity-50 ${column.action}`}>{updatingGroupId === entry.groupId ? 'Updating Group…' : entry.batchAction === 'start_preparing' ? 'Start Preparing Group' : entry.batchAction === 'mark_ready' ? 'Mark Group Ready' : 'Complete Group'}</button> : entry.awaitingPaymentCount > 0 ? <p className={`mt-4 rounded-xl px-4 py-3 text-center text-sm font-black ${isNightMode ? 'bg-amber-500/10 text-amber-200' : 'bg-amber-50 text-amber-900'}`}>Awaiting payment</p> : null}
                         </article>
                       ) : (() => {
                         const order = entry.order;

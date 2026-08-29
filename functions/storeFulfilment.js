@@ -41,6 +41,29 @@ const ALLOWED_TRANSITIONS = Object.freeze({
   [STORE_FULFILMENT_STATUS.cancelled]: new Set()
 });
 
+export const STORE_GROUP_BATCH_ACTION = Object.freeze({
+  startPreparing: 'start_preparing',
+  markReady: 'mark_ready',
+  complete: 'complete'
+});
+
+export const MAX_STORE_GROUP_BATCH_ORDERS = 150;
+
+const GROUP_BATCH_TRANSITIONS = Object.freeze({
+  [STORE_GROUP_BATCH_ACTION.startPreparing]: {
+    currentStatus: STORE_FULFILMENT_STATUS.new,
+    nextStatus: STORE_FULFILMENT_STATUS.preparing
+  },
+  [STORE_GROUP_BATCH_ACTION.markReady]: {
+    currentStatus: STORE_FULFILMENT_STATUS.preparing,
+    nextStatus: STORE_FULFILMENT_STATUS.ready
+  },
+  [STORE_GROUP_BATCH_ACTION.complete]: {
+    currentStatus: STORE_FULFILMENT_STATUS.ready,
+    nextStatus: STORE_FULFILMENT_STATUS.completed
+  }
+});
+
 const readString = value => typeof value === 'string' ? value.trim() : '';
 
 export const canTransitionStoreFulfilment = ({ currentStatus, nextStatus }) => {
@@ -63,6 +86,16 @@ const normalizeCancellationReason = value => {
 };
 
 const normalizeEventStatus = status => readString(status).toLowerCase().replace(/\s+/g, '-');
+
+const hasStoreProcessingAuthority = ({ uid, workspaceId, workspace, membership }) => (
+  readString(workspace.ownerId) === uid
+  || (
+    membership.userId === uid
+    && membership.workspaceId === workspaceId
+    && membership.status === 'Active'
+    && ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef'].includes(membership.role)
+  )
+);
 
 export const updateStoreOrderFulfilment = async ({
   db,
@@ -105,12 +138,7 @@ export const updateStoreOrderFulfilment = async ({
     ]);
     const workspace = workspaceSnapshot.exists ? workspaceSnapshot.data() || {} : {};
     const membership = membershipSnapshot.exists ? membershipSnapshot.data() || {} : {};
-    const isOwner = readString(workspace.ownerId) === uid;
-    const isStoreOperator = membership.userId === uid
-      && membership.workspaceId === workspaceId
-      && membership.status === 'Active'
-      && ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef'].includes(membership.role);
-    if (!isOwner && !isStoreOperator) {
+    if (!hasStoreProcessingAuthority({ uid, workspaceId, workspace, membership })) {
       throw new HttpsError('permission-denied', 'Your Workspace role cannot process Store orders.');
     }
 
@@ -181,6 +209,117 @@ export const updateStoreOrderFulfilment = async ({
       previousStatus: currentStatus,
       fulfilmentStatus: normalizedNextStatus,
       cancellationReason: normalizedCancellationReason
+    };
+  });
+};
+
+export const updateStoreGroupOrderFulfilment = async ({ db, uid, groupId, action }) => {
+  const normalizedGroupId = readString(groupId);
+  const transition = GROUP_BATCH_TRANSITIONS[readString(action)];
+  if (!uid) throw new HttpsError('unauthenticated', 'Sign in to update this Group Order.');
+  if (!normalizedGroupId) throw new HttpsError('invalid-argument', 'Group Order ID is required.');
+  if (!transition) throw new HttpsError('invalid-argument', 'Choose a valid Group Kitchen action.');
+
+  return db.runTransaction(async transaction => {
+    const groupReference = db.collection('groupOrders').doc(normalizedGroupId);
+    const groupSnapshot = await transaction.get(groupReference);
+    if (!groupSnapshot.exists) throw new HttpsError('not-found', 'This Group Order could not be found.');
+
+    const group = groupSnapshot.data() || {};
+    const workspaceId = readString(group.workspaceId);
+    const storeId = readString(group.storeId);
+    if (!workspaceId || !storeId) {
+      throw new HttpsError('failed-precondition', 'This Group Order has no canonical Store ownership.');
+    }
+
+    const workspaceReference = db.collection('workspaces').doc(workspaceId);
+    const membershipReference = db.collection('workspaceMembers').doc(`${workspaceId}_${uid}`);
+    const [workspaceSnapshot, membershipSnapshot] = await Promise.all([
+      transaction.get(workspaceReference),
+      transaction.get(membershipReference)
+    ]);
+    const workspace = workspaceSnapshot.exists ? workspaceSnapshot.data() || {} : {};
+    const membership = membershipSnapshot.exists ? membershipSnapshot.data() || {} : {};
+    if (!hasStoreProcessingAuthority({ uid, workspaceId, workspace, membership })) {
+      throw new HttpsError('permission-denied', 'Your Workspace role cannot process Store orders.');
+    }
+
+    const ordersSnapshot = await transaction.get(
+      db.collection('storeOrders').where('groupOrder.id', '==', normalizedGroupId)
+    );
+    const matchedOrders = ordersSnapshot.docs.map(document => ({
+      document,
+      order: document.data() || {}
+    }));
+    if (matchedOrders.some(({ order }) => (
+      readString(order.groupOrder?.id) !== normalizedGroupId
+      || readString(order.workspaceId) !== workspaceId
+      || readString(order.storeId) !== storeId
+    ))) {
+      throw new HttpsError('failed-precondition', 'This Group Order contains inconsistent Store ownership.');
+    }
+
+    if (matchedOrders.length > MAX_STORE_GROUP_BATCH_ORDERS) {
+      throw new HttpsError(
+        'resource-exhausted',
+        `This Group action supports up to ${MAX_STORE_GROUP_BATCH_ORDERS} member orders at once.`
+      );
+    }
+    const eligibleOrders = matchedOrders.filter(({ order }) => (
+      readString(order.payment?.status) === 'paid'
+      && readString(order.fulfilmentStatus) === transition.currentStatus
+    ));
+
+    for (const { document, order } of eligibleOrders) {
+      const orderUpdate = {
+        fulfilmentStatus: transition.nextStatus,
+        fulfilmentUpdatedAt: FieldValue.serverTimestamp(),
+        fulfilmentUpdatedBy: uid,
+        updatedAt: FieldValue.serverTimestamp()
+      };
+      if (transition.nextStatus === STORE_FULFILMENT_STATUS.completed) {
+        orderUpdate.completedAt = FieldValue.serverTimestamp();
+      }
+      transaction.update(document.ref, orderUpdate);
+
+      const eventReference = db.collection('storeOrderTimeline')
+        .doc(`${document.id}_${normalizeEventStatus(transition.nextStatus)}`);
+      transaction.create(eventReference, {
+        id: eventReference.id,
+        orderId: document.id,
+        workspaceId,
+        storeId,
+        type: 'fulfilment_status',
+        label: transition.nextStatus,
+        previousStatus: transition.currentStatus,
+        newStatus: transition.nextStatus,
+        actingUserId: uid,
+        batchGroupOrderId: normalizedGroupId,
+        createdAt: FieldValue.serverTimestamp()
+      });
+
+      if (transition.nextStatus === STORE_FULFILMENT_STATUS.ready) {
+        const notificationReference = db.collection('storeNotifications').doc(
+          getStoreNotificationId(STORE_NOTIFICATION_TYPE.orderReady, document.id)
+        );
+        transaction.create(notificationReference, buildStoreNotification({
+          id: notificationReference.id,
+          type: STORE_NOTIFICATION_TYPE.orderReady,
+          order: { ...order, id: document.id },
+          title: 'Order Ready',
+          message: `${readString(order.orderNumber)} is ready for pickup.`,
+          createdAt: FieldValue.serverTimestamp()
+        }));
+      }
+    }
+
+    return {
+      groupId: normalizedGroupId,
+      action: readString(action),
+      previousStatus: transition.currentStatus,
+      fulfilmentStatus: transition.nextStatus,
+      matchedOrderCount: matchedOrders.length,
+      transitionedOrderCount: eligibleOrders.length
     };
   });
 };

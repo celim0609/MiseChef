@@ -79,16 +79,30 @@ test('footer reads the Store document and labels the exact active-online definit
   assert.match(pageSource, /countActiveOnlineOrders\(orders\)/);
 });
 
-test('Group Kitchen cards use exact Group ids and preserve per-order fulfilment actions', () => {
-  assert.match(pageSource, /buildGroupKitchenEntries\(orders, column\.status\)/);
+test('Group Kitchen cards use exact Group ids and one server-authorized batch action', () => {
+  assert.match(pageSource, /buildGroupKitchenEntries\(orders, column\.status, storePickupSessions\)/);
   assert.match(pageSource, /data-group-order-id=\{entry\.groupId\}/);
   assert.match(pageSource, /data-store-order-id=\{order\.id\}/);
   assert.match(pageSource, /member\.position.*member\.total.*order\.customerName/s);
+  assert.match(pageSource, /formatMalaysiaBusinessDate\(entry\.pickupDate\).*entry\.pickupSession/s);
+  assert.match(pageSource, /entry\.paidOrderCount.*entry\.eligibleOrderCount/s);
   assert.match(pageSource, /formatStoreOrderSetSelection/);
   assert.match(pageSource, /option\.groupName.*option\.optionName/s);
   assert.match(pageSource, /Remark: \{order\.notes\}/);
-  assert.match(pageSource, /advanceOrder\(order\)/);
-  assert.doesNotMatch(pageSource, /advanceGroup|completeGroup|fulfilGroup/);
+  assert.match(pageSource, /updateGroupFulfilment\(entry\.groupId, entry\.batchAction\)/);
+  assert.match(pageSource, /Start Preparing Group/);
+  assert.match(pageSource, /Mark Group Ready/);
+  assert.match(pageSource, /Complete Group/);
+  assert.match(pageSource, /Awaiting payment/);
+  assert.doesNotMatch(pageSource, /advanceOrder\(member\.order\)/);
+  assert.match(serviceSource, /updateStoreGroupOrderBatchStatus/);
   assert.match(groupKitchenSource, /candidateGroups\.get\(groupId\)/);
+  assert.match(groupKitchenSource, /order\.payment\.status !== 'paid'/);
   assert.doesNotMatch(groupKitchenSource, /groupOrder\?\.name.*Map|hostName.*Map|pickupSession.*Map/);
+});
+
+test('normal non-Group Kitchen cards keep their independent fulfilment action', () => {
+  assert.match(pageSource, /void advanceOrder\(order\)/);
+  assert.match(pageSource, /column\.actionLabel/);
+  assert.match(serviceSource, /updateStoreOrderStatus/);
 });

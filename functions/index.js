@@ -43,7 +43,10 @@ import {
   submitManualStorePayment,
   uploadManualStorePaymentReceipt
 } from './storeManualPayments.js';
-import { updateStoreOrderFulfilment } from './storeFulfilment.js';
+import {
+  updateStoreGroupOrderFulfilment,
+  updateStoreOrderFulfilment
+} from './storeFulfilment.js';
 import { listCustomerOrders } from './customerOrders.js';
 import {
   activateHostProfile,
@@ -508,6 +511,29 @@ export const updateStoreOrderStatus = onCall({
       message: error?.message || ''
     });
     throw new HttpsError('internal', 'This order could not be updated. Please try again.');
+  }
+});
+
+export const updateStoreGroupOrderBatchStatus = onCall({
+  region: REGION,
+  timeoutSeconds: 60,
+  memory: '256MiB'
+}, async request => {
+  try {
+    return await updateStoreGroupOrderFulfilment({
+      db,
+      uid: request.auth?.uid,
+      groupId: request.data?.groupId,
+      action: request.data?.action
+    });
+  } catch (error) {
+    if (error instanceof HttpsError) throw error;
+    logger.error('Store Group fulfilment update failed', {
+      name: error?.name || '',
+      code: error?.code || '',
+      message: error?.message || ''
+    });
+    throw new HttpsError('internal', 'This Group could not be updated. Please try again.');
   }
 });
 

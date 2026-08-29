@@ -8,6 +8,8 @@ export type GroupKitchenMember = {
   actionable: boolean;
 };
 
+export type GroupKitchenBatchAction = 'start_preparing' | 'mark_ready' | 'complete';
+
 export type GroupKitchenEntry =
   | { kind: 'order'; key: string; order: StoreOrder }
   | {
@@ -19,6 +21,11 @@ export type GroupKitchenEntry =
     pickupDate: string;
     pickupSession: string;
     pickupLocationName: string;
+    memberCount: number;
+    paidOrderCount: number;
+    eligibleOrderCount: number;
+    awaitingPaymentCount: number;
+    batchAction: GroupKitchenBatchAction | null;
     members: GroupKitchenMember[];
   };
 
@@ -53,9 +60,43 @@ const activeStatus = (order: StoreOrder) => (
   isOrderOperationallyEligible(order) ? toActivePosStatus(order.fulfilmentStatus) : null
 );
 
+const paidBatchStatus = (order: StoreOrder): ActivePosStatus | null => {
+  if (order.payment.status !== 'paid') return null;
+  return order.fulfilmentStatus === 'New'
+    || order.fulfilmentStatus === 'Preparing'
+    || order.fulfilmentStatus === 'Ready'
+    ? order.fulfilmentStatus
+    : null;
+};
+
+const actionForStage = (status: ActivePosStatus): GroupKitchenBatchAction => ({
+  New: 'start_preparing',
+  Preparing: 'mark_ready',
+  Ready: 'complete'
+})[status] as GroupKitchenBatchAction;
+
+const compareGroupPickup = (
+  left: Extract<GroupKitchenEntry, { kind: 'group' }>,
+  right: Extract<GroupKitchenEntry, { kind: 'group' }>,
+  pickupSessions: string[]
+) => {
+  const leftDate = left.pickupDate || '\uffff';
+  const rightDate = right.pickupDate || '\uffff';
+  const dateOrder = leftDate.localeCompare(rightDate);
+  if (dateOrder) return dateOrder;
+  const sessionRank = (session: string) => {
+    const index = pickupSessions.indexOf(session);
+    return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+  };
+  return sessionRank(left.pickupSession) - sessionRank(right.pickupSession)
+    || left.pickupSession.localeCompare(right.pickupSession)
+    || left.key.localeCompare(right.key);
+};
+
 export const buildGroupKitchenEntries = (
   orders: StoreOrder[],
-  columnStatus: ActivePosStatus
+  columnStatus: ActivePosStatus,
+  pickupSessions: string[] = []
 ): GroupKitchenEntry[] => {
   const candidateGroups = new Map<string, StoreOrder[]>();
   const independentOrders: StoreOrder[] = [];
@@ -80,7 +121,7 @@ export const buildGroupKitchenEntries = (
 
     const members = [...candidateMembers].sort(compareMembers);
     const activeStages = members
-      .map(activeStatus)
+      .map(paidBatchStatus)
       .filter((status): status is ActivePosStatus => Boolean(status))
       .sort((left, right) => STATUS_RANK[left] - STATUS_RANK[right]);
     const hasUnresolvedMember = members.some(order => (
@@ -99,6 +140,15 @@ export const buildGroupKitchenEntries = (
       pickupDate: first.pickupDate,
       pickupSession: first.pickupSession,
       pickupLocationName: first.pickupLocationName,
+      memberCount: members.length,
+      paidOrderCount: members.filter(order => order.payment.status === 'paid').length,
+      eligibleOrderCount: activeStages.length,
+      awaitingPaymentCount: members.filter(order => (
+        order.payment.status !== 'paid'
+        && order.fulfilmentStatus !== 'Cancelled'
+        && order.fulfilmentStatus !== 'Completed'
+      )).length,
+      batchAction: activeStages.length > 0 ? actionForStage(groupStage as ActivePosStatus) : null,
       members: members.map((order, index) => ({
         order,
         position: index + 1,
@@ -115,8 +165,11 @@ export const buildGroupKitchenEntries = (
   }
 
   return entries.sort((left, right) => {
-    const leftCreatedAt = left.kind === 'order' ? left.order.createdAt : left.members[0]?.order.createdAt || '';
-    const rightCreatedAt = right.kind === 'order' ? right.order.createdAt : right.members[0]?.order.createdAt || '';
-    return rightCreatedAt.localeCompare(leftCreatedAt) || left.key.localeCompare(right.key);
+    if (left.kind === 'group' && right.kind === 'group') {
+      return compareGroupPickup(left, right, pickupSessions);
+    }
+    if (left.kind === 'group') return -1;
+    if (right.kind === 'group') return 1;
+    return right.order.createdAt.localeCompare(left.order.createdAt) || left.key.localeCompare(right.key);
   });
 };

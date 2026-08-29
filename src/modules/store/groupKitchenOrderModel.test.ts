@@ -17,7 +17,10 @@ const order = ({
   productName = 'Set A',
   drink = 'Teh O',
   optionName = '',
-  notes = ''
+  notes = '',
+  pickupDate = '2026-09-01',
+  pickupSession = '7:45 AM',
+  pickupLocationName = 'Counter'
 }: {
   id: string;
   groupId?: string;
@@ -33,6 +36,9 @@ const order = ({
   drink?: string;
   optionName?: string;
   notes?: string;
+  pickupDate?: string;
+  pickupSession?: string;
+  pickupLocationName?: string;
 }) => ({
   id,
   orderNumber: `MC-${id}`,
@@ -41,10 +47,10 @@ const order = ({
   orderSource: 'online',
   ...(groupId ? { groupOrder: { id: groupId, shareCode, name: groupName, hostId, hostName, rewardPercent: 5 } } : {}),
   customerName,
-  pickupDate: '2026-09-01',
-  pickupSession: '7:45 AM',
+  pickupDate,
+  pickupSession,
   pickupLocationId: 'counter',
-  pickupLocationName: 'Counter',
+  pickupLocationName,
   notes,
   fulfilmentStatus,
   paymentMethodId: 'touch_n_go_qr',
@@ -146,4 +152,64 @@ test('member ordering falls back deterministically to order number and then docu
   assert.equal(entry.kind, 'group');
   if (entry.kind !== 'group') return;
   assert.deepEqual(entry.members.map(member => member.order.id), ['a', 'b', 'z']);
+});
+
+test('mixed Group stages select one batch action from the earliest eligible paid stage', () => {
+  const members = [
+    order({ id: 'new', groupId: 'group-a', createdAt: '2026-09-01T01:00:00.000Z', fulfilmentStatus: 'New' }),
+    order({ id: 'preparing', groupId: 'group-a', createdAt: '2026-09-01T02:00:00.000Z', fulfilmentStatus: 'Preparing' }),
+    order({ id: 'ready', groupId: 'group-a', createdAt: '2026-09-01T03:00:00.000Z', fulfilmentStatus: 'Ready' }),
+    order({ id: 'pending', groupId: 'group-a', createdAt: '2026-09-01T04:00:00.000Z', paymentStatus: 'pending_verification' }),
+    order({ id: 'cancelled', groupId: 'group-a', createdAt: '2026-09-01T05:00:00.000Z', fulfilmentStatus: 'Cancelled' }),
+    order({ id: 'completed', groupId: 'group-a', createdAt: '2026-09-01T06:00:00.000Z', fulfilmentStatus: 'Completed' })
+  ];
+  const entry = buildGroupKitchenEntries(members, 'New')[0];
+  assert.equal(entry.kind, 'group');
+  if (entry.kind !== 'group') return;
+  assert.equal(entry.batchAction, 'start_preparing');
+  assert.equal(entry.memberCount, 6);
+  assert.equal(entry.paidOrderCount, 5);
+  assert.equal(entry.eligibleOrderCount, 3);
+  assert.equal(entry.awaitingPaymentCount, 1);
+  assert.deepEqual(entry.members.map(member => member.order.id), members.map(member => member.id));
+});
+
+test('Group action progresses from Preparing to Ready to Completed without merging members', () => {
+  const preparing = [
+    order({ id: 'a', groupId: 'group-a', createdAt: '2026-09-01T01:00:00.000Z', fulfilmentStatus: 'Preparing' }),
+    order({ id: 'b', groupId: 'group-a', createdAt: '2026-09-01T02:00:00.000Z', fulfilmentStatus: 'Ready' })
+  ];
+  const preparingEntry = buildGroupKitchenEntries(preparing, 'Preparing')[0];
+  assert.equal(preparingEntry.kind === 'group' ? preparingEntry.batchAction : null, 'mark_ready');
+
+  const ready = preparing.map(member => ({ ...member, fulfilmentStatus: 'Ready' as const }));
+  const readyEntry = buildGroupKitchenEntries(ready, 'Ready')[0];
+  assert.equal(readyEntry.kind === 'group' ? readyEntry.batchAction : null, 'complete');
+  assert.deepEqual(
+    readyEntry.kind === 'group' ? readyEntry.members.map(member => member.order.id) : [],
+    ['a', 'b']
+  );
+});
+
+test('an unpaid unresolved Group remains visible without exposing a batch action', () => {
+  const entry = buildGroupKitchenEntries([
+    order({ id: 'pending', groupId: 'group-a', createdAt: '2026-09-01T01:00:00.000Z', paymentStatus: 'pending_verification' })
+  ], 'New')[0];
+  assert.equal(entry.kind, 'group');
+  if (entry.kind !== 'group') return;
+  assert.equal(entry.batchAction, null);
+  assert.equal(entry.awaitingPaymentCount, 1);
+  assert.equal(entry.eligibleOrderCount, 0);
+});
+
+test('Group cards sort by pickup date and configured Store session order', () => {
+  const entries = buildGroupKitchenEntries([
+    order({ id: 'later-date', groupId: 'later-date', createdAt: '2026-08-01T01:00:00.000Z', pickupDate: '2026-09-02', pickupSession: 'Breakfast' }),
+    order({ id: 'later-session', groupId: 'later-session', createdAt: '2026-08-03T01:00:00.000Z', pickupDate: '2026-09-01', pickupSession: 'Lunch' }),
+    order({ id: 'earlier-session', groupId: 'earlier-session', createdAt: '2026-08-02T01:00:00.000Z', pickupDate: '2026-09-01', pickupSession: 'Breakfast' })
+  ], 'New', ['Breakfast', 'Lunch']);
+  assert.deepEqual(
+    entries.map(entry => entry.kind === 'group' ? entry.groupId : ''),
+    ['earlier-session', 'later-session', 'later-date']
+  );
 });

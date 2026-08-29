@@ -371,6 +371,18 @@ export const storeOrderService = {
     })).data;
   },
 
+  async updateGroupFulfilment(
+    groupId: string,
+    action: 'start_preparing' | 'mark_ready' | 'complete'
+  ) {
+    if (!functions) throw new Error('Group updates are temporarily unavailable.');
+    const updateGroupStatus = httpsCallable<
+      { groupId: string; action: 'start_preparing' | 'mark_ready' | 'complete' },
+      { groupId: string; action: string; fulfilmentStatus: StoreFulfilmentStatus; transitionedOrderCount: number }
+    >(functions, 'updateStoreGroupOrderBatchStatus');
+    return (await updateGroupStatus({ groupId, action })).data;
+  },
+
   async reviewManualPayment(orderId: string, decision: 'approve' | 'reject') {
     if (!functions) throw new Error('Payment review is temporarily unavailable.');
     const review = httpsCallable(functions, 'reviewStoreManualPayment');
