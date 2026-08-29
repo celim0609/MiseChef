@@ -49,8 +49,53 @@ const retained = {
   updateStoreOrderStatus: ['1787923558144143', '5f56c320400519527cb409240bac879bec9d0615']
 };
 
+const configurationHashes = {
+  activateMiseChefHost: '5b13f0c674dda39e706a93cce17e9b5539ff1b903b761d5eb1714b3a696aa588',
+  authorizeWorkspaceFeature: '218d74d49a65d618c145e97701ff4d8298496b947285e5095450de3a519f2561',
+  cancelInvoiceUpload: 'ea52828a5cf5a4915b5ea408a809ab9fc3d734263f1cf720ff2f4b3a78378c66',
+  cancelPublicStorePayment: '6a5ffd29d995a5ce5c2b2f7da7da46d6060797a4d086cc395a2b8134014ce0f1',
+  createInvoiceUpload: '65dae4fdc5ffb4d111631be45f26c9746eb38d1fd4be4c9fbfebe31b6f088e7a',
+  createMiseChefGroupOrder: '3f418610d176897900654eb42214c5c8e8f64ba885301ea9a80f50d73cb00cec',
+  createPublicStorePayment: 'd71f245848a6b54b76d9c8d5717407060a7b137d3faaf9c17e8b2eb03f91b3a6',
+  expireWorkspaceTrials: '65a657871543f408d52db362a6aa09b4dd5f6a9f0dcbc1f44b231b7a8faf5143',
+  extractPersonalExpenseReceipt: 'e90314772b80b2b195d8de7dae59b2e2cb0201822fe07c327833df70af936864',
+  generateRecipeSteps: '424e587f85a05ba7c4ee0c6ce0a0d941b0ce005ca991ce75ad3900e875a070f0',
+  getDashboardAiUsage: '1810d3d6b1848ce0677ae7e5871be8663c5928bdb87f196893a6093873a4f640',
+  getMyMiseChefGroupOrder: 'becc60e4c676ccb39ab4daf72dfe2616cac52dca776fed25138c8e8da5c466d0',
+  getPublicDiscoverContent: '919b31794ce27f8cf614de61794b4df2cd627419dcaed511a0fc6be6bda93d1b',
+  getPublicMiseChefGroupOrder: 'c3092759a3ba53f2f748fa15deeed3bfc3cd808042b0b79cf691a543993a9b3a',
+  getPublicStorePaymentResult: '234ebf7598506c0c1049c4588e749ca49bf54591db4392471586b92a6267e2f6',
+  getWorkspaceSubscription: '01daa00f72a818104e654bff796f43378461f68a5128b1e297dce27af1da0620',
+  listApprovedProducts: '9f6593d5ff79c9003dc3e113e88f26c67db2ba29a57c731a24013c07f3bfc0e0',
+  listMyMiseChefGroupOrders: '001e4755d541549e4b6602ea3b7ae12458d77c7090d4e3af973a530e49c9482f',
+  parseInvoiceToJson: '873ab73a5cabd7a652adc4b7f6b519f73d53e3f2eea7a11009a73e647c63d22a',
+  parseResumeToPortfolio: '2f5e581837404d279130d79d3eed6bd3c9cac8f74a86dc21db3717281b84cc9e',
+  processResumeImportJob: 'ff93296526eedc599ffbd0a7eae3295807daf7e2c5a6991f15c9c70dd62463e4',
+  provisionNewUserWorkspace: 'f1bfeb8b040a5c76bd0ab613e149f7e0b8b9a23f1623f7e21a66542f797c1788',
+  recordPersonalExpenseSettlement: '7868a38c5c67e1ba80df521fddeb25c8bed59faecf81ac589768f91db492b7c7',
+  renderPublicStore: 'b2339a0b84b09fe2f80da8008153bc10572a387badff23b60143c080bd696302',
+  reviewStoreManualPayment: '2f1bcc0d96adac6d4f0e70cd8c5b7b36b6bebe6887e0c11e77eab48471ca94b6',
+  scanRecipeImage: '2043e5971e07220ab7b97ebc7b882acb0a456054eda0028e3a3ebf4ecca6dd87',
+  stripeStorePaymentWebhook: '8c6030965200fcff25c8ea978cdac2f7f09f88f0a18e0227abc2a18917205a57',
+  submitPublicStoreManualPayment: 'b8e0a816b23eedbacc8deaf620668a8d41165550b94870286659dd98f5aeebc0',
+  syncApprovedProductRecipes: '846de6e37fd1e7b1105c500f69559501ccfb6798b0e921103ab79a8a8c3295aa',
+  syncCanonicalChefProfile: '62f562ce497a3a5bb6f3d616314b460f558f52ecc57876ba9e12f8d3934ee1fd',
+  syncMiseChefGroupReward: '044fd72ab12aaef25967d903c48fc46ee851e17975e164a44933bd2810f03039',
+  syncPublicChefProfile: '9954cdb7252d49de86de090f69a36487a0fb3dfbf5ceb3e9644408cfe327c9d1',
+  syncPublicRecipe: '123fb28545a32c428dc233cd533b04d3012c866f7d8c37b7fabc9e70fd01aaf1',
+  trackPublicProductClick: '577b9d9116f2630342e466448ac7dd67dcec7b9d037921b870afbb32d5e58077',
+  updateMyMiseChefGroupOrderStatus: 'bab98c18d265db7985b0cfdfaf7edb54661d172901047271fb2968f1d43ebc1c',
+  updateStoreOrderStatus: 'd12ebfefad6e952428a7041d52759e724650dd0a60fe87c3507b647406ea6ed9',
+  uploadPublicStorePaymentReceipt: '122a13998412c32c085c28ca31c15f1a2853757d3ebe5b07a1099883298eff27'
+};
+
 const functionFingerprint = (entries, phase) => Object.fromEntries(
-  Object.entries(entries).map(([id, [generation, hash]]) => [id, { generation, hash, phase }])
+  Object.entries(entries).map(([id, [generation, hash]]) => [id, {
+    generation,
+    hash,
+    configurationHash: configurationHashes[id],
+    phase
+  }])
 );
 
 export const RELEASE_28_INCIDENT = Object.freeze({
@@ -92,6 +137,30 @@ const same = (left, right) => JSON.stringify(canonical(left)) === JSON.stringify
 const digest = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
 const fail = message => { throw new Error(`Beta Release #28 recovery refused: ${message}`); };
 
+const functionConfiguration = item => ({
+  platform: item.platform,
+  region: item.region,
+  entryPoint: item.entryPoint,
+  runtime: item.runtime,
+  callableTrigger: item.callableTrigger,
+  httpsTrigger: item.httpsTrigger,
+  scheduleTrigger: item.scheduleTrigger,
+  eventTrigger: item.eventTrigger,
+  ingressSettings: item.ingressSettings,
+  environmentVariables: item.environmentVariables,
+  secretEnvironmentVariables: item.secretEnvironmentVariables,
+  timeoutSeconds: item.timeoutSeconds,
+  serviceAccount: item.serviceAccount,
+  availableMemoryMb: item.availableMemoryMb,
+  cpu: item.cpu,
+  minInstances: item.minInstances,
+  maxInstances: item.maxInstances,
+  concurrency: item.concurrency,
+  labels: Object.fromEntries(
+    Object.entries(item.labels || {}).filter(([key]) => key !== 'firebase-functions-hash')
+  )
+});
+
 export const resolveRelease28RecoveryMode = ({ confirmation, authorization, githubActions, ciLockId }) => {
   if (!confirmation) return false;
   if (confirmation !== RELEASE_28_RECOVERY_CONFIRMATION) fail('the incident confirmation is not exact.');
@@ -109,12 +178,19 @@ const normalizedFunctions = functions => [...(functions || [])]
     id: String(item.id || ''),
     generation: String(item.generation || item.source?.storageSource?.generation || ''),
     hash: String(item.hash || ''),
+    configurationHash: String(item.configurationHash || digest(functionConfiguration(item))),
     state: String(item.state || '')
   }))
   .sort((left, right) => left.id.localeCompare(right.id));
 
 const expectedFunctions = () => Object.entries(RELEASE_28_INCIDENT.functions)
-  .map(([id, value]) => ({ id, generation: value.generation, hash: value.hash, state: 'ACTIVE' }))
+  .map(([id, value]) => ({
+    id,
+    generation: value.generation,
+    hash: value.hash,
+    configurationHash: value.configurationHash,
+    state: 'ACTIVE'
+  }))
   .sort((left, right) => left.id.localeCompare(right.id));
 
 export const assertRelease28PartialState = ({
@@ -243,8 +319,8 @@ export const assertRelease28RecoveryConverged = ({ liveFingerprint, functions, m
     if (currentById.get(id)?.hash !== expected.hash) {
       fail(`recovered Function ${id} does not use the authorized candidate source hash.`);
     }
-    if (expected.phase === 'retained' && currentById.get(id)?.generation === expected.generation) {
-      fail(`previously retained Function ${id} did not converge.`);
+    if (currentById.get(id)?.configurationHash !== expected.configurationHash) {
+      fail(`recovered Function ${id} does not use the authorized candidate configuration.`);
     }
   }
 };

@@ -41,6 +41,7 @@ const release28Functions = () => Object.entries(RELEASE_28_INCIDENT.functions).m
   id,
   generation: value.generation,
   hash: value.hash,
+  configurationHash: value.configurationHash,
   state: 'ACTIVE'
 }));
 
@@ -71,6 +72,38 @@ const assertKnownRelease28Partial = overrides => assertRelease28PartialState({
   ...release28GitChecks,
   ...overrides
 });
+
+const release28ConvergedState = () => {
+  const manifest = {
+    kind: 'misechef-beta-release',
+    version: 1,
+    buildId: 'recovery-build',
+    builtAt: new Date().toISOString(),
+    sourceCommit: RELEASE_28_INCIDENT.candidateCommit,
+    sourceTree: RELEASE_28_INCIDENT.candidateSourceTree,
+    protectedBaseline: MANDATORY_BETA_BASELINE,
+    entryAsset: RELEASE_28_INCIDENT.storeAsset,
+    entryAssetSha256: 'a'.repeat(64),
+    storeShellAsset: RELEASE_28_INCIDENT.storeAsset
+  };
+  return {
+    manifest,
+    functions: release28Functions(),
+    liveFingerprint: {
+      rootAsset: manifest.entryAsset,
+      storeAsset: manifest.entryAsset,
+      releaseMetadata: manifest,
+      releaseCommit: manifest.sourceCommit,
+      releaseSourceTree: manifest.sourceTree,
+      releaseProtectedBaseline: manifest.protectedBaseline
+    },
+    assetProof: {
+      status: 200,
+      contentType: 'text/javascript; charset=utf-8',
+      sha256: manifest.entryAssetSha256
+    }
+  };
+};
 
 test('stale branch, Firestore-only, and Storage-only candidates fail ancestry', () => {
   for (const resource of ['firestore', 'storage']) {
@@ -357,41 +390,53 @@ test('normal releases still reject the known incoherent Release #28 baseline', (
   }), /do not identify one coherent release/);
 });
 
-test('Release #28 recovery becomes invalid after exact candidate convergence', () => {
-  const manifest = {
-    kind: 'misechef-beta-release',
-    version: 1,
-    buildId: 'recovery-build',
-    builtAt: new Date().toISOString(),
-    sourceCommit: RELEASE_28_INCIDENT.candidateCommit,
-    sourceTree: RELEASE_28_INCIDENT.candidateSourceTree,
-    protectedBaseline: MANDATORY_BETA_BASELINE,
-    entryAsset: RELEASE_28_INCIDENT.storeAsset,
-    entryAssetSha256: 'a'.repeat(64),
-    storeShellAsset: RELEASE_28_INCIDENT.storeAsset
-  };
-  const functions = release28Functions().map(item => (
-    RELEASE_28_INCIDENT.functions[item.id].phase === 'retained'
-      ? { ...item, generation: `${item.generation}1` }
-      : item
-  ));
-  const liveFingerprint = {
-    rootAsset: manifest.entryAsset,
-    storeAsset: manifest.entryAsset,
-    releaseMetadata: manifest,
-    releaseCommit: manifest.sourceCommit,
-    releaseSourceTree: manifest.sourceTree,
-    releaseProtectedBaseline: manifest.protectedBaseline
-  };
+test('Release #28 recovery accepts exact no-op Function convergence and becomes single-use', () => {
+  const converged = release28ConvergedState();
+  assert.doesNotThrow(() => assertRelease28CandidateArtifact(converged.manifest));
+  assert.doesNotThrow(() => assertRelease28RecoveryConverged(converged));
+  assert.throws(() => assertKnownRelease28Partial({
+    liveFingerprint: converged.liveFingerprint,
+    functions: converged.functions
+  }), /manifest metadata/);
+});
 
-  assert.doesNotThrow(() => assertRelease28CandidateArtifact(manifest));
-  assert.doesNotThrow(() => assertRelease28RecoveryConverged({
-    liveFingerprint,
-    functions,
-    manifest,
-    assetProof: { status: 200, contentType: 'text/javascript; charset=utf-8', sha256: manifest.entryAssetSha256 }
-  }));
-  assert.throws(() => assertKnownRelease28Partial({ liveFingerprint, functions }), /manifest metadata/);
+test('Release #28 recovery rejects a stale Function source hash', () => {
+  const converged = release28ConvergedState();
+  converged.functions[0] = { ...converged.functions[0], hash: 'stale-source-hash' };
+  assert.throws(() => assertRelease28RecoveryConverged(converged), /authorized candidate source hash/);
+});
+
+test('Release #28 recovery rejects an inactive Function', () => {
+  const converged = release28ConvergedState();
+  converged.functions[0] = { ...converged.functions[0], state: 'FAILED' };
+  assert.throws(() => assertRelease28RecoveryConverged(converged), /exactly 37 ACTIVE Functions/);
+});
+
+test('Release #28 recovery rejects an unexpected Function', () => {
+  const converged = release28ConvergedState();
+  converged.functions.push({
+    id: 'unknownFunction',
+    generation: '1',
+    hash: 'unknown',
+    configurationHash: 'unknown',
+    state: 'ACTIVE'
+  });
+  assert.throws(() => assertRelease28RecoveryConverged(converged), /exactly 37 ACTIVE Functions/);
+});
+
+test('Release #28 recovery rejects stale Function configuration', () => {
+  const converged = release28ConvergedState();
+  converged.functions[0] = { ...converged.functions[0], configurationHash: 'stale-configuration' };
+  assert.throws(() => assertRelease28RecoveryConverged(converged), /authorized candidate configuration/);
+});
+
+test('Release #28 recovery rejects a mixed or unknown release state', () => {
+  const converged = release28ConvergedState();
+  converged.liveFingerprint = {
+    ...converged.liveFingerprint,
+    rootAsset: RELEASE_28_INCIDENT.rootAsset
+  };
+  assert.throws(() => assertRelease28RecoveryConverged(converged), /do not reference the recovered candidate asset/);
 });
 
 test('historical live manifests require exact SHAs, a matching source tree, and valid history', () => {
