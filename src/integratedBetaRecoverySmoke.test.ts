@@ -39,7 +39,18 @@ test('Store, POS, payments, Host Groups, appearance, and hardened Hosting remain
   assert.match(read('./components/SettingsTab.tsx'), /applyAppearanceMode/);
 
   const firebase = JSON.parse(read('../firebase.json'));
-  assert.deepEqual(firebase.hosting.headers.map((entry: { source: string }) => entry.source), ['/app', '/app/**']);
+  const publicDocumentPattern = '^/(?:|features/?|pricing/?|book-demo/?|contact/?|login/?|recipes(?:/.*)?|chefs/?|chef(?:/.*)?|@.*|orders/?|host(?:/.*)?|group(?:/.*)?)$';
+  assert.deepEqual(
+    firebase.hosting.headers.map((entry: { source?: string; regex?: string }) => entry.source || entry.regex),
+    ['/app', '/app/**', publicDocumentPattern]
+  );
+  const publicDocumentHeader = firebase.hosting.headers.find((entry: { regex?: string }) => entry.regex === publicDocumentPattern);
+  assert.deepEqual(publicDocumentHeader?.headers, [{ key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' }]);
+  const publicDocumentMatcher = new RegExp(publicDocumentPattern);
+  for (const path of ['/', '/login', '/orders', '/orders/', '/recipes', '/recipes/nasi-lemak', '/chefs', '/chef/celim', '/@celim', '/host/beta-store', '/group/group-id']) {
+    assert.equal(publicDocumentMatcher.test(path), true, `${path} must revalidate the public SPA shell`);
+  }
+  assert.equal(publicDocumentMatcher.test('/assets/index-content-hash.js'), false);
   assert.equal(firebase.hosting.rewrites[0].source, '/store/**');
   assert.equal(firebase.hosting.rewrites[0].function.functionId, 'renderPublicStore');
   assert.equal(firebase.firestore.indexes, 'firestore.indexes.json');

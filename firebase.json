@@ -71,6 +71,15 @@
             "value": "no-cache, no-store, must-revalidate"
           }
         ]
+      },
+      {
+        "regex": "^/(?:|features/?|pricing/?|book-demo/?|contact/?|login/?|recipes(?:/.*)?|chefs/?|chef(?:/.*)?|@.*|orders/?|host(?:/.*)?|group(?:/.*)?)$",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
       }
     ],
     "rewrites": [
