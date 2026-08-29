@@ -195,13 +195,8 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
         }
       }
       setAuthError(getAuthErrorMessage(error));
-      setIsSubmitting(false);
     } finally {
-      if (auth.currentUser) {
-        setAuthMessage('Signed in with Google successfully.');
-        onAuthenticated();
-        setIsSubmitting(false);
-      }
+      setIsSubmitting(false);
     }
   };
 

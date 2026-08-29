@@ -34,7 +34,7 @@ export default function PublicLayout({ pathname, currentUser }: { pathname: stri
   const route = resolvePublicRoute(pathname) || { page: 'home' as const };
   const hostReturnTo = route.page === 'host' ? `/host/${encodeURIComponent(route.slug)}` : '';
   const accountLink = currentUser
-    ? { label: route.page === 'host' ? 'Host Center' : 'My MiseChef', href: route.page === 'host' ? hostReturnTo : '/app' }
+    ? { label: route.page === 'host' ? 'Host Center' : 'Workspace', href: route.page === 'host' ? hostReturnTo : '/app' }
     : { label: 'Login', href: hostReturnTo ? `/login?returnTo=${encodeURIComponent(hostReturnTo)}` : '/login' };
   const [publicRecipes, setPublicRecipes] = useState<Recipe[]>([]);
   const [publicChefs, setPublicChefs] = useState<PublicChefSummary[]>([]);

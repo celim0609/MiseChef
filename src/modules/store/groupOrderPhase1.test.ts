@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { getValidatedHostReturnTo, replaceWithValidatedHostReturnTo } from '../public/hostReturnNavigation';
 import { resolvePublicRoute } from '../public/publicRoutes';
 import { createDefaultWorkspaceStore, normalizeWorkspaceStore, validateStoreSettings } from './storeModel';
 
 const publicStorePage = readFileSync(new URL('./PublicStorePage.tsx', import.meta.url), 'utf8');
 const hostPage = readFileSync(new URL('./HostProgramPage.tsx', import.meta.url), 'utf8');
 const appSource = readFileSync(new URL('../../App.tsx', import.meta.url), 'utf8');
+const loginSource = readFileSync(new URL('../../components/LoginTab.tsx', import.meta.url), 'utf8');
 const publicLayout = readFileSync(new URL('../public/PublicLayout.tsx', import.meta.url), 'utf8');
 const paymentService = readFileSync(new URL('./services/paymentService.ts', import.meta.url), 'utf8');
 const groupService = readFileSync(new URL('./services/groupOrderService.ts', import.meta.url), 'utf8');
@@ -56,14 +58,81 @@ test('Host auth is passed explicitly, returnTo is preserved, and the header refl
   assert.match(publicLayout, /<HostProgramPage slug=\{route\.slug\} currentUser=\{currentUser\}/);
   assert.match(hostPage, /currentUser: User \| null/);
   assert.match(hostPage, /if \(!currentUser\)/);
-  assert.match(publicLayout, /currentUser\s*\? \{ label: route\.page === 'host' \? 'Host Center' : 'My MiseChef'/);
+  assert.match(publicLayout, /currentUser\s*\? \{ label: route\.page === 'host' \? 'Host Center' : 'Workspace'/);
   assert.match(appSource, /window\.location\.pathname !== '\/login'/);
-  assert.match(appSource, /new URLSearchParams\(window\.location\.search\)\.get\('returnTo'\)/);
+  assert.match(appSource, /replaceWithValidatedHostReturnTo/);
   assert.match(appSource, /pathname === '\/login'/);
-  assert.match(appSource, /window\.location\.assign\(hostReturnTo\)/);
+  assert.match(appSource, /window\.location\.replace\(hostReturnTo\)/);
+  assert.doesNotMatch(appSource, /window\.location\.assign\(hostReturnTo\)/);
   assert.match(hostPage, /navigator\.share/);
   assert.match(hostPage, /navigator\.clipboard\.writeText/);
   assert.match(hostPage, /Login \/ Become a Host/);
+});
+
+test('Host authentication return takes precedence and replaces Login history', () => {
+  const history = ['/store/misechef-s-grab-go-store', '/login?returnTo=%2Fhost%2Fmisechef-s-grab-go-store'];
+  let replacements = 0;
+  let workspaceNavigations = 0;
+  const handled = replaceWithValidatedHostReturnTo(
+    '?returnTo=%2Fhost%2Fmisechef-s-grab-go-store',
+    hostReturnTo => {
+      replacements += 1;
+      history[history.length - 1] = hostReturnTo;
+    }
+  );
+  if (!handled) workspaceNavigations += 1;
+
+  assert.equal(handled, true);
+  assert.equal(replacements, 1);
+  assert.equal(workspaceNavigations, 0);
+  assert.deepEqual(history, ['/store/misechef-s-grab-go-store', '/host/misechef-s-grab-go-store']);
+  assert.equal(history[history.length - 2], '/store/misechef-s-grab-go-store');
+});
+
+test('Host auth completion and guest continuation share replace-only public navigation', () => {
+  const hostCompletionSource = appSource.slice(
+    appSource.indexOf('const handleAuthenticated'),
+    appSource.indexOf('const handleAvatarClick')
+  );
+  assert.equal((hostCompletionSource.match(/replaceWithValidatedHostReturnTo/g) || []).length, 2);
+  assert.equal((hostCompletionSource.match(/window\.location\.replace/g) || []).length, 2);
+  assert.doesNotMatch(hostCompletionSource, /window\.location\.assign/);
+  assert.match(hostCompletionSource, /const handleContinueAsGuest[\s\S]*replaceWithValidatedHostReturnTo[\s\S]*setCurrentUser\(null\)/);
+
+  const loginRaceSource = appSource.slice(
+    appSource.indexOf("if (currentUser && activeTab === 'login')"),
+    appSource.indexOf("if (currentUser && activeTab === 'login')") + 400
+  );
+  assert.ok(loginRaceSource.indexOf('replaceWithValidatedHostReturnTo') < loginRaceSource.indexOf("handleRootNavigate('home')"));
+});
+
+test('Google popup authentication completes exactly once', () => {
+  const googleHandlerSource = loginSource.slice(
+    loginSource.indexOf('const handleGoogleSignIn'),
+    loginSource.indexOf('const handleCreateAccount')
+  );
+  assert.equal((googleHandlerSource.match(/onAuthenticated\(\)/g) || []).length, 1);
+  assert.doesNotMatch(googleHandlerSource, /finally\s*\{[\s\S]*auth\.currentUser/);
+});
+
+test('generic login still falls back to Workspace and malicious return targets are rejected', () => {
+  for (const search of [
+    '',
+    '?returnTo=%2Fapp',
+    '?returnTo=https%3A%2F%2Fevil.example%2Fhost%2Fstore',
+    '?returnTo=%2F%2Fevil.example%2Fhost%2Fstore',
+    '?returnTo=%2Fhost%2Fstore%3Fnext%3D%2Fapp',
+    '?returnTo=%2Fhost%2Fstore%2F..%2F..%2Fapp'
+  ]) {
+    assert.equal(getValidatedHostReturnTo(search), '');
+  }
+
+  let destination = '';
+  const handled = replaceWithValidatedHostReturnTo('', hostReturnTo => {
+    destination = hostReturnTo;
+  });
+  if (!handled) destination = '/app';
+  assert.equal(destination, '/app');
 });
 
 test('Host Center is the single compact dashboard with Create, summaries, Share and Manage', () => {

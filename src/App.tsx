@@ -36,6 +36,7 @@ import { teamService } from './modules/team/services';
 import type { TeamInvitation } from './modules/team/types';
 import { MarketingPage } from './modules/marketing';
 import { isPublicExperiencePath, PublicLayout } from './modules/public';
+import { replaceWithValidatedHostReturnTo } from './modules/public/hostReturnNavigation';
 import { AnimatePresence, motion } from 'motion/react';
 import BrandLogo from './components/BrandLogo';
 import { auth, authPersistenceReady, db, storage } from './firebase';
@@ -79,10 +80,6 @@ const isMarketingPath = (pathname: string) => MARKETING_PATHS.has(pathname);
 
 const APP_ROOT_PATH = '/app';
 const isAppPath = (pathname: string) => pathname === APP_ROOT_PATH || pathname.startsWith(`${APP_ROOT_PATH}/`);
-const getHostReturnTo = () => {
-  const returnTo = new URLSearchParams(window.location.search).get('returnTo');
-  return returnTo && /^\/host\/[a-z0-9-]+\/?$/i.test(returnTo) ? returnTo : '';
-};
 
 const SUBSCRIPTION_GATED_PRODUCT_TABS = new Set<RootTab>([
   'search',
@@ -933,12 +930,14 @@ export default function App() {
             setIsGuestMode(false);
             const pathname = window.location.pathname;
 
-            if (pathname === '/login') {
-              const hostReturnTo = getHostReturnTo();
-              if (hostReturnTo) {
-                window.location.assign(hostReturnTo);
-                return;
-              }
+            if (
+              pathname === '/login'
+              && replaceWithValidatedHostReturnTo(
+                window.location.search,
+                hostReturnTo => window.location.replace(hostReturnTo)
+              )
+            ) {
+              return;
             }
 
             if (isPublicExperiencePath(pathname) || isMarketingPath(pathname)) {
@@ -992,6 +991,11 @@ export default function App() {
 
   useEffect(() => {
     if (currentUser && activeTab === 'login') {
+      if (replaceWithValidatedHostReturnTo(
+        window.location.search,
+        hostReturnTo => window.location.replace(hostReturnTo)
+      )) return;
+
       handleRootNavigate('home');
     }
   }, [activeTab, currentUser]);
@@ -1710,15 +1714,20 @@ export default function App() {
   // Renders correct active screen body
   const handleAuthenticated = () => {
     setIsGuestMode(false);
-    const hostReturnTo = getHostReturnTo();
-    if (hostReturnTo) {
-      window.location.assign(hostReturnTo);
-      return;
-    }
+    if (replaceWithValidatedHostReturnTo(
+      window.location.search,
+      hostReturnTo => window.location.replace(hostReturnTo)
+    )) return;
+
     handleRootNavigate('home');
   };
 
   const handleContinueAsGuest = () => {
+    if (replaceWithValidatedHostReturnTo(
+      window.location.search,
+      hostReturnTo => window.location.replace(hostReturnTo)
+    )) return;
+
     setCurrentUser(null);
     setCurrentUserRole('user');
     setWorkspaces([]);
