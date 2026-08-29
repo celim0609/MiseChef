@@ -4,7 +4,8 @@ import test from 'node:test';
 import {
   getValidatedHostReturnTo,
   replaceWithValidatedHostReturnTo,
-  resolvePublicAccountLink,
+  resolveLoggedOutPublicAccountLink,
+  resolvePublicHostMenuAction,
   resolvePublicHostStoreCandidate
 } from '../public/hostReturnNavigation';
 import { resolvePublicRoute } from '../public/publicRoutes';
@@ -59,7 +60,7 @@ test('the Host CTA is conditional and Group checkout reuses PublicStorePage', ()
 test('Host auth is passed explicitly, returnTo is preserved, and the header reflects the account', () => {
   assert.match(groupService, /activateMiseChefHost/);
   assert.match(hostPage, /existing MiseChef account/);
-  assert.match(appSource, /<PublicLayout pathname=\{window\.location\.pathname\} currentUser=\{currentUser\}/);
+  assert.match(appSource, /<PublicLayout pathname=\{window\.location\.pathname\} currentUser=\{currentUser\} onSignOut=\{handleSignOut\}/);
   assert.match(publicLayout, /<HostProgramPage slug=\{route\.slug\} currentUser=\{currentUser\}/);
   assert.match(hostPage, /currentUser: User \| null/);
   assert.match(hostPage, /if \(!currentUser\)/);
@@ -75,19 +76,17 @@ test('Host auth is passed explicitly, returnTo is preserved, and the header refl
   assert.match(hostPage, /Login \/ Become a Host/);
 });
 
-test('activated Host navigation remains visible across public Home, Recipes and Chefs', () => {
+test('activated Host action remains available across public Home, Recipes and Chefs', () => {
   const storeSlug = 'misechef-s-grab-go-store';
   for (const pathname of ['/', '/recipes', '/chefs']) {
     const route = resolvePublicRoute(pathname);
     assert.ok(route);
     const candidate = resolvePublicHostStoreCandidate('', '', [storeSlug]);
     assert.equal(candidate, storeSlug);
-    assert.deepEqual(resolvePublicAccountLink({
-      authenticated: true,
-      validatedHostStoreSlug: candidate
-    }), {
+    assert.deepEqual(resolvePublicHostMenuAction({ status: 'host', storeSlug, userId: 'host-1' }, candidate, 'host-1'), {
       label: 'Host Center',
-      href: '/host/misechef-s-grab-go-store'
+      href: '/host/misechef-s-grab-go-store',
+      description: 'Groups & rewards'
     });
   }
 });
@@ -96,20 +95,22 @@ test('Store and Group context select a candidate but require trusted Host valida
   assert.equal(resolvePublicHostStoreCandidate('store-one', '', ['store-two']), 'store-one');
   assert.equal(resolvePublicHostStoreCandidate('', 'group-store', ['store-two']), 'group-store');
   assert.equal(resolvePublicHostStoreCandidate('', '', ['store-one', 'store-two']), '');
-  assert.deepEqual(resolvePublicAccountLink({ authenticated: true }), { label: 'Workspace', href: '/app' });
+  assert.equal(resolvePublicHostMenuAction({ status: 'host', storeSlug: 'store-one', userId: 'host-1' }, 'store-two', 'host-1'), null);
   assert.match(publicLayout, /<PublicGroupOrderPage shareCode=\{route\.shareCode\} onStoreResolved=\{setGroupStoreSlug\}/);
 });
 
 test('non-Host and logged-out public account navigation remains unchanged', () => {
-  assert.deepEqual(resolvePublicAccountLink({ authenticated: true }), { label: 'Workspace', href: '/app' });
-  assert.deepEqual(resolvePublicAccountLink({ authenticated: false }), { label: 'Login', href: '/login' });
-  assert.deepEqual(resolvePublicAccountLink({
-    authenticated: false,
-    currentHostRouteSlug: 'misechef-s-grab-go-store'
-  }), {
+  assert.deepEqual(resolvePublicHostMenuAction({ status: 'non-host', storeSlug: 'misechef-s-grab-go-store', userId: 'user-1' }, 'misechef-s-grab-go-store', 'user-1'), {
+    label: 'Become a Host',
+    href: '/host/misechef-s-grab-go-store',
+    description: 'Start group orders'
+  });
+  assert.deepEqual(resolveLoggedOutPublicAccountLink(), { label: 'Login', href: '/login' });
+  assert.deepEqual(resolveLoggedOutPublicAccountLink('misechef-s-grab-go-store'), {
     label: 'Login',
     href: '/login?returnTo=%2Fhost%2Fmisechef-s-grab-go-store'
   });
+  assert.match(publicLayout, /currentUser\s*\? <PublicAccountMenu hostAction=\{hostAction\} onSignOut=\{onSignOut\}/);
 });
 
 test('Host authentication return takes precedence and replaces Login history', () => {

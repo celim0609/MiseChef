@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ChefHat, Moon, Search, Sun, UserRound } from 'lucide-react';
+import { ChefHat, Moon, Search, Sun } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import BrandLogo from '../../components/BrandLogo';
 import type { Recipe } from '../../types';
@@ -7,7 +7,12 @@ import { getRecipeCategories } from '../../utils/categoryUtils';
 import PublicHomePage from './PublicHomePage';
 import { PublicChefCard, PublicSectionState, type PublicChefSummary, type PublicSectionStatus } from './PublicContent';
 import { resolvePublicRoute, toPublicSlug } from './publicRoutes';
-import { resolvePublicAccountLink, resolvePublicHostStoreCandidate } from './hostReturnNavigation';
+import {
+  resolveLoggedOutPublicAccountLink,
+  resolvePublicHostMenuAction,
+  resolvePublicHostStoreCandidate,
+  type PublicHostLookup
+} from './hostReturnNavigation';
 import { publicChefProfileService, publicDiscoverService, publicRecipeService } from './services';
 import type { PublicDiscoverStoreSummary } from './publicDiscoverModel';
 import PublicChefProfilePage from './PublicChefProfilePage';
@@ -17,6 +22,7 @@ import { HomepageAnnouncementCarousel } from './HomepageCarousels';
 import type { HomepagePromotion } from './homepagePromotions';
 import { resolvePublicRecipeAuthors } from './publicRecipeAuthor';
 import { groupOrderService } from '../store/services';
+import PublicAccountMenu from './PublicAccountMenu';
 
 const publicNavigation = [
   { label: 'Home', href: '/' },
@@ -32,7 +38,7 @@ const EmptyPublicState = ({ title, message, icon }: { title: string; message: st
   </section>
 );
 
-export default function PublicLayout({ pathname, currentUser }: { pathname: string; currentUser: User | null }) {
+export default function PublicLayout({ pathname, currentUser, onSignOut }: { pathname: string; currentUser: User | null; onSignOut: () => Promise<void> }) {
   const route = resolvePublicRoute(pathname) || { page: 'home' as const };
   const [publicRecipes, setPublicRecipes] = useState<Recipe[]>([]);
   const [publicChefs, setPublicChefs] = useState<PublicChefSummary[]>([]);
@@ -41,7 +47,7 @@ export default function PublicLayout({ pathname, currentUser }: { pathname: stri
   const [chefSearch, setChefSearch] = useState('');
   const [recipeStatus, setRecipeStatus] = useState<PublicSectionStatus>('loading');
   const [groupStoreSlug, setGroupStoreSlug] = useState('');
-  const [validatedHostStoreSlug, setValidatedHostStoreSlug] = useState('');
+  const [hostLookup, setHostLookup] = useState<PublicHostLookup>({ status: 'unavailable', storeSlug: '', userId: '' });
   const [isNightMode, setIsNightMode] = useState(() => typeof document !== 'undefined' && document.documentElement.dataset.appearance === 'dark');
 
   const routeStoreSlug = route.page === 'store' || route.page === 'host' ? route.slug : '';
@@ -50,11 +56,8 @@ export default function PublicLayout({ pathname, currentUser }: { pathname: stri
     route.page === 'group' ? groupStoreSlug : '',
     route.page === 'group' ? [] : publicDiscoverStores.map(store => store.slug)
   );
-  const accountLink = resolvePublicAccountLink({
-    authenticated: Boolean(currentUser),
-    currentHostRouteSlug: route.page === 'host' ? route.slug : '',
-    validatedHostStoreSlug
-  });
+  const hostAction = resolvePublicHostMenuAction(hostLookup, hostStoreCandidate, currentUser?.uid || '');
+  const loggedOutAccountLink = resolveLoggedOutPublicAccountLink(route.page === 'host' ? route.slug : '');
 
   const toggleAppearance = () => {
     const nextMode = isNightMode ? 'light' : 'dark';
@@ -86,19 +89,27 @@ export default function PublicLayout({ pathname, currentUser }: { pathname: stri
 
   useEffect(() => {
     let isCancelled = false;
-    setValidatedHostStoreSlug('');
-    if (!currentUser || !hostStoreCandidate || route.page === 'host') return;
+    if (!currentUser || !hostStoreCandidate) {
+      setHostLookup({ status: 'unavailable', storeSlug: '', userId: currentUser?.uid || '' });
+      return;
+    }
+
+    setHostLookup({ status: 'loading', storeSlug: hostStoreCandidate, userId: currentUser.uid });
 
     groupOrderService.listMine(hostStoreCandidate)
       .then(result => {
-        if (!isCancelled && result.hostActive) setValidatedHostStoreSlug(hostStoreCandidate);
+        if (!isCancelled) setHostLookup({
+          status: result.hostActive ? 'host' : 'non-host',
+          storeSlug: hostStoreCandidate,
+          userId: currentUser.uid
+        });
       })
       .catch(() => {
-        if (!isCancelled) setValidatedHostStoreSlug('');
+        if (!isCancelled) setHostLookup({ status: 'unknown', storeSlug: hostStoreCandidate, userId: currentUser.uid });
       });
 
     return () => { isCancelled = true; };
-  }, [currentUser?.uid, hostStoreCandidate, route.page]);
+  }, [currentUser?.uid, hostStoreCandidate]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -244,7 +255,9 @@ export default function PublicLayout({ pathname, currentUser }: { pathname: stri
             {publicNavigation.map(item => (
               <a key={item.href} href={item.href} className="hidden rounded-full px-3 py-2 font-sans text-xs font-extrabold text-primary transition hover:bg-surface-container active:scale-95 sm:inline-flex sm:px-4">{item.label}</a>
             ))}
-            <a href={accountLink.href} className="inline-flex items-center gap-2 rounded-full bg-primary px-3 py-2 font-sans text-xs font-extrabold text-on-primary transition hover:bg-primary-container active:scale-95 sm:px-4"><UserRound className="h-4 w-4" />{accountLink.label}</a>
+            {currentUser
+              ? <PublicAccountMenu hostAction={hostAction} onSignOut={onSignOut} />
+              : <a href={loggedOutAccountLink.href} className="inline-flex items-center gap-2 rounded-full bg-primary px-3 py-2 font-sans text-xs font-extrabold text-on-primary transition hover:bg-primary-container active:scale-95 sm:px-4">{loggedOutAccountLink.label}</a>}
             <button type="button" onClick={toggleAppearance} aria-label={isNightMode ? 'Switch to Light Mode' : 'Switch to Night Mode'} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-surface-container-high text-primary transition hover:bg-surface-container active:scale-95">{isNightMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</button>
           </nav>
         </div>
@@ -258,7 +271,7 @@ export default function PublicLayout({ pathname, currentUser }: { pathname: stri
               { label: 'Recipes', href: '/recipes' },
               { label: 'Chefs', href: '/chefs' },
               { label: 'Pricing', href: '/pricing' },
-              accountLink,
+              ...(!currentUser ? [loggedOutAccountLink] : []),
               { label: 'Contact', href: '/contact' }
             ].map(item => <a key={item.href} href={item.href} className="font-sans text-xs font-extrabold text-on-surface-variant hover:text-primary">{item.label}</a>)}
           </nav>

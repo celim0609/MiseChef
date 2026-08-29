@@ -2132,7 +2132,7 @@ export default function App() {
   }
 
   if (isPublicExperiencePath(window.location.pathname)) {
-    return <PublicLayout pathname={window.location.pathname} currentUser={currentUser} />;
+    return <PublicLayout pathname={window.location.pathname} currentUser={currentUser} onSignOut={handleSignOut} />;
   }
 
   if (isMarketingPath(window.location.pathname)) {

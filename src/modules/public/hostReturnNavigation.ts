@@ -28,23 +28,32 @@ export const resolvePublicHostStoreCandidate = (
   return uniqueDiscoveredSlugs.length === 1 ? uniqueDiscoveredSlugs[0] : '';
 };
 
-export const resolvePublicAccountLink = ({
-  authenticated,
-  currentHostRouteSlug = '',
-  validatedHostStoreSlug = ''
-}: {
-  authenticated: boolean;
-  currentHostRouteSlug?: string;
-  validatedHostStoreSlug?: string;
-}) => {
-  const hostStoreSlug = currentHostRouteSlug || validatedHostStoreSlug;
-  const hostHref = hostStoreSlug ? `/host/${encodeURIComponent(hostStoreSlug)}` : '';
+export type PublicHostLookup = {
+  status: 'unavailable' | 'loading' | 'host' | 'non-host' | 'unknown';
+  storeSlug: string;
+  userId: string;
+};
 
-  if (!authenticated) {
-    return { label: 'Login', href: hostHref ? `/login?returnTo=${encodeURIComponent(hostHref)}` : '/login' };
-  }
+export type PublicHostMenuAction = {
+  label: 'Host Center' | 'Become a Host';
+  href: string;
+  description: 'Groups & rewards' | 'Start group orders';
+};
 
-  return hostHref
-    ? { label: 'Host Center', href: hostHref }
-    : { label: 'Workspace', href: '/app' };
+export const resolvePublicHostMenuAction = (
+  lookup: PublicHostLookup,
+  currentStoreCandidate: string,
+  currentUserId: string
+): PublicHostMenuAction | null => {
+  if (!currentUserId || lookup.userId !== currentUserId) return null;
+  if (!currentStoreCandidate || lookup.storeSlug !== currentStoreCandidate) return null;
+  const href = `/host/${encodeURIComponent(currentStoreCandidate)}`;
+  if (lookup.status === 'host') return { label: 'Host Center', href, description: 'Groups & rewards' };
+  if (lookup.status === 'non-host') return { label: 'Become a Host', href, description: 'Start group orders' };
+  return null;
+};
+
+export const resolveLoggedOutPublicAccountLink = (currentHostRouteSlug = '') => {
+  const hostHref = currentHostRouteSlug ? `/host/${encodeURIComponent(currentHostRouteSlug)}` : '';
+  return { label: 'Login', href: hostHref ? `/login?returnTo=${encodeURIComponent(hostHref)}` : '/login' };
 };
