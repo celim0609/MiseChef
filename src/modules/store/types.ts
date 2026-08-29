@@ -443,6 +443,13 @@ export interface CustomerStoreOrderSummary {
   orderDate: string;
   storeName: string;
   itemCount: number;
+  items: Array<{
+    productName: string;
+    quantity: number;
+    setSelections: Array<{ groupName: string; productName: string }>;
+    selectedOptions: Array<{ groupName: string; optionName: string }>;
+  }>;
+  remarks: string;
   total: number;
   currency: RegionCurrency;
   paymentStatus: StoreOrder['payment']['status'];

@@ -112,14 +112,36 @@ test('customer listing is authenticated, owner-scoped, newest-first and sanitize
       customerUid: 'customer-a', orderNumber: 'MC-A-OLD', createdAt: '2026-08-28T01:00:00.000Z',
       storeName: 'Store A', itemCount: 1, total: 10, currency: 'MYR', status: 'Paid', fulfilmentStatus: 'Preparing',
       payment: { status: 'paid', providerPaymentId: 'private-provider-id', checkoutAccessTokenHash: 'private-hash' },
-      phone: '+60111111111', items: [{ productName: 'Private item snapshot' }]
+      phone: '+60111111111'
     } },
     { id: 'order-a-new', data: {
       customerUid: 'customer-a', orderNumber: 'MC-A-NEW', createdAt: '2026-08-29T01:00:00.000Z',
       storeName: 'Store A', itemCount: 2, total: 20, currency: 'MYR', status: 'Pending Verification', fulfilmentStatus: 'New',
-      payment: { status: 'pending_verification' }, groupOrder: { id: 'group-a', name: 'Office Lunch', hostId: 'host-a' }
+      payment: { status: 'pending_verification' }, groupOrder: { id: 'group-a', name: 'Office Lunch', hostId: 'host-a' },
+      notes: 'Less spicy',
+      items: [
+        {
+          productId: 'private-set-product-id',
+          productName: 'Nasi Lemak',
+          quantity: 1,
+          lineTotal: 12,
+          setSnapshot: {
+            setId: 'private-set-id',
+            setName: 'Nasi Lemak Set',
+            selectedGroups: [
+              { groupId: 'main', groupName: 'Main', productId: 'private-main-id', productName: 'Nasi Lemak' },
+              { groupId: 'drink', groupName: 'Drink', productId: 'private-drink-id', productName: 'Teh-O Hot' }
+            ]
+          },
+          selectedOptions: [{ groupId: 'spice', groupName: 'Spice', optionId: 'private-option-id', optionName: 'Mild' }]
+        },
+        { productId: 'private-kuih-id', productName: 'Kuih', quantity: 1, selectedOptions: [] }
+      ]
     } },
-    { id: 'order-b', data: { customerUid: 'customer-b', orderNumber: 'MC-B', createdAt: '2026-08-30T01:00:00.000Z' } },
+    { id: 'order-b', data: {
+      customerUid: 'customer-b', orderNumber: 'MC-B', createdAt: '2026-08-30T01:00:00.000Z',
+      items: [{ productName: 'Customer B Secret Meal', quantity: 1 }], notes: 'Customer B secret remark'
+    } },
     { id: 'historical', data: { orderNumber: 'MC-HISTORICAL', createdAt: '2026-08-31T01:00:00.000Z', phone: '+60111111111' } }
   ]);
 
@@ -128,11 +150,30 @@ test('customer listing is authenticated, owner-scoped, newest-first and sanitize
   assert.deepEqual(result.orders.map(order => order.orderNumber), ['MC-A-NEW', 'MC-A-OLD']);
   assert.equal(result.orders[0].groupName, 'Office Lunch');
   assert.deepEqual(Object.keys(result.orders[0]).sort(), [
-    'currency', 'fulfilmentStatus', 'groupName', 'itemCount', 'orderDate', 'orderNumber',
-    'orderStatus', 'paymentStatus', 'storeName', 'total'
+    'currency', 'fulfilmentStatus', 'groupName', 'itemCount', 'items', 'orderDate', 'orderNumber',
+    'orderStatus', 'paymentStatus', 'remarks', 'storeName', 'total'
   ]);
+  assert.deepEqual(result.orders[0].items, [
+    {
+      productName: 'Nasi Lemak Set',
+      quantity: 1,
+      setSelections: [
+        { groupName: 'Main', productName: 'Nasi Lemak' },
+        { groupName: 'Drink', productName: 'Teh-O Hot' }
+      ],
+      selectedOptions: [{ groupName: 'Spice', optionName: 'Mild' }]
+    },
+    { productName: 'Kuih', quantity: 1, setSelections: [], selectedOptions: [] }
+  ]);
+  assert.equal(result.orders[0].remarks, 'Less spicy');
+  assert.deepEqual(result.orders[1].items, []);
+  assert.equal(result.orders[1].remarks, '');
   const serialized = JSON.stringify(result);
-  for (const privateValue of ['customerUid', 'host-a', 'private-provider-id', 'private-hash', '+60111111111', 'Private item snapshot', 'MC-B', 'MC-HISTORICAL']) {
+  for (const privateValue of [
+    'customerUid', 'host-a', 'private-provider-id', 'private-hash', '+60111111111',
+    'private-set-product-id', 'private-set-id', 'private-main-id', 'private-drink-id', 'private-option-id',
+    'private-kuih-id', 'MC-B', 'Customer B Secret Meal', 'Customer B secret remark', 'MC-HISTORICAL'
+  ]) {
     assert.equal(serialized.includes(privateValue), false);
   }
 });

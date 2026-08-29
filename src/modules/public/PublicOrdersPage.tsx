@@ -77,8 +77,26 @@ export default function PublicOrdersPage({ currentUser }: { currentUser: User | 
                 <ReceiptText className="h-5 w-5 shrink-0 text-secondary" />
               </div>
               {order.groupName && <p className="mt-4 inline-flex items-center gap-2 rounded-full bg-secondary/10 px-3 py-2 font-sans text-xs font-extrabold text-secondary"><UsersRound className="h-4 w-4" /> Ordering with {order.groupName}</p>}
+              <section aria-label={`Items in order ${order.orderNumber}`} className="mt-5 rounded-2xl bg-surface-container-low p-4">
+                <h3 className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-outline">Items</h3>
+                {order.items.length > 0 ? (
+                  <div className="mt-3 space-y-4">{order.items.map((item, itemIndex) => (
+                    <div key={`${order.orderNumber}-${itemIndex}`}>
+                      <p className="font-sans text-sm font-extrabold text-primary">{item.quantity} × {item.productName}</p>
+                      {item.setSelections.map((selection, selectionIndex) => (
+                        <p key={`${order.orderNumber}-set-${itemIndex}-${selectionIndex}`} className="mt-1 font-sans text-xs font-bold text-on-surface-variant">{selection.groupName && `${selection.groupName}: `}{selection.productName}</p>
+                      ))}
+                      {item.selectedOptions.map((option, optionIndex) => (
+                        <p key={`${order.orderNumber}-option-${itemIndex}-${optionIndex}`} className="mt-1 font-sans text-xs font-bold text-on-surface-variant">{option.groupName && `${option.groupName}: `}{option.optionName}</p>
+                      ))}
+                    </div>
+                  ))}</div>
+                ) : (
+                  <p className="mt-2 font-sans text-xs font-bold text-on-surface-variant">Item details are unavailable for this order{order.itemCount > 0 ? ` · ${order.itemCount} item${order.itemCount === 1 ? '' : 's'}` : ''}.</p>
+                )}
+                {order.remarks && <p className="mt-4 rounded-xl bg-white px-3 py-2 font-sans text-xs font-bold text-on-surface-variant"><span className="font-extrabold text-primary">Remark:</span> {order.remarks}</p>}
+              </section>
               <dl className="mt-5 grid grid-cols-2 gap-4">
-                <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Items</dt><dd className="font-sans text-sm font-extrabold text-primary">{order.itemCount}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Total</dt><dd className="font-sans text-sm font-extrabold text-primary">{formatRegionCurrency(order.total, order.currency)}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Payment</dt><dd className="font-sans text-sm font-extrabold capitalize text-primary">{paymentLabel(order.paymentStatus)}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Order status</dt><dd className="font-sans text-sm font-extrabold text-primary">{order.fulfilmentStatus || order.orderStatus}</dd></div>

@@ -50,6 +50,25 @@ test('customer order service uses only the authenticated owner-scoped callable',
   assert.doesNotMatch(customerBackend, /email|phone|checkoutAccessToken|hostId\s*===\s*uid/i);
 });
 
+test('My Orders renders each owned order item snapshot without mixing cards', () => {
+  assert.match(ordersPage, /orders\.map\(order =>/);
+  assert.match(ordersPage, /<article key=\{order\.orderNumber\}/);
+  assert.match(ordersPage, /order\.items\.map\(\(item, itemIndex\)/);
+  assert.match(ordersPage, /\{item\.quantity\} × \{item\.productName\}/);
+  assert.match(ordersPage, /item\.setSelections\.map/);
+  assert.match(ordersPage, /selection\.groupName/);
+  assert.match(ordersPage, /selection\.productName/);
+  assert.match(ordersPage, /item\.selectedOptions\.map/);
+  assert.match(ordersPage, /option\.groupName/);
+  assert.match(ordersPage, /option\.optionName/);
+  assert.match(ordersPage, /Remark:/);
+  assert.match(ordersPage, /Item details are unavailable for this order/);
+  assert.match(ordersPage, /Ordering with \{order\.groupName\}/);
+  assert.match(customerBackend, /items: \(Array\.isArray\(data\.items\)/);
+  assert.match(customerBackend, /remarks: readString\(data\.notes\)/);
+  assert.doesNotMatch(customerBackend, /productId:|setId:|optionId:|lineTotal:|receiptPath:/);
+});
+
 test('customer query has its exact index while direct Store order reads remain role-gated', () => {
   assert.ok(indexes.indexes.some((index: { collectionGroup?: string; fields?: Array<{ fieldPath?: string; order?: string }> }) =>
     index.collectionGroup === 'storeOrders'
