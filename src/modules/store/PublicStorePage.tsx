@@ -85,6 +85,8 @@ function PaymentMethodIcon({ methodId }: { methodId: StorePaymentMethodId }) {
 
 export default function PublicStorePage({ slug, groupOrder, currentUser }: { slug: string; groupOrder?: PublicGroupOrder; currentUser?: User | null }) {
   const checkoutSectionRef = useRef<HTMLElement | null>(null);
+  const paymentStageRef = useRef<HTMLElement | null>(null);
+  const confirmationRef = useRef<HTMLElement | null>(null);
   const [data, setData] = useState<PublicStoreData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
@@ -106,6 +108,24 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const [placedOrder, setPlacedOrder] = useState<PublicStoreOrderResult | null>(null);
   const [isCheckoutVisible, setIsCheckoutVisible] = useState(false);
   const [isHostInfoOpen, setIsHostInfoOpen] = useState(false);
+  const paymentStageKey = paymentSession?.paymentSessionId || '';
+  const confirmationKey = placedOrder ? `${placedOrder.orderNumber}:${placedOrder.paymentStatus}` : '';
+
+  useEffect(() => {
+    if (!paymentStageKey) return;
+    const frame = window.requestAnimationFrame(() => {
+      paymentStageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [paymentStageKey]);
+
+  useEffect(() => {
+    if (!confirmationKey) return;
+    const frame = window.requestAnimationFrame(() => {
+      confirmationRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [confirmationKey]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -588,11 +608,11 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
           )}
 
           {placedOrder && (
-            <div className="mt-5 rounded-2xl bg-green-50 p-4 text-green-800">
+            <section ref={confirmationRef} aria-labelledby="order-confirmation-heading" className="mt-5 scroll-mt-24 rounded-2xl bg-green-50 p-4 text-green-800">
               <CheckCircle2 className="h-6 w-6" />
-              <p className="mt-2 font-display text-xl font-bold">
+              <h3 id="order-confirmation-heading" className="mt-2 font-display text-xl font-bold">
                 {placedOrder.paymentStatus === 'pending_verification' ? 'Payment Submitted' : 'Thank you'}
-              </p>
+              </h3>
               <p className="mt-1 font-sans text-sm font-bold">
                 {placedOrder.paymentStatus === 'paid'
                   ? 'Your payment was received and your order is confirmed.'
@@ -612,11 +632,12 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
               <div className="mt-4 flex flex-col gap-2">
                 <a href="/" className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 font-sans text-xs font-extrabold text-green-800">Explore MiseChef <ArrowRight className="h-3.5 w-3.5" /></a>
               </div>
-            </div>
+            </section>
           )}
 
           {paymentSession ? (
-            <div className="mt-5">
+            <section ref={paymentStageRef} aria-labelledby="payment-stage-heading" className="mt-5 scroll-mt-24">
+              <h3 id="payment-stage-heading" className="mb-3 font-display text-xl font-bold text-primary">Payment</h3>
               {checkoutError && <p role="alert" className="mb-3 rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
               <StorePaymentCheckout
                 session={paymentSession}
@@ -650,7 +671,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
                   setCheckoutError('');
                 }}
               />
-            </div>
+            </section>
           ) : cartDetails.length > 0 ? (
             <>
               <div className="mt-5 space-y-4">
