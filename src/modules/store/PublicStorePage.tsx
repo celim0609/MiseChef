@@ -39,11 +39,13 @@ import {
   validateStoreSetSelections
 } from './storeSetModel';
 import { getBusinessWhatsAppUrl } from './selling';
+import { getCustomerOrderConfirmationCopy } from './customerOrderConfirmation';
 import type {
   CartSelection,
   PublicStoreData,
   PublicStoreOrderResult,
   PublicGroupOrder,
+  PublicOrderGroupContext,
   StorePaymentProviderId,
   StorePaymentMethodId,
   StorePaymentSession,
@@ -54,6 +56,49 @@ import type {
 interface CartLine extends CartSelection {
   key: string;
 }
+
+type CheckoutRecovery = {
+  slug: string;
+  provider: StorePaymentProviderId;
+  paymentSessionId: string;
+  checkoutAccessToken: string;
+  session?: StorePaymentSession;
+};
+
+const CHECKOUT_RECOVERY_KEY_PREFIX = 'misechef_checkout_recovery_v1:';
+const GROUP_DRAFT_KEY_PREFIX = 'misechef_group_checkout_draft_v1:';
+
+const readCheckoutRecovery = (key: string, slug: string): CheckoutRecovery | null => {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(key) || '') as Partial<CheckoutRecovery>;
+    if (parsed.slug !== slug
+      || typeof parsed.provider !== 'string'
+      || typeof parsed.paymentSessionId !== 'string'
+      || typeof parsed.checkoutAccessToken !== 'string'
+      || !parsed.paymentSessionId
+      || !parsed.checkoutAccessToken) return null;
+    return parsed as CheckoutRecovery;
+  } catch {
+    return null;
+  }
+};
+
+const GroupPickupContext = ({ group, country }: {
+  group: Pick<PublicOrderGroupContext, 'name' | 'hostName' | 'pickupDate' | 'pickupSession' | 'pickupLocationName'>;
+  country: PublicStoreData['store']['country'];
+}) => (
+  <section className="rounded-2xl border border-secondary/25 bg-secondary/10 p-4">
+    <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.18em] text-secondary">Group Pickup</p>
+    <h4 className="mt-2 font-display text-xl font-bold text-primary">{group.name}</h4>
+    {group.hostName && <p className="mt-1 font-sans text-xs font-extrabold text-primary">Hosted by {group.hostName}</p>}
+    <p className="mt-3 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">
+      {formatPickupDateLabel(group.pickupDate, country)}<br />
+      {group.pickupSession}<br />
+      {group.pickupLocationName}
+    </p>
+    <p className="mt-3 font-sans text-xs font-extrabold leading-relaxed text-primary">This is a Group Order.<br />Pickup is coordinated with your Group Host.</p>
+  </section>
+);
 
 const selectionKey = (productId: string, selectedOptions: CartSelection['selectedOptions']) => (
   `${productId}:${selectedOptions.map(option => `${option.groupId}=${option.optionId}`).sort().join('|')}`
@@ -108,8 +153,10 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const [placedOrder, setPlacedOrder] = useState<PublicStoreOrderResult | null>(null);
   const [isCheckoutVisible, setIsCheckoutVisible] = useState(false);
   const [isHostInfoOpen, setIsHostInfoOpen] = useState(false);
+  const [isAccountSuggestionDismissed, setIsAccountSuggestionDismissed] = useState(false);
   const paymentStageKey = paymentSession?.paymentSessionId || '';
   const confirmationKey = placedOrder ? `${placedOrder.orderNumber}:${placedOrder.paymentStatus}` : '';
+  const checkoutRecoveryKey = `${CHECKOUT_RECOVERY_KEY_PREFIX}${window.location.pathname}`;
 
   useEffect(() => {
     if (!paymentStageKey) return;
@@ -159,6 +206,32 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   }, [groupOrder?.id, slug]);
 
   useEffect(() => {
+    if (!data || !groupOrder?.id) return;
+    const key = `${GROUP_DRAFT_KEY_PREFIX}${groupOrder.id}`;
+    try {
+      const parsed = JSON.parse(sessionStorage.getItem(key) || '') as {
+        groupId?: string;
+        cart?: CartLine[];
+        customerName?: string;
+        phone?: string;
+        notes?: string;
+        paymentMethodId?: StorePaymentMethodId;
+      };
+      sessionStorage.removeItem(key);
+      if (parsed.groupId !== groupOrder.id || !Array.isArray(parsed.cart)) return;
+      setCart(parsed.cart.filter(line => line && typeof line.key === 'string' && typeof line.productId === 'string'));
+      setCustomerName(typeof parsed.customerName === 'string' ? parsed.customerName : '');
+      setPhone(typeof parsed.phone === 'string' ? parsed.phone : '');
+      setNotes(typeof parsed.notes === 'string' ? parsed.notes : '');
+      if (parsed.paymentMethodId && data.store.paymentMethods.some(method => method.enabled && method.id === parsed.paymentMethodId)) {
+        setPaymentMethodId(parsed.paymentMethodId);
+      }
+    } catch {
+      sessionStorage.removeItem(key);
+    }
+  }, [data, groupOrder?.id]);
+
+  useEffect(() => {
     const checkoutSection = checkoutSectionRef.current;
     if (!checkoutSection || typeof IntersectionObserver === 'undefined') return;
     const observer = new IntersectionObserver(
@@ -197,6 +270,31 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
 
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
+    if (query.has('payment_session_id') || query.has('payment_intent')) return;
+    const recovery = readCheckoutRecovery(checkoutRecoveryKey, slug);
+    if (!recovery) return;
+    let cancelled = false;
+    storePaymentService.getResult(
+      recovery.slug,
+      recovery.provider,
+      recovery.paymentSessionId,
+      recovery.checkoutAccessToken
+    ).then(result => {
+      if (cancelled) return;
+      if (['paid', 'pending_verification'].includes(result.paymentStatus)) {
+        setPlacedOrder(result);
+        setPaymentSession(null);
+      } else if (['pending', 'processing'].includes(result.paymentStatus) && recovery.session) {
+        setPaymentSession(recovery.session);
+      } else {
+        sessionStorage.removeItem(checkoutRecoveryKey);
+      }
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [checkoutRecoveryKey, slug]);
+
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
     const returnedProvider = query.get('payment_provider')
       || (query.has('payment_intent') ? 'stripe' : '');
     const returnedPaymentSessionId = query.get('payment_session_id')
@@ -204,6 +302,12 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
     const returnedCheckoutAccessToken = query.get('payment_access_token');
     if (!returnedProvider || !returnedPaymentSessionId || !returnedCheckoutAccessToken) return;
     const wasCancelled = query.get('payment_cancelled') === '1';
+    sessionStorage.setItem(checkoutRecoveryKey, JSON.stringify({
+      slug,
+      provider: returnedProvider,
+      paymentSessionId: returnedPaymentSessionId,
+      checkoutAccessToken: returnedCheckoutAccessToken
+    } satisfies CheckoutRecovery));
     setIsPlacingOrder(true);
     const returnAction = wasCancelled
       ? storePaymentService.cancel(
@@ -212,6 +316,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
         returnedPaymentSessionId,
         returnedCheckoutAccessToken
       ).then(() => {
+        sessionStorage.removeItem(checkoutRecoveryKey);
         setPaymentSession(null);
         setCheckoutError('Payment was cancelled. Your order has not been paid. You can try again.');
       })
@@ -228,7 +333,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
       });
   // verifyPayment intentionally resolves the payment identified by the current URL once.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug]);
+  }, [checkoutRecoveryKey, slug]);
 
   const optionGroupsById = useMemo(
     () => new Map(data?.optionGroups.map(group => [group.id, group]) || []),
@@ -334,6 +439,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
     setPlacedOrder(null);
     setPaymentSession(null);
     setCheckoutError('');
+    sessionStorage.removeItem(checkoutRecoveryKey);
   };
 
   const startAddingSet = (set: StoreSet) => {
@@ -359,6 +465,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
     setPlacedOrder(null);
     setPaymentSession(null);
     setCheckoutError('');
+    sessionStorage.removeItem(checkoutRecoveryKey);
   };
 
   const startAddingProduct = (product: StoreProduct) => {
@@ -408,6 +515,13 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
         })),
         ...(groupOrder ? { groupShareCode: groupOrder.shareCode } : {})
       }, paymentReturnUrl);
+      sessionStorage.setItem(checkoutRecoveryKey, JSON.stringify({
+        slug,
+        provider: session.provider,
+        paymentSessionId: session.paymentSessionId,
+        checkoutAccessToken: session.checkoutAccessToken,
+        session
+      } satisfies CheckoutRecovery));
       if (session.checkout.type === 'manual_payment') {
         try {
           if (session.checkout.methodId === 'cash_on_pickup') {
@@ -436,6 +550,18 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
     }
   };
 
+  const preserveGroupCheckoutDraft = () => {
+    if (!groupOrder?.id) return;
+    sessionStorage.setItem(`${GROUP_DRAFT_KEY_PREFIX}${groupOrder.id}`, JSON.stringify({
+      groupId: groupOrder.id,
+      cart,
+      customerName,
+      phone,
+      notes,
+      paymentMethodId
+    }));
+  };
+
   if (isLoading) {
     return <div className="h-[520px] animate-pulse rounded-3xl bg-surface-container-low" aria-label="Loading Store" />;
   }
@@ -455,6 +581,12 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const region = getRegionConfiguration(store.country);
   const storeWhatsApp = store.storeContact.whatsapp;
   const bulkOrderWhatsAppUrl = getBusinessWhatsAppUrl(storeWhatsApp);
+  const confirmationCopy = placedOrder
+    ? getCustomerOrderConfirmationCopy(placedOrder.paymentStatus)
+    : null;
+  const groupLoginReturnTo = groupOrder
+    ? `/login?returnTo=${encodeURIComponent(`/group/${encodeURIComponent(groupOrder.shareCode)}`)}`
+    : '/login';
   const canOrderPickup = store.pickupEnabled
     && store.pickupLocations.length > 0
     && store.pickupSessions.length > 0
@@ -475,8 +607,12 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
       {groupOrder && (
         <section className="rounded-3xl border border-secondary/30 bg-secondary/10 p-6">
           <p className="font-sans text-xs font-extrabold uppercase tracking-[0.18em] text-secondary">MiseChef Group Order</p>
-          <h1 className="mt-2 font-display text-3xl font-bold text-primary">Ordering with {groupOrder.name}</h1>
-          <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Order before {new Date(groupOrder.closesAt).toLocaleString()} · Pickup {formatPickupDateLabel(groupOrder.pickupDate, store.country)} at {groupOrder.pickupSession}, {groupOrder.pickupLocationName}</p>
+          <h1 className="mt-2 flex items-center gap-2 font-display text-3xl font-bold text-primary"><CheckCircle2 className="h-7 w-7 text-green-700" /> Joined {groupOrder.name} Group</h1>
+          <p className="mt-2 font-sans text-sm font-extrabold text-primary">Hosted by {groupOrder.hostName}</p>
+          <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Your order will be included in this Group Order.</p>
+          <p className="mt-1 font-sans text-xs font-bold text-outline">Joining the Group does not submit an order. Choose your items and complete checkout below.</p>
+          <p className="mt-3 font-sans text-xs font-extrabold text-secondary">Order before {new Date(groupOrder.closesAt).toLocaleString()}</p>
+          <div className="mt-4"><GroupPickupContext group={groupOrder} country={store.country} /></div>
           {groupOrder.status !== 'open' && <p className="mt-4 rounded-2xl bg-white/70 p-3 font-sans text-sm font-extrabold text-error">This Group Order is {groupOrder.status}. New orders are no longer accepted.</p>}
         </section>
       )}
@@ -599,6 +735,10 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
             <span className="rounded-full bg-primary/10 px-3 py-1 font-sans text-xs font-extrabold text-primary">{cartCount}</span>
           </div>
 
+          {groupOrder && !paymentSession && !placedOrder && (
+            <div className="mt-5"><GroupPickupContext group={groupOrder} country={store.country} /></div>
+          )}
+
           {!canOrderPickup && (
             <p className="mt-5 rounded-2xl bg-surface-container-low p-4 font-sans text-sm font-bold text-on-surface-variant">
               {store.pickupEnabled && store.pickupLocations.length > 0 && store.pickupSessions.length > 0
@@ -611,25 +751,44 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
             <section ref={confirmationRef} aria-labelledby="order-confirmation-heading" className="mt-5 scroll-mt-24 rounded-2xl bg-green-50 p-4 text-green-800">
               <CheckCircle2 className="h-6 w-6" />
               <h3 id="order-confirmation-heading" className="mt-2 font-display text-xl font-bold">
-                {placedOrder.paymentStatus === 'pending_verification' ? 'Payment Submitted' : 'Thank you'}
+                {confirmationCopy?.heading}
               </h3>
-              <p className="mt-1 font-sans text-sm font-bold">
-                {placedOrder.paymentStatus === 'paid'
-                  ? 'Your payment was received and your order is confirmed.'
-                  : placedOrder.paymentStatus === 'pending_verification'
-                    ? 'Waiting for Confirmation. The Store will verify your payment.'
-                    : 'Your order is confirmed. Please pay when you collect it.'}
-              </p>
+              <p className="mt-1 font-sans text-sm font-bold">{confirmationCopy?.message}</p>
+              {placedOrder.paymentStatus === 'pending_verification' && (
+                <p className="mt-3 rounded-xl bg-white px-3 py-2 font-sans text-sm font-extrabold text-green-900">You do not need to pay again.</p>
+              )}
+              {placedOrder.groupOrder && (
+                <div className="mt-4 space-y-3 rounded-2xl border border-green-200 bg-white/70 p-4">
+                  <div>
+                    <p className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Order Successfully Submitted</p>
+                    <p className="mt-1 font-sans text-sm font-extrabold text-green-900">Your order was added to {placedOrder.groupOrder.name} Group.</p>
+                  </div>
+                  <GroupPickupContext group={placedOrder.groupOrder} country={store.country} />
+                </div>
+              )}
               <dl className="mt-4 grid gap-3 rounded-2xl bg-white/70 p-4">
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Order Number</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.orderNumber}</dd></div>
                 {placedOrder.pickupCode && <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Code</dt><dd className="mt-0.5 font-display text-2xl font-bold tracking-[0.18em]">{placedOrder.pickupCode}</dd></div>}
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Date</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{formatPickupDateLabel(placedOrder.pickupDate, store.country)}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Location</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupLocationName}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Time</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupSession}</dd></div>
-                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Payment Status</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.paymentStatus === 'paid' ? 'Paid' : placedOrder.paymentStatus === 'pending_verification' ? 'Waiting for Confirmation' : 'Cash on Pickup'}</dd></div>
+                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Payment Status</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{confirmationCopy?.paymentLabel}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Payment Method</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.paymentMethodName}</dd></div>
               </dl>
               <div className="mt-4 flex flex-col gap-2">
+                {currentUser ? (
+                  <>
+                    <a href="/orders" className="inline-flex items-center justify-center gap-2 rounded-full bg-green-800 px-4 py-2.5 font-sans text-xs font-extrabold text-white">View My Order <ArrowRight className="h-3.5 w-3.5" /></a>
+                    <p className="text-center font-sans text-xs font-bold text-green-800">You can check your order anytime from Account → My Orders.</p>
+                  </>
+                ) : placedOrder.groupOrder ? (
+                  <div className="rounded-2xl bg-white/70 p-4 text-center">
+                    <p className="font-sans text-xs font-extrabold text-green-900">Please keep your Order Number for reference.</p>
+                    <p className="mt-1 font-sans text-xs font-bold text-green-800">After payment verification, the Store can confirm your order via WhatsApp.</p>
+                    <p className="mt-3 font-sans text-xs font-bold text-green-800">Create a free MiseChef account to keep future orders in one place.</p>
+                    <a href={groupLoginReturnTo} className="mt-3 inline-flex items-center justify-center rounded-full bg-green-800 px-4 py-2.5 font-sans text-xs font-extrabold text-white">Sign In / Create Account</a>
+                  </div>
+                ) : null}
                 <a href="/" className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 font-sans text-xs font-extrabold text-green-800">Explore MiseChef <ArrowRight className="h-3.5 w-3.5" /></a>
               </div>
             </section>
@@ -637,6 +796,13 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
 
           {paymentSession ? (
             <section ref={paymentStageRef} aria-labelledby="payment-stage-heading" className="mt-5 scroll-mt-24">
+              {paymentSession.groupOrder && (
+                <div className="mb-4 rounded-2xl border border-secondary/25 bg-secondary/10 p-4">
+                  <p className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-secondary">Order Successfully Submitted</p>
+                  <p className="mt-1 font-sans text-sm font-extrabold text-primary">Order {paymentSession.orderNumber} was added to {paymentSession.groupOrder.name} Group.</p>
+                  <div className="mt-3"><GroupPickupContext group={paymentSession.groupOrder} country={store.country} /></div>
+                </div>
+              )}
               <h3 id="payment-stage-heading" className="mb-3 font-display text-xl font-bold text-primary">Payment</h3>
               {checkoutError && <p role="alert" className="mb-3 rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
               <StorePaymentCheckout
@@ -667,6 +833,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
                     paymentSession.paymentSessionId,
                     paymentSession.checkoutAccessToken
                   );
+                  sessionStorage.removeItem(checkoutRecoveryKey);
                   setPaymentSession(null);
                   setCheckoutError('');
                 }}
@@ -795,6 +962,18 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
                     </>
                   )}
                 </section>
+
+                {groupOrder && !currentUser && !isAccountSuggestionDismissed && (
+                  <section aria-labelledby="group-account-suggestion-heading" className="rounded-2xl border border-secondary/25 bg-secondary/10 p-4">
+                    <h3 id="group-account-suggestion-heading" className="font-display text-lg font-bold text-primary">Want to track this order later?</h3>
+                    <p className="mt-1 font-sans text-xs font-bold leading-relaxed text-on-surface-variant">Sign in or create a free MiseChef account before checkout to keep this order in My Orders.</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <a href={groupLoginReturnTo} onClick={preserveGroupCheckoutDraft} className="rounded-full bg-primary px-4 py-2.5 font-sans text-xs font-extrabold text-on-primary">Sign In / Create Account</a>
+                      <button type="button" onClick={() => setIsAccountSuggestionDismissed(true)} className="rounded-full border border-primary px-4 py-2.5 font-sans text-xs font-extrabold text-primary">Continue as Guest</button>
+                    </div>
+                    <p className="mt-2 font-sans text-[10px] font-bold text-outline">Guest checkout remains available. Creating an account later will not claim this order.</p>
+                  </section>
+                )}
 
                 {checkoutError && <p role="alert" className="rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
                 <div className="sticky bottom-3 z-30 -mx-2 rounded-2xl bg-white/95 p-2 shadow-xl shadow-primary/10 backdrop-blur lg:static lg:mx-0 lg:bg-transparent lg:p-0 lg:shadow-none">

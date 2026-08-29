@@ -7,6 +7,7 @@ import {
   getEnabledStorePaymentMethod,
   PAYMENT_STATUS,
   readString,
+  toPublicGroupOrderContext,
   toPublicOrderResult
 } from './storePaymentsCore.js';
 import {
@@ -388,7 +389,8 @@ export const createStorePayment = async ({
       provider: activeAdapter.provider,
       paymentSessionId: providerPaymentId,
       checkout: payment.checkout,
-      checkoutAccessToken
+      checkoutAccessToken,
+      ...toPublicGroupOrderContext(order)
     };
   } catch (error) {
     if (providerPaymentId) {

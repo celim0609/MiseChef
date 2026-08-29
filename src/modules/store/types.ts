@@ -127,6 +127,13 @@ export interface HostGroupOrderSummary {
   orderNumber: string;
   customerName: string;
   itemCount: number;
+  items: Array<{
+    productName: string;
+    quantity: number;
+    setSelections: Array<{ groupName: string; productName: string }>;
+    selectedOptions: Array<{ groupName: string; optionName: string }>;
+  }>;
+  remarks: string;
   total: number;
   currency: RegionCurrency;
   paymentStatus: StoreOrder['payment']['status'];
@@ -476,6 +483,15 @@ export type StorePaymentCheckout =
     currency: RegionCurrency;
   };
 
+export interface PublicOrderGroupContext {
+  id: string;
+  name: string;
+  hostName: string;
+  pickupDate: string;
+  pickupSession: string;
+  pickupLocationName: string;
+}
+
 export interface StorePaymentSession {
   orderNumber: string;
   pickupCode: string;
@@ -483,6 +499,7 @@ export interface StorePaymentSession {
   paymentSessionId: string;
   checkout: StorePaymentCheckout;
   checkoutAccessToken: string;
+  groupOrder?: PublicOrderGroupContext;
 }
 
 export interface PublicStoreOrderResult {
@@ -497,4 +514,5 @@ export interface PublicStoreOrderResult {
   total: number;
   status: StoreOrder['status'];
   paymentStatus: StoreOrder['payment']['status'];
+  groupOrder?: PublicOrderGroupContext;
 }

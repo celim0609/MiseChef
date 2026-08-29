@@ -1726,9 +1726,9 @@ export default function App() {
   };
 
   const handleContinueAsGuest = () => {
-    if (replaceWithValidatedHostReturnTo(
+    if (replaceWithValidatedPublicAccountReturnTo(
       window.location.search,
-      hostReturnTo => window.location.replace(hostReturnTo)
+      returnTo => window.location.replace(returnTo)
     )) return;
 
     setCurrentUser(null);

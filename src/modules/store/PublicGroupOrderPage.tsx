@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
+import type { User } from 'firebase/auth';
 import { groupOrderService } from './services';
 import type { PublicGroupOrder } from './types';
 import PublicStorePage from './PublicStorePage';
 
-export default function PublicGroupOrderPage({ shareCode, onStoreResolved }: { shareCode: string; onStoreResolved?: (storeSlug: string) => void }) {
+export default function PublicGroupOrderPage({ shareCode, currentUser, onStoreResolved }: { shareCode: string; currentUser: User | null; onStoreResolved?: (storeSlug: string) => void }) {
   const [group, setGroup] = useState<PublicGroupOrder | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -14,5 +15,5 @@ export default function PublicGroupOrderPage({ shareCode, onStoreResolved }: { s
   }, [onStoreResolved, shareCode]);
   if (error) return <p className="rounded-3xl bg-surface-container-low p-10 text-center font-sans font-bold text-on-surface-variant">{error}</p>;
   if (!group) return <div className="h-80 animate-pulse rounded-3xl bg-surface-container-low" />;
-  return <PublicStorePage slug={group.storeSlug} groupOrder={group} />;
+  return <PublicStorePage slug={group.storeSlug} groupOrder={group} currentUser={currentUser} />;
 }

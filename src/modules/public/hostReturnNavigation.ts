@@ -1,5 +1,6 @@
 const HOST_RETURN_TO_PATTERN = /^\/host\/[a-z0-9-]+\/?$/i;
 const CUSTOMER_ORDERS_RETURN_TO_PATTERN = /^\/orders\/?$/;
+const GROUP_ORDER_RETURN_TO_PATTERN = /^\/group\/[a-z0-9_-]+\/?$/i;
 
 export const getValidatedHostReturnTo = (search: string) => {
   const returnTo = new URLSearchParams(search).get('returnTo');
@@ -19,7 +20,9 @@ export const replaceWithValidatedHostReturnTo = (
 
 export const getValidatedPublicAccountReturnTo = (search: string) => {
   const returnTo = new URLSearchParams(search).get('returnTo');
-  return returnTo && (HOST_RETURN_TO_PATTERN.test(returnTo) || CUSTOMER_ORDERS_RETURN_TO_PATTERN.test(returnTo))
+  return returnTo && (HOST_RETURN_TO_PATTERN.test(returnTo)
+    || CUSTOMER_ORDERS_RETURN_TO_PATTERN.test(returnTo)
+    || GROUP_ORDER_RETURN_TO_PATTERN.test(returnTo))
     ? returnTo
     : '';
 };

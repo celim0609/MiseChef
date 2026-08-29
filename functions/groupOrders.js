@@ -247,6 +247,23 @@ const hostOrder = document => {
     orderNumber: readString(data.orderNumber),
     customerName: readString(data.customerName) || 'Customer',
     itemCount: Math.max(0, Number(data.itemCount) || 0),
+    items: (Array.isArray(data.items) ? data.items : []).map(item => ({
+      productName: readString(item?.setSnapshot?.setName) || readString(item?.productName) || 'Item',
+      quantity: Math.max(0, Number(item?.quantity) || 0),
+      setSelections: (Array.isArray(item?.setSnapshot?.selectedGroups) ? item.setSnapshot.selectedGroups : [])
+        .map(selection => ({
+          groupName: readString(selection?.groupName),
+          productName: readString(selection?.productName)
+        }))
+        .filter(selection => selection.productName),
+      selectedOptions: (Array.isArray(item?.selectedOptions) ? item.selectedOptions : [])
+        .map(option => ({
+          groupName: readString(option?.groupName),
+          optionName: readString(option?.optionName)
+        }))
+        .filter(option => option.optionName)
+    })),
+    remarks: readString(data.notes),
     total: roundMoney(Math.max(0, Number(data.total) || 0)),
     currency: data.currency === 'SGD' ? 'SGD' : 'MYR',
     paymentStatus: readString(data.payment?.status) || 'pending',

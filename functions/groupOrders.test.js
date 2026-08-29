@@ -347,7 +347,7 @@ test('archive is owner-only, terminal-only, idempotent, and mutates no order, pa
   );
 });
 
-test('Host order detail is owner-scoped and exposes only the sanitized order projection', async () => {
+test('Host order detail is owner-scoped, member-separated, and exposes only sanitized item snapshots', async () => {
   const db = createFakeDb({
     'groupOrders/group-a': openGroup(),
     'storeOrders/order-a': {
@@ -360,8 +360,39 @@ test('Host order detail is owner-scoped and exposes only the sanitized order pro
       currency: 'MYR',
       payment: { status: 'paid', providerPaymentId: 'private-payment-id', refundStatus: 'none' },
       fulfilmentStatus: 'Preparing',
-      items: [{ productName: 'Private order detail' }],
+      notes: 'No sambal',
+      items: [{
+        productName: 'Nasi Lemak',
+        quantity: 2,
+        setSnapshot: {
+          setName: 'Set A — Nasi Lemak',
+          selectedGroups: [
+            { groupName: 'Main', productName: 'Nasi Lemak', productId: 'private-main-id' },
+            { groupName: 'Drink', productName: 'Teh O', productId: 'private-drink-id' }
+          ]
+        },
+        selectedOptions: [{ groupName: 'Spice', optionName: 'Mild', optionId: 'private-option-id' }]
+      }],
       createdAt: '2026-08-28T01:00:00.000Z'
+    },
+    'storeOrders/order-b': {
+      groupOrder: { id: 'group-a' },
+      orderNumber: 'MC-0901-EFGH',
+      customerName: 'Customer B',
+      itemCount: 1,
+      total: 12,
+      currency: 'MYR',
+      payment: { status: 'pending_verification' },
+      fulfilmentStatus: 'New',
+      notes: 'Teh O Ice only',
+      items: [{ productName: 'Nasi Lemak', quantity: 1, selectedOptions: [{ groupName: 'Drink', optionName: 'Teh O Ice' }] }],
+      createdAt: '2026-08-28T02:00:00.000Z'
+    },
+    'storeOrders/other-group': {
+      groupOrder: { id: 'group-b' },
+      orderNumber: 'MC-PRIVATE-GROUP-B',
+      customerName: 'Customer C',
+      items: [{ productName: 'Must not leak' }]
     }
   });
   await assert.rejects(
@@ -371,11 +402,32 @@ test('Host order detail is owner-scoped and exposes only the sanitized order pro
   const result = await listHostGroupOrdersDetail({ db, uid: 'host-a', groupId: 'group-a' });
   assert.deepEqual(Object.keys(result.orders[0]).sort(), [
     'createdAt', 'currency', 'customerName', 'fulfilmentStatus', 'id', 'itemCount',
-    'orderNumber', 'paymentStatus', 'total'
+    'items', 'orderNumber', 'paymentStatus', 'remarks', 'total'
   ]);
-  assert.equal(result.orders[0].paymentStatus, 'paid');
-  assert.equal(JSON.stringify(result.orders).includes('private-payment-id'), false);
-  assert.equal(JSON.stringify(result.orders).includes('+60123456789'), false);
+  assert.deepEqual(result.orders.map(order => order.id), ['order-b', 'order-a']);
+  assert.deepEqual(result.orders[1].items, [{
+    productName: 'Set A — Nasi Lemak',
+    quantity: 2,
+    setSelections: [
+      { groupName: 'Main', productName: 'Nasi Lemak' },
+      { groupName: 'Drink', productName: 'Teh O' }
+    ],
+    selectedOptions: [{ groupName: 'Spice', optionName: 'Mild' }]
+  }]);
+  assert.equal(result.orders[1].remarks, 'No sambal');
+  assert.deepEqual(result.orders[0].items, [{
+    productName: 'Nasi Lemak',
+    quantity: 1,
+    setSelections: [],
+    selectedOptions: [{ groupName: 'Drink', optionName: 'Teh O Ice' }]
+  }]);
+  assert.equal(result.orders[1].paymentStatus, 'paid');
+  const serialized = JSON.stringify(result.orders);
+  for (const privateValue of ['private-payment-id', '+60123456789', 'private-main-id', 'private-drink-id', 'private-option-id', 'MC-PRIVATE-GROUP-B', 'Must not leak']) {
+    assert.equal(serialized.includes(privateValue), false);
+  }
+  assert.equal(JSON.stringify(result.orders[0]).includes('"optionName":"Teh O"'), false);
+  assert.equal(JSON.stringify(result.orders[1]).includes('Teh O Ice'), false);
 });
 
 test('checkout transaction revalidation rejects a Group closed after initial resolution', async () => {

@@ -435,6 +435,21 @@ export const buildPendingOrder = ({
   };
 };
 
+export const toPublicGroupOrderContext = order => {
+  const id = readString(order?.groupOrder?.id);
+  if (!id) return {};
+  return {
+    groupOrder: {
+      id,
+      name: readString(order.groupOrder?.name),
+      hostName: readString(order.groupOrder?.hostName),
+      pickupDate: readString(order.pickupDate),
+      pickupSession: readString(order.pickupSession),
+      pickupLocationName: readString(order.pickupLocationName)
+    }
+  };
+};
+
 export const toPublicOrderResult = order => ({
   orderNumber: readString(order.orderNumber),
   pickupCode: readString(order.pickupCode),
@@ -446,5 +461,6 @@ export const toPublicOrderResult = order => ({
   pickupLocationName: readString(order.pickupLocationName),
   total: readNumber(order.total),
   status: readString(order.status),
-  paymentStatus: readString(order.payment?.status)
+  paymentStatus: readString(order.payment?.status),
+  ...toPublicGroupOrderContext(order)
 });

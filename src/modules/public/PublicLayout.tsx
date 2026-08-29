@@ -214,7 +214,7 @@ export default function PublicLayout({ pathname, currentUser, onSignOut }: { pat
     }
 
     if (route.page === 'group') {
-      return <PublicGroupOrderPage shareCode={route.shareCode} onStoreResolved={setGroupStoreSlug} />;
+      return <PublicGroupOrderPage shareCode={route.shareCode} currentUser={currentUser} onStoreResolved={setGroupStoreSlug} />;
     }
 
     if (route.page === 'chefs') {

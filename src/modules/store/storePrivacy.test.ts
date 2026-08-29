@@ -122,8 +122,8 @@ test('the public Store UI does not render private contact details or internal or
   assert.match(publicStorePage, /placedOrder\.pickupLocationName/);
   assert.match(publicStorePage, /placedOrder\.pickupSession/);
   assert.match(publicStorePage, /placedOrder\.paymentMethodName/);
-  assert.match(publicStorePage, /'Payment Submitted' : 'Thank you'/);
-  assert.match(publicStorePage, /Waiting for Confirmation/);
+  assert.match(publicStorePage, /confirmationCopy\?\.heading/);
+  assert.match(publicStorePage, /confirmationCopy\?\.paymentLabel/);
   assert.match(publicStorePage, /placedOrder\.paymentStatus/);
   assert.match(publicStorePage, />Pickup Time</);
   assert.match(publicStorePage, /store\.storeContact\.whatsapp/);

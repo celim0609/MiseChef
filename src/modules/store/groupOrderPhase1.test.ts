@@ -98,7 +98,7 @@ test('Store and Group context select a candidate but require trusted Host valida
   assert.equal(resolvePublicHostStoreCandidate('', 'group-store', ['store-two']), 'group-store');
   assert.equal(resolvePublicHostStoreCandidate('', '', ['store-one', 'store-two']), '');
   assert.equal(resolvePublicHostMenuAction({ status: 'host', storeSlug: 'store-one', userId: 'host-1' }, 'store-two', 'host-1'), null);
-  assert.match(publicLayout, /<PublicGroupOrderPage shareCode=\{route\.shareCode\} onStoreResolved=\{setGroupStoreSlug\}/);
+  assert.match(publicLayout, /<PublicGroupOrderPage shareCode=\{route\.shareCode\} currentUser=\{currentUser\} onStoreResolved=\{setGroupStoreSlug\}/);
 });
 
 test('non-Host and logged-out public account navigation remains unchanged', () => {
@@ -140,11 +140,11 @@ test('Host auth completion and guest continuation share replace-only public navi
     appSource.indexOf('const handleAuthenticated'),
     appSource.indexOf('const handleAvatarClick')
   );
-  assert.equal((hostCompletionSource.match(/replaceWithValidatedPublicAccountReturnTo/g) || []).length, 1);
-  assert.equal((hostCompletionSource.match(/replaceWithValidatedHostReturnTo/g) || []).length, 1);
+  assert.equal((hostCompletionSource.match(/replaceWithValidatedPublicAccountReturnTo/g) || []).length, 2);
+  assert.equal((hostCompletionSource.match(/replaceWithValidatedHostReturnTo/g) || []).length, 0);
   assert.equal((hostCompletionSource.match(/window\.location\.replace/g) || []).length, 2);
   assert.doesNotMatch(hostCompletionSource, /window\.location\.assign/);
-  assert.match(hostCompletionSource, /const handleContinueAsGuest[\s\S]*replaceWithValidatedHostReturnTo[\s\S]*setCurrentUser\(null\)/);
+  assert.match(hostCompletionSource, /const handleContinueAsGuest[\s\S]*replaceWithValidatedPublicAccountReturnTo[\s\S]*setCurrentUser\(null\)/);
 
   const loginRaceSource = appSource.slice(
     appSource.indexOf("if (currentUser && activeTab === 'login')"),
@@ -220,9 +220,10 @@ test('Host Center is the single compact dashboard with Create, summaries, Share 
 });
 
 test('customer Group context stays compact and contains no Host management UI', () => {
-  assert.match(publicStorePage, /Ordering with \{groupOrder\.name\}/);
-  assert.match(publicStorePage, /Order before \{new Date\(groupOrder\.closesAt\)\.toLocaleString\(\)\} · Pickup/);
-  assert.doesNotMatch(publicStorePage, /joining \{groupOrder\.hostName\}/);
+  assert.match(publicStorePage, /Joined \{groupOrder\.name\} Group/);
+  assert.match(publicStorePage, /Hosted by \{groupOrder\.hostName\}/);
+  assert.match(publicStorePage, /Order before \{new Date\(groupOrder\.closesAt\)\.toLocaleString\(\)\}/);
+  assert.match(publicStorePage, /Joining the Group does not submit an order/);
   assert.match(publicStorePage, /groupOrder\.status === 'open'/);
 });
 

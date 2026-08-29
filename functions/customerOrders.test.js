@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { listCustomerOrders } from './customerOrders.js';
-import { buildPendingOrder } from './storePaymentsCore.js';
+import { buildPendingOrder, toPublicOrderResult } from './storePaymentsCore.js';
 
 const functionsIndex = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
 
@@ -79,6 +79,31 @@ test('Guest checkout omits customer ownership even when the client payload spoof
   const guest = buildOrder({ spoofedUid: 'attacker' });
   assert.equal(Object.hasOwn(guest, 'customerUid'), false);
   assert.equal(JSON.stringify(guest).includes('attacker'), false);
+});
+
+test('public payment result carries only the exact persisted Group context for continuity', () => {
+  const grouped = toPublicOrderResult({
+    orderNumber: 'MC-GROUP-A', pickupCode: '1234', paymentMethodName: 'DuitNow QR',
+    pickupDate: '2026-08-30', pickupSession: '9:00 AM', pickupLocationName: 'Counter',
+    total: 12, status: 'Pending Verification', payment: { status: 'pending_verification' },
+    groupOrder: { id: 'full-group-a-id', name: 'Office Breakfast', hostName: 'Host A', hostId: 'private-host-uid', shareCode: 'private-share-code' }
+  });
+  const normal = toPublicOrderResult({
+    orderNumber: 'MC-NORMAL', pickupDate: '2026-08-30', pickupSession: '9:00 AM',
+    pickupLocationName: 'Counter', payment: { status: 'paid' }
+  });
+
+  assert.deepEqual(grouped.groupOrder, {
+    id: 'full-group-a-id',
+    name: 'Office Breakfast',
+    hostName: 'Host A',
+    pickupDate: '2026-08-30',
+    pickupSession: '9:00 AM',
+    pickupLocationName: 'Counter'
+  });
+  assert.equal('groupOrder' in normal, false);
+  assert.equal(JSON.stringify(grouped).includes('private-host-uid'), false);
+  assert.equal(JSON.stringify(grouped).includes('private-share-code'), false);
 });
 
 test('customer listing is authenticated, owner-scoped, newest-first and sanitized', async () => {

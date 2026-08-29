@@ -333,7 +333,14 @@ export default function StoreOrdersPanel({
               </ol>
             </div>
 
-            <div className="mt-7 flex flex-col gap-2 sm:flex-row">
+            {selectedOrder.payment.status === 'paid' && (
+              <div className="mt-7 rounded-2xl border border-green-200 bg-green-50 p-4 text-green-900">
+                <p className="font-sans text-sm font-extrabold">Payment confirmed ✓</p>
+                <p className="mt-1 font-sans text-xs font-bold">Next: Send customer confirmation via WhatsApp</p>
+              </div>
+            )}
+
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               {canReviewPayments && selectedOrder.payment.status === 'pending_verification' && (
                 <>
                   {selectedOrder.payment.receiptPath && (
