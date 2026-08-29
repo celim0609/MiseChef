@@ -346,6 +346,7 @@ export const buildPendingOrder = ({
   paymentProviderMode,
   paymentMethod,
   groupOrder = null,
+  customerUid = '',
   draft,
   now = new Date()
 }) => {
@@ -377,6 +378,7 @@ export const buildPendingOrder = ({
     storeId: readString(store.id) || readString(store.workspaceId),
     workspaceId: readString(store.workspaceId) || readString(store.id),
     orderSource: 'online',
+    ...(readString(customerUid) ? { customerUid: readString(customerUid) } : {}),
     ...(groupOrder ? {
       groupOrder: {
         id: readString(groupOrder.id),

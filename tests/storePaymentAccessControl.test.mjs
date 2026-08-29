@@ -103,6 +103,7 @@ let memberA;
 let ownerB;
 let managerB;
 let ownerSg;
+let customerA;
 
 before(async () => {
   environment = await initializeTestEnvironment({
@@ -118,6 +119,7 @@ before(async () => {
   ownerB = environment.authenticatedContext('owner-b', { email: 'owner-b@example.test' });
   managerB = environment.authenticatedContext('manager-b', { email: 'manager-b@example.test' });
   ownerSg = environment.authenticatedContext('owner-sg', { email: 'owner-sg@example.test' });
+  customerA = environment.authenticatedContext('customer-a', { email: 'customer-a@example.test' });
 
   await environment.withSecurityRulesDisabled(async context => {
     const db = context.firestore();
@@ -158,6 +160,7 @@ before(async () => {
       }),
       db.doc(`storeOrders/${ORDER_A}`).set({
         id: ORDER_A,
+        customerUid: 'customer-a',
         workspaceId: WORKSPACE_A,
         storeId: WORKSPACE_A,
         status: 'Pending Verification',
@@ -245,6 +248,8 @@ test('only matching Workspace roles with View Orders can read the protected orde
   await assertSucceeds(memberA.firestore().doc(`storeOrders/${ORDER_A}`).get());
   await assertFails(ownerB.firestore().doc(`storeOrders/${ORDER_A}`).get());
   await assertFails(managerB.firestore().doc(`storeOrders/${ORDER_A}`).get());
+  await assertFails(customerA.firestore().doc(`storeOrders/${ORDER_A}`).get());
+  await assertFails(customerA.firestore().collection('storeOrders').where('customerUid', '==', 'customer-a').get());
 });
 
 test('matching Owner and Manager can update validated Store Contact settings', async () => {

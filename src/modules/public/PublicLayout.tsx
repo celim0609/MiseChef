@@ -23,6 +23,7 @@ import type { HomepagePromotion } from './homepagePromotions';
 import { resolvePublicRecipeAuthors } from './publicRecipeAuthor';
 import { groupOrderService } from '../store/services';
 import PublicAccountMenu from './PublicAccountMenu';
+import PublicOrdersPage from './PublicOrdersPage';
 
 const publicNavigation = [
   { label: 'Home', href: '/' },
@@ -202,6 +203,10 @@ export default function PublicLayout({ pathname, currentUser, onSignOut }: { pat
 
     if (route.page === 'store') {
       return <PublicStorePage slug={route.slug} currentUser={currentUser} />;
+    }
+
+    if (route.page === 'orders') {
+      return <PublicOrdersPage currentUser={currentUser} />;
     }
 
     if (route.page === 'host') {

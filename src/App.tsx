@@ -36,7 +36,10 @@ import { teamService } from './modules/team/services';
 import type { TeamInvitation } from './modules/team/types';
 import { MarketingPage } from './modules/marketing';
 import { isPublicExperiencePath, PublicLayout } from './modules/public';
-import { replaceWithValidatedHostReturnTo } from './modules/public/hostReturnNavigation';
+import {
+  replaceWithValidatedHostReturnTo,
+  replaceWithValidatedPublicAccountReturnTo
+} from './modules/public/hostReturnNavigation';
 import { AnimatePresence, motion } from 'motion/react';
 import BrandLogo from './components/BrandLogo';
 import { auth, authPersistenceReady, db, storage } from './firebase';
@@ -932,7 +935,7 @@ export default function App() {
 
             if (
               pathname === '/login'
-              && replaceWithValidatedHostReturnTo(
+              && replaceWithValidatedPublicAccountReturnTo(
                 window.location.search,
                 hostReturnTo => window.location.replace(hostReturnTo)
               )
@@ -991,7 +994,7 @@ export default function App() {
 
   useEffect(() => {
     if (currentUser && activeTab === 'login') {
-      if (replaceWithValidatedHostReturnTo(
+      if (replaceWithValidatedPublicAccountReturnTo(
         window.location.search,
         hostReturnTo => window.location.replace(hostReturnTo)
       )) return;
@@ -1714,7 +1717,7 @@ export default function App() {
   // Renders correct active screen body
   const handleAuthenticated = () => {
     setIsGuestMode(false);
-    if (replaceWithValidatedHostReturnTo(
+    if (replaceWithValidatedPublicAccountReturnTo(
       window.location.search,
       hostReturnTo => window.location.replace(hostReturnTo)
     )) return;

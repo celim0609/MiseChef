@@ -44,6 +44,7 @@ import {
   uploadManualStorePaymentReceipt
 } from './storeManualPayments.js';
 import { updateStoreOrderFulfilment } from './storeFulfilment.js';
+import { listCustomerOrders } from './customerOrders.js';
 import {
   activateHostProfile,
   createGroupOrder,
@@ -309,6 +310,7 @@ export const createPublicStorePayment = onCall({
         method: paymentMethod
       }),
       sellingWorkspaceId: sellingWorkspaceId.value(),
+      customerUid: request.auth?.uid || '',
       slug: request.data?.slug,
       draft: request.data?.order,
       returnUrl: request.data?.returnUrl
@@ -318,6 +320,15 @@ export const createPublicStorePayment = onCall({
     throw toStorePaymentError(error);
   }
 });
+
+export const listMyMiseChefStoreOrders = onCall({
+  region: REGION,
+  timeoutSeconds: 20,
+  memory: '256MiB'
+}, async request => listCustomerOrders({
+  db,
+  uid: request.auth?.uid
+}));
 
 export const uploadPublicStorePaymentReceipt = onCall({
   region: REGION,

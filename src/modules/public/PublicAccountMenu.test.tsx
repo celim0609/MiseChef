@@ -18,6 +18,7 @@ test('authenticated public account trigger stays Account across every Host looku
 
 test('menu uses exact existing account destinations and logout handler', () => {
   assert.match(menuSource, /href="\/app\/recipes"[\s\S]*My Recipes/);
+  assert.match(menuSource, /href="\/orders"[\s\S]*My Orders/);
   assert.match(menuSource, /href=\{hostAction\.href\}[\s\S]*\{hostAction\.label\}/);
   assert.match(menuSource, /href="\/app"[\s\S]*Workspace[\s\S]*Business tools/);
   assert.match(menuSource, /void onSignOut\(\)/);

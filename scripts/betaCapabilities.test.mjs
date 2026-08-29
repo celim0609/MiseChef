@@ -68,7 +68,7 @@ test('the repository satisfies the protected Release #16 capability contract', (
   const result = validateBetaCapabilities({ repositoryRoot });
   assert.equal(result.ok, true, result.errors.join('\n'));
   assert.equal(result.counts.protectedFunctions, 35);
-  assert.equal(result.counts.discoveredFunctions, 37);
+  assert.equal(result.counts.discoveredFunctions, 38);
 });
 
 test('the authority commit prevents a candidate from hiding deletion in its manifest', () => {

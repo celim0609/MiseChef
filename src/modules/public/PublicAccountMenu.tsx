@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { BookOpen, BriefcaseBusiness, ChevronDown, LogOut, UserRound, UsersRound } from 'lucide-react';
+import { BookOpen, BriefcaseBusiness, ChevronDown, LogOut, ReceiptText, UserRound, UsersRound } from 'lucide-react';
 import type { PublicHostMenuAction } from './hostReturnNavigation';
 
 export default function PublicAccountMenu({
@@ -66,6 +66,11 @@ export default function PublicAccountMenu({
           <a ref={firstItemRef} role="menuitem" href="/app/recipes" onClick={closeMenu} className="flex items-center gap-3 rounded-2xl px-3 py-3 text-primary transition-colors hover:bg-surface-container-low focus:bg-surface-container-low focus:outline-none focus:ring-2 focus:ring-primary/20">
             <BookOpen className="h-5 w-5" aria-hidden="true" />
             <span className="font-sans text-sm font-extrabold">My Recipes</span>
+          </a>
+
+          <a role="menuitem" href="/orders" onClick={closeMenu} className="flex items-center gap-3 rounded-2xl px-3 py-3 text-primary transition-colors hover:bg-surface-container-low focus:bg-surface-container-low focus:outline-none focus:ring-2 focus:ring-primary/20">
+            <ReceiptText className="h-5 w-5" aria-hidden="true" />
+            <span className="font-sans text-sm font-extrabold">My Orders</span>
           </a>
 
           {hostAction && (

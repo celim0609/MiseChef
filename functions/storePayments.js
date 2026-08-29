@@ -276,6 +276,7 @@ export const createStorePayment = async ({
   adapter,
   resolveAdapter,
   sellingWorkspaceId,
+  customerUid = '',
   slug,
   draft,
   returnUrl,
@@ -330,6 +331,7 @@ export const createStorePayment = async ({
       paymentProviderMode: activeAdapter.mode,
       paymentMethod,
       groupOrder: currentGroupOrder,
+      customerUid,
       draft,
       now
     });

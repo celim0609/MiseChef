@@ -75,6 +75,7 @@ const createFakeDb = documents => {
 
 const RECEIPT_PATH = 'store-payment-receipts/workspace-a/order-a/receipt-existing.png';
 const pendingOrder = {
+  customerUid: 'customer-a',
   workspaceId: 'workspace-a',
   storeId: 'workspace-a',
   fulfilmentStatus: 'New',
@@ -99,6 +100,7 @@ test('Store Owner can approve a manual payment and the decision is audited', asy
   assert.equal(db.writes[0].data['payment.status'], 'paid');
   assert.equal(db.writes[0].data.fulfilmentStatus, undefined);
   assert.equal(db.documents['storeOrders/order-a'].fulfilmentStatus, 'New');
+  assert.equal(db.documents['storeOrders/order-a'].customerUid, 'customer-a');
   assert.equal(db.writes[0].data['payment.reviewedBy'], 'owner-a');
   assert.equal(db.writes[1].data.label, 'Payment Approved');
   assert.equal(db.writes[1].data.actingUserId, 'owner-a');

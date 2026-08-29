@@ -357,6 +357,7 @@ export interface StoreOrder {
   storeId: string;
   workspaceId: string;
   orderSource: StoreOrderSource;
+  customerUid?: string;
   groupOrder?: {
     id: string;
     shareCode: string;
@@ -424,6 +425,19 @@ export interface StoreOrder {
   };
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CustomerStoreOrderSummary {
+  orderNumber: string;
+  orderDate: string;
+  storeName: string;
+  itemCount: number;
+  total: number;
+  currency: RegionCurrency;
+  paymentStatus: StoreOrder['payment']['status'];
+  orderStatus: StoreOrder['status'];
+  fulfilmentStatus: StoreFulfilmentStatus;
+  groupName?: string;
 }
 
 export interface StoreOrderDraft {

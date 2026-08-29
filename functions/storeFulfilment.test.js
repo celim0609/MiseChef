@@ -32,6 +32,7 @@ const createFakeDb = documents => {
 
 const paidOrder = {
   id: 'order-a',
+  customerUid: 'customer-a',
   orderNumber: 'MC-001',
   workspaceId: 'workspace-a',
   storeId: 'workspace-a',
@@ -106,6 +107,7 @@ test('cancellation preserves payment data and writes the required audit fields',
   assert.ok(update.cancelledAt);
   assert.equal('payment' in update, false);
   assert.equal('status' in update, false);
+  assert.equal('customerUid' in update, false);
   assert.equal(result.cancellationReason, 'Customer requested cancellation');
   assert.equal(db.writes[1].data.cancellationReason, 'Customer requested cancellation');
 });

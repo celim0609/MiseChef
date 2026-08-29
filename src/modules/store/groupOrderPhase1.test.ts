@@ -3,7 +3,9 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   getValidatedHostReturnTo,
+  getValidatedPublicAccountReturnTo,
   replaceWithValidatedHostReturnTo,
+  replaceWithValidatedPublicAccountReturnTo,
   resolveLoggedOutPublicAccountLink,
   resolvePublicHostMenuAction,
   resolvePublicHostStoreCandidate
@@ -138,7 +140,8 @@ test('Host auth completion and guest continuation share replace-only public navi
     appSource.indexOf('const handleAuthenticated'),
     appSource.indexOf('const handleAvatarClick')
   );
-  assert.equal((hostCompletionSource.match(/replaceWithValidatedHostReturnTo/g) || []).length, 2);
+  assert.equal((hostCompletionSource.match(/replaceWithValidatedPublicAccountReturnTo/g) || []).length, 1);
+  assert.equal((hostCompletionSource.match(/replaceWithValidatedHostReturnTo/g) || []).length, 1);
   assert.equal((hostCompletionSource.match(/window\.location\.replace/g) || []).length, 2);
   assert.doesNotMatch(hostCompletionSource, /window\.location\.assign/);
   assert.match(hostCompletionSource, /const handleContinueAsGuest[\s\S]*replaceWithValidatedHostReturnTo[\s\S]*setCurrentUser\(null\)/);
@@ -147,7 +150,7 @@ test('Host auth completion and guest continuation share replace-only public navi
     appSource.indexOf("if (currentUser && activeTab === 'login')"),
     appSource.indexOf("if (currentUser && activeTab === 'login')") + 400
   );
-  assert.ok(loginRaceSource.indexOf('replaceWithValidatedHostReturnTo') < loginRaceSource.indexOf("handleRootNavigate('home')"));
+  assert.ok(loginRaceSource.indexOf('replaceWithValidatedPublicAccountReturnTo') < loginRaceSource.indexOf("handleRootNavigate('home')"));
 });
 
 test('Google popup authentication completes exactly once', () => {
@@ -177,6 +180,21 @@ test('generic login still falls back to Workspace and malicious return targets a
   });
   if (!handled) destination = '/app';
   assert.equal(destination, '/app');
+});
+
+test('customer order login return is exact, authenticated, and uses replace navigation', () => {
+  assert.equal(getValidatedPublicAccountReturnTo('?returnTo=%2Forders'), '/orders');
+  assert.equal(getValidatedPublicAccountReturnTo('?returnTo=%2Forders%2F'), '/orders/');
+  for (const search of [
+    '?returnTo=%2Forders%2Fanother-order',
+    '?returnTo=%2Forders%3FcustomerUid%3Dother-user',
+    '?returnTo=https%3A%2F%2Fevil.example%2Forders',
+    '?returnTo=%2F%2Fevil.example%2Forders'
+  ]) assert.equal(getValidatedPublicAccountReturnTo(search), '');
+
+  let destination = '';
+  assert.equal(replaceWithValidatedPublicAccountReturnTo('?returnTo=%2Forders', value => { destination = value; }), true);
+  assert.equal(destination, '/orders');
 });
 
 test('Host Center is the single compact dashboard with Create, summaries, Share and Manage', () => {

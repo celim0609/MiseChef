@@ -16,6 +16,7 @@ export type {
   StoreOptionGroupDraft,
   StorePickupLocation,
   StoreOrder,
+  CustomerStoreOrderSummary,
   StoreOrderDraft,
   StoreOrderItem,
   StoreOrderSource,
