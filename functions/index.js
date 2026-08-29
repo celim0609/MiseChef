@@ -48,6 +48,7 @@ import { listCustomerOrders } from './customerOrders.js';
 import {
   activateHostProfile,
   createGroupOrder,
+  cleanupGroupOrder,
   getPublicGroupOrder,
   listHostGroupOrdersDetail,
   listHostGroupOrders,
@@ -205,6 +206,13 @@ export const updateMyMiseChefGroupOrderStatus = onCall({ region: REGION }, async
   uid: request.auth?.uid,
   groupId: request.data?.groupId,
   nextStatus: request.data?.nextStatus
+}));
+
+export const cleanupMyMiseChefGroupOrder = onCall({ region: REGION }, async request => cleanupGroupOrder({
+  db,
+  uid: request.auth?.uid,
+  groupId: request.data?.groupId,
+  action: request.data?.action
 }));
 
 export const syncMiseChefGroupReward = onDocumentWritten({

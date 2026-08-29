@@ -14,7 +14,11 @@ import {
   getStoreNotificationId,
   STORE_NOTIFICATION_TYPE
 } from './storeNotifications.js';
-import { revalidateCheckoutGroupInTransaction, resolveCheckoutGroup } from './groupOrders.js';
+import {
+  incrementGroupLifetimeOrderCountInTransaction,
+  revalidateCheckoutGroupInTransaction,
+  resolveCheckoutGroup
+} from './groupOrders.js';
 
 const loadStoreCheckoutData = async (db, slug) => {
   const storeSnapshot = await db.collection('stores')
@@ -354,6 +358,11 @@ export const createStorePayment = async ({
       createdAt: now.toISOString()
     });
     transaction.create(orderReference, pendingOrder);
+    incrementGroupLifetimeOrderCountInTransaction({
+      db,
+      transaction,
+      groupOrder: currentGroupOrder
+    });
     return { order: pendingOrder };
   });
 

@@ -113,6 +113,10 @@ export interface PublicGroupOrder {
 export interface HostGroupOrder extends PublicGroupOrder {
   rewardPercent: number;
   minimumQualifyingSales: number;
+  lifetimeOrderCount: number | null;
+  archived: boolean;
+  archivedAt?: string;
+  archivedBy?: string;
   orderCount: number;
   eligibleSales: number;
   estimatedReward: number;

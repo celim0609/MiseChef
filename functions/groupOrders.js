@@ -103,6 +103,8 @@ export const createGroupOrder = async ({ db, uid, email, displayName, slug, inpu
     status: 'open',
     rewardPercent,
     minimumQualifyingSales,
+    lifetimeOrderCount: 0,
+    archived: false,
     orderCount: 0,
     eligibleSales: 0,
     estimatedReward: 0,
@@ -149,11 +151,15 @@ export const listHostGroupOrders = async ({ db, uid, slug, now = new Date() }) =
   }
   const snapshot = await db.collection('groupOrders').where('hostId', '==', uid).get();
   const groups = snapshot.docs
-    .filter(document => readString(document.data().storeId) === store.id)
+    .filter(document => readString(document.data().storeId) === store.id && document.data().archived !== true)
     .map(document => ({
       ...publicGroup(document.id, document.data(), now),
       rewardPercent: Number(document.data().rewardPercent) || 0,
       minimumQualifyingSales: Number(document.data().minimumQualifyingSales) || 0,
+      lifetimeOrderCount: Number.isInteger(document.data().lifetimeOrderCount)
+        ? document.data().lifetimeOrderCount
+        : null,
+      archived: document.data().archived === true,
       orderCount: Number(document.data().orderCount) || 0,
       eligibleSales: Number(document.data().eligibleSales) || 0,
       estimatedReward: Number(document.data().estimatedReward) || 0
@@ -195,6 +201,45 @@ export const transitionGroupOrder = async ({ db, uid, groupId, nextStatus, now =
   });
 };
 
+export const cleanupGroupOrder = async ({ db, uid, groupId, action, now = new Date() }) => {
+  if (!uid) throw new HttpsError('unauthenticated', 'Sign in to clean up Group Orders.');
+  const normalizedGroupId = readString(groupId);
+  if (!normalizedGroupId) throw new HttpsError('invalid-argument', 'Choose a Group Order.');
+  if (!['delete', 'archive'].includes(action)) {
+    throw new HttpsError('invalid-argument', 'Choose a valid Group cleanup action.');
+  }
+  return db.runTransaction(async transaction => {
+    const reference = db.collection('groupOrders').doc(normalizedGroupId);
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists) throw new HttpsError('not-found', 'This Group Order could not be found.');
+    const group = snapshot.data();
+    if (readString(group.hostId) !== uid) {
+      throw new HttpsError('permission-denied', 'You can clean up only your own Group Orders.');
+    }
+    if (action === 'delete') {
+      if (!Number.isInteger(group.lifetimeOrderCount) || group.lifetimeOrderCount !== 0) {
+        throw new HttpsError('failed-precondition', 'This Group has order history and cannot be deleted. Close or cancel it before archiving.');
+      }
+      transaction.delete(reference);
+      return { groupId: normalizedGroupId, action: 'deleted' };
+    }
+    if (group.archived === true) {
+      return { groupId: normalizedGroupId, action: 'archived' };
+    }
+    const currentStatus = readString(group.status) === 'completed' ? 'completed' : groupStatus(group, now);
+    if (!['closed', 'cancelled', 'completed'].includes(currentStatus)) {
+      throw new HttpsError('failed-precondition', 'Close or cancel this Group before archiving it.');
+    }
+    transaction.update(reference, {
+      archived: true,
+      archivedAt: FieldValue.serverTimestamp(),
+      archivedBy: uid,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    return { groupId: normalizedGroupId, action: 'archived' };
+  });
+};
+
 const hostOrder = document => {
   const data = document.data();
   return {
@@ -231,6 +276,10 @@ export const listHostGroupOrdersDetail = async ({ db, uid, groupId, now = new Da
       ...publicGroup(groupSnapshot.id, group, now),
       rewardPercent: Number(group.rewardPercent) || 0,
       minimumQualifyingSales: Number(group.minimumQualifyingSales) || 0,
+      lifetimeOrderCount: Number.isInteger(group.lifetimeOrderCount) ? group.lifetimeOrderCount : null,
+      archived: group.archived === true,
+      archivedAt: toIso(group.archivedAt),
+      archivedBy: readString(group.archivedBy),
       orderCount: Number(group.orderCount) || 0,
       eligibleSales: Number(group.eligibleSales) || 0,
       estimatedReward: Number(group.estimatedReward) || 0
@@ -283,6 +332,15 @@ export const revalidateCheckoutGroupInTransaction = async ({ db, transaction, gr
     hostName: readString(data.hostName),
     rewardPercent: Number(data.rewardPercent) || 0
   };
+};
+
+export const incrementGroupLifetimeOrderCountInTransaction = ({ db, transaction, groupOrder }) => {
+  const groupId = readString(groupOrder?.id);
+  if (!groupId) return;
+  transaction.update(db.collection('groupOrders').doc(groupId), {
+    lifetimeOrderCount: FieldValue.increment(1),
+    updatedAt: FieldValue.serverTimestamp()
+  });
 };
 
 export const calculateRewardContribution = order => {

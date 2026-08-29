@@ -18,7 +18,7 @@ import { getBlob, ref } from 'firebase/storage';
 import { db, functions, storage } from '../../../firebase';
 import { getOrderPickupCode } from '../selling';
 import { normalizeStoreOrderItem } from '../storeOrderSnapshot';
-import { isOrderOperationallyEligible } from '../posOrderModel';
+import { isOrderOperationallyEligible, toActivePosStatus } from '../posOrderModel';
 import type {
   StoreFulfilmentStatus,
   StoreNotification,
@@ -29,6 +29,8 @@ import type {
 const readString = (value: unknown, fallback = '') => (
   typeof value === 'string' && value.trim() ? value.trim() : fallback
 );
+
+const readExactString = (value: unknown) => typeof value === 'string' ? value : '';
 
 const readNumber = (value: unknown) => (
   Number.isFinite(Number(value)) ? Number(value) : 0
@@ -61,8 +63,8 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     storeId: readString(data.storeId),
     workspaceId: readString(data.workspaceId),
     orderSource: data.orderSource === 'pos' ? 'pos' : 'online',
-    ...(groupOrder && readString(groupOrder.id) ? { groupOrder: {
-      id: readString(groupOrder.id),
+    ...(groupOrder && readExactString(groupOrder.id) ? { groupOrder: {
+      id: readExactString(groupOrder.id),
       shareCode: readString(groupOrder.shareCode),
       name: readString(groupOrder.name),
       hostId: readString(groupOrder.hostId),
@@ -172,12 +174,21 @@ export const storeOrderService = {
       snapshot => {
         const orders = snapshot.docs.map(normalizeOrder);
         const operationalOrders = orders.filter(isOrderOperationallyEligible);
+        const unresolvedGroupIds = new Set(orders
+          .filter(order => order.groupOrder?.id
+            && order.fulfilmentStatus !== 'Completed'
+            && order.fulfilmentStatus !== 'Cancelled')
+          .map(order => order.groupOrder?.id || ''));
+        const kitchenOrders = orders.filter(order => (
+          (operationalOrders.includes(order) && Boolean(toActivePosStatus(order.fulfilmentStatus)))
+          || Boolean(order.groupOrder?.id && unresolvedGroupIds.has(order.groupOrder.id))
+        ));
         const nextOperationalOrderIds = new Set(operationalOrders.map(order => order.id));
         const addedNewOrderIds = operationalOrders
           .filter(order => order.fulfilmentStatus === 'New' && !knownOperationalOrderIds.has(order.id))
           .map(order => order.id);
         knownOperationalOrderIds = nextOperationalOrderIds;
-        onData(operationalOrders, addedNewOrderIds);
+        onData(kitchenOrders, addedNewOrderIds);
       },
       error => onError(error)
     );

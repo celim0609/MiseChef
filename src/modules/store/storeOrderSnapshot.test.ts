@@ -64,7 +64,7 @@ test('POS formats the stored Set name, selections, and upgrade adjustment', () =
     'Drink: Kopi-O Ice (+MYR 0.50)'
   ]);
   assert.match(posSource, /item\.productName/);
-  assert.equal(posSource.match(/formatStoreOrderSetSelection\(selection,/g)?.length, 2);
+  assert.equal(posSource.match(/formatStoreOrderSetSelection\(selection,/g)?.length, 3);
   assert.match(ownerOrdersSource, /item\.setSnapshot\.selectedGroups\.map/);
 });
 

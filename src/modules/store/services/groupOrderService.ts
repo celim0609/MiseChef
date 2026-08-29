@@ -56,5 +56,13 @@ export const groupOrderService = {
       { groupId: string; status: 'closed' | 'cancelled' }
     >(requireFunctions(), 'updateMyMiseChefGroupOrderStatus')({ groupId, nextStatus });
     return response.data;
+  },
+
+  async cleanup(groupId: string, action: 'delete' | 'archive'): Promise<{ groupId: string; action: 'deleted' | 'archived' }> {
+    const response = await httpsCallable<
+      { groupId: string; action: 'delete' | 'archive' },
+      { groupId: string; action: 'deleted' | 'archived' }
+    >(requireFunctions(), 'cleanupMyMiseChefGroupOrder')({ groupId, action });
+    return response.data;
   }
 };

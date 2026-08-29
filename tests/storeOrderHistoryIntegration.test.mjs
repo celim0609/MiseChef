@@ -3,6 +3,7 @@ import test from 'node:test';
 import { deleteApp, initializeApp } from '../functions/node_modules/firebase-admin/lib/esm/app/index.js';
 import { getFirestore, Timestamp } from '../functions/node_modules/firebase-admin/lib/esm/firestore/index.js';
 import { createManualPaymentAdapter } from '../functions/paymentProviders/manualPayment.js';
+import { cleanupGroupOrder } from '../functions/groupOrders.js';
 import { updateStoreOrderFulfilment } from '../functions/storeFulfilment.js';
 import { reviewManualStorePayment, submitManualStorePayment } from '../functions/storeManualPayments.js';
 import { createStorePayment } from '../functions/storePayments.js';
@@ -59,6 +60,8 @@ test('actual new-order writes remain queryable after Completed and Cancelled tra
       status: 'open',
       rewardPercent: 5,
       minimumQualifyingSales: 0,
+      lifetimeOrderCount: 0,
+      archived: false,
       orderCount: 0,
       eligibleSales: 0,
       estimatedReward: 0
@@ -102,6 +105,7 @@ test('actual new-order writes remain queryable after Completed and Cancelled tra
       checkoutAccessToken: completedResult.checkoutAccessToken
     });
     const groupBeforeConfirmation = (await db.collection('groupOrders').doc(groupId).get()).data();
+    assert.equal(groupBeforeConfirmation.lifetimeOrderCount, 1);
     assert.equal(groupBeforeConfirmation.orderCount, 0);
     assert.equal(groupBeforeConfirmation.eligibleSales, 0);
     await reviewManualStorePayment({ db, uid: ownerId, orderId: completedDocument.id, decision: 'approve' });
@@ -172,6 +176,46 @@ test('actual new-order writes remain queryable after Completed and Cancelled tra
     assert.equal(states.get(completedDocument.id), 'Completed');
     assert.equal(states.get(cancelledDocument.id), 'Cancelled');
     assert.equal(states.get(legacyReference.id), 'Completed');
+
+    const raceGroupId = `${workspaceId}-race-group`;
+    const raceShareCode = `${workspaceId}-race-share`;
+    await db.collection('groupOrders').doc(raceGroupId).set({
+      ...(await db.collection('groupOrders').doc(groupId).get()).data(),
+      id: raceGroupId,
+      shareCode: raceShareCode,
+      hostId: `${workspaceId}-host`,
+      name: 'Checkout Delete Race',
+      status: 'open',
+      lifetimeOrderCount: 0,
+      orderCount: 0,
+      eligibleSales: 0,
+      estimatedReward: 0
+    });
+    const raceResults = await Promise.allSettled([
+      createStorePayment({
+        db,
+        adapter,
+        slug,
+        draft: { ...draft('race'), groupShareCode: raceShareCode },
+        now: NOW
+      }),
+      cleanupGroupOrder({
+        db,
+        uid: `${workspaceId}-host`,
+        groupId: raceGroupId,
+        action: 'delete',
+        now: NOW
+      })
+    ]);
+    assert.equal(raceResults.filter(result => result.status === 'fulfilled').length, 1);
+    const [raceGroupSnapshot, raceOrdersSnapshot] = await Promise.all([
+      db.collection('groupOrders').doc(raceGroupId).get(),
+      db.collection('storeOrders').where('groupOrder.id', '==', raceGroupId).get()
+    ]);
+    assert.equal(raceOrdersSnapshot.empty || raceGroupSnapshot.exists, true);
+    if (raceGroupSnapshot.exists) {
+      assert.equal(raceGroupSnapshot.data().lifetimeOrderCount, raceOrdersSnapshot.size);
+    }
   } finally {
     await deleteApp(app);
   }

@@ -238,6 +238,8 @@ test('Host data is private to its account and all Host writes remain server-only
   await assertFails(hostB.firestore().doc('hostRewardLedger/reward-a').get());
   await assertFails(hostA.firestore().doc('groupOrders/client-group').set({ hostId: 'host-a', workspaceId: WORKSPACE_A }));
   await assertFails(hostA.firestore().doc('groupOrders/group-a').update({ eligibleSales: 999999 }));
+  await assertFails(hostA.firestore().doc('groupOrders/group-a').update({ archived: true, archivedBy: 'host-a' }));
+  await assertFails(hostA.firestore().doc('groupOrders/group-a').delete());
   await assertFails(hostA.firestore().doc('hostRewardLedger/reward-a').update({ rewardAmount: 999999 }));
 });
 

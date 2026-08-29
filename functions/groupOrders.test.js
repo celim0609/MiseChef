@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   calculateRewardContribution,
+  cleanupGroupOrder,
   getPublicGroupOrder,
   listHostGroupOrders,
   listHostGroupOrdersDetail,
@@ -56,6 +57,10 @@ const createFakeDb = initialDocuments => {
       update: (ref, data) => {
         writes.push({ ref, data });
         documents[ref.key] = { ...documents[ref.key], ...data };
+      },
+      delete: ref => {
+        writes.push({ ref, delete: true });
+        delete documents[ref.key];
       }
     })
   };
@@ -78,6 +83,7 @@ const openGroup = (overrides = {}) => ({
   status: 'open',
   rewardPercent: 5,
   minimumQualifyingSales: 20,
+  lifetimeOrderCount: 1,
   orderCount: 1,
   eligibleSales: 100,
   estimatedReward: 5,
@@ -187,6 +193,20 @@ test('Host listing excludes Groups the authenticated Host only participated in a
   assert.deepEqual(hostB.groups.map(group => group.id), ['group-b']);
 });
 
+test('archived Groups are hidden from the default Host list but their terminal share links still resolve', async () => {
+  const db = createFakeDb({
+    'stores/store-a': { slug: 'store-a', hostProgram: { enabled: true } },
+    'hostProfiles/host-a': { status: 'active' },
+    'groupOrders/visible': openGroup({ shareCode: 'visible', status: 'closed' }),
+    'groupOrders/archived': openGroup({ shareCode: 'archived', status: 'cancelled', archived: true })
+  });
+  const list = await listHostGroupOrders({ db, uid: 'host-a', slug: 'store-a' });
+  assert.deepEqual(list.groups.map(group => group.id), ['visible']);
+  const archived = await getPublicGroupOrder({ db, shareCode: 'archived' });
+  assert.equal(archived.id, 'archived');
+  assert.equal(archived.status, 'cancelled');
+});
+
 test('Host can close only their own open Group and repeated close is idempotent', async () => {
   const paidOrder = {
     payment: { status: 'paid', refundStatus: 'none', providerPaymentId: 'secret-provider-id' },
@@ -232,6 +252,99 @@ test('Group cancellation is owner-only and leaves existing paid orders and rewar
   assert.equal(db.documents['groupOrders/group-a'].status, 'cancelled');
   assert.deepEqual(db.documents['storeOrders/order-a'], order);
   assert.deepEqual(db.documents['hostRewardLedger/order-a'], ledger);
+});
+
+test('cleanup rejects unauthenticated users and non-owners', async () => {
+  const db = createFakeDb({ 'groupOrders/group-a': openGroup({ lifetimeOrderCount: 0 }) });
+  await assert.rejects(
+    cleanupGroupOrder({ db, uid: '', groupId: 'group-a', action: 'delete' }),
+    error => error.code === 'unauthenticated'
+  );
+  await assert.rejects(
+    cleanupGroupOrder({ db, uid: 'host-b', groupId: 'group-a', action: 'delete' }),
+    error => error.code === 'permission-denied'
+  );
+});
+
+test('owner can hard-delete only forward-tracked zero-order open, closed, or cancelled Groups', async () => {
+  for (const status of ['open', 'closed', 'cancelled']) {
+    const db = createFakeDb({
+      'groupOrders/group-a': openGroup({ status, lifetimeOrderCount: 0, orderCount: 99 })
+    });
+    const result = await cleanupGroupOrder({ db, uid: 'host-a', groupId: 'group-a', action: 'delete' });
+    assert.deepEqual(result, { groupId: 'group-a', action: 'deleted' });
+    assert.equal(db.documents['groupOrders/group-a'], undefined);
+    await assert.rejects(
+      getPublicGroupOrder({ db, shareCode: 'share-a' }),
+      error => error.code === 'not-found'
+    );
+  }
+});
+
+test('lifetime order history always blocks hard deletion regardless of payment, cancellation, refund, or reward count', async () => {
+  const historicalOrders = [
+    { payment: { status: 'pending' }, fulfilmentStatus: 'New' },
+    { payment: { status: 'paid' }, fulfilmentStatus: 'Cancelled' },
+    { payment: { status: 'paid', refundStatus: 'refunded' }, fulfilmentStatus: 'Completed' }
+  ];
+  for (const order of historicalOrders) {
+    const db = createFakeDb({
+      'groupOrders/group-a': openGroup({ lifetimeOrderCount: 1, orderCount: 0 }),
+      'storeOrders/order-a': order
+    });
+    await assert.rejects(
+      cleanupGroupOrder({ db, uid: 'host-a', groupId: 'group-a', action: 'delete' }),
+      error => error.code === 'failed-precondition'
+    );
+    assert.ok(db.documents['groupOrders/group-a']);
+    assert.deepEqual(db.documents['storeOrders/order-a'], order);
+  }
+});
+
+test('legacy Groups without lifetimeOrderCount fail closed for deletion', async () => {
+  const legacy = openGroup({ orderCount: 0 });
+  delete legacy.lifetimeOrderCount;
+  const db = createFakeDb({ 'groupOrders/group-a': legacy });
+  await assert.rejects(
+    cleanupGroupOrder({ db, uid: 'host-a', groupId: 'group-a', action: 'delete' }),
+    error => error.code === 'failed-precondition'
+  );
+});
+
+test('archive is owner-only, terminal-only, idempotent, and mutates no order, payment, fulfilment, sales, or reward history', async () => {
+  const order = {
+    groupOrder: { id: 'group-a' },
+    payment: { status: 'paid', refundStatus: 'partial', refundedAmountMinor: 500 },
+    fulfilmentStatus: 'Ready'
+  };
+  const ledger = { groupId: 'group-a', eligibleSales: 95, rewardAmount: 4.75, status: 'pending' };
+  const group = openGroup({ status: 'closed', eligibleSales: 95, estimatedReward: 4.75 });
+  const db = createFakeDb({
+    'groupOrders/group-a': group,
+    'storeOrders/order-a': order,
+    'hostRewardLedger/order-a': ledger
+  });
+  await assert.rejects(
+    cleanupGroupOrder({ db, uid: 'host-b', groupId: 'group-a', action: 'archive' }),
+    error => error.code === 'permission-denied'
+  );
+  const result = await cleanupGroupOrder({ db, uid: 'host-a', groupId: 'group-a', action: 'archive' });
+  assert.deepEqual(result, { groupId: 'group-a', action: 'archived' });
+  assert.equal(db.documents['groupOrders/group-a'].archived, true);
+  assert.equal(db.documents['groupOrders/group-a'].status, 'closed');
+  assert.equal(db.documents['groupOrders/group-a'].eligibleSales, 95);
+  assert.equal(db.documents['groupOrders/group-a'].estimatedReward, 4.75);
+  assert.deepEqual(db.documents['storeOrders/order-a'], order);
+  assert.deepEqual(db.documents['hostRewardLedger/order-a'], ledger);
+  const writesAfterArchive = db.writes.length;
+  await cleanupGroupOrder({ db, uid: 'host-a', groupId: 'group-a', action: 'archive' });
+  assert.equal(db.writes.length, writesAfterArchive);
+
+  const openDb = createFakeDb({ 'groupOrders/group-a': openGroup() });
+  await assert.rejects(
+    cleanupGroupOrder({ db: openDb, uid: 'host-a', groupId: 'group-a', action: 'archive' }),
+    error => error.code === 'failed-precondition'
+  );
 });
 
 test('Host order detail is owner-scoped and exposes only the sanitized order projection', async () => {

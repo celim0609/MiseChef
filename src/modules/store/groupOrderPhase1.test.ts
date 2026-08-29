@@ -236,6 +236,24 @@ test('Group lifecycle is owner-only and revalidated inside order creation transa
   assert.match(storePayments, /groupOrder: currentGroupOrder/);
 });
 
+test('Group cleanup is forward-only, server-controlled, owner-scoped, and separate from lifecycle', () => {
+  assert.match(backend, /lifetimeOrderCount: 0/);
+  assert.match(backend, /archived: false/);
+  assert.match(storePayments, /incrementGroupLifetimeOrderCountInTransaction/);
+  assert.match(backend, /lifetimeOrderCount: FieldValue\.increment\(1\)/);
+  assert.match(backend, /readString\(group\.hostId\) !== uid/);
+  assert.match(backend, /!Number\.isInteger\(group\.lifetimeOrderCount\) \|\| group\.lifetimeOrderCount !== 0/);
+  assert.match(backend, /transaction\.delete\(reference\)/);
+  assert.match(backend, /archivedAt: FieldValue\.serverTimestamp\(\)/);
+  assert.match(backend, /archivedBy: uid/);
+  assert.match(backend, /document\.data\(\)\.archived !== true/);
+  assert.match(hostPage, /Delete Group/);
+  assert.match(hostPage, /Archive Group/);
+  assert.match(hostPage, /groupOrderService\.cleanup/);
+  assert.match(groupService, /cleanupMyMiseChefGroupOrder/);
+  assert.doesNotMatch(rules, /allow (create|update|delete): if .*host/i);
+});
+
 test('Group ownership, tenant values, reward configuration, and totals are server-derived', () => {
   assert.match(backend, /hostId: uid/);
   assert.match(backend, /workspaceId: readString\(store\.workspaceId\) \|\| store\.id/);

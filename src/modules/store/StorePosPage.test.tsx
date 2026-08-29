@@ -5,6 +5,7 @@ import test from 'node:test';
 const pageSource = readFileSync(new URL('./StorePosPage.tsx', import.meta.url), 'utf8');
 const serviceSource = readFileSync(new URL('./services/storeOrderService.ts', import.meta.url), 'utf8');
 const appSource = readFileSync(new URL('../../App.tsx', import.meta.url), 'utf8');
+const groupKitchenSource = readFileSync(new URL('./groupKitchenOrderModel.ts', import.meta.url), 'utf8');
 
 test('POS prioritizes three active kitchen columns and moves Completed to a compact summary', () => {
   for (const label of ['New', 'Preparing', 'Ready']) {
@@ -23,6 +24,8 @@ test('POS extends the shared realtime service with a tenant-safe ordered Store q
   assert.match(serviceSource, /where\('workspaceId', '==', workspaceId\)/);
   assert.match(serviceSource, /orderBy\('createdAt', 'desc'\)/);
   assert.match(serviceSource, /isOrderOperationallyEligible/);
+  assert.match(serviceSource, /unresolvedGroupIds/);
+  assert.match(serviceSource, /onData\(kitchenOrders, addedNewOrderIds\)/);
   assert.match(serviceSource, /!knownOperationalOrderIds\.has\(order\.id\)/);
   assert.match(pageSource, /addedNewOrderIds\.length > 0/);
   assert.match(pageSource, /audioRef\.current\.play\(\)/);
@@ -74,4 +77,18 @@ test('footer reads the Store document and labels the exact active-online definit
   assert.match(pageSource, /store\?\.name/);
   assert.match(pageSource, /Active Online Orders/);
   assert.match(pageSource, /countActiveOnlineOrders\(orders\)/);
+});
+
+test('Group Kitchen cards use exact Group ids and preserve per-order fulfilment actions', () => {
+  assert.match(pageSource, /buildGroupKitchenEntries\(orders, column\.status\)/);
+  assert.match(pageSource, /data-group-order-id=\{entry\.groupId\}/);
+  assert.match(pageSource, /data-store-order-id=\{order\.id\}/);
+  assert.match(pageSource, /member\.position.*member\.total.*order\.customerName/s);
+  assert.match(pageSource, /formatStoreOrderSetSelection/);
+  assert.match(pageSource, /option\.groupName.*option\.optionName/s);
+  assert.match(pageSource, /Remark: \{order\.notes\}/);
+  assert.match(pageSource, /advanceOrder\(order\)/);
+  assert.doesNotMatch(pageSource, /advanceGroup|completeGroup|fulfilGroup/);
+  assert.match(groupKitchenSource, /candidateGroups\.get\(groupId\)/);
+  assert.doesNotMatch(groupKitchenSource, /groupOrder\?\.name.*Map|hostName.*Map|pickupSession.*Map/);
 });
