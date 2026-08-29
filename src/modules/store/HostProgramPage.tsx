@@ -60,6 +60,9 @@ export default function HostProgramPage({ slug, currentUser }: { slug: string; c
     sales: result.sales + group.eligibleSales,
     rewards: result.rewards + group.estimatedReward
   }), { active: 0, sales: 0, rewards: 0 }), [groups]);
+  const hostIdentity = currentUser?.displayName?.trim()
+    || currentUser?.email?.split('@')[0]?.trim()
+    || 'MiseChef Host';
 
   const activate = async () => {
     setBusy(true);
@@ -173,6 +176,7 @@ export default function HostProgramPage({ slug, currentUser }: { slug: string; c
         <p className="font-sans text-xs font-extrabold uppercase tracking-[0.18em] text-on-primary/70">{data.store.name}</p>
         <h1 className="mt-2 font-display text-4xl font-bold">Host Center</h1>
         <p className="mt-2 font-sans text-sm font-bold text-on-primary/80">Your group orders &amp; rewards</p>
+        <p className="mt-1 font-sans text-xs font-bold text-on-primary/70">Signed in as {hostIdentity}</p>
       </section>
 
       {message && <p role="status" className="rounded-2xl bg-surface-container-low p-4 font-sans text-sm font-bold text-primary">{message}</p>}
@@ -212,7 +216,7 @@ export default function HostProgramPage({ slug, currentUser }: { slug: string; c
           {createdShareCode && <section className="rounded-3xl border border-secondary/30 bg-secondary/10 p-6"><h2 className="font-display text-2xl font-bold text-primary">Your Group is ready</h2><div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => share({ shareCode: createdShareCode, name: 'MiseChef Group Order', storeName: data.store.name })} className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary"><Share2 className="h-4 w-4" /> Share</button><button type="button" onClick={() => copyShareCode(createdShareCode)} className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 font-sans text-xs font-extrabold text-primary"><Copy className="h-4 w-4" /> Copy Link</button></div></section>}
 
           <section>
-            <h2 className="font-display text-3xl font-bold text-primary">My Groups</h2>
+            <h2 className="font-display text-3xl font-bold text-primary">My Hosted Groups</h2>
             {groups.length === 0 ? <p className="mt-4 rounded-3xl bg-surface-container-low p-7 font-sans text-sm font-bold text-on-surface-variant">No Groups yet. Start your first Group Order.</p> : <div className="mt-4 grid gap-4 sm:grid-cols-2">{groups.map(group => <article key={group.id} className="rounded-3xl border border-surface-container-high bg-white p-6 shadow-sm"><div className="flex items-start justify-between gap-3"><div><h3 className="font-display text-2xl font-bold text-primary">{group.name}</h3><p className="mt-1 font-sans text-xs font-extrabold uppercase tracking-wider text-secondary">{statusLabel(group.status)}</p></div><CalendarClock className="h-5 w-5 text-secondary" /></div><p className="mt-4 font-sans text-sm font-bold text-on-surface-variant">{formatPickupDateLabel(group.pickupDate, data.store.country)} · {group.pickupSession}<br />{group.pickupLocationName}</p><dl className="mt-5 grid grid-cols-3 gap-3"><div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Qualifying paid orders</dt><dd className="font-display text-2xl font-bold text-primary">{group.orderCount}</dd></div><div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Group Sales</dt><dd className="font-sans text-lg font-extrabold text-primary">{formatRegionCurrency(group.eligibleSales, data.store.currency)}</dd></div><div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Estimated Reward</dt><dd className="font-sans text-lg font-extrabold text-secondary">{formatRegionCurrency(group.estimatedReward, data.store.currency)}</dd></div></dl><div className="mt-5 grid grid-cols-2 gap-2"><button type="button" onClick={() => share(group)} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-4 py-3 font-sans text-xs font-extrabold text-on-primary"><Share2 className="h-4 w-4" /> Share</button><button type="button" disabled={manageLoading} onClick={() => openManage(group.id)} className="rounded-full bg-surface-container px-4 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-50">Manage</button></div></article>)}</div>}
           </section>
         </>

@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   calculateRewardContribution,
   getPublicGroupOrder,
+  listHostGroupOrders,
   listHostGroupOrdersDetail,
   revalidateCheckoutGroupInTransaction,
   transitionGroupOrder
@@ -152,6 +153,38 @@ test('persisted closed and cancelled Group states override a future closing time
     });
     assert.equal(result.status, status);
   }
+});
+
+test('Host listing excludes Groups the authenticated Host only participated in as a customer', async () => {
+  const db = createFakeDb({
+    'stores/store-a': {
+      slug: 'store-a',
+      name: 'Store A',
+      workspaceId: 'workspace-a',
+      hostProgram: { enabled: true }
+    },
+    'hostProfiles/host-a': { userId: 'host-a', status: 'active' },
+    'hostProfiles/host-b': { userId: 'host-b', status: 'active' },
+    'groupOrders/group-a': openGroup({ hostId: 'host-a', hostName: 'Host A' }),
+    'groupOrders/group-b': openGroup({
+      shareCode: 'share-b',
+      hostId: 'host-b',
+      hostName: 'Host B',
+      name: 'Host B Team Lunch'
+    }),
+    'storeOrders/host-b-order': {
+      customerName: 'Host B',
+      groupOrder: { id: 'group-a', hostId: 'host-a' }
+    }
+  });
+
+  const hostA = await listHostGroupOrders({ db, uid: 'host-a', slug: 'store-a' });
+  const hostB = await listHostGroupOrders({ db, uid: 'host-b', slug: 'store-a' });
+
+  assert.equal(hostA.hostActive, true);
+  assert.deepEqual(hostA.groups.map(group => group.id), ['group-a']);
+  assert.equal(hostB.hostActive, true);
+  assert.deepEqual(hostB.groups.map(group => group.id), ['group-b']);
 });
 
 test('Host can close only their own open Group and repeated close is idempotent', async () => {

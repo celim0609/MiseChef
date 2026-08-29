@@ -188,13 +188,16 @@ test('Host Center is the single compact dashboard with Create, summaries, Share 
     'Estimated Rewards',
     '+ Start a Group Order',
     'Create &amp; Share',
-    'My Groups',
+    'My Hosted Groups',
     'Qualifying paid orders',
     'Close Group',
     'Cancel Group'
   ]) assert.match(hostPage, new RegExp(label.replace(/[+]/g, '\\+')));
   assert.match(groupService, /getMyMiseChefGroupOrder/);
   assert.match(groupService, /updateMyMiseChefGroupOrderStatus/);
+  assert.match(hostPage, /currentUser\?\.displayName\?\.trim\(\)/);
+  assert.match(hostPage, /currentUser\?\.email\?\.split\('@'\)\[0\]\?\.trim\(\)/);
+  assert.match(hostPage, /Signed in as \{hostIdentity\}/);
   assert.doesNotMatch(hostPage, /cash.?out|wallet/i);
 });
 
