@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { getValidatedHostReturnTo, replaceWithValidatedHostReturnTo } from '../public/hostReturnNavigation';
+import {
+  getValidatedHostReturnTo,
+  replaceWithValidatedHostReturnTo,
+  resolvePublicAccountLink,
+  resolvePublicHostStoreCandidate
+} from '../public/hostReturnNavigation';
 import { resolvePublicRoute } from '../public/publicRoutes';
 import { createDefaultWorkspaceStore, normalizeWorkspaceStore, validateStoreSettings } from './storeModel';
 
@@ -58,7 +63,8 @@ test('Host auth is passed explicitly, returnTo is preserved, and the header refl
   assert.match(publicLayout, /<HostProgramPage slug=\{route\.slug\} currentUser=\{currentUser\}/);
   assert.match(hostPage, /currentUser: User \| null/);
   assert.match(hostPage, /if \(!currentUser\)/);
-  assert.match(publicLayout, /currentUser\s*\? \{ label: route\.page === 'host' \? 'Host Center' : 'Workspace'/);
+  assert.match(publicLayout, /groupOrderService\.listMine\(hostStoreCandidate\)/);
+  assert.match(publicLayout, /result\.hostActive/);
   assert.match(appSource, /window\.location\.pathname !== '\/login'/);
   assert.match(appSource, /replaceWithValidatedHostReturnTo/);
   assert.match(appSource, /pathname === '\/login'/);
@@ -67,6 +73,43 @@ test('Host auth is passed explicitly, returnTo is preserved, and the header refl
   assert.match(hostPage, /navigator\.share/);
   assert.match(hostPage, /navigator\.clipboard\.writeText/);
   assert.match(hostPage, /Login \/ Become a Host/);
+});
+
+test('activated Host navigation remains visible across public Home, Recipes and Chefs', () => {
+  const storeSlug = 'misechef-s-grab-go-store';
+  for (const pathname of ['/', '/recipes', '/chefs']) {
+    const route = resolvePublicRoute(pathname);
+    assert.ok(route);
+    const candidate = resolvePublicHostStoreCandidate('', '', [storeSlug]);
+    assert.equal(candidate, storeSlug);
+    assert.deepEqual(resolvePublicAccountLink({
+      authenticated: true,
+      validatedHostStoreSlug: candidate
+    }), {
+      label: 'Host Center',
+      href: '/host/misechef-s-grab-go-store'
+    });
+  }
+});
+
+test('Store and Group context select a candidate but require trusted Host validation', () => {
+  assert.equal(resolvePublicHostStoreCandidate('store-one', '', ['store-two']), 'store-one');
+  assert.equal(resolvePublicHostStoreCandidate('', 'group-store', ['store-two']), 'group-store');
+  assert.equal(resolvePublicHostStoreCandidate('', '', ['store-one', 'store-two']), '');
+  assert.deepEqual(resolvePublicAccountLink({ authenticated: true }), { label: 'Workspace', href: '/app' });
+  assert.match(publicLayout, /<PublicGroupOrderPage shareCode=\{route\.shareCode\} onStoreResolved=\{setGroupStoreSlug\}/);
+});
+
+test('non-Host and logged-out public account navigation remains unchanged', () => {
+  assert.deepEqual(resolvePublicAccountLink({ authenticated: true }), { label: 'Workspace', href: '/app' });
+  assert.deepEqual(resolvePublicAccountLink({ authenticated: false }), { label: 'Login', href: '/login' });
+  assert.deepEqual(resolvePublicAccountLink({
+    authenticated: false,
+    currentHostRouteSlug: 'misechef-s-grab-go-store'
+  }), {
+    label: 'Login',
+    href: '/login?returnTo=%2Fhost%2Fmisechef-s-grab-go-store'
+  });
 });
 
 test('Host authentication return takes precedence and replaces Login history', () => {

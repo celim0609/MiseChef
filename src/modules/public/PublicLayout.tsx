@@ -7,6 +7,7 @@ import { getRecipeCategories } from '../../utils/categoryUtils';
 import PublicHomePage from './PublicHomePage';
 import { PublicChefCard, PublicSectionState, type PublicChefSummary, type PublicSectionStatus } from './PublicContent';
 import { resolvePublicRoute, toPublicSlug } from './publicRoutes';
+import { resolvePublicAccountLink, resolvePublicHostStoreCandidate } from './hostReturnNavigation';
 import { publicChefProfileService, publicDiscoverService, publicRecipeService } from './services';
 import type { PublicDiscoverStoreSummary } from './publicDiscoverModel';
 import PublicChefProfilePage from './PublicChefProfilePage';
@@ -15,6 +16,7 @@ import { HostProgramPage, PublicGroupOrderPage, PublicStorePage } from '../store
 import { HomepageAnnouncementCarousel } from './HomepageCarousels';
 import type { HomepagePromotion } from './homepagePromotions';
 import { resolvePublicRecipeAuthors } from './publicRecipeAuthor';
+import { groupOrderService } from '../store/services';
 
 const publicNavigation = [
   { label: 'Home', href: '/' },
@@ -32,17 +34,27 @@ const EmptyPublicState = ({ title, message, icon }: { title: string; message: st
 
 export default function PublicLayout({ pathname, currentUser }: { pathname: string; currentUser: User | null }) {
   const route = resolvePublicRoute(pathname) || { page: 'home' as const };
-  const hostReturnTo = route.page === 'host' ? `/host/${encodeURIComponent(route.slug)}` : '';
-  const accountLink = currentUser
-    ? { label: route.page === 'host' ? 'Host Center' : 'Workspace', href: route.page === 'host' ? hostReturnTo : '/app' }
-    : { label: 'Login', href: hostReturnTo ? `/login?returnTo=${encodeURIComponent(hostReturnTo)}` : '/login' };
   const [publicRecipes, setPublicRecipes] = useState<Recipe[]>([]);
   const [publicChefs, setPublicChefs] = useState<PublicChefSummary[]>([]);
   const [publicDiscoverStores, setPublicDiscoverStores] = useState<PublicDiscoverStoreSummary[]>([]);
   const [homepagePromotions, setHomepagePromotions] = useState<HomepagePromotion[]>([]);
   const [chefSearch, setChefSearch] = useState('');
   const [recipeStatus, setRecipeStatus] = useState<PublicSectionStatus>('loading');
+  const [groupStoreSlug, setGroupStoreSlug] = useState('');
+  const [validatedHostStoreSlug, setValidatedHostStoreSlug] = useState('');
   const [isNightMode, setIsNightMode] = useState(() => typeof document !== 'undefined' && document.documentElement.dataset.appearance === 'dark');
+
+  const routeStoreSlug = route.page === 'store' || route.page === 'host' ? route.slug : '';
+  const hostStoreCandidate = resolvePublicHostStoreCandidate(
+    routeStoreSlug,
+    route.page === 'group' ? groupStoreSlug : '',
+    route.page === 'group' ? [] : publicDiscoverStores.map(store => store.slug)
+  );
+  const accountLink = resolvePublicAccountLink({
+    authenticated: Boolean(currentUser),
+    currentHostRouteSlug: route.page === 'host' ? route.slug : '',
+    validatedHostStoreSlug
+  });
 
   const toggleAppearance = () => {
     const nextMode = isNightMode ? 'light' : 'dark';
@@ -71,6 +83,22 @@ export default function PublicLayout({ pathname, currentUser }: { pathname: stri
       isCancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let isCancelled = false;
+    setValidatedHostStoreSlug('');
+    if (!currentUser || !hostStoreCandidate || route.page === 'host') return;
+
+    groupOrderService.listMine(hostStoreCandidate)
+      .then(result => {
+        if (!isCancelled && result.hostActive) setValidatedHostStoreSlug(hostStoreCandidate);
+      })
+      .catch(() => {
+        if (!isCancelled) setValidatedHostStoreSlug('');
+      });
+
+    return () => { isCancelled = true; };
+  }, [currentUser?.uid, hostStoreCandidate, route.page]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -170,7 +198,7 @@ export default function PublicLayout({ pathname, currentUser }: { pathname: stri
     }
 
     if (route.page === 'group') {
-      return <PublicGroupOrderPage shareCode={route.shareCode} />;
+      return <PublicGroupOrderPage shareCode={route.shareCode} onStoreResolved={setGroupStoreSlug} />;
     }
 
     if (route.page === 'chefs') {
