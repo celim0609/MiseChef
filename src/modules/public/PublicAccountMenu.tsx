@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { BookOpen, BriefcaseBusiness, ChevronDown, LogOut, ReceiptText, UserRound, UsersRound } from 'lucide-react';
+import { BookOpen, BriefcaseBusiness, ChevronDown, LayoutDashboard, LogOut, ReceiptText, UserRound, UsersRound } from 'lucide-react';
 import type { PublicHostMenuAction } from './hostReturnNavigation';
 
 export default function PublicAccountMenu({
@@ -63,7 +63,12 @@ export default function PublicAccountMenu({
           aria-label="Account"
           className="fixed inset-x-3 top-16 z-[90] max-h-[calc(100dvh-5rem)] overflow-y-auto rounded-3xl border border-surface-container-high bg-white p-2 shadow-2xl shadow-primary/15 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80"
         >
-          <a ref={firstItemRef} role="menuitem" href="/app/recipes" onClick={closeMenu} className="flex items-center gap-3 rounded-2xl px-3 py-3 text-primary transition-colors hover:bg-surface-container-low focus:bg-surface-container-low focus:outline-none focus:ring-2 focus:ring-primary/20">
+          <a ref={firstItemRef} role="menuitem" href="/app" onClick={closeMenu} className="flex items-center gap-3 rounded-2xl px-3 py-3 text-primary transition-colors hover:bg-surface-container-low focus:bg-surface-container-low focus:outline-none focus:ring-2 focus:ring-primary/20">
+            <LayoutDashboard className="h-5 w-5" aria-hidden="true" />
+            <span className="font-sans text-sm font-extrabold">My MiseChef</span>
+          </a>
+
+          <a role="menuitem" href="/app/recipes" onClick={closeMenu} className="flex items-center gap-3 rounded-2xl px-3 py-3 text-primary transition-colors hover:bg-surface-container-low focus:bg-surface-container-low focus:outline-none focus:ring-2 focus:ring-primary/20">
             <BookOpen className="h-5 w-5" aria-hidden="true" />
             <span className="font-sans text-sm font-extrabold">My Recipes</span>
           </a>
@@ -83,7 +88,7 @@ export default function PublicAccountMenu({
             </a>
           )}
 
-          <a role="menuitem" href="/app" onClick={closeMenu} className="flex items-center gap-3 rounded-2xl px-3 py-3 text-primary transition-colors hover:bg-surface-container-low focus:bg-surface-container-low focus:outline-none focus:ring-2 focus:ring-primary/20">
+          <a role="menuitem" href="/app/business" onClick={closeMenu} className="flex items-center gap-3 rounded-2xl px-3 py-3 text-primary transition-colors hover:bg-surface-container-low focus:bg-surface-container-low focus:outline-none focus:ring-2 focus:ring-primary/20">
             <BriefcaseBusiness className="h-5 w-5" aria-hidden="true" />
             <span className="min-w-0">
               <span className="block font-sans text-sm font-extrabold">Workspace</span>

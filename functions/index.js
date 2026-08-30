@@ -29,6 +29,7 @@ import {
   requireWorkspaceFeature
 } from './subscriptionFoundation.js';
 import { provisionNewUser } from './newUserProvisioning.js';
+import { startBusinessTrial } from './businessTrial.js';
 import {
   createPaymentAdapter
 } from './paymentProviders/index.js';
@@ -171,6 +172,13 @@ export const provisionNewUserWorkspace = onCall({ region: REGION }, async reques
   email: request.auth?.token?.email || '',
   authDisplayName: request.auth?.token?.name || '',
   requestedDisplayName: request.data?.displayName || ''
+}));
+
+export const startMiseChefBusinessTrial = onCall({ region: REGION }, async request => startBusinessTrial({
+  db,
+  uid: request.auth?.uid,
+  email: request.auth?.token?.email || '',
+  authDisplayName: request.auth?.token?.name || ''
 }));
 
 export const activateMiseChefHost = onCall({ region: REGION }, async request => activateHostProfile({

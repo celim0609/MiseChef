@@ -151,11 +151,11 @@ export interface ChefProfile {
 
 export const DEFAULT_CHEF_PROFILE: ChefProfile = {
   photo: '',
-  name: 'Ce Lim',
-  jobTitle: 'Junior Sous Chef',
-  yearsExperience: '8+',
-  bio: 'Passionate chef specializing in bakery, pastry, school meals, and recipe development.',
-  quote: 'Every recipe tells a story.'
+  name: '',
+  jobTitle: '',
+  yearsExperience: '',
+  bio: '',
+  quote: ''
 };
 
 export type UserRole = 'super_admin' | 'admin' | 'user';

@@ -15,7 +15,31 @@ test('the authenticated app classifies every Workspace business route centrally'
   businessTabs.forEach(tab => assert.match(classification, new RegExp(`'${tab}'`)));
   assert.doesNotMatch(classification, /'search'|'favorites'|'portfolio'|'profile'|'billing'/);
   assert.match(app, /BUSINESS_WORKSPACE_TABS\.has\(tab\) && !hasBusinessEntitlement/);
-  assert.match(app, /BUSINESS_WORKSPACE_TABS\.has\(activeTab\) && !hasBusinessEntitlement/);
+  assert.match(app, /currentUser && BUSINESS_WORKSPACE_TABS\.has\(activeTab\)/);
+  assert.match(app, /businessEntitlement === null/);
+  assert.match(app, /!hasBusinessEntitlement \|\| !canAccessRootTab/);
+});
+
+test('Guest, Personal, and Business identity boundaries fail closed', () => {
+  const app = read('../App.tsx');
+  const provisioning = read('../../functions/newUserProvisioning.js');
+  const subscriptionFoundation = read('../../functions/subscriptionFoundation.js');
+  const trial = read('../../functions/businessTrial.js');
+  const pricing = read('../modules/subscription/PricingExperience.tsx');
+  assert.doesNotMatch(app, /setIsGuestMode\(true\)/);
+  assert.match(app, /const isProtectedShellVisible = Boolean\(currentUser\)/);
+  assert.match(app, /if \(!currentUser && tab !== 'login'\)[\s\S]*window\.history\.replaceState\(null, '', '\/login'\)/);
+  assert.match(app, /handleContinueAsGuest[\s\S]*signOut\(auth\)[\s\S]*setBusinessEntitlement\(null\)[\s\S]*setChefProfile\(DEFAULT_CHEF_PROFILE\)[\s\S]*window\.location\.replace\('\/'\)/);
+  assert.doesNotMatch(provisioning, /collection\('workspaces'\)|collection\('workspaceMembers'\)|allowTrialProvisioning/);
+  assert.doesNotMatch(subscriptionFoundation, /allowTrialProvisioning|isProvisionedTrial/);
+  assert.match(trial, /startBusinessTrial/);
+  assert.match(trial, /subscriptionPlan: 'professional'/);
+  assert.match(trial, /subscriptionStatus: 'trialing'/);
+  assert.match(pricing, /RM0 forever/);
+  assert.match(pricing, /RM39\/month/);
+  assert.match(pricing, /RM79\/month/);
+  assert.match(pricing, /RM149\/month/);
+  assert.doesNotMatch(pricing, /1 Workspace|Up to 20 Products|Up to 50 Orders/);
 });
 
 test('navigation hiding and dashboard loading use the same fail-closed entitlement', () => {

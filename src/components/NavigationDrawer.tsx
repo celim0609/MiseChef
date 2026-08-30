@@ -61,6 +61,8 @@ interface NavigationDrawerProps {
   categoryCounts: Record<string, number>;
   onClose: () => void;
   onNavigate: (tab: RootTab) => void;
+  onPublicHome: () => void;
+  onRequestBusinessAccess: () => void;
   onSelectCategory: (categoryName: string | null) => void;
   onSelectFavorites: () => void;
   currentUser: User | null;
@@ -83,6 +85,8 @@ export default function NavigationDrawer({
   categoryCounts,
   onClose,
   onNavigate,
+  onPublicHome,
+  onRequestBusinessAccess,
   onSelectCategory,
   onSelectFavorites,
   currentUser,
@@ -166,7 +170,7 @@ export default function NavigationDrawer({
 
   const handleHomeSelect = () => {
     onSelectCategory(null);
-    onNavigate('home');
+    onPublicHome();
     setOpenCategoryMenuId(null);
     onClose();
   };
@@ -214,6 +218,7 @@ export default function NavigationDrawer({
     { label: 'Store', icon: <StoreIcon className="w-5 h-5" />, tab: 'store' as RootTab },
     { label: 'Team', icon: <UsersRound className="w-5 h-5" />, tab: 'team' as RootTab },
     { label: 'Chef Profile', icon: <BriefcaseBusiness className="w-5 h-5" />, tab: 'portfolio' as RootTab },
+    { label: 'Personal Profile', icon: <BriefcaseBusiness className="w-5 h-5" />, tab: 'profile' as RootTab },
     { label: 'Settings', icon: <Settings className="w-5 h-5" />, tab: 'settings' as RootTab },
     { label: 'Subscription', icon: <CreditCard className="w-5 h-5" />, tab: 'billing' as RootTab }
   ].filter(item => !item.tab || canAccess(item.tab));
@@ -349,13 +354,22 @@ export default function NavigationDrawer({
                 type="button"
                 onClick={handleHomeSelect}
                 className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-sans font-extrabold text-sm transition-all ${
-                  activeTab === 'home'
-                    ? 'bg-primary text-on-primary shadow-sm'
-                    : 'text-primary hover:bg-surface-container'
+                  'text-primary hover:bg-surface-container'
                 }`}
               >
                 <Home className="w-5 h-5" />
                 <span>Home</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleNavigate('home')}
+                className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-sans font-extrabold text-sm transition-all ${
+                  activeTab === 'home' ? 'bg-primary text-on-primary shadow-sm' : 'text-primary hover:bg-surface-container'
+                }`}
+              >
+                <BriefcaseBusiness className="w-5 h-5" />
+                <span>My MiseChef</span>
               </button>
 
               {!canAccessRecipes && currentUser && (
@@ -588,7 +602,15 @@ export default function NavigationDrawer({
               )}
 
               {businessMenuItems.length === 0 && currentUser && (
-                <LockedNavItem label="Business" icon={<CreditCard className="w-5 h-5" />} feature="reports" />
+                <button
+                  type="button"
+                  onClick={() => { onRequestBusinessAccess(); onClose(); }}
+                  className="w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-sans font-extrabold text-sm text-primary transition-all hover:bg-surface-container"
+                >
+                  <BriefcaseBusiness className="w-5 h-5" />
+                  <span className="flex-1">Workspace</span>
+                  <LockKeyhole className="h-4 w-4 text-outline" />
+                </button>
               )}
 
               {businessMenuItems.length > 0 && (
@@ -720,6 +742,15 @@ export default function NavigationDrawer({
                   <span>{item.label}</span>
                 </button>
               ))}
+
+              <button
+                type="button"
+                onClick={() => window.location.assign('/host/groups')}
+                className="w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-sans font-extrabold text-sm text-primary transition-all hover:bg-surface-container active:scale-[0.99]"
+              >
+                <UsersRound className="w-5 h-5" />
+                <span>Host Center</span>
+              </button>
 
             </nav>
 
