@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const functionsIndex = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
 const paymentService = readFileSync(new URL('./storePayments.js', import.meta.url), 'utf8');
+const fulfilmentService = readFileSync(new URL('./storeFulfilment.js', import.meta.url), 'utf8');
 const stripeAdapter = readFileSync(
   new URL('./paymentProviders/stripeSingleMerchant.js', import.meta.url),
   'utf8'
@@ -33,6 +34,13 @@ const stripeClientAdapter = readFileSync(
   new URL('../src/modules/store/paymentProviders/stripeClientAdapter.tsx', import.meta.url),
   'utf8'
 );
+const manualPaymentService = readFileSync(new URL('./storeManualPayments.js', import.meta.url), 'utf8');
+const manualClientAdapter = readFileSync(
+  new URL('../src/modules/store/paymentProviders/manualClientAdapter.tsx', import.meta.url),
+  'utf8'
+);
+const storageRules = readFileSync(new URL('../storage.rules', import.meta.url), 'utf8');
+const storeNotifications = readFileSync(new URL('./storeNotifications.js', import.meta.url), 'utf8');
 
 test('Stripe secrets stay server-side and webhook verification uses the raw signed body', () => {
   assert.match(functionsIndex, /defineSecret\('STRIPE_SECRET_KEY'\)/);
@@ -60,13 +68,41 @@ test('clients cannot create or mutate Store orders and payment events', () => {
   assert.match(rules, /allow create: if false/);
   assert.match(rules, /allow update, delete: if false/);
   assert.match(rules, /match \/storePaymentEvents\/\{eventId\}/);
+  assert.match(rules, /match \/storeOrderTimeline\/\{eventId\}[\s\S]*allow create, update, delete: if false/);
+  assert.match(rules, /match \/storeNotifications\/\{notificationId\}[\s\S]*allow create, delete: if false/);
 });
 
-test('Payment Element keeps email optional and payment methods account-driven', () => {
+test('fulfilment changes are server-owned, sequential, audited, and Store-operator only', () => {
+  assert.match(functionsIndex, /export const updateStoreOrderStatus = onCall/);
+  assert.match(fulfilmentService, /\['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef'\]\.includes\(membership\.role\)/);
+  assert.match(fulfilmentService, /readString\(workspace\.ownerId\) === uid/);
+  assert.match(fulfilmentService, /FieldValue\.serverTimestamp\(\)/);
+  assert.match(fulfilmentService, /previousStatus: currentStatus/);
+  assert.match(fulfilmentService, /actingUserId: uid/);
+  assert.match(fulfilmentService, /cancellationReason: normalizedCancellationReason/);
+  assert.match(fulfilmentService, /cancelledBy = uid/);
+  assert.match(fulfilmentService, /cancelledAt = FieldValue\.serverTimestamp\(\)/);
+  assert.doesNotMatch(fulfilmentService, /refundStatus === 'refunded'/);
+});
+
+test('a paid Stripe payment creates one deterministic persistent order notification', () => {
+  assert.match(paymentService, /getStoreNotificationId\(STORE_NOTIFICATION_TYPE\.newOrder, orderId\)/);
+  assert.match(storeNotifications, /newOrder: 'new_order'/);
+  assert.match(storeNotifications, /\[STORE_NOTIFICATION_TYPE\.newOrder\]: 'new-paid-order'/);
+  assert.match(paymentService, /orderId}_payment-received/);
+  assert.match(paymentService, /if \(isNewPaidOrder[\s\S]*!notificationSnapshot\.exists\)/);
+  assert.match(storeNotifications, /readAt: null/);
+  assert.match(paymentService, /createdAt: FieldValue\.serverTimestamp\(\)/);
+});
+
+test('Stripe Checkout leaves eligible payment methods account-driven', () => {
   assert.match(paymentForm, /email: 'auto'/);
   assert.doesNotMatch(paymentForm, /email: 'never'/);
   assert.match(paymentForm, /address: 'if_required'/);
-  assert.match(stripeAdapter, /automatic_payment_methods: \{ enabled: true \}/);
+  assert.match(stripeAdapter, /stripe\.checkout\.sessions\.create/);
+  assert.match(stripeAdapter, /payment_method_types is intentionally omitted/);
+  assert.doesNotMatch(stripeAdapter, /payment_method_types:/);
+  assert.match(stripeAdapter, /type: 'provider_redirect'/);
 });
 
 test('Payment Element recovers from rejected confirmations so customers can retry', () => {
@@ -87,4 +123,28 @@ test('Store checkout and order flow depend on provider-neutral payment sessions'
   assert.match(clientPaymentProviderRegistry, /stripeClientPaymentAdapter/);
   assert.match(stripeClientAdapter, /StripePaymentForm/);
   assert.match(stripeClientAdapter, /stripe_payment_element/);
+  assert.match(stripeClientAdapter, /provider_redirect/);
+  assert.match(clientPaymentProviderRegistry, /manualClientPaymentAdapter/);
+  assert.match(manualClientAdapter, /manual_payment/);
+});
+
+test('browser return reads webhook-owned status and cannot mark an online order Paid', () => {
+  const resultStart = paymentService.indexOf('export const getStorePaymentResult');
+  const cancelStart = paymentService.indexOf('export const cancelStorePayment', resultStart);
+  const resultFlow = paymentService.slice(resultStart, cancelStart);
+  assert.match(resultFlow, /loadAuthorizedPaymentOrder/);
+  assert.match(resultFlow, /toPublicOrderResult\(authorizedOrder\)/);
+  assert.doesNotMatch(resultFlow, /reconcileStorePayment/);
+  assert.match(publicStorePage, /payment_cancelled/);
+});
+
+test('manual payment receipts are private, bounded, and reviewed only by the Store team', () => {
+  assert.match(manualPaymentService, /2 \* 1024 \* 1024/);
+  assert.match(manualPaymentService, /checkoutAccessToken/);
+  assert.match(manualPaymentService, /Only the Store Owner or Manager/);
+  assert.match(manualPaymentService, /PAYMENT_STATUS\.pendingVerification/);
+  assert.match(manualPaymentService, /FieldValue\.serverTimestamp\(\)/);
+  assert.match(storageRules, /match \/store-payment-receipts\/\{workspaceId\}/);
+  assert.match(storageRules, /allow read: if canManageWorkspace\(workspaceId\)/);
+  assert.match(storageRules, /allow create, update, delete: if false/);
 });

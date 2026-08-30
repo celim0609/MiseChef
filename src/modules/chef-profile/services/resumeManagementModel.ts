@@ -1,6 +1,8 @@
 import type { ChefProfile, ImportedChefProfile } from '../types';
+import { isResumeImportError, type ResumeImportErrorCode } from './resumeImportErrors';
+import type { ResumeImportClientTimings } from './resumeImportPipeline';
 
-export type ResumeImportStatus = 'imported' | 'review_required' | 'retry_required' | 'failed';
+export type ResumeImportStatus = 'imported' | 'review_required' | 'failed';
 
 export interface ManagedChefResume {
   userId: string;
@@ -12,7 +14,6 @@ export interface ManagedChefResume {
   uploadedAt?: unknown;
   importedAt?: unknown;
   draft?: ImportedChefProfile;
-  extractedText?: string;
   lastError?: string;
 }
 
@@ -24,8 +25,15 @@ export interface ResumeFileUpload {
 }
 
 export interface ResumeUploadResult extends ResumeFileUpload {
-  profile: ImportedChefProfile;
+  jobId: string;
+  timings: ResumeImportClientTimings;
 }
+
+export const acquireResumeImportLock = (lock: { current: boolean }) => {
+  if (lock.current) return null;
+  lock.current = true;
+  return () => { lock.current = false; };
+};
 
 export const getResumeImportSummary = (draft: ImportedChefProfile) => ([
   { label: 'Experience imported', count: draft.experiences.length },
@@ -35,12 +43,27 @@ export const getResumeImportSummary = (draft: ImportedChefProfile) => ([
 ]);
 
 export const getResumeImportErrorMessage = (error: unknown, fileName = '') => {
-  const source = error && typeof error === 'object' ? error as Record<string, unknown> : {};
-  const code = typeof source.code === 'string' ? source.code : '';
-  const message = error instanceof Error ? error.message.trim() : '';
-  if (message.startsWith('AI service is temporarily busy.')) {
-    return 'AI service is temporarily busy.\nPlease retry in a few minutes.';
+  if (isResumeImportError(error)) {
+    const messages: Record<ResumeImportErrorCode, string> = {
+      unsupported_file: 'Choose a PDF or DOCX resume.',
+      file_too_large: 'Your resume must be 10 MB or smaller.',
+      upload_failed: 'We could not upload this resume. Check your connection and try again.',
+      upload_registration_failed: 'The resume uploaded, but we could not register it for review. Please try again.',
+      download_failed: 'We could not retrieve the saved resume for retry. Check your connection and try again.',
+      pdf_invalid: 'This PDF is invalid, unsupported, or password protected. Try another PDF.',
+      pdf_corrupted: 'This PDF appears to be damaged. Export a fresh copy and try again.',
+      pdf_worker_failed: 'The PDF reader could not start. Refresh the app and retry; your PDF may still be valid.',
+      pdf_parse_failed: 'We could not process this PDF. Export a fresh copy and try again.',
+      pdf_empty_text: 'No selectable text was found in this PDF. Use a text-based PDF and try again.',
+      resume_text_too_short: 'The file contains too little resume text to import reliably.',
+      docx_parse_failed: 'We could not read this DOCX file. Check that it opens correctly and try again.',
+      resume_parser_failed: 'We read the resume, but could not prepare the profile review. Please retry.',
+      resume_parser_network_failed: 'We read the resume, but the profile importer could not be reached. Check your connection and retry.',
+      unknown: 'Resume import failed. Retry the existing file or replace it with a clearer PDF or DOCX.'
+    };
+    return messages[error.code];
   }
+  const message = error instanceof Error ? error.message.trim() : '';
   if (message && (
     message.startsWith('Resume imported, but')
     || message.startsWith('The uploaded file is valid')
@@ -49,30 +72,9 @@ export const getResumeImportErrorMessage = (error: unknown, fileName = '') => {
     || message.startsWith('Choose a PDF or DOCX')
     || message.startsWith('Your resume must be')
   )) return message;
-  if (code.startsWith('functions/') && message) {
-    return `${message} (${code})`;
-  }
-  if (message && !/invalid pdf|insufficient text|pdf.*(parse|read|structure)/i.test(message)) {
-    return message;
-  }
-  if (/\.pdf$/i.test(fileName)) return 'Unable to read PDF. Make sure it contains selectable text, then retry or replace it.';
+  if (/\.pdf$/i.test(fileName)) return 'We could not process this PDF. Export a fresh copy and try again.';
   if (/\.docx$/i.test(fileName)) return 'Unable to read DOCX. Check that the document opens correctly, then retry or replace it.';
   return message || 'Resume import failed. Retry the existing file or replace it with a clearer PDF or DOCX.';
-};
-
-export const isResumeRetryRequiredError = (error: unknown) => {
-  const source = error && typeof error === 'object' ? error as Record<string, unknown> : {};
-  const details = source.details && typeof source.details === 'object'
-    ? source.details as Record<string, unknown>
-    : {};
-  const message = error instanceof Error ? error.message : '';
-  return details.reason === 'ai-service-busy'
-    || message.startsWith('AI service is temporarily busy.');
-};
-
-export const getReusableExtractedResumeText = (resume: ManagedChefResume) => {
-  const text = resume.extractedText?.trim() || '';
-  return text.length >= 80 && text.length <= 50_000 ? text : '';
 };
 
 export type ResumeReviewSectionKey = 'experiences' | 'education' | 'skills' | 'languages' | 'summary' | 'contact';
@@ -150,17 +152,6 @@ export const isOwnedResumeStoragePath = (userId: string, storagePath: string) =>
   && !storagePath.includes('..')
 );
 
-export const resolveOwnedManagedResume = (
-  userId: string,
-  value?: ManagedChefResume | null
-): ManagedChefResume | null => {
-  if (!value) return null;
-  if (value.userId !== userId || !isOwnedResumeStoragePath(userId, value.storagePath)) {
-    throw new Error('Resume import ownership mismatch.');
-  }
-  return value;
-};
-
 export const resumeFileNameFromObjectName = (objectName: string) => (
   objectName.replace(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i, '')
 );
@@ -175,4 +166,13 @@ export const buildManagedResumeUpload = (
   contentType: result.contentType,
   fileSize: result.fileSize,
   importStatus: 'review_required'
+});
+
+export const buildManagedResumeRegistration = (
+  userId: string,
+  result: ResumeFileUpload,
+  uploadedAt: unknown
+): ManagedChefResume => ({
+  ...buildManagedResumeUpload(userId, result),
+  uploadedAt
 });

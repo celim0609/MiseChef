@@ -1,11 +1,12 @@
 export { ingredientService } from './ingredientService';
 export { costIntelligenceService } from './costIntelligenceService';
 export type { IngredientCostChange } from './costIntelligenceService';
-export { invoiceImportService, matchInvoiceItemsToIngredients } from './invoiceImportService';
+export { createInvoiceReviewItems, invoiceImportService, matchInvoiceItemsToIngredients, validateInvoiceImportMatches } from './invoiceImportService';
 export type { InvoiceImportMatch } from './invoiceImportService';
 export { invoiceLifecycleService } from './invoiceLifecycleService';
 export { recipeCostService } from './recipeCostService';
 export { invoiceService } from './invoiceService';
+export { formatInvoiceDate, getInvoiceDisplayName, getInvoiceSecondaryLabel, getInvoiceSupplierName } from './invoiceDisplay';
 export { invoiceOcrService } from './invoiceOcrService';
 export { invoiceProcessor, AiInvoiceOcrProcessingProvider, SimulatedInvoiceProcessingProvider } from './invoiceProcessor';
 export type { InvoiceProcessingProvider } from './invoiceProcessor';

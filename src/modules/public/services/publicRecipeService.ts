@@ -1,6 +1,7 @@
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import type { Recipe } from '../../../types';
+import { resolvePublicRecipeAuthors } from '../publicRecipeAuthor';
 
 const PUBLIC_VISIBILITY = 'public' as const;
 
@@ -9,13 +10,13 @@ const listPublicRecipes = async (): Promise<Recipe[]> => {
 
   const snapshot = await getDocs(collection(db, 'publicRecipes'));
 
-  return snapshot.docs
+  return resolvePublicRecipeAuthors(snapshot.docs
     .map(recipeDocument => ({
       ...(recipeDocument.data() as Omit<Recipe, 'id'>),
       id: recipeDocument.id,
       visibility: PUBLIC_VISIBILITY
     }))
-    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
 };
 
 export const publicRecipeService = {

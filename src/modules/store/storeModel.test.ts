@@ -2,10 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildStoreOrderItems,
+  createDefaultStoreContact,
   createDefaultWorkspaceStore,
   DEFAULT_STORE_ORDER_DAYS,
+  createDefaultStorePaymentMethods,
+  formatPickupDateLabel,
+  formatStoreOptionSelectionRequirement,
   getValidPickupDates,
   normalizeStoreOptionGroup,
+  normalizeStoreContact,
+  normalizeStorePaymentMethods,
   normalizeWorkspaceStore,
   toStoreSlug,
   validateStoreOptionGroup,
@@ -35,9 +41,43 @@ test('every workspace receives exactly one region-aware Store identity', () => {
   assert.equal(singaporeStore.id, 'workspace-sg');
   assert.equal(singaporeStore.workspaceId, 'workspace-sg');
   assert.equal(singaporeStore.currency, 'SGD');
+  assert.equal(
+    singaporeStore.paymentMethods.find(method => method.id === 'touch_n_go_qr')?.enabled,
+    false
+  );
   assert.equal(malaysiaStore.pickupEnabled, false);
   assert.deepEqual(malaysiaStore.pickupSessions, []);
   assert.deepEqual(malaysiaStore.pickupLocations, []);
+});
+
+test('Touch ’n Go configuration is accepted for MY and cleared or rejected for SG', () => {
+  const malaysiaStore = createDefaultWorkspaceStore(
+    { id: 'workspace-my-tng', name: 'MY Store', country: 'MY' },
+    'owner-my'
+  );
+  const configuredMethods = malaysiaStore.paymentMethods.map(method => method.id === 'touch_n_go_qr'
+    ? { ...method, enabled: true, qrCodeUrl: 'https://storage.test/tng.png', instructions: 'Pay exactly.' }
+    : method.id === 'stripe' ? { ...method, enabled: false } : method);
+  const baseSettings = {
+    name: malaysiaStore.name,
+    logoUrl: '', coverImageUrl: '', description: '', contactInformation: '', businessWhatsApp: '',
+    storeContact: createDefaultStoreContact(),
+    businessHours: '', pickupEnabled: false, deliveryEnabled: false, pickupSessions: [], pickupLocations: [],
+    orderDays: [...DEFAULT_STORE_ORDER_DAYS], earliestPickupDays: 0 as const, maximumAdvanceDays: 14 as const,
+    unavailableDates: [], paymentMethods: configuredMethods,
+    hostProgram: { enabled: false, rewardPercent: 5, minimumQualifyingSales: 0 }
+  };
+
+  assert.equal(validateStoreSettings(baseSettings, 'MY'), '');
+  assert.equal(
+    validateStoreSettings(baseSettings, 'SG'),
+    'Touch ’n Go eWallet is available only for Malaysia Stores.'
+  );
+  const normalizedSg = normalizeStorePaymentMethods(configuredMethods, 'SG')
+    .find(method => method.id === 'touch_n_go_qr');
+  assert.deepEqual(normalizedSg, {
+    id: 'touch_n_go_qr', enabled: false, qrCodeUrl: '', instructions: ''
+  });
 });
 
 test('pickup stays simple and requires owner-defined locations and sessions', () => {
@@ -48,6 +88,7 @@ test('pickup stays simple and requires owner-defined locations and sessions', ()
     description: '',
     contactInformation: '',
     businessWhatsApp: '',
+    storeContact: createDefaultStoreContact(),
     businessHours: '',
     pickupEnabled: true,
     deliveryEnabled: false,
@@ -61,7 +102,9 @@ test('pickup stays simple and requires owner-defined locations and sessions', ()
     orderDays: [...DEFAULT_STORE_ORDER_DAYS],
     earliestPickupDays: 0 as const,
     maximumAdvanceDays: 14 as const,
-    unavailableDates: []
+    unavailableDates: [],
+    paymentMethods: createDefaultStorePaymentMethods(),
+    hostProgram: { enabled: false, rewardPercent: 5, minimumQualifyingSales: 0 }
   };
 
   assert.equal(validateStoreSettings(baseSettings), '');
@@ -71,8 +114,34 @@ test('pickup stays simple and requires owner-defined locations and sessions', ()
   }), 'Every pickup location needs a name and address.');
   assert.equal(validateStoreSettings({
     ...baseSettings,
-    businessWhatsApp: 'not-a-number'
-  }), 'Enter a valid Business WhatsApp number, including country code.');
+    storeContact: { ...baseSettings.storeContact, whatsapp: 'not-a-number' }
+  }), 'Enter a valid Store WhatsApp number, including country code.');
+});
+
+test('legacy Stores remain Stripe-only and QR methods require an owner QR image', () => {
+  const legacyMethods = normalizeStorePaymentMethods(undefined);
+  assert.deepEqual(legacyMethods.filter(method => method.enabled).map(method => method.id), ['stripe']);
+  const baseStore = createDefaultWorkspaceStore(
+    { id: 'workspace-payments', name: 'Payment Kitchen', country: 'MY' },
+    'owner-payments'
+  );
+  const baseSettings = {
+    name: baseStore.name,
+    logoUrl: '', coverImageUrl: '', description: '', contactInformation: '', businessWhatsApp: '',
+    storeContact: createDefaultStoreContact(),
+    businessHours: '', pickupEnabled: false, deliveryEnabled: false, pickupSessions: [], pickupLocations: [],
+    orderDays: [...DEFAULT_STORE_ORDER_DAYS], earliestPickupDays: 0 as const, maximumAdvanceDays: 14 as const,
+    unavailableDates: [], hostProgram: { ...baseStore.hostProgram }, paymentMethods: baseStore.paymentMethods.map(method => (
+      method.id === 'touch_n_go_qr' ? { ...method, enabled: true } : method.id === 'stripe' ? { ...method, enabled: false } : method
+    ))
+  };
+  assert.equal(validateStoreSettings(baseSettings), 'Upload a merchant QR code before enabling QR payment.');
+  assert.equal(validateStoreSettings({
+    ...baseSettings,
+    paymentMethods: baseSettings.paymentMethods.map(method => method.id === 'touch_n_go_qr'
+      ? { ...method, qrCodeUrl: 'https://storage.test/merchant-qr.png' }
+      : method)
+  }), '');
 });
 
 test('public Store slugs are stable and URL safe', () => {
@@ -91,6 +160,18 @@ test('stored currency is derived from country instead of editable Store data', (
 
   assert.equal(store.country, 'MY');
   assert.equal(store.currency, 'MYR');
+});
+
+test('legacy Store WhatsApp is migrated into structured contact without inventing other contact data', () => {
+  assert.deepEqual(normalizeStoreContact(undefined, '+60 12-3456789'), {
+    phone: '',
+    email: '',
+    whatsapp: '+60 12-3456789',
+    facebook: '',
+    instagram: '',
+    tiktok: '',
+    website: ''
+  });
 });
 
 test('simple products require only the milestone fields', () => {
@@ -302,11 +383,13 @@ test('optional and unavailable option groups do not require a customer selection
     name: 'Extras',
     selectionType: 'multiple',
     required: false,
-    minimumSelections: 0,
-    maximumSelections: 2,
+    minimumSelections: 2,
+    maximumSelections: 3,
     options: [
       { id: 'sugar', name: 'Sugar', priceAdjustment: 0, available: true },
-      { id: 'milk', name: 'Milk', priceAdjustment: 1, available: true }
+      { id: 'milk', name: 'Milk', priceAdjustment: 1, available: true },
+      { id: 'egg', name: 'Egg', priceAdjustment: 1.5, available: true },
+      { id: 'chicken', name: 'Chicken', priceAdjustment: 3, available: true }
     ]
   });
   const unavailableGroup = normalizeStoreOptionGroup('seasonal', {
@@ -321,6 +404,40 @@ test('optional and unavailable option groups do not require a customer selection
   }], [product], [optionalGroup, unavailableGroup]);
   assert.equal(items[0].unitPrice, 5);
   assert.deepEqual(items[0].selectedOptions, []);
+  assert.equal(optionalGroup.minimumSelections, 0);
+  assert.equal(formatStoreOptionSelectionRequirement(optionalGroup), 'Choose up to 3 · Optional');
+
+  const oneAddon = buildStoreOrderItems([{
+    productId: product.id,
+    quantity: 1,
+    selectedOptions: [{ groupId: optionalGroup.id, optionId: 'egg' }]
+  }], [product], [optionalGroup, unavailableGroup]);
+  assert.equal(oneAddon[0].unitPrice, 6.5);
+  assert.deepEqual(oneAddon[0].selectedOptions.map(option => option.priceAdjustment), [1.5]);
+
+  const withinMaximum = buildStoreOrderItems([{
+    productId: product.id,
+    quantity: 1,
+    selectedOptions: [
+      { groupId: optionalGroup.id, optionId: 'milk' },
+      { groupId: optionalGroup.id, optionId: 'egg' },
+      { groupId: optionalGroup.id, optionId: 'chicken' }
+    ]
+  }], [product], [optionalGroup, unavailableGroup]);
+  assert.equal(withinMaximum[0].unitPrice, 10.5);
+
+  assert.throws(() => buildStoreOrderItems([{
+    productId: product.id,
+    quantity: 1,
+    selectedOptions: [
+      { groupId: optionalGroup.id, optionId: 'sugar' },
+      { groupId: optionalGroup.id, optionId: 'milk' },
+      { groupId: optionalGroup.id, optionId: 'egg' },
+      { groupId: optionalGroup.id, optionId: 'chicken' }
+    ]
+  }], [product], [optionalGroup, unavailableGroup]), /Choose no more than 3 Extras options/);
+
+  assert.equal(validateStoreOptionGroup({ ...optionalGroup, minimumSelections: 1 }), 'Optional groups must allow zero selections.');
 });
 
 test('guest checkout requires pickup availability, valid sessions, and no account', () => {
@@ -402,6 +519,11 @@ test('pickup windows follow the Store region instead of the customer device or U
   assert.equal(dates.at(-1), '2026-08-02');
 });
 
+test('legacy orders without a pickup date do not crash the Store Owner inbox', () => {
+  assert.equal(formatPickupDateLabel('', 'MY'), 'Pickup date unavailable');
+  assert.equal(formatPickupDateLabel('not-a-date', 'SG'), 'Pickup date unavailable');
+});
+
 test('checkout rejects disabled, blocked, too-early, and out-of-window pickup dates', () => {
   const currentDate = new Date('2026-07-25T12:00:00');
   const store = {
@@ -448,9 +570,12 @@ test('legacy Stores receive safe default pre-order rules', () => {
   assert.deepEqual(store.unavailableDates, []);
 });
 
-test('only workspace owners and managers can manage Store settings and products', () => {
+test('Store visibility and POS access remain distinct role permissions', () => {
   assert.equal(canAccessRootTab('store', 'Owner'), true);
   assert.equal(canAccessRootTab('store', 'Manager'), true);
-  assert.equal(canAccessRootTab('store', 'Chef'), false);
-  assert.equal(canAccessRootTab('store', 'Viewer'), false);
+  assert.equal(canAccessRootTab('store', 'Chef'), true);
+  assert.equal(canAccessRootTab('store', 'Viewer'), true);
+  assert.equal(canAccessRootTab('storePos', 'Chef'), true);
+  assert.equal(canAccessRootTab('storePos', 'Finance'), false);
+  assert.equal(canAccessRootTab('storePos', 'Viewer'), false);
 });

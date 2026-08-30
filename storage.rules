@@ -22,7 +22,7 @@ service firebase.storage {
     }
 
     function canManageWorkspace(workspaceId) {
-      return signedIn()
+      return hasActiveBusinessEntitlement(workspaceId)
         && (
           (
             firestore.exists(/databases/(default)/documents/workspaces/$(workspaceId))
@@ -34,6 +34,57 @@ service firebase.storage {
             && firestore.get(/databases/(default)/documents/workspaceMembers/$(workspaceId + "_" + request.auth.uid)).data.role in ['Owner', 'Manager']
           )
         );
+    }
+
+    function canManageStoreProducts(workspaceId) {
+      return hasActiveBusinessEntitlement(workspaceId)
+        && (
+          (
+            firestore.exists(/databases/(default)/documents/workspaces/$(workspaceId))
+            && firestore.get(/databases/(default)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid
+          )
+          || (
+            firestore.exists(/databases/(default)/documents/workspaceMembers/$(workspaceId + "_" + request.auth.uid))
+            && firestore.get(/databases/(default)/documents/workspaceMembers/$(workspaceId + "_" + request.auth.uid)).data.status == 'Active'
+            && firestore.get(/databases/(default)/documents/workspaceMembers/$(workspaceId + "_" + request.auth.uid)).data.role in ['Owner', 'Manager', 'Head Chef']
+          )
+        );
+    }
+
+    function hasActiveBusinessEntitlement(workspaceId) {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/workspaces/$(workspaceId))
+        && firestore.get(/databases/(default)/documents/workspaces/$(workspaceId)).data.subscriptionPlan in ['starter', 'professional', 'business', 'internal_unlimited']
+        && (
+          firestore.get(/databases/(default)/documents/workspaces/$(workspaceId)).data.subscriptionStatus == 'active'
+          || (
+            firestore.get(/databases/(default)/documents/workspaces/$(workspaceId)).data.subscriptionStatus == 'trialing'
+            && firestore.get(/databases/(default)/documents/workspaces/$(workspaceId)).data.trialEndsAt is timestamp
+            && request.time < firestore.get(/databases/(default)/documents/workspaces/$(workspaceId)).data.trialEndsAt
+          )
+        );
+    }
+
+    function isActiveWorkspaceMember(workspaceId) {
+      return signedIn()
+        && (
+          (
+            firestore.exists(/databases/(default)/documents/workspaces/$(workspaceId))
+            && firestore.get(/databases/(default)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid
+          )
+          || (
+            firestore.exists(/databases/(default)/documents/workspaceMembers/$(workspaceId + "_" + request.auth.uid))
+            && firestore.get(/databases/(default)/documents/workspaceMembers/$(workspaceId + "_" + request.auth.uid)).data.status == 'Active'
+          )
+        );
+    }
+
+    function isCommittedPersonalExpenseReceipt(workspaceId, userId, expenseId, fileName) {
+      return firestore.exists(/databases/(default)/documents/personalExpenses/$(expenseId))
+        && firestore.get(/databases/(default)/documents/personalExpenses/$(expenseId)).data.workspaceId == workspaceId
+        && firestore.get(/databases/(default)/documents/personalExpenses/$(expenseId)).data.createdBy == userId
+        && firestore.get(/databases/(default)/documents/personalExpenses/$(expenseId)).data.receiptPath
+          == "personal-expenses/" + workspaceId + "/" + userId + "/" + expenseId + "/" + fileName;
     }
 
     function validImageUpload(maxBytes) {
@@ -58,6 +109,7 @@ service firebase.storage {
 
     function hasAuthorizedInvoiceUpload(invoiceId, fileName) {
       return firestore.exists(/databases/(default)/documents/invoices/$(invoiceId))
+        && hasActiveBusinessEntitlement(firestore.get(/databases/(default)/documents/invoices/$(invoiceId)).data.workspaceId)
         && firestore.get(/databases/(default)/documents/invoices/$(invoiceId)).data.createdBy == request.auth.uid
         && firestore.get(/databases/(default)/documents/invoices/$(invoiceId)).data.storageFileName == fileName;
     }
@@ -92,11 +144,41 @@ service firebase.storage {
       allow delete: if isSuperAdmin();
     }
 
+    match /homepage-promotions/{promotionId}/{fileName} {
+      allow read: if true;
+      allow create, update: if isSuperAdmin()
+        && request.resource != null
+        && request.resource.size <= 2 * 1024 * 1024
+        && request.resource.contentType == 'image/jpeg';
+      allow delete: if isSuperAdmin();
+    }
+
+    match /stores/{workspaceId}/products/{productId}/{fileName} {
+      allow read: if true;
+      allow create, update: if canManageStoreProducts(workspaceId)
+        && validImageUpload(10 * 1024 * 1024);
+      allow delete: if canManageStoreProducts(workspaceId);
+    }
+
+    match /stores/{workspaceId}/sets/{setId}/{fileName} {
+      allow read: if true;
+      allow create, update: if canManageStoreProducts(workspaceId)
+        && validImageUpload(10 * 1024 * 1024);
+      allow delete: if canManageStoreProducts(workspaceId);
+    }
+
     match /stores/{workspaceId}/{allPaths=**} {
       allow read: if true;
       allow create, update: if canManageWorkspace(workspaceId)
         && validImageUpload(10 * 1024 * 1024);
       allow delete: if canManageWorkspace(workspaceId);
+    }
+
+    // Guest receipts are written only by the trusted checkout callable using
+    // the Admin SDK. Only the matching Store Owner or Manager may read them.
+    match /store-payment-receipts/{workspaceId}/{orderId}/{fileName} {
+      allow read: if canManageWorkspace(workspaceId);
+      allow create, update, delete: if false;
     }
 
     match /users/{userId}/profile/{fileName} {
@@ -145,11 +227,33 @@ service firebase.storage {
     }
 
     match /users/{userId}/costing/invoices/{invoiceId}/{fileName} {
-      allow read: if ownsPath(userId);
+      allow read: if ownsPath(userId)
+        && hasAuthorizedInvoiceUpload(invoiceId, fileName);
       allow create, update: if ownsPath(userId)
         && validInvoiceUpload()
         && hasAuthorizedInvoiceUpload(invoiceId, fileName);
-      allow delete: if ownsPath(userId);
+      allow delete: if ownsPath(userId)
+        && hasAuthorizedInvoiceUpload(invoiceId, fileName);
+    }
+
+    match /personal-expenses/{workspaceId}/{userId}/{expenseId}/{fileName} {
+      allow read: if hasActiveBusinessEntitlement(workspaceId)
+        && ((ownsPath(userId) && isActiveWorkspaceMember(workspaceId))
+        || canManageWorkspace(workspaceId));
+      allow create: if hasActiveBusinessEntitlement(workspaceId)
+        && ownsPath(userId)
+        && isActiveWorkspaceMember(workspaceId)
+        && !isCommittedPersonalExpenseReceipt(workspaceId, userId, expenseId, fileName)
+        && (validImageUpload(10 * 1024 * 1024) || validPdfUpload(10 * 1024 * 1024));
+      allow update: if hasActiveBusinessEntitlement(workspaceId)
+        && ownsPath(userId)
+        && isActiveWorkspaceMember(workspaceId)
+        && !isCommittedPersonalExpenseReceipt(workspaceId, userId, expenseId, fileName)
+        && (validImageUpload(10 * 1024 * 1024) || validPdfUpload(10 * 1024 * 1024));
+      allow delete: if hasActiveBusinessEntitlement(workspaceId)
+        && ownsPath(userId)
+        && isActiveWorkspaceMember(workspaceId)
+        && !isCommittedPersonalExpenseReceipt(workspaceId, userId, expenseId, fileName);
     }
 
     match /{allPaths=**} {

@@ -1,14 +1,26 @@
 {
   "functions": {
-    "source": "functions"
+    "source": "functions",
+    "predeploy": [
+      "node scripts/validateBetaPredeploy.mjs"
+    ]
   },
   "firestore": {
     "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json"
+    "indexes": "firestore.indexes.json",
+    "predeploy": [
+      "node scripts/validateBetaPredeploy.mjs"
+    ]
   },
-  "storage": {
-    "rules": "storage.rules"
-  },
+  "storage": [
+    {
+      "target": "beta-default",
+      "rules": "storage.rules",
+      "predeploy": [
+        "node scripts/validateBetaPredeploy.mjs"
+      ]
+    }
+  ],
   "emulators": {
     "auth": {
       "host": "127.0.0.1",
@@ -33,7 +45,7 @@
   },
   "hosting": {
     "predeploy": [
-      "npm run validate:firebase-env"
+      "node scripts/validateBetaPredeploy.mjs"
     ],
     "public": "dist",
     "ignore": [
@@ -41,7 +53,43 @@
       "**/.*",
       "**/node_modules/**"
     ],
+    "headers": [
+      {
+        "source": "/app",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "source": "/app/**",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      },
+      {
+        "regex": "^/(?:|features/?|pricing/?|book-demo/?|contact/?|login/?|recipes(?:/.*)?|chefs/?|chef(?:/.*)?|@.*|orders/?|host(?:/.*)?|group(?:/.*)?)$",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "no-cache, no-store, must-revalidate"
+          }
+        ]
+      }
+    ],
     "rewrites": [
+      {
+        "source": "/store/**",
+        "function": {
+          "functionId": "renderPublicStore",
+          "region": "us-central1"
+        }
+      },
       {
         "source": "/go/recipes/**",
         "function": {

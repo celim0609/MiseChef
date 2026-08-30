@@ -15,12 +15,12 @@ const requireFunctions = () => {
 };
 
 export const storePaymentService = {
-  async createPayment(slug: string, order: StoreOrderDraft): Promise<StorePaymentSession> {
+  async createPayment(slug: string, order: StoreOrderDraft, returnUrl: string): Promise<StorePaymentSession> {
     const createPayment = httpsCallable<
-      { slug: string; order: StoreOrderDraft },
+      { slug: string; order: StoreOrderDraft; returnUrl: string },
       StorePaymentSession
     >(requireFunctions(), 'createPublicStorePayment');
-    const response = await createPayment({ slug, order });
+    const response = await createPayment({ slug, order, returnUrl });
     return response.data;
   },
 
@@ -70,5 +70,36 @@ export const storePaymentService = {
       checkoutAccessToken
     });
     return response.data;
+  },
+
+  async uploadReceipt(slug: string, session: StorePaymentSession, file: File): Promise<void> {
+    if (file.size > 2 * 1024 * 1024) throw new Error('Choose a receipt image smaller than 2 MB.');
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) throw new Error('Choose a JPG, PNG, or WebP receipt image.');
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error('The receipt image could not be read.'));
+      reader.readAsDataURL(file);
+    });
+    const upload = httpsCallable(requireFunctions(), 'uploadPublicStorePaymentReceipt');
+    await upload({
+      slug,
+      paymentSessionId: session.paymentSessionId,
+      checkoutAccessToken: session.checkoutAccessToken,
+      dataUrl,
+      fileName: file.name
+    });
+  },
+
+  async submitManual(slug: string, session: StorePaymentSession): Promise<PublicStoreOrderResult> {
+    const submit = httpsCallable<
+      { slug: string; paymentSessionId: string; checkoutAccessToken: string },
+      PublicStoreOrderResult
+    >(requireFunctions(), 'submitPublicStoreManualPayment');
+    return (await submit({
+      slug,
+      paymentSessionId: session.paymentSessionId,
+      checkoutAccessToken: session.checkoutAccessToken
+    })).data;
   }
 };

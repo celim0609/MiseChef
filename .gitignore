@@ -1,4 +1,6 @@
 node_modules/
+/node_modules
+/functions/node_modules
 build/
 dist/
 coverage/
@@ -6,4 +8,7 @@ coverage/
 *.log
 .env*
 !.env.example
+!.env.beta
+!functions/.env.misechef-beta-fa4bf
 functions/.secret.local
+gha-creds-*.json

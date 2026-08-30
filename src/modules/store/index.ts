@@ -1,22 +1,37 @@
 export { default as StorePage } from './StorePage';
+export { default as StorePosPage } from './StorePosPage';
 export { default as PublicStorePage } from './PublicStorePage';
-export { storeService } from './services';
+export { default as PublicGroupOrderPage } from './PublicGroupOrderPage';
+export { default as HostProgramPage } from './HostProgramPage';
+export { default as StoreContactButton } from './StoreContactButton';
+export { storeOrderService, storeService } from './services';
 export type {
   PublicStoreData,
+  PublicGroupOrder,
+  HostGroupOrder,
   CartSelection,
   StoreOption,
+  StoreContact,
   StoreOptionGroup,
   StoreOptionGroupDraft,
   StorePickupLocation,
   StoreOrder,
+  CustomerStoreOrderSummary,
   StoreOrderDraft,
   StoreOrderItem,
+  StoreOrderSource,
+  StoreFulfilmentStatus,
+  StoreNotification,
+  StoreOrderTimelineEvent,
   StorePaymentSession,
   StorePaymentCheckout,
   StorePaymentProviderId,
   PublicStoreOrderResult,
   StoreProduct,
   StoreProductDraft,
+  StoreSet,
+  StoreSetDraft,
+  StoreSetGroup,
   StoreSettingsDraft,
   WorkspaceStore
 } from './types';

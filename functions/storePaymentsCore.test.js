@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   buildPendingOrder,
+  createAvailableOrderReference,
   createOrderNumber,
+  getEnabledStorePaymentMethod,
+  getMalaysiaBusinessDateKey,
+  getPickupCodeFromOrderNumber,
   PAYMENT_STATUS
 } from './storePaymentsCore.js';
 import {
@@ -11,6 +15,7 @@ import {
   STRIPE_PROVIDER_ID,
   STRIPE_PROVIDER_MODE
 } from './paymentProviders/stripeSingleMerchant.js';
+import { createManualPaymentAdapter } from './paymentProviders/manualPayment.js';
 import { assertSellingWorkspace } from './storePayments.js';
 
 const store = {
@@ -83,6 +88,8 @@ test('single-merchant order is priced from server products and stores provider-n
   assert.equal(order.payment.providerMode, STRIPE_PROVIDER_MODE);
   assert.equal(order.payment.status, PAYMENT_STATUS.pending);
   assert.equal(order.status, 'Awaiting Payment');
+  assert.equal(order.fulfilmentStatus, 'New');
+  assert.equal(order.orderSource, 'online');
   assert.equal(order.items[0].productName, 'Breakfast Set');
   assert.equal(order.items[0].selectedOptions[0].optionName, 'No Drink');
   assert.equal(order.items[0].selectedOptions[0].priceAdjustment, -1);
@@ -222,6 +229,68 @@ test('server pricing validates multiple-select limits and snapshots every adjust
   }), /Choose no more than 2 Add-ons options/);
 });
 
+test('server checkout accepts optional add-ons with zero or bounded selections and snapshots authoritative prices', () => {
+  const optionalAddons = [{
+    id: 'drink',
+    name: 'Add-ons',
+    selectionType: 'multiple',
+    required: false,
+    minimumSelections: 2,
+    maximumSelections: 3,
+    available: true,
+    options: [
+      { id: 'sambal', name: 'Extra Sambal', priceAdjustment: 0.5, available: true },
+      { id: 'egg', name: 'Add Egg', priceAdjustment: 1, available: true },
+      { id: 'chicken', name: 'Add Chicken', priceAdjustment: 3, available: true },
+      { id: 'rice', name: 'Extra Rice', priceAdjustment: 1.5, available: true }
+    ]
+  }];
+  const buildOptionalOrder = (selectedOptions, suffix) => buildPendingOrder({
+    id: `order-optional-${suffix}`,
+    orderNumber: `MC-260726-OPT${suffix}`,
+    store,
+    products,
+    optionGroups: optionalAddons,
+    paymentProvider: STRIPE_PROVIDER_ID,
+    paymentProviderMode: STRIPE_PROVIDER_MODE,
+    draft: {
+      ...draft,
+      selections: [{ productId: 'breakfast', quantity: 1, selectedOptions }]
+    },
+    now: new Date('2026-07-26T04:00:00.000Z')
+  });
+
+  const baseOrder = buildOptionalOrder([], 'ZERO');
+  assert.equal(baseOrder.items[0].unitPrice, 5.9);
+  assert.equal(baseOrder.total, 5.9);
+  assert.deepEqual(baseOrder.items[0].selectedOptions, []);
+
+  const oneAddonOrder = buildOptionalOrder([
+    { groupId: 'drink', optionId: 'egg' }
+  ], 'ONE');
+  assert.equal(oneAddonOrder.items[0].basePrice, 5.9);
+  assert.equal(oneAddonOrder.items[0].unitPrice, 6.9);
+  assert.equal(oneAddonOrder.payment.amountMinor, 690);
+  assert.deepEqual(oneAddonOrder.items[0].selectedOptions.map(option => ({
+    name: option.optionName,
+    adjustment: option.priceAdjustment
+  })), [{ name: 'Add Egg', adjustment: 1 }]);
+
+  const maximumOrder = buildOptionalOrder([
+    { groupId: 'drink', optionId: 'sambal' },
+    { groupId: 'drink', optionId: 'egg' },
+    { groupId: 'drink', optionId: 'chicken' }
+  ], 'MAX');
+  assert.equal(maximumOrder.items[0].unitPrice, 10.4);
+
+  assert.throws(() => buildOptionalOrder([
+    { groupId: 'drink', optionId: 'sambal' },
+    { groupId: 'drink', optionId: 'egg' },
+    { groupId: 'drink', optionId: 'chicken' },
+    { groupId: 'drink', optionId: 'rice' }
+  ], 'OVER'), /Choose no more than 3 Add-ons options/);
+});
+
 test('server keeps legacy groups as required single-select groups', () => {
   assert.throws(() => buildPendingOrder({
     id: 'order-legacy-missing',
@@ -307,6 +376,76 @@ test('Phase 1 accepts only the configured Ce Lim Kitchen workspace id, never its
   );
 });
 
+test('Store payment configuration is server-authoritative and manual methods keep server pricing', () => {
+  const configuredStore = {
+    ...store,
+    paymentMethods: [
+      { id: 'cash_on_pickup', enabled: true, qrCodeUrl: '', instructions: 'Pay at pickup.' },
+      { id: 'touch_n_go_qr', enabled: true, qrCodeUrl: 'https://storage.test/tng.png', instructions: '' },
+      { id: 'duitnow_qr', enabled: false, qrCodeUrl: '', instructions: '' },
+      { id: 'bank_transfer', enabled: true, qrCodeUrl: '', instructions: 'Bank account details' },
+      { id: 'stripe', enabled: false, qrCodeUrl: '', instructions: '' }
+    ]
+  };
+  const method = getEnabledStorePaymentMethod(configuredStore, 'touch_n_go_qr');
+  const order = buildPendingOrder({
+    id: 'manual-order', orderNumber: 'MC-260726-MANUAL', store: configuredStore,
+    products, optionGroups, paymentProvider: method.provider, paymentProviderMode: method.mode,
+    paymentMethod: method, draft: { ...draft, paymentMethodId: method.id },
+    now: new Date('2026-07-26T04:00:00.000Z')
+  });
+  assert.equal(order.paymentMethodId, 'touch_n_go_qr');
+  assert.equal(order.paymentMethodName, 'Touch ’n Go eWallet');
+  assert.equal(order.payment.provider, 'manual');
+  assert.equal(order.total, 9.8);
+  assert.throws(() => getEnabledStorePaymentMethod(configuredStore, 'stripe'), /no longer available/);
+  assert.throws(() => getEnabledStorePaymentMethod(configuredStore, 'duitnow_qr'), /no longer available/);
+});
+
+test('Touch ’n Go is accepted for MY Stores and rejected for SG Stores', () => {
+  const methods = [
+    { id: 'cash_on_pickup', enabled: false, qrCodeUrl: '', instructions: '' },
+    { id: 'touch_n_go_qr', enabled: true, qrCodeUrl: 'https://storage.test/tng.png', instructions: '' },
+    { id: 'duitnow_qr', enabled: false, qrCodeUrl: '', instructions: '' },
+    { id: 'bank_transfer', enabled: false, qrCodeUrl: '', instructions: '' },
+    { id: 'stripe', enabled: false, qrCodeUrl: '', instructions: '' }
+  ];
+  assert.equal(
+    getEnabledStorePaymentMethod({ ...store, country: 'MY', paymentMethods: methods }, 'touch_n_go_qr').provider,
+    'manual'
+  );
+  assert.throws(
+    () => getEnabledStorePaymentMethod({ ...store, country: 'SG', currency: 'SGD', paymentMethods: methods }, 'touch_n_go_qr'),
+    /available only for Malaysia Stores/
+  );
+});
+
+test('manual checkout receives the authoritative server amount and currency', async () => {
+  const method = getEnabledStorePaymentMethod({
+    ...store,
+    paymentMethods: [
+      { id: 'touch_n_go_qr', enabled: true, qrCodeUrl: 'https://storage.test/tng.png', instructions: '' }
+    ]
+  }, 'touch_n_go_qr');
+  const result = await createManualPaymentAdapter(method).createPayment({
+    order: { id: 'order-a', currency: 'MYR', payment: { amountMinor: 1280 } }
+  });
+  assert.equal(result.checkout.amountMinor, 1280);
+  assert.equal(result.checkout.currency, 'MYR');
+});
+
+test('legacy Stores remain Stripe-only until the owner enables another method', () => {
+  assert.equal(getEnabledStorePaymentMethod(store, 'stripe').provider, 'stripe');
+  assert.throws(() => getEnabledStorePaymentMethod(store, 'cash_on_pickup'), /temporarily unavailable/);
+});
+
+test('Cash on Pickup stays unavailable to Production checkout even when configured on the Store', () => {
+  assert.throws(() => getEnabledStorePaymentMethod({
+    ...store,
+    paymentMethods: [{ id: 'cash_on_pickup', enabled: true, qrCodeUrl: '', instructions: 'Pay later.' }]
+  }, 'cash_on_pickup'), /temporarily unavailable/);
+});
+
 test('Stripe lifecycle maps to stable MiseChef payment states', () => {
   assert.equal(mapStripePaymentStatus('succeeded'), 'paid');
   assert.equal(mapStripePaymentStatus('processing'), 'processing');
@@ -347,10 +486,53 @@ test('Stripe refunds map to full, partial, pending, and failed MiseChef states',
   );
 });
 
-test('customer order numbers remain separate from Stripe and Firestore ids', () => {
+test('new customer order numbers use Malaysia MMDD and expose a four-character pickup code', () => {
   const orderNumber = createOrderNumber(
-    new Date('2026-07-26T04:00:00.000Z'),
-    Uint8Array.from([0, 1, 2, 3, 4, 5])
+    new Date('2026-08-21T16:30:00.000Z'),
+    Uint8Array.from([0, 1, 2, 3])
   );
-  assert.equal(orderNumber, 'MC-260726-ABCDEF');
+  assert.equal(getMalaysiaBusinessDateKey(new Date('2026-08-21T16:30:00.000Z')), '20260822');
+  assert.equal(orderNumber, 'MC-0822-ABCD');
+  assert.equal(getPickupCodeFromOrderNumber(orderNumber), 'ABCD');
+  assert.match(orderNumber, /^MC-\d{4}-[A-HJ-NP-Z2-9]{4}$/);
+});
+
+test('historical order numbers remain compatible without inventing a pickup code', () => {
+  assert.equal(getPickupCodeFromOrderNumber('MC-260816-EHXQQX'), '');
+  const order = buildPendingOrder({
+    id: 'firestore-generated-id',
+    orderNumber: 'MC-260816-EHXQQX',
+    store,
+    products,
+    optionGroups,
+    paymentProvider: STRIPE_PROVIDER_ID,
+    paymentProviderMode: STRIPE_PROVIDER_MODE,
+    draft,
+    now: new Date('2026-07-26T04:00:00.000Z')
+  });
+  assert.equal(order.id, 'firestore-generated-id');
+  assert.equal(order.orderNumber, 'MC-260816-EHXQQX');
+  assert.equal(order.pickupCode, '');
+});
+
+test('customer order reference collision regenerates before returning', async () => {
+  const candidates = [
+    Uint8Array.from([0, 1, 2, 3]),
+    Uint8Array.from([4, 5, 6, 7])
+  ];
+  const checked = [];
+  const reference = await createAvailableOrderReference({
+    date: new Date('2026-08-21T16:30:00.000Z'),
+    randomBytesFactory: () => candidates.shift(),
+    exists: async candidate => {
+      checked.push(candidate.orderNumber);
+      return candidate.orderNumber === 'MC-0822-ABCD';
+    }
+  });
+  assert.deepEqual(checked, ['MC-0822-ABCD', 'MC-0822-EFGH']);
+  assert.deepEqual(reference, {
+    orderNumber: 'MC-0822-EFGH',
+    pickupCode: 'EFGH',
+    businessDateKey: '20260822'
+  });
 });

@@ -2,6 +2,30 @@ import type { RegionCode, RegionCurrency } from '../../regions';
 
 export type StorePaymentProviderId = string;
 
+export type StorePaymentMethodId =
+  | 'cash_on_pickup'
+  | 'touch_n_go_qr'
+  | 'duitnow_qr'
+  | 'bank_transfer'
+  | 'stripe';
+
+export interface StorePaymentMethodConfig {
+  id: StorePaymentMethodId;
+  enabled: boolean;
+  qrCodeUrl: string;
+  instructions: string;
+}
+
+export interface StoreContact {
+  phone: string;
+  email: string;
+  whatsapp: string;
+  facebook: string;
+  instagram: string;
+  tiktok: string;
+  website: string;
+}
+
 export type StoreOrderDay =
   | 'monday'
   | 'tuesday'
@@ -24,6 +48,7 @@ export interface WorkspaceStore {
   description: string;
   contactInformation: string;
   businessWhatsApp: string;
+  storeContact: StoreContact;
   businessHours: string;
   pickupEnabled: boolean;
   deliveryEnabled: boolean;
@@ -33,6 +58,8 @@ export interface WorkspaceStore {
   earliestPickupDays: StoreEarliestPickupDays;
   maximumAdvanceDays: StoreMaximumAdvanceDays;
   unavailableDates: string[];
+  paymentMethods: StorePaymentMethodConfig[];
+  hostProgram: StoreHostProgramConfig;
   country: RegionCode;
   currency: RegionCurrency;
   createdBy: string;
@@ -47,6 +74,7 @@ export interface StoreSettingsDraft {
   description: string;
   contactInformation: string;
   businessWhatsApp: string;
+  storeContact: StoreContact;
   businessHours: string;
   pickupEnabled: boolean;
   deliveryEnabled: boolean;
@@ -56,6 +84,61 @@ export interface StoreSettingsDraft {
   earliestPickupDays: StoreEarliestPickupDays;
   maximumAdvanceDays: StoreMaximumAdvanceDays;
   unavailableDates: string[];
+  paymentMethods: StorePaymentMethodConfig[];
+  hostProgram: StoreHostProgramConfig;
+}
+
+export interface StoreHostProgramConfig {
+  enabled: boolean;
+  rewardPercent: number;
+  minimumQualifyingSales: number;
+}
+
+export interface PublicGroupOrder {
+  id: string;
+  shareCode: string;
+  storeSlug: string;
+  storeName: string;
+  hostName: string;
+  name: string;
+  pickupDate: string;
+  pickupSession: string;
+  pickupLocationId: string;
+  pickupLocationName: string;
+  pickupLocationAddress: string;
+  closesAt: string;
+  status: 'open' | 'closed' | 'cancelled';
+}
+
+export interface HostGroupOrder extends PublicGroupOrder {
+  rewardPercent: number;
+  minimumQualifyingSales: number;
+  lifetimeOrderCount: number | null;
+  archived: boolean;
+  archivedAt?: string;
+  archivedBy?: string;
+  orderCount: number;
+  eligibleSales: number;
+  estimatedReward: number;
+}
+
+export interface HostGroupOrderSummary {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  itemCount: number;
+  items: Array<{
+    productName: string;
+    quantity: number;
+    setSelections: Array<{ groupName: string; productName: string }>;
+    selectedOptions: Array<{ groupName: string; optionName: string }>;
+  }>;
+  remarks: string;
+  total: number;
+  currency: RegionCurrency;
+  paymentStatus: StoreOrder['payment']['status'];
+  fulfilmentStatus: StoreFulfilmentStatus | '';
+  createdAt: string;
 }
 
 export interface StorePickupLocation {
@@ -111,6 +194,9 @@ export interface StoreProduct {
   name: string;
   description: string;
   price: number;
+  recipeId?: string;
+  /** Legacy field retained only for existing order/data compatibility. */
+  estimatedCost?: number;
   available: boolean;
   optionGroupIds: string[];
   createdBy: string;
@@ -123,23 +209,93 @@ export interface StoreProductDraft {
   name: string;
   description: string;
   price: number;
+  recipeId?: string;
   available: boolean;
   optionGroupIds: string[];
+}
+
+export interface StoreSetOption {
+  productId: string;
+  priceAdjustment: number;
+  sortOrder: number;
+}
+
+export interface StoreSetGroup {
+  id: string;
+  name: string;
+  required: boolean;
+  selectionCount: number;
+  sortOrder: number;
+  options: StoreSetOption[];
+}
+
+export interface StoreSet {
+  id: string;
+  storeId: string;
+  workspaceId: string;
+  name: string;
+  description: string;
+  photoUrl: string;
+  category: string;
+  price: number;
+  available: boolean;
+  sortOrder: number;
+  groups: StoreSetGroup[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoreSetDraft {
+  name: string;
+  description: string;
+  photoUrl: string;
+  category: string;
+  price: number;
+  available: boolean;
+  sortOrder: number;
+  groups: StoreSetGroup[];
 }
 
 export interface PublicStoreData {
   store: WorkspaceStore;
   products: StoreProduct[];
   optionGroups: StoreOptionGroup[];
+  sets: StoreSet[];
 }
 
 export interface CartSelection {
   productId: string;
+  setId?: string;
   quantity: number;
   selectedOptions: Array<{
     groupId: string;
     optionId: string;
   }>;
+  selectedSetItems?: Array<{
+    groupId: string;
+    productId: string;
+  }>;
+}
+
+export interface StoreOrderSetSelection {
+  groupId: string;
+  groupName: string;
+  productId: string;
+  productName: string;
+  standalonePrice: number;
+  estimatedCost?: number;
+  priceAdjustment: number;
+}
+
+export interface StoreOrderSetSnapshot {
+  setId: string;
+  setName: string;
+  category: string;
+  baseSetPrice: number;
+  regularValue: number;
+  customerSaving: number;
+  selectedGroups: StoreOrderSetSelection[];
 }
 
 export interface StoreOrderItemOption {
@@ -151,6 +307,7 @@ export interface StoreOrderItemOption {
 }
 
 export interface StoreOrderItem {
+  itemType?: 'product' | 'set';
   productId: string;
   productName: string;
   photoUrl: string;
@@ -159,13 +316,67 @@ export interface StoreOrderItem {
   unitPrice: number;
   lineTotal: number;
   selectedOptions: StoreOrderItemOption[];
+  setSnapshot?: StoreOrderSetSnapshot;
+}
+
+export type StoreOrderSource = 'online' | 'pos';
+
+export type StoreFulfilmentStatus =
+  | 'New'
+  | 'Confirmed'
+  | 'Paid'
+  | 'Preparing'
+  | 'Ready'
+  | 'Completed'
+  | 'Cancelled';
+
+export interface StoreOrderTimelineEvent {
+  id: string;
+  orderId: string;
+  workspaceId: string;
+  storeId: string;
+  type: 'payment_received' | 'payment_review' | 'fulfilment_status';
+  label: string;
+  previousStatus: string;
+  newStatus: StoreFulfilmentStatus | 'Pending Verification' | 'Payment Rejected';
+  actingUserId: string;
+  createdAt: string;
+}
+
+export interface StoreNotification {
+  id: string;
+  workspaceId: string;
+  storeId: string;
+  orderId: string;
+  orderNumber: string;
+  type:
+    | 'new_order'
+    | 'payment_submitted'
+    | 'payment_approved'
+    | 'payment_rejected'
+    | 'order_ready';
+  title: string;
+  message: string;
+  readAt: string;
+  createdAt: string;
 }
 
 export interface StoreOrder {
   id: string;
   orderNumber: string;
+  pickupCode?: string;
   storeId: string;
   workspaceId: string;
+  orderSource: StoreOrderSource;
+  customerUid?: string;
+  groupOrder?: {
+    id: string;
+    shareCode: string;
+    name: string;
+    hostId: string;
+    hostName: string;
+    rewardPercent: number;
+  };
   storeName: string;
   currency: RegionCurrency;
   paymentMethodId: string;
@@ -182,28 +393,44 @@ export interface StoreOrder {
   items: StoreOrderItem[];
   itemCount: number;
   total: number;
+  fulfilmentStatus: StoreFulfilmentStatus | '';
+  fulfilmentUpdatedAt: string;
+  fulfilmentUpdatedBy: string;
+  completedAt: string;
+  cancelledAt: string;
+  cancelledBy: string;
+  cancellationReason: string;
   status:
     | 'Awaiting Payment'
     | 'Payment Processing'
     | 'Paid'
     | 'Payment Failed'
     | 'Payment Cancelled'
+    | 'Pending Verification'
+    | 'Payment Rejected'
+    | 'Confirmed'
     | 'Refund Processing'
     | 'Partially Refunded'
     | 'Refunded';
   payment: {
     provider: StorePaymentProviderId;
-    providerMode: 'single_merchant' | 'connect' | 'merchant_gateway';
-    status: 'pending' | 'processing' | 'paid' | 'failed' | 'cancelled';
+    providerMode: 'single_merchant' | 'connect' | 'merchant_gateway' | 'manual';
+    status: 'pending' | 'pending_verification' | 'processing' | 'paid' | 'failed' | 'cancelled' | 'rejected';
     amountMinor: number;
     currency: RegionCurrency;
     providerPaymentId: string;
+    providerTransactionId: string;
     providerPaymentMethod: string;
     checkoutAccessTokenHash: string;
     failureCode: string;
     refundStatus: 'none' | 'pending' | 'partial' | 'refunded' | 'failed';
     refundedAmountMinor: number;
     refundFailureCode: string;
+    receiptPath: string;
+    receiptFileName: string;
+    receiptUploadedAt: string;
+    reviewedAt: string;
+    reviewedBy: string;
     createdAt: string;
     updatedAt: string;
   };
@@ -211,7 +438,28 @@ export interface StoreOrder {
   updatedAt: string;
 }
 
+export interface CustomerStoreOrderSummary {
+  orderNumber: string;
+  orderDate: string;
+  storeName: string;
+  itemCount: number;
+  items: Array<{
+    productName: string;
+    quantity: number;
+    setSelections: Array<{ groupName: string; productName: string }>;
+    selectedOptions: Array<{ groupName: string; optionName: string }>;
+  }>;
+  remarks: string;
+  total: number;
+  currency: RegionCurrency;
+  paymentStatus: StoreOrder['payment']['status'];
+  orderStatus: StoreOrder['status'];
+  fulfilmentStatus: StoreFulfilmentStatus;
+  groupName?: string;
+}
+
 export interface StoreOrderDraft {
+  paymentMethodId?: StorePaymentMethodId;
   customerName: string;
   phone: string;
   pickupDate: string;
@@ -219,6 +467,7 @@ export interface StoreOrderDraft {
   pickupLocationId: string;
   notes: string;
   selections: CartSelection[];
+  groupShareCode?: string;
 }
 
 export type StorePaymentCheckout =
@@ -229,18 +478,40 @@ export type StorePaymentCheckout =
   | {
     type: 'provider_redirect';
     redirectUrl: string;
+  }
+  | {
+    type: 'manual_payment';
+    methodId: Exclude<StorePaymentMethodId, 'stripe'>;
+    methodName: string;
+    qrCodeUrl: string;
+    instructions: string;
+    receiptAllowed: boolean;
+    amountMinor: number;
+    currency: RegionCurrency;
   };
+
+export interface PublicOrderGroupContext {
+  id: string;
+  name: string;
+  hostName: string;
+  pickupDate: string;
+  pickupSession: string;
+  pickupLocationName: string;
+}
 
 export interface StorePaymentSession {
   orderNumber: string;
+  pickupCode: string;
   provider: StorePaymentProviderId;
   paymentSessionId: string;
   checkout: StorePaymentCheckout;
   checkoutAccessToken: string;
+  groupOrder?: PublicOrderGroupContext;
 }
 
 export interface PublicStoreOrderResult {
   orderNumber: string;
+  pickupCode: string;
   storeName: string;
   currency: RegionCurrency;
   paymentMethodName: string;
@@ -250,4 +521,5 @@ export interface PublicStoreOrderResult {
   total: number;
   status: StoreOrder['status'];
   paymentStatus: StoreOrder['payment']['status'];
+  groupOrder?: PublicOrderGroupContext;
 }

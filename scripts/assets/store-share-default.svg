@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title description">
+  <title id="title">MiseChef Store</title>
+  <desc id="description">Default social sharing image for a MiseChef Store.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#101827"/>
+      <stop offset="1" stop-color="#203229"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.8" cy="0.18" r="0.7">
+      <stop offset="0" stop-color="#39734d" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="#39734d" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#background)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <circle cx="1030" cy="500" r="210" fill="none" stroke="#f4c544" stroke-opacity="0.12" stroke-width="2"/>
+  <circle cx="1030" cy="500" r="150" fill="none" stroke="#f4c544" stroke-opacity="0.1" stroke-width="2"/>
+  <g transform="translate(86 82)" fill="none" stroke="#f4c544" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 44c9-20 32-23 46-9 12-23 51-18 56 10 22-5 39 13 34 33-5 21-27 27-48 18-23 29-65 29-84 3-15-20-13-40-4-55Z" stroke-width="5"/>
+    <path d="M32 117c25 11 55 11 82 0" stroke-width="5"/>
+  </g>
+  <text x="86" y="286" fill="#ffffff" font-family="Georgia, 'Times New Roman', serif" font-size="92" font-weight="700" font-style="italic">MiseChef</text>
+  <text x="92" y="350" fill="#f4c544" font-family="Arial, Helvetica, sans-serif" font-size="26" font-weight="700" letter-spacing="8">PUBLIC STORE</text>
+  <text x="90" y="442" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="42" font-weight="700">Order together. Pick up with ease.</text>
+  <text x="91" y="501" fill="#c8d2ca" font-family="Arial, Helvetica, sans-serif" font-size="27">Browse products, pre-order, and collect from your local Store.</text>
+  <rect x="88" y="548" width="166" height="6" rx="3" fill="#f4c544"/>
+</svg>

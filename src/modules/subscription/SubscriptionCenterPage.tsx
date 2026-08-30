@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import { BookOpen, CreditCard, HardDrive, ScanLine, Sparkles, UsersRound } from 'lucide-react';
+import { AlertCircle, BookOpen, CreditCard, HardDrive, ScanLine, Sparkles, Timer, UsersRound } from 'lucide-react';
 import type { Workspace } from '../../types';
 import { aiUsageService } from '../../services/aiUsageService';
 import { subscriptionService, type CompanySubscription } from '../../services/subscriptionService';
-import { UNLIMITED_PLAN_LIMIT, type SubscriptionPlanDefinition } from '../../services/subscriptionPlans';
+import { UNLIMITED_PLAN_LIMIT } from '../../services/subscriptionPlans';
+import PricingExperience from './PricingExperience';
 
 interface SubscriptionCenterPageProps {
   workspaceId: string;
@@ -28,15 +29,6 @@ const formatLabel = (value?: string) => {
     .map(part => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
 };
-
-const formatDate = (value?: string) => {
-  if (!value) return 'Not available';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return 'Not available';
-  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-};
-
-const formatLimit = (limit: number) => limit === UNLIMITED_PLAN_LIMIT ? 'Unlimited' : new Intl.NumberFormat().format(limit);
 
 const UsageItem = ({ label, value = 0, limit = 0, icon, comingSoon = false }: UsageItemProps) => {
   const isUnlimited = limit === UNLIMITED_PLAN_LIMIT;
@@ -62,39 +54,23 @@ const UsageItem = ({ label, value = 0, limit = 0, icon, comingSoon = false }: Us
   );
 };
 
-const PlanCard = ({ plan, isCurrent }: { plan: SubscriptionPlanDefinition; isCurrent: boolean; key?: string }) => (
-  <article className={`rounded-2xl border p-4 shadow-sm ${isCurrent ? 'border-secondary bg-secondary/5' : 'border-surface-container-high bg-background'}`}>
-    <div className="flex items-start justify-between gap-3">
-      <h3 className="font-display text-lg font-semibold text-primary">{plan.name}</h3>
-      {isCurrent && <span className="rounded-full bg-secondary px-2.5 py-1 font-sans text-[10px] font-extrabold text-on-secondary">Current</span>}
-    </div>
-    <p className="mt-2 min-h-10 font-sans text-xs font-bold leading-relaxed text-on-surface-variant">{plan.description}</p>
-    <dl className="mt-4 space-y-2 border-t border-surface-container-high pt-3">
-      {[
-        ['Recipes', plan.limits.recipes],
-        ['AI requests', plan.limits.aiRequests],
-        ['Invoice OCR', plan.limits.invoiceOcr],
-        ['Team members', plan.limits.teamMembers]
-      ].map(([label, limit]) => (
-        <div key={label} className="flex items-center justify-between gap-3">
-          <dt className="font-sans text-[11px] font-bold text-on-surface-variant">{label}</dt>
-          <dd className="font-sans text-xs font-extrabold text-primary">{formatLimit(limit as number)}</dd>
-        </div>
-      ))}
-    </dl>
-  </article>
-);
-
 export default function SubscriptionCenterPage({ workspaceId, currentWorkspace, recipeCount }: SubscriptionCenterPageProps) {
   const [subscription, setSubscription] = useState<CompanySubscription | null>(null);
   const [aiUsage, setAiUsage] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     let isCancelled = false;
 
+    setSubscription(null);
+    setAiUsage(0);
+    setIsLoading(true);
+    setLoadError(false);
+
     const loadSubscriptionCenter = async () => {
       const [nextSubscription, usageRecords] = await Promise.all([
-        subscriptionService.getCompanySubscription(workspaceId),
+        subscriptionService.getWorkspaceSubscription(workspaceId),
         aiUsageService.listWorkspaceUsage(workspaceId).catch(() => [])
       ]);
 
@@ -110,7 +86,9 @@ export default function SubscriptionCenterPage({ workspaceId, currentWorkspace, 
     };
 
     loadSubscriptionCenter().catch(() => {
-      if (!isCancelled) setSubscription(null);
+      if (!isCancelled) setLoadError(true);
+    }).finally(() => {
+      if (!isCancelled) setIsLoading(false);
     });
 
     return () => {
@@ -118,27 +96,92 @@ export default function SubscriptionCenterPage({ workspaceId, currentWorkspace, 
     };
   }, [workspaceId]);
 
-  const activeSubscription = subscription || {
-    companyId: workspaceId,
-    subscriptionPlan: 'free' as const,
-    subscriptionStatus: 'active' as const,
-    billingCycle: 'monthly' as const,
-    subscriptionStartedAt: '',
-    subscriptionRenewalAt: '',
-    subscriptionCancelledAt: null,
-    limits: subscriptionService.getPlanLimits('free')
-  };
+  const pageHeader = (
+    <header>
+      <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Workspace subscription</p>
+      <h1 className="mt-1 font-display text-3xl font-semibold text-primary sm:text-4xl">Subscription Center</h1>
+      <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">Plan and usage information for the active workspace.</p>
+    </header>
+  );
+
+  if (!subscription) {
+    return (
+      <div className="mx-auto w-full max-w-6xl space-y-5 py-4 sm:py-6" aria-busy={isLoading}>
+        {pageHeader}
+        <section
+          role={loadError ? 'alert' : 'status'}
+          aria-live="polite"
+          className="rounded-3xl border border-surface-container-high bg-surface-container-low p-6 shadow-sm"
+        >
+          <div className="flex items-center gap-3">
+            <span className={`rounded-2xl bg-primary/10 p-3 text-primary ${isLoading ? 'animate-pulse' : ''}`}>
+              <CreditCard className="h-6 w-6" />
+            </span>
+            <div>
+              <h2 className="font-display text-xl font-semibold text-primary">
+                {loadError ? 'Subscription information is unavailable' : 'Loading subscription information'}
+              </h2>
+              <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">
+                {loadError ? 'Refresh the page to try again.' : 'Checking the active workspace plan and usage.'}
+              </p>
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  const activeSubscription = subscription;
   const currentPlan = subscriptionService.getPlanDefinition(activeSubscription.subscriptionPlan);
-  const plans = subscriptionService.getAllPlanDefinitions();
+  const isInternalPlan = currentPlan.availability === 'internal';
   const teamMembers = currentWorkspace?.members.filter(member => member.status === 'Active').length || 0;
+  const reachedLimits = [
+    { label: 'recipe', usage: recipeCount, limit: activeSubscription.limits.recipeLimit },
+    { label: 'team member', usage: teamMembers, limit: activeSubscription.limits.teamMemberLimit },
+    { label: 'monthly AI request', usage: aiUsage, limit: activeSubscription.limits.monthlyAiRequests }
+  ].filter(item => item.limit !== UNLIMITED_PLAN_LIMIT && item.usage >= item.limit);
+  const nextPlanName = activeSubscription.subscriptionPlan === 'free'
+    ? 'Starter'
+    : activeSubscription.subscriptionPlan === 'starter'
+      ? 'Professional'
+      : activeSubscription.subscriptionPlan === 'professional'
+        ? 'Business'
+        : null;
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-5 py-4 sm:py-6">
-      <header>
-        <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Workspace subscription</p>
-        <h1 className="mt-1 font-display text-3xl font-semibold text-primary sm:text-4xl">Subscription Center</h1>
-        <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">Plan and usage information for the active workspace.</p>
-      </header>
+      {pageHeader}
+
+      {activeSubscription.subscriptionStatus === 'trialing' && (
+        <section className="relative overflow-hidden rounded-3xl bg-primary p-5 text-on-primary shadow-lg sm:p-6">
+          <div className="absolute -right-10 -top-14 h-40 w-40 rounded-full bg-secondary/20" />
+          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <span className="rounded-2xl bg-white/10 p-3 text-secondary"><Timer className="h-6 w-6" /></span>
+              <div>
+                <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-on-primary/60">Your free trial</p>
+                <h2 className="mt-1 font-display text-2xl font-bold">You're on a Professional Trial</h2>
+                <p className="mt-1 font-sans text-sm font-bold text-on-primary/75">Upgrade anytime.</p>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/10 px-5 py-3 text-center">
+              <p className="font-display text-3xl font-bold text-secondary">{activeSubscription.trialDaysRemaining}</p>
+              <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.14em] text-on-primary/70">days remaining</p>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {reachedLimits.length > 0 && (
+        <section role="alert" className="flex gap-3 rounded-2xl border border-secondary/40 bg-secondary/10 p-5 text-primary">
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-secondary" />
+          <div>
+            <h2 className="font-sans text-base font-extrabold">You've reached the {currentPlan.name} plan limit.</h2>
+            <p className="mt-1 font-sans text-sm font-extrabold text-primary">{nextPlanName ? `Upgrade to ${nextPlanName} to continue.` : 'Contact Sales to discuss more capacity.'}</p>
+            <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Limit reached: {reachedLimits.map(item => item.label).join(', ')}. Your existing data remains safe and available.</p>
+          </div>
+        </section>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <section className="rounded-3xl border border-surface-container-high bg-surface-container-low p-5 shadow-sm">
@@ -150,8 +193,7 @@ export default function SubscriptionCenterPage({ workspaceId, currentWorkspace, 
             {[
               ['Current Plan', currentPlan.name || 'Not available'],
               ['Subscription Status', formatLabel(activeSubscription.subscriptionStatus)],
-              ['Billing Cycle', formatLabel(activeSubscription.billingCycle)],
-              ['Renewal Date', formatDate(activeSubscription.subscriptionRenewalAt)]
+              ...(isInternalPlan ? [['Billing', 'Internal — no payment required']] : [])
             ].map(([label, value]) => (
               <div key={label} className="flex items-center justify-between gap-4 border-b border-surface-container-high pb-2.5 last:border-0">
                 <dt className="font-sans text-xs font-bold text-on-surface-variant">{label}</dt>
@@ -173,24 +215,14 @@ export default function SubscriptionCenterPage({ workspaceId, currentWorkspace, 
         </section>
       </div>
 
-      <section className="rounded-3xl border border-surface-container-high bg-surface-container-low p-5 shadow-sm">
-        <h2 className="font-display text-xl font-semibold text-primary">Compare Plans</h2>
-        <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">Existing MiseChef plans and included limits.</p>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-          {plans.map(plan => <PlanCard key={plan.id} plan={plan} isCurrent={plan.id === activeSubscription.subscriptionPlan} />)}
+      {!isInternalPlan && <section>
+        <div className="mb-5">
+          <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Choose what fits</p>
+          <h2 className="mt-1 font-display text-3xl font-bold text-primary">Grow without outgrowing your tools</h2>
+          <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">See exactly what each upgrade adds to your workspace.</p>
         </div>
-      </section>
-
-      <section className="flex flex-col gap-4 rounded-3xl border border-surface-container-high bg-primary p-5 text-on-primary shadow-sm sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.18em] text-on-primary/70">Upgrade</p>
-          <h2 className="mt-1 font-display text-2xl font-semibold">Need more capacity?</h2>
-          <p className="mt-1 font-sans text-sm font-bold text-on-primary/80">Plan upgrades are not available yet.</p>
-        </div>
-        <button type="button" disabled className="inline-flex w-fit items-center justify-center rounded-full bg-background px-5 py-2.5 font-sans text-xs font-extrabold text-primary opacity-90">
-          Upgrade Coming Soon
-        </button>
-      </section>
+        <PricingExperience currentPlan={activeSubscription.subscriptionPlan} inApp />
+      </section>}
     </div>
   );
 }

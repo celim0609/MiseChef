@@ -3,6 +3,7 @@ import type { PublicStoreData } from '../types';
 export const createPublicStoreQaFixture = (slug: string): PublicStoreData | null => {
   if (slug !== 'ce-lim-kitchen-qa') return null;
   const now = '2026-07-26T00:00:00.000Z';
+  const merchantQr = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22320%22 height=%22320%22 viewBox=%220 0 320 320%22%3E%3Crect width=%22320%22 height=%22320%22 fill=%22white%22/%3E%3Crect x=%2240%22 y=%2240%22 width=%22240%22 height=%22240%22 rx=%2224%22 fill=%22%23e8ede7%22/%3E%3Ctext x=%22160%22 y=%22170%22 text-anchor=%22middle%22 font-family=%22sans-serif%22 font-size=%2224%22 fill=%22%233e5641%22%3ELocal QA QR%3C/text%3E%3C/svg%3E';
   return {
     store: {
       id: 'qa-ce-lim-workspace',
@@ -14,6 +15,15 @@ export const createPublicStoreQaFixture = (slug: string): PublicStoreData | null
       description: 'Local checkout layout fixture. No production data or payment credentials are used.',
       contactInformation: '',
       businessWhatsApp: '+60123456789',
+      storeContact: {
+        phone: '+60123456789',
+        email: 'hello@example.com',
+        whatsapp: '+60123456789',
+        facebook: '',
+        instagram: '',
+        tiktok: '',
+        website: 'https://example.com'
+      },
       businessHours: 'Monday–Friday, 8:00 AM–2:00 PM',
       pickupEnabled: true,
       deliveryEnabled: false,
@@ -28,6 +38,14 @@ export const createPublicStoreQaFixture = (slug: string): PublicStoreData | null
       earliestPickupDays: 1,
       maximumAdvanceDays: 14,
       unavailableDates: [],
+      paymentMethods: [
+        { id: 'cash_on_pickup', enabled: true, qrCodeUrl: '', instructions: 'Pay when you collect.' },
+        { id: 'touch_n_go_qr', enabled: true, qrCodeUrl: merchantQr, instructions: 'Scan the merchant QR in Touch \'n Go eWallet, then confirm your payment below.' },
+        { id: 'duitnow_qr', enabled: true, qrCodeUrl: merchantQr, instructions: 'Scan the merchant QR using your banking app, then confirm your payment below.' },
+        { id: 'bank_transfer', enabled: false, qrCodeUrl: '', instructions: '' },
+        { id: 'stripe', enabled: true, qrCodeUrl: '', instructions: '' }
+      ],
+      hostProgram: { enabled: true, rewardPercent: 5, minimumQualifyingSales: 20 },
       country: 'MY',
       currency: 'MYR',
       createdBy: 'qa-owner',
@@ -47,6 +65,29 @@ export const createPublicStoreQaFixture = (slug: string): PublicStoreData | null
       createdBy: 'qa-owner',
       createdAt: now,
       updatedAt: now
+    }, {
+      id: 'qa-nasi-lemak', storeId: 'qa-ce-lim-workspace', workspaceId: 'qa-ce-lim-workspace',
+      photoUrl: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22640%22 height=%22400%22%3E%3Crect width=%22640%22 height=%22400%22 fill=%22%23f6e7c8%22/%3E%3Ctext x=%22320%22 y=%22210%22 text-anchor=%22middle%22 font-family=%22sans-serif%22 font-size=%2232%22 fill=%22%235f4728%22%3ENasi Lemak%3C/text%3E%3C/svg%3E',
+      name: 'Nasi Lemak', description: 'Coconut rice with sambal.', price: 5.9, estimatedCost: 1.83,
+      available: true, optionGroupIds: [], createdBy: 'qa-owner', createdAt: now, updatedAt: now
+    }, {
+      id: 'qa-kopi-o', storeId: 'qa-ce-lim-workspace', workspaceId: 'qa-ce-lim-workspace',
+      photoUrl: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22640%22 height=%22400%22%3E%3Crect width=%22640%22 height=%22400%22 fill=%22%23d9c6b3%22/%3E%3Ctext x=%22320%22 y=%22210%22 text-anchor=%22middle%22 font-family=%22sans-serif%22 font-size=%2232%22 fill=%22%234c3228%22%3EKopi O%3C/text%3E%3C/svg%3E',
+      name: 'Kopi O 8oz', description: '', price: 3.5, estimatedCost: 1.05,
+      available: true, optionGroupIds: [], createdBy: 'qa-owner', createdAt: now, updatedAt: now
+    }, {
+      id: 'qa-kopi-ice', storeId: 'qa-ce-lim-workspace', workspaceId: 'qa-ce-lim-workspace',
+      photoUrl: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22640%22 height=%22400%22%3E%3Crect width=%22640%22 height=%22400%22 fill=%22%23c9dbe7%22/%3E%3Ctext x=%22320%22 y=%22210%22 text-anchor=%22middle%22 font-family=%22sans-serif%22 font-size=%2232%22 fill=%22%23304d5e%22%3EKopi Ice%3C/text%3E%3C/svg%3E',
+      name: 'Kopi Ice', description: '', price: 4, estimatedCost: 1.2,
+      available: true, optionGroupIds: [], createdBy: 'qa-owner', createdAt: now, updatedAt: now
+    }],
+    sets: [{
+      id: 'qa-breakfast-set', storeId: 'qa-ce-lim-workspace', workspaceId: 'qa-ce-lim-workspace',
+      name: 'Breakfast Set', description: 'Choose one main and one drink.',
+      photoUrl: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22640%22 height=%22400%22%3E%3Crect width=%22640%22 height=%22400%22 fill=%22%23efe9dc%22/%3E%3Ctext x=%22320%22 y=%22210%22 text-anchor=%22middle%22 font-family=%22sans-serif%22 font-size=%2232%22 fill=%22%233e5641%22%3EBreakfast Set%3C/text%3E%3C/svg%3E',
+      category: 'Breakfast', price: 7.9, available: true, sortOrder: 0,
+      groups: [{ id: 'qa-main', name: 'Main', required: true, selectionCount: 1, sortOrder: 0, options: [{ productId: 'qa-nasi-lemak', priceAdjustment: 0, sortOrder: 0 }] }, { id: 'qa-drink', name: 'Drink', required: true, selectionCount: 1, sortOrder: 1, options: [{ productId: 'qa-kopi-o', priceAdjustment: 0, sortOrder: 0 }, { productId: 'qa-kopi-ice', priceAdjustment: 0.5, sortOrder: 1 }] }],
+      createdBy: 'qa-owner', createdAt: now, updatedAt: now
     }],
     optionGroups: [{
       id: 'qa-size',
@@ -72,8 +113,8 @@ export const createPublicStoreQaFixture = (slug: string): PublicStoreData | null
       workspaceId: 'qa-ce-lim-workspace',
       name: 'Add-ons',
       selectionType: 'multiple',
-      required: true,
-      minimumSelections: 1,
+      required: false,
+      minimumSelections: 0,
       maximumSelections: 2,
       sortOrder: 1,
       available: true,

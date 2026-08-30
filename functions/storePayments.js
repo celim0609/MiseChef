@@ -1,13 +1,25 @@
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   PAYMENT_REFUND_STATUS,
   buildPendingOrder,
-  createOrderNumber,
+  createAvailableOrderReference,
+  getEnabledStorePaymentMethod,
   PAYMENT_STATUS,
   readString,
+  toPublicGroupOrderContext,
   toPublicOrderResult
 } from './storePaymentsCore.js';
+import {
+  buildStoreNotification,
+  getStoreNotificationId,
+  STORE_NOTIFICATION_TYPE
+} from './storeNotifications.js';
+import {
+  incrementGroupLifetimeOrderCountInTransaction,
+  revalidateCheckoutGroupInTransaction,
+  resolveCheckoutGroup
+} from './groupOrders.js';
 
 const loadStoreCheckoutData = async (db, slug) => {
   const storeSnapshot = await db.collection('stores')
@@ -18,19 +30,24 @@ const loadStoreCheckoutData = async (db, slug) => {
   if (!storeDocument) throw new Error('This Store is no longer available.');
 
   const store = { id: storeDocument.id, ...storeDocument.data() };
-  const [productSnapshot, optionGroupSnapshot] = await Promise.all([
+  const [productSnapshot, optionGroupSnapshot, setSnapshot] = await Promise.all([
     db.collection('storeProducts')
       .where('storeId', '==', storeDocument.id)
       .where('available', '==', true)
       .get(),
     db.collection('storeOptionGroups')
       .where('storeId', '==', storeDocument.id)
+      .get(),
+    db.collection('storeSets')
+      .where('storeId', '==', storeDocument.id)
+      .where('available', '==', true)
       .get()
   ]);
   return {
     store,
     products: productSnapshot.docs.map(document => ({ id: document.id, ...document.data() })),
-    optionGroups: optionGroupSnapshot.docs.map(document => ({ id: document.id, ...document.data() }))
+    optionGroups: optionGroupSnapshot.docs.map(document => ({ id: document.id, ...document.data() })),
+    sets: setSnapshot.docs.map(document => ({ id: document.id, ...document.data() }))
   };
 };
 
@@ -53,7 +70,36 @@ const hashCheckoutAccessToken = token => createHash('sha256')
   .update(readString(token))
   .digest('hex');
 
-const hasValidCheckoutAccessToken = (order, token) => {
+const CHECKOUT_RETURN_HOSTS = new Set([
+  'misechef.ai',
+  'www.misechef.ai',
+  'misechef-fa4bf.web.app',
+  'misechef-beta-fa4bf.web.app'
+]);
+
+export const validateStoreCheckoutReturnUrl = value => {
+  let url;
+  try {
+    url = new URL(readString(value));
+  } catch {
+    throw new Error('Secure checkout return URL is invalid.');
+  }
+  const isHostedStore = url.protocol === 'https:' && CHECKOUT_RETURN_HOSTS.has(url.hostname);
+  const isLocalEmulator = process.env.FUNCTIONS_EMULATOR === 'true'
+    && url.protocol === 'http:'
+    && ['127.0.0.1', 'localhost'].includes(url.hostname);
+  if ((!isHostedStore && !isLocalEmulator)
+    || (!url.pathname.startsWith('/store/') && !url.pathname.startsWith('/group/'))) {
+    throw new Error('Secure checkout return URL is invalid.');
+  }
+  url.username = '';
+  url.password = '';
+  url.search = '';
+  url.hash = '';
+  return url.toString();
+};
+
+export const hasValidCheckoutAccessToken = (order, token) => {
   const expected = Buffer.from(readString(order.payment?.checkoutAccessTokenHash), 'hex');
   const received = Buffer.from(hashCheckoutAccessToken(token), 'hex');
   return expected.length === received.length
@@ -66,6 +112,7 @@ const loadAuthorizedPaymentOrder = async ({
   payment,
   provider,
   sellingWorkspaceId,
+  requiresSellingWorkspace,
   slug,
   checkoutAccessToken
 }) => {
@@ -79,7 +126,7 @@ const loadAuthorizedPaymentOrder = async ({
   if (!hasValidCheckoutAccessToken(order, checkoutAccessToken)) {
     throw new Error('This checkout access token is invalid.');
   }
-  if (readString(order.workspaceId) !== readString(sellingWorkspaceId)) {
+  if (requiresSellingWorkspace && readString(order.workspaceId) !== readString(sellingWorkspaceId)) {
     throw new Error('This payment does not belong to the active selling workspace.');
   }
   const storeSnapshot = await db.collection('stores').doc(order.storeId).get();
@@ -107,6 +154,8 @@ export const reconcileStorePayment = async ({ db, payment }) => {
     }
 
     const paymentStatus = payment.status;
+    const isNewPaidOrder = paymentStatus === PAYMENT_STATUS.paid
+      && readString(order.payment?.status) !== PAYMENT_STATUS.paid;
     const providerPaymentMethod = readString(payment.paymentMethod);
     const status = paymentStatus === PAYMENT_STATUS.paid
       ? 'Paid'
@@ -122,12 +171,52 @@ export const reconcileStorePayment = async ({ db, payment }) => {
       paymentMethodId: providerPaymentMethod || 'online',
       paymentMethodName: paymentMethodLabel(providerPaymentMethod),
       'payment.status': paymentStatus,
+      'payment.providerTransactionId': readString(payment.providerTransactionId),
       'payment.providerPaymentMethod': providerPaymentMethod,
       'payment.failureCode': readString(payment.failureCode),
       'payment.updatedAt': new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
+    let notificationReference;
+    let timelineReference;
+    let notificationSnapshot;
+    let timelineSnapshot;
+    if (isNewPaidOrder) {
+      notificationReference = db.collection('storeNotifications').doc(
+        getStoreNotificationId(STORE_NOTIFICATION_TYPE.newOrder, orderId)
+      );
+      timelineReference = db.collection('storeOrderTimeline').doc(`${orderId}_payment-received`);
+      [notificationSnapshot, timelineSnapshot] = await Promise.all([
+        transaction.get(notificationReference),
+        transaction.get(timelineReference)
+      ]);
+    }
+
     transaction.update(orderReference, update);
+    if (isNewPaidOrder && notificationReference && !notificationSnapshot.exists) {
+      transaction.create(notificationReference, buildStoreNotification({
+        id: notificationReference.id,
+        type: STORE_NOTIFICATION_TYPE.newOrder,
+        order: { ...order, id: orderId },
+        title: 'New Order',
+        message: `${readString(order.orderNumber)} is ready to prepare.`,
+        createdAt: FieldValue.serverTimestamp()
+      }));
+    }
+    if (isNewPaidOrder && timelineReference && !timelineSnapshot.exists) {
+      transaction.create(timelineReference, {
+        id: timelineReference.id,
+        orderId,
+        workspaceId: readString(order.workspaceId),
+        storeId: readString(order.storeId),
+        type: 'payment_received',
+        label: 'Payment Received',
+        previousStatus: '',
+        newStatus: 'Paid',
+        actingUserId: 'system:payment',
+        createdAt: FieldValue.serverTimestamp()
+      });
+    }
     return { ...order, ...update, payment: { ...order.payment, status: paymentStatus } };
   });
 };
@@ -190,30 +279,101 @@ export const reconcileStoreRefund = async ({ db, payment }) => {
 export const createStorePayment = async ({
   db,
   adapter,
+  resolveAdapter,
   sellingWorkspaceId,
+  customerUid = '',
   slug,
   draft,
+  returnUrl,
   now = new Date()
 }) => {
   const checkoutData = await loadStoreCheckoutData(db, slug);
-  assertSellingWorkspace(checkoutData.store, sellingWorkspaceId);
+  const groupOrder = await resolveCheckoutGroup({ db, store: checkoutData.store, draft, now });
+  const paymentMethod = getEnabledStorePaymentMethod(checkoutData.store, draft?.paymentMethodId);
+  const activeAdapter = adapter || resolveAdapter(paymentMethod);
+  if (activeAdapter.requiresSellingWorkspace) {
+    assertSellingWorkspace(checkoutData.store, sellingWorkspaceId);
+  }
+  const checkoutReturnUrl = activeAdapter.provider === 'stripe'
+    ? validateStoreCheckoutReturnUrl(returnUrl)
+    : '';
   const orderReference = db.collection('storeOrders').doc();
-  const order = buildPendingOrder({
-    id: orderReference.id,
-    orderNumber: createOrderNumber(now),
-    ...checkoutData,
-    paymentProvider: adapter.provider,
-    paymentProviderMode: adapter.mode,
-    draft,
-    now
-  });
   const checkoutAccessToken = randomBytes(32).toString('hex');
-  order.payment.checkoutAccessTokenHash = hashCheckoutAccessToken(checkoutAccessToken);
-  await orderReference.create(order);
+  const storeId = readString(checkoutData.store.id) || readString(checkoutData.store.workspaceId);
+  const { order } = await db.runTransaction(async transaction => {
+    const currentGroupOrder = await revalidateCheckoutGroupInTransaction({
+      db,
+      transaction,
+      groupOrder,
+      store: checkoutData.store,
+      draft,
+      now
+    });
+    const reference = await createAvailableOrderReference({
+      date: now,
+      exists: async ({ orderNumber, pickupCode, businessDateKey }) => {
+        const reservationReference = db.collection('stores')
+          .doc(storeId)
+          .collection('orderNumberReservations')
+          .doc(`${businessDateKey}_${pickupCode}`);
+        const existingOrderQuery = db.collection('storeOrders')
+          .where('storeId', '==', storeId)
+          .where('orderNumber', '==', orderNumber)
+          .limit(1);
+        const [reservationSnapshot, existingOrderSnapshot] = await Promise.all([
+          transaction.get(reservationReference),
+          transaction.get(existingOrderQuery)
+        ]);
+        return reservationSnapshot.exists || !existingOrderSnapshot.empty;
+      }
+    });
+    const pendingOrder = buildPendingOrder({
+      id: orderReference.id,
+      orderNumber: reference.orderNumber,
+      pickupCode: reference.pickupCode,
+      ...checkoutData,
+      paymentProvider: activeAdapter.provider,
+      paymentProviderMode: activeAdapter.mode,
+      paymentMethod,
+      groupOrder: currentGroupOrder,
+      customerUid,
+      draft,
+      now
+    });
+    pendingOrder.payment.checkoutAccessTokenHash = hashCheckoutAccessToken(checkoutAccessToken);
+    // Store Order History performs Firestore Timestamp range queries. Keep the
+    // nested payment clock as its existing provider-facing ISO value, but write
+    // the authoritative order creation clock using the canonical Firestore type.
+    pendingOrder.createdAt = Timestamp.fromDate(now);
+    const reservationReference = db.collection('stores')
+      .doc(storeId)
+      .collection('orderNumberReservations')
+      .doc(`${reference.businessDateKey}_${reference.pickupCode}`);
+    transaction.create(reservationReference, {
+      orderId: orderReference.id,
+      orderNumber: reference.orderNumber,
+      pickupCode: reference.pickupCode,
+      businessDateKey: reference.businessDateKey,
+      storeId,
+      workspaceId: readString(checkoutData.store.workspaceId),
+      createdAt: now.toISOString()
+    });
+    transaction.create(orderReference, pendingOrder);
+    incrementGroupLifetimeOrderCountInTransaction({
+      db,
+      transaction,
+      groupOrder: currentGroupOrder
+    });
+    return { order: pendingOrder };
+  });
 
   let providerPaymentId = '';
   try {
-    const payment = await adapter.createPayment({ order });
+    const payment = await activeAdapter.createPayment({
+      order,
+      returnUrl: checkoutReturnUrl,
+      checkoutAccessToken
+    });
     if (!readString(payment.providerPaymentId) || !readString(payment.checkout?.type)) {
       throw new Error('The payment provider did not create a usable checkout session.');
     }
@@ -225,14 +385,16 @@ export const createStorePayment = async ({
     });
     return {
       orderNumber: order.orderNumber,
-      provider: adapter.provider,
+      pickupCode: order.pickupCode,
+      provider: activeAdapter.provider,
       paymentSessionId: providerPaymentId,
       checkout: payment.checkout,
-      checkoutAccessToken
+      checkoutAccessToken,
+      ...toPublicGroupOrderContext(order)
     };
   } catch (error) {
     if (providerPaymentId) {
-      await adapter.cancelPayment(providerPaymentId).catch(() => undefined);
+      await activeAdapter.cancelPayment(providerPaymentId, { db }).catch(() => undefined);
     }
     await orderReference.update({
       status: 'Payment Failed',
@@ -253,17 +415,19 @@ export const getStorePaymentResult = async ({
   providerPaymentId,
   checkoutAccessToken
 }) => {
-  const payment = await adapter.retrievePayment(readString(providerPaymentId));
-  await loadAuthorizedPaymentOrder({
+  const payment = await adapter.retrievePayment(readString(providerPaymentId), { db });
+  const authorizedOrder = await loadAuthorizedPaymentOrder({
     db,
     payment,
     provider: adapter.provider,
     sellingWorkspaceId,
+    requiresSellingWorkspace: adapter.requiresSellingWorkspace,
     slug,
     checkoutAccessToken
   });
-  const order = await reconcileStorePayment({ db, payment });
-  return toPublicOrderResult(order);
+  // The signed webhook is authoritative for online payment state. A browser
+  // return may read the order but must never promote it to Paid.
+  return toPublicOrderResult(authorizedOrder);
 };
 
 export const cancelStorePayment = async ({
@@ -274,19 +438,20 @@ export const cancelStorePayment = async ({
   providerPaymentId,
   checkoutAccessToken
 }) => {
-  const payment = await adapter.retrievePayment(readString(providerPaymentId));
+  const payment = await adapter.retrievePayment(readString(providerPaymentId), { db });
   const order = await loadAuthorizedPaymentOrder({
     db,
     payment,
     provider: adapter.provider,
     sellingWorkspaceId,
+    requiresSellingWorkspace: adapter.requiresSellingWorkspace,
     slug,
     checkoutAccessToken
   });
   if (payment.status === PAYMENT_STATUS.paid) return toPublicOrderResult(order);
   const cancelledPayment = payment.status === PAYMENT_STATUS.cancelled
     ? payment
-    : await adapter.cancelPayment(payment.providerPaymentId);
+    : await adapter.cancelPayment(payment.providerPaymentId, { db });
   const cancelledOrder = await reconcileStorePayment({ db, payment: cancelledPayment });
   return toPublicOrderResult(cancelledOrder);
 };
@@ -307,6 +472,7 @@ export const handleStorePaymentWebhook = async ({ db, adapter, event }) => {
     providerMode: adapter.mode,
     type: event.type,
     providerPaymentId,
+    providerTransactionId: readString(update.payment?.providerTransactionId),
     processedAt: FieldValue.serverTimestamp()
   }, { merge: true });
   return { received: true };

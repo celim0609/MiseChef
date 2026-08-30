@@ -70,6 +70,24 @@ const rulesSuites = [
     only: 'firestore,storage',
     project: 'demo-misechef-store-payment-rules',
     tests: ['tests/storePaymentAccessControl.test.mjs', 'tests/storeOrderHistoryIntegration.test.mjs']
+  },
+  {
+    label: 'Store Sets Rules',
+    only: 'firestore,storage',
+    project: 'demo-misechef-store-sets-rules',
+    tests: ['tests/storeSetsAccessControl.test.mjs']
+  },
+  {
+    label: 'Homepage Promotions Rules',
+    only: 'firestore,storage',
+    project: 'demo-misechef-homepage-promotion-rules',
+    tests: ['tests/homepagePromotionAccessControl.test.mjs']
+  },
+  {
+    label: 'Business Entitlement Rules',
+    only: 'firestore,storage',
+    project: 'demo-misechef-business-entitlement-rules',
+    tests: ['tests/businessEntitlementAccessControl.test.mjs']
   }
 ];
 

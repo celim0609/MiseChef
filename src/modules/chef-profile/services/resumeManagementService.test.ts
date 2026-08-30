@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyResumeReviewChoices, assessResumeImport, buildManagedResumeUpload, defaultResumeReviewChoices, getResumeImportErrorMessage, getResumeImportSummary, getReusableExtractedResumeText, isOwnedResumeStoragePath, isResumeRetryRequiredError, resolveOwnedManagedResume, resumeFileNameFromObjectName } from './resumeManagementModel';
+import { acquireResumeImportLock, applyResumeReviewChoices, assessResumeImport, buildManagedResumeRegistration, buildManagedResumeUpload, defaultResumeReviewChoices, getResumeImportErrorMessage, getResumeImportSummary, isOwnedResumeStoragePath, resumeFileNameFromObjectName } from './resumeManagementModel';
 import { emptyChefProfile } from '../model';
 import type { ImportedChefProfile } from '../types';
+import { ResumeImportError } from './resumeImportErrors';
 
 const draft = {
   basicInfo: { fullName: 'Chef Example', professionalTitle: 'Sous Chef' },
@@ -26,6 +27,18 @@ test('resume metadata contains only the private file and pending import draft', 
   assert.equal('publicChefProfile' in record, false);
 });
 
+test('resume registration preserves the Firestore timestamp sentinel', () => {
+  const sentinel = { _methodName: 'serverTimestamp' };
+  const record = buildManagedResumeRegistration('alice', {
+    originalStoragePath: 'users/alice/chef-profile/resume-imports/resume.pdf',
+    fileName: 'resume.pdf',
+    contentType: 'application/pdf',
+    fileSize: 2048
+  }, sentinel);
+  assert.equal(record.uploadedAt, sentinel);
+  assert.deepEqual(record.uploadedAt, { _methodName: 'serverTimestamp' });
+});
+
 test('resume operations are restricted to the signed-in user import path', () => {
   assert.equal(isOwnedResumeStoragePath('alice', 'users/alice/chef-profile/resume-imports/resume.pdf'), true);
   assert.equal(isOwnedResumeStoragePath('alice', 'users/bob/chef-profile/resume-imports/resume.pdf'), false);
@@ -33,21 +46,13 @@ test('resume operations are restricted to the signed-in user import path', () =>
   assert.equal(isOwnedResumeStoragePath('alice', 'users/alice/portfolio/resume/resume.pdf'), false);
 });
 
-test('resume drafts remain isolated across an A to B to A account switch', () => {
-  const resumeA = {
-    ...buildManagedResumeUpload('alice', {
-      originalStoragePath: 'users/alice/chef-profile/resume-imports/resume.pdf',
-      fileName: 'resume.pdf',
-      contentType: 'application/pdf',
-      fileSize: 2048
-    }),
-    draft: { ...draft, basicInfo: { ...draft.basicInfo, fullName: 'Alice Private Draft' } }
-  };
-
-  assert.equal(resolveOwnedManagedResume('alice', resumeA)?.draft?.basicInfo.fullName, 'Alice Private Draft');
-  assert.throws(() => resolveOwnedManagedResume('bob', resumeA), /ownership mismatch/i);
-  assert.equal(resolveOwnedManagedResume('bob', null), null);
-  assert.equal(resolveOwnedManagedResume('alice', resumeA)?.draft?.basicInfo.fullName, 'Alice Private Draft');
+test('resume import uses a single-flight lock to prevent duplicate parsing requests', () => {
+  const lock = { current: false };
+  const release = acquireResumeImportLock(lock);
+  assert.equal(typeof release, 'function');
+  assert.equal(acquireResumeImportLock(lock), null);
+  release?.();
+  assert.equal(typeof acquireResumeImportLock(lock), 'function');
 });
 
 test('legacy storage object names recover the original safe filename', () => {
@@ -56,20 +61,6 @@ test('legacy storage object names recover the original safe filename', () => {
     'Chef_Resume.pdf'
   );
   assert.equal(resumeFileNameFromObjectName('resume.pdf'), 'resume.pdf');
-});
-
-test('resume retry reuses preserved extracted text without requiring another upload', () => {
-  const resume = {
-    ...buildManagedResumeUpload('alice', {
-      originalStoragePath: 'users/alice/chef-profile/resume-imports/resume.pdf',
-      fileName: 'resume.pdf',
-      contentType: 'application/pdf',
-      fileSize: 2048
-    }),
-    extractedText: `Professional Summary\n${'Chef experience and responsibilities. '.repeat(4)}`
-  };
-  assert.equal(getReusableExtractedResumeText(resume), resume.extractedText.trim());
-  assert.equal(getReusableExtractedResumeText({ ...resume, extractedText: 'short' }), '');
 });
 
 test('import summary exposes required counts and highlights missing sections', () => {
@@ -144,7 +135,19 @@ test('each section keeps existing data unless imported content is explicitly acc
 test('resume errors identify the failed stage and provide a next action', () => {
   assert.equal(
     getResumeImportErrorMessage(new Error('Invalid PDF structure'), 'resume.pdf'),
-    'Unable to read PDF. Make sure it contains selectable text, then retry or replace it.'
+    'We could not process this PDF. Export a fresh copy and try again.'
+  );
+  assert.equal(
+    getResumeImportErrorMessage(new ResumeImportError('pdf_worker_failed', 'pdf-worker', 'worker failed'), 'resume.pdf'),
+    'The PDF reader could not start. Refresh the app and retry; your PDF may still be valid.'
+  );
+  assert.equal(
+    getResumeImportErrorMessage(new ResumeImportError('pdf_empty_text', 'text-validation', 'empty'), 'resume.pdf'),
+    'No selectable text was found in this PDF. Use a text-based PDF and try again.'
+  );
+  assert.equal(
+    getResumeImportErrorMessage(new ResumeImportError('resume_parser_failed', 'resume-parser', 'parser failed'), 'resume.pdf'),
+    'We read the resume, but could not prepare the profile review. Please retry.'
   );
   assert.equal(
     getResumeImportErrorMessage(new Error('Resume imported, but Education could not be identified. Retry the import or add Education manually.'), 'resume.pdf'),
@@ -154,29 +157,4 @@ test('resume errors identify the failed stage and provide a next action', () => 
     getResumeImportErrorMessage(new Error('The uploaded file is valid but requires manual review. Retry the import or replace the resume with a clearer copy.'), 'resume.pdf'),
     'The uploaded file is valid but requires manual review. Retry the import or replace the resume with a clearer copy.'
   );
-  const callableError = Object.assign(new Error('Workspace subscription is temporarily unavailable.'), {
-    code: 'functions/unavailable'
-  });
-  assert.equal(
-    getResumeImportErrorMessage(callableError, 'resume.pdf'),
-    'Workspace subscription is temporarily unavailable. (functions/unavailable)'
-  );
-  const geminiError = Object.assign(new Error('AI resume import failed. Please try again.'), {
-    code: 'functions/internal'
-  });
-  assert.equal(
-    getResumeImportErrorMessage(geminiError, 'resume.pdf'),
-    'AI resume import failed. Please try again. (functions/internal)'
-  );
-
-  const busyError = Object.assign(new Error('AI service is temporarily busy. Please retry in a few minutes.'), {
-    code: 'functions/unavailable',
-    details: { reason: 'ai-service-busy' }
-  });
-  assert.equal(
-    getResumeImportErrorMessage(busyError, 'resume.pdf'),
-    'AI service is temporarily busy.\nPlease retry in a few minutes.'
-  );
-  assert.equal(isResumeRetryRequiredError(busyError), true);
-  assert.equal(isResumeRetryRequiredError(new Error('Invalid PDF structure')), false);
 });

@@ -1,4 +1,4 @@
-import { formatSubscriptionPlanName, isSubscriptionStatusActive, subscriptionService, type CompanySubscription, type PlanFeature } from './subscriptionService';
+import { formatSubscriptionPlanName, hasActiveBusinessEntitlement, subscriptionService, type CompanySubscription, type PlanFeature } from './subscriptionService';
 import { usageLimitService, type UsageLimitedResource } from './usageLimitService';
 
 export interface PermissionResult {
@@ -19,11 +19,11 @@ const allowed = (): PermissionResult => ({
 });
 
 const subscriptionInactive = (subscription: CompanySubscription): PermissionResult | null => {
-  if (isSubscriptionStatusActive(subscription.subscriptionStatus)) return null;
+  if (hasActiveBusinessEntitlement(subscription)) return null;
 
   return {
     allowed: false,
-    reason: `Your company subscription is ${subscription.subscriptionStatus}.`,
+    reason: 'A valid Business Workspace subscription is required.',
     requiredPlan: subscription.subscriptionPlan
   };
 };

@@ -43,6 +43,14 @@ test('workspace switching resolves configuration only from the active workspace 
   assert.equal(singapore.currency, 'SGD');
 });
 
+test('workspace currency does not retain stale state across MY to SG to MY switching', () => {
+  const currencySequence = ['MY', 'SG', 'MY'].map(country => (
+    getWorkspaceRegionConfiguration({ country }).currency
+  ));
+
+  assert.deepEqual(currencySequence, ['MYR', 'SGD', 'MYR']);
+});
+
 test('new workspaces default to Malaysia while legacy workspaces preserve Singapore behavior', () => {
   assert.equal(DEFAULT_REGION_CODE, 'MY');
   assert.equal(LEGACY_WORKSPACE_REGION_CODE, 'SG');

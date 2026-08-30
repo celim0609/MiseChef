@@ -1,18 +1,8 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
+import { requireWorkspaceFeature, SUBSCRIPTION_PLANS, UNLIMITED } from './subscriptionFoundation.js';
 
-const UNLIMITED = -1;
-const ACTIVE_SUBSCRIPTION_STATUSES = new Set(['active', 'trialing']);
-
-// These server-owned limits mirror the existing Subscription Center definitions.
-// Entitlements are always selected from the authenticated workspace's company document.
-const PLAN_LIMITS = Object.freeze({
-  free: Object.freeze({ invoices: 10, invoiceOcr: 10, aiRequests: 25 }),
-  starter: Object.freeze({ invoices: 75, invoiceOcr: 75, aiRequests: 250 }),
-  professional: Object.freeze({ invoices: 500, invoiceOcr: 500, aiRequests: 1_000 }),
-  business: Object.freeze({ invoices: 2_500, invoiceOcr: 2_500, aiRequests: 5_000 }),
-  enterprise: Object.freeze({ invoices: UNLIMITED, invoiceOcr: UNLIMITED, aiRequests: UNLIMITED })
-});
+const PLAN_LIMITS = Object.freeze(Object.fromEntries(Object.entries(SUBSCRIPTION_PLANS).map(([plan, definition]) => [plan, definition.limits])));
 
 const readString = value => typeof value === 'string' ? value.trim() : '';
 
@@ -39,72 +29,7 @@ const getLimitError = (resource, limit) => new HttpsError(
 );
 
 export const requireWorkspaceEntitlements = async ({ db, uid, workspaceId }) => {
-  const normalizedWorkspaceId = readString(workspaceId);
-  if (!uid) throw new HttpsError('unauthenticated', 'Sign in to use this feature.');
-  if (!normalizedWorkspaceId) {
-    throw new HttpsError('invalid-argument', 'Workspace ID is required.');
-  }
-
-  const membershipReference = db.collection('workspaceMembers').doc(`${normalizedWorkspaceId}_${uid}`);
-  const workspaceReference = db.collection('workspaces').doc(normalizedWorkspaceId);
-  const companyReference = db.collection('companies').doc(normalizedWorkspaceId);
-
-  let membershipSnapshot;
-  let workspaceSnapshot;
-  let companySnapshot;
-  try {
-    [membershipSnapshot, workspaceSnapshot, companySnapshot] = await Promise.all([
-      membershipReference.get(),
-      workspaceReference.get(),
-      companyReference.get()
-    ]);
-  } catch (err) {
-    throw new HttpsError('unavailable', 'Workspace subscription is temporarily unavailable.', {
-      reason: 'subscription-lookup-failed'
-    });
-  }
-
-  const membership = membershipSnapshot.exists ? membershipSnapshot.data() || {} : {};
-  const workspace = workspaceSnapshot.exists ? workspaceSnapshot.data() || {} : {};
-  const isActiveMember = membership.userId === uid
-    && membership.workspaceId === normalizedWorkspaceId
-    && membership.status === 'Active';
-  const isWorkspaceOwner = workspaceSnapshot.exists && workspace.ownerId === uid;
-
-  if (!isActiveMember && !isWorkspaceOwner) {
-    throw new HttpsError('permission-denied', 'You do not have access to this workspace.', {
-      reason: 'workspace-membership-required'
-    });
-  }
-
-  if (!companySnapshot.exists) {
-    throw new HttpsError('unavailable', 'Workspace subscription is temporarily unavailable.', {
-      reason: 'subscription-not-found'
-    });
-  }
-
-  const company = companySnapshot.data() || {};
-  const plan = readString(company.subscriptionPlan).toLowerCase();
-  const status = readString(company.subscriptionStatus).toLowerCase();
-  if (!PLAN_LIMITS[plan] || !status) {
-    throw new HttpsError('unavailable', 'Workspace subscription is temporarily unavailable.', {
-      reason: 'subscription-invalid'
-    });
-  }
-  if (!ACTIVE_SUBSCRIPTION_STATUSES.has(status)) {
-    throw new HttpsError('permission-denied', 'The workspace subscription is not active.', {
-      reason: 'subscription-inactive',
-      status
-    });
-  }
-
-  return {
-    workspaceId: normalizedWorkspaceId,
-    role: isWorkspaceOwner ? 'Owner' : readString(membership.role),
-    plan,
-    status,
-    limits: PLAN_LIMITS[plan]
-  };
+  return requireWorkspaceFeature({ db, uid, workspaceId, feature: 'aiRequests' });
 };
 
 const loadMonthlyUsageBaseline = async ({ db, workspaceId, monthKey }) => {
@@ -115,14 +40,15 @@ const loadMonthlyUsageBaseline = async ({ db, workspaceId, monthKey }) => {
     if (record.status !== 'success') return usage;
     usage.aiRequests += 1;
     if (record.feature === 'parseInvoiceToJson') usage.invoiceOcr += 1;
+    if (record.feature === 'extractPersonalExpenseReceipt') usage.personalExpenseOcr += 1;
     return usage;
-  }, { aiRequests: 0, invoiceOcr: 0 });
+  }, { aiRequests: 0, invoiceOcr: 0, personalExpenseOcr: 0 });
 };
 
 export const reserveMonthlySubscriptionUsage = async ({ db, entitlements, increments }) => {
   const monthKey = getMonthKey();
   const usageReference = db.collection('subscriptionUsage').doc(`${entitlements.workspaceId}_${monthKey}`);
-  let baseline = { aiRequests: 0, invoiceOcr: 0 };
+  let baseline = { aiRequests: 0, invoiceOcr: 0, personalExpenseOcr: 0 };
 
   try {
     const existingUsage = await usageReference.get();
@@ -144,7 +70,8 @@ export const reserveMonthlySubscriptionUsage = async ({ db, entitlements, increm
     const current = snapshot.exists ? snapshot.data() || {} : baseline;
     const next = {
       aiRequests: Number(current.aiRequests || 0) + Number(increments.aiRequests || 0),
-      invoiceOcr: Number(current.invoiceOcr || 0) + Number(increments.invoiceOcr || 0)
+      invoiceOcr: Number(current.invoiceOcr || 0) + Number(increments.invoiceOcr || 0),
+      personalExpenseOcr: Number(current.personalExpenseOcr || 0) + Number(increments.personalExpenseOcr || 0)
     };
 
     for (const resource of ['aiRequests', 'invoiceOcr']) {
@@ -176,6 +103,7 @@ export const releaseMonthlySubscriptionUsage = async ({ db, reservation }) => {
     transaction.update(reservation.usageReference, {
       aiRequests: Math.max(0, Number(current.aiRequests || 0) - Number(reservation.increments.aiRequests || 0)),
       invoiceOcr: Math.max(0, Number(current.invoiceOcr || 0) - Number(reservation.increments.invoiceOcr || 0)),
+      personalExpenseOcr: Math.max(0, Number(current.personalExpenseOcr || 0) - Number(reservation.increments.personalExpenseOcr || 0)),
       updatedAt: FieldValue.serverTimestamp()
     });
   });
@@ -211,6 +139,18 @@ export const createInvoiceUploadReservation = async ({ db, entitlements, invoice
 
 export const cancelInvoiceUploadReservation = async ({ db, uid, invoiceId }) => {
   const invoiceReference = db.collection('invoices').doc(invoiceId);
+  const initialSnapshot = await invoiceReference.get();
+  if (!initialSnapshot.exists) return;
+  const initialInvoice = initialSnapshot.data() || {};
+  const entitlements = await requireWorkspaceFeature({
+    db,
+    uid,
+    workspaceId: initialInvoice.workspaceId,
+    feature: 'invoiceOcr'
+  });
+  if (!['Owner', 'Manager', 'Head Chef', 'Purchasing'].includes(entitlements.role)) {
+    throw new HttpsError('permission-denied', 'Your workspace role cannot cancel invoice uploads.');
+  }
   await db.runTransaction(async transaction => {
     const snapshot = await transaction.get(invoiceReference);
     if (!snapshot.exists) return;

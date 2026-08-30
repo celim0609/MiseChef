@@ -26,7 +26,6 @@ export interface AdminSubscriptionSummary {
   starter: number;
   professional: number;
   business: number;
-  enterprise: number;
 }
 
 export interface AdminSubscriptionDashboard {
@@ -56,8 +55,7 @@ const countPlans = (records: AdminSubscriptionRecord[]): AdminSubscriptionSummar
   free: records.filter(record => record.currentPlan === 'free').length,
   starter: records.filter(record => record.currentPlan === 'starter').length,
   professional: records.filter(record => record.currentPlan === 'professional').length,
-  business: records.filter(record => record.currentPlan === 'business').length,
-  enterprise: records.filter(record => record.currentPlan === 'enterprise').length
+  business: records.filter(record => record.currentPlan === 'business').length
 });
 
 export const adminSubscriptionService = {

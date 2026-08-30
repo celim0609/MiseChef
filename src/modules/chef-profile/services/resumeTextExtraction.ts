@@ -1,5 +1,6 @@
-import * as pdfjsLib from 'pdfjs-dist/webpack.mjs';
+import { loadPdfJsRuntime } from '../../../services/pdfRuntime';
 import { reconstructResumePdfPage, type ResumePdfTextItem } from './resumePdfLayout';
+import { classifyPdfFailure, ResumeImportError } from './resumeImportErrors';
 
 const stripXml = (xml: string) => xml
   .replace(/<w:tab\/>/g, ' ')
@@ -61,45 +62,65 @@ const extractDocxText = async (file: File) => {
   throw new Error('Unable to read text from this DOCX file.');
 };
 
-const extractPdfText = async (file: File) => {
-  const data = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data }).promise;
-  const pageTexts: string[] = [];
+type PdfRuntimeLoader = typeof loadPdfJsRuntime;
 
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-    const page = await pdf.getPage(pageNumber);
-    const textContent = await page.getTextContent();
-    const viewport = page.getViewport({ scale: 1 });
-    const layoutItems = textContent.items.flatMap<ResumePdfTextItem>(item => {
-      if (!('str' in item) || !item.str.trim()) return [];
-      const [, , , transformHeight, x, y] = item.transform;
-      return [{
-        text: item.str,
-        x,
-        y,
-        width: item.width,
-        height: Math.abs(transformHeight) || item.height || 1,
-        hasEOL: item.hasEOL
-      }];
-    });
-    const pageText = reconstructResumePdfPage(layoutItems, viewport.width);
-    pageTexts.push(pageText);
+export const extractPdfResumeText = async (file: File, loadRuntime: PdfRuntimeLoader = loadPdfJsRuntime) => {
+  let loadingTask: ReturnType<Awaited<ReturnType<PdfRuntimeLoader>>['getDocument']> | undefined;
+  try {
+    const data = new Uint8Array(await file.arrayBuffer());
+    const pdfjsLib = await loadRuntime();
+    loadingTask = pdfjsLib.getDocument({ data });
+    const pdf = await loadingTask.promise;
+    const pageTexts: string[] = [];
+
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const textContent = await page.getTextContent();
+      const viewport = page.getViewport({ scale: 1 });
+      const layoutItems = textContent.items.flatMap<ResumePdfTextItem>(item => {
+        if (!('str' in item) || !item.str.trim()) return [];
+        const [, , , transformHeight, x, y] = item.transform;
+        return [{
+          text: item.str,
+          x,
+          y,
+          width: item.width,
+          height: Math.abs(transformHeight) || item.height || 1,
+          hasEOL: item.hasEOL
+        }];
+      });
+      pageTexts.push(reconstructResumePdfPage(layoutItems, viewport.width));
+    }
+
+    const text = pageTexts.filter(Boolean).join('\n\n--- PAGE BREAK ---\n\n').trim();
+    if (!text) {
+      throw new ResumeImportError('pdf_empty_text', 'text-validation', 'PDF extraction returned no text.');
+    }
+    return text;
+  } catch (error) {
+    throw classifyPdfFailure(error);
+  } finally {
+    await loadingTask?.destroy().catch(() => undefined);
   }
-
-  return pageTexts.join('\n\n--- PAGE BREAK ---\n\n').trim();
 };
 
 export const extractChefResumeText = async (file: File) => {
   if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-    return extractPdfText(file);
+    return extractPdfResumeText(file);
   }
 
   if (
     file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
     file.name.toLowerCase().endsWith('.docx')
   ) {
-    return extractDocxText(file);
+    try {
+      const text = await extractDocxText(file);
+      if (!text) throw new Error('DOCX extraction returned no text.');
+      return text;
+    } catch (error) {
+      throw new ResumeImportError('docx_parse_failed', 'text-validation', 'DOCX extraction failed.', { cause: error });
+    }
   }
 
-  throw new Error('Resume Auto Fill supports PDF and DOCX files.');
+  throw new ResumeImportError('unsupported_file', 'validation', 'Resume Auto Fill supports PDF and DOCX files.');
 };
