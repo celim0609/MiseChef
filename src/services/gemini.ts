@@ -4,7 +4,8 @@
  */
 
 import { httpsCallable } from 'firebase/functions';
-import { functions } from '../firebase';
+import { auth, functions } from '../firebase';
+import { waitForResumeImportJob } from './resumeImportJobs';
 import {
   normalizeResumePortfolioDraft as normalizeResumePortfolioDraftModel,
   type GeminiResumePortfolioDraft
@@ -73,10 +74,6 @@ const getCallableErrorMessage = (err: unknown, fallbackMessage: string) => {
       return 'Resume imported, but Education could not be identified. Retry the import or add Education manually.';
     }
     return 'The uploaded file is valid but requires manual review. Retry the import or replace the resume with a clearer copy.';
-  }
-
-  if (typeof source.code === 'string' && source.code.startsWith('functions/') && typeof source.message === 'string') {
-    return source.message;
   }
 
   return import.meta.env.DEV && devMessage ? devMessage : fallbackMessage;
@@ -221,15 +218,15 @@ export const scanRecipeImageWithGemini = async ({
   }
 };
 
-export const parseResumeToPortfolioWithAI = async (resumeText: string, workspaceId: string) => {
+export const startResumeToPortfolioJob = async (resumeText: string, workspaceId: string) => {
   if (!functions) {
     throw new Error('AI is temporarily unavailable. Please try again shortly.');
   }
 
   const parseResume = httpsCallable<
     { workspaceId: string; resumeText: string; debug?: boolean },
-    { portfolio: GeminiResumePortfolioDraft }
-  >(functions, 'parseResumeToPortfolio', { timeout: 330_000 });
+    { jobId: string }
+  >(functions, 'parseResumeToPortfolio');
 
   try {
     const response = await parseResume({
@@ -238,19 +235,17 @@ export const parseResumeToPortfolioWithAI = async (resumeText: string, workspace
       debug: import.meta.env.DEV
     });
 
-    return normalizeResumePortfolioDraftModel(response.data?.portfolio);
+    const jobId = readString(response.data?.jobId);
+    if (!jobId) throw new Error('The resume importer did not return a job ID.');
+    return jobId;
   } catch (err) {
-    const source = err && typeof err === 'object' ? err as Record<string, unknown> : {};
-    console.error('[Resume Import] parseResumeToPortfolio failed', {
-      code: source.code || '',
-      message: source.message || '',
-      details: source.details || null,
-      stack: source.stack || ''
-    });
-    const friendlyMessage = getCallableErrorMessage(err, 'We could not import this resume. Please try again.');
-    if (err instanceof Error && friendlyMessage === err.message) throw err;
-    const wrapped = new Error(friendlyMessage, { cause: err });
-    if (typeof source.code === 'string') Object.assign(wrapped, { code: source.code, details: source.details });
-    throw wrapped;
+    throw new Error(getCallableErrorMessage(err, 'We could not import this resume. Please try again.'), { cause: err });
   }
+};
+
+export const parseResumeToPortfolioWithAI = async (resumeText: string, workspaceId: string) => {
+  const uid = auth?.currentUser?.uid;
+  if (!uid) throw new Error('Sign in to import a resume.');
+  const jobId = await startResumeToPortfolioJob(resumeText, workspaceId);
+  return normalizeResumePortfolioDraftModel(await waitForResumeImportJob(uid, jobId));
 };

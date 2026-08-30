@@ -17,6 +17,11 @@ import {
 import type { User } from 'firebase/auth';
 import BrandLogo from './BrandLogo';
 import { auth, isFirebaseConfigured } from '../firebase';
+import {
+  ensureNewUserProvisioned,
+  forgetPendingRegistrationName,
+  rememberPendingRegistrationName
+} from '../services/newUserProvisioningService';
 
 type AuthView = 'welcome' | 'sign-in' | 'create-account' | 'forgot-password' | 'guest';
 
@@ -190,13 +195,8 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
         }
       }
       setAuthError(getAuthErrorMessage(error));
-      setIsSubmitting(false);
     } finally {
-      if (auth.currentUser) {
-        setAuthMessage('Signed in with Google successfully.');
-        onAuthenticated();
-        setIsSubmitting(false);
-      }
+      setIsSubmitting(false);
     }
   };
 
@@ -211,14 +211,19 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
     }
 
     setIsSubmitting(true);
+    const normalizedEmail = createEmail.trim();
+    const normalizedName = fullName.trim();
+    rememberPendingRegistrationName(normalizedEmail, normalizedName);
     try {
-      const credential = await createUserWithEmailAndPassword(auth, createEmail.trim(), createPassword);
-      if (fullName.trim()) {
-        await updateProfile(credential.user, { displayName: fullName.trim() });
+      const credential = await createUserWithEmailAndPassword(auth, normalizedEmail, createPassword);
+      if (normalizedName) {
+        await updateProfile(credential.user, { displayName: normalizedName });
       }
+      await ensureNewUserProvisioned(credential.user, normalizedName);
       setAuthMessage('Account created successfully.');
       onAuthenticated();
     } catch (error) {
+      forgetPendingRegistrationName(normalizedEmail);
       setAuthError(getAuthErrorMessage(error));
     } finally {
       setIsSubmitting(false);

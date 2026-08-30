@@ -98,6 +98,26 @@ describe('chefProfiles ownership', () => {
     })));
     await assertFails(getDoc(doc(attacker, 'chefProfiles', 'alice')));
   });
+
+  test('social link writes require HTTPS and the matching platform domain', async () => {
+    const reference = doc(ownerFirestore('alice'), 'chefProfiles', 'alice');
+    await assertSucceeds(setDoc(reference, profile('alice', {
+      socialLinks: {
+        instagram: 'https://instagram.com/chef-alice',
+        facebook: 'https://fb.com/chef-alice',
+        youtube: 'https://youtu.be/video'
+      }
+    })));
+    await assertFails(setDoc(reference, profile('alice', {
+      socialLinks: { instagram: 'http://instagram.com/chef-alice' }
+    })));
+    await assertFails(setDoc(reference, profile('alice', {
+      socialLinks: { instagram: 'https://facebook.com/chef-alice' }
+    })));
+    await assertFails(setDoc(reference, profile('alice', {
+      socialLinks: { custom: 'https://example.test/chef-alice' }
+    })));
+  });
 });
 
 describe('resume management isolation', () => {
@@ -122,18 +142,11 @@ describe('resume management isolation', () => {
     await assertFails(setDoc(doc(ownerFirestore('bob'), 'chefResumeImports', 'alice'), resumeRecord('alice')));
   });
 
-  test('resume import status accepts retry-required state with private extracted text', async () => {
+  test('resume import status accepts review, failed, and imported states only', async () => {
     const reference = doc(ownerFirestore('alice'), 'chefResumeImports', 'alice');
     await assertSucceeds(setDoc(reference, resumeRecord('alice')));
-    await assertSucceeds(setDoc(reference, {
-      ...resumeRecord('alice'),
-      importStatus: 'retry_required',
-      extractedText: `Professional Summary\n${'Chef experience and responsibilities. '.repeat(4)}`,
-      lastError: 'AI service is temporarily busy. Please retry in a few minutes.'
-    }));
     await assertSucceeds(setDoc(reference, { ...resumeRecord('alice'), importStatus: 'failed', lastError: 'AI extraction incomplete.', draft: {} }));
     await assertSucceeds(setDoc(reference, { ...resumeRecord('alice'), importStatus: 'imported' }));
-    await assertFails(setDoc(reference, { ...resumeRecord('alice'), extractedText: 'too short' }));
     await assertFails(setDoc(reference, { ...resumeRecord('alice'), importStatus: 'processing' }));
   });
 

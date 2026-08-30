@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, Camera, ChevronDown, ChevronRight, FileText, Image as ImageIcon, MoreHorizontal, Plus, Trash2, X, Sparkles, Video } from 'lucide-react';
-import * as pdfjsLib from 'pdfjs-dist/webpack.mjs';
-import { Recipe, Ingredient, MethodStep, RecipeCategory, RecipeVisibility, RecommendedProduct, UserRole, type ApprovedProductSummary } from '../types';
+import { loadPdfJsRuntime } from '../services/pdfRuntime';
+import { Recipe, Ingredient, MethodStep, RecipeCategory, RecipeVisibility, RecommendedProduct, UserRole, type ApprovedProductSummary, type LinkedRecipeComponent } from '../types';
 import { generateRecipeStepsWithAI, scanRecipeImageWithGemini } from '../services/gemini';
 import type { GeminiScannedIngredient } from '../services/gemini';
 import { normalizeIngredientForDisplay, parseIngredientLines } from '../utils/ingredientParser';
@@ -14,8 +14,16 @@ import { FALLBACK_CATEGORY_NAME, getRecipeCategories, normalizeRecipeCategories 
 import { canCreateKitchenDictionaryEntry, createKitchenDictionaryEntry, isKnownKitchenDictionaryIngredientName } from '../services/kitchenDictionary';
 import { ingredientService } from '../modules/costing/services';
 import type { CostingIngredient } from '../modules/costing/types';
+import {
+  loadRecipeIngredientLibrary,
+  updateRecipeIngredientLibraryLink
+} from '../modules/costing/services/recipeIngredientLibrary';
 import { ApprovedProductSelector } from '../modules/products/components/ApprovedProductSelector';
 import { approvedProductService } from '../modules/products/services/approvedProductService';
+import RecipeCostAnalysis from './RecipeCostAnalysis';
+import { calculateRecipeEditorCostPreview } from '../modules/costing/services/recipeEditorCostPreview';
+import IngredientLibraryPicker from './IngredientLibraryPicker';
+import { validateRecipeDependencies } from '../modules/costing/services/recipeDependencyModel';
 
 const MAX_COVER_IMAGE_SIDE = 1200;
 const MAX_COVER_IMAGE_BYTES = 500 * 1024;
@@ -363,6 +371,7 @@ const detectRecipesFromText = (rawText: string): ParsedImportedRecipe[] => {
 
 const extractTextFromPdfFile = async (file: File) => {
   const data = await file.arrayBuffer();
+  const pdfjsLib = await loadPdfJsRuntime();
   const pdf = await pdfjsLib.getDocument({ data }).promise;
   const pageTexts: string[] = [];
 
@@ -607,6 +616,7 @@ interface AddRecipeTabProps {
   userRole?: UserRole;
   userId?: string;
   workspaceId?: string;
+  recipes?: Recipe[];
 }
 
 export default function AddRecipeTab({
@@ -621,11 +631,12 @@ export default function AddRecipeTab({
   userRole = 'user',
   userId,
   workspaceId,
+  recipes = [],
   onDirtyChange,
   isSaving = false,
   saveError = ''
 }: AddRecipeTabProps) {
-  const isEditing = mode === 'edit' && initialRecipe;
+  const isEditing = mode === 'edit' && Boolean(initialRecipe);
 
   // Base details state
   const [title, setTitle] = useState(initialRecipe?.title || '');
@@ -661,6 +672,7 @@ export default function AddRecipeTab({
       ? initialRecipe.ingredients
       : [{ id: 'ing_1', name: '', qty: '', unit: '' }]
   );
+  const [linkedRecipes, setLinkedRecipes] = useState<LinkedRecipeComponent[]>(initialRecipe?.linkedRecipes || []);
   const [libraryIngredients, setLibraryIngredients] = useState<CostingIngredient[]>([]);
   const [importedIngredientIds, setImportedIngredientIds] = useState<string[]>([]);
 
@@ -692,7 +704,7 @@ export default function AddRecipeTab({
   const [selectedPdfRecipeIds, setSelectedPdfRecipeIds] = useState<string[]>([]);
   const [coverImageError, setCoverImageError] = useState('');
   const [validationErrors, setValidationErrors] = useState<Partial<Record<
-    'title' | 'ingredients' | 'instructions' | 'servings' | 'prepTime' | 'cookTime' | 'sellingPrice',
+    'title' | 'ingredients' | 'linkedRecipes' | 'instructions' | 'servings' | 'prepTime' | 'cookTime' | 'sellingPrice',
     string
   >>>({});
 
@@ -764,17 +776,18 @@ export default function AddRecipeTab({
   useEffect(() => {
     let isMounted = true;
 
-    if (!userId) {
+    if (!workspaceId && !userId) {
       setLibraryIngredients([]);
       return () => {
         isMounted = false;
       };
     }
 
-    ingredientService.listIngredients(userId)
+    setLibraryIngredients([]);
+    loadRecipeIngredientLibrary(workspaceId, userId, ingredientService.listIngredients)
       .then(loadedIngredients => {
         if (isMounted) {
-          setLibraryIngredients(loadedIngredients.filter(ingredient => ingredient.status === 'Active'));
+          setLibraryIngredients(loadedIngredients);
         }
       })
       .catch(error => {
@@ -784,7 +797,23 @@ export default function AddRecipeTab({
     return () => {
       isMounted = false;
     };
-  }, [userId]);
+  }, [userId, workspaceId]);
+
+  const liveCostingRecipe = useMemo(() => {
+    if (!isEditing || !initialRecipe) return null;
+
+    return calculateRecipeEditorCostPreview({
+      recipe: initialRecipe,
+      ingredients,
+      libraryIngredients,
+      servings,
+      sellingPrice,
+      recipes: [
+        ...recipes.filter(recipe => recipe.id !== initialRecipe.id),
+        { ...initialRecipe, linkedRecipes }
+      ]
+    });
+  }, [ingredients, initialRecipe, isEditing, libraryIngredients, linkedRecipes, recipes, sellingPrice, servings]);
 
   // Local helper for cover photo selection
   const handleCoverPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -840,25 +869,21 @@ export default function AddRecipeTab({
 
     setIngredients(prev => prev.map(ing => {
       if (ing.id !== id) return ing;
-      if (!matchedIngredient) {
-        return {
-          id: ing.id,
-          name: ing.name,
-          englishName: ing.englishName,
-          chineseName: ing.chineseName,
-          qty: ing.qty,
-          unit: ing.unit,
-          notes: ing.notes
-        };
-      }
-
-      return {
-        ...ing,
-        ingredientId: matchedIngredient.id,
-        name: ing.name.trim() || matchedIngredient.name,
-        unit: ing.unit.trim() || matchedIngredient.recipeUnit || matchedIngredient.purchaseUnit
-      };
+      return updateRecipeIngredientLibraryLink(ing, matchedIngredient);
     }));
+  };
+
+  const addLinkedRecipe = () => {
+    const available = recipes.find(recipe => recipe.id !== initialRecipe?.id && !linkedRecipes.some(component => component.recipeId === recipe.id));
+    if (!available) return;
+    setLinkedRecipes(current => [...current, {
+      id: `linked_recipe_${Date.now()}_${Math.random()}`,
+      recipeId: available.id,
+      recipeTitle: available.title,
+      quantity: 1,
+      unit: 'portion'
+    }]);
+    clearValidationError('linkedRecipes');
   };
 
   const shouldShowAddToDictionary = (ingredient: Ingredient) => {
@@ -1253,6 +1278,7 @@ export default function AddRecipeTab({
     let target: HTMLElement | null = null;
     if (field === 'title') target = titleInputRef.current;
     if (field === 'ingredients') target = ingredientNameRefs.current[ingredients[0]?.id];
+    if (field === 'linkedRecipes') target = document.getElementById('linked-recipes-section');
     if (field === 'instructions') target = instructionRefs.current[methodSteps[0]?.id];
     if (field === 'servings') target = servingsInputRef.current;
     if (field === 'prepTime') target = prepTimeInputRef.current;
@@ -1286,8 +1312,16 @@ export default function AddRecipeTab({
     const cleanIngredients = ingredients
       .filter(ing => ing.name.trim() !== '')
       .map(normalizeIngredientForDisplay);
-    if (cleanIngredients.length === 0) {
-      nextErrors.ingredients = 'Add at least one ingredient.';
+    if (cleanIngredients.length === 0 && linkedRecipes.length === 0) {
+      nextErrors.ingredients = 'Add at least one ingredient or linked recipe.';
+    }
+    const dependencyError = validateRecipeDependencies(
+      initialRecipe?.id || 'new-recipe',
+      linkedRecipes,
+      recipes
+    );
+    if (dependencyError) {
+      nextErrors.linkedRecipes = dependencyError;
     }
 
     const cleanSteps = methodSteps.filter(step => step.description.trim() !== '');
@@ -1317,7 +1351,7 @@ export default function AddRecipeTab({
 
     setValidationErrors(nextErrors);
     const firstInvalidField = (
-      ['title', 'prepTime', 'cookTime', 'servings', 'sellingPrice', 'ingredients', 'instructions'] as const
+      ['title', 'prepTime', 'cookTime', 'servings', 'sellingPrice', 'ingredients', 'linkedRecipes', 'instructions'] as const
     ).find(field => nextErrors[field]);
     if (firstInvalidField) {
       focusInvalidField(firstInvalidField);
@@ -1330,6 +1364,11 @@ export default function AddRecipeTab({
 
     const savedRecipe: Recipe = {
       id: initialRecipe?.id || `recipe_${Date.now()}`,
+      workspaceId: initialRecipe?.workspaceId,
+      companyId: initialRecipe?.companyId,
+      userId: initialRecipe?.userId,
+      createdBy: initialRecipe?.createdBy,
+      createdByName: initialRecipe?.createdByName,
       title: title.trim(),
       coverImage: coverImage || 'https://images.unsplash.com/photo-1495521821757-a1efb6729352?auto=format&fit=crop&q=80&w=800',
       imageUrl: initialRecipe?.imageUrl,
@@ -1345,6 +1384,7 @@ export default function AddRecipeTab({
       story: story.trim() || 'A homemade culinary masterpiece baked with fresh herbs and careful attention.',
       chefNotes: chefNotes.trim(),
       ingredients: cleanIngredients,
+      linkedRecipes,
       method: cleanSteps,
       recommendedProducts: legacyRecommendedProducts.length > 0
         ? legacyRecommendedProducts
@@ -1664,9 +1704,12 @@ export default function AddRecipeTab({
               onChange={e => setVisibility(e.target.value as Extract<RecipeVisibility, 'private' | 'public'>)}
               className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold cursor-pointer transition-all"
             >
-              <option value="private">🔒 Private</option>
-              <option value="public">🌍 Public</option>
+              <option value="private">🔒 Private — Workspace only</option>
+              <option value="public">🌍 Public — Workspace + public profile</option>
             </select>
+            <p className="px-1 font-sans text-[11px] font-semibold text-on-surface-variant">
+              Both options are visible to active members of this Workspace.
+            </p>
           </div>
 
           <div className="space-y-1.5">
@@ -1770,57 +1813,47 @@ export default function AddRecipeTab({
           />
         </div>
 
-        <div className="space-y-1.5">
-          <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Selling Price</label>
-          <input
-            ref={sellingPriceInputRef}
-            type="number"
-            min="0"
-            step="0.01"
-            value={sellingPrice}
-            onChange={e => {
-              setSellingPrice(e.target.value);
-              clearValidationError('sellingPrice');
-            }}
-            aria-invalid={Boolean(validationErrors.sellingPrice)}
-            placeholder="0.00"
-            className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold"
-          />
-          {validationErrors.sellingPrice && (
-            <p role="alert" className="px-1 font-sans text-[11px] font-bold text-error">
-              {validationErrors.sellingPrice}
-            </p>
-          )}
-        </div>
+        {!isEditing && (
+          <div className="space-y-1.5">
+            <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Selling Price</label>
+            <input
+              ref={sellingPriceInputRef}
+              type="number"
+              min="0"
+              step="0.01"
+              value={sellingPrice}
+              onChange={event => {
+                setSellingPrice(event.target.value);
+                clearValidationError('sellingPrice');
+              }}
+              aria-invalid={Boolean(validationErrors.sellingPrice)}
+              placeholder="0.00"
+              className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold"
+            />
+            {validationErrors.sellingPrice && (
+              <p role="alert" className="px-1 font-sans text-[11px] font-bold text-error">
+                {validationErrors.sellingPrice}
+              </p>
+            )}
+          </div>
+        )}
+
       </section>
 
-      {/* Chef's Story Section */}
-      <section className="bg-surface-container-low p-5 rounded-2xl border border-surface-container flex flex-col gap-4 shadow-sm">
-        <h3 className="font-display text-xl font-semibold text-primary flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-secondary animate-pulse" />
-          Story
-        </h3>
-        <textarea
-          value={story}
-          onChange={e => setStory(e.target.value)}
-          placeholder="Tell us the story behind this recipe. Is it a family heirloom? Inspired by a recent trip?"
-          rows={4}
-          className="w-full bg-white border-none rounded-xl font-sans text-sm text-on-surface p-4 focus:ring-1 focus:ring-primary resize-none placeholder:text-outline-variant font-medium leading-relaxed"
+      {liveCostingRecipe && (
+        <RecipeCostAnalysis
+          recipe={liveCostingRecipe}
+          defaultOpen
+          livePreview
+          sellingPriceValue={sellingPrice}
+          onSellingPriceChange={value => {
+            setSellingPrice(value);
+            clearValidationError('sellingPrice');
+          }}
+          sellingPriceError={validationErrors.sellingPrice}
+          sellingPriceInputRef={sellingPriceInputRef}
         />
-      </section>
-
-      <section className="bg-surface-container-low p-5 rounded-2xl border border-surface-container flex flex-col gap-4 shadow-sm">
-        <h3 className="font-display text-xl font-semibold text-primary">
-          Chef Notes
-        </h3>
-        <textarea
-          value={chefNotes}
-          onChange={e => setChefNotes(e.target.value)}
-          placeholder="Add private notes, reminders, or cooking adjustments..."
-          rows={3}
-          className="w-full bg-white border-none rounded-xl font-sans text-sm text-on-surface p-4 focus:ring-1 focus:ring-primary resize-none placeholder:text-outline-variant font-medium leading-relaxed"
-        />
-      </section>
+      )}
 
       {/* Ingredients List */}
       <section className="space-y-4" id="ingredients-section">
@@ -1882,22 +1915,15 @@ export default function AddRecipeTab({
                   className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold"
                 />
               </label>
-              <label className="col-span-2 space-y-1.5 sm:col-span-1">
+              <div className="col-span-2 space-y-1.5 sm:col-span-1">
                 <span className="px-1 font-sans text-[11px] font-bold text-outline">Ingredient Library (optional)</span>
-                <select
-                  value={ing.ingredientId || ''}
-                  onChange={e => handleIngredientLibrarySelect(ing.id, e.target.value)}
-                  className="w-full rounded-xl border border-outline-variant/40 bg-transparent p-4 font-sans text-xs font-semibold text-on-surface-variant sm:text-sm"
-                  aria-label={`Link ${ing.name || 'ingredient'} to Ingredient Library`}
-                >
-                  <option value="">Not linked</option>
-                  {libraryIngredients.map(libraryIngredient => (
-                    <option key={libraryIngredient.id} value={libraryIngredient.id}>
-                      {libraryIngredient.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                <IngredientLibraryPicker
+                  ingredients={libraryIngredients}
+                  selectedIngredientId={ing.ingredientId}
+                  onSelect={ingredientId => handleIngredientLibrarySelect(ing.id, ingredientId)}
+                  ariaLabel={`Link ${ing.name || 'ingredient'} to Ingredient Library`}
+                />
+              </div>
               <button
                 type="button"
                 onClick={() => removeIngredientRow(ing.id)}
@@ -1939,6 +1965,66 @@ export default function AddRecipeTab({
           <Plus className="w-4 h-4" />
           Add Ingredient
         </button>
+      </section>
+
+      <section className="space-y-4" id="linked-recipes-section">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 className="font-display text-2xl font-bold tracking-tight text-primary">Linked Recipes</h3>
+            <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Use an existing recipe as a costed component. Cost follows its current per-portion calculation.</p>
+          </div>
+          <button
+            type="button"
+            onClick={addLinkedRecipe}
+            disabled={!recipes.some(recipe => recipe.id !== initialRecipe?.id && !linkedRecipes.some(component => component.recipeId === recipe.id))}
+            className="inline-flex items-center justify-center gap-2 rounded-full bg-primary/10 px-4 py-2.5 font-sans text-sm font-bold text-primary disabled:opacity-40"
+          >
+            <Plus className="h-4 w-4" /> Add Linked Recipe
+          </button>
+        </div>
+        {validationErrors.linkedRecipes && <p role="alert" className="font-sans text-xs font-bold text-error">{validationErrors.linkedRecipes}</p>}
+        {linkedRecipes.map(component => {
+          const selectedRecipe = recipes.find(recipe => recipe.id === component.recipeId);
+          const unitCost = Number(selectedRecipe?.costing?.costPerPortion || 0);
+          return (
+            <div key={component.id} className="grid gap-3 rounded-2xl border border-surface-container-high bg-surface-container-low p-4 sm:grid-cols-[minmax(0,1fr)_120px_110px_44px] sm:items-end">
+              <label className="block">
+                <span className="font-sans text-[11px] font-extrabold text-on-surface-variant">Recipe</span>
+                <select
+                  value={component.recipeId}
+                  onChange={event => {
+                    const selected = recipes.find(recipe => recipe.id === event.target.value);
+                    setLinkedRecipes(current => current.map(item => item.id === component.id ? {
+                      ...item,
+                      recipeId: event.target.value,
+                      recipeTitle: selected?.title || ''
+                    } : item));
+                    clearValidationError('linkedRecipes');
+                  }}
+                  className="mt-1 w-full rounded-xl border border-surface-container-high bg-background px-3 py-3 font-sans text-sm font-bold text-primary"
+                >
+                  {recipes.filter(recipe => recipe.id !== initialRecipe?.id).map(recipe => <option key={recipe.id} value={recipe.id}>{recipe.title}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className="font-sans text-[11px] font-extrabold text-on-surface-variant">Quantity</span>
+                <input
+                  type="number"
+                  min="0.000001"
+                  step="0.01"
+                  value={component.quantity}
+                  onChange={event => setLinkedRecipes(current => current.map(item => item.id === component.id ? { ...item, quantity: Number(event.target.value) } : item))}
+                  className="mt-1 w-full rounded-xl border border-surface-container-high bg-background px-3 py-3 font-sans text-sm font-bold text-primary"
+                />
+              </label>
+              <div>
+                <span className="font-sans text-[11px] font-extrabold text-on-surface-variant">Cost / portion</span>
+                <p className="mt-1 rounded-xl bg-background px-3 py-3 font-sans text-sm font-extrabold text-primary">{unitCost.toFixed(2)}</p>
+              </div>
+              <button type="button" aria-label={`Remove ${component.recipeTitle || 'linked recipe'}`} onClick={() => setLinkedRecipes(current => current.filter(item => item.id !== component.id))} className="flex h-11 items-center justify-center rounded-xl bg-background text-error"><Trash2 className="h-4 w-4" /></button>
+            </div>
+          );
+        })}
       </section>
 
       {/* Instructions Section */}
@@ -2114,6 +2200,34 @@ export default function AddRecipeTab({
             className="w-full bg-white border border-outline-variant/20 rounded-xl px-4 py-3 text-xs font-semibold placeholder:text-outline-variant"
           />
         </div>
+      </section>
+
+      {/* Secondary narrative details */}
+      <section className="bg-surface-container-low p-5 rounded-2xl border border-surface-container flex flex-col gap-4 shadow-sm">
+        <h3 className="font-display text-xl font-semibold text-primary flex items-center gap-2">
+          <Sparkles className="w-5 h-5 text-secondary" />
+          Story
+        </h3>
+        <textarea
+          value={story}
+          onChange={e => setStory(e.target.value)}
+          placeholder="Tell us the story behind this recipe. Is it a family heirloom? Inspired by a recent trip?"
+          rows={4}
+          className="w-full bg-surface-container-lowest border-none rounded-xl font-sans text-sm text-on-surface p-4 focus:ring-1 focus:ring-primary resize-none placeholder:text-outline-variant font-medium leading-relaxed"
+        />
+      </section>
+
+      <section className="bg-surface-container-low p-5 rounded-2xl border border-surface-container flex flex-col gap-4 shadow-sm">
+        <h3 className="font-display text-xl font-semibold text-primary">
+          Chef Notes
+        </h3>
+        <textarea
+          value={chefNotes}
+          onChange={e => setChefNotes(e.target.value)}
+          placeholder="Add private notes, reminders, or cooking adjustments..."
+          rows={3}
+          className="w-full bg-surface-container-lowest border-none rounded-xl font-sans text-sm text-on-surface p-4 focus:ring-1 focus:ring-primary resize-none placeholder:text-outline-variant font-medium leading-relaxed"
+        />
       </section>
 
       {/* Primary Floating Save Bar on bottom of screen (desktop has top nav Save, mobile also has this convenient one!) */}

@@ -106,9 +106,16 @@ service cloud.firestore {
     function isWorkspaceMember(workspaceId) {
       return isSuperAdmin()
         || (signedIn()
-          && (workspaceId == request.auth.uid
+          && (isWorkspaceDocumentOwner(workspaceId)
+            || workspaceId == request.auth.uid
             || (exists(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId)))
               && get(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId))).data.status == 'Active')));
+    }
+
+    function isWorkspaceDocumentOwner(workspaceId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/workspaces/$(workspaceId))
+        && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.ownerId == request.auth.uid;
     }
 
     function currentWorkspaceRole(workspaceId) {
@@ -120,26 +127,57 @@ service cloud.firestore {
 
     function hasWorkspaceRole(workspaceId, roles) {
       return isSuperAdmin()
-        || (isWorkspaceMember(workspaceId) && currentWorkspaceRole(workspaceId) in roles);
+        || (isWorkspaceDocumentOwner(workspaceId) && roles.hasAny(['Owner']))
+        || (signedIn()
+          && exists(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId)))
+          && get(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId))).data.status == 'Active'
+          && get(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId))).data.role in roles);
     }
 
     function isWorkspaceOwner(workspaceId) {
-      return isSuperAdmin() || hasWorkspaceRole(workspaceId, ['Owner']);
+      return hasWorkspaceRole(workspaceId, ['Owner']);
     }
 
     function isWorkspaceOwnerOrManager(workspaceId) {
-      return isSuperAdmin() || hasWorkspaceRole(workspaceId, ['Owner', 'Manager']);
+      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager']);
     }
 
     function isWorkspaceManagerLevel(workspaceId) {
       return isSuperAdmin() || hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef']);
     }
 
-    function hasProfessionalWorkspaceEntitlement(workspaceId) {
+    function canViewStore(workspaceId) {
+      return hasActiveBusinessEntitlement(workspaceId)
+        && hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef', 'Purchasing', 'Finance', 'Viewer']);
+    }
+
+    function canViewStoreOrders(workspaceId) {
+      return hasActiveBusinessEntitlement(workspaceId)
+        && hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef', 'Finance']);
+    }
+
+    function canManageStoreProducts(workspaceId) {
+      return hasActiveBusinessEntitlement(workspaceId)
+        && hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef']);
+    }
+
+    function hasActiveBusinessEntitlement(workspaceId) {
       return signedIn()
-        && exists(/databases/$(database)/documents/companies/$(workspaceId))
-        && get(/databases/$(database)/documents/companies/$(workspaceId)).data.subscriptionStatus in ['active', 'trialing']
-        && get(/databases/$(database)/documents/companies/$(workspaceId)).data.subscriptionPlan in ['professional', 'business', 'enterprise'];
+        && exists(/databases/$(database)/documents/workspaces/$(workspaceId))
+        && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.subscriptionPlan in ['starter', 'professional', 'business', 'internal_unlimited']
+        && (
+          get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.subscriptionStatus == 'active'
+          || (
+            get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.subscriptionStatus == 'trialing'
+            && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.trialEndsAt is timestamp
+            && request.time < get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.trialEndsAt
+          )
+        );
+    }
+
+    function hasProfessionalWorkspaceEntitlement(workspaceId) {
+      return hasActiveBusinessEntitlement(workspaceId)
+        && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.subscriptionPlan in ['professional', 'business', 'internal_unlimited'];
     }
 
     function canAccessRecipes(workspaceId) {
@@ -147,16 +185,67 @@ service cloud.firestore {
     }
 
     function canAccessInvoices(workspaceId) {
-      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Purchasing']);
+      return hasActiveBusinessEntitlement(workspaceId)
+        && hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Purchasing']);
     }
 
     function canAccessSuppliers(workspaceId) {
-      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Purchasing']);
+      return hasActiveBusinessEntitlement(workspaceId)
+        && hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Purchasing']);
     }
 
     function canAccessBusiness(workspaceId) {
       return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Finance'])
         && hasProfessionalWorkspaceEntitlement(workspaceId);
+    }
+
+    function isValidPersonalExpense(data, expenseId) {
+      return data.keys().hasAll([
+          'workspaceId', 'memberId', 'amount', 'expenseDate', 'description',
+          'category', 'createdBy', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'workspaceId', 'memberId', 'amount', 'expenseDate', 'description',
+          'category', 'merchant', 'receiptUrl', 'receiptPath', 'receiptFileName',
+          'createdBy', 'createdAt'
+        ])
+        && data.workspaceId is string
+        && data.memberId is string
+        && data.amount is number
+        && data.amount > 0
+        && data.amount <= 1000000000
+        && data.expenseDate is string
+        && data.description is string
+        && data.description.size() > 0
+        && data.description.size() <= 500
+        && data.category is string
+        && data.category.size() > 0
+        && data.category.size() <= 100
+        && data.createdBy == request.auth.uid
+        && data.createdAt is string
+        && (!data.keys().hasAny(['merchant']) || (
+          data.merchant is string
+          && data.merchant.size() > 0
+          && data.merchant.size() <= 120
+          && data.merchant.matches('^[^\\n\\r<>]+$')
+        ))
+        && (
+          !data.keys().hasAny(['receiptUrl', 'receiptPath', 'receiptFileName'])
+          || (
+            data.keys().hasAll(['receiptUrl', 'receiptPath', 'receiptFileName'])
+            && data.receiptUrl is string
+            && data.receiptUrl.size() > 0
+            && data.receiptUrl.size() <= 2000
+            && data.receiptPath is string
+            && data.receiptPath.matches('^personal-expenses/' + data.workspaceId + '/' + request.auth.uid + '/' + expenseId + '/[^/]+$')
+            && data.receiptFileName is string
+            && data.receiptFileName.size() > 0
+            && data.receiptFileName.size() <= 200
+          )
+        )
+        && exists(/databases/$(database)/documents/workspaceMembers/$(data.memberId))
+        && get(/databases/$(database)/documents/workspaceMembers/$(data.memberId)).data.workspaceId == data.workspaceId
+        && get(/databases/$(database)/documents/workspaceMembers/$(data.memberId)).data.status == 'Active';
     }
 
     function canInviteTeam(workspaceId) {
@@ -183,6 +272,44 @@ service cloud.firestore {
         );
     }
 
+    function isValidStorePaymentMethod(method, id) {
+      return method is map
+        && method.keys().hasOnly(['id', 'enabled', 'qrCodeUrl', 'instructions'])
+        && method.id == id
+        && method.enabled is bool
+        && method.qrCodeUrl is string
+        && method.qrCodeUrl.size() <= 2000
+        && method.instructions is string
+        && method.instructions.size() <= 1000;
+    }
+
+    function isValidStoreContact(contact) {
+      return contact is map
+        && contact.keys().hasOnly([
+          'phone',
+          'email',
+          'whatsapp',
+          'facebook',
+          'instagram',
+          'tiktok',
+          'website'
+        ])
+        && contact.phone is string
+        && contact.phone.size() <= 40
+        && contact.email is string
+        && contact.email.size() <= 254
+        && contact.whatsapp is string
+        && contact.whatsapp.size() <= 30
+        && contact.facebook is string
+        && contact.facebook.size() <= 500
+        && contact.instagram is string
+        && contact.instagram.size() <= 500
+        && contact.tiktok is string
+        && contact.tiktok.size() <= 500
+        && contact.website is string
+        && contact.website.size() <= 500;
+    }
+
     function isValidStoreSettings(data, workspaceId) {
       return data.keys().hasOnly([
           'id',
@@ -194,6 +321,7 @@ service cloud.firestore {
           'description',
           'contactInformation',
           'businessWhatsApp',
+          'storeContact',
           'businessHours',
           'pickupEnabled',
           'deliveryEnabled',
@@ -203,6 +331,8 @@ service cloud.firestore {
           'earliestPickupDays',
           'maximumAdvanceDays',
           'unavailableDates',
+          'paymentMethods',
+          'hostProgram',
           'country',
           'currency',
           'createdBy',
@@ -225,6 +355,7 @@ service cloud.firestore {
         && data.contactInformation.size() <= 500
         && data.businessWhatsApp is string
         && data.businessWhatsApp.size() <= 30
+        && isValidStoreContact(data.storeContact)
         && data.businessHours is string
         && data.businessHours.size() <= 300
         && data.pickupEnabled is bool
@@ -249,6 +380,26 @@ service cloud.firestore {
         && data.maximumAdvanceDays in [7, 14, 30]
         && data.unavailableDates is list
         && data.unavailableDates.size() <= 60
+        && data.paymentMethods is list
+        && data.paymentMethods.size() == 5
+        && data.hostProgram is map
+        && data.hostProgram.keys().hasOnly(['enabled', 'rewardPercent', 'minimumQualifyingSales'])
+        && data.hostProgram.enabled is bool
+        && data.hostProgram.rewardPercent is number
+        && data.hostProgram.rewardPercent >= 0
+        && data.hostProgram.rewardPercent <= 100
+        && data.hostProgram.minimumQualifyingSales is number
+        && data.hostProgram.minimumQualifyingSales >= 0
+        && isValidStorePaymentMethod(data.paymentMethods[0], 'cash_on_pickup')
+        && isValidStorePaymentMethod(data.paymentMethods[1], 'touch_n_go_qr')
+        && isValidStorePaymentMethod(data.paymentMethods[2], 'duitnow_qr')
+        && isValidStorePaymentMethod(data.paymentMethods[3], 'bank_transfer')
+        && isValidStorePaymentMethod(data.paymentMethods[4], 'stripe')
+        && (data.country == 'MY' || (
+          data.paymentMethods[1].enabled == false
+          && data.paymentMethods[1].qrCodeUrl == ''
+          && data.paymentMethods[1].instructions == ''
+        ))
         && hasValidStoreRegion(data)
         && data.createdBy is string
         && data.createdAt is string
@@ -264,6 +415,10 @@ service cloud.firestore {
           'name',
           'description',
           'price',
+          'recipeId',
+          'linkedRecipeId',
+          'linkedRecipeTitle',
+          'estimatedCost',
           'available',
           'optionGroupIds',
           'createdBy',
@@ -281,6 +436,20 @@ service cloud.firestore {
         && data.description.size() <= 1200
         && data.price is number
         && data.price >= 0
+        && (!('recipeId' in data)
+          || (data.recipeId is string
+            && data.recipeId.size() > 0
+            && exists(/databases/$(database)/documents/recipes/$(data.recipeId))
+            && get(/databases/$(database)/documents/recipes/$(data.recipeId)).data.workspaceId == data.workspaceId))
+        && ((!('linkedRecipeId' in data) && !('linkedRecipeTitle' in data))
+          || (data.linkedRecipeId is string
+            && data.linkedRecipeId.size() > 0
+            && data.linkedRecipeTitle is string
+            && data.linkedRecipeTitle.size() > 0
+            && data.linkedRecipeTitle.size() <= 160
+            && exists(/databases/$(database)/documents/recipes/$(data.linkedRecipeId))
+            && get(/databases/$(database)/documents/recipes/$(data.linkedRecipeId)).data.workspaceId == data.workspaceId))
+        && (!('estimatedCost' in data) || (data.estimatedCost is number && data.estimatedCost >= 0))
         && data.available is bool
         && data.optionGroupIds is list
         && data.optionGroupIds.size() <= 10
@@ -335,6 +504,47 @@ service cloud.firestore {
         && isValidStoreOptionAt(options, 17)
         && isValidStoreOptionAt(options, 18)
         && isValidStoreOptionAt(options, 19);
+    }
+
+    function isValidStoreSet(data, setId) {
+      return data.keys().hasOnly([
+          'id',
+          'storeId',
+          'workspaceId',
+          'name',
+          'description',
+          'photoUrl',
+          'category',
+          'price',
+          'available',
+          'sortOrder',
+          'groups',
+          'createdBy',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.id == setId
+        && data.storeId == data.workspaceId
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 160
+        && data.description is string
+        && data.description.size() <= 1200
+        && data.photoUrl is string
+        && data.photoUrl.size() > 0
+        && data.category is string
+        && data.category.size() <= 80
+        && data.price is number
+        && data.price >= 0
+        && data.available is bool
+        && data.sortOrder is int
+        && data.sortOrder >= 0
+        && data.groups is list
+        && data.groups.size() > 0
+        && data.groups.size() <= 10
+        && data.createdBy is string
+        && data.createdAt is string
+        && data.updatedAt is string;
     }
 
     function isValidStoreOptionGroup(data, groupId) {
@@ -429,6 +639,91 @@ service cloud.firestore {
           || (request.resource.data.imageUrl is string && request.resource.data.imageUrl.size() <= 2048));
     }
 
+    function isValidHomepagePromotion() {
+      return request.resource.data.keys().hasOnly([
+          'eyebrow',
+          'title',
+          'description',
+          'ctaLabel',
+          'href',
+          'linkType',
+          'socialPlatform',
+          'imageUrl',
+          'imagePath',
+          'active',
+          'sortOrder',
+          'createdAt',
+          'updatedAt',
+          'createdBy',
+          'updatedBy'
+        ])
+        && request.resource.data.eyebrow is string
+        && request.resource.data.eyebrow.size() > 0
+        && request.resource.data.eyebrow.size() <= 80
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 160
+        && request.resource.data.description is string
+        && request.resource.data.description.size() <= 320
+        && request.resource.data.ctaLabel is string
+        && request.resource.data.ctaLabel.size() > 0
+        && request.resource.data.ctaLabel.size() <= 80
+        && request.resource.data.href is string
+        && request.resource.data.href.size() > 0
+        && request.resource.data.href.size() <= 2048
+        && (!('linkType' in request.resource.data)
+          || request.resource.data.linkType in ['internal', 'external', 'social'])
+        && (
+          (!('linkType' in request.resource.data)
+            && (request.resource.data.href == '/'
+              || request.resource.data.href.matches('^/[^/].*$')
+              || request.resource.data.href.matches('^https://.*$')))
+          || (request.resource.data.linkType == 'internal'
+            && (request.resource.data.href == '/'
+              || request.resource.data.href.matches('^/[^/].*$')))
+          || (request.resource.data.linkType in ['external', 'social']
+            && request.resource.data.href.matches('^https://.*$'))
+        )
+        && (!('socialPlatform' in request.resource.data)
+          || (request.resource.data.linkType == 'social'
+            && request.resource.data.socialPlatform in ['instagram', 'tiktok', 'facebook', 'youtube', 'other']))
+        && request.resource.data.active is bool
+        && request.resource.data.sortOrder is int
+        && request.resource.data.sortOrder >= 0
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp
+        && request.resource.data.createdBy is string
+        && request.resource.data.updatedBy is string
+        && (!('imageUrl' in request.resource.data)
+          || (request.resource.data.imageUrl is string
+            && request.resource.data.imageUrl.matches('^https://.*$')
+            && request.resource.data.imageUrl.size() <= 2048))
+        && (!('imagePath' in request.resource.data)
+          || (request.resource.data.imagePath is string
+            && request.resource.data.imagePath.matches('^homepage-promotions/[A-Za-z0-9_-]+/[^/]+[.]jpg$')
+            && request.resource.data.imagePath.size() <= 512));
+    }
+
+    function isValidChefSocialLinks(links) {
+      return links is map
+        && links.keys().hasOnly([
+          'instagram', 'tiktok', 'facebook', 'linkedin', 'youtube',
+          'website', 'personalWebsite'
+        ])
+        && (!('instagram' in links)
+          || (links.instagram is string && links.instagram.matches('^https://([^/]+[.])?instagram[.]com(/.*)?$')))
+        && (!('tiktok' in links)
+          || (links.tiktok is string && links.tiktok.matches('^https://([^/]+[.])?tiktok[.]com(/.*)?$')))
+        && (!('facebook' in links)
+          || (links.facebook is string && links.facebook.matches('^https://([^/]+[.])?(facebook[.]com|fb[.]com)(/.*)?$')))
+        && (!('linkedin' in links)
+          || (links.linkedin is string && links.linkedin.matches('^https://([^/]+[.])?linkedin[.]com(/.*)?$')))
+        && (!('youtube' in links)
+          || (links.youtube is string && links.youtube.matches('^https://([^/]+[.])?(youtube[.]com|youtu[.]be)(/.*)?$')))
+        && (!('website' in links) || (links.website is string && links.website.size() <= 2048))
+        && (!('personalWebsite' in links) || (links.personalWebsite is string && links.personalWebsite.size() <= 2048));
+    }
+
     function isArchivedInvoiceWrite() {
       return request.resource.data.processingStatus == 'Archived'
         || request.resource.data.status == 'Archived';
@@ -440,6 +735,11 @@ service cloud.firestore {
 
       match /portfolio/{document=**} {
         allow read, create, update, delete: if ownsUserDocument(userId);
+      }
+
+      match /resumeImportJobs/{jobId} {
+        allow read: if ownsUserDocument(userId);
+        allow create, update, delete: if false;
       }
     }
 
@@ -475,6 +775,98 @@ service cloud.firestore {
         && request.resource.data.awards.size() <= 30
         && request.resource.data.languages is list
         && request.resource.data.languages.size() <= 20
+        && isValidChefSocialLinks(request.resource.data.socialLinks)
+        && request.resource.data.portfolio is list
+        && request.resource.data.portfolio.size() <= 30;
+      allow delete: if false;
+    }
+
+    match /chefResumeImports/{userId} {
+      function validResumeRecord() {
+        return request.resource.data.keys().hasAll([
+            'userId', 'fileName', 'storagePath', 'contentType', 'fileSize',
+            'importStatus', 'uploadedAt'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'userId', 'fileName', 'storagePath', 'contentType', 'fileSize',
+            'importStatus', 'uploadedAt', 'importedAt', 'draft', 'lastError'
+          ])
+          && request.resource.data.userId == userId
+          && request.resource.data.fileName is string
+          && request.resource.data.fileName.size() > 0
+          && request.resource.data.fileName.size() <= 255
+          && request.resource.data.storagePath is string
+          && request.resource.data.storagePath.matches('^users/' + userId + '/chef-profile/resume-imports/[^/]+$')
+          && request.resource.data.contentType in [
+            'application/pdf',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          ]
+          && request.resource.data.fileSize is int
+          && request.resource.data.fileSize > 0
+          && request.resource.data.fileSize <= 10 * 1024 * 1024
+          && request.resource.data.importStatus in ['imported', 'review_required', 'failed']
+          && request.resource.data.uploadedAt is timestamp
+          && (!('importedAt' in request.resource.data) || request.resource.data.importedAt is timestamp)
+          && (!('draft' in request.resource.data) || request.resource.data.draft is map)
+          && (!('lastError' in request.resource.data)
+            || (request.resource.data.lastError is string && request.resource.data.lastError.size() <= 500));
+      }
+
+      allow read: if ownsUserDocument(userId);
+      allow create, update: if ownsUserDocument(userId) && validResumeRecord();
+      allow delete: if ownsUserDocument(userId);
+    }
+
+    match /chefProfileSlugs/{slug} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['userId'])
+        && request.resource.data.userId == request.auth.uid
+        && slug.matches('^[a-z0-9]+(?:-[a-z0-9]+)*$')
+        && slug.size() <= 40;
+      allow update: if false;
+      allow delete: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && (
+          !existsAfter(/databases/$(database)/documents/chefProfiles/$(request.auth.uid))
+          || getAfter(/databases/$(database)/documents/chefProfiles/$(request.auth.uid)).data.profileSlug != slug
+        );
+    }
+
+    match /chefProfiles/{userId} {
+      allow read: if ownsUserDocument(userId) || isSuperAdmin();
+      allow create, update: if ownsUserDocument(userId)
+        && request.resource.data.userId == userId
+        && request.resource.data.profileSlug is string
+        && request.resource.data.profileSlug.size() <= 40
+        && (
+          request.resource.data.profileSlug == ''
+          || (
+            request.resource.data.profileSlug.matches('^[a-z0-9]+(?:-[a-z0-9]+)*$')
+            && existsAfter(/databases/$(database)/documents/chefProfileSlugs/$(request.resource.data.profileSlug))
+            && getAfter(/databases/$(database)/documents/chefProfileSlugs/$(request.resource.data.profileSlug)).data.userId == userId
+          )
+        )
+        && request.resource.data.visibility in ['private', 'public']
+        && request.resource.data.basicInfo is map
+        && request.resource.data.basicInfo.fullName is string
+        && request.resource.data.basicInfo.fullName.size() <= 120
+        && request.resource.data.basicInfo.professionalTitle is string
+        && request.resource.data.basicInfo.professionalTitle.size() <= 120
+        && request.resource.data.skills is list
+        && request.resource.data.skills.size() <= 50
+        && request.resource.data.experiences is list
+        && request.resource.data.experiences.size() <= 30
+        && request.resource.data.education is list
+        && request.resource.data.education.size() <= 20
+        && request.resource.data.certificates is list
+        && request.resource.data.certificates.size() <= 30
+        && request.resource.data.awards is list
+        && request.resource.data.awards.size() <= 30
+        && request.resource.data.languages is list
+        && request.resource.data.languages.size() <= 20
+        && isValidChefSocialLinks(request.resource.data.socialLinks)
         && request.resource.data.portfolio is list
         && request.resource.data.portfolio.size() <= 30;
       allow delete: if false;
@@ -553,14 +945,23 @@ service cloud.firestore {
 
     match /recipes/{recipeId} {
       allow create: if ownsIncomingUserData()
+        && request.resource.data.workspaceId is string
+        && request.resource.data.workspaceId.size() > 0
+        && request.resource.data.createdBy == request.auth.uid
         && canAccessRecipes(incomingWorkspaceId())
         && hasValidRecommendedProductIds()
         && doesNotCreateLegacyRecommendations();
-      allow read: if canAccessRecipes(existingWorkspaceId());
+      allow read: if isWorkspaceMember(existingWorkspaceId());
       allow delete: if canAccessRecipes(existingWorkspaceId());
       allow update: if canAccessRecipes(existingWorkspaceId())
-        && (!('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId)
-        && incomingWorkspaceId() == existingWorkspaceId()
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'workspaceId',
+          'companyId',
+          'userId',
+          'createdBy',
+          'createdByName',
+          'createdAt'
+        ])
         && hasValidRecommendedProductIds()
         && preservesOrRemovesLegacyRecommendations();
     }
@@ -579,6 +980,20 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /homepagePromotions/{promotionId} {
+      allow read: if isSuperAdmin();
+      allow create: if isSuperAdmin()
+        && isValidHomepagePromotion()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow update: if isSuperAdmin()
+        && isValidHomepagePromotion()
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow delete: if isSuperAdmin();
+    }
+
     match /publicRecipes/{recipeId} {
       allow read: if true;
       allow create, update, delete: if false;
@@ -590,7 +1005,8 @@ service cloud.firestore {
 
     match /categories/{categoryId} {
       allow create: if ownsIncomingUserData() && canAccessRecipes(incomingWorkspaceId());
-      allow read, delete: if canAccessRecipes(existingWorkspaceId());
+      allow read: if isWorkspaceMember(existingWorkspaceId());
+      allow delete: if canAccessRecipes(existingWorkspaceId());
       allow update: if canAccessRecipes(existingWorkspaceId())
         && (!('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId)
         && incomingWorkspaceId() == existingWorkspaceId();
@@ -613,6 +1029,26 @@ service cloud.firestore {
         && incomingWorkspaceId() == existingWorkspaceId()
         && (!isArchivedInvoiceWrite() || isWorkspaceOwnerOrManager(existingWorkspaceId()));
       allow delete: if isWorkspaceOwnerOrManager(existingWorkspaceId());
+    }
+
+    match /personalExpenses/{expenseId} {
+      allow create: if hasActiveBusinessEntitlement(request.resource.data.workspaceId)
+        && isWorkspaceMember(request.resource.data.workspaceId)
+        && isValidPersonalExpense(request.resource.data, expenseId);
+      allow read: if hasActiveBusinessEntitlement(resource.data.workspaceId)
+        && (isWorkspaceOwnerOrManager(resource.data.workspaceId)
+        || (isWorkspaceMember(resource.data.workspaceId)
+          && (resource.data.createdBy == request.auth.uid
+            || resource.data.memberId == workspaceMemberId(resource.data.workspaceId))));
+      allow update, delete: if false;
+    }
+
+    match /personalExpenseSettlements/{settlementId} {
+      allow read: if hasActiveBusinessEntitlement(resource.data.workspaceId)
+        && (isWorkspaceOwnerOrManager(resource.data.workspaceId)
+        || (isWorkspaceMember(resource.data.workspaceId)
+          && resource.data.memberId == workspaceMemberId(resource.data.workspaceId)));
+      allow create, update, delete: if false;
     }
 
     match /ingredients/{ingredientId} {
@@ -643,8 +1079,10 @@ service cloud.firestore {
     match /invoiceAuditLogs/{auditId} {
       allow create: if ownsIncomingDocument()
         && request.resource.data.id == auditId
-        && isWorkspaceMember(incomingWorkspaceId());
-      allow read: if isWorkspaceMember(existingWorkspaceId());
+        && isWorkspaceMember(incomingWorkspaceId())
+        && hasActiveBusinessEntitlement(incomingWorkspaceId());
+      allow read: if isWorkspaceMember(existingWorkspaceId())
+        && hasActiveBusinessEntitlement(existingWorkspaceId());
       allow update, delete: if false;
     }
 
@@ -714,8 +1152,10 @@ service cloud.firestore {
     }
 
     match /tasks/{taskId} {
-      allow read: if isWorkspaceMember(resource.data.workspaceId);
+      allow read: if hasActiveBusinessEntitlement(resource.data.workspaceId)
+        && isWorkspaceMember(resource.data.workspaceId);
       allow create: if signedIn()
+        && hasActiveBusinessEntitlement(request.resource.data.workspaceId)
         && isWorkspaceMember(request.resource.data.workspaceId)
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.type == 'personal'
@@ -732,7 +1172,8 @@ service cloud.firestore {
           'createdAt',
           'completedAt'
         ]);
-      allow update: if isWorkspaceMember(resource.data.workspaceId)
+      allow update: if hasActiveBusinessEntitlement(resource.data.workspaceId)
+        && isWorkspaceMember(resource.data.workspaceId)
         && request.resource.data.workspaceId == resource.data.workspaceId
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.type == resource.data.type
@@ -749,10 +1190,13 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.resource.data.id == workspaceId
         && request.resource.data.ownerId == request.auth.uid
+        && !request.resource.data.keys().hasAny(['subscriptionPlan', 'subscriptionStatus', 'trialStartedAt', 'trialEndsAt', 'subscriptionUpdatedAt'])
         && hasValidWorkspaceCountry(request.resource.data);
       allow read: if isWorkspaceMember(workspaceId);
-      allow update: if (isWorkspaceOwner(workspaceId) || (isWorkspaceOwnerOrManager(workspaceId) && request.resource.data.ownerId == resource.data.ownerId))
+      allow update: if hasActiveBusinessEntitlement(workspaceId)
+        && (isWorkspaceOwner(workspaceId) || (isWorkspaceOwnerOrManager(workspaceId) && request.resource.data.ownerId == resource.data.ownerId))
         && request.resource.data.id == resource.data.id
+        && request.resource.data.diff(resource.data).affectedKeys().hasNone(['subscriptionPlan', 'subscriptionStatus', 'trialStartedAt', 'trialEndsAt', 'subscriptionUpdatedAt'])
         && (
           (('country' in resource.data)
             && request.resource.data.country == resource.data.country)
@@ -775,13 +1219,15 @@ service cloud.firestore {
 
     match /stores/{workspaceId} {
       allow read: if true;
-      allow create: if isWorkspaceOwnerOrManager(workspaceId)
+      allow create: if hasActiveBusinessEntitlement(workspaceId)
+        && isWorkspaceOwnerOrManager(workspaceId)
         && isValidStoreSettings(request.resource.data, workspaceId)
         && storeMatchesWorkspaceCountry(request.resource.data, workspaceId)
         && request.resource.data.createdBy == request.auth.uid
         && existsAfter(/databases/$(database)/documents/storeSlugs/$(request.resource.data.slug))
         && getAfter(/databases/$(database)/documents/storeSlugs/$(request.resource.data.slug)).data.workspaceId == workspaceId;
-      allow update: if isWorkspaceOwnerOrManager(workspaceId)
+      allow update: if hasActiveBusinessEntitlement(workspaceId)
+        && isWorkspaceOwnerOrManager(workspaceId)
         && isValidStoreSettings(request.resource.data, workspaceId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'name',
@@ -790,6 +1236,7 @@ service cloud.firestore {
           'description',
           'contactInformation',
           'businessWhatsApp',
+          'storeContact',
           'businessHours',
           'pickupEnabled',
           'deliveryEnabled',
@@ -799,6 +1246,8 @@ service cloud.firestore {
           'earliestPickupDays',
           'maximumAdvanceDays',
           'unavailableDates',
+          'paymentMethods',
+          'hostProgram',
           'updatedAt'
         ]);
       allow delete: if false;
@@ -806,7 +1255,8 @@ service cloud.firestore {
 
     match /storeSlugs/{slug} {
       allow read: if true;
-      allow create: if isWorkspaceOwnerOrManager(request.resource.data.workspaceId)
+      allow create: if hasActiveBusinessEntitlement(request.resource.data.workspaceId)
+        && isWorkspaceOwnerOrManager(request.resource.data.workspaceId)
         && request.resource.data.keys().hasOnly(['slug', 'workspaceId', 'createdAt'])
         && request.resource.data.slug == slug
         && request.resource.data.slug is string
@@ -819,32 +1269,36 @@ service cloud.firestore {
 
     match /storeProducts/{productId} {
       allow read: if resource.data.available == true
-        || isWorkspaceOwnerOrManager(resource.data.workspaceId);
-      allow create: if isWorkspaceOwnerOrManager(request.resource.data.workspaceId)
+        || canViewStore(resource.data.workspaceId);
+      allow create: if canManageStoreProducts(request.resource.data.workspaceId)
         && isValidStoreProduct(request.resource.data, productId)
         && request.resource.data.createdBy == request.auth.uid
         && exists(/databases/$(database)/documents/stores/$(request.resource.data.workspaceId));
-      allow update: if isWorkspaceOwnerOrManager(resource.data.workspaceId)
+      allow update: if canManageStoreProducts(resource.data.workspaceId)
         && isValidStoreProduct(request.resource.data, productId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'photoUrl',
           'name',
           'description',
           'price',
+          'recipeId',
+          'linkedRecipeId',
+          'linkedRecipeTitle',
+          'estimatedCost',
           'available',
           'optionGroupIds',
           'updatedAt'
         ]);
-      allow delete: if false;
+      allow delete: if canManageStoreProducts(resource.data.workspaceId);
     }
 
     match /storeOptionGroups/{groupId} {
       allow read: if true;
-      allow create: if isWorkspaceOwnerOrManager(request.resource.data.workspaceId)
+      allow create: if canManageStoreProducts(request.resource.data.workspaceId)
         && isValidStoreOptionGroup(request.resource.data, groupId)
         && request.resource.data.createdBy == request.auth.uid
         && exists(/databases/$(database)/documents/stores/$(request.resource.data.workspaceId));
-      allow update: if isWorkspaceOwnerOrManager(resource.data.workspaceId)
+      allow update: if canManageStoreProducts(resource.data.workspaceId)
         && isValidStoreOptionGroup(request.resource.data, groupId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'name',
@@ -857,7 +1311,32 @@ service cloud.firestore {
           'options',
           'updatedAt'
         ]);
-      allow delete: if isWorkspaceOwnerOrManager(resource.data.workspaceId);
+      allow delete: if canManageStoreProducts(resource.data.workspaceId);
+    }
+
+    match /storeSets/{setId} {
+      allow read: if resource.data.available == true
+        || canViewStore(resource.data.workspaceId);
+      allow create: if canManageStoreProducts(request.resource.data.workspaceId)
+        && isValidStoreSet(request.resource.data, setId)
+        && request.resource.data.createdBy == request.auth.uid
+        && exists(/databases/$(database)/documents/stores/$(request.resource.data.workspaceId));
+      allow update: if canManageStoreProducts(resource.data.workspaceId)
+        && request.resource.data.workspaceId == resource.data.workspaceId
+        && request.resource.data.storeId == resource.data.storeId
+        && isValidStoreSet(request.resource.data, setId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name',
+          'description',
+          'photoUrl',
+          'category',
+          'price',
+          'available',
+          'sortOrder',
+          'groups',
+          'updatedAt'
+        ]);
+      allow delete: if canManageStoreProducts(resource.data.workspaceId);
     }
 
     match /storeOrders/{orderId} {
@@ -865,12 +1344,40 @@ service cloud.firestore {
       // re-prices the cart from current Store data. Clients can never write an
       // order or mark one paid.
       allow create: if false;
-      allow read: if isWorkspaceOwnerOrManager(resource.data.workspaceId);
+      allow read: if canViewStoreOrders(resource.data.workspaceId);
       allow update, delete: if false;
+    }
+
+    match /hostProfiles/{userId} {
+      allow read: if ownsUserDocument(userId);
+      allow create, update, delete: if false;
+    }
+
+    match /groupOrders/{groupId} {
+      allow read: if signedIn() && resource.data.hostId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    match /hostRewardLedger/{orderId} {
+      allow read: if signedIn() && resource.data.hostId == request.auth.uid;
+      allow create, update, delete: if false;
     }
 
     match /storePaymentEvents/{eventId} {
       allow read, create, update, delete: if false;
+    }
+
+    match /storeOrderTimeline/{eventId} {
+      allow read: if canViewStoreOrders(resource.data.workspaceId);
+      allow create, update, delete: if false;
+    }
+
+    match /storeNotifications/{notificationId} {
+      allow read: if canViewStoreOrders(resource.data.workspaceId);
+      allow update: if canViewStoreOrders(resource.data.workspaceId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt'])
+        && request.resource.data.readAt is timestamp;
+      allow create, delete: if false;
     }
 
     match /publicChefProfileOwnership/{username} {
@@ -956,6 +1463,7 @@ service cloud.firestore {
         && hasProfessionalWorkspaceEntitlement(resource.data.workspaceId))
         || (signedIn()
           && resource.data.email == request.auth.token.email
+          && hasProfessionalWorkspaceEntitlement(resource.data.workspaceId)
           && resource.data.status == 'Pending'
           && request.resource.data.workspaceId == resource.data.workspaceId
           && request.resource.data.email == resource.data.email
@@ -974,8 +1482,11 @@ service cloud.firestore {
     match /teamAuditLogs/{auditId} {
       allow create: if signedIn()
         && request.resource.data.performedBy == request.auth.uid
-        && isWorkspaceMember(request.resource.data.workspaceId);
-      allow read: if isWorkspaceManagerLevel(resource.data.workspaceId) || isSuperAdmin();
+        && isWorkspaceMember(request.resource.data.workspaceId)
+        && hasProfessionalWorkspaceEntitlement(request.resource.data.workspaceId);
+      allow read: if (isWorkspaceManagerLevel(resource.data.workspaceId)
+          && hasProfessionalWorkspaceEntitlement(resource.data.workspaceId))
+        || isSuperAdmin();
       allow update, delete: if false;
     }
 
@@ -1002,6 +1513,8 @@ service cloud.firestore {
     match /ai_usage/{usageId} {
       allow create: if signedIn()
         && request.resource.data.userId == request.auth.uid
+        && isWorkspaceMember(request.resource.data.companyId)
+        && hasActiveBusinessEntitlement(request.resource.data.companyId)
         && request.resource.data.keys().hasOnly([
           'userId',
           'companyId',
@@ -1023,6 +1536,8 @@ service cloud.firestore {
     match /audit_logs/{auditId} {
       allow create: if signedIn()
         && request.resource.data.userId == request.auth.uid
+        && isWorkspaceMember(request.resource.data.companyId)
+        && hasActiveBusinessEntitlement(request.resource.data.companyId)
         && request.resource.data.keys().hasOnly([
           'timestamp',
           'userId',

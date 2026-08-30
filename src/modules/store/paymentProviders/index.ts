@@ -1,8 +1,10 @@
 import { stripeClientPaymentAdapter } from './stripeClientAdapter';
+import { manualClientPaymentAdapter } from './manualClientAdapter';
 import type { PaymentProviderClientAdapter } from './types';
 
 const paymentProviderClientAdapters: Record<string, PaymentProviderClientAdapter> = {
-  [stripeClientPaymentAdapter.provider]: stripeClientPaymentAdapter
+  [stripeClientPaymentAdapter.provider]: stripeClientPaymentAdapter,
+  [manualClientPaymentAdapter.provider]: manualClientPaymentAdapter
 };
 
 export const getPaymentProviderClientAdapter = (

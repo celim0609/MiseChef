@@ -1,7 +1,7 @@
 import { collection, doc, getDoc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore';
 import type { User } from 'firebase/auth';
 import { db } from '../firebase';
-import type { RegionCode, UserRole, Workspace, WorkspaceMembership, WorkspaceMemberRole, WorkspaceMemberSummary, WorkspaceType } from '../types';
+import type { RegionCode, SubscriptionPlan, SubscriptionStatus, UserRole, Workspace, WorkspaceMembership, WorkspaceMemberRole, WorkspaceMemberSummary, WorkspaceType } from '../types';
 import { normalizeTeamRole } from '../modules/team/permissions';
 import { DEFAULT_REGION_CODE, LEGACY_WORKSPACE_REGION_CODE, normalizeRegionCode } from '../regions';
 
@@ -22,9 +22,9 @@ const removeUndefinedFields = <T,>(value: T): T => {
 
 const getDefaultWorkspaceName = (user: User) => {
   const displayName = user.displayName?.trim();
-  if (displayName) return `${displayName} Kitchen`;
+  if (displayName) return `${displayName.split(/\s+/)[0]}'s Workspace`;
   const emailName = user.email?.split('@')[0]?.trim();
-  return emailName ? `${emailName} Kitchen` : 'My Kitchen';
+  return emailName ? `${emailName}'s Workspace` : "Chef's Workspace";
 };
 
 const toMemberSummary = (user: User, role: WorkspaceMemberSummary['role']): WorkspaceMemberSummary => ({
@@ -34,6 +34,31 @@ const toMemberSummary = (user: User, role: WorkspaceMemberSummary['role']): Work
   role,
   status: 'Active'
 });
+
+const readDate = (value: unknown) => {
+  if (typeof value === 'string' && !Number.isNaN(new Date(value).getTime())) return new Date(value);
+  if (value && typeof value === 'object' && 'toDate' in value && typeof value.toDate === 'function') return value.toDate();
+  return null;
+};
+
+const normalizeWorkspaceSubscription = (data: Partial<Workspace> | Record<string, unknown>) => {
+  const storedPlan = typeof data.subscriptionPlan === 'string' ? data.subscriptionPlan.toLowerCase() : '';
+  const subscriptionPlan: SubscriptionPlan = storedPlan === 'starter' || storedPlan === 'professional' || storedPlan === 'business' || storedPlan === 'internal_unlimited'
+    ? storedPlan
+    : storedPlan === 'enterprise' ? 'business' : 'free';
+  const storedStatus = typeof data.subscriptionStatus === 'string' ? data.subscriptionStatus.toLowerCase() : '';
+  const subscriptionStatus: SubscriptionStatus = storedStatus === 'active' || storedStatus === 'trialing' || storedStatus === 'past_due' || storedStatus === 'cancelled' || storedStatus === 'suspended'
+    ? storedStatus
+    : 'suspended';
+
+  if (subscriptionPlan === 'internal_unlimited') return { subscriptionPlan, subscriptionStatus: 'active' as const, trialStartedAt: null, trialEndsAt: null };
+  return {
+    subscriptionPlan,
+    subscriptionStatus,
+    trialStartedAt: readDate(data.trialStartedAt)?.toISOString() || null,
+    trialEndsAt: readDate(data.trialEndsAt)?.toISOString() || null
+  };
+};
 
 const normalizeWorkspace = (id: string, data: Partial<Workspace> | Record<string, unknown>): Workspace => ({
   id,
@@ -49,6 +74,7 @@ const normalizeWorkspace = (id: string, data: Partial<Workspace> | Record<string
     ? data.type
     : undefined,
   members: Array.isArray(data.members) ? data.members as WorkspaceMemberSummary[] : [],
+  ...normalizeWorkspaceSubscription(data),
   createdAt: typeof data.createdAt === 'string' ? data.createdAt : new Date().toISOString(),
   updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : new Date().toISOString()
 });
@@ -132,7 +158,7 @@ const upsertWorkspace = async ({
 
   await setDoc(workspaceRef, removeUndefinedFields(workspace), { merge: true });
   await createWorkspaceMembership({ workspace, user, role });
-  return workspace;
+  return normalizeWorkspace(workspace.id, workspace);
 };
 
 export const workspaceService = {
@@ -209,7 +235,7 @@ export const workspaceService = {
     batch.set(doc(db, 'workspaceMembers', membershipId), removeUndefinedFields(membership));
     await batch.commit();
 
-    return workspace;
+    return normalizeWorkspace(workspace.id, workspace);
   },
 
   async createFounderQaWorkspace({
@@ -269,7 +295,7 @@ export const workspaceService = {
     batch.set(doc(db, 'workspaceMembers', membershipId), removeUndefinedFields(membership));
     await batch.commit();
 
-    return workspace;
+    return normalizeWorkspace(workspace.id, workspace);
   },
 
   async listAccessibleWorkspaces(user: User): Promise<Workspace[]> {

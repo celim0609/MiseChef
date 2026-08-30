@@ -18,18 +18,29 @@ export interface Ingredient {
   ingredientCost?: number;
   costingUnit?: string;
   costLastCalculatedAt?: string;
+  costingWarning?: string;
   notes?: string;
 }
 
 export interface RecipeCostBreakdownItem {
   recipeIngredientId: string;
   ingredientId?: string;
+  linkedRecipeId?: string;
+  itemType?: 'ingredient' | 'linkedRecipe';
   ingredientName: string;
   quantity: number;
   unit: string;
   unitCost: number;
   ingredientCost: number;
   percentageOfTotalRecipeCost: number;
+}
+
+export interface LinkedRecipeComponent {
+  id: string;
+  recipeId: string;
+  recipeTitle?: string;
+  quantity: number;
+  unit: 'portion';
 }
 
 export interface RecipeCosting {
@@ -81,6 +92,11 @@ export type RecipeVisibility =
 
 export interface Recipe {
   id: string;
+  workspaceId?: string;
+  companyId?: string;
+  userId?: string;
+  createdBy?: string;
+  createdByName?: string;
   title: string;
   coverImage: string;
   imageUrl?: string;
@@ -96,6 +112,7 @@ export interface Recipe {
   story: string;
   chefNotes?: string;
   ingredients: Ingredient[];
+  linkedRecipes?: LinkedRecipeComponent[];
   method: MethodStep[];
   recommendedProducts?: RecommendedProduct[];
   recommendedProductIds?: string[];
@@ -104,10 +121,13 @@ export interface Recipe {
   costing?: RecipeCosting;
   recipeCostLastCalculatedAt?: string;
   chefName: string;
+  chefUsername?: string;
+  publicDisplayName?: string;
   chefAvatar?: string;
   isSaved: boolean;
   collections: string[]; // collection IDs
   createdAt?: string;
+  updatedAt?: string;
   tags?: string[];
   isFeatured?: boolean;
   visibility?: RecipeVisibility;
@@ -142,7 +162,8 @@ export type UserRole = 'super_admin' | 'admin' | 'user';
 
 export type CompanyRole = 'super_admin' | 'owner' | 'manager' | 'chef' | 'staff';
 
-export type SubscriptionPlan = 'free' | 'starter' | 'professional' | 'business' | 'enterprise';
+export type PublicSubscriptionPlan = 'free' | 'starter' | 'professional' | 'business';
+export type SubscriptionPlan = PublicSubscriptionPlan | 'internal_unlimited';
 export type SubscriptionStatus = 'active' | 'trialing' | 'past_due' | 'cancelled' | 'suspended';
 export type BillingCycle = 'monthly' | 'yearly';
 
@@ -181,6 +202,10 @@ export interface Workspace {
   country: RegionCode;
   type?: WorkspaceType;
   members: WorkspaceMemberSummary[];
+  subscriptionPlan?: SubscriptionPlan;
+  subscriptionStatus?: SubscriptionStatus;
+  trialStartedAt?: string | null;
+  trialEndsAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -211,6 +236,8 @@ export interface PlanLimits {
   invoiceLimit: number;
   supplierLimit: number;
   workspaceLimit: number;
+  productLimit: number;
+  monthlyOrderLimit: number;
   canExportPDF: boolean;
   canUseAdvancedReports: boolean;
   canUseTeamManagement: boolean;
@@ -246,9 +273,11 @@ export type RootTab =
   | 'team'
   | 'admin'
   | 'store'
+  | 'storePos'
   | 'business'
   | 'businessSales'
   | 'businessSuppliers'
+  | 'personalExpenses'
   | 'costing'
   | 'costingIngredients'
   | 'costingInvoices'

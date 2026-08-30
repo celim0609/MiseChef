@@ -168,6 +168,78 @@ export const uploadStoreProductPhoto = async ({
   }
 };
 
+export const uploadStoreSetImage = async ({
+  workspaceId,
+  setId,
+  file,
+  onProgress
+}: {
+  workspaceId: string;
+  setId: string;
+  file: File;
+  onProgress?: (progress: number) => void;
+}) => {
+  const extension = requireSupportedImageExtension(file);
+  try {
+    return await uploadFile({
+      path: `stores/${workspaceId}/sets/${setId}/image.${extension}`,
+      file,
+      cacheControl: 'public,max-age=31536000',
+      onProgress
+    });
+  } catch (error) {
+    throw new Error(getStorageUploadErrorMessage(error, 'Set image'));
+  }
+};
+
+export const uploadStorePaymentQr = async ({
+  workspaceId,
+  methodId,
+  file,
+  onProgress
+}: {
+  workspaceId: string;
+  methodId: 'touch_n_go_qr' | 'duitnow_qr';
+  file: File;
+  onProgress?: (progress: number) => void;
+}) => {
+  const extension = requireSupportedImageExtension(file);
+  try {
+    return await uploadFile({
+      path: `stores/${workspaceId}/payment-methods/${methodId}/merchant-qr.${extension}`,
+      file,
+      cacheControl: 'public,max-age=3600',
+      onProgress
+    });
+  } catch (error) {
+    throw new Error(getStorageUploadErrorMessage(error, 'Merchant QR code'));
+  }
+};
+
+export const deleteStoreProductPhoto = async ({
+  workspaceId,
+  productId,
+  photoUrl
+}: {
+  workspaceId: string;
+  productId: string;
+  photoUrl: string;
+}) => {
+  if (!storage || !photoUrl) return;
+  const parsedUrl = new URL(photoUrl);
+  const encodedObjectPath = parsedUrl.pathname.match(/\/o\/(.+)$/)?.[1] || '';
+  const objectPath = decodeURIComponent(encodedObjectPath);
+  const expectedPrefix = `stores/${workspaceId}/products/${productId}/`;
+  if (!objectPath.startsWith(expectedPrefix)) {
+    throw new Error('This product photo does not belong to the selected Store.');
+  }
+  try {
+    await deleteObject(ref(storage, objectPath));
+  } catch (error) {
+    if (!(error instanceof FirebaseError) || error.code !== 'storage/object-not-found') throw error;
+  }
+};
+
 export const uploadRecipeCoverImage = async ({
   userId,
   recipeId,
@@ -318,7 +390,7 @@ export const uploadUserProfilePhoto = async ({
       reject,
       async () => {
         try {
-          resolve(await getDownloadURL(uploadTask.snapshot.ref));
+          resolve(uploadTask.snapshot.ref.fullPath);
         } catch (err) {
           reject(err);
         }

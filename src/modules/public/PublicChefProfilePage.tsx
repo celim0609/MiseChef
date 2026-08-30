@@ -5,6 +5,7 @@ import PartnerSpotlightPreview from '../portfolio/sections/PartnerSpotlightPrevi
 import { PublicExperienceSection, PublicGallerySection, PublicProfileHero, PublicProfileRecipeCard, PublicSkillsSection } from './PublicChefProfilePresentation';
 import type { PublicChefProfile } from './publicChefProfileTypes';
 import { publicChefProfileService } from './services/publicChefProfileService';
+import { PublicChefSocialLinks } from './PublicChefSocialLinks';
 
 export default function PublicChefProfilePage({ username }: { username: string }) {
   const [profile, setProfile] = useState<PublicChefProfile | null>(null);
@@ -74,11 +75,7 @@ export default function PublicChefProfilePage({ username }: { username: string }
     </section>
     <PartnerSpotlightPreview spotlight={profile.partnerSpotlight} />
     <PublicGallerySection items={profile.gallery} />
-    {profile.socialLinks && Object.values(profile.socialLinks).some(Boolean) && <section className="mb-16">
-      <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Connect</p>
-      <h2 className="font-display text-3xl font-bold text-primary">Social Links</h2>
-      <div className="mt-5 flex flex-wrap gap-3">{Object.entries(profile.socialLinks).filter(([, url]) => Boolean(url)).map(([name, url]) => <a key={name} href={url} target="_blank" rel="noreferrer" className="rounded-full border border-primary px-4 py-2 font-sans text-xs font-extrabold capitalize text-primary">{name}</a>)}</div>
-    </section>}
+    <PublicChefSocialLinks socialLinks={profile.socialLinks} />
     <section id="contact-chef" className="scroll-mt-24 rounded-3xl border border-surface-container-high bg-surface-container-low p-6 sm:p-8">
       <h2 className="font-display text-3xl font-bold text-primary">Contact Chef</h2>
       <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Send a private enquiry without exposing personal contact details.</p>

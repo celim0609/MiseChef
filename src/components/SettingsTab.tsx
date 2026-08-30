@@ -7,9 +7,10 @@ import React, { useEffect, useState } from 'react';
 import { Camera, Download, RotateCcw, Upload } from 'lucide-react';
 import type { User } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, storage } from '../firebase';
 import { ChefProfile, DEFAULT_CHEF_PROFILE, Recipe, RecipeCategory } from '../types';
 import { isLocalImageDataUrl, uploadUserProfilePhoto } from '../services/storage';
+import { getImmediateMediaUrl, resolveStorageUrl, selectResolvedMediaUrl } from '../services/storageReference';
 import { getChefProfileStorageKey } from '../utils/authenticatedUser';
 
 const APPEARANCE_STORAGE_KEY = 'ce_lims_kitchen_appearance_v1';
@@ -112,7 +113,7 @@ export default function SettingsTab({
   const [isApplyingCrop, setIsApplyingCrop] = useState(false);
   const authDisplayName = currentUser?.displayName || currentUser?.email?.split('@')[0] || '';
   const authEmail = currentUser?.email || '';
-  const profileAvatarUrl = profile.photo || customAvatarUrl || currentUser?.photoURL || '';
+  const profileAvatarUrl = selectResolvedMediaUrl(profile.photo, customAvatarUrl, currentUser?.photoURL);
   const isProfileDirty = JSON.stringify(profile) !== JSON.stringify(savedProfile);
   const profileInitials = (profile.name || authDisplayName || 'CL')
     .split(' ')
@@ -247,7 +248,18 @@ export default function SettingsTab({
 
       setProfile(nextProfile);
       setSavedProfile(nextProfile);
-      onCustomAvatarChange?.(nextProfile.photo || '');
+      let displayedPhoto = getImmediateMediaUrl(nextProfile.photo);
+      if (storage && nextProfile.photo) {
+        displayedPhoto = await resolveStorageUrl(storage, nextProfile.photo).catch(error => {
+          console.error('[Profile Media] Failed to resolve saved avatar', {
+            storageReference: nextProfile.photo,
+            code: (error as { code?: string })?.code,
+            message: error instanceof Error ? error.message : String(error)
+          });
+          return currentUser?.photoURL || '';
+        });
+      }
+      onCustomAvatarChange?.(displayedPhoto);
       onProfileChange?.(nextProfile);
       setProfileMessage('Profile updated successfully.');
       onNotify?.('Profile updated successfully.', 'success');

@@ -3,21 +3,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Search, Plus, Home } from 'lucide-react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
+import { Search, Home } from 'lucide-react';
 import { getRedirectResult, onAuthStateChanged, signOut, type Unsubscribe, type User } from 'firebase/auth';
 import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { ChefProfile, CompanyRole, DEFAULT_CHEF_PROFILE, Recipe, RecipeCategory, RootTab, UserRole, Workspace, WorkspaceMemberRole } from './types';
 import { INITIAL_COLLECTIONS, INITIAL_RECIPES } from './data';
 import Header from './components/Header';
+import StoreNotificationBell from './components/StoreNotificationBell';
 import CreateWorkspaceDialog, { type CreateWorkspaceInput } from './components/CreateWorkspaceDialog';
 import HomeTab from './components/HomeTab';
 import SearchTab from './components/SearchTab';
 import AddRecipeTab from './components/AddRecipeTab';
 import RecipeDetailModal from './components/RecipeDetailModal';
+import RecipeShareDialog from './components/RecipeShareDialog';
 import NavigationDrawer from './components/NavigationDrawer';
 import SettingsTab, { ImportedAppData } from './components/SettingsTab';
 import LoginTab from './components/LoginTab';
+import WorkspaceSetupScreen from './components/WorkspaceSetupScreen';
 import FavoritesTab from './components/FavoritesTab';
 import StatisticsTab from './components/StatisticsTab';
 import { AdminPage } from './modules/admin';
@@ -25,25 +28,44 @@ import { ChefProfilePage } from './modules/chef-profile';
 import { CostingPage } from './modules/costing';
 import { recipeCostService } from './modules/costing/services';
 import { BusinessPage } from './modules/business';
+import { PersonalExpensesPage } from './modules/personal-expenses';
 import { TeamPage } from './modules/team';
 import { SubscriptionCenterPage } from './modules/subscription';
+import { IntentOnboarding, getOnboardingDestination, onboardingService, normalizeOnboarding, type OnboardingGoal, type UserOnboarding } from './modules/onboarding';
 import { teamService } from './modules/team/services';
 import type { TeamInvitation } from './modules/team/types';
 import { MarketingPage } from './modules/marketing';
 import { isPublicExperiencePath, PublicLayout } from './modules/public';
+import {
+  replaceWithValidatedHostReturnTo,
+  replaceWithValidatedPublicAccountReturnTo
+} from './modules/public/hostReturnNavigation';
 import { AnimatePresence, motion } from 'motion/react';
 import BrandLogo from './components/BrandLogo';
-import { auth, authPersistenceReady, db } from './firebase';
+import { auth, authPersistenceReady, db, storage } from './firebase';
 import { deleteRecipeCoverImage, deleteRecipeScanAttachment, isLocalImageDataUrl, uploadRecipeCoverImage, uploadRecipeScanAttachment, uploadRecipeStepImage } from './services/storage';
+import { preserveOriginalRecipeCreator } from './services/recipeCreator';
+import { getImmediateMediaUrl, resolveStorageUrl, selectResolvedMediaUrl } from './services/storageReference';
 import { FALLBACK_CATEGORY_NAME, getRecipeCategories, normalizeRecipeCategories, recipeHasCategory } from './utils/categoryUtils';
 import { normalizeIngredientForDisplay } from './utils/ingredientParser';
 import { getConfiguredRoleForUser, resolveUserRole } from './utils/userRoles';
 import { workspaceService } from './services/workspaceService';
+import { ensureNewUserProvisioned } from './services/newUserProvisioningService';
+import { shouldShowWorkspaceSetup } from './services/newUserProvisioningModel';
 import { usageLimitService } from './services/usageLimitService';
-import { canAccessRootTab, normalizeTeamRole } from './modules/team/permissions';
+import { hasActiveBusinessEntitlement, subscriptionService } from './services/subscriptionService';
+import { canAccessRootTab, getStorePermissions, normalizeTeamRole } from './modules/team/permissions';
 import { getAuthenticatedDisplayName, getChefProfileStorageKey } from './utils/authenticatedUser';
 import { WorkspaceRegionProvider } from './regions';
-import { StorePage, storeService } from './modules/store';
+import {
+  StorePage,
+  StorePosPage,
+  storeOrderService,
+  type StoreNotification
+} from './modules/store';
+import { FINANCE_NAVIGATION, isFinancePath } from './navigation/financeNavigation';
+import GlobalQuickAdd from './components/GlobalQuickAdd';
+import { getAvailableQuickAddActions, getQuickAddAction, type QuickAddActionId, type QuickAddRequest } from './navigation/quickAdd';
 
 const STORAGE_RECIPES_KEY = 'my_cookbook_recipes_v2';
 const STORAGE_CATEGORIES_KEY = 'ce_lims_kitchen_categories_v1';
@@ -63,12 +85,15 @@ const isMarketingPath = (pathname: string) => MARKETING_PATHS.has(pathname);
 const APP_ROOT_PATH = '/app';
 const isAppPath = (pathname: string) => pathname === APP_ROOT_PATH || pathname.startsWith(`${APP_ROOT_PATH}/`);
 
-const SUBSCRIPTION_GATED_PRODUCT_TABS = new Set<RootTab>([
-  'search',
-  'favorites',
+const BUSINESS_WORKSPACE_TABS = new Set<RootTab>([
+  'statistics',
+  'team',
+  'store',
+  'storePos',
   'business',
   'businessSales',
   'businessSuppliers',
+  'personalExpenses',
   'costing',
   'costingIngredients',
   'costingInvoices',
@@ -89,9 +114,11 @@ const ROOT_TAB_PATHS: Record<RootTab, string> = {
   team: '/app/team',
   admin: '/app/admin',
   store: '/app/store',
+  storePos: '/app/store/pos',
   business: '/app/business',
   businessSales: '/app/business/sales',
   businessSuppliers: '/app/business/suppliers',
+  personalExpenses: FINANCE_NAVIGATION.path,
   costing: '/app/costing',
   costingIngredients: '/app/costing/ingredients',
   costingInvoices: '/app/costing/invoices',
@@ -106,6 +133,7 @@ const getCostingInvoiceIdFromPath = (pathname: string) => {
 
 const getRootTabFromPath = (pathname: string): RootTab => {
   if (getCostingInvoiceIdFromPath(pathname)) return 'costingInvoiceDetail';
+  if (isFinancePath(pathname)) return FINANCE_NAVIGATION.tab;
 
   switch (pathname) {
     case '/app':
@@ -144,6 +172,9 @@ const getRootTabFromPath = (pathname: string): RootTab => {
     case '/app/store':
     case '/store':
       return 'store';
+    case '/app/store/pos':
+    case '/store/pos':
+      return 'storePos';
     case '/app/business':
     case '/business':
       return 'business';
@@ -293,12 +324,27 @@ const removeUndefinedFields = <T,>(value: T): T => {
   return value;
 };
 
-const getFirestoreRecipePayload = (recipe: Recipe, user: User) => {
+type RecipeWriteMode = 'create' | 'update';
+
+const getFirestoreRecipePayload = (recipe: Recipe, user: User, mode: RecipeWriteMode = 'create') => {
   const imageUrl = recipe.imageUrl || recipe.coverImage || DEFAULT_COVER_IMAGE;
   const { scannedImageDataUrl, ...recipeForFirestore } = recipe;
   const categories = normalizeRecipeCategories(
     Array.isArray(recipe.categories) ? recipe.categories : [recipe.category]
   );
+  const creatorMetadata = mode === 'update'
+    ? {
+        userId: recipe.userId,
+        createdBy: recipe.createdBy,
+        createdByName: recipe.createdByName,
+        createdAt: recipe.createdAt
+      }
+    : {
+        userId: recipe.userId || user.uid,
+        createdBy: recipe.createdBy || recipe.userId || user.uid,
+        createdByName: recipe.createdByName || getAuthenticatedDisplayName(user),
+        createdAt: recipe.createdAt || new Date().toISOString()
+      };
 
   return removeUndefinedFields({
     ...recipeForFirestore,
@@ -307,7 +353,7 @@ const getFirestoreRecipePayload = (recipe: Recipe, user: User) => {
     visibility: recipe.visibility || 'private',
     coverImage: imageUrl,
     imageUrl,
-    userId: user.uid,
+    ...creatorMetadata,
     updatedAt: new Date().toISOString()
   });
 };
@@ -429,37 +475,30 @@ const loadFirestoreProfile = async (user: User) => {
 const loadFirestoreRecipes = async (user: User, workspaceId = user.uid) => {
   if (!db) return [];
 
-  const recipesQuery = workspaceId === user.uid
-    ? query(collection(db, 'recipes'), where('userId', '==', user.uid))
-    : query(collection(db, 'recipes'), where('workspaceId', '==', workspaceId));
+  const recipesQuery = query(collection(db, 'recipes'), where('workspaceId', '==', workspaceId));
   const snapshot = await getDocs(recipesQuery);
 
   return snapshot.docs
     .map(recipeDoc => {
-      const data = recipeDoc.data() as Recipe & { workspaceId?: string };
+      const data = recipeDoc.data() as Recipe;
       return normalizeLoadedRecipe({
         id: recipeDoc.id,
         ...data
       } as Recipe);
     })
-    .filter(recipe => {
-      const workspaceValue = (recipe as Recipe & { workspaceId?: string }).workspaceId;
-      return workspaceId === user.uid ? !workspaceValue || workspaceValue === workspaceId : workspaceValue === workspaceId;
-    })
+    .filter(recipe => recipe.workspaceId === workspaceId)
     .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 };
 
 const loadFirestoreCategories = async (user: User, workspaceId = user.uid) => {
   if (!db) return [];
 
-  const categoriesQuery = workspaceId === user.uid
-    ? query(collection(db, 'categories'), where('userId', '==', user.uid))
-    : query(collection(db, 'categories'), where('workspaceId', '==', workspaceId));
+  const categoriesQuery = query(collection(db, 'categories'), where('workspaceId', '==', workspaceId));
   const snapshot = await getDocs(categoriesQuery);
   const loadedCategories = snapshot.docs
     .map(categoryDoc => ({ id: categoryDoc.id, ...categoryDoc.data() } as RecipeCategory & { workspaceId?: string }))
     .filter(category => category.name?.trim())
-    .filter(category => workspaceId === user.uid ? !category.workspaceId || category.workspaceId === workspaceId : category.workspaceId === workspaceId)
+    .filter(category => category.workspaceId === workspaceId)
     .sort((a, b) => a.name.localeCompare(b.name));
 
   return sanitizeCategoryList(loadedCategories);
@@ -484,16 +523,24 @@ const deleteCategoryFromFirestore = async (categoryId: string) => {
   await deleteDoc(doc(db, 'categories', categoryId));
 };
 
-const saveRecipeToFirestore = async (recipe: Recipe, user: User, workspaceId = user.uid) => {
+const saveRecipeToFirestore = async (
+  recipe: Recipe,
+  user: User,
+  workspaceId = user.uid,
+  mode: RecipeWriteMode = 'create'
+) => {
   if (!db) {
     return;
   }
 
-  await setDoc(doc(db, 'recipes', recipe.id), {
-    ...getFirestoreRecipePayload(recipe, user),
-    workspaceId,
-    companyId: workspaceId
-  }, { merge: true });
+  const workspaceMetadata = mode === 'update'
+    ? { workspaceId: recipe.workspaceId, companyId: recipe.companyId }
+    : { workspaceId, companyId: workspaceId };
+
+  await setDoc(doc(db, 'recipes', recipe.id), removeUndefinedFields({
+    ...getFirestoreRecipePayload(recipe, user, mode),
+    ...workspaceMetadata
+  }), { merge: true });
 };
 
 const deleteRecipeFromFirestore = async (recipeId: string) => {
@@ -585,25 +632,61 @@ export default function App() {
   const [hasUnsavedRecipeChanges, setHasUnsavedRecipeChanges] = useState(false);
   const recipeSaveInFlightRef = useRef(false);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
+  const [sharingRecipe, setSharingRecipe] = useState<Recipe | null>(null);
   const [isNavigationDrawerOpen, setIsNavigationDrawerOpen] = useState(false);
   const [isCreateWorkspaceOpen, setIsCreateWorkspaceOpen] = useState(false);
   const [selectedHomeCategory, setSelectedHomeCategory] = useState<string | null>(null);
   const [isFavoritesFilterActive, setIsFavoritesFilterActive] = useState(false);
   const [isAppReady, setIsAppReady] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
+  const [workspaceSetupStatus, setWorkspaceSetupStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [workspaceSetupError, setWorkspaceSetupError] = useState('');
+  const [onboarding, setOnboarding] = useState<UserOnboarding>(() => normalizeOnboarding(null));
+  const [isSavingOnboarding, setIsSavingOnboarding] = useState(false);
+  const [onboardingError, setOnboardingError] = useState('');
   const [isGuestMode, setIsGuestMode] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>('user');
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [currentWorkspace, setCurrentWorkspace] = useState<Workspace | null>(null);
+  const [businessEntitlement, setBusinessEntitlement] = useState<{ workspaceId: string; allowed: boolean } | null>(null);
   const [chefProfile, setChefProfile] = useState<ChefProfile>(DEFAULT_CHEF_PROFILE);
   const [customAvatarUrl, setCustomAvatarUrl] = useState('');
   const [selectedCostingInvoiceId, setSelectedCostingInvoiceId] = useState<string | null>(() => getCostingInvoiceIdFromPath(window.location.pathname));
   const [pendingTeamInvitations, setPendingTeamInvitations] = useState<TeamInvitation[]>([]);
   const [processingInvitationId, setProcessingInvitationId] = useState<string | null>(null);
+  const [storeNotifications, setStoreNotifications] = useState<StoreNotification[]>([]);
+  const [focusedStoreOrderId, setFocusedStoreOrderId] = useState('');
+  const [quickAddRequest, setQuickAddRequest] = useState<QuickAddRequest | null>(null);
   
   // Notification states
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
+
+  useEffect(() => {
+    const storedPhoto = chefProfile.photo;
+    const fallbackPhoto = currentUser?.photoURL || '';
+    const immediatePhoto = getImmediateMediaUrl(storedPhoto);
+    let cancelled = false;
+
+    setCustomAvatarUrl(immediatePhoto || fallbackPhoto);
+    if (!storage || !storedPhoto) return () => { cancelled = true; };
+
+    resolveStorageUrl(storage, storedPhoto)
+      .then(url => {
+        if (!cancelled) setCustomAvatarUrl(url || fallbackPhoto);
+      })
+      .catch(error => {
+        if (cancelled) return;
+        console.error('[Profile Media] Failed to resolve avatar', {
+          storageReference: storedPhoto,
+          code: (error as { code?: string })?.code,
+          message: error instanceof Error ? error.message : String(error)
+        });
+        setCustomAvatarUrl(fallbackPhoto);
+      });
+
+    return () => { cancelled = true; };
+  }, [chefProfile.photo, currentUser?.photoURL]);
 
   const currentWorkspaceRole: WorkspaceMemberRole | null = currentUserRole === 'super_admin'
     ? 'Owner'
@@ -615,18 +698,51 @@ export default function App() {
       : isGuestMode
         ? 'Viewer'
         : null;
+  const hasBusinessEntitlement = Boolean(
+    currentWorkspace
+    && businessEntitlement?.workspaceId === currentWorkspace.id
+    && businessEntitlement.allowed
+  );
 
   useEffect(() => {
+    let cancelled = false;
+    setBusinessEntitlement(null);
+    if (!currentUser || !currentWorkspace || isGuestMode) return;
+
+    subscriptionService.getCompanySubscription(currentWorkspace.id)
+      .then(subscription => {
+        if (!cancelled) setBusinessEntitlement({
+          workspaceId: currentWorkspace.id,
+          allowed: hasActiveBusinessEntitlement(subscription)
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setBusinessEntitlement({ workspaceId: currentWorkspace.id, allowed: false });
+      });
+
+    return () => { cancelled = true; };
+  }, [currentUser, currentWorkspace, isGuestMode]);
+
+  useEffect(() => {
+    setStoreNotifications([]);
+    setFocusedStoreOrderId('');
     if (
       !currentUser
       || !currentWorkspace
-      || (currentWorkspaceRole !== 'Owner' && currentWorkspaceRole !== 'Manager')
+      || !hasBusinessEntitlement
+      || !getStorePermissions(currentWorkspaceRole).viewOrders
     ) {
       return;
     }
-
-    storeService.ensureWorkspaceStore(currentWorkspace, currentUser.uid).catch(() => undefined);
-  }, [currentUser, currentWorkspace, currentWorkspaceRole]);
+    return storeOrderService.subscribeNotifications(
+      currentWorkspace.id,
+      setStoreNotifications,
+      error => setNotification({
+        message: error.message || 'Unable to load Store notifications.',
+        type: 'error'
+      })
+    );
+  }, [currentUser, currentWorkspace, currentWorkspaceRole, hasBusinessEntitlement]);
 
   const handleRootNavigate = (tab: RootTab) => {
     if (addingRecipe || editingRecipe) {
@@ -653,10 +769,17 @@ export default function App() {
       return;
     }
 
-    const shouldEnforceRoleAccess = !SUBSCRIPTION_GATED_PRODUCT_TABS.has(tab);
+    if (BUSINESS_WORKSPACE_TABS.has(tab) && !hasBusinessEntitlement) {
+      setActiveTab('home');
+      setSelectedCostingInvoiceId(null);
+      setIsNavigationDrawerOpen(false);
+      window.history.replaceState(null, '', ROOT_TAB_PATHS.home);
+      triggerNotification('An active Workspace Business subscription is required for that area.', 'info');
+      return;
+    }
+
     const canAccess = !currentUser
       || !currentWorkspace
-      || !shouldEnforceRoleAccess
       || canAccessRootTab(tab, currentWorkspaceRole, currentUserRole === 'super_admin');
     if (!canAccess) {
       setActiveTab('home');
@@ -671,6 +794,55 @@ export default function App() {
       setSelectedCostingInvoiceId(null);
     }
     window.history.replaceState(null, '', ROOT_TAB_PATHS[tab]);
+  };
+
+  const availableQuickAddActions = getAvailableQuickAddActions(
+    currentWorkspaceRole,
+    currentUserRole === 'super_admin'
+  ).filter(action => hasBusinessEntitlement || action.id === 'recipe');
+
+  const handleQuickAdd = (actionId: QuickAddActionId) => {
+    const action = getQuickAddAction(actionId);
+    if (!action || !availableQuickAddActions.some(item => item.id === actionId)) {
+      triggerNotification('You do not have permission to perform that action.', 'info');
+      return;
+    }
+
+    if (actionId === 'recipe') {
+      handleRootNavigate(action.targetTab);
+      setAddingRecipe(true);
+      return;
+    }
+
+    handleRootNavigate(action.targetTab);
+    setQuickAddRequest({ action: actionId, requestId: Date.now() });
+  };
+
+  const handleQuickAddHandled = useCallback((requestId: number) => {
+    setQuickAddRequest(current => current?.requestId === requestId ? null : current);
+  }, []);
+
+  const handleStoreNotificationSelect = async (selectedNotification: StoreNotification) => {
+    setFocusedStoreOrderId(selectedNotification.orderId);
+    handleRootNavigate('store');
+    if (selectedNotification.readAt) return;
+
+    setStoreNotifications(current => current.map(item => (
+      item.id === selectedNotification.id
+        ? { ...item, readAt: new Date().toISOString() }
+        : item
+    )));
+    try {
+      await storeOrderService.markNotificationRead(selectedNotification.id);
+    } catch (error) {
+      setStoreNotifications(current => current.map(item => (
+        item.id === selectedNotification.id ? { ...item, readAt: '' } : item
+      )));
+      triggerNotification(
+        error instanceof Error ? error.message : 'Unable to mark the notification as read.',
+        'error'
+      );
+    }
   };
 
   useEffect(() => {
@@ -712,7 +884,7 @@ export default function App() {
     const cachedCategories = localStorage.getItem(STORAGE_CATEGORIES_KEY);
     const localProfile = loadLocalProfile();
     setChefProfile(localProfile);
-    setCustomAvatarUrl(localProfile.photo);
+    setCustomAvatarUrl(getImmediateMediaUrl(localProfile.photo));
     let loadedRecipes = INITIAL_RECIPES;
 
     if (cachedRecipes) {
@@ -759,7 +931,9 @@ export default function App() {
         setActiveTab('home');
       } else {
         setActiveTab('login');
-        window.history.replaceState(null, '', '/login');
+        if (window.location.pathname !== '/login') {
+          window.history.replaceState(null, '', '/login');
+        }
       }
       return;
     }
@@ -779,18 +953,32 @@ export default function App() {
         if (isCancelled) return;
 
         unsubscribeAuth = onAuthStateChanged(auth, user => {
+          setWorkspaceSetupStatus(user ? 'loading' : 'idle');
+          setWorkspaceSetupError('');
+          setWorkspaces([]);
+          setCurrentWorkspace(null);
+          setOnboarding(normalizeOnboarding(null));
+          setOnboardingError('');
           setCurrentUser(user);
           setIsAuthReady(true);
 
           if (user) {
             const localProfile = loadLocalProfile(user);
             setChefProfile(localProfile);
-            setCustomAvatarUrl(localProfile.photo);
+            setCustomAvatarUrl(getImmediateMediaUrl(localProfile.photo));
             setCurrentUserRole(getConfiguredRoleForUser(user));
-            setWorkspaces([]);
-            setCurrentWorkspace(null);
             setIsGuestMode(false);
             const pathname = window.location.pathname;
+
+            if (
+              pathname === '/login'
+              && replaceWithValidatedPublicAccountReturnTo(
+                window.location.search,
+                hostReturnTo => window.location.replace(hostReturnTo)
+              )
+            ) {
+              return;
+            }
 
             if (isPublicExperiencePath(pathname) || isMarketingPath(pathname)) {
               setSelectedCostingInvoiceId(null);
@@ -811,7 +999,7 @@ export default function App() {
           setCurrentUserRole('user');
           const guestProfile = loadLocalProfile();
           setChefProfile(guestProfile);
-          setCustomAvatarUrl(guestProfile.photo);
+          setCustomAvatarUrl(getImmediateMediaUrl(guestProfile.photo));
           setWorkspaces([]);
           setCurrentWorkspace(null);
           setAddingRecipe(false);
@@ -825,7 +1013,9 @@ export default function App() {
             setActiveTab('home');
           } else {
             setActiveTab('login');
-            window.history.replaceState(null, '', '/login');
+            if (window.location.pathname !== '/login') {
+              window.history.replaceState(null, '', '/login');
+            }
           }
         });
       }
@@ -841,6 +1031,11 @@ export default function App() {
 
   useEffect(() => {
     if (currentUser && activeTab === 'login') {
+      if (replaceWithValidatedPublicAccountReturnTo(
+        window.location.search,
+        hostReturnTo => window.location.replace(hostReturnTo)
+      )) return;
+
       handleRootNavigate('home');
     }
   }, [activeTab, currentUser]);
@@ -874,12 +1069,12 @@ export default function App() {
     if (
       currentUser
       && currentWorkspace
-      && !SUBSCRIPTION_GATED_PRODUCT_TABS.has(activeTab)
-      && !canAccessRootTab(activeTab, currentWorkspaceRole, currentUserRole === 'super_admin')
+      && ((BUSINESS_WORKSPACE_TABS.has(activeTab) && !hasBusinessEntitlement)
+        || !canAccessRootTab(activeTab, currentWorkspaceRole, currentUserRole === 'super_admin'))
     ) {
       handleRootNavigate('home');
     }
-  }, [activeTab, currentUser, currentUserRole, currentWorkspace, currentWorkspaceRole]);
+  }, [activeTab, currentUser, currentUserRole, currentWorkspace, currentWorkspaceRole, hasBusinessEntitlement]);
 
   useEffect(() => {
     const pathname = window.location.pathname;
@@ -902,38 +1097,40 @@ export default function App() {
     let isCancelled = false;
 
     const initializeFirestoreUser = async () => {
-      const workspaceInitialization = workspaceService.listUserWorkspaces(currentUser);
-      const accountInitialization = (async () => {
-        const role = await createUserDocument(currentUser);
-        const cloudProfile = await loadFirestoreProfile(currentUser);
-        return { role, cloudProfile };
-      })();
-
-      const [workspaceResult, accountResult] = await Promise.allSettled([
-        workspaceInitialization,
-        accountInitialization
-      ]);
-
-      if (isCancelled) return;
-
-      if (workspaceResult.status === 'fulfilled') {
-        const loadedWorkspaces = workspaceResult.value;
+      setWorkspaceSetupStatus('loading');
+      setWorkspaceSetupError('');
+      try {
+        const provisioned = await ensureNewUserProvisioned(currentUser);
+        await currentUser.reload();
+        const [loadedWorkspaces, cloudProfile, loadedOnboarding] = await Promise.all([
+          workspaceService.listAccessibleWorkspaces(currentUser),
+          loadFirestoreProfile(currentUser),
+          onboardingService.load(currentUser.uid)
+        ]);
+        if (isCancelled) return;
+        if (!loadedWorkspaces.some(workspace => workspace.id === provisioned.workspaceId)) {
+          throw new Error('Your personal workspace is not ready yet.');
+        }
         const selectedWorkspace = workspaceService.resolveSelectedWorkspace(currentUser, loadedWorkspaces);
         setWorkspaces(loadedWorkspaces);
         setCurrentWorkspace(selectedWorkspace);
         if (selectedWorkspace) {
           workspaceService.setStoredWorkspaceId(currentUser.uid, selectedWorkspace.id);
         }
-      }
-
-      if (accountResult.status === 'fulfilled') {
-        setCurrentUserRole(accountResult.value.role);
-        const cloudProfile = accountResult.value.cloudProfile;
+        setCurrentUserRole(provisioned.userRole);
+        setOnboarding(loadedOnboarding);
         if (cloudProfile) {
           setChefProfile(cloudProfile);
-          setCustomAvatarUrl(cloudProfile.photo);
+          setCustomAvatarUrl(getImmediateMediaUrl(cloudProfile.photo));
           localStorage.setItem(getChefProfileStorageKey(currentUser.uid), JSON.stringify(cloudProfile));
         }
+        setWorkspaceSetupStatus('ready');
+      } catch (error) {
+        if (isCancelled) return;
+        setWorkspaceSetupStatus('error');
+        setWorkspaceSetupError(error instanceof Error
+          ? error.message
+          : "We couldn't finish setting up your workspace. Please reload and try again.");
       }
     };
 
@@ -1050,7 +1247,7 @@ export default function App() {
         saveCategoryToFirestore({ ...category, name: trimmedName, updatedAt: new Date().toISOString() }, currentUser, activeWorkspaceId),
         ...updatedRecipes
           .filter(recipe => recipeHasCategory(recipe, trimmedName))
-          .map(recipe => saveRecipeToFirestore(recipe, currentUser, activeWorkspaceId))
+          .map(recipe => saveRecipeToFirestore(recipe, currentUser, activeWorkspaceId, 'update'))
       ]).catch(() => {
         triggerNotification(`Renamed "${category.name}" on this device. Please refresh if it does not appear everywhere.`, 'info');
       });
@@ -1092,7 +1289,7 @@ export default function App() {
         deleteCategoryFromFirestore(category.id),
         ...updatedRecipes
           .filter(recipe => affectedRecipeIds.has(recipe.id))
-          .map(recipe => saveRecipeToFirestore(recipe, currentUser, activeWorkspaceId))
+          .map(recipe => saveRecipeToFirestore(recipe, currentUser, activeWorkspaceId, 'update'))
       ]).catch(() => {
         triggerNotification(`Deleted "${category.name}" on this device. Please refresh if it still appears elsewhere.`, 'info');
       });
@@ -1137,7 +1334,9 @@ export default function App() {
         });
         const costedRecipe = await recipeCostService.applyCosting(cloudRecipe, currentUser.uid, activeWorkspaceId);
         await saveRecipeToFirestore(costedRecipe, currentUser, activeWorkspaceId);
-        const updated = [costedRecipe, ...recipes];
+        const dependents = await recipeCostService.recalculateDependentRecipes(costedRecipe.id, activeWorkspaceId);
+        const dependentById = new Map(dependents.map(recipe => [recipe.id, recipe]));
+        const updated = [costedRecipe, ...recipes.map(recipe => dependentById.get(recipe.id) || recipe)];
         setRecipes(updated);
         triggerNotification(`Saved "${costedRecipe.title}" to your cookbook.`, 'success');
       } else {
@@ -1169,31 +1368,37 @@ export default function App() {
     setRecipeSaveError('');
 
     try {
+      const creatorSafeRecipe = editingRecipe
+        ? preserveOriginalRecipeCreator(editingRecipe, updatedRecipe)
+        : updatedRecipe;
       if (currentUser && db && !isGuestMode) {
-        const cloudRecipe = await getCloudReadyRecipe(updatedRecipe, currentUser, (progress, phase) => {
+        const cloudRecipe = await getCloudReadyRecipe(creatorSafeRecipe, currentUser, (progress, phase) => {
           triggerNotification(`Uploading ${phase === 'scan' ? 'recipe scan' : 'cover image'}... ${progress}%`, 'info');
         });
         const costedRecipe = await recipeCostService.applyCosting(cloudRecipe, currentUser.uid, activeWorkspaceId);
-        await saveRecipeToFirestore(costedRecipe, currentUser, activeWorkspaceId);
-        const updated = recipes.map(recipe =>
-          recipe.id === costedRecipe.id ? costedRecipe : recipe
-        );
+        await saveRecipeToFirestore(costedRecipe, currentUser, activeWorkspaceId, 'update');
+        const dependents = await recipeCostService.recalculateDependentRecipes(costedRecipe.id, activeWorkspaceId);
+        const dependentById = new Map(dependents.map(recipe => [recipe.id, recipe]));
+        const updated = recipes.map(recipe => recipe.id === costedRecipe.id
+          ? costedRecipe
+          : dependentById.get(recipe.id) || recipe);
         setRecipes(updated);
         setSelectedRecipe(costedRecipe);
         triggerNotification(`Updated "${costedRecipe.title}".`, 'success');
       } else {
         const updated = recipes.map(recipe =>
-          recipe.id === updatedRecipe.id ? updatedRecipe : recipe
+          recipe.id === creatorSafeRecipe.id ? creatorSafeRecipe : recipe
         );
         setRecipes(updated);
-        setSelectedRecipe(updatedRecipe);
+        setSelectedRecipe(creatorSafeRecipe);
         localStorage.setItem(STORAGE_RECIPES_KEY, JSON.stringify(updated));
         triggerNotification(`Updated "${updatedRecipe.title}".`, 'success');
       }
 
       setHasUnsavedRecipeChanges(false);
       setEditingRecipe(null);
-      setActiveTab('home');
+      setSelectedRecipe(null);
+      setActiveTab('search');
     } catch (err) {
       const message = err instanceof Error
         ? err.message
@@ -1223,6 +1428,11 @@ export default function App() {
     const duplicatedRecipe: Recipe = {
       ...recipe,
       id: `recipe_${Date.now()}`,
+      workspaceId: undefined,
+      companyId: undefined,
+      userId: undefined,
+      createdBy: undefined,
+      createdByName: undefined,
       title: `${recipe.title} Copy`,
       scanAttachmentUrl: undefined,
       scannedImageDataUrl: undefined,
@@ -1254,36 +1464,7 @@ export default function App() {
     triggerNotification(`Duplicated "${recipe.title}".`, 'success');
   };
 
-  const handleShareRecipe = async (recipe: Recipe) => {
-    const shareText = [
-      recipe.title,
-      recipe.yield ? `Yield: ${recipe.yield}` : '',
-      '',
-      'Ingredients:',
-      ...recipe.ingredients.map(ingredient =>
-        [ingredient.qty, ingredient.unit, ingredient.name].filter(Boolean).join(' ')
-      ),
-      '',
-      'Method:',
-      ...recipe.method.map(step => `${step.stepNumber}. ${step.description}`)
-    ].filter(Boolean).join('\n');
-
-    try {
-      if (navigator.share) {
-        await navigator.share({
-          title: recipe.title,
-          text: shareText
-        });
-      } else if (navigator.clipboard) {
-        await navigator.clipboard.writeText(shareText);
-        triggerNotification('Recipe copied to clipboard.', 'success');
-      } else {
-        triggerNotification('Sharing is not available in this browser.', 'info');
-      }
-    } catch (err) {
-      triggerNotification('Share was cancelled or could not be completed.', 'info');
-    }
-  };
+  const handleShareRecipe = (recipe: Recipe) => setSharingRecipe(recipe);
 
   const handleDeleteRecipe = async (recipe: Recipe) => {
     const confirmed = window.confirm('Delete this recipe? This action cannot be undone.');
@@ -1343,7 +1524,7 @@ export default function App() {
       if (!updatedRecipe) return;
 
       try {
-        await saveRecipeToFirestore(updatedRecipe, currentUser, activeWorkspaceId);
+        await saveRecipeToFirestore(updatedRecipe, currentUser, activeWorkspaceId, 'update');
       } catch (err) {
         saveRecipesToStorage(recipes);
         const previousSelectedRecipe = recipes.find(recipe => recipe.id === selectedRecipe?.id);
@@ -1463,9 +1644,10 @@ export default function App() {
       setCurrentUserRole('user');
       const guestProfile = loadLocalProfile();
       setChefProfile(guestProfile);
-      setCustomAvatarUrl(guestProfile.photo);
+      setCustomAvatarUrl(getImmediateMediaUrl(guestProfile.photo));
       setWorkspaces([]);
       setCurrentWorkspace(null);
+      setOnboarding(normalizeOnboarding(null));
       setIsGuestMode(false);
       setRecipes(loadLocalRecipes());
       setAddingRecipe(false);
@@ -1556,7 +1738,7 @@ export default function App() {
 
   const portfolioProfile = {
     displayName: chefProfile.name || currentUser?.displayName || currentUser?.email?.split('@')[0] || 'Chef',
-    avatarUrl: customAvatarUrl || chefProfile.photo || currentUser?.photoURL || '',
+    avatarUrl: selectResolvedMediaUrl(chefProfile.photo, customAvatarUrl, currentUser?.photoURL),
     email: currentUser?.email || ''
   };
 
@@ -1572,18 +1754,29 @@ export default function App() {
   // Renders correct active screen body
   const handleAuthenticated = () => {
     setIsGuestMode(false);
+    if (replaceWithValidatedPublicAccountReturnTo(
+      window.location.search,
+      hostReturnTo => window.location.replace(hostReturnTo)
+    )) return;
+
     handleRootNavigate('home');
   };
 
   const handleContinueAsGuest = () => {
+    if (replaceWithValidatedPublicAccountReturnTo(
+      window.location.search,
+      returnTo => window.location.replace(returnTo)
+    )) return;
+
     setCurrentUser(null);
     setCurrentUserRole('user');
     setWorkspaces([]);
     setCurrentWorkspace(null);
+    setOnboarding(normalizeOnboarding(null));
     setIsGuestMode(true);
     const localProfile = loadLocalProfile();
     setChefProfile(localProfile);
-    setCustomAvatarUrl(localProfile.photo);
+    setCustomAvatarUrl(getImmediateMediaUrl(localProfile.photo));
     setRecipes(loadLocalRecipes());
     handleRootNavigate('home');
   };
@@ -1601,6 +1794,21 @@ export default function App() {
 
     setIsGuestMode(false);
     handleRootNavigate('login');
+  };
+
+  const saveOnboardingGoals = async (goals: OnboardingGoal[]) => {
+    if (!currentUser) return;
+    setIsSavingOnboarding(true);
+    setOnboardingError('');
+    try {
+      const saved = await onboardingService.complete(currentUser.uid, goals);
+      setOnboarding(saved);
+      handleRootNavigate(getOnboardingDestination(goals));
+    } catch (error) {
+      setOnboardingError(error instanceof Error ? error.message : "We couldn't save your choices. Please try again.");
+    } finally {
+      setIsSavingOnboarding(false);
+    }
   };
 
   const handleAcceptTeamInvitation = async (invitation: TeamInvitation) => {
@@ -1651,6 +1859,10 @@ export default function App() {
       );
     }
 
+    if (BUSINESS_WORKSPACE_TABS.has(activeTab) && !hasBusinessEntitlement) {
+      return null;
+    }
+
     switch (activeTab) {
       case 'home':
         return (
@@ -1673,7 +1885,11 @@ export default function App() {
               quote: portfolioData.basicProfile.quote
             }}
             onCreateRecipe={() => setAddingRecipe(true)}
+            quickAddActions={availableQuickAddActions}
+            onQuickAdd={handleQuickAdd}
             onNavigate={handleRootNavigate}
+            onboardingGoals={onboarding.goals}
+            businessEnabled={hasBusinessEntitlement}
           />
         );
       case 'favorites':
@@ -1696,7 +1912,6 @@ export default function App() {
       case 'portfolio':
         return (
           <ChefProfilePage
-            key={currentUser?.uid || 'signed-out'}
             userId={currentUser?.uid}
           />
         );
@@ -1731,17 +1946,53 @@ export default function App() {
         );
       case 'store':
         if (!currentUser || !currentWorkspace) return null;
-        return <StorePage currentUser={currentUser} workspace={currentWorkspace} />;
+        return (
+          <StorePage
+            currentUser={currentUser}
+            workspace={currentWorkspace}
+            recipes={recipes}
+            workspaceRole={currentWorkspaceRole || 'Viewer'}
+            focusOrderId={focusedStoreOrderId}
+            notifications={storeNotifications}
+            onNotificationClick={notification => void handleStoreNotificationSelect(notification)}
+            onOpenPos={() => handleRootNavigate('storePos')}
+          />
+        );
+      case 'storePos':
+        if (!currentUser || !currentWorkspace) return null;
+        return (
+          <StorePosPage
+            storeId={currentWorkspace.id}
+            workspaceId={currentWorkspace.id}
+            workspaceName={currentWorkspace.name}
+            onBack={() => handleRootNavigate('store')}
+            notificationAction={(
+              <StoreNotificationBell
+                notifications={storeNotifications}
+                onSelect={notification => void handleStoreNotificationSelect(notification)}
+              />
+            )}
+          />
+        );
       case 'costing':
       case 'costingIngredients':
       case 'costingInvoices':
       case 'costingInvoiceDetail':
       case 'costingReports':
-        return <CostingPage activeTab={activeTab} userId={currentUser?.uid} workspaceId={activeWorkspaceId} userRole={currentUserRole === 'super_admin' || currentWorkspaceRole === 'Owner' || currentWorkspaceRole === 'Manager' || currentWorkspaceRole === 'Head Chef' ? 'admin' : 'user'} invoiceId={selectedCostingInvoiceId} onOpenInvoice={handleOpenCostingInvoice} onBackToInvoices={() => handleRootNavigate('costingInvoices')} />;
+        return <CostingPage activeTab={activeTab} userId={currentUser?.uid} workspaceId={activeWorkspaceId} userRole={currentUserRole === 'super_admin' || currentWorkspaceRole === 'Owner' || currentWorkspaceRole === 'Manager' || currentWorkspaceRole === 'Head Chef' ? 'admin' : 'user'} invoiceId={selectedCostingInvoiceId} quickAddRequest={quickAddRequest} onQuickAddHandled={handleQuickAddHandled} onOpenInvoice={handleOpenCostingInvoice} onBackToInvoices={() => handleRootNavigate('costingInvoices')} />;
       case 'business':
       case 'businessSales':
       case 'businessSuppliers':
-        return <BusinessPage activeTab={activeTab} userId={currentUser?.uid} workspaceId={activeWorkspaceId} />;
+        return <BusinessPage activeTab={activeTab} userId={currentUser?.uid} workspaceId={activeWorkspaceId} quickAddRequest={quickAddRequest} onQuickAddHandled={handleQuickAddHandled} />;
+      case 'personalExpenses':
+        return (
+          <PersonalExpensesPage
+            userId={currentUser?.uid}
+            workspaceId={activeWorkspaceId}
+            workspaceRole={currentWorkspaceRole}
+            workspaceMembers={currentWorkspace?.members || []}
+          />
+        );
       case 'team':
         return (
           <TeamPage
@@ -1763,6 +2014,7 @@ export default function App() {
             onDeleteCategory={handleDeleteCategory}
             onToggleFavorite={handleToggleFavorite}
             selectedCategory={selectedHomeCategory}
+            workspaceMembers={currentWorkspace?.members || []}
           />
         );
       case 'settings':
@@ -1780,7 +2032,7 @@ export default function App() {
             onCustomAvatarChange={setCustomAvatarUrl}
             onProfileChange={nextProfile => {
               setChefProfile(nextProfile);
-              setCustomAvatarUrl(nextProfile.photo);
+              setCustomAvatarUrl(getImmediateMediaUrl(nextProfile.photo));
             }}
             onSignOut={handleSignOut}
             onNotify={triggerNotification}
@@ -1809,7 +2061,7 @@ export default function App() {
             onCustomAvatarChange={setCustomAvatarUrl}
             onProfileChange={nextProfile => {
               setChefProfile(nextProfile);
-              setCustomAvatarUrl(nextProfile.photo);
+              setCustomAvatarUrl(getImmediateMediaUrl(nextProfile.photo));
             }}
             onSignOut={handleSignOut}
             onNotify={triggerNotification}
@@ -1854,11 +2106,32 @@ export default function App() {
 
   // Header Contextual configuration
   const getHeaderProps = () => {
+    const notificationAction = currentUser
+      && currentWorkspace
+      && (currentWorkspaceRole === 'Owner' || currentWorkspaceRole === 'Manager')
+      ? (
+        <StoreNotificationBell
+          notifications={storeNotifications}
+          onSelect={notification => void handleStoreNotificationSelect(notification)}
+        />
+      )
+      : undefined;
+
+    if (activeTab === 'storePos') {
+      return {
+        title: 'POS',
+        isSubpage: true,
+        onBack: () => handleRootNavigate('store'),
+        notificationAction
+      };
+    }
+
     if (addingRecipe || editingRecipe) {
       return {
         title: editingRecipe ? 'Edit Recipe' : 'Add New Recipe',
         isSubpage: true,
         onBack: handleCancelRecipeForm,
+        notificationAction,
         rightAction: (
           <button
             onClick={() => {
@@ -1880,7 +2153,7 @@ export default function App() {
       title: "MiseChef",
       isSubpage: false,
       activeTab: activeTab,
-      chefAvatarUrl: customAvatarUrl || chefProfile.photo || currentUser?.photoURL || undefined,
+      chefAvatarUrl: selectResolvedMediaUrl(chefProfile.photo, customAvatarUrl, currentUser?.photoURL) || undefined,
       chefName: chefProfile.name || currentUser?.displayName || currentUser?.email || 'User profile',
       showAvatar: Boolean(currentUser),
       onAvatarClick: handleAvatarClick,
@@ -1888,7 +2161,8 @@ export default function App() {
       workspaces,
       currentWorkspace,
       onWorkspaceChange: handleWorkspaceChange,
-      onCreateWorkspace: currentUser ? () => setIsCreateWorkspaceOpen(true) : undefined
+      onCreateWorkspace: currentUser ? () => setIsCreateWorkspaceOpen(true) : undefined,
+      notificationAction
     };
   };
 
@@ -1899,11 +2173,31 @@ export default function App() {
   }
 
   if (isPublicExperiencePath(window.location.pathname)) {
-    return <PublicLayout pathname={window.location.pathname} />;
+    return <PublicLayout pathname={window.location.pathname} currentUser={currentUser} onSignOut={handleSignOut} />;
   }
 
   if (isMarketingPath(window.location.pathname)) {
     return <MarketingPage initialSection={MARKETING_SECTION_BY_PATH[window.location.pathname]} />;
+  }
+
+  if (shouldShowWorkspaceSetup({
+    hasUser: Boolean(currentUser),
+    isGuestMode,
+    isAppPath: isAppPath(window.location.pathname),
+    status: workspaceSetupStatus
+  })) {
+    return <WorkspaceSetupScreen error={workspaceSetupStatus === 'error' ? workspaceSetupError : ''} />;
+  }
+
+  if (currentUser && isAppPath(window.location.pathname) && onboarding.status === 'pending') {
+    return (
+      <IntentOnboarding
+        isSaving={isSavingOnboarding}
+        error={onboardingError}
+        onContinue={saveOnboardingGoals}
+        onSkip={() => saveOnboardingGoals([])}
+      />
+    );
   }
 
   if (!isProtectedShellVisible && window.location.pathname === '/login') {
@@ -1920,7 +2214,7 @@ export default function App() {
     <WorkspaceRegionProvider workspace={currentWorkspace}>
       <div className="min-h-screen flex flex-col font-sans selection:bg-secondary/20 bg-background relative overflow-x-hidden">
       {/* Dynamic Header */}
-      <Header {...getHeaderProps()} />
+      {activeTab !== 'storePos' && <Header {...getHeaderProps()} />}
 
       <CreateWorkspaceDialog
         isOpen={isCreateWorkspaceOpen}
@@ -2009,6 +2303,7 @@ export default function App() {
           currentUserRole={currentUserRole}
           workspaceRole={currentWorkspaceRole}
           workspaceId={activeWorkspaceId}
+          hasBusinessEntitlement={hasBusinessEntitlement}
           customAvatarUrl={customAvatarUrl}
           onRenameCategory={handleRenameCategory}
           onDeleteCategory={handleDeleteCategory}
@@ -2039,7 +2334,9 @@ export default function App() {
       </AnimatePresence>
 
       {/* Main Scaffold Layout Wrapper */}
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 md:px-8 pt-24 pb-28 md:pb-16">
+      <main className={activeTab === 'storePos'
+        ? 'flex-1 w-full'
+        : 'flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 md:px-8 pt-24 pb-28 md:pb-16'}>
         {editingRecipe ? (
           <AddRecipeTab
             initialRecipe={editingRecipe}
@@ -2056,6 +2353,7 @@ export default function App() {
             userRole={currentUserRole}
             userId={currentUser?.uid}
             workspaceId={activeWorkspaceId}
+            recipes={recipes}
           />
         ) : addingRecipe ? (
           <AddRecipeTab
@@ -2071,6 +2369,7 @@ export default function App() {
             userRole={currentUserRole}
             userId={currentUser?.uid}
             workspaceId={activeWorkspaceId}
+            recipes={recipes}
           />
         ) : (
           renderTabContent()
@@ -2078,7 +2377,7 @@ export default function App() {
       </main>
 
       {/* Responsive Bottom Navigation Bar Block (Mobile size, Tablet uses top) */}
-      {isProtectedShellVisible && !addingRecipe && !editingRecipe && (
+      {isProtectedShellVisible && !addingRecipe && !editingRecipe && activeTab !== 'storePos' && (
         <nav className="fixed bottom-0 left-0 w-full z-45 flex justify-around items-center px-4 pb-4 pt-3 bg-surface/90 backdrop-blur-md rounded-t-2xl shadow-[0_-4px_24px_rgba(62,86,65,0.08)] md:hidden border-t border-surface-container-high transition-transform">
           <button
             onClick={() => {
@@ -2106,16 +2405,9 @@ export default function App() {
         </nav>
       )}
 
-      {/* Persistent Desktop & Mobile Contextual floating Add Button (FAB) (Matches screenshot button!) */}
-      {isProtectedShellVisible && !addingRecipe && !editingRecipe && (
-        <button
-          onClick={() => setAddingRecipe(true)}
-          id="persistent-fab-add-recipe"
-          className="fixed bottom-24 right-6 md:bottom-8 md:right-8 w-14 h-14 bg-primary text-on-primary hover:bg-primary-container rounded-full shadow-lg shadow-primary/25 flex items-center justify-center active:scale-95 hover:scale-105 transition-all z-40 outline-none"
-          title="Write a new heirloom recipe"
-        >
-          <Plus className="w-7 h-7 text-white" />
-        </button>
+      {/* Persistent workspace-wide Quick Add button */}
+      {isProtectedShellVisible && !addingRecipe && !editingRecipe && activeTab !== 'storePos' && (
+        <GlobalQuickAdd actions={availableQuickAddActions} onSelect={handleQuickAdd} />
       )}
 
       {/* Recipe Drawer Detail Overlay */}
@@ -2129,9 +2421,13 @@ export default function App() {
             onShare={handleShareRecipe}
             onDelete={handleDeleteRecipe}
             onToggleFavorite={handleToggleFavorite}
+            workspaceMembers={currentWorkspace?.members || []}
           />
         )}
       </AnimatePresence>
+      {sharingRecipe && (
+        <RecipeShareDialog recipe={sharingRecipe} onClose={() => setSharingRecipe(null)} />
+      )}
       </div>
     </WorkspaceRegionProvider>
   );

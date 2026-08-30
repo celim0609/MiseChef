@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Archive, RotateCcw, Search, Trash2, Upload } from 'lucide-react';
-import { invoiceLifecycleService, invoiceProcessor, invoiceService } from '../../services';
+import { getInvoiceDisplayName, getInvoiceSecondaryLabel, invoiceLifecycleService, invoiceProcessor, invoiceService } from '../../services';
 import { getCustomerFriendlyErrorMessage } from '../../../../utils/customerErrorMessages';
 import type { CostingInvoice, CostingInvoiceFileType, CostingInvoiceStatus } from '../../types';
 
@@ -9,6 +9,8 @@ interface CostingInvoicesPageProps {
   workspaceId?: string;
   canManageInvoices?: boolean;
   onOpenInvoice: (invoiceId: string) => void;
+  openUploadRequest?: number;
+  onQuickAddHandled?: (requestId: number) => void;
 }
 
 const statusClassName: Record<CostingInvoiceStatus, string> = {
@@ -51,7 +53,7 @@ const notifyInvoiceLifecycleChanged = () => {
   window.dispatchEvent(new CustomEvent('misechef:invoice-lifecycle-changed'));
 };
 
-export default function CostingInvoicesPage({ userId, workspaceId, canManageInvoices = false, onOpenInvoice }: CostingInvoicesPageProps) {
+export default function CostingInvoicesPage({ userId, workspaceId, canManageInvoices = false, openUploadRequest, onQuickAddHandled, onOpenInvoice }: CostingInvoicesPageProps) {
   const singleUploadInputRef = useRef<HTMLInputElement | null>(null);
   const multipleUploadInputRef = useRef<HTMLInputElement | null>(null);
   const [invoiceHistory, setInvoiceHistory] = useState<CostingInvoice[]>([]);
@@ -65,6 +67,12 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
   const [statusFilter, setStatusFilter] = useState<CostingInvoiceStatus | null>(getInitialStatusFilter);
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => {
+    if (!openUploadRequest) return;
+    singleUploadInputRef.current?.click();
+    onQuickAddHandled?.(openUploadRequest);
+  }, [onQuickAddHandled, openUploadRequest]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -289,6 +297,7 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
 
     return [
       invoice.fileName,
+      invoice.displayName,
       invoice.supplier,
       invoice.invoiceNumber,
       invoice.processingStatus,
@@ -375,7 +384,7 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
           <table className="w-full min-w-[640px] text-left font-sans text-sm">
             <thead className="bg-surface-container-low text-primary">
               <tr>
-                <th className="px-4 py-3 text-xs font-extrabold uppercase tracking-[0.14em]">File Name</th>
+                <th className="px-4 py-3 text-xs font-extrabold uppercase tracking-[0.14em]">Invoice</th>
                 <th className="px-4 py-3 text-xs font-extrabold uppercase tracking-[0.14em]">Upload Date</th>
                 <th className="px-4 py-3 text-xs font-extrabold uppercase tracking-[0.14em]">Processing Status</th>
                 <th className="px-4 py-3 text-xs font-extrabold uppercase tracking-[0.14em]">Action</th>
@@ -386,7 +395,10 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
                 <tr key={invoice.id} className="border-t border-surface-container-high hover:bg-surface-container-low/60">
                   <td className="px-4 py-3 font-bold text-primary">
                     <button type="button" onClick={() => onOpenInvoice(invoice.id)} className="text-left hover:underline">
-                      {invoice.fileName}
+                      <span className="block font-extrabold">{getInvoiceDisplayName(invoice)}</span>
+                      {getInvoiceSecondaryLabel(invoice) && (
+                        <span className="mt-1 block text-xs font-bold text-on-surface-variant">{getInvoiceSecondaryLabel(invoice)}</span>
+                      )}
                     </button>
                   </td>
                   <td className="px-4 py-3 font-bold text-on-surface-variant">{formatUploadDate(invoice.uploadDate)}</td>

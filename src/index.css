@@ -59,6 +59,154 @@
   to { transform: translateY(0); opacity: 1; }
 }
 
+@keyframes discover-enter-next {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes discover-exit-next {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(-18px); }
+}
+
+@keyframes discover-enter-previous {
+  from { opacity: 0; transform: translateX(-18px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes discover-exit-previous {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(18px); }
+}
+
+@keyframes homepage-section-enter {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes homepage-announcement-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.homepage-section-enter {
+  animation: homepage-section-enter 560ms ease-out both;
+}
+
+.homepage-announcement-copy {
+  animation: homepage-announcement-enter 280ms ease-out both;
+}
+
+.homepage-circle-button {
+  display: inline-flex;
+  height: 2.5rem;
+  width: 2.5rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1px solid var(--color-surface-container-high);
+  background: color-mix(in srgb, var(--color-background) 92%, transparent);
+  color: var(--color-primary);
+  box-shadow: 0 4px 16px rgba(39, 63, 43, 0.08);
+  transition: transform 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.homepage-circle-button:hover {
+  background: var(--color-surface-container-low);
+  box-shadow: 0 6px 20px rgba(39, 63, 43, 0.12);
+}
+
+.homepage-circle-button:active { transform: scale(0.95); }
+.homepage-circle-button:focus-visible { outline: 3px solid color-mix(in srgb, var(--color-primary) 25%, transparent); outline-offset: 2px; }
+
+.homepage-promotion-rail,
+.homepage-recipe-rail {
+  display: grid;
+  grid-auto-flow: column;
+  gap: 1rem;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scroll-snap-type: inline mandatory;
+  scrollbar-width: none;
+  padding: 0.2rem 0.1rem 0.8rem;
+}
+
+.homepage-promotion-rail::-webkit-scrollbar,
+.homepage-recipe-rail::-webkit-scrollbar { display: none; }
+
+.homepage-promotion-rail { grid-auto-columns: minmax(16rem, 82%); }
+.homepage-recipe-rail { grid-auto-columns: minmax(18rem, 88%); }
+
+.homepage-promotion-card,
+.homepage-recipe-card {
+  scroll-snap-align: start;
+  overflow: hidden;
+  border: 1px solid var(--color-surface-container-high);
+  border-radius: 1.5rem;
+  background: var(--color-background);
+  box-shadow: 0 7px 28px rgba(39, 63, 43, 0.07);
+  transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+}
+
+.homepage-promotion-card:hover,
+.homepage-recipe-card:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--color-primary) 22%, var(--color-surface-container-high));
+  box-shadow: 0 12px 34px rgba(39, 63, 43, 0.12);
+}
+
+.homepage-recipe-card { display: grid; }
+.homepage-hero-slide { box-shadow: 0 18px 50px rgba(39, 63, 43, 0.12); }
+
+@media (min-width: 640px) {
+  .homepage-promotion-rail { grid-auto-columns: minmax(17rem, calc((100% - 2rem) / 3)); }
+  .homepage-recipe-rail { grid-auto-columns: minmax(31rem, calc((100% - 1rem) / 2)); }
+  .homepage-recipe-card { grid-template-columns: 46% 54%; }
+}
+
+@media (min-width: 1024px) {
+  .homepage-promotion-rail { grid-auto-columns: calc((100% - 3rem) / 4); }
+}
+
+.discover-slide-enter-next,
+.discover-slide-enter-previous,
+.discover-slide-exit-next,
+.discover-slide-exit-previous {
+  animation-duration: 520ms;
+  animation-timing-function: ease-in-out;
+  animation-fill-mode: both;
+  will-change: opacity, transform;
+}
+
+.discover-slide-enter-next { animation-name: discover-enter-next; }
+.discover-slide-exit-next { animation-name: discover-exit-next; }
+.discover-slide-enter-previous { animation-name: discover-enter-previous; }
+.discover-slide-exit-previous { animation-name: discover-exit-previous; }
+
+@media (prefers-reduced-motion: reduce) {
+  .discover-slide-enter-next,
+  .discover-slide-enter-previous,
+  .discover-slide-exit-next,
+  .discover-slide-exit-previous {
+    animation: none;
+  }
+
+  .homepage-section-enter,
+  .homepage-announcement-copy {
+    animation: none;
+  }
+
+  .homepage-promotion-card,
+  .homepage-recipe-card,
+  .homepage-circle-button,
+  .homepage-promotion-card img,
+  .homepage-recipe-card img {
+    scroll-behavior: auto;
+    transition: none !important;
+  }
+}
+
 body {
   font-family: var(--font-sans);
   background-color: var(--color-background);
@@ -356,4 +504,70 @@ body {
 input:focus, textarea:focus, select:focus {
   outline: none !important;
   box-shadow: 0 0 0 2px rgba(39, 63, 43, 0.15) !important;
+}
+
+/* The POS/KDS owns its Light/Night mode independently from the dashboard appearance. */
+.pos-screen[data-pos-theme="light"] {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  color-scheme: light;
+}
+
+.pos-screen[data-pos-theme="light"] .pos-light-surface {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+.pos-screen[data-pos-theme="light"] .pos-page-title,
+.pos-screen[data-pos-theme="light"] .pos-card-title,
+.pos-screen[data-pos-theme="light"] .pos-readable-heading {
+  color: #0f172a !important;
+}
+
+.pos-screen[data-pos-theme="light"] .pos-control {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+.pos-screen[data-pos-theme="light"] .pos-status-heading[data-status="new"] {
+  color: #d97706 !important;
+}
+
+.pos-screen[data-pos-theme="light"] .pos-status-heading[data-status="preparing"] {
+  color: #ea580c !important;
+}
+
+.pos-screen[data-pos-theme="light"] .pos-status-heading[data-status="ready"] {
+  color: #047857 !important;
+}
+
+.pos-screen[data-pos-theme="light"] .pos-status-heading[data-status="completed"] {
+  color: #1d4ed8 !important;
+}
+
+.pos-screen[data-pos-theme="dark"] .pos-status-heading[data-status="new"] {
+  color: #fcd34d !important;
+}
+
+.pos-screen[data-pos-theme="dark"] .pos-status-heading[data-status="preparing"] {
+  color: #fdba74 !important;
+}
+
+.pos-screen[data-pos-theme="dark"] .pos-status-heading[data-status="ready"] {
+  color: #6ee7b7 !important;
+}
+
+.pos-screen[data-pos-theme="dark"] .pos-status-heading[data-status="completed"] {
+  color: #93c5fd !important;
+}
+
+.pos-screen[data-pos-theme="dark"] .pos-readable-heading {
+  color: #ffffff !important;
+}
+
+.pos-screen[data-pos-theme="dark"] .pos-control {
+  background-color: #111827 !important;
+  border-color: #475569 !important;
+  color: #f8fafc !important;
 }

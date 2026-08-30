@@ -7,6 +7,10 @@ on:
         description: Type RELEASE BETA to confirm the protected full-resource release
         required: true
         type: string
+      expected_candidate_sha:
+        description: Exact approved 40-character candidate SHA
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -20,43 +24,86 @@ jobs:
     if: ${{ inputs.release_confirmation == 'RELEASE BETA' }}
     runs-on: ubuntu-latest
     environment: beta
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       MISECHEF_BETA_PROTECTED_BASELINE: ${{ vars.MISECHEF_BETA_PROTECTED_BASELINE }}
-      MISECHEF_BETA_BOOTSTRAP_LIVE_ASSET: ${{ vars.MISECHEF_BETA_BOOTSTRAP_LIVE_ASSET }}
       MISECHEF_BETA_CI_LOCK_ID: misechef-beta-deployment
       FIREBASE_DEPLOY_TARGET: beta
     steps:
-      - name: Check out exact candidate
+      - name: Check out immutable trusted Beta gate
         uses: actions/checkout@v4
         with:
+          ref: 9c2173b9f9ae42b1fc09826c57cef46697759452
+          path: trusted-gate
           fetch-depth: 0
+
+      - name: Check out exact release candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: candidate
+          fetch-depth: 0
+
+      - name: Verify exact approved candidate SHA
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_candidate_sha }}
+        run: |
+          resolved_sha="$(git -C "$GITHUB_WORKSPACE/candidate" rev-parse HEAD)"
+          if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected candidate SHA must be an exact lowercase 40-character Git SHA." >&2
+            exit 1
+          fi
+          if [[ "$resolved_sha" != "$EXPECTED_SHA" ]]; then
+            echo "Release candidate mismatch: expected $EXPECTED_SHA but resolved $resolved_sha" >&2
+            exit 1
+          fi
+          echo "Approved release candidate: $resolved_sha"
 
       - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
-      - name: Set up Java for Firebase Rules emulators
+      - name: Set up Java 21 for mandatory Firebase Rules emulators
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
+
+      - name: Install immutable trusted gate dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/trusted-gate" ci
+
+      - name: Install candidate application dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/candidate" ci
+
+      - name: Install candidate Functions dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/candidate/functions" ci
+
+      - name: Install pinned Firebase CLI
+        run: npm install --global firebase-tools@14.22.0
+
+      - name: Validate actual release candidate with immutable trusted gate
+        run: >-
+          node "$GITHUB_WORKSPACE/trusted-gate/scripts/validateBetaReleaseBaseline.mjs"
+          --trusted-root "$GITHUB_WORKSPACE/trusted-gate"
+          --candidate-root "$GITHUB_WORKSPACE/candidate"
+
+      - name: Run complete immutable trusted candidate regression gate
+        run: >-
+          node "$GITHUB_WORKSPACE/trusted-gate/scripts/runBetaProtectedTests.mjs"
+          --trusted-root "$GITHUB_WORKSPACE/trusted-gate"
+          --candidate-root "$GITHUB_WORKSPACE/candidate"
+
+      - name: Run Store Sets Firestore authorization suite
+        run: npm --prefix "$GITHUB_WORKSPACE/candidate" run test:store-sets:rules
 
       - name: Authenticate to Beta only
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA }}
 
-      - name: Install application dependencies
-        run: npm ci
-
-      - name: Install Functions dependencies
-        run: npm --prefix functions ci
-
-      - name: Install pinned Firebase CLI
-        run: npm install --global firebase-tools@14.22.0
-
-      - name: Run canonical protected Beta release
+      - name: Run canonical protected full-resource Beta release
+        working-directory: candidate
+        env:
+          MISECHEF_BETA_TRUSTED_GATE_ROOT: ${{ github.workspace }}/trusted-gate
         run: npm run deploy:beta

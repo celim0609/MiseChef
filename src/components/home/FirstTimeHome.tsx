@@ -1,22 +1,30 @@
-import { BookOpen, CheckCircle2, Circle, UserRound } from 'lucide-react';
+import { BookOpen, CheckCircle2, Circle, Store, UserRound } from 'lucide-react';
+import type { OnboardingGoal } from '../../modules/onboarding';
 
 interface FirstTimeHomeProps {
   greeting: string;
   onCreateRecipe?: () => void;
   onCompleteProfile?: () => void;
+  onSetUpStore?: () => void;
+  goals?: OnboardingGoal[];
 }
-
-const checklistItems = [
-  'Create your first recipe',
-  'Explore public recipes',
-  'Complete your chef profile'
-];
 
 export default function FirstTimeHome({
   greeting,
   onCreateRecipe,
-  onCompleteProfile
+  onCompleteProfile,
+  onSetUpStore,
+  goals = []
 }: FirstTimeHomeProps) {
+  const showAll = goals.length === 0;
+  const showRecipes = showAll || goals.includes('recipes');
+  const showProfile = showAll || goals.includes('chef_profile');
+  const showStore = goals.includes('sell_food');
+  const checklistItems = [
+    ...(showProfile ? ['Complete your chef profile'] : []),
+    ...(showRecipes ? ['Create or import your first recipe', 'Explore public recipes'] : []),
+    ...(showStore ? ['Set up your Store'] : [])
+  ];
   return (
     <div className="mx-auto w-full max-w-5xl animate-fade-in">
       <section className="rounded-3xl border border-surface-container-high bg-surface-container-low p-6 shadow-sm sm:p-8 lg:p-10">
@@ -29,7 +37,7 @@ export default function FirstTimeHome({
             {greeting}
           </h1>
           <p className="mt-4 font-sans text-sm font-bold leading-relaxed text-on-surface-variant sm:text-base">
-            Start with your first recipe. MiseChef will grow into your daily workspace as you add your kitchen information.
+            Your workspace is ready. Start with the goals you selected and add more whenever you need them.
           </p>
         </div>
 
@@ -49,7 +57,7 @@ export default function FirstTimeHome({
           <article className="rounded-2xl border border-surface-container-high bg-white p-5 shadow-sm sm:p-6">
             <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-primary">Start Here</p>
             <div className="mt-5 space-y-3">
-              <button
+              {showRecipes && <button
                 type="button"
                 onClick={onCreateRecipe}
                 className="flex w-full items-center gap-4 rounded-2xl bg-primary p-4 text-left text-on-primary transition hover:opacity-95 active:scale-[0.99]"
@@ -58,12 +66,12 @@ export default function FirstTimeHome({
                   <BookOpen className="h-5 w-5" />
                 </span>
                 <span>
-                  <span className="block font-sans text-sm font-extrabold">Create First Recipe</span>
+                  <span className="block font-sans text-sm font-extrabold">Create or Import a Recipe</span>
                   <span className="mt-1 block font-sans text-xs font-bold text-on-primary/75">Add the first recipe to your workspace.</span>
                 </span>
-              </button>
+              </button>}
 
-              <a
+              {showRecipes && <a
                 href="/recipes"
                 className="flex w-full items-center gap-4 rounded-2xl border border-surface-container-high bg-surface-container-low p-4 text-left transition hover:border-primary/30 hover:bg-primary/5 active:scale-[0.99]"
               >
@@ -74,9 +82,9 @@ export default function FirstTimeHome({
                   <span className="block font-sans text-sm font-extrabold text-primary">Explore Public Recipes</span>
                   <span className="mt-1 block font-sans text-xs font-bold text-on-surface-variant">Discover recipes shared by MiseChef chefs.</span>
                 </span>
-              </a>
+              </a>}
 
-              <button
+              {showProfile && <button
                 type="button"
                 onClick={onCompleteProfile}
                 className="flex w-full items-center gap-4 rounded-2xl border border-surface-container-high bg-surface-container-low p-4 text-left transition hover:border-primary/30 hover:bg-primary/5 active:scale-[0.99]"
@@ -88,7 +96,19 @@ export default function FirstTimeHome({
                   <span className="block font-sans text-sm font-extrabold text-primary">Complete Profile</span>
                   <span className="mt-1 block font-sans text-xs font-bold text-on-surface-variant">Add your chef details and profile photo.</span>
                 </span>
-              </button>
+              </button>}
+
+              {showStore && <button
+                type="button"
+                onClick={onSetUpStore}
+                className="flex w-full items-center gap-4 rounded-2xl border border-surface-container-high bg-surface-container-low p-4 text-left transition hover:border-primary/30 hover:bg-primary/5 active:scale-[0.99]"
+              >
+                <span className="rounded-full bg-secondary/10 p-3 text-secondary"><Store className="h-5 w-5" /></span>
+                <span>
+                  <span className="block font-sans text-sm font-extrabold text-primary">Set Up Store</span>
+                  <span className="mt-1 block font-sans text-xs font-bold text-on-surface-variant">Choose your Store name, then add products and payment options.</span>
+                </span>
+              </button>}
             </div>
           </article>
         </div>

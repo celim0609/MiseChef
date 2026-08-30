@@ -10,11 +10,13 @@ const requiredFirebaseVariables = [
   'VITE_STRIPE_PUBLISHABLE_KEY',
 ];
 
-const fileEnvironment = loadEnv('production', process.cwd(), '');
+const deploymentTarget = process.env.FIREBASE_DEPLOY_TARGET?.trim() || 'production';
+const environmentMode = deploymentTarget === 'beta' ? 'beta' : 'production';
+const fileEnvironment = loadEnv(environmentMode, process.cwd(), '');
 const environment = {
   ...fileEnvironment,
+  ...(deploymentTarget === 'production' ? loadProductionFirebaseEnvironment() : {}),
   ...process.env,
-  ...loadProductionFirebaseEnvironment(),
 };
 
 const isUsableValue = value => {
@@ -37,9 +39,11 @@ const missingVariables = requiredFirebaseVariables.filter(variableName => {
   return false;
 });
 
-const firebaseProject = fs.existsSync('.firebaserc')
-  ? JSON.parse(fs.readFileSync('.firebaserc', 'utf8')).projects?.default
+const firebaseProjects = fs.existsSync('.firebaserc')
+  ? JSON.parse(fs.readFileSync('.firebaserc', 'utf8')).projects
   : undefined;
+const firebaseProject = firebaseProjects?.[deploymentTarget]
+  || (deploymentTarget === 'production' ? firebaseProjects?.default : undefined);
 
 const configurationMismatches = firebaseProject
   ? [

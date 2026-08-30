@@ -1,10 +1,14 @@
 import { deleteObject, getBlob, ref, uploadBytesResumable } from 'firebase/storage';
 import { storage } from '../../../firebase';
-import { parseResumeToPortfolioWithAI } from '../../../services/gemini';
+import { getStorageObjectPath } from '../../../services/storageReference';
+import { startResumeToPortfolioJob } from '../../../services/gemini';
 import type { ImportedChefProfile } from '../types';
-import { mapResumeDraftToChefProfile as mapResumeDraft } from './resumeImportMapping';
+import { logResumeImportFailure, ResumeImportError } from './resumeImportErrors';
+import { startExtractedResumeJob } from './resumeParsing';
 import { extractChefResumeText } from './resumeTextExtraction';
-import { getResumeImportErrorMessage, getReusableExtractedResumeText, isOwnedResumeStoragePath, type ManagedChefResume, type ResumeFileUpload, type ResumeUploadResult } from './resumeManagementModel';
+import { runResumeImportPipeline } from './resumeImportPipeline';
+import type { ResumeImportClientTimings } from './resumeImportPipeline';
+import { isOwnedResumeStoragePath, type ManagedChefResume, type ResumeFileUpload, type ResumeUploadResult } from './resumeManagementModel';
 
 const PDF = 'application/pdf';
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -12,8 +16,8 @@ const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.doc
 export const validateResumeFile = (file: File) => {
   const extension = file.name.toLowerCase().split('.').pop();
   const validType = (file.type === PDF && extension === 'pdf') || (file.type === DOCX && extension === 'docx');
-  if (!validType) throw new Error('Choose a PDF or DOCX resume.');
-  if (file.size > 10 * 1024 * 1024) throw new Error('Your resume must be 10 MB or smaller.');
+  if (!validType) throw new ResumeImportError('unsupported_file', 'validation', 'Choose a PDF or DOCX resume.');
+  if (file.size > 10 * 1024 * 1024) throw new ResumeImportError('file_too_large', 'validation', 'Your resume must be 10 MB or smaller.');
 };
 
 export const importResume = async (
@@ -21,74 +25,65 @@ export const importResume = async (
   userId: string,
   workspaceId: string,
   onStage: (stage: 1 | 2 | 3) => void,
-  onUploaded?: (upload: ResumeFileUpload) => Promise<void>,
-  onExtractedText?: (text: string) => Promise<void>
+  onUploaded?: (upload: ResumeFileUpload) => Promise<void>
 ): Promise<ResumeUploadResult> => {
   validateResumeFile(file);
-  if (!storage) throw new Error('Resume upload is temporarily unavailable.');
+  if (!storage) throw new ResumeImportError('upload_failed', 'upload', 'Resume upload is temporarily unavailable.');
 
-  onStage(1);
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
   const storagePath = `users/${userId}/chef-profile/resume-imports/${crypto.randomUUID()}-${safeName}`;
-  const upload = uploadBytesResumable(ref(storage, storagePath), file, {
-    contentType: file.type,
-    customMetadata: { ownerId: userId, purpose: 'chef-profile-import', originalFileName: file.name.slice(0, 255) }
-  });
   let registeredForRetry = false;
   try {
-    await new Promise<void>((resolve, reject) => upload.on('state_changed', undefined, reject, resolve)).catch(error => {
-      console.error('[Resume Import] Storage upload failed', error);
-      throw error;
+    const pipeline = await runResumeImportPipeline({
+      onStage,
+      upload: async () => {
+        const upload = uploadBytesResumable(ref(storage, storagePath), file, {
+          contentType: file.type,
+          customMetadata: { ownerId: userId, purpose: 'chef-profile-import', originalFileName: file.name.slice(0, 255) }
+        });
+        await new Promise<void>((resolve, reject) => upload.on('state_changed', undefined, reject, resolve));
+      },
+      register: onUploaded ? () => onUploaded({
+          originalStoragePath: storagePath,
+          fileName: file.name,
+          contentType: file.type,
+          fileSize: file.size
+        }) : undefined,
+      extract: async () => {
+        const text = await extractChefResumeText(file);
+        console.info('[Resume Import] Text extraction complete', {
+          fileType: file.type,
+          characters: text.length,
+          lines: text.split(/\r?\n/).filter(line => line.trim()).length
+        });
+        return text;
+      },
+      parse: text => startExtractedResumeJob(text, workspaceId, startResumeToPortfolioJob),
+      cleanup: () => deleteObject(ref(storage, storagePath)),
+      onTiming: timings => console.info('[Resume Import] Client timings', timings)
     });
-    if (onUploaded) {
-      await onUploaded({
-        originalStoragePath: storagePath,
-        fileName: file.name,
-        contentType: file.type,
-        fileSize: file.size
-      }).catch(error => {
-        console.error('[Resume Import] Resume metadata registration failed', error);
-        throw error;
-      });
-      registeredForRetry = true;
-    }
-    onStage(2);
-    const text = await extractChefResumeText(file).catch(error => {
-      console.error('[Resume Import] PDF/DOCX text extraction failed', {
-        stage: 'text-extraction',
-        fileType: file.type,
-        code: (error as { code?: unknown })?.code || '',
-        message: error instanceof Error ? error.message : String(error),
-        stack: error instanceof Error ? error.stack : ''
-      });
-      throw error;
-    });
-    if (text.length < 80) throw new Error(getResumeImportErrorMessage(new Error('Insufficient text'), file.name));
-    console.info('[Resume Import] Text extraction complete', {
-      fileType: file.type,
-      characters: text.length,
-      lines: text.split(/\r?\n/).filter(line => line.trim()).length
-    });
-    await onExtractedText?.(text);
-
-    onStage(3);
-    const parsed = await parseResumeToPortfolioWithAI(text, workspaceId);
-    if (parsed.unmappedSections?.length) {
-      console.warn('[Resume Import] Unmapped resume sections', parsed.unmappedSections.map(section => ({
-        sectionName: section.sectionName,
-        reason: section.reason
-      })));
-    }
-    const profile = mapResumeDraft(parsed);
+    registeredForRetry = pipeline.registeredForRetry;
     return {
-      profile,
+      jobId: pipeline.result,
       originalStoragePath: storagePath,
       fileName: file.name,
       contentType: file.type,
-      fileSize: file.size
+      fileSize: file.size,
+      timings: pipeline.timings
     };
   } catch (error) {
-    if (!registeredForRetry) await deleteObject(ref(storage, storagePath)).catch(() => undefined);
+    registeredForRetry = onUploaded
+      && error instanceof ResumeImportError
+      && !['upload_failed', 'upload_registration_failed'].includes(error.code);
+    logResumeImportFailure(error, {
+      fileName: file.name,
+      storagePath,
+      authenticatedUid: userId,
+      contentType: file.type,
+      fileSize: file.size,
+      storageBucket: storage.app.options.storageBucket,
+      registeredForRetry
+    });
     throw error;
   }
 };
@@ -96,43 +91,44 @@ export const importResume = async (
 const parseResumeFile = async (
   file: File,
   workspaceId: string,
-  onStage: (stage: 1 | 2 | 3) => void,
-  onExtractedText?: (text: string) => Promise<void>
+  onStage: (stage: 1 | 2 | 3) => void
 ) => {
   onStage(2);
-  const text = await extractChefResumeText(file).catch(error => {
-    console.error('[Resume Import] Stored PDF/DOCX text extraction failed', {
-      stage: 'text-extraction',
-      fileType: file.type,
-      code: (error as { code?: unknown })?.code || '',
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : ''
-    });
-    throw error;
-  });
-  if (text.length < 80) throw new Error(getResumeImportErrorMessage(new Error('Insufficient text'), file.name));
-  await onExtractedText?.(text);
+  const extractionStartedAt = performance.now();
+  const text = await extractChefResumeText(file);
+  const pdfExtractionMs = performance.now() - extractionStartedAt;
   onStage(3);
-  return mapResumeDraft(await parseResumeToPortfolioWithAI(text, workspaceId));
+  const jobStartedAt = performance.now();
+  const jobId = await startExtractedResumeJob(text, workspaceId, startResumeToPortfolioJob);
+  const timings: ResumeImportClientTimings = {
+    uploadMs: 0,
+    metadataMs: 0,
+    pdfExtractionMs,
+    jobCreationMs: performance.now() - jobStartedAt
+  };
+  console.info('[Resume Import] Retry client timings', timings);
+  return { jobId, timings };
 };
 
 export const retryResumeImport = async (
   resume: ManagedChefResume,
   userId: string,
   workspaceId: string,
-  onStage: (stage: 1 | 2 | 3) => void,
-  onExtractedText?: (text: string) => Promise<void>
+  onStage: (stage: 1 | 2 | 3) => void
 ) => {
-  if (!isOwnedResumeStoragePath(userId, resume.storagePath)) {
+  if (!storage) throw new ResumeImportError('download_failed', 'download', 'Resume import is temporarily unavailable.');
+  const storagePath = getStorageObjectPath(resume.storagePath, storage.app.options.storageBucket);
+  if (!storagePath || !isOwnedResumeStoragePath(userId, storagePath)) {
     throw new Error('This resume does not belong to the signed-in user.');
   }
-  const extractedText = getReusableExtractedResumeText(resume);
-  if (extractedText) {
-    onStage(3);
-    return mapResumeDraft(await parseResumeToPortfolioWithAI(extractedText, workspaceId));
+  try {
+    const blob = await getBlob(ref(storage, storagePath)).catch(error => {
+      throw new ResumeImportError('download_failed', 'download', 'Saved resume download failed.', { cause: error });
+    });
+    const file = new File([blob], resume.fileName, { type: resume.contentType });
+    return await parseResumeFile(file, workspaceId, onStage);
+  } catch (error) {
+    logResumeImportFailure(error, { fileName: resume.fileName, retry: true });
+    throw error;
   }
-  if (!storage) throw new Error('Resume import is temporarily unavailable.');
-  const blob = await getBlob(ref(storage, resume.storagePath));
-  const file = new File([blob], resume.fileName, { type: resume.contentType });
-  return parseResumeFile(file, workspaceId, onStage, onExtractedText);
 };

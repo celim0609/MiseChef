@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { DOMMatrix, ImageData, Path2D } from '@napi-rs/canvas';
+import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { normalizeResumePortfolioDraft } from '../../../services/resumePortfolioModel';
 import {
   recoverResumeExtraction,
@@ -13,6 +14,8 @@ import {
 } from '../../../../functions/resumeEmploymentRecovery.js';
 import { sanitizeProfile } from '../model';
 import { mapResumeDraftToChefProfile } from './resumeImportMapping';
+import { ResumeImportError } from './resumeImportErrors';
+import { parseExtractedResumeText } from './resumeParsing';
 
 Object.assign(globalThis, { DOMMatrix, ImageData, Path2D });
 if (!('toHex' in Uint8Array.prototype)) {
@@ -22,7 +25,111 @@ if (!('toHex' in Uint8Array.prototype)) {
     }
   });
 }
-const { extractChefResumeText } = await import('./resumeTextExtraction');
+const { extractChefResumeText, extractPdfResumeText } = await import('./resumeTextExtraction');
+
+const makePdf = async (pages: string[]) => {
+  const document = await PDFDocument.create();
+  const font = await document.embedFont(StandardFonts.Helvetica);
+  pages.forEach(content => {
+    const page = document.addPage([595, 842]);
+    content.split('\n').forEach((line, index) => page.drawText(line, {
+      x: 50,
+      y: 790 - index * 20,
+      size: 12,
+      font
+    }));
+  });
+  return new File([await document.save()], 'generated-resume.pdf', { type: 'application/pdf' });
+};
+
+const assertResumeErrorCode = async (operation: Promise<unknown>, code: ResumeImportError['code']) => {
+  await assert.rejects(operation, error => error instanceof ResumeImportError && error.code === code);
+};
+
+test('extracts a valid text PDF through the canonical PDF.js path', async () => {
+  const text = await extractChefResumeText(await makePdf([
+    'CHEF ADA TEST\nExecutive Chef\nWORK EXPERIENCE\nExample Kitchen 2020 - Present\nMenu development and kitchen leadership.'
+  ]));
+
+  assert.match(text, /CHEF ADA TEST/);
+  assert.match(text, /WORK EXPERIENCE/);
+  assert.match(text, /Menu development and kitchen leadership/);
+});
+
+test('extracts every page of a multi-page text PDF with an explicit page boundary', async () => {
+  const text = await extractChefResumeText(await makePdf([
+    'CHEF ADA TEST\nPROFESSIONAL SUMMARY\nModern Malaysian cuisine specialist.',
+    'WORK EXPERIENCE\nExample Kitchen\nExecutive Chef\n2020 - Present',
+    'EDUCATION\nCulinary Academy\nDiploma in Culinary Arts'
+  ]));
+
+  assert.match(text, /PROFESSIONAL SUMMARY/);
+  assert.match(text, /WORK EXPERIENCE/);
+  assert.match(text, /EDUCATION/);
+  assert.equal(text.match(/--- PAGE BREAK ---/g)?.length, 2);
+});
+
+test('classifies an empty or image-only PDF as empty text', async () => {
+  const document = await PDFDocument.create();
+  document.addPage([595, 842]);
+  const file = new File([await document.save()], 'image-only.pdf', { type: 'application/pdf' });
+
+  await assertResumeErrorCode(extractChefResumeText(file), 'pdf_empty_text');
+});
+
+test('classifies an invalid or corrupted PDF as a parsing failure', async () => {
+  const file = new File([new TextEncoder().encode('not a PDF document')], 'corrupted.pdf', { type: 'application/pdf' });
+  await assert.rejects(extractChefResumeText(file), error => (
+    error instanceof ResumeImportError
+    && error.stage === 'pdf-parse'
+    && ['pdf_invalid', 'pdf_corrupted', 'pdf_parse_failed'].includes(error.code)
+  ));
+});
+
+test('does not misclassify a worker configuration failure as empty text', async () => {
+  const file = await makePdf(['CHEF ADA TEST\nExecutive Chef']);
+  const failingRuntime = async () => {
+    throw new Error('Setting up fake worker failed: No GlobalWorkerOptions.workerSrc specified.');
+  };
+
+  await assertResumeErrorCode(extractPdfResumeText(file, failingRuntime as never), 'pdf_worker_failed');
+});
+
+test('does not blame extraction when the downstream resume parser fails', async () => {
+  const text = 'CHEF ADA TEST\nExecutive Chef\nWORK EXPERIENCE\nExample Kitchen\n2020 - Present\n'.repeat(3);
+  await assertResumeErrorCode(parseExtractedResumeText(text, 'workspace-test', async () => {
+    throw new Error('AI response schema was invalid.');
+  }), 'resume_parser_failed');
+});
+
+test('classifies a downstream resume parser network failure separately', async () => {
+  const text = 'CHEF ADA TEST\nExecutive Chef\nWORK EXPERIENCE\nExample Kitchen\n2020 - Present\n'.repeat(3);
+  await assertResumeErrorCode(parseExtractedResumeText(text, 'workspace-test', async () => {
+    const error = new Error('The callable service is unavailable.');
+    Object.assign(error, { code: 'functions/unavailable' });
+    throw error;
+  }), 'resume_parser_network_failed');
+});
+
+test('a valid PDF succeeds when retried after a failed PDF', async () => {
+  const invalid = new File([new Uint8Array([0, 1, 2, 3])], 'invalid.pdf', { type: 'application/pdf' });
+  await assert.rejects(extractChefResumeText(invalid), ResumeImportError);
+
+  const text = await extractChefResumeText(await makePdf([
+    'CHEF RETRY TEST\nSous Chef\nSKILLS\nFood safety\nCost control\nKitchen leadership'
+  ]));
+  assert.match(text, /CHEF RETRY TEST/);
+});
+
+test('the upload and review handlers do not save Chef Profile data before final confirmation', async () => {
+  const source = await readFile(new URL('../ChefProfilePage.tsx', import.meta.url), 'utf8');
+  const importHandler = source.slice(source.indexOf('const handleResume'), source.indexOf('const confirmImport'));
+  const reviewHandler = source.slice(source.indexOf('const confirmImport'), source.indexOf('const cancelImport'));
+
+  assert.doesNotMatch(importHandler, /chefProfileService\.save/);
+  assert.doesNotMatch(reviewHandler, /chefProfileService\.save/);
+  assert.match(reviewHandler, /setPendingResumeImport\(true\)/);
+});
 
 const completeResumeResponse = {
   basicProfile: {

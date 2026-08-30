@@ -1,8 +1,12 @@
 import { GoogleGenAI, Type } from '@google/genai';
+import { readFileSync } from 'node:fs';
 import { initializeApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
-import { onDocumentWritten } from 'firebase-functions/v2/firestore';
+import { onDocumentCreated, onDocumentWritten } from 'firebase-functions/v2/firestore';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions';
 import { recordAiUsage } from './aiUsageTracker.js';
@@ -20,8 +24,13 @@ import {
   reserveMonthlySubscriptionUsage
 } from './subscriptionEnforcement.js';
 import {
-  createPaymentAdapter,
-  createPrimaryPaymentAdapter
+  loadWorkspaceSubscription,
+  requireWorkspaceAccess,
+  requireWorkspaceFeature
+} from './subscriptionFoundation.js';
+import { provisionNewUser } from './newUserProvisioning.js';
+import {
+  createPaymentAdapter
 } from './paymentProviders/index.js';
 import {
   cancelStorePayment,
@@ -30,10 +39,41 @@ import {
   handleStorePaymentWebhook
 } from './storePayments.js';
 import {
+  reviewManualStorePayment,
+  submitManualStorePayment,
+  uploadManualStorePaymentReceipt
+} from './storeManualPayments.js';
+import {
+  updateStoreGroupOrderFulfilment,
+  updateStoreOrderFulfilment
+} from './storeFulfilment.js';
+import { listCustomerOrders } from './customerOrders.js';
+import {
+  activateHostProfile,
+  createGroupOrder,
+  cleanupGroupOrder,
+  getPublicGroupOrder,
+  listHostGroupOrdersDetail,
+  listHostGroupOrders,
+  projectGroupReward,
+  transitionGroupOrder
+} from './groupOrders.js';
+import {
   extractResumeWithCompletenessRetry,
   ResumeExtractionIncompleteError
 } from './resumeExtractionReliability.js';
-import { classifyGeminiFailure, generateGeminiJsonWithRetry } from './geminiReliability.js';
+import { generateGeminiJsonWithRetry } from './geminiReliability.js';
+import { createStoreSocialPreviewHandler } from './storeSocialPreview.js';
+import { recordPersonalExpenseSettlement as recordPersonalExpenseSettlementCore } from './personalExpenseSettlements.js';
+import { sanitizeExtractedPersonalExpenseMerchant } from './personalExpenseReceipt.js';
+import { loadPublicDiscoverStores } from './publicDiscover.js';
+import { loadPublicHomepagePromotions } from './homepagePromotions.js';
+import {
+  getResumeImportClientJobPath,
+  getResumeImportJobError,
+  withResumeImportTimeout
+} from './resumeImportJob.js';
+import { buildResumeImportPrompt } from './resumeImportPrompt.js';
 
 initializeApp();
 
@@ -42,8 +82,12 @@ const geminiApiKey = defineSecret('GEMINI_API_KEY');
 const stripeSecretKey = defineSecret('STRIPE_SECRET_KEY');
 const stripeWebhookSecret = defineSecret('STRIPE_WEBHOOK_SECRET');
 const sellingWorkspaceId = defineString('SELLING_WORKSPACE_ID', { default: '' });
+const publicSiteOrigin = defineString('PUBLIC_SITE_ORIGIN', { default: '' });
 const MODEL = 'gemini-2.5-flash';
+const RESUME_MODEL = 'gemini-2.5-flash-lite';
 const REGION = 'us-central1';
+const RESUME_GEMINI_REQUEST_TIMEOUT_MS = 15_000;
+const RESUME_IMPORT_TIMEOUT_MS = 35_000;
 const MAX_INVOICE_OCR_BYTES = 10 * 1024 * 1024;
 const ALLOWED_INVOICE_OCR_MIME_TYPES = new Set([
   'application/pdf',
@@ -51,6 +95,177 @@ const ALLOWED_INVOICE_OCR_MIME_TYPES = new Set([
   'image/png',
   'image/webp'
 ]);
+
+const publicStoreAppShell = readFileSync(
+  new URL('./generated/publicStoreAppShell.html', import.meta.url),
+  'utf8'
+);
+
+const publicStorePreviewHandler = createStoreSocialPreviewHandler({
+  projectId: process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || '',
+  configuredOrigin: publicSiteOrigin.value(),
+  loadStore: async slug => {
+    const snapshot = await db.collection('stores').where('slug', '==', slug).limit(1).get();
+    if (snapshot.empty) return null;
+    const data = snapshot.docs[0].data();
+    return {
+      slug: typeof data.slug === 'string' ? data.slug : slug,
+      name: typeof data.name === 'string' ? data.name : '',
+      description: typeof data.description === 'string' ? data.description : '',
+      coverImageUrl: typeof data.coverImageUrl === 'string' ? data.coverImageUrl : '',
+      logoUrl: typeof data.logoUrl === 'string' ? data.logoUrl : '',
+      updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : ''
+    };
+  },
+  loadAppShell: async () => publicStoreAppShell,
+  logError: (error, context) => logger.error('Public Store social preview failed', {
+    ...context,
+    message: error?.message || ''
+  })
+});
+
+export const renderPublicStore = onRequest({
+  region: REGION,
+  invoker: 'public',
+  timeoutSeconds: 10,
+  memory: '256MiB',
+  maxInstances: 20,
+  concurrency: 80
+}, publicStorePreviewHandler);
+
+export const getPublicDiscoverContent = onCall({
+  region: REGION,
+  timeoutSeconds: 10,
+  memory: '256MiB',
+  maxInstances: 10,
+  concurrency: 80
+}, async () => ({
+  stores: await loadPublicDiscoverStores({
+    loadStore: async slug => {
+      const snapshot = await db.collection('stores').where('slug', '==', slug).limit(1).get();
+      if (snapshot.empty) return null;
+      return { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+    },
+    loadAvailableProducts: async storeId => {
+      const snapshot = await db.collection('storeProducts')
+        .where('storeId', '==', storeId)
+        .where('available', '==', true)
+        .get();
+      return snapshot.docs
+        .map(document => ({ id: document.id, ...document.data() }))
+        .sort((a, b) => readString(b.updatedAt).localeCompare(readString(a.updatedAt)));
+    }
+  }),
+  promotions: await loadPublicHomepagePromotions({
+    loadPromotions: async () => {
+      const snapshot = await db.collection('homepagePromotions').orderBy('sortOrder').get();
+      return snapshot.docs.map(document => ({ id: document.id, ...document.data() }));
+    }
+  })
+}));
+
+export const provisionNewUserWorkspace = onCall({ region: REGION }, async request => provisionNewUser({
+  db,
+  auth: getAuth(),
+  uid: request.auth?.uid,
+  email: request.auth?.token?.email || '',
+  authDisplayName: request.auth?.token?.name || '',
+  requestedDisplayName: request.data?.displayName || ''
+}));
+
+export const activateMiseChefHost = onCall({ region: REGION }, async request => activateHostProfile({
+  db,
+  uid: request.auth?.uid,
+  email: request.auth?.token?.email || '',
+  displayName: request.auth?.token?.name || ''
+}));
+
+export const createMiseChefGroupOrder = onCall({ region: REGION }, async request => createGroupOrder({
+  db,
+  uid: request.auth?.uid,
+  email: request.auth?.token?.email || '',
+  displayName: request.auth?.token?.name || '',
+  slug: request.data?.slug,
+  input: request.data?.group
+}));
+
+export const getPublicMiseChefGroupOrder = onCall({ region: REGION, invoker: 'public' }, async request => (
+  getPublicGroupOrder({ db, shareCode: request.data?.shareCode })
+));
+
+export const listMyMiseChefGroupOrders = onCall({ region: REGION }, async request => listHostGroupOrders({
+  db,
+  uid: request.auth?.uid,
+  slug: request.data?.slug
+}));
+
+export const getMyMiseChefGroupOrder = onCall({ region: REGION }, async request => listHostGroupOrdersDetail({
+  db,
+  uid: request.auth?.uid,
+  groupId: request.data?.groupId
+}));
+
+export const updateMyMiseChefGroupOrderStatus = onCall({ region: REGION }, async request => transitionGroupOrder({
+  db,
+  uid: request.auth?.uid,
+  groupId: request.data?.groupId,
+  nextStatus: request.data?.nextStatus
+}));
+
+export const cleanupMyMiseChefGroupOrder = onCall({ region: REGION }, async request => cleanupGroupOrder({
+  db,
+  uid: request.auth?.uid,
+  groupId: request.data?.groupId,
+  action: request.data?.action
+}));
+
+export const syncMiseChefGroupReward = onDocumentWritten({
+  document: 'storeOrders/{orderId}',
+  region: REGION
+}, async event => projectGroupReward({
+  db,
+  orderId: event.params.orderId
+}));
+
+export const getWorkspaceSubscription = onCall({ region: REGION }, async request => {
+  const access = await requireWorkspaceAccess({
+    db,
+    uid: request.auth?.uid,
+    workspaceId: request.data?.workspaceId
+  });
+  const subscription = await loadWorkspaceSubscription({ db, workspaceSnapshot: access.workspaceSnapshot });
+  return {
+    workspaceId: access.workspaceId,
+    subscriptionPlan: subscription.subscriptionPlan,
+    subscriptionStatus: subscription.subscriptionStatus,
+    trialStartedAt: subscription.trialStartedAt?.toDate().toISOString() || null,
+    trialEndsAt: subscription.trialEndsAt?.toDate().toISOString() || null,
+    trialDaysRemaining: subscription.trialDaysRemaining,
+    features: subscription.features,
+    limits: subscription.limits
+  };
+});
+
+export const authorizeWorkspaceFeature = onCall({ region: REGION }, async request => {
+  const entitlements = await requireWorkspaceFeature({
+    db,
+    uid: request.auth?.uid,
+    workspaceId: request.data?.workspaceId,
+    feature: request.data?.feature
+  });
+  return { allowed: true, plan: entitlements.plan, feature: request.data?.feature };
+});
+
+export const expireWorkspaceTrials = onSchedule({
+  region: REGION,
+  schedule: 'every day 00:15',
+  timeZone: 'UTC',
+  timeoutSeconds: 300
+}, async () => {
+  const snapshot = await db.collection('workspaces').where('subscriptionStatus', '==', 'trialing').get();
+  await Promise.all(snapshot.docs.map(workspaceSnapshot => loadWorkspaceSubscription({ db, workspaceSnapshot })));
+  logger.info('Workspace trial expiry sweep completed.', { checked: snapshot.size });
+});
 
 const toStorePaymentError = error => {
   logger.error('Store payment request failed', {
@@ -61,8 +276,13 @@ const toStorePaymentError = error => {
   const message = readString(error?.message);
   if ([
     'This Store is no longer available.',
+    'This Group Order could not be found.',
+    'This Group Order belongs to a different Store.',
+    'This Group Order is closed.',
+    'Pickup details must match this Group Order.',
     'Online payments are not configured yet.',
     'Online payments are not available for this Store.',
+    'Secure checkout return URL is invalid.',
     'Pickup ordering is not available.',
     'Name is required.',
     'Name must be 120 characters or fewer.',
@@ -75,7 +295,12 @@ const toStorePaymentError = error => {
     'Your cart contains too many items.',
     'Each product quantity must be between 1 and 20.',
     'A product in your cart is no longer available.',
-    'Order total must be greater than zero.'
+    'Order total must be greater than zero.',
+    'Choose a valid payment method.',
+    'This payment method is no longer available.',
+    'This QR payment method is not configured correctly.',
+    'Touch ’n Go eWallet is available only for Malaysia Stores.',
+    'Bank Transfer is not configured correctly.'
   ].includes(message) || message.startsWith('Choose one ') || message.startsWith('Options for ')) {
     return new HttpsError('failed-precondition', message);
   }
@@ -90,19 +315,89 @@ export const createPublicStorePayment = onCall({
   memory: '256MiB'
 }, async request => {
   try {
-    const adapter = createPrimaryPaymentAdapter({
-      stripeSecretKey: stripeSecretKey.value()
-    });
     return await createStorePayment({
       db,
-      adapter,
+      resolveAdapter: paymentMethod => createPaymentAdapter(paymentMethod.provider, {
+        stripeSecretKey: stripeSecretKey.value(),
+        method: paymentMethod
+      }),
       sellingWorkspaceId: sellingWorkspaceId.value(),
+      customerUid: request.auth?.uid || '',
       slug: request.data?.slug,
-      draft: request.data?.order
+      draft: request.data?.order,
+      returnUrl: request.data?.returnUrl
     });
   } catch (error) {
     if (error instanceof HttpsError) throw error;
     throw toStorePaymentError(error);
+  }
+});
+
+export const listMyMiseChefStoreOrders = onCall({
+  region: REGION,
+  timeoutSeconds: 20,
+  memory: '256MiB'
+}, async request => listCustomerOrders({
+  db,
+  uid: request.auth?.uid
+}));
+
+export const uploadPublicStorePaymentReceipt = onCall({
+  region: REGION,
+  invoker: 'public',
+  timeoutSeconds: 30,
+  memory: '256MiB'
+}, async request => {
+  try {
+    return await uploadManualStorePaymentReceipt({
+      db,
+      bucket: getStorage().bucket(),
+      slug: request.data?.slug,
+      orderId: request.data?.paymentSessionId,
+      checkoutAccessToken: request.data?.checkoutAccessToken,
+      dataUrl: request.data?.dataUrl,
+      fileName: request.data?.fileName
+    });
+  } catch (error) {
+    logger.warn('Manual payment receipt upload failed', { message: error?.message || '' });
+    throw new HttpsError('failed-precondition', error?.message || 'The receipt could not be uploaded.');
+  }
+});
+
+export const submitPublicStoreManualPayment = onCall({
+  region: REGION,
+  invoker: 'public',
+  timeoutSeconds: 20,
+  memory: '256MiB'
+}, async request => {
+  try {
+    return await submitManualStorePayment({
+      db,
+      slug: request.data?.slug,
+      orderId: request.data?.paymentSessionId,
+      checkoutAccessToken: request.data?.checkoutAccessToken
+    });
+  } catch (error) {
+    logger.warn('Manual payment submission failed', { message: error?.message || '' });
+    throw new HttpsError('failed-precondition', error?.message || 'Payment could not be submitted.');
+  }
+});
+
+export const reviewStoreManualPayment = onCall({
+  region: REGION,
+  timeoutSeconds: 20,
+  memory: '256MiB'
+}, async request => {
+  try {
+    return await reviewManualStorePayment({
+      db,
+      uid: request.auth?.uid,
+      orderId: request.data?.orderId,
+      decision: request.data?.decision
+    });
+  } catch (error) {
+    logger.warn('Manual payment review failed', { message: error?.message || '' });
+    throw new HttpsError('failed-precondition', error?.message || 'Payment review failed.');
   }
 });
 
@@ -196,6 +491,53 @@ export const stripeStorePaymentWebhook = onRequest({
   }
 });
 
+export const updateStoreOrderStatus = onCall({
+  region: REGION,
+  timeoutSeconds: 20,
+  memory: '256MiB'
+}, async request => {
+  try {
+    return await updateStoreOrderFulfilment({
+      db,
+      uid: request.auth?.uid,
+      orderId: request.data?.orderId,
+      nextStatus: request.data?.nextStatus,
+      cancellationReason: request.data?.cancellationReason
+    });
+  } catch (error) {
+    if (error instanceof HttpsError) throw error;
+    logger.error('Store fulfilment update failed', {
+      name: error?.name || '',
+      code: error?.code || '',
+      message: error?.message || ''
+    });
+    throw new HttpsError('internal', 'This order could not be updated. Please try again.');
+  }
+});
+
+export const updateStoreGroupOrderBatchStatus = onCall({
+  region: REGION,
+  timeoutSeconds: 60,
+  memory: '256MiB'
+}, async request => {
+  try {
+    return await updateStoreGroupOrderFulfilment({
+      db,
+      uid: request.auth?.uid,
+      groupId: request.data?.groupId,
+      action: request.data?.action
+    });
+  } catch (error) {
+    if (error instanceof HttpsError) throw error;
+    logger.error('Store Group fulfilment update failed', {
+      name: error?.name || '',
+      code: error?.code || '',
+      message: error?.message || ''
+    });
+    throw new HttpsError('internal', 'This Group could not be updated. Please try again.');
+  }
+});
+
 const readPublicProfileUsername = snapshot => {
   if (!snapshot.exists) return '';
   const data = snapshot.data() || {};
@@ -267,10 +609,8 @@ export const syncPublicRecipe = onDocumentWritten({
   region: REGION
 }, async event => {
   const recipeSnapshot = event.data?.after;
-  await syncPublicRecipeProjection(
-    event.params.recipeId,
-    recipeSnapshot?.exists ? recipeSnapshot.data() : null
-  );
+  const recipe = recipeSnapshot?.exists ? recipeSnapshot.data() : null;
+  await syncPublicRecipeProjection(event.params.recipeId, recipe);
 });
 
 export const syncApprovedProductRecipes = onDocumentWritten({
@@ -596,7 +936,7 @@ const portfolioResumeResponseSchema = {
       properties: {
         instagram: { type: Type.STRING }, tiktok: { type: Type.STRING },
         facebook: { type: Type.STRING }, linkedin: { type: Type.STRING },
-        youtube: { type: Type.STRING }, website: { type: Type.STRING }
+        youtube: { type: Type.STRING }
       }
     },
     contact: {
@@ -634,6 +974,17 @@ const invoiceOcrResponseSchema = {
         }
       }
     }
+  }
+};
+
+const personalExpenseOcrResponseSchema = {
+  type: Type.OBJECT,
+  properties: {
+    amount: { type: Type.NUMBER },
+    expenseDate: { type: Type.STRING },
+    merchant: { type: Type.STRING },
+    description: { type: Type.STRING },
+    category: { type: Type.STRING }
   }
 };
 
@@ -879,14 +1230,14 @@ const sanitizeInvoiceOcr = value => {
   };
 };
 
-const logRequest = async ({ requesterId, companyId, action, status, attempts, errorCode, response, responseTime }) => {
+const logRequest = async ({ requesterId, companyId, action, status, attempts, errorCode, response, responseTime, model = MODEL }) => {
   const legacyLog = db.collection('aiRequestLogs').add({
     requesterId,
     action,
     status,
     attempts,
     errorCode: errorCode || '',
-    model: MODEL,
+    model,
     createdAt: FieldValue.serverTimestamp()
   });
 
@@ -896,7 +1247,7 @@ const logRequest = async ({ requesterId, companyId, action, status, attempts, er
     companyId,
     feature: action,
     provider: 'gemini',
-    model: MODEL,
+    model,
     response,
     responseTime,
     status
@@ -936,9 +1287,7 @@ const getErrorDiagnostics = err => ({
   name: err?.name || '',
   message: err?.message || '',
   code: err?.code || '',
-  status: err?.status || '',
-  details: err?.details || null,
-  stack: err?.stack || ''
+  status: err?.status || ''
 });
 
 const wrapInternalError = (friendlyMessage, err, includeDiagnostics = false) => new HttpsError('internal', friendlyMessage, {
@@ -1296,6 +1645,108 @@ export const parseInvoiceToJson = onCall({
   }
 });
 
+export const extractPersonalExpenseReceipt = onCall({
+  region: REGION,
+  invoker: 'public',
+  secrets: [geminiApiKey],
+  timeoutSeconds: 120,
+  memory: '512MiB'
+}, async request => {
+  const requesterId = requireAuthenticatedUser(request);
+  const action = 'extractPersonalExpenseReceipt';
+  const includeDiagnostics = request.data?.debug === true;
+  const startedAt = Date.now();
+  let companyId = requesterId;
+  let attempts = 0;
+  let usageReservation;
+
+  try {
+    const workspaceId = readString(request.data?.workspaceId);
+    const receiptPath = readString(request.data?.receiptPath);
+    const receiptFileName = readString(request.data?.receiptFileName);
+    const expectedPrefix = `personal-expenses/${workspaceId}/${requesterId}/`;
+    if (!workspaceId || !receiptPath.startsWith(expectedPrefix) || receiptPath.includes('..')) {
+      throw new HttpsError('invalid-argument', 'Valid personal expense receipt details are required.');
+    }
+
+    const entitlements = await requireWorkspaceEntitlements({ db, uid: requesterId, workspaceId });
+    companyId = entitlements.workspaceId;
+    usageReservation = await reserveMonthlySubscriptionUsage({
+      db,
+      entitlements,
+      increments: { aiRequests: 1, personalExpenseOcr: 1 }
+    });
+
+    const receiptFile = getStorage().bucket().file(receiptPath);
+    const [exists] = await receiptFile.exists();
+    if (!exists) throw new HttpsError('not-found', 'Receipt file not found.');
+    const [metadata] = await receiptFile.getMetadata();
+    const mimeType = getInvoiceMimeType({ fileName: receiptFileName }, metadata.contentType);
+    if (!ALLOWED_INVOICE_OCR_MIME_TYPES.has(mimeType)) {
+      throw new HttpsError('invalid-argument', 'AI receipt extraction supports PDF, JPG, PNG, and WEBP files.');
+    }
+    const [fileBuffer] = await receiptFile.download();
+    if (!fileBuffer.length || fileBuffer.length > MAX_INVOICE_OCR_BYTES) {
+      throw new HttpsError('invalid-argument', 'Receipt files must be 10 MB or smaller.');
+    }
+
+    const ai = getAi();
+    const { response, attempts: usedAttempts } = await callGeminiWithRetry(() => ai.models.generateContent({
+      model: MODEL,
+      contents: [
+        { inlineData: { mimeType, data: fileBuffer.toString('base64') } },
+        {
+          text: [
+            'Extract the business expense details visible on this receipt.',
+            'Return ONLY valid JSON with this exact shape:',
+            '{"amount":0,"expenseDate":"","merchant":"","description":"","category":""}',
+            'Merchant must be only the exact short merchant or business name visibly printed near the receipt header.',
+            'If the merchant is uncertain, runs into other text, or contains receipt body text, commentary, inferred information, HTML, or unrelated prose, return an empty merchant string.',
+            'Never infer, summarize, translate, or add information to the merchant name.',
+            'Use the final paid total as amount and format expenseDate as YYYY-MM-DD when visible.',
+            'Write a short description of what was purchased based only on visible receipt items.',
+            'Choose the closest category from: Food & Ingredients, Equipment, Transport, Utilities, Office, Repairs & Maintenance, Other.',
+            'Do not invent unreadable or missing values; use an empty string or 0 instead.',
+            'Do not create an invoice, supplier record, accounting entry, or any commentary.'
+          ].join(' ')
+        }
+      ],
+      config: { responseMimeType: 'application/json', responseSchema: personalExpenseOcrResponseSchema }
+    }));
+    attempts = usedAttempts;
+    const source = parseJsonResponse(response.text, {}, includeDiagnostics);
+    const expense = {
+      amount: Math.max(0, readNumber(source.amount)),
+      expenseDate: readString(source.expenseDate),
+      merchant: sanitizeExtractedPersonalExpenseMerchant(source.merchant),
+      description: readString(source.description),
+      category: readString(source.category)
+    };
+    await logRequest({ requesterId, companyId, action, status: 'success', attempts, response, responseTime: Date.now() - startedAt });
+    return { expense };
+  } catch (err) {
+    await releaseMonthlySubscriptionUsage({ db, reservation: usageReservation }).catch(() => undefined);
+    attempts = attempts || 1;
+    const errorCode = err instanceof HttpsError ? err.code : 'internal';
+    logger.error('Personal expense receipt extraction failed', { requesterId, action, attempts, errorCode, ...getErrorDiagnostics(err) });
+    await logRequest({ requesterId, companyId, action, status: 'failed', attempts, errorCode, responseTime: Date.now() - startedAt }).catch(() => undefined);
+    if (err instanceof HttpsError) throw err;
+    throw wrapInternalError('AI receipt extraction failed. You can enter the details manually.', err, includeDiagnostics);
+  }
+});
+
+export const recordPersonalExpenseSettlement = onCall({
+  region: REGION,
+  timeoutSeconds: 30,
+  memory: '256MiB'
+}, async request => recordPersonalExpenseSettlementCore({
+  db,
+  requesterId: requireAuthenticatedUser(request),
+  workspaceId: request.data?.workspaceId,
+  memberId: request.data?.memberId,
+  amount: request.data?.amount
+}));
+
 export const generateRecipeSteps = onCall({
   region: REGION,
   invoker: 'public',
@@ -1398,122 +1849,183 @@ Rules:
 export const parseResumeToPortfolio = onCall({
   region: REGION,
   invoker: 'public',
-  secrets: [geminiApiKey],
-  timeoutSeconds: 300,
+  timeoutSeconds: 30,
   memory: '256MiB'
 }, async request => {
   const requesterId = requireAuthenticatedUser(request);
+  const resumeText = readString(request.data?.resumeText);
+  if (!resumeText || resumeText.length < 80) {
+    throw new HttpsError('invalid-argument', 'Resume text is too short to import.');
+  }
+  if (resumeText.length > 50_000) {
+    throw new HttpsError('invalid-argument', 'Resume text is too long to import.');
+  }
+
+  const jobReference = db.collection('resumeImportJobs').doc();
+  const clientJobReference = db.doc(getResumeImportClientJobPath(requesterId, jobReference.id));
+  const createdAt = FieldValue.serverTimestamp();
+  const workspaceId = readString(request.data?.workspaceId) || requesterId;
+  const job = {
+    status: 'pending',
+    uid: requesterId,
+    workspaceId,
+    resumeText,
+    debug: request.data?.debug === true,
+    createdAt,
+    updatedAt: createdAt
+  };
+  const clientJob = {
+    status: 'pending',
+    uid: requesterId,
+    createdAt,
+    updatedAt: createdAt
+  };
+
+  const batch = db.batch();
+  batch.create(jobReference, job);
+  batch.create(clientJobReference, clientJob);
+  await batch.commit();
+
+  logger.info('Resume import job queued', {
+    requesterId,
+    action: 'parseResumeToPortfolio',
+    jobId: jobReference.id,
+    textLength: resumeText.length
+  });
+  return { jobId: jobReference.id };
+});
+
+export const processResumeImportJob = onDocumentCreated({
+  document: 'resumeImportJobs/{jobId}',
+  region: REGION,
+  secrets: [geminiApiKey],
+  timeoutSeconds: 120,
+  memory: '256MiB',
+  minInstances: 1
+}, async event => {
+  const jobSnapshot = event.data;
+  if (!jobSnapshot) return;
+  const job = jobSnapshot.data() || {};
+  if (job.status !== 'pending') return;
+
+  const requesterId = readString(job.uid);
+  const workspaceId = readString(job.workspaceId) || requesterId;
+  const resumeText = readString(job.resumeText);
+  const includeDiagnostics = job.debug === true;
   const action = 'parseResumeToPortfolio';
-  const includeDiagnostics = request.data?.debug === true;
+  const jobId = event.params.jobId;
   const startedAt = Date.now();
+  const createdAtMs = jobSnapshot.createTime?.toMillis?.() || startedAt;
+  const timings = {
+    functionStartupMs: Math.max(0, startedAt - createdAtMs),
+    preGeminiMs: 0,
+    geminiResponseMs: 0,
+    jsonParsingMs: 0,
+    resultPublishMs: 0,
+    totalFunctionMs: 0,
+    geminiAttempts: []
+  };
+  const clientJobReference = db.doc(getResumeImportClientJobPath(requesterId, jobId));
   let companyId = requesterId;
   let attempts = 0;
   let usageReservation;
 
+  const updateJob = async values => {
+    const updatedAt = FieldValue.serverTimestamp();
+    const batch = db.batch();
+    batch.set(jobSnapshot.ref, { ...values, updatedAt }, { merge: true });
+    batch.set(clientJobReference, { ...values, uid: requesterId, updatedAt }, { merge: true });
+    await batch.commit();
+  };
+
   try {
-    const entitlements = await requireWorkspaceEntitlements({
+    if (!requesterId || !resumeText || resumeText.length < 80 || resumeText.length > 50_000) {
+      throw new HttpsError('invalid-argument', 'Resume import job data is invalid.');
+    }
+    const entitlementPromise = requireWorkspaceEntitlements({
       db,
       uid: requesterId,
-      workspaceId: request.data?.workspaceId
+      workspaceId
     });
+    const [, entitlements] = await Promise.all([
+      updateJob({ status: 'processing' }),
+      entitlementPromise
+    ]);
     companyId = entitlements.workspaceId;
-
-    const resumeText = readString(request.data?.resumeText);
-    if (!resumeText || resumeText.length < 80) {
-      throw new HttpsError('invalid-argument', 'Resume text is too short to import.');
-    }
-    if (resumeText.length > 50_000) {
-      throw new HttpsError('invalid-argument', 'Resume text is too long to import.');
-    }
-
     usageReservation = await reserveMonthlySubscriptionUsage({
       db,
       entitlements,
       increments: { aiRequests: 1 }
     });
 
-    const prompt = `
-Convert this resume into an editable chef portfolio draft.
+    const prompt = buildResumeImportPrompt(resumeText);
 
-Return ONLY valid JSON with this exact top-level shape:
-{
-  "basicProfile": {"fullName":"", "professionalTitle":"", "yearsExperience":"", "shortBio":"", "quote":"", "location":"", "specialties":[]},
-  "about": {"title":"", "body":"", "quote":"", "highlights":[]},
-  "experience": [{"role":"", "organization":"", "location":"", "employmentType":"", "startDate":"", "endDate":"", "isCurrent":false, "description":"", "achievements":[]}],
-  "skills": [{"name":"", "category":"", "level":"", "description":""}],
-  "certificates": [{"title":"", "issuer":"", "issueDate":"", "expiryDate":"", "credentialId":"", "credentialUrl":"", "description":"", "skillsCertified":[]}],
-  "education": [{"schoolName":"", "qualification":"", "fieldOfStudy":"", "startYear":"", "endYear":"", "description":""}],
-  "awards": [{"name":"", "issuingOrganisation":"", "year":"", "description":""}],
-  "languages": [{"language":"", "proficiency":""}],
-  "projects": [{"title":"", "role":"", "description":"", "url":"", "startDate":"", "endDate":""}],
-  "unmappedSections": [{"sectionName":"", "content":"", "reason":""}],
-  "socialLinks": {"instagram":"","tiktok":"","facebook":"","linkedin":"","youtube":"","website":""},
-  "contact": {"email":"", "phone":"", "location":"", "message":""}
-}
-
-Rules:
-- Scan the ENTIRE resume from beginning to end before generating any JSON.
-- Do not invent details that are not present in the resume.
-- Never guess dates, employers, certificates, awards, or qualifications.
-- Ignore ID and passport numbers, marital status, religion, salary, and full home addresses.
-- Extract every supported section when present: full name, headline/professional title, summary,
-  education, work experience, skills, certifications, languages, awards, projects, and contact information.
-- If a work experience, employment history, professional experience, career history, or experience
-  section exists, return EVERY distinct role and employer as a separate experience object.
-- Never omit a supported top-level property. Return an empty array only when that section is genuinely
-  absent from the resume.
-- Keep every work, education, certificate, award, language, and project entry separate.
-- Preserve an education entry when a qualification or field is present even if the institution is omitted.
-- Put resume projects in projects, not work experience.
-- Never silently discard an unknown section. Add it to unmappedSections with its heading,
-  original concise content, and why it cannot map to a supported field.
-- Only write shortBio when the resume contains enough professional information for an accurate summary.
-- Keep professional culinary language when the resume relates to food, hospitality, or chef work.
-- Preserve dates as written.
-- Use concise editable text.
-- If a field is not present, return an empty string or empty array.
-- Do not include markdown, notes, commentary, or confidence scores.
-
-Resume text:
-${resumeText}
-`;
-
-    logger.info('AI resume import requested', { requesterId, action, textLength: resumeText.length });
+    logger.info('AI resume import requested', { requesterId, action, jobId, textLength: resumeText.length });
     const ai = getAi();
     let extraction;
     try {
-      extraction = await extractResumeWithCompletenessRetry({
+      const firstGeminiRequestAt = Date.now();
+      timings.preGeminiMs = firstGeminiRequestAt - startedAt;
+      extraction = await withResumeImportTimeout(() => extractResumeWithCompletenessRetry({
         resumeText,
         extract: async retryInstruction => {
-          const result = await generateGeminiJsonWithRetry({
-            generate: () => ai.models.generateContent({
-              model: MODEL,
-              contents: `${prompt}${retryInstruction}`,
-              config: {
-                responseMimeType: 'application/json',
-                responseSchema: portfolioResumeResponseSchema
+          return generateGeminiJsonWithRetry({
+            generate: async () => {
+              const geminiStartedAt = Date.now();
+              attempts += 1;
+              try {
+                const response = await ai.models.generateContent({
+                  model: RESUME_MODEL,
+                  contents: `${prompt}${retryInstruction}`,
+                  config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: portfolioResumeResponseSchema,
+                    thinkingConfig: { thinkingBudget: 0 },
+                    httpOptions: { timeout: RESUME_GEMINI_REQUEST_TIMEOUT_MS }
+                  }
+                });
+                const responseMs = Date.now() - geminiStartedAt;
+                timings.geminiResponseMs += responseMs;
+                timings.geminiAttempts.push({
+                  attempt: attempts,
+                  responseMs,
+                  retryForCompleteness: Boolean(retryInstruction),
+                  promptTokens: response.usageMetadata?.promptTokenCount || 0,
+                  responseTokens: response.usageMetadata?.candidatesTokenCount || 0,
+                  thinkingTokens: response.usageMetadata?.thoughtsTokenCount || 0,
+                  serviceTier: response.usageMetadata?.serviceTier || ''
+                });
+                return response;
+              } catch (error) {
+                const responseMs = Date.now() - geminiStartedAt;
+                timings.geminiResponseMs += responseMs;
+                timings.geminiAttempts.push({
+                  attempt: attempts,
+                  responseMs,
+                  retryForCompleteness: Boolean(retryInstruction),
+                  errorStatus: error?.status || '',
+                  errorCode: error?.code || ''
+                });
+                throw error;
               }
-            }),
-            parse: text => parseJsonResponse(text, {}, includeDiagnostics),
-            onFailure: failure => {
-              const diagnostics = {
-                requesterId,
-                action,
-                attempt: failure.attempt,
-                status: failure.status || '',
-                ...getErrorDiagnostics(failure.error)
-              };
-              if (failure.type === 'http_failure') logger.warn('Gemini resume HTTP failure', diagnostics);
-              else if (failure.type === 'json_parsing_failure') logger.warn('Gemini resume JSON parsing failure', diagnostics);
-              else if (failure.type === 'timeout') logger.error('Gemini resume timeout', diagnostics);
-              else if (failure.type === 'model_refusal') logger.warn('Gemini resume model refusal', diagnostics);
-            }
+            },
+            parse: responseText => {
+              const parseStartedAt = Date.now();
+              try {
+                return parseJsonResponse(responseText, {}, includeDiagnostics);
+              } finally {
+                timings.jsonParsingMs += Date.now() - parseStartedAt;
+              }
+            },
+            onFailure: failure => logger.warn('AI resume extraction attempt failed', {
+              requesterId,
+              action,
+              attempt: failure.attempt,
+              failureType: failure.type,
+              status: failure.status,
+              retryForCompleteness: Boolean(retryInstruction)
+            })
           });
-          attempts += result.attempts;
-          return {
-            response: result.response,
-            parsed: result.parsed
-          };
         },
         onIncomplete: (validation, extractionAttempt) => {
           logger.warn('AI resume extraction incomplete', {
@@ -1529,7 +2041,7 @@ ${resumeText}
             detectedSections: validation.detectedSections
           });
         }
-      });
+      }), RESUME_IMPORT_TIMEOUT_MS);
     } catch (err) {
       if (err instanceof ResumeExtractionIncompleteError) {
         throw new HttpsError('failed-precondition', 'AI extraction incomplete.', {
@@ -1540,13 +2052,6 @@ ${resumeText}
           missingContent: err.validation.missingContent,
           corruptFields: err.validation.corruptFields,
           employmentIssues: err.validation.employmentValidation.issues
-        });
-      }
-      const failure = classifyGeminiFailure(err);
-      if (['http_failure', 'json_parsing_failure', 'timeout', 'model_refusal'].includes(failure.type)) {
-        throw new HttpsError('unavailable', 'AI service is temporarily busy. Please retry in a few minutes.', {
-          reason: 'ai-service-busy',
-          failureType: failure.type
         });
       }
       throw err;
@@ -1564,18 +2069,37 @@ ${resumeText}
         }))
       });
     }
-    await logRequest({ requesterId, companyId, action, status: 'success', attempts, response, responseTime: Date.now() - startedAt });
-    return { portfolio };
+    const publishStartedAt = Date.now();
+    timings.totalFunctionMs = publishStartedAt - startedAt;
+    await updateJob({
+      status: 'done',
+      result: portfolio,
+      timings,
+      completedAt: FieldValue.serverTimestamp(),
+      resumeText: FieldValue.delete(),
+      error: FieldValue.delete()
+    });
+    timings.resultPublishMs = Date.now() - publishStartedAt;
+    logger.info('AI resume import timings', { requesterId, jobId, model: RESUME_MODEL, timings });
+    await logRequest({ requesterId, companyId, action, status: 'success', attempts, response, responseTime: Date.now() - startedAt, model: RESUME_MODEL });
   } catch (err) {
+    attempts = attempts || 1;
+    const errorCode = err instanceof HttpsError ? err.code : 'internal';
+    const error = getResumeImportJobError(err);
+    timings.totalFunctionMs = Date.now() - startedAt;
+    logger.error('AI resume import failed', { requesterId, action, jobId, attempts, errorCode, timings, ...getErrorDiagnostics(err) });
+    await updateJob({
+      status: 'failed',
+      error,
+      errorCode,
+      timings,
+      completedAt: FieldValue.serverTimestamp(),
+      resumeText: FieldValue.delete(),
+      diagnostics: includeDiagnostics ? getErrorDiagnostics(err) : FieldValue.delete()
+    });
     await releaseMonthlySubscriptionUsage({ db, reservation: usageReservation }).catch(releaseError => {
       logger.warn('Unable to release resume import subscription usage', { requesterId, ...getErrorDiagnostics(releaseError) });
     });
-    attempts = attempts || 1;
-    const errorCode = err instanceof HttpsError ? err.code : 'internal';
-    logger.error('AI resume import failed', { requesterId, action, attempts, errorCode, ...getErrorDiagnostics(err) });
-    await logRequest({ requesterId, companyId, action, status: 'failed', attempts, errorCode, responseTime: Date.now() - startedAt }).catch(() => undefined);
-
-    if (err instanceof HttpsError) throw err;
-    throw wrapInternalError('AI resume import failed. Please try again.', err, includeDiagnostics);
+    await logRequest({ requesterId, companyId, action, status: 'failed', attempts, errorCode, responseTime: Date.now() - startedAt, model: RESUME_MODEL }).catch(() => undefined);
   }
 });

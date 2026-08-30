@@ -56,3 +56,20 @@ test('profile caches are isolated by authenticated user id', () => {
   assert.equal(getChefProfileStorageKey('account-b'), 'ce_lims_kitchen_chef_profile_v1_account-b');
   assert.notEqual(getChefProfileStorageKey('account-a'), getChefProfileStorageKey('account-b'));
 });
+
+test('getting-started actions follow the goals selected during onboarding', () => {
+  const profileOnly = renderToStaticMarkup(<FirstTimeHome greeting="Welcome" goals={['chef_profile']} />);
+  const recipeOnly = renderToStaticMarkup(<FirstTimeHome greeting="Welcome" goals={['recipes']} />);
+  const sellOnly = renderToStaticMarkup(<FirstTimeHome greeting="Welcome" goals={['sell_food']} />);
+  const multi = renderToStaticMarkup(<FirstTimeHome greeting="Welcome" goals={['chef_profile', 'recipes', 'sell_food']} />);
+
+  assert.match(profileOnly, /Complete Profile/);
+  assert.doesNotMatch(profileOnly, /Set Up Store|Create or Import a Recipe/);
+  assert.match(recipeOnly, /Create or Import a Recipe/);
+  assert.doesNotMatch(recipeOnly, /Set Up Store|Complete Profile/);
+  assert.match(sellOnly, /Set Up Store/);
+  assert.doesNotMatch(sellOnly, /Create or Import a Recipe|Complete Profile/);
+  assert.match(multi, /Complete Profile/);
+  assert.match(multi, /Create or Import a Recipe/);
+  assert.match(multi, /Set Up Store/);
+});

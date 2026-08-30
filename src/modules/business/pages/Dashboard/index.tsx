@@ -4,6 +4,7 @@ import { businessService } from '../../services';
 import { getCustomerFriendlyErrorMessage } from '../../../../utils/customerErrorMessages';
 import type { BusinessDashboardSummary } from '../../types';
 import { formatRegionCurrency, useWorkspaceRegion } from '../../../../regions';
+import { formatPurchaseCostPercentage } from '../../purchaseKpi';
 
 interface BusinessDashboardPageProps {
   userId?: string;
@@ -21,8 +22,6 @@ const emptySummary: BusinessDashboardSummary = {
   alerts: [],
   availability: { todaySales: false, todayPurchases: false, monthSales: false, monthPurchases: false, sales: false, invoices: false }
 };
-
-const formatPercent = (value: number | null) => value === null ? 'No sales yet' : `${value.toFixed(1)}%`;
 
 const getCostBadgeClass = (percentage: number | null) => {
   if (percentage === null) return 'bg-surface-container-high text-on-surface-variant';
@@ -52,7 +51,7 @@ export default function BusinessDashboardPage({ userId, workspaceId }: BusinessD
       setIsLoading(true);
       setErrorMessage('');
       try {
-        const dashboardSummary = await businessService.getDashboardSummary(userId, workspaceId || userId);
+        const dashboardSummary = await businessService.getDashboardSummary(userId, workspaceId || userId, region.timeZone);
         if (!isCancelled) setSummary(dashboardSummary);
       } catch (err) {
         if (!isCancelled) {
@@ -71,7 +70,7 @@ export default function BusinessDashboardPage({ userId, workspaceId }: BusinessD
       isCancelled = true;
       window.removeEventListener('misechef:invoice-lifecycle-changed', loadSummary);
     };
-  }, [reloadKey, userId, workspaceId]);
+  }, [region.timeZone, reloadKey, userId, workspaceId]);
 
   const dashboardSummary = summary || emptySummary;
   const maxTrendValue = useMemo(() => Math.max(1, ...dashboardSummary.monthlyTrend.flatMap(day => [day.sales, day.purchases])), [dashboardSummary.monthlyTrend]);
@@ -81,7 +80,7 @@ export default function BusinessDashboardPage({ userId, workspaceId }: BusinessD
     { label: "Today's Purchases", value: formatMoney(dashboardSummary.todayPurchases), hasData: dashboardSummary.availability.todayPurchases, icon: <ReceiptText className="h-5 w-5" /> },
     { label: 'Month Sales', value: formatMoney(dashboardSummary.monthSales), hasData: dashboardSummary.availability.monthSales, icon: <TrendingUp className="h-5 w-5" /> },
     { label: 'Month Purchases', value: formatMoney(dashboardSummary.monthPurchases), hasData: dashboardSummary.availability.monthPurchases, icon: <ReceiptText className="h-5 w-5" /> },
-    { label: 'Purchase Cost %', value: formatPercent(dashboardSummary.purchaseCostPercentage), hasData: dashboardSummary.availability.monthSales && dashboardSummary.availability.monthPurchases, icon: <BarChart3 className="h-5 w-5" />, badgeClass: getCostBadgeClass(dashboardSummary.purchaseCostPercentage) }
+    { label: 'Purchase Cost %', value: formatPurchaseCostPercentage(dashboardSummary.purchaseCostPercentage), hasData: dashboardSummary.availability.monthPurchases, icon: <BarChart3 className="h-5 w-5" />, badgeClass: getCostBadgeClass(dashboardSummary.purchaseCostPercentage) }
   ];
 
   return (
@@ -89,7 +88,7 @@ export default function BusinessDashboardPage({ userId, workspaceId }: BusinessD
       <section className="bg-surface-container-low border border-surface-container-high rounded-2xl p-6 sm:p-8 shadow-sm">
         <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Business</p>
         <h2 className="font-display text-3xl sm:text-4xl font-bold text-primary tracking-tight mt-1">Restaurant KPI Dashboard</h2>
-        <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">Monitor sales, processed invoice purchases, supplier spend, and purchase cost control.</p>
+        <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">Monitor sales, approved invoice purchases, supplier spend, and purchase cost control.</p>
       </section>
 
       {errorMessage && (
@@ -135,7 +134,7 @@ export default function BusinessDashboardPage({ userId, workspaceId }: BusinessD
                     <div title={`Purchases ${formatMoney(day.purchases)}`} className="w-3 rounded-t bg-secondary" style={{ height: `${Math.max(4, (day.purchases / maxTrendValue) * 160)}px` }} />
                   </div>
                   <p className="font-sans text-[10px] font-extrabold text-outline">{day.date.slice(8)}</p>
-                  <p className="font-sans text-[10px] font-bold text-on-surface-variant">{formatPercent(day.purchaseCostPercentage)}</p>
+                  <p className="font-sans text-[10px] font-bold text-on-surface-variant">{formatPurchaseCostPercentage(day.purchaseCostPercentage)}</p>
                 </div>
               )) : (
                 <p className="w-full py-16 text-center font-sans text-sm font-bold text-on-surface-variant">No data available</p>

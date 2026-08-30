@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteField,
   deleteDoc,
   doc,
   getDoc,
@@ -10,7 +11,7 @@ import {
   setDoc,
   where
 } from 'firebase/firestore';
-import { db } from '../../../firebase';
+import { auth, db } from '../../../firebase';
 import type { Workspace } from '../../../types';
 import {
   createDefaultWorkspaceStore,
@@ -22,15 +23,26 @@ import {
   validateStoreProduct,
   validateStoreSettings
 } from '../storeModel';
+import { normalizeStoreSet, validateStoreSet } from '../storeSetModel';
 import type {
   PublicStoreData,
   StoreOptionGroup,
   StoreOptionGroupDraft,
   StoreProduct,
   StoreProductDraft,
+  StoreSet,
+  StoreSetDraft,
   StoreSettingsDraft,
   WorkspaceStore
 } from '../types';
+import {
+  getStoreAuthorizationIssue,
+  StoreAuthorizationError
+} from '../storeAuthorization';
+import {
+  buildUpdatedStoreProduct,
+  filterPublicAvailableProducts
+} from '../storeProductVisibility';
 
 const removeUndefinedFields = <T,>(value: T): T => {
   if (Array.isArray(value)) return value.map(item => removeUndefinedFields(item)) as T;
@@ -85,6 +97,48 @@ const createStoreWithSlug = async (
 };
 
 export const storeService = {
+  async assertCanManageProducts({
+    workspace,
+    userId,
+    product
+  }: {
+    workspace: Pick<Workspace, 'id' | 'ownerId' | 'subscriptionStatus'>;
+    userId: string;
+    product?: Pick<StoreProduct, 'storeId' | 'workspaceId'> | null;
+  }): Promise<void> {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+
+    const [membershipSnapshot, storeSnapshot] = await Promise.all([
+      getDoc(doc(db, 'workspaceMembers', `${workspace.id}_${userId}`)),
+      getDoc(doc(db, 'stores', workspace.id))
+    ]);
+    const membership = membershipSnapshot.exists()
+      ? membershipSnapshot.data() as { role?: Workspace['members'][number]['role']; status?: string }
+      : null;
+    const store = storeSnapshot.exists()
+      ? normalizeWorkspaceStore(storeSnapshot.id, storeSnapshot.data() as Record<string, unknown>)
+      : null;
+    const issue = getStoreAuthorizationIssue({
+      authenticatedUid: auth?.currentUser?.uid || '',
+      requestedUserId: userId,
+      workspaceId: workspace.id,
+      workspaceOwnerId: workspace.ownerId,
+      membership,
+      store: store ? { id: store.id, workspaceId: store.workspaceId } : null,
+      product,
+      subscriptionStatus: workspace.subscriptionStatus
+    });
+    if (issue) throw new StoreAuthorizationError(issue);
+  },
+
+  async getWorkspaceStore(workspaceId: string): Promise<WorkspaceStore | null> {
+    if (!db || !workspaceId) return null;
+    const snapshot = await getDoc(doc(db, 'stores', workspaceId));
+    return snapshot.exists()
+      ? normalizeWorkspaceStore(snapshot.id, snapshot.data() as Record<string, unknown>)
+      : null;
+  },
+
   async ensureWorkspaceStore(
     workspace: Pick<Workspace, 'id' | 'name' | 'country'>,
     createdBy: string
@@ -114,7 +168,7 @@ export const storeService = {
     draft: StoreSettingsDraft
   ): Promise<WorkspaceStore> {
     if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
-    const validationError = validateStoreSettings(draft);
+    const validationError = validateStoreSettings(draft, store.country);
     if (validationError) throw new Error(validationError);
 
     const updatedStore: WorkspaceStore = {
@@ -123,7 +177,17 @@ export const storeService = {
       name: draft.name.trim(),
       description: draft.description.trim(),
       contactInformation: draft.contactInformation.trim(),
-      businessWhatsApp: draft.businessWhatsApp.trim(),
+      // Keep the legacy field mirrored while older deployed clients still read it.
+      businessWhatsApp: draft.storeContact.whatsapp.trim(),
+      storeContact: {
+        phone: draft.storeContact.phone.trim(),
+        email: draft.storeContact.email.trim(),
+        whatsapp: draft.storeContact.whatsapp.trim(),
+        facebook: draft.storeContact.facebook.trim(),
+        instagram: draft.storeContact.instagram.trim(),
+        tiktok: draft.storeContact.tiktok.trim(),
+        website: draft.storeContact.website.trim()
+      },
       businessHours: draft.businessHours.trim(),
       pickupSessions: [...new Set(draft.pickupSessions.map(session => session.trim()).filter(Boolean))],
       pickupLocations: draft.pickupLocations.map(location => ({
@@ -163,6 +227,16 @@ export const storeService = {
   createPickupLocationId() {
     if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
     return doc(collection(db, 'storePickupLocationIds')).id;
+  },
+
+  createSetId() {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    return doc(collection(db, 'storeSets')).id;
+  },
+
+  createSetGroupId() {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    return doc(collection(db, 'storeSetGroupIds')).id;
   },
 
   async listOptionGroups(workspaceId: string): Promise<StoreOptionGroup[]> {
@@ -254,7 +328,7 @@ export const storeService = {
     await deleteDoc(doc(db, 'storeOptionGroups', groupId));
   },
 
-  async listProducts(workspaceId: string): Promise<StoreProduct[]> {
+  async listAdminProducts(workspaceId: string): Promise<StoreProduct[]> {
     if (!db || !workspaceId) return [];
     const productsQuery = query(
       collection(db, 'storeProducts'),
@@ -290,6 +364,7 @@ export const storeService = {
       name: draft.name.trim(),
       description: draft.description.trim(),
       price: draft.price,
+      recipeId: draft.recipeId?.trim() || undefined,
       available: draft.available,
       optionGroupIds: [...draft.optionGroupIds],
       createdBy,
@@ -306,19 +381,94 @@ export const storeService = {
     const validationError = validateStoreProduct(draft);
     if (validationError) throw new Error(validationError);
 
-    const updatedProduct: StoreProduct = {
-      ...product,
-      photoUrl: draft.photoUrl.trim(),
+    const updatedProduct = buildUpdatedStoreProduct(product, draft, new Date().toISOString());
+
+    await setDoc(doc(db, 'storeProducts', product.id), {
+      ...removeUndefinedFields(updatedProduct),
+      ...(!draft.recipeId ? {
+        recipeId: deleteField()
+      } : {}),
+      // Remove fields written by the short-lived copied-cost implementation.
+      // Existing documents remain readable through normalization until edited.
+      linkedRecipeId: deleteField(),
+      linkedRecipeTitle: deleteField(),
+      estimatedCost: deleteField()
+    }, { merge: true });
+    return updatedProduct;
+  },
+
+  async deleteProduct(productId: string): Promise<void> {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    await deleteDoc(doc(db, 'storeProducts', productId));
+  },
+
+  async listSets(workspaceId: string): Promise<StoreSet[]> {
+    if (!db || !workspaceId) return [];
+    const snapshot = await getDocs(query(collection(db, 'storeSets'), where('workspaceId', '==', workspaceId)));
+    return snapshot.docs
+      .map(setDocument => normalizeStoreSet(setDocument.id, setDocument.data() as Record<string, unknown>))
+      .sort((a, b) => a.sortOrder - b.sortOrder || b.updatedAt.localeCompare(a.updatedAt));
+  },
+
+  async createSet({ id, workspaceId, draft, createdBy }: {
+    id: string;
+    workspaceId: string;
+    draft: StoreSetDraft;
+    createdBy: string;
+  }): Promise<StoreSet> {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    const validationError = validateStoreSet(draft);
+    if (validationError) throw new Error(validationError);
+    const now = new Date().toISOString();
+    const set: StoreSet = {
+      id,
+      storeId: workspaceId,
+      workspaceId,
+      ...draft,
       name: draft.name.trim(),
       description: draft.description.trim(),
-      price: draft.price,
-      available: draft.available,
-      optionGroupIds: [...draft.optionGroupIds],
+      photoUrl: draft.photoUrl.trim(),
+      category: draft.category.trim(),
+      groups: draft.groups.map((group, groupIndex) => ({
+        ...group,
+        name: group.name.trim(),
+        sortOrder: groupIndex,
+        options: group.options.map((option, optionIndex) => ({ ...option, sortOrder: optionIndex }))
+      })),
+      createdBy,
+      createdAt: now,
+      updatedAt: now
+    };
+    await setDoc(doc(db, 'storeSets', id), removeUndefinedFields(set));
+    return set;
+  },
+
+  async updateSet(set: StoreSet, draft: StoreSetDraft): Promise<StoreSet> {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    const validationError = validateStoreSet(draft);
+    if (validationError) throw new Error(validationError);
+    const updated: StoreSet = {
+      ...set,
+      ...draft,
+      name: draft.name.trim(),
+      description: draft.description.trim(),
+      photoUrl: draft.photoUrl.trim(),
+      category: draft.category.trim(),
+      groups: draft.groups.map((group, groupIndex) => ({
+        ...group,
+        name: group.name.trim(),
+        sortOrder: groupIndex,
+        options: group.options.map((option, optionIndex) => ({ ...option, sortOrder: optionIndex }))
+      })),
       updatedAt: new Date().toISOString()
     };
+    await setDoc(doc(db, 'storeSets', set.id), removeUndefinedFields(updated), { merge: true });
+    return updated;
+  },
 
-    await setDoc(doc(db, 'storeProducts', product.id), removeUndefinedFields(updatedProduct), { merge: true });
-    return updatedProduct;
+  async deleteSet(setId: string): Promise<void> {
+    if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    await deleteDoc(doc(db, 'storeSets', setId));
   },
 
   async getPublicStore(slug: string): Promise<PublicStoreData | null> {
@@ -350,19 +500,28 @@ export const storeService = {
       collection(db, 'storeOptionGroups'),
       where('storeId', '==', store.id)
     );
-    const [productSnapshot, optionGroupSnapshot] = await Promise.all([
+    const setsQuery = query(
+      collection(db, 'storeSets'),
+      where('storeId', '==', store.id),
+      where('available', '==', true)
+    );
+    const [productSnapshot, optionGroupSnapshot, setSnapshot] = await Promise.all([
       getDocs(productsQuery),
-      getDocs(optionGroupsQuery)
+      getDocs(optionGroupsQuery),
+      getDocs(setsQuery)
     ]);
-    const products = productSnapshot.docs
+    const products = filterPublicAvailableProducts(productSnapshot.docs
       .map(productDoc => normalizeStoreProduct(productDoc.id, productDoc.data() as Record<string, unknown>))
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), store.id);
     const referencedGroupIds = new Set(products.flatMap(product => product.optionGroupIds));
     const optionGroups = optionGroupSnapshot.docs
       .map(groupDoc => normalizeStoreOptionGroup(groupDoc.id, groupDoc.data() as Record<string, unknown>))
       .filter(group => referencedGroupIds.has(group.id))
       .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+    const sets = setSnapshot.docs
+      .map(setDocument => normalizeStoreSet(setDocument.id, setDocument.data() as Record<string, unknown>))
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
 
-    return { store, products, optionGroups };
+    return { store, products, optionGroups, sets };
   }
 };

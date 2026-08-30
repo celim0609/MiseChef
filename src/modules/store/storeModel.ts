@@ -10,9 +10,13 @@ import type {
   StoreOrderItem,
   StoreOrderDraft,
   StoreOrderDay,
+  StoreSet,
+  StorePaymentMethodConfig,
+  StoreContact,
   StoreSettingsDraft,
   WorkspaceStore
 } from './types';
+import { buildStoreSetOrderItem } from './storeSetModel';
 
 export const DEFAULT_STORE_BUSINESS_HOURS = 'Monday–Sunday, 9:00 AM–9:00 PM';
 export const STORE_ORDER_DAYS: Array<{ id: StoreOrderDay; label: string; dayIndex: number }> = [
@@ -25,6 +29,74 @@ export const STORE_ORDER_DAYS: Array<{ id: StoreOrderDay; label: string; dayInde
   { id: 'sunday', label: 'Sunday', dayIndex: 0 }
 ];
 export const DEFAULT_STORE_ORDER_DAYS = STORE_ORDER_DAYS.map(day => day.id);
+export const createDefaultStoreContact = (): StoreContact => ({
+  phone: '',
+  email: '',
+  whatsapp: '',
+  facebook: '',
+  instagram: '',
+  tiktok: '',
+  website: ''
+});
+
+export const normalizeStoreContact = (
+  value: unknown,
+  legacyWhatsApp = ''
+): StoreContact => {
+  const contact = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  return {
+    phone: readString(contact.phone),
+    email: readString(contact.email),
+    whatsapp: readString(contact.whatsapp, readString(legacyWhatsApp)),
+    facebook: readString(contact.facebook),
+    instagram: readString(contact.instagram),
+    tiktok: readString(contact.tiktok),
+    website: readString(contact.website)
+  };
+};
+export const STORE_PAYMENT_METHODS: Array<{ id: StorePaymentMethodConfig['id']; label: string }> = [
+  { id: 'cash_on_pickup', label: 'Cash on Pickup' },
+  { id: 'touch_n_go_qr', label: 'Touch ’n Go eWallet' },
+  { id: 'duitnow_qr', label: 'DuitNow QR' },
+  { id: 'bank_transfer', label: 'Bank Transfer' },
+  { id: 'stripe', label: 'Stripe' }
+];
+export const getStorePaymentMethodLabel = (id: StorePaymentMethodConfig['id']) => (
+  STORE_PAYMENT_METHODS.find(method => method.id === id)?.label || 'Payment'
+);
+
+export const storePaymentMethodRequiresReceipt = (id: StorePaymentMethodConfig['id']) => (
+  ['touch_n_go_qr', 'duitnow_qr', 'bank_transfer'].includes(id)
+);
+
+export const createDefaultStorePaymentMethods = (): StorePaymentMethodConfig[] => (
+  STORE_PAYMENT_METHODS.map(method => ({
+    id: method.id,
+    enabled: method.id === 'stripe',
+    qrCodeUrl: '',
+    instructions: ''
+  }))
+);
+
+export const normalizeStorePaymentMethods = (
+  value: unknown,
+  country: 'MY' | 'SG' = 'MY'
+): StorePaymentMethodConfig[] => {
+  const configured = Array.isArray(value) ? value : [];
+  return STORE_PAYMENT_METHODS.map(method => {
+    const raw = configured.find(item => item && typeof item === 'object'
+      && (item as Record<string, unknown>).id === method.id) as Record<string, unknown> | undefined;
+    const normalized = {
+      id: method.id,
+      enabled: raw ? readBoolean(raw.enabled) : method.id === 'stripe',
+      qrCodeUrl: readString(raw?.qrCodeUrl),
+      instructions: readString(raw?.instructions)
+    };
+    return country === 'SG' && method.id === 'touch_n_go_qr'
+      ? { ...normalized, enabled: false, qrCodeUrl: '', instructions: '' }
+      : normalized;
+  });
+};
 
 const readString = (value: unknown, fallback = '') => (
   typeof value === 'string' && value.trim() ? value.trim() : fallback
@@ -107,6 +179,7 @@ export const formatPickupDateLabel = (
   const region = getWorkspaceRegionConfiguration({ country });
   const regionToday = toRegionDateCursor(currentDate, region.timeZone);
   const date = new Date(`${dateKey}T12:00:00Z`);
+  if (!dateKey || Number.isNaN(date.getTime())) return 'Pickup date unavailable';
   const tomorrowKey = toDateKey(addRegionDays(regionToday, 1));
   const prefix = dateKey === toDateKey(regionToday)
     ? 'Today'
@@ -146,6 +219,7 @@ export const createDefaultWorkspaceStore = (
     description: '',
     contactInformation: '',
     businessWhatsApp: '',
+    storeContact: createDefaultStoreContact(),
     businessHours: DEFAULT_STORE_BUSINESS_HOURS,
     pickupEnabled: false,
     deliveryEnabled: false,
@@ -155,6 +229,8 @@ export const createDefaultWorkspaceStore = (
     earliestPickupDays: 0,
     maximumAdvanceDays: 14,
     unavailableDates: [],
+    paymentMethods: createDefaultStorePaymentMethods(),
+    hostProgram: { enabled: false, rewardPercent: 5, minimumQualifyingSales: 0 },
     country: region.country,
     currency: region.currency,
     createdBy,
@@ -181,6 +257,7 @@ export const normalizeWorkspaceStore = (
     description: readString(data.description),
     contactInformation: readString(data.contactInformation),
     businessWhatsApp: readString(data.businessWhatsApp),
+    storeContact: normalizeStoreContact(data.storeContact, readString(data.businessWhatsApp)),
     businessHours: readString(data.businessHours, DEFAULT_STORE_BUSINESS_HOURS),
     pickupEnabled: readBoolean(data.pickupEnabled),
     deliveryEnabled: readBoolean(data.deliveryEnabled),
@@ -213,6 +290,17 @@ export const normalizeWorkspaceStore = (
         typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
       )))].sort()
       : [],
+    paymentMethods: normalizeStorePaymentMethods(data.paymentMethods, region.country),
+    hostProgram: (() => {
+      const value = data.hostProgram && typeof data.hostProgram === 'object'
+        ? data.hostProgram as Record<string, unknown>
+        : {};
+      return {
+        enabled: readBoolean(value.enabled),
+        rewardPercent: Math.min(100, Math.max(0, Number(value.rewardPercent) || 0)),
+        minimumQualifyingSales: Math.max(0, Number(value.minimumQualifyingSales) || 0)
+      };
+    })(),
     country: region.country,
     currency: region.currency,
     createdBy: readString(data.createdBy),
@@ -232,6 +320,10 @@ export const normalizeStoreProduct = (
   name: readString(data.name, 'Product'),
   description: readString(data.description),
   price: readPrice(data.price),
+  recipeId: readString(data.recipeId) || readString(data.linkedRecipeId) || undefined,
+  ...(Number.isFinite(Number(data.estimatedCost)) && Number(data.estimatedCost) >= 0
+    ? { estimatedCost: Number(data.estimatedCost) }
+    : {}),
   available: readBoolean(data.available),
   optionGroupIds: Array.isArray(data.optionGroupIds)
     ? [...new Set(data.optionGroupIds.filter((groupId): groupId is string => typeof groupId === 'string' && Boolean(groupId.trim())).map(groupId => groupId.trim()))]
@@ -241,13 +333,38 @@ export const normalizeStoreProduct = (
   updatedAt: readString(data.updatedAt, new Date().toISOString())
 });
 
-export const validateStoreSettings = (draft: StoreSettingsDraft) => {
+export const validateStoreSettings = (
+  draft: StoreSettingsDraft,
+  country: 'MY' | 'SG' = 'MY'
+) => {
   const pickupSessions = draft.pickupSessions.map(session => session.trim()).filter(Boolean);
   if (!draft.name.trim()) return 'Store name is required.';
   if (draft.name.trim().length > 120) return 'Store name must be 120 characters or fewer.';
   if (draft.description.trim().length > 1200) return 'Description must be 1,200 characters or fewer.';
   if (draft.contactInformation.trim().length > 500) return 'Contact information must be 500 characters or fewer.';
   if (!isValidBusinessWhatsApp(draft.businessWhatsApp)) return 'Enter a valid Business WhatsApp number, including country code.';
+  if (draft.storeContact.phone.trim().length > 40) return 'Store phone must be 40 characters or fewer.';
+  if (draft.storeContact.email.trim().length > 254
+    || (draft.storeContact.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.storeContact.email.trim()))) {
+    return 'Enter a valid Store email address.';
+  }
+  if (!isValidBusinessWhatsApp(draft.storeContact.whatsapp)) return 'Enter a valid Store WhatsApp number, including country code.';
+  const socialUrls = [
+    draft.storeContact.facebook,
+    draft.storeContact.instagram,
+    draft.storeContact.tiktok,
+    draft.storeContact.website
+  ];
+  if (socialUrls.some(value => value.trim().length > 500)) return 'Store contact links must be 500 characters or fewer.';
+  if (socialUrls.some(value => {
+    if (!value.trim()) return false;
+    try {
+      const url = new URL(value.trim());
+      return !['http:', 'https:'].includes(url.protocol);
+    } catch {
+      return true;
+    }
+  })) return 'Enter complete http:// or https:// links for Store social profiles and website.';
   if (draft.businessHours.trim().length > 300) return 'Business hours must be 300 characters or fewer.';
   if (pickupSessions.length > 20) return 'Use 20 pickup sessions or fewer.';
   if (pickupSessions.some(session => session.length > 80)) {
@@ -270,6 +387,31 @@ export const validateStoreSettings = (draft: StoreSettingsDraft) => {
   if (draft.unavailableDates.length > 60) return 'Use 60 unavailable dates or fewer.';
   if (draft.unavailableDates.some(date => !/^\d{4}-\d{2}-\d{2}$/.test(date))) return 'Choose valid unavailable dates.';
   if (new Set(draft.unavailableDates).size !== draft.unavailableDates.length) return 'Unavailable dates must be unique.';
+  if (!draft.paymentMethods.some(method => method.enabled)) return 'Enable at least one payment method.';
+  if (draft.paymentMethods.length !== STORE_PAYMENT_METHODS.length
+    || new Set(draft.paymentMethods.map(method => method.id)).size !== STORE_PAYMENT_METHODS.length
+    || draft.paymentMethods.some(method => !STORE_PAYMENT_METHODS.some(candidate => candidate.id === method.id))) {
+    return 'Choose valid payment methods.';
+  }
+  if (draft.paymentMethods.some(method => method.qrCodeUrl.length > 2000 || method.instructions.length > 1000)) {
+    return 'Payment instructions are too long.';
+  }
+  if (draft.paymentMethods.some(method => (
+    method.enabled && ['touch_n_go_qr', 'duitnow_qr'].includes(method.id) && !method.qrCodeUrl.trim()
+  ))) return 'Upload a merchant QR code before enabling QR payment.';
+  const touchNGo = draft.paymentMethods.find(method => method.id === 'touch_n_go_qr');
+  if (country !== 'MY' && touchNGo
+    && (touchNGo.enabled || touchNGo.qrCodeUrl.trim() || touchNGo.instructions.trim())) {
+    return 'Touch ’n Go eWallet is available only for Malaysia Stores.';
+  }
+  if (draft.paymentMethods.some(method => (
+    method.enabled && method.id === 'bank_transfer' && !method.instructions.trim()
+  ))) return 'Add bank transfer instructions before enabling Bank Transfer.';
+  if (!Number.isFinite(draft.hostProgram.rewardPercent)
+    || draft.hostProgram.rewardPercent < 0
+    || draft.hostProgram.rewardPercent > 100) return 'Host Reward must be between 0% and 100%.';
+  if (!Number.isFinite(draft.hostProgram.minimumQualifyingSales)
+    || draft.hostProgram.minimumQualifyingSales < 0) return 'Minimum qualifying Group Sales cannot be negative.';
   return '';
 };
 
@@ -291,9 +433,10 @@ export const normalizeStoreOptionGroup = (
   const selectionType = data.selectionType === 'multiple' ? 'multiple' : 'single';
   const required = readBoolean(data.required, true);
   const defaultMinimum = required ? 1 : 0;
-  const minimumSelections = Number.isInteger(data.minimumSelections)
+  const configuredMinimum = Number.isInteger(data.minimumSelections)
     ? Number(data.minimumSelections)
     : defaultMinimum;
+  const minimumSelections = required ? Math.max(1, configuredMinimum) : 0;
   const options = Array.isArray(data.options)
     ? data.options
       .filter(option => option && typeof option === 'object')
@@ -344,6 +487,7 @@ export const validateStoreOptionGroup = (draft: StoreOptionGroupDraft) => {
   if (draft.selectionType === 'single' && draft.maximumSelections !== 1) return 'Single Select groups must have a maximum selection of one.';
   if (draft.selectionType === 'single' && draft.minimumSelections > 1) return 'Single Select groups cannot require more than one selection.';
   if (draft.required && draft.minimumSelections < 1) return 'Required groups must have a minimum selection of at least one.';
+  if (!draft.required && draft.minimumSelections !== 0) return 'Optional groups must allow zero selections.';
   if (draft.minimumSelections > draft.maximumSelections) return 'Minimum selection cannot exceed maximum selection.';
   if (draft.options.length === 0) return 'Add at least one option.';
   if (draft.options.length > 20) return 'Use 20 options or fewer in one group.';
@@ -394,9 +538,24 @@ export const calculateStoreOptionAdjustedPrice = (
 export const getStoreOptionSelectionLimits = (
   group: Pick<StoreOptionGroup, 'selectionType' | 'required' | 'minimumSelections' | 'maximumSelections'>
 ) => ({
-  minimum: group.required ? Math.max(1, group.minimumSelections) : group.minimumSelections,
+  minimum: group.required ? Math.max(1, group.minimumSelections) : 0,
   maximum: group.selectionType === 'single' ? 1 : group.maximumSelections
 });
+
+export const formatStoreOptionSelectionRequirement = (
+  group: Pick<StoreOptionGroup, 'selectionType' | 'required' | 'minimumSelections' | 'maximumSelections'>
+) => {
+  const { minimum, maximum } = getStoreOptionSelectionLimits(group);
+  if (!group.required) {
+    return group.selectionType === 'single'
+      ? 'Optional'
+      : `Choose up to ${maximum} · Optional`;
+  }
+  if (group.selectionType === 'single') return 'Choose one · Required';
+  return minimum === maximum
+    ? `Choose ${minimum} · Required`
+    : `Choose ${minimum}–${maximum} · Required`;
+};
 
 export const validateStoreProductOptionSelections = (
   product: StoreProduct,
@@ -436,8 +595,14 @@ export const validateStoreProductOptionSelections = (
 export const buildStoreOrderItems = (
   selections: CartSelection[],
   products: StoreProduct[],
-  optionGroups: StoreOptionGroup[]
+  optionGroups: StoreOptionGroup[],
+  sets: StoreSet[] = []
 ): StoreOrderItem[] => selections.map(selection => {
+  if (selection.setId) {
+    const set = sets.find(candidate => candidate.id === selection.setId);
+    if (!set) throw new Error('A set in your cart is no longer available.');
+    return buildStoreSetOrderItem(selection, set, products);
+  }
   const product = products.find(candidate => candidate.id === selection.productId && candidate.available);
   if (!product) throw new Error('A product in your cart is no longer available.');
   const selectionError = validateStoreProductOptionSelections(product, optionGroups, selection.selectedOptions);
@@ -466,6 +631,7 @@ export const buildStoreOrderItems = (
   );
 
   return {
+    itemType: 'product',
     productId: product.id,
     productName: product.name,
     photoUrl: product.photoUrl,
