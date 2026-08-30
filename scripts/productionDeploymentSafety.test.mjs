@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { createProductionGoogleApiReader } from './productionLiveRelease.mjs';
 import {
   FULL_PRODUCTION_RESOURCE_PLAN,
   PRODUCTION_STORAGE_BUCKET,
@@ -190,4 +191,56 @@ export const beta = onRequest({}, handler);
     expectedFunctions,
     deployedFunctions: [{ id: 'alpha', state: 'ACTIVE' }]
   }), /beta/);
+});
+
+test('Production live verification uses authenticated Google APIs without Firebase CLI private auth state', async () => {
+  const calls = [];
+  const reader = createProductionGoogleApiReader(async options => {
+    calls.push(options);
+    if (options.url.includes('firebasehosting.googleapis.com')) {
+      return { data: { releases: [{ version: { name: 'sites/misechef-fa4bf/versions/current' } }] } };
+    }
+    if (!options.params.pageToken) {
+      return {
+        data: {
+          functions: [{ name: 'projects/misechef-fa4bf/locations/us-central1/functions/alpha', state: 'ACTIVE' }],
+          nextPageToken: 'next'
+        }
+      };
+    }
+    return {
+      data: {
+        functions: [{ name: 'projects/misechef-fa4bf/locations/us-central1/functions/beta', state: 'ACTIVE' }]
+      }
+    };
+  });
+
+  assert.equal(await reader.readHostingVersion(), 'sites/misechef-fa4bf/versions/current');
+  assert.deepEqual(await reader.readProductionFunctions(), [
+    { id: 'alpha', state: 'ACTIVE' },
+    { id: 'beta', state: 'ACTIVE' }
+  ]);
+  assert.deepEqual(calls.map(call => ({ method: call.method, url: call.url, params: call.params })), [
+    {
+      method: 'GET',
+      url: 'https://firebasehosting.googleapis.com/v1beta1/sites/misechef-fa4bf/releases',
+      params: { pageSize: 1 }
+    },
+    {
+      method: 'GET',
+      url: 'https://cloudfunctions.googleapis.com/v2/projects/misechef-fa4bf/locations/-/functions',
+      params: { pageSize: 1000 }
+    },
+    {
+      method: 'GET',
+      url: 'https://cloudfunctions.googleapis.com/v2/projects/misechef-fa4bf/locations/-/functions',
+      params: { pageSize: 1000, pageToken: 'next' }
+    }
+  ]);
+
+  const source = readFileSync(new URL('./productionLiveRelease.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /firebase-tools[/\\]lib[/\\]apiv2/);
+  assert.doesNotMatch(source, /FIREBASE_TOKEN/);
+  assert.match(source, /GOOGLE_APPLICATION_CREDENTIALS/);
+  assert.match(source, /google-auth-library/);
 });
