@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   FREE_TRIAL_DAYS,
+  hasActiveBusinessEntitlement,
   requireWorkspaceFeature,
   resolveWorkspaceSubscription,
   SUBSCRIPTION_PLANS,
@@ -69,9 +70,22 @@ test('active Workspace members inherit its plan independently of role and switch
   }
 
   role = 'Finance';
-  const switched = await requireWorkspaceFeature({ db, uid: 'member', workspaceId: 'free', feature: 'aiRequests' });
-  assert.equal(switched.plan, 'free');
-  assert.equal(switched.limits.aiRequests, 25);
+  await assert.rejects(
+    requireWorkspaceFeature({ db, uid: 'member', workspaceId: 'free', feature: 'aiRequests' }),
+    error => error?.code === 'permission-denied' && error?.details?.reason === 'business-entitlement-required'
+  );
+});
+
+test('Business entitlement matrix is fail closed and time bounded', () => {
+  const now = new Date('2026-08-30T00:00:00.000Z');
+  assert.equal(hasActiveBusinessEntitlement({ subscriptionPlan: 'starter', subscriptionStatus: 'active' }, now), true);
+  assert.equal(hasActiveBusinessEntitlement({ subscriptionPlan: 'professional', subscriptionStatus: 'trialing', trialEndsAt: '2026-08-31T00:00:00.000Z' }, now), true);
+  assert.equal(hasActiveBusinessEntitlement({ subscriptionPlan: 'professional', subscriptionStatus: 'trialing', trialEndsAt: '2026-08-29T00:00:00.000Z' }, now), false);
+  assert.equal(hasActiveBusinessEntitlement({ subscriptionPlan: 'free', subscriptionStatus: 'active' }, now), false);
+  assert.equal(hasActiveBusinessEntitlement({ subscriptionPlan: 'professional', subscriptionStatus: 'suspended' }, now), false);
+  assert.equal(hasActiveBusinessEntitlement({ subscriptionPlan: 'professional', subscriptionStatus: 'trialing', trialEndsAt: 'not-a-date' }, now), false);
+  assert.equal(hasActiveBusinessEntitlement({}, now), false);
+  assert.equal(hasActiveBusinessEntitlement(null, now), false);
 });
 
 test('subscription foundation has no payment-provider integration', () => {
@@ -84,13 +98,25 @@ test('a new workspace receives a 14-day Professional trial', () => {
   const subscription = resolveWorkspaceSubscription({
     data: {},
     createTime: createdAt,
-    now: new Date(createdAt.getTime() + day)
+    now: new Date(createdAt.getTime() + day),
+    allowTrialProvisioning: true
   });
 
   assert.equal(FREE_TRIAL_DAYS, 14);
   assert.equal(subscription.subscriptionPlan, 'professional');
   assert.equal(subscription.subscriptionStatus, 'trialing');
   assert.equal(subscription.trialEndsAt.toDate().toISOString(), '2026-08-15T00:00:00.000Z');
+});
+
+test('missing subscription data never receives an implicit Business trial during authorization', () => {
+  const subscription = resolveWorkspaceSubscription({
+    data: {},
+    createTime: new Date('2026-08-29T00:00:00.000Z'),
+    now: new Date('2026-08-30T00:00:00.000Z')
+  });
+  assert.equal(subscription.subscriptionPlan, 'free');
+  assert.equal(subscription.subscriptionStatus, 'suspended');
+  assert.equal(hasActiveBusinessEntitlement(subscription), false);
 });
 
 test('an expired trial downgrades to Free and never extends a client-supplied trial date', () => {
@@ -122,5 +148,5 @@ test('Firestore rules keep subscription fields server-owned and enforce trial ex
   const rules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
   assert.match(rules, /affectedKeys\(\)\.hasNone\(\['subscriptionPlan', 'subscriptionStatus', 'trialStartedAt', 'trialEndsAt', 'subscriptionUpdatedAt'\]\)/);
   assert.match(rules, /request\.time < get\([\s\S]*trialEndsAt/);
-  assert.match(rules, /subscriptionPlan in \['professional', 'business', 'internal_unlimited'\]/);
+  assert.match(rules, /subscriptionPlan in \['starter', 'professional', 'business', 'internal_unlimited'\]/);
 });

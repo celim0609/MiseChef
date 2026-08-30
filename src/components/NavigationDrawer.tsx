@@ -67,6 +67,7 @@ interface NavigationDrawerProps {
   currentUserRole?: UserRole;
   workspaceRole?: WorkspaceMemberRole | null;
   workspaceId?: string;
+  hasBusinessEntitlement?: boolean;
   customAvatarUrl?: string;
   onRenameCategory: (categoryId: string, nextName: string) => void;
   onDeleteCategory: (categoryId: string, targetCategoryName: string) => void;
@@ -88,6 +89,7 @@ export default function NavigationDrawer({
   currentUserRole = 'user',
   workspaceRole = null,
   workspaceId = '',
+  hasBusinessEntitlement = false,
   customAvatarUrl = '',
   onRenameCategory,
   onDeleteCategory,
@@ -191,8 +193,10 @@ export default function NavigationDrawer({
   };
   const canAccessByRole = (tab: RootTab) => canAccessRootTab(tab, workspaceRole, isSuperAdmin);
   const canAccess = (tab: RootTab) => {
+    const businessTabs = new Set<RootTab>(['statistics', 'team', 'store', 'storePos', 'business', 'businessSales', 'businessSuppliers', 'personalExpenses', 'costing', 'costingIngredients', 'costingInvoices', 'costingInvoiceDetail', 'costingReports']);
+    if (businessTabs.has(tab) && !hasBusinessEntitlement) return false;
     if (!canUseTabFeature(tab)) return false;
-    return PRODUCT_TABS.has(tab) || canAccessByRole(tab);
+    return canAccessByRole(tab);
   };
   const canAccessRecipes = canUsePlanFeature('recipes');
   const getLockedAccessLabel = (feature: PlanFeature) => {
@@ -219,11 +223,11 @@ export default function NavigationDrawer({
     { label: 'Suppliers', icon: <Truck className="w-4 h-4" />, tab: 'businessSuppliers' as RootTab },
     { label: 'Invoices', icon: <ReceiptText className="w-4 h-4" />, tab: 'costingInvoices' as RootTab },
     { label: 'Reports', icon: <FileBarChart className="w-4 h-4" />, tab: 'costingReports' as RootTab }
-  ].filter(item => canUseTabFeature(item.tab));
+  ].filter(item => canAccess(item.tab));
   const businessMenuItems: Array<{ label: string; icon: React.ReactNode; tab: RootTab }> = [
     { label: 'Dashboard', icon: <BarChart3 className="w-4 h-4" />, tab: 'business' as RootTab },
     { label: 'Sales', icon: <CreditCard className="w-4 h-4" />, tab: 'businessSales' as RootTab }
-  ].filter(item => canUseTabFeature(item.tab));
+  ].filter(item => canAccess(item.tab));
   const financeMenuItems: Array<{ label: string; icon: React.ReactNode; tab: RootTab }> = [
     { label: FINANCE_NAVIGATION.itemLabel, icon: <WalletCards className="w-4 h-4" />, tab: FINANCE_NAVIGATION.tab }
   ].filter(item => canAccess(item.tab));

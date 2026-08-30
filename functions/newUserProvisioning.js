@@ -66,7 +66,8 @@ export const buildProvisioningRecords = ({
   const subscription = resolveWorkspaceSubscription({
     data: existingWorkspace,
     createTime: workspaceCreateTime || createdAt,
-    now
+    now,
+    allowTrialProvisioning: true
   });
 
   return {

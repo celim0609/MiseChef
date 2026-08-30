@@ -147,20 +147,24 @@ service cloud.firestore {
     }
 
     function canViewStore(workspaceId) {
-      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef', 'Purchasing', 'Finance', 'Viewer']);
+      return hasActiveBusinessEntitlement(workspaceId)
+        && hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef', 'Purchasing', 'Finance', 'Viewer']);
     }
 
     function canViewStoreOrders(workspaceId) {
-      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef', 'Finance']);
+      return hasActiveBusinessEntitlement(workspaceId)
+        && hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef', 'Finance']);
     }
 
     function canManageStoreProducts(workspaceId) {
-      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef']);
+      return hasActiveBusinessEntitlement(workspaceId)
+        && hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef']);
     }
 
-    function hasActiveWorkspaceSubscription(workspaceId) {
+    function hasActiveBusinessEntitlement(workspaceId) {
       return signedIn()
         && exists(/databases/$(database)/documents/workspaces/$(workspaceId))
+        && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.subscriptionPlan in ['starter', 'professional', 'business', 'internal_unlimited']
         && (
           get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.subscriptionStatus == 'active'
           || (
@@ -172,7 +176,7 @@ service cloud.firestore {
     }
 
     function hasProfessionalWorkspaceEntitlement(workspaceId) {
-      return hasActiveWorkspaceSubscription(workspaceId)
+      return hasActiveBusinessEntitlement(workspaceId)
         && get(/databases/$(database)/documents/workspaces/$(workspaceId)).data.subscriptionPlan in ['professional', 'business', 'internal_unlimited'];
     }
 
@@ -181,11 +185,13 @@ service cloud.firestore {
     }
 
     function canAccessInvoices(workspaceId) {
-      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Purchasing']);
+      return hasActiveBusinessEntitlement(workspaceId)
+        && hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Purchasing']);
     }
 
     function canAccessSuppliers(workspaceId) {
-      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Purchasing']);
+      return hasActiveBusinessEntitlement(workspaceId)
+        && hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Purchasing']);
     }
 
     function canAccessBusiness(workspaceId) {
@@ -931,19 +937,22 @@ service cloud.firestore {
     }
 
     match /personalExpenses/{expenseId} {
-      allow create: if isWorkspaceMember(request.resource.data.workspaceId)
+      allow create: if hasActiveBusinessEntitlement(request.resource.data.workspaceId)
+        && isWorkspaceMember(request.resource.data.workspaceId)
         && isValidPersonalExpense(request.resource.data, expenseId);
-      allow read: if isWorkspaceOwnerOrManager(resource.data.workspaceId)
+      allow read: if hasActiveBusinessEntitlement(resource.data.workspaceId)
+        && (isWorkspaceOwnerOrManager(resource.data.workspaceId)
         || (isWorkspaceMember(resource.data.workspaceId)
           && (resource.data.createdBy == request.auth.uid
-            || resource.data.memberId == workspaceMemberId(resource.data.workspaceId)));
+            || resource.data.memberId == workspaceMemberId(resource.data.workspaceId))));
       allow update, delete: if false;
     }
 
     match /personalExpenseSettlements/{settlementId} {
-      allow read: if isWorkspaceOwnerOrManager(resource.data.workspaceId)
+      allow read: if hasActiveBusinessEntitlement(resource.data.workspaceId)
+        && (isWorkspaceOwnerOrManager(resource.data.workspaceId)
         || (isWorkspaceMember(resource.data.workspaceId)
-          && resource.data.memberId == workspaceMemberId(resource.data.workspaceId));
+          && resource.data.memberId == workspaceMemberId(resource.data.workspaceId)));
       allow create, update, delete: if false;
     }
 
@@ -975,8 +984,10 @@ service cloud.firestore {
     match /invoiceAuditLogs/{auditId} {
       allow create: if ownsIncomingDocument()
         && request.resource.data.id == auditId
-        && isWorkspaceMember(incomingWorkspaceId());
-      allow read: if isWorkspaceMember(existingWorkspaceId());
+        && isWorkspaceMember(incomingWorkspaceId())
+        && hasActiveBusinessEntitlement(incomingWorkspaceId());
+      allow read: if isWorkspaceMember(existingWorkspaceId())
+        && hasActiveBusinessEntitlement(existingWorkspaceId());
       allow update, delete: if false;
     }
 
@@ -1046,8 +1057,10 @@ service cloud.firestore {
     }
 
     match /tasks/{taskId} {
-      allow read: if isWorkspaceMember(resource.data.workspaceId);
+      allow read: if hasActiveBusinessEntitlement(resource.data.workspaceId)
+        && isWorkspaceMember(resource.data.workspaceId);
       allow create: if signedIn()
+        && hasActiveBusinessEntitlement(request.resource.data.workspaceId)
         && isWorkspaceMember(request.resource.data.workspaceId)
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.type == 'personal'
@@ -1064,7 +1077,8 @@ service cloud.firestore {
           'createdAt',
           'completedAt'
         ]);
-      allow update: if isWorkspaceMember(resource.data.workspaceId)
+      allow update: if hasActiveBusinessEntitlement(resource.data.workspaceId)
+        && isWorkspaceMember(resource.data.workspaceId)
         && request.resource.data.workspaceId == resource.data.workspaceId
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.type == resource.data.type
@@ -1084,7 +1098,8 @@ service cloud.firestore {
         && !request.resource.data.keys().hasAny(['subscriptionPlan', 'subscriptionStatus', 'trialStartedAt', 'trialEndsAt', 'subscriptionUpdatedAt'])
         && hasValidWorkspaceCountry(request.resource.data);
       allow read: if isWorkspaceMember(workspaceId);
-      allow update: if (isWorkspaceOwner(workspaceId) || (isWorkspaceOwnerOrManager(workspaceId) && request.resource.data.ownerId == resource.data.ownerId))
+      allow update: if hasActiveBusinessEntitlement(workspaceId)
+        && (isWorkspaceOwner(workspaceId) || (isWorkspaceOwnerOrManager(workspaceId) && request.resource.data.ownerId == resource.data.ownerId))
         && request.resource.data.id == resource.data.id
         && request.resource.data.diff(resource.data).affectedKeys().hasNone(['subscriptionPlan', 'subscriptionStatus', 'trialStartedAt', 'trialEndsAt', 'subscriptionUpdatedAt'])
         && (
@@ -1109,13 +1124,15 @@ service cloud.firestore {
 
     match /stores/{workspaceId} {
       allow read: if true;
-      allow create: if isWorkspaceOwnerOrManager(workspaceId)
+      allow create: if hasActiveBusinessEntitlement(workspaceId)
+        && isWorkspaceOwnerOrManager(workspaceId)
         && isValidStoreSettings(request.resource.data, workspaceId)
         && storeMatchesWorkspaceCountry(request.resource.data, workspaceId)
         && request.resource.data.createdBy == request.auth.uid
         && existsAfter(/databases/$(database)/documents/storeSlugs/$(request.resource.data.slug))
         && getAfter(/databases/$(database)/documents/storeSlugs/$(request.resource.data.slug)).data.workspaceId == workspaceId;
-      allow update: if isWorkspaceOwnerOrManager(workspaceId)
+      allow update: if hasActiveBusinessEntitlement(workspaceId)
+        && isWorkspaceOwnerOrManager(workspaceId)
         && isValidStoreSettings(request.resource.data, workspaceId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'name',
@@ -1143,7 +1160,8 @@ service cloud.firestore {
 
     match /storeSlugs/{slug} {
       allow read: if true;
-      allow create: if isWorkspaceOwnerOrManager(request.resource.data.workspaceId)
+      allow create: if hasActiveBusinessEntitlement(request.resource.data.workspaceId)
+        && isWorkspaceOwnerOrManager(request.resource.data.workspaceId)
         && request.resource.data.keys().hasOnly(['slug', 'workspaceId', 'createdAt'])
         && request.resource.data.slug == slug
         && request.resource.data.slug is string
@@ -1350,6 +1368,7 @@ service cloud.firestore {
         && hasProfessionalWorkspaceEntitlement(resource.data.workspaceId))
         || (signedIn()
           && resource.data.email == request.auth.token.email
+          && hasProfessionalWorkspaceEntitlement(resource.data.workspaceId)
           && resource.data.status == 'Pending'
           && request.resource.data.workspaceId == resource.data.workspaceId
           && request.resource.data.email == resource.data.email
@@ -1368,8 +1387,11 @@ service cloud.firestore {
     match /teamAuditLogs/{auditId} {
       allow create: if signedIn()
         && request.resource.data.performedBy == request.auth.uid
-        && isWorkspaceMember(request.resource.data.workspaceId);
-      allow read: if isWorkspaceManagerLevel(resource.data.workspaceId) || isSuperAdmin();
+        && isWorkspaceMember(request.resource.data.workspaceId)
+        && hasProfessionalWorkspaceEntitlement(request.resource.data.workspaceId);
+      allow read: if (isWorkspaceManagerLevel(resource.data.workspaceId)
+          && hasProfessionalWorkspaceEntitlement(resource.data.workspaceId))
+        || isSuperAdmin();
       allow update, delete: if false;
     }
 
@@ -1396,6 +1418,8 @@ service cloud.firestore {
     match /ai_usage/{usageId} {
       allow create: if signedIn()
         && request.resource.data.userId == request.auth.uid
+        && isWorkspaceMember(request.resource.data.companyId)
+        && hasActiveBusinessEntitlement(request.resource.data.companyId)
         && request.resource.data.keys().hasOnly([
           'userId',
           'companyId',
@@ -1417,6 +1441,8 @@ service cloud.firestore {
     match /audit_logs/{auditId} {
       allow create: if signedIn()
         && request.resource.data.userId == request.auth.uid
+        && isWorkspaceMember(request.resource.data.companyId)
+        && hasActiveBusinessEntitlement(request.resource.data.companyId)
         && request.resource.data.keys().hasOnly([
           'timestamp',
           'userId',

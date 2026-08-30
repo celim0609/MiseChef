@@ -139,6 +139,18 @@ export const createInvoiceUploadReservation = async ({ db, entitlements, invoice
 
 export const cancelInvoiceUploadReservation = async ({ db, uid, invoiceId }) => {
   const invoiceReference = db.collection('invoices').doc(invoiceId);
+  const initialSnapshot = await invoiceReference.get();
+  if (!initialSnapshot.exists) return;
+  const initialInvoice = initialSnapshot.data() || {};
+  const entitlements = await requireWorkspaceFeature({
+    db,
+    uid,
+    workspaceId: initialInvoice.workspaceId,
+    feature: 'invoiceOcr'
+  });
+  if (!['Owner', 'Manager', 'Head Chef', 'Purchasing'].includes(entitlements.role)) {
+    throw new HttpsError('permission-denied', 'Your workspace role cannot cancel invoice uploads.');
+  }
   await db.runTransaction(async transaction => {
     const snapshot = await transaction.get(invoiceReference);
     if (!snapshot.exists) return;

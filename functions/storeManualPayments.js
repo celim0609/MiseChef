@@ -8,6 +8,7 @@ import {
   getStoreNotificationId,
   STORE_NOTIFICATION_TYPE
 } from './storeNotifications.js';
+import { hasActiveBusinessEntitlement } from './subscriptionFoundation.js';
 
 const MANUAL_METHODS = new Set(['cash_on_pickup', 'touch_n_go_qr', 'duitnow_qr', 'bank_transfer']);
 const RECEIPT_METHODS = new Set(['touch_n_go_qr', 'duitnow_qr', 'bank_transfer']);
@@ -56,6 +57,9 @@ const requireManager = async ({ db, uid, workspaceId }) => {
     && readString(memberData?.workspaceId) === workspaceId
     && memberData?.status === 'Active'
     && ['Owner', 'Manager'].includes(memberData?.role);
+  if (!workspace.exists || !hasActiveBusinessEntitlement(workspace.data() || {})) {
+    throw new Error('An active Workspace Business subscription is required.');
+  }
   if (!isOwner && !isManager) throw new Error('Only the Store Owner or Manager can review this payment.');
 };
 

@@ -28,6 +28,7 @@ import type { OwnerMetricState } from './home/OwnerHomeWidgets';
 import type { User } from 'firebase/auth';
 import { ChefProfile, Recipe, RootTab, WorkspaceMemberRole } from '../types';
 import ChefHome from './home/ChefHome';
+import PersonalHome from './home/PersonalHome';
 import FirstTimeHome from './home/FirstTimeHome';
 import TodaysTasks from './home/TodaysTasks';
 import type { CostingInvoice } from '../modules/costing/types';
@@ -72,6 +73,7 @@ interface HomeTabProps {
   onboardingGoals?: OnboardingGoal[];
   quickAddActions?: QuickAddActionDefinition[];
   onQuickAdd?: (action: QuickAddActionId) => void;
+  businessEnabled?: boolean;
 }
 
 interface ActivityItem {
@@ -136,7 +138,8 @@ export default function HomeTab({
   profile,
   onboardingGoals = [],
   quickAddActions = [],
-  onQuickAdd
+  onQuickAdd,
+  businessEnabled = false
 }: HomeTabProps) {
   const region = useWorkspaceRegion();
   const [dashboard, setDashboard] = useState<OwnerDashboardData | null>(null);
@@ -157,7 +160,7 @@ export default function HomeTab({
   const ownerHomeGreeting = getAuthenticatedGreeting(getGreeting(), greetingIdentity);
 
   const loadDashboard = useCallback(async () => {
-    if (!userId || !activeWorkspaceId) {
+    if (!businessEnabled || !userId || !activeWorkspaceId) {
       setDashboard(null);
       return;
     }
@@ -183,7 +186,7 @@ export default function HomeTab({
     } finally {
       setIsLoading(false);
     }
-  }, [activeWorkspaceId, isChefHome, userId]);
+  }, [activeWorkspaceId, businessEnabled, isChefHome, userId]);
 
   useEffect(() => {
     loadDashboard();
@@ -390,6 +393,18 @@ export default function HomeTab({
           : purchaseRatio === null
             ? { value: 'No sales yet', label: 'Sales total is zero', className: 'bg-surface-container-high text-on-surface-variant' }
             : { value: `${purchaseRatio.toFixed(1)}%`, label: 'Monthly actuals', className: 'bg-primary/10 text-primary' };
+
+  if (!businessEnabled) {
+    return (
+      <PersonalHome
+        recipes={allRecipes}
+        greeting={chefHomeGreeting}
+        onCreateRecipe={onCreateRecipe}
+        onNavigate={onNavigate}
+        onSelectRecipe={onSelectRecipe}
+      />
+    );
+  }
 
   if (isChefHome) {
     return (

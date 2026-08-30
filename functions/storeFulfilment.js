@@ -5,6 +5,7 @@ import {
   getStoreNotificationId,
   STORE_NOTIFICATION_TYPE
 } from './storeNotifications.js';
+import { hasActiveBusinessEntitlement } from './subscriptionFoundation.js';
 
 export const STORE_FULFILMENT_STATUS = Object.freeze({
   new: 'New',
@@ -138,6 +139,9 @@ export const updateStoreOrderFulfilment = async ({
     ]);
     const workspace = workspaceSnapshot.exists ? workspaceSnapshot.data() || {} : {};
     const membership = membershipSnapshot.exists ? membershipSnapshot.data() || {} : {};
+    if (!hasActiveBusinessEntitlement(workspace)) {
+      throw new HttpsError('permission-denied', 'An active Workspace Business subscription is required.');
+    }
     if (!hasStoreProcessingAuthority({ uid, workspaceId, workspace, membership })) {
       throw new HttpsError('permission-denied', 'Your Workspace role cannot process Store orders.');
     }
@@ -240,6 +244,9 @@ export const updateStoreGroupOrderFulfilment = async ({ db, uid, groupId, action
     ]);
     const workspace = workspaceSnapshot.exists ? workspaceSnapshot.data() || {} : {};
     const membership = membershipSnapshot.exists ? membershipSnapshot.data() || {} : {};
+    if (!hasActiveBusinessEntitlement(workspace)) {
+      throw new HttpsError('permission-denied', 'An active Workspace Business subscription is required.');
+    }
     if (!hasStoreProcessingAuthority({ uid, workspaceId, workspace, membership })) {
       throw new HttpsError('permission-denied', 'Your Workspace role cannot process Store orders.');
     }

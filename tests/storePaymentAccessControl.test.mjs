@@ -124,9 +124,9 @@ before(async () => {
   await environment.withSecurityRulesDisabled(async context => {
     const db = context.firestore();
     await Promise.all([
-      db.doc(`workspaces/${WORKSPACE_A}`).set({ id: WORKSPACE_A, ownerId: 'owner-a', country: 'MY' }),
-      db.doc(`workspaces/${WORKSPACE_B}`).set({ id: WORKSPACE_B, ownerId: 'owner-b', country: 'MY' }),
-      db.doc(`workspaces/${WORKSPACE_SG}`).set({ id: WORKSPACE_SG, ownerId: 'owner-sg', country: 'SG' }),
+      db.doc(`workspaces/${WORKSPACE_A}`).set({ id: WORKSPACE_A, ownerId: 'owner-a', country: 'MY', subscriptionPlan: 'professional', subscriptionStatus: 'active' }),
+      db.doc(`workspaces/${WORKSPACE_B}`).set({ id: WORKSPACE_B, ownerId: 'owner-b', country: 'MY', subscriptionPlan: 'professional', subscriptionStatus: 'active' }),
+      db.doc(`workspaces/${WORKSPACE_SG}`).set({ id: WORKSPACE_SG, ownerId: 'owner-sg', country: 'SG', subscriptionPlan: 'professional', subscriptionStatus: 'active' }),
       db.doc(`workspaceMembers/${WORKSPACE_A}_owner-a`).set({
         workspaceId: WORKSPACE_A, userId: 'owner-a', role: 'Owner', status: 'Active'
       }),
@@ -335,7 +335,9 @@ test('canonical Workspace ownerId authorizes a legacy Owner without a membership
     await db.doc(`workspaces/${workspaceId}`).set({
       id: workspaceId,
       ownerId: 'legacy-owner',
-      country: 'MY'
+      country: 'MY',
+      subscriptionPlan: 'professional',
+      subscriptionStatus: 'active'
     });
     await db.doc(`stores/${workspaceId}`).set({
       ...createStoreRecord(),

@@ -35,8 +35,6 @@ const toMemberSummary = (user: User, role: WorkspaceMemberSummary['role']): Work
   status: 'Active'
 });
 
-const TRIAL_LENGTH_MS = 14 * 24 * 60 * 60 * 1000;
-
 const readDate = (value: unknown) => {
   if (typeof value === 'string' && !Number.isNaN(new Date(value).getTime())) return new Date(value);
   if (value && typeof value === 'object' && 'toDate' in value && typeof value.toDate === 'function') return value.toDate();
@@ -44,29 +42,21 @@ const readDate = (value: unknown) => {
 };
 
 const normalizeWorkspaceSubscription = (data: Partial<Workspace> | Record<string, unknown>) => {
-  const createdAt = readDate(data.createdAt) || new Date();
-  const canonicalTrialEnd = new Date(createdAt.getTime() + TRIAL_LENGTH_MS);
-  const storedTrialEnd = readDate(data.trialEndsAt);
-  const trialEndsAt = storedTrialEnd && storedTrialEnd <= canonicalTrialEnd ? storedTrialEnd : canonicalTrialEnd;
   const storedPlan = typeof data.subscriptionPlan === 'string' ? data.subscriptionPlan.toLowerCase() : '';
   const subscriptionPlan: SubscriptionPlan = storedPlan === 'starter' || storedPlan === 'professional' || storedPlan === 'business' || storedPlan === 'internal_unlimited'
     ? storedPlan
     : storedPlan === 'enterprise' ? 'business' : 'free';
   const storedStatus = typeof data.subscriptionStatus === 'string' ? data.subscriptionStatus.toLowerCase() : '';
-  const subscriptionStatus: SubscriptionStatus = storedStatus === 'trialing' || storedStatus === 'past_due' || storedStatus === 'cancelled' || storedStatus === 'suspended'
+  const subscriptionStatus: SubscriptionStatus = storedStatus === 'active' || storedStatus === 'trialing' || storedStatus === 'past_due' || storedStatus === 'cancelled' || storedStatus === 'suspended'
     ? storedStatus
-    : 'active';
-  const isImplicitTrial = !storedPlan && Date.now() < canonicalTrialEnd.getTime();
-  const isExpiredTrial = (subscriptionStatus === 'trialing' || isImplicitTrial) && Date.now() >= trialEndsAt.getTime();
+    : 'suspended';
 
   if (subscriptionPlan === 'internal_unlimited') return { subscriptionPlan, subscriptionStatus: 'active' as const, trialStartedAt: null, trialEndsAt: null };
-  if (isExpiredTrial) return { subscriptionPlan: 'free' as const, subscriptionStatus: 'active' as const, trialStartedAt: createdAt.toISOString(), trialEndsAt: trialEndsAt.toISOString() };
-  if (isImplicitTrial) return { subscriptionPlan: 'professional' as const, subscriptionStatus: 'trialing' as const, trialStartedAt: createdAt.toISOString(), trialEndsAt: trialEndsAt.toISOString() };
   return {
     subscriptionPlan,
     subscriptionStatus,
     trialStartedAt: readDate(data.trialStartedAt)?.toISOString() || null,
-    trialEndsAt: storedTrialEnd?.toISOString() || null
+    trialEndsAt: readDate(data.trialEndsAt)?.toISOString() || null
   };
 };
 

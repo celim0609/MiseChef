@@ -53,6 +53,7 @@ import { workspaceService } from './services/workspaceService';
 import { ensureNewUserProvisioned } from './services/newUserProvisioningService';
 import { shouldShowWorkspaceSetup } from './services/newUserProvisioningModel';
 import { usageLimitService } from './services/usageLimitService';
+import { hasActiveBusinessEntitlement, subscriptionService } from './services/subscriptionService';
 import { canAccessRootTab, getStorePermissions, normalizeTeamRole } from './modules/team/permissions';
 import { getAuthenticatedDisplayName, getChefProfileStorageKey } from './utils/authenticatedUser';
 import { WorkspaceRegionProvider } from './regions';
@@ -84,12 +85,15 @@ const isMarketingPath = (pathname: string) => MARKETING_PATHS.has(pathname);
 const APP_ROOT_PATH = '/app';
 const isAppPath = (pathname: string) => pathname === APP_ROOT_PATH || pathname.startsWith(`${APP_ROOT_PATH}/`);
 
-const SUBSCRIPTION_GATED_PRODUCT_TABS = new Set<RootTab>([
-  'search',
-  'favorites',
+const BUSINESS_WORKSPACE_TABS = new Set<RootTab>([
+  'statistics',
+  'team',
+  'store',
+  'storePos',
   'business',
   'businessSales',
   'businessSuppliers',
+  'personalExpenses',
   'costing',
   'costingIngredients',
   'costingInvoices',
@@ -645,6 +649,7 @@ export default function App() {
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>('user');
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [currentWorkspace, setCurrentWorkspace] = useState<Workspace | null>(null);
+  const [businessEntitlement, setBusinessEntitlement] = useState<{ workspaceId: string; allowed: boolean } | null>(null);
   const [chefProfile, setChefProfile] = useState<ChefProfile>(DEFAULT_CHEF_PROFILE);
   const [customAvatarUrl, setCustomAvatarUrl] = useState('');
   const [selectedCostingInvoiceId, setSelectedCostingInvoiceId] = useState<string | null>(() => getCostingInvoiceIdFromPath(window.location.pathname));
@@ -693,6 +698,30 @@ export default function App() {
       : isGuestMode
         ? 'Viewer'
         : null;
+  const hasBusinessEntitlement = Boolean(
+    currentWorkspace
+    && businessEntitlement?.workspaceId === currentWorkspace.id
+    && businessEntitlement.allowed
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    setBusinessEntitlement(null);
+    if (!currentUser || !currentWorkspace || isGuestMode) return;
+
+    subscriptionService.getCompanySubscription(currentWorkspace.id)
+      .then(subscription => {
+        if (!cancelled) setBusinessEntitlement({
+          workspaceId: currentWorkspace.id,
+          allowed: hasActiveBusinessEntitlement(subscription)
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setBusinessEntitlement({ workspaceId: currentWorkspace.id, allowed: false });
+      });
+
+    return () => { cancelled = true; };
+  }, [currentUser, currentWorkspace, isGuestMode]);
 
   useEffect(() => {
     setStoreNotifications([]);
@@ -700,6 +729,7 @@ export default function App() {
     if (
       !currentUser
       || !currentWorkspace
+      || !hasBusinessEntitlement
       || !getStorePermissions(currentWorkspaceRole).viewOrders
     ) {
       return;
@@ -712,7 +742,7 @@ export default function App() {
         type: 'error'
       })
     );
-  }, [currentUser, currentWorkspace, currentWorkspaceRole]);
+  }, [currentUser, currentWorkspace, currentWorkspaceRole, hasBusinessEntitlement]);
 
   const handleRootNavigate = (tab: RootTab) => {
     if (addingRecipe || editingRecipe) {
@@ -739,10 +769,17 @@ export default function App() {
       return;
     }
 
-    const shouldEnforceRoleAccess = !SUBSCRIPTION_GATED_PRODUCT_TABS.has(tab);
+    if (BUSINESS_WORKSPACE_TABS.has(tab) && !hasBusinessEntitlement) {
+      setActiveTab('home');
+      setSelectedCostingInvoiceId(null);
+      setIsNavigationDrawerOpen(false);
+      window.history.replaceState(null, '', ROOT_TAB_PATHS.home);
+      triggerNotification('An active Workspace Business subscription is required for that area.', 'info');
+      return;
+    }
+
     const canAccess = !currentUser
       || !currentWorkspace
-      || !shouldEnforceRoleAccess
       || canAccessRootTab(tab, currentWorkspaceRole, currentUserRole === 'super_admin');
     if (!canAccess) {
       setActiveTab('home');
@@ -762,7 +799,7 @@ export default function App() {
   const availableQuickAddActions = getAvailableQuickAddActions(
     currentWorkspaceRole,
     currentUserRole === 'super_admin'
-  );
+  ).filter(action => hasBusinessEntitlement || action.id === 'recipe');
 
   const handleQuickAdd = (actionId: QuickAddActionId) => {
     const action = getQuickAddAction(actionId);
@@ -1032,12 +1069,12 @@ export default function App() {
     if (
       currentUser
       && currentWorkspace
-      && !SUBSCRIPTION_GATED_PRODUCT_TABS.has(activeTab)
-      && !canAccessRootTab(activeTab, currentWorkspaceRole, currentUserRole === 'super_admin')
+      && ((BUSINESS_WORKSPACE_TABS.has(activeTab) && !hasBusinessEntitlement)
+        || !canAccessRootTab(activeTab, currentWorkspaceRole, currentUserRole === 'super_admin'))
     ) {
       handleRootNavigate('home');
     }
-  }, [activeTab, currentUser, currentUserRole, currentWorkspace, currentWorkspaceRole]);
+  }, [activeTab, currentUser, currentUserRole, currentWorkspace, currentWorkspaceRole, hasBusinessEntitlement]);
 
   useEffect(() => {
     const pathname = window.location.pathname;
@@ -1822,6 +1859,10 @@ export default function App() {
       );
     }
 
+    if (BUSINESS_WORKSPACE_TABS.has(activeTab) && !hasBusinessEntitlement) {
+      return null;
+    }
+
     switch (activeTab) {
       case 'home':
         return (
@@ -1848,6 +1889,7 @@ export default function App() {
             onQuickAdd={handleQuickAdd}
             onNavigate={handleRootNavigate}
             onboardingGoals={onboarding.goals}
+            businessEnabled={hasBusinessEntitlement}
           />
         );
       case 'favorites':
@@ -2265,6 +2307,7 @@ export default function App() {
           currentUserRole={currentUserRole}
           workspaceRole={currentWorkspaceRole}
           workspaceId={activeWorkspaceId}
+          hasBusinessEntitlement={hasBusinessEntitlement}
           customAvatarUrl={customAvatarUrl}
           onRenameCategory={handleRenameCategory}
           onDeleteCategory={handleDeleteCategory}

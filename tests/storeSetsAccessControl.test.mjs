@@ -37,6 +37,7 @@ after(async () => testEnv.cleanup());
 const authDb = (uid) => testEnv.authenticatedContext(uid, { email: `${uid}@example.test` }).firestore();
 const seedWorkspace = async () => testEnv.withSecurityRulesDisabled(async context => {
   const db = context.firestore();
+  await setDoc(doc(db, 'workspaces', 'workspace'), { id: 'workspace', ownerId: 'owner', subscriptionPlan: 'professional', subscriptionStatus: 'active' });
   await setDoc(doc(db, 'stores', 'workspace'), { id: 'workspace', workspaceId: 'workspace' });
   await Promise.all([
     setDoc(doc(db, 'workspaceMembers', 'workspace_owner'), { workspaceId: 'workspace', userId: 'owner', role: 'Owner', status: 'Active' }),

@@ -12,6 +12,12 @@ const snapshot = value => ({
   data: () => value
 });
 
+const activeBusinessWorkspace = workspace => ({
+  subscriptionPlan: 'professional',
+  subscriptionStatus: 'active',
+  ...workspace
+});
+
 const createFakeDb = documents => {
   const writes = [];
   const reference = (collectionName, id) => ({
@@ -29,7 +35,14 @@ const createFakeDb = documents => {
     },
     runTransaction: handler => handler({
       get: ref => {
-        if (!ref.query) return Promise.resolve(snapshot(documents[ref.key]));
+        if (!ref.query) {
+          const value = documents[ref.key];
+          return Promise.resolve(snapshot(
+            ref.collectionName === 'workspaces' && value !== undefined
+              ? activeBusinessWorkspace(value)
+              : value
+          ));
+        }
         const fieldValue = (data, field) => field.split('.').reduce((value, key) => value?.[key], data);
         return Promise.resolve({
           docs: Object.entries(documents)
@@ -102,6 +115,23 @@ test('New, Paid, Preparing, and Ready can cancel while Completed cannot', () => 
   }
   assert.equal(canTransitionStoreFulfilment({ currentStatus: 'Completed', nextStatus: 'Cancelled' }), false);
   assert.equal(canTransitionStoreFulfilment({ currentStatus: 'Cancelled', nextStatus: 'Preparing' }), false);
+});
+
+test('Store fulfilment fails closed without an active Business entitlement', async () => {
+  const db = createFakeDb({
+    'storeOrders/order-a': paidOrder,
+    'workspaces/workspace-a': { ownerId: 'owner-a', subscriptionPlan: 'free', subscriptionStatus: 'active' }
+  });
+  await assert.rejects(
+    updateStoreOrderFulfilment({
+      db,
+      uid: 'owner-a',
+      orderId: 'order-a',
+      nextStatus: 'Preparing'
+    }),
+    error => error?.code === 'permission-denied' && /Business subscription/.test(error.message)
+  );
+  assert.equal(db.writes.length, 0);
 });
 
 test('cancellation preserves payment data and writes the required audit fields', async () => {

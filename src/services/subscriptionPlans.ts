@@ -57,18 +57,29 @@ export const SUPPORTED_SUBSCRIPTION_PLAN_ORDER: SubscriptionPlan[] = [...SUBSCRI
 
 const enabledCoreFeatures = {
   recipes: true,
+  ingredients: false,
+  suppliers: false,
+  invoiceOcr: false,
+  aiRequests: false,
+  teamMembers: false,
+  finance: false,
+  store: false,
+  orders: false,
+  reports: false,
+  export: false,
+  multipleWorkspaces: false,
+  inventory: false
+};
+
+const enabledBusinessFeatures = {
+  ...enabledCoreFeatures,
   ingredients: true,
   suppliers: true,
   invoiceOcr: true,
   aiRequests: true,
-  teamMembers: false,
-  finance: false,
   store: true,
   orders: true,
-  reports: false,
-  export: false,
-  multipleWorkspaces: true,
-  inventory: false
+  multipleWorkspaces: true
 };
 
 export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, SubscriptionPlanDefinition> = {
@@ -84,18 +95,18 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, SubscriptionPlanDefini
     },
     limits: {
       recipes: 25,
-      ingredients: UNLIMITED_PLAN_LIMIT,
-      suppliers: 5,
-      invoices: 10,
-      invoiceOcr: 10,
-      aiRequests: 25,
-      aiTokens: 250_000,
-      aiCostBudgetUSD: 2,
-      teamMembers: 1,
+      ingredients: 0,
+      suppliers: 0,
+      invoices: 0,
+      invoiceOcr: 0,
+      aiRequests: 0,
+      aiTokens: 0,
+      aiCostBudgetUSD: 0,
+      teamMembers: 0,
       storageMB: 250,
-      workspaces: UNLIMITED_PLAN_LIMIT,
-      products: 20,
-      ordersMonthly: 50
+      workspaces: 0,
+      products: 0,
+      ordersMonthly: 0
     }
   },
   starter: {
@@ -106,7 +117,7 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, SubscriptionPlanDefini
     requiresPayment: true,
     expires: false,
     features: {
-      ...enabledCoreFeatures,
+      ...enabledBusinessFeatures,
       export: true
     },
     limits: {
@@ -133,7 +144,7 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, SubscriptionPlanDefini
     requiresPayment: true,
     expires: false,
     features: {
-      ...enabledCoreFeatures,
+      ...enabledBusinessFeatures,
       teamMembers: true,
       finance: true,
       reports: true,
@@ -163,7 +174,7 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, SubscriptionPlanDefini
     requiresPayment: true,
     expires: false,
     features: {
-      ...enabledCoreFeatures,
+      ...enabledBusinessFeatures,
       teamMembers: true,
       finance: true,
       reports: true,

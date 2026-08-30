@@ -16,6 +16,13 @@ const makeSnapshot = (id, value) => ({
 
 const createFakeDb = documents => {
   documents = structuredClone(documents);
+  Object.keys(documents).filter(key => key.startsWith('workspaces/')).forEach(key => {
+    documents[key] = {
+      subscriptionPlan: 'professional',
+      subscriptionStatus: 'active',
+      ...documents[key]
+    };
+  });
   const writes = [];
   let transactionQueue = Promise.resolve();
   const applyUpdate = (ref, data) => {
@@ -106,6 +113,18 @@ test('Store Owner can approve a manual payment and the decision is audited', asy
   assert.equal(db.writes[1].data.actingUserId, 'owner-a');
   assert.equal(db.writes[2].ref.key, 'storeNotifications/payment-approved_order-a');
   assert.equal(db.writes[2].data.type, 'payment_approved');
+});
+
+test('manual payment review fails closed when Business entitlement is absent', async () => {
+  const db = createFakeDb({
+    'storeOrders/order-a': pendingOrder,
+    'workspaces/workspace-a': { ownerId: 'owner-a', subscriptionPlan: 'free', subscriptionStatus: 'active' }
+  });
+  await assert.rejects(
+    reviewManualStorePayment({ db, uid: 'owner-a', orderId: 'order-a', decision: 'approve' }),
+    /active Workspace Business subscription/
+  );
+  assert.equal(db.writes.length, 0);
 });
 
 test('a user outside the Workspace cannot approve or reject payment', async () => {

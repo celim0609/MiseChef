@@ -11,8 +11,8 @@ const SUPPORTED_PLAN_ORDER = [...PLAN_ORDER, 'internal_unlimited'];
 export const SUBSCRIPTION_PLANS = Object.freeze({
   free: Object.freeze({
     availability: 'public', requiresPayment: false, expires: false,
-    features: Object.freeze({ recipes: true, ingredients: true, suppliers: true, invoiceOcr: true, aiRequests: true, teamMembers: false, finance: false, store: true, orders: true, reports: false, export: false, multipleWorkspaces: true, inventory: false }),
-    limits: Object.freeze({ recipes: 25, ingredients: UNLIMITED, suppliers: 5, invoices: 10, invoiceOcr: 10, aiRequests: 25, aiTokens: 250_000, aiCostBudgetUSD: 2, teamMembers: 1, storageMB: 250, workspaces: UNLIMITED, products: 20, ordersMonthly: 50 })
+    features: Object.freeze({ recipes: true, ingredients: false, suppliers: false, invoiceOcr: false, aiRequests: false, teamMembers: false, finance: false, store: false, orders: false, reports: false, export: false, multipleWorkspaces: false, inventory: false }),
+    limits: Object.freeze({ recipes: 25, ingredients: 0, suppliers: 0, invoices: 0, invoiceOcr: 0, aiRequests: 0, aiTokens: 0, aiCostBudgetUSD: 0, teamMembers: 0, storageMB: 250, workspaces: 0, products: 0, ordersMonthly: 0 })
   }),
   starter: Object.freeze({
     availability: 'public', requiresPayment: true, expires: false,
@@ -54,10 +54,22 @@ const normalizePlan = value => {
 
 const normalizeStatus = value => {
   const status = readString(value).toLowerCase();
-  return ['active', 'trialing', 'past_due', 'cancelled', 'suspended'].includes(status) ? status : 'active';
+  return ['active', 'trialing', 'past_due', 'cancelled', 'suspended'].includes(status) ? status : 'suspended';
 };
 
-export const resolveWorkspaceSubscription = ({ data = {}, createTime, now = new Date() }) => {
+const BUSINESS_PLANS = new Set(['starter', 'professional', 'business', 'internal_unlimited']);
+
+export const hasActiveBusinessEntitlement = (subscription, now = new Date()) => {
+  const plan = normalizePlan(subscription?.subscriptionPlan);
+  const status = readString(subscription?.subscriptionStatus).toLowerCase();
+  if (!BUSINESS_PLANS.has(plan)) return false;
+  if (status === 'active') return true;
+  if (status !== 'trialing') return false;
+  const trialEndsAt = readDate(subscription?.trialEndsAt);
+  return Boolean(trialEndsAt && now < trialEndsAt);
+};
+
+export const resolveWorkspaceSubscription = ({ data = {}, createTime, now = new Date(), allowTrialProvisioning = false }) => {
   // Idempotent provisioning may rerun after Firestore assigns createTime. Keep the
   // first committed trial start so a retry cannot shorten the original 14 days.
   const createdAt = readDate(data.trialStartedAt) || readDate(createTime) || readDate(data.createdAt) || now;
@@ -68,10 +80,11 @@ export const resolveWorkspaceSubscription = ({ data = {}, createTime, now = new 
   const storedPlan = hasSubscription ? normalizePlan(data.subscriptionPlan) : null;
   const isInternalUnlimited = storedPlan === 'internal_unlimited';
   const storedStatus = normalizeStatus(data.subscriptionStatus);
-  const isTrial = !isInternalUnlimited && (!hasSubscription || storedStatus === 'trialing');
+  const isProvisionedTrial = !hasSubscription && allowTrialProvisioning;
+  const isTrial = !isInternalUnlimited && (isProvisionedTrial || (hasSubscription && storedStatus === 'trialing'));
   const expired = isTrial && now >= trialEnd;
-  const plan = isInternalUnlimited ? 'internal_unlimited' : expired ? 'free' : !hasSubscription ? 'professional' : storedPlan;
-  const status = isInternalUnlimited ? 'active' : expired ? 'active' : !hasSubscription ? 'trialing' : storedStatus;
+  const plan = isInternalUnlimited ? 'internal_unlimited' : expired ? 'free' : isProvisionedTrial ? 'professional' : !hasSubscription ? 'free' : storedPlan;
+  const status = isInternalUnlimited ? 'active' : expired ? 'active' : isProvisionedTrial ? 'trialing' : !hasSubscription ? 'suspended' : storedStatus;
 
   return {
     subscriptionPlan: plan,
@@ -137,16 +150,17 @@ export const requireWorkspaceFeature = async ({ db, uid, workspaceId, feature })
   if (!Object.prototype.hasOwnProperty.call(subscription.features, feature)) {
     throw new HttpsError('invalid-argument', 'Unknown subscription feature.');
   }
+  if (!hasActiveBusinessEntitlement(subscription)) {
+    throw new HttpsError('permission-denied', 'A valid Business Workspace subscription is required.', {
+      reason: 'business-entitlement-required'
+    });
+  }
   if (!subscription.features[feature]) {
     const requiredPlan = PLAN_ORDER.find(plan => SUBSCRIPTION_PLANS[plan].features[feature]) || 'business';
     throw new HttpsError('permission-denied', 'Upgrade the workspace plan to use this feature.', {
       reason: 'subscription-feature-unavailable', feature, currentPlan: subscription.subscriptionPlan, requiredPlan
     });
   }
-  if (!['active', 'trialing'].includes(subscription.subscriptionStatus)) {
-    throw new HttpsError('permission-denied', 'The workspace subscription is not active.', { reason: 'subscription-inactive' });
-  }
-
   return { ...access, plan: subscription.subscriptionPlan, status: subscription.subscriptionStatus, features: subscription.features, limits: subscription.limits };
 };
 

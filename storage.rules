@@ -22,7 +22,7 @@ service firebase.storage {
     }
 
     function canManageWorkspace(workspaceId) {
-      return signedIn()
+      return hasActiveBusinessEntitlement(workspaceId)
         && (
           (
             firestore.exists(/databases/(default)/documents/workspaces/$(workspaceId))
@@ -37,7 +37,7 @@ service firebase.storage {
     }
 
     function canManageStoreProducts(workspaceId) {
-      return signedIn()
+      return hasActiveBusinessEntitlement(workspaceId)
         && (
           (
             firestore.exists(/databases/(default)/documents/workspaces/$(workspaceId))
@@ -47,6 +47,20 @@ service firebase.storage {
             firestore.exists(/databases/(default)/documents/workspaceMembers/$(workspaceId + "_" + request.auth.uid))
             && firestore.get(/databases/(default)/documents/workspaceMembers/$(workspaceId + "_" + request.auth.uid)).data.status == 'Active'
             && firestore.get(/databases/(default)/documents/workspaceMembers/$(workspaceId + "_" + request.auth.uid)).data.role in ['Owner', 'Manager', 'Head Chef']
+          )
+        );
+    }
+
+    function hasActiveBusinessEntitlement(workspaceId) {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/workspaces/$(workspaceId))
+        && firestore.get(/databases/(default)/documents/workspaces/$(workspaceId)).data.subscriptionPlan in ['starter', 'professional', 'business', 'internal_unlimited']
+        && (
+          firestore.get(/databases/(default)/documents/workspaces/$(workspaceId)).data.subscriptionStatus == 'active'
+          || (
+            firestore.get(/databases/(default)/documents/workspaces/$(workspaceId)).data.subscriptionStatus == 'trialing'
+            && firestore.get(/databases/(default)/documents/workspaces/$(workspaceId)).data.trialEndsAt is timestamp
+            && request.time < firestore.get(/databases/(default)/documents/workspaces/$(workspaceId)).data.trialEndsAt
           )
         );
     }
@@ -95,6 +109,7 @@ service firebase.storage {
 
     function hasAuthorizedInvoiceUpload(invoiceId, fileName) {
       return firestore.exists(/databases/(default)/documents/invoices/$(invoiceId))
+        && hasActiveBusinessEntitlement(firestore.get(/databases/(default)/documents/invoices/$(invoiceId)).data.workspaceId)
         && firestore.get(/databases/(default)/documents/invoices/$(invoiceId)).data.createdBy == request.auth.uid
         && firestore.get(/databases/(default)/documents/invoices/$(invoiceId)).data.storageFileName == fileName;
     }
@@ -212,25 +227,31 @@ service firebase.storage {
     }
 
     match /users/{userId}/costing/invoices/{invoiceId}/{fileName} {
-      allow read: if ownsPath(userId);
+      allow read: if ownsPath(userId)
+        && hasAuthorizedInvoiceUpload(invoiceId, fileName);
       allow create, update: if ownsPath(userId)
         && validInvoiceUpload()
         && hasAuthorizedInvoiceUpload(invoiceId, fileName);
-      allow delete: if ownsPath(userId);
+      allow delete: if ownsPath(userId)
+        && hasAuthorizedInvoiceUpload(invoiceId, fileName);
     }
 
     match /personal-expenses/{workspaceId}/{userId}/{expenseId}/{fileName} {
-      allow read: if (ownsPath(userId) && isActiveWorkspaceMember(workspaceId))
-        || canManageWorkspace(workspaceId);
-      allow create: if ownsPath(userId)
+      allow read: if hasActiveBusinessEntitlement(workspaceId)
+        && ((ownsPath(userId) && isActiveWorkspaceMember(workspaceId))
+        || canManageWorkspace(workspaceId));
+      allow create: if hasActiveBusinessEntitlement(workspaceId)
+        && ownsPath(userId)
         && isActiveWorkspaceMember(workspaceId)
         && !isCommittedPersonalExpenseReceipt(workspaceId, userId, expenseId, fileName)
         && (validImageUpload(10 * 1024 * 1024) || validPdfUpload(10 * 1024 * 1024));
-      allow update: if ownsPath(userId)
+      allow update: if hasActiveBusinessEntitlement(workspaceId)
+        && ownsPath(userId)
         && isActiveWorkspaceMember(workspaceId)
         && !isCommittedPersonalExpenseReceipt(workspaceId, userId, expenseId, fileName)
         && (validImageUpload(10 * 1024 * 1024) || validPdfUpload(10 * 1024 * 1024));
-      allow delete: if ownsPath(userId)
+      allow delete: if hasActiveBusinessEntitlement(workspaceId)
+        && ownsPath(userId)
         && isActiveWorkspaceMember(workspaceId)
         && !isCommittedPersonalExpenseReceipt(workspaceId, userId, expenseId, fileName);
     }

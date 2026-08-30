@@ -57,8 +57,8 @@ after(async () => {
 const seedWorkspaces = async () => testEnv.withSecurityRulesDisabled(async rulesDisabled => {
   const db = rulesDisabled.firestore();
   await Promise.all([
-    setDoc(doc(db, 'workspaces', workspaceA), { ownerId: ownerA }),
-    setDoc(doc(db, 'workspaces', workspaceB), { ownerId: ownerB }),
+    setDoc(doc(db, 'workspaces', workspaceA), { ownerId: ownerA, subscriptionPlan: 'professional', subscriptionStatus: 'active' }),
+    setDoc(doc(db, 'workspaces', workspaceB), { ownerId: ownerB, subscriptionPlan: 'professional', subscriptionStatus: 'active' }),
     setDoc(doc(db, 'workspaceMembers', `${workspaceA}_${ownerA}`), { workspaceId: workspaceA, userId: ownerA, role: 'Owner', status: 'Active' }),
     setDoc(doc(db, 'workspaceMembers', memberAId), { workspaceId: workspaceA, userId: 'member-a', role: 'Chef', status: 'Active' }),
     setDoc(doc(db, 'workspaceMembers', financeAId), { workspaceId: workspaceA, userId: financeA, role: 'Finance', status: 'Active' }),

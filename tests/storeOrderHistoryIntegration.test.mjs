@@ -38,7 +38,7 @@ test('actual new-order writes remain queryable after Completed and Cancelled tra
     price: 5.9, available: true, optionGroupIds: []
   };
   await Promise.all([
-    db.collection('workspaces').doc(workspaceId).set({ ownerId }),
+    db.collection('workspaces').doc(workspaceId).set({ ownerId, subscriptionPlan: 'professional', subscriptionStatus: 'active' }),
     db.collection('stores').doc(workspaceId).set(store),
     db.collection('storeProducts').doc(`${workspaceId}-product`).set(product),
     db.collection('groupOrders').doc(groupId).set({
