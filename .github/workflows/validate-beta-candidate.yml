@@ -32,7 +32,7 @@ jobs:
       - name: Check out trusted default branch
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'main' }}
           path: trusted-main
           fetch-depth: 0
 
@@ -79,14 +79,72 @@ jobs:
       - name: Run trusted gate anti-tampering tests
         run: npm --prefix "${{ steps.select-gate.outputs.gate_root }}" run test:beta-gate
 
+      - name: Test trusted or proposed PR scope classifier
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          if [[ -f "$GITHUB_WORKSPACE/trusted-main/scripts/classifyPullRequestScope.test.mjs" ]]; then
+            classifier_root="$GITHUB_WORKSPACE/trusted-main"
+          elif [[ -f "$GITHUB_WORKSPACE/proposed-gate/scripts/classifyPullRequestScope.test.mjs" ]]; then
+            classifier_root="$GITHUB_WORKSPACE/proposed-gate"
+          else
+            echo "No complete trusted or proposed PR scope classifier is available." >&2
+            exit 1
+          fi
+          node --test "$classifier_root/scripts/classifyPullRequestScope.test.mjs"
+
       - name: Report bootstrap validation mode
         if: ${{ steps.select-gate.outputs.full_validation_ready != 'true' }}
         run: |
           echo "Bootstrap integrity passed. Full Release #16 candidate validation becomes available after this trusted gate lands on main."
 
-  validate-beta-candidate:
+  classify_pr_scope:
     needs: gate-integrity
     if: ${{ needs.gate-integrity.outputs.full_validation_ready == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      scope: ${{ steps.classify.outputs.scope }}
+    steps:
+      - name: Check out exact trusted gate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate-integrity.outputs.trusted_sha }}
+          path: trusted-gate
+          fetch-depth: 0
+
+      - name: Check out exact proposed tree
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.candidate_ref }}
+          path: candidate
+          fetch-depth: 0
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Classify exact trusted base/head diff
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}
+        run: >-
+          node "$GITHUB_WORKSPACE/trusted-gate/scripts/classifyPullRequestScope.mjs"
+          --event "$EVENT_NAME"
+          --repository "$GITHUB_WORKSPACE/candidate"
+          --candidate-root "$GITHUB_WORKSPACE/candidate"
+          --base "$BASE_SHA"
+          --head "$HEAD_SHA"
+
+  full_beta_candidate_validation:
+    name: full-beta-candidate-validation
+    needs: [gate-integrity, classify_pr_scope]
+    if: >-
+      ${{ needs.gate-integrity.outputs.full_validation_ready == 'true'
+          && (needs.classify_pr_scope.outputs.scope == 'application'
+              || needs.classify_pr_scope.outputs.scope == 'mixed') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -157,3 +215,132 @@ jobs:
           node "$GITHUB_WORKSPACE/trusted-gate/scripts/runBetaProtectedTests.mjs"
           --trusted-root "$GITHUB_WORKSPACE/trusted-gate"
           --candidate-root "$GITHUB_WORKSPACE/candidate"
+
+  production_controller_validation:
+    name: production-controller-validation
+    needs: [gate-integrity, classify_pr_scope]
+    if: >-
+      ${{ needs.gate-integrity.outputs.full_validation_ready == 'true'
+          && (needs.classify_pr_scope.outputs.scope == 'production-controller-only'
+              || needs.classify_pr_scope.outputs.scope == 'mixed') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact trusted gate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate-integrity.outputs.trusted_sha }}
+          path: trusted-gate
+          fetch-depth: 0
+
+      - name: Check out exact controller candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+          fetch-depth: 0
+
+      - name: Verify exact candidate SHA
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Controller candidate SHA must be an exact lowercase 40-character Git SHA." >&2
+            exit 1
+          fi
+          test "$(git -C "$GITHUB_WORKSPACE/candidate" rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Reprove trusted controller diff scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          node "$GITHUB_WORKSPACE/trusted-gate/scripts/classifyPullRequestScope.mjs"
+          --event pull_request
+          --repository "$GITHUB_WORKSPACE/candidate"
+          --candidate-root "$GITHUB_WORKSPACE/candidate"
+          --base "$BASE_SHA"
+          --head "$HEAD_SHA"
+
+      - name: Validate Production controller JavaScript syntax
+        run: |
+          node --check "$GITHUB_WORKSPACE/candidate/scripts/deployProduction.mjs"
+          node --check "$GITHUB_WORKSPACE/candidate/scripts/productionDeploymentSafety.mjs"
+          node --check "$GITHUB_WORKSPACE/candidate/scripts/productionDeploymentSafety.test.mjs"
+          node --check "$GITHUB_WORKSPACE/candidate/scripts/productionLiveRelease.mjs"
+          node --check "$GITHUB_WORKSPACE/candidate/scripts/validateProductionPredeploy.mjs"
+
+      - name: Validate Production workflow YAML and invariants
+        run: |
+          ruby -e "require 'yaml'; YAML.load_file(ARGV.fetch(0)); puts 'Production workflow YAML parsed.'" \
+            "$GITHUB_WORKSPACE/candidate/.github/workflows/deploy-production.yml"
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const root = process.argv[1];
+            const workflow = readFileSync(`${root}/.github/workflows/deploy-production.yml`, "utf8");
+            const safety = readFileSync(`${root}/scripts/productionDeploymentSafety.mjs`, "utf8");
+            if (!/^on:\n  workflow_dispatch:/m.test(workflow)) throw new Error("Production workflow is not manual-only.");
+            if (/^  (?:push|pull_request|schedule):/m.test(workflow)) throw new Error("Production workflow has an automatic trigger.");
+            if (!workflow.includes("environment: production")) throw new Error("Production Environment approval is absent.");
+            if (!workflow.includes("FIREBASE_SERVICE_ACCOUNT_MISECHEF_PRODUCTION")) throw new Error("Production credential binding is absent.");
+            if (workflow.includes("FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA")) throw new Error("Beta credentials are forbidden.");
+            for (const marker of ["misechef-fa4bf", "misechef-fa4bf.firebasestorage.app", "https://misechef.ai"]) {
+              if (!safety.includes(marker)) throw new Error(`Production authority marker is absent: ${marker}`);
+            }
+          ' "$GITHUB_WORKSPACE/candidate"
+
+      - name: Run Production controller safety tests
+        run: node --test "$GITHUB_WORKSPACE/candidate/scripts/productionDeploymentSafety.test.mjs"
+
+      - name: Check controller diff whitespace
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: git -C "$GITHUB_WORKSPACE/candidate" diff --check "$BASE_SHA...$HEAD_SHA"
+
+  validation_result:
+    name: validate-beta-candidate
+    if: ${{ always() }}
+    needs:
+      - gate-integrity
+      - classify_pr_scope
+      - full_beta_candidate_validation
+      - production_controller_validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require trusted gate authority before aggregation
+        env:
+          GATE_RESULT: ${{ needs.gate-integrity.result }}
+          TRUSTED_SHA: ${{ needs.gate-integrity.outputs.trusted_sha }}
+        run: |
+          test "$GATE_RESULT" = success
+          [[ "$TRUSTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Check out exact trusted gate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.gate-integrity.outputs.trusted_sha }}
+          path: trusted-gate
+          fetch-depth: 0
+
+      - name: Require the validator selected by trusted scope
+        env:
+          GATE_RESULT: ${{ needs.gate-integrity.result }}
+          CLASSIFIER_RESULT: ${{ needs.classify_pr_scope.result }}
+          SCOPE: ${{ needs.classify_pr_scope.outputs.scope }}
+          APPLICATION_RESULT: ${{ needs.full_beta_candidate_validation.result }}
+          CONTROLLER_RESULT: ${{ needs.production_controller_validation.result }}
+        run: >-
+          node "$GITHUB_WORKSPACE/trusted-gate/scripts/classifyPullRequestScope.mjs"
+          --aggregate
+          --gate-result "$GATE_RESULT"
+          --classifier-result "$CLASSIFIER_RESULT"
+          --scope "$SCOPE"
+          --application-result "$APPLICATION_RESULT"
+          --controller-result "$CONTROLLER_RESULT"
