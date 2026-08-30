@@ -19,43 +19,60 @@ const fetchText = async url => {
   return { text: await response.text(), etag: response.headers.get('etag') || '' };
 };
 
-const firebaseClient = ({ urlPrefix, apiVersion }) => {
+let adcAuth;
+const getAdcAuth = () => {
+  if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    throw new Error('Production verification requires GOOGLE_APPLICATION_CREDENTIALS from the service-account authentication step.');
+  }
+  if (adcAuth) return adcAuth;
   const globalRoot = execFileSync('npm', ['root', '--global'], { encoding: 'utf8' }).trim();
-  const require = createRequire(import.meta.url);
-  const { Client } = require(path.join(globalRoot, 'firebase-tools', 'lib', 'apiv2.js'));
-  return new Client({ urlPrefix, apiVersion });
+  const firebaseRequire = createRequire(path.join(globalRoot, 'firebase-tools', 'package.json'));
+  const { GoogleAuth } = firebaseRequire('google-auth-library');
+  adcAuth = new GoogleAuth({
+    projectId: PRODUCTION_PROJECT_ID,
+    scopes: ['https://www.googleapis.com/auth/cloud-platform']
+  });
+  return adcAuth;
 };
 
-const readHostingVersion = async () => {
-  const client = firebaseClient({
-    urlPrefix: 'https://firebasehosting.googleapis.com',
-    apiVersion: 'v1beta1'
-  });
-  const response = await client.get(`/sites/${PRODUCTION_SITE_ID}/releases`, {
-    queryParams: { pageSize: 1 }
-  });
-  return response.body?.releases?.[0]?.version?.name || '';
+export const createProductionGoogleApiReader = request => {
+  if (typeof request !== 'function') throw new Error('An authenticated Google API request function is required.');
+
+  const readHostingVersion = async () => {
+    const response = await request({
+      method: 'GET',
+      url: `https://firebasehosting.googleapis.com/v1beta1/sites/${PRODUCTION_SITE_ID}/releases`,
+      params: { pageSize: 1 }
+    });
+    return response.data?.releases?.[0]?.version?.name || '';
+  };
+
+  const readProductionFunctions = async () => {
+    const functions = [];
+    let pageToken = '';
+    do {
+      const params = { pageSize: 1000 };
+      if (pageToken) params.pageToken = pageToken;
+      const response = await request({
+        method: 'GET',
+        url: `https://cloudfunctions.googleapis.com/v2/projects/${PRODUCTION_PROJECT_ID}/locations/-/functions`,
+        params
+      });
+      functions.push(...(response.data?.functions || []));
+      pageToken = response.data?.nextPageToken || '';
+    } while (pageToken);
+    return functions.map(item => ({
+      id: (item.name || '').split('/').pop(),
+      state: item.state || ''
+    }));
+  };
+
+  return { readHostingVersion, readProductionFunctions };
 };
 
-export const readProductionFunctions = async () => {
-  const client = firebaseClient({
-    urlPrefix: 'https://cloudfunctions.googleapis.com',
-    apiVersion: 'v2'
-  });
-  const functions = [];
-  let pageToken = '';
-  do {
-    const queryParams = { pageSize: 1000 };
-    if (pageToken) queryParams.pageToken = pageToken;
-    const response = await client.get(`/projects/${PRODUCTION_PROJECT_ID}/locations/-/functions`, { queryParams });
-    functions.push(...(response.body?.functions || []));
-    pageToken = response.body?.nextPageToken || '';
-  } while (pageToken);
-  return functions.map(item => ({
-    id: (item.name || '').split('/').pop(),
-    state: item.state || ''
-  }));
-};
+const productionGoogleApi = createProductionGoogleApiReader(options => getAdcAuth().request(options));
+const readHostingVersion = productionGoogleApi.readHostingVersion;
+export const readProductionFunctions = productionGoogleApi.readProductionFunctions;
 
 export const readLiveProductionFingerprint = async () => {
   const nonce = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
