@@ -21,6 +21,7 @@ import {
   createInvoiceUploadReservation,
   releaseMonthlySubscriptionUsage,
   requireWorkspaceEntitlements,
+  reservePersonalResumeImportUsage,
   reserveMonthlySubscriptionUsage
 } from './subscriptionEnforcement.js';
 import {
@@ -70,6 +71,8 @@ import { sanitizeExtractedPersonalExpenseMerchant } from './personalExpenseRecei
 import { loadPublicDiscoverStores } from './publicDiscover.js';
 import { loadPublicHomepagePromotions } from './homepagePromotions.js';
 import {
+  authorizePersonalResumeImportJob,
+  claimPersonalResumeImportJob,
   getResumeImportClientJobPath,
   getResumeImportJobError,
   withResumeImportTimeout
@@ -1872,11 +1875,10 @@ export const parseResumeToPortfolio = onCall({
   const jobReference = db.collection('resumeImportJobs').doc();
   const clientJobReference = db.doc(getResumeImportClientJobPath(requesterId, jobReference.id));
   const createdAt = FieldValue.serverTimestamp();
-  const workspaceId = readString(request.data?.workspaceId) || requesterId;
   const job = {
     status: 'pending',
     uid: requesterId,
-    workspaceId,
+    workspaceId: requesterId,
     resumeText,
     debug: request.data?.debug === true,
     createdAt,
@@ -1950,20 +1952,21 @@ export const processResumeImportJob = onDocumentCreated({
     if (!requesterId || !resumeText || resumeText.length < 80 || resumeText.length > 50_000) {
       throw new HttpsError('invalid-argument', 'Resume import job data is invalid.');
     }
-    const entitlementPromise = requireWorkspaceEntitlements({
-      db,
-      uid: requesterId,
-      workspaceId
+    const personalAuthorization = authorizePersonalResumeImportJob({
+      requesterId,
+      personalScopeId: workspaceId
     });
-    const [, entitlements] = await Promise.all([
-      updateJob({ status: 'processing' }),
-      entitlementPromise
-    ]);
-    companyId = entitlements.workspaceId;
-    usageReservation = await reserveMonthlySubscriptionUsage({
+    const claimed = await claimPersonalResumeImportJob({
       db,
-      entitlements,
-      increments: { aiRequests: 1 }
+      jobReference: jobSnapshot.ref,
+      clientJobReference,
+      requesterId,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    if (!claimed) return;
+    usageReservation = await reservePersonalResumeImportUsage({
+      db,
+      userId: personalAuthorization.userId
     });
 
     const prompt = buildResumeImportPrompt(resumeText);
