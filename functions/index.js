@@ -1909,7 +1909,7 @@ export const processResumeImportJob = onDocumentCreated({
   secrets: [geminiApiKey],
   timeoutSeconds: 120,
   memory: '256MiB',
-  minInstances: 1
+  minInstances: 0
 }, async event => {
   const jobSnapshot = event.data;
   if (!jobSnapshot) return;
