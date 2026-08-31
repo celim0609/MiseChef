@@ -85,8 +85,8 @@ const enabledBusinessFeatures = {
 export const SUBSCRIPTION_PLANS: Record<SubscriptionPlan, SubscriptionPlanDefinition> = {
   free: {
     id: 'free',
-    name: 'Free',
-    description: 'Starter workspace for trying MiseChef.',
+    name: 'Personal',
+    description: 'Free personal recipes, orders, Host Center, and profile without Business Workspace access.',
     availability: 'public',
     requiresPayment: false,
     expires: false,

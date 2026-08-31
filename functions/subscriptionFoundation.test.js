@@ -93,19 +93,19 @@ test('subscription foundation has no payment-provider integration', () => {
   assert.doesNotMatch(source, /stripe|checkout|paymentintent|webhook/i);
 });
 
-test('a new workspace receives a 14-day Professional trial', () => {
+test('a new workspace never receives a Business trial implicitly', () => {
   const createdAt = new Date('2026-08-01T00:00:00.000Z');
   const subscription = resolveWorkspaceSubscription({
     data: {},
     createTime: createdAt,
-    now: new Date(createdAt.getTime() + day),
-    allowTrialProvisioning: true
+    now: new Date(createdAt.getTime() + day)
   });
 
   assert.equal(FREE_TRIAL_DAYS, 14);
-  assert.equal(subscription.subscriptionPlan, 'professional');
-  assert.equal(subscription.subscriptionStatus, 'trialing');
-  assert.equal(subscription.trialEndsAt.toDate().toISOString(), '2026-08-15T00:00:00.000Z');
+  assert.equal(subscription.subscriptionPlan, 'free');
+  assert.equal(subscription.subscriptionStatus, 'suspended');
+  assert.equal(subscription.trialStartedAt, null);
+  assert.equal(subscription.trialEndsAt, null);
 });
 
 test('missing subscription data never receives an implicit Business trial during authorization', () => {

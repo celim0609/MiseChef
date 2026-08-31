@@ -69,6 +69,23 @@ export default function SubscriptionCenterPage({ workspaceId, currentWorkspace, 
     setLoadError(false);
 
     const loadSubscriptionCenter = async () => {
+      if (!currentWorkspace) {
+        setSubscription({
+          workspaceId,
+          companyId: workspaceId,
+          subscriptionPlan: 'free',
+          subscriptionStatus: 'active',
+          billingCycle: 'monthly',
+          subscriptionStartedAt: '',
+          subscriptionRenewalAt: '',
+          subscriptionCancelledAt: null,
+          trialStartedAt: null,
+          trialEndsAt: null,
+          trialDaysRemaining: 0,
+          limits: subscriptionService.getPlanLimits('free')
+        });
+        return;
+      }
       const [nextSubscription, usageRecords] = await Promise.all([
         subscriptionService.getWorkspaceSubscription(workspaceId),
         aiUsageService.listWorkspaceUsage(workspaceId).catch(() => [])
@@ -94,13 +111,13 @@ export default function SubscriptionCenterPage({ workspaceId, currentWorkspace, 
     return () => {
       isCancelled = true;
     };
-  }, [workspaceId]);
+  }, [workspaceId, currentWorkspace]);
 
   const pageHeader = (
     <header>
-      <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Workspace subscription</p>
+      <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">{currentWorkspace ? 'Workspace subscription' : 'Personal plan'}</p>
       <h1 className="mt-1 font-display text-3xl font-semibold text-primary sm:text-4xl">Subscription Center</h1>
-      <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">Plan and usage information for the active workspace.</p>
+      <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">{currentWorkspace ? 'Plan and usage information for the active workspace.' : 'Your Personal plan and optional Business Workspace upgrades.'}</p>
     </header>
   );
 

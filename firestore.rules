@@ -181,7 +181,8 @@ service cloud.firestore {
     }
 
     function canAccessRecipes(workspaceId) {
-      return hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef']);
+      return (signedIn() && workspaceId == request.auth.uid)
+        || hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef']);
     }
 
     function canAccessInvoices(workspaceId) {

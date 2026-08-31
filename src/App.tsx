@@ -50,7 +50,7 @@ import { FALLBACK_CATEGORY_NAME, getRecipeCategories, normalizeRecipeCategories,
 import { normalizeIngredientForDisplay } from './utils/ingredientParser';
 import { getConfiguredRoleForUser, resolveUserRole } from './utils/userRoles';
 import { workspaceService } from './services/workspaceService';
-import { ensureNewUserProvisioned } from './services/newUserProvisioningService';
+import { ensureNewUserProvisioned, startBusinessTrial } from './services/newUserProvisioningService';
 import { shouldShowWorkspaceSetup } from './services/newUserProvisioningModel';
 import { usageLimitService } from './services/usageLimitService';
 import { hasActiveBusinessEntitlement, subscriptionService } from './services/subscriptionService';
@@ -635,6 +635,9 @@ export default function App() {
   const [sharingRecipe, setSharingRecipe] = useState<Recipe | null>(null);
   const [isNavigationDrawerOpen, setIsNavigationDrawerOpen] = useState(false);
   const [isCreateWorkspaceOpen, setIsCreateWorkspaceOpen] = useState(false);
+  const [isBusinessTrialGateOpen, setIsBusinessTrialGateOpen] = useState(false);
+  const [isStartingBusinessTrial, setIsStartingBusinessTrial] = useState(false);
+  const [businessTrialError, setBusinessTrialError] = useState('');
   const [selectedHomeCategory, setSelectedHomeCategory] = useState<string | null>(null);
   const [isFavoritesFilterActive, setIsFavoritesFilterActive] = useState(false);
   const [isAppReady, setIsAppReady] = useState(false);
@@ -760,6 +763,14 @@ export default function App() {
       setRecipeSaveError('');
     }
 
+    if (!currentUser && tab !== 'login') {
+      setActiveTab('login');
+      setSelectedCostingInvoiceId(null);
+      setIsNavigationDrawerOpen(false);
+      window.history.replaceState(null, '', '/login');
+      return;
+    }
+
     if (tab === 'admin' && currentUserRole !== 'super_admin') {
       setActiveTab('home');
       setSelectedCostingInvoiceId(null);
@@ -774,12 +785,17 @@ export default function App() {
       setSelectedCostingInvoiceId(null);
       setIsNavigationDrawerOpen(false);
       window.history.replaceState(null, '', ROOT_TAB_PATHS.home);
-      triggerNotification('An active Workspace Business subscription is required for that area.', 'info');
+      if (currentUser) {
+        setBusinessTrialError('');
+        setIsBusinessTrialGateOpen(true);
+      } else {
+        window.history.replaceState(null, '', '/login');
+        setActiveTab('login');
+      }
       return;
     }
 
-    const canAccess = !currentUser
-      || !currentWorkspace
+    const canAccess = !currentWorkspace
       || canAccessRootTab(tab, currentWorkspaceRole, currentUserRole === 'super_admin');
     if (!canAccess) {
       setActiveTab('home');
@@ -882,9 +898,8 @@ export default function App() {
 
     const cachedRecipes = localStorage.getItem(STORAGE_RECIPES_KEY);
     const cachedCategories = localStorage.getItem(STORAGE_CATEGORIES_KEY);
-    const localProfile = loadLocalProfile();
-    setChefProfile(localProfile);
-    setCustomAvatarUrl(getImmediateMediaUrl(localProfile.photo));
+    setChefProfile(DEFAULT_CHEF_PROFILE);
+    setCustomAvatarUrl('');
     let loadedRecipes = INITIAL_RECIPES;
 
     if (cachedRecipes) {
@@ -997,9 +1012,8 @@ export default function App() {
           }
 
           setCurrentUserRole('user');
-          const guestProfile = loadLocalProfile();
-          setChefProfile(guestProfile);
-          setCustomAvatarUrl(getImmediateMediaUrl(guestProfile.photo));
+          setChefProfile(DEFAULT_CHEF_PROFILE);
+          setCustomAvatarUrl('');
           setWorkspaces([]);
           setCurrentWorkspace(null);
           setAddingRecipe(false);
@@ -1066,15 +1080,17 @@ export default function App() {
       return;
     }
 
-    if (
-      currentUser
-      && currentWorkspace
-      && ((BUSINESS_WORKSPACE_TABS.has(activeTab) && !hasBusinessEntitlement)
-        || !canAccessRootTab(activeTab, currentWorkspaceRole, currentUserRole === 'super_admin'))
-    ) {
-      handleRootNavigate('home');
+    if (currentUser && BUSINESS_WORKSPACE_TABS.has(activeTab)) {
+      if (!currentWorkspace) {
+        handleRootNavigate(activeTab);
+        return;
+      }
+      if (businessEntitlement === null) return;
+      if (!hasBusinessEntitlement || !canAccessRootTab(activeTab, currentWorkspaceRole, currentUserRole === 'super_admin')) {
+        handleRootNavigate(activeTab);
+      }
     }
-  }, [activeTab, currentUser, currentUserRole, currentWorkspace, currentWorkspaceRole, hasBusinessEntitlement]);
+  }, [activeTab, currentUser, currentUserRole, currentWorkspace, currentWorkspaceRole, businessEntitlement, hasBusinessEntitlement]);
 
   useEffect(() => {
     const pathname = window.location.pathname;
@@ -1108,9 +1124,6 @@ export default function App() {
           onboardingService.load(currentUser.uid)
         ]);
         if (isCancelled) return;
-        if (!loadedWorkspaces.some(workspace => workspace.id === provisioned.workspaceId)) {
-          throw new Error('Your personal workspace is not ready yet.');
-        }
         const selectedWorkspace = workspaceService.resolveSelectedWorkspace(currentUser, loadedWorkspaces);
         setWorkspaces(loadedWorkspaces);
         setCurrentWorkspace(selectedWorkspace);
@@ -1130,7 +1143,7 @@ export default function App() {
         setWorkspaceSetupStatus('error');
         setWorkspaceSetupError(error instanceof Error
           ? error.message
-          : "We couldn't finish setting up your workspace. Please reload and try again.");
+          : "We couldn't finish setting up your personal account. Please reload and try again.");
       }
     };
 
@@ -1142,15 +1155,15 @@ export default function App() {
   }, [currentUser, isGuestMode]);
 
   useEffect(() => {
-    if (!currentUser || !db || isGuestMode || !currentWorkspace) return;
+    if (!currentUser || !db || isGuestMode) return;
 
     let isCancelled = false;
 
     const loadWorkspaceData = async () => {
       try {
         const [cloudRecipes, cloudCategories] = await Promise.all([
-          loadFirestoreRecipes(currentUser, currentWorkspace.id),
-          loadFirestoreCategories(currentUser, currentWorkspace.id)
+          loadFirestoreRecipes(currentUser, currentWorkspace?.id || currentUser.uid),
+          loadFirestoreCategories(currentUser, currentWorkspace?.id || currentUser.uid)
         ]);
 
         if (!isCancelled) {
@@ -1163,7 +1176,7 @@ export default function App() {
         }
       } catch (err) {
         if (!isCancelled) {
-          triggerNotification("We couldn't load your workspace recipes. Please refresh the page or try again.", 'info');
+          triggerNotification("We couldn't load your recipes. Please refresh the page or try again.", 'info');
         }
       }
     };
@@ -1642,17 +1655,24 @@ export default function App() {
       await signOut(auth);
       setCurrentUser(null);
       setCurrentUserRole('user');
-      const guestProfile = loadLocalProfile();
-      setChefProfile(guestProfile);
-      setCustomAvatarUrl(getImmediateMediaUrl(guestProfile.photo));
+      setChefProfile(DEFAULT_CHEF_PROFILE);
+      setCustomAvatarUrl('');
       setWorkspaces([]);
       setCurrentWorkspace(null);
+      setBusinessEntitlement(null);
+      setIsBusinessTrialGateOpen(false);
+      setBusinessTrialError('');
       setOnboarding(normalizeOnboarding(null));
       setIsGuestMode(false);
       setRecipes(loadLocalRecipes());
       setAddingRecipe(false);
       setEditingRecipe(null);
       setSelectedRecipe(null);
+      setSelectedCostingInvoiceId(null);
+      setPendingTeamInvitations([]);
+      setStoreNotifications([]);
+      setFocusedStoreOrderId('');
+      setQuickAddRequest(null);
       setIsNavigationDrawerOpen(false);
       setSelectedHomeCategory(null);
       setIsFavoritesFilterActive(false);
@@ -1691,8 +1711,8 @@ export default function App() {
   };
 
   const handleCreateWorkspace = async (input: CreateWorkspaceInput) => {
-    if (!currentUser) {
-      throw new Error('Sign in to create a workspace.');
+    if (!currentUser || !hasBusinessEntitlement) {
+      throw new Error('An active Business entitlement is required to create a workspace.');
     }
 
     const createdWorkspace = await workspaceService.createWorkspace({
@@ -1762,23 +1782,62 @@ export default function App() {
     handleRootNavigate('home');
   };
 
-  const handleContinueAsGuest = () => {
-    if (replaceWithValidatedPublicAccountReturnTo(
-      window.location.search,
-      returnTo => window.location.replace(returnTo)
-    )) return;
-
+  const handleContinueAsGuest = async () => {
+    if (auth?.currentUser) await signOut(auth);
     setCurrentUser(null);
     setCurrentUserRole('user');
     setWorkspaces([]);
     setCurrentWorkspace(null);
+    setBusinessEntitlement(null);
+    setIsBusinessTrialGateOpen(false);
+    setBusinessTrialError('');
     setOnboarding(normalizeOnboarding(null));
-    setIsGuestMode(true);
-    const localProfile = loadLocalProfile();
-    setChefProfile(localProfile);
-    setCustomAvatarUrl(getImmediateMediaUrl(localProfile.photo));
-    setRecipes(loadLocalRecipes());
-    handleRootNavigate('home');
+    setIsGuestMode(false);
+    setChefProfile(DEFAULT_CHEF_PROFILE);
+    setCustomAvatarUrl('');
+    setRecipes([]);
+    setCategories([]);
+    setAddingRecipe(false);
+    setEditingRecipe(null);
+    setSelectedRecipe(null);
+    setSelectedCostingInvoiceId(null);
+    setPendingTeamInvitations([]);
+    setStoreNotifications([]);
+    setFocusedStoreOrderId('');
+    setQuickAddRequest(null);
+    setIsNavigationDrawerOpen(false);
+    setSelectedHomeCategory(null);
+    setIsFavoritesFilterActive(false);
+
+    if (replaceWithValidatedPublicAccountReturnTo(
+      window.location.search,
+      returnTo => window.location.replace(returnTo)
+    )) return;
+    window.location.replace('/');
+  };
+
+  const handleStartBusinessTrial = async () => {
+    if (!currentUser || isStartingBusinessTrial) return;
+    setIsStartingBusinessTrial(true);
+    setBusinessTrialError('');
+    try {
+      const result = await startBusinessTrial(currentUser);
+      const loadedWorkspaces = await workspaceService.listAccessibleWorkspaces(currentUser);
+      const trialWorkspace = loadedWorkspaces.find(workspace => workspace.id === result.workspaceId);
+      if (!trialWorkspace) throw new Error('Your trial started, but the Workspace could not be loaded. Please refresh.');
+      setWorkspaces(loadedWorkspaces);
+      setCurrentWorkspace(trialWorkspace);
+      workspaceService.setStoredWorkspaceId(currentUser.uid, trialWorkspace.id);
+      setBusinessEntitlement({ workspaceId: trialWorkspace.id, allowed: true });
+      setIsBusinessTrialGateOpen(false);
+      setActiveTab('business');
+      window.history.replaceState(null, '', ROOT_TAB_PATHS.business);
+      triggerNotification('Your 14-Day Professional Trial is active.', 'success');
+    } catch (error) {
+      setBusinessTrialError(error instanceof Error ? error.message : 'Unable to start your Business trial. Please try again.');
+    } finally {
+      setIsStartingBusinessTrial(false);
+    }
   };
 
   const handleAvatarClick = () => {
@@ -1903,6 +1962,7 @@ export default function App() {
           />
         );
       case 'statistics':
+        if (!currentWorkspace || !hasBusinessEntitlement) return null;
         return (
           <StatisticsTab
             recipes={recipes}
@@ -1945,7 +2005,7 @@ export default function App() {
           />
         );
       case 'store':
-        if (!currentUser || !currentWorkspace) return null;
+        if (!currentUser || !currentWorkspace || !hasBusinessEntitlement) return null;
         return (
           <StorePage
             currentUser={currentUser}
@@ -1959,7 +2019,7 @@ export default function App() {
           />
         );
       case 'storePos':
-        if (!currentUser || !currentWorkspace) return null;
+        if (!currentUser || !currentWorkspace || !hasBusinessEntitlement) return null;
         return (
           <StorePosPage
             storeId={currentWorkspace.id}
@@ -1979,12 +2039,15 @@ export default function App() {
       case 'costingInvoices':
       case 'costingInvoiceDetail':
       case 'costingReports':
+        if (!currentWorkspace || !hasBusinessEntitlement) return null;
         return <CostingPage activeTab={activeTab} userId={currentUser?.uid} workspaceId={activeWorkspaceId} userRole={currentUserRole === 'super_admin' || currentWorkspaceRole === 'Owner' || currentWorkspaceRole === 'Manager' || currentWorkspaceRole === 'Head Chef' ? 'admin' : 'user'} invoiceId={selectedCostingInvoiceId} quickAddRequest={quickAddRequest} onQuickAddHandled={handleQuickAddHandled} onOpenInvoice={handleOpenCostingInvoice} onBackToInvoices={() => handleRootNavigate('costingInvoices')} />;
       case 'business':
       case 'businessSales':
       case 'businessSuppliers':
+        if (!currentWorkspace || !hasBusinessEntitlement) return null;
         return <BusinessPage activeTab={activeTab} userId={currentUser?.uid} workspaceId={activeWorkspaceId} quickAddRequest={quickAddRequest} onQuickAddHandled={handleQuickAddHandled} />;
       case 'personalExpenses':
+        if (!currentWorkspace || !hasBusinessEntitlement) return null;
         return (
           <PersonalExpensesPage
             userId={currentUser?.uid}
@@ -1994,6 +2057,7 @@ export default function App() {
           />
         );
       case 'team':
+        if (!currentWorkspace || !hasBusinessEntitlement) return null;
         return (
           <TeamPage
             userId={currentUser?.uid}
@@ -2161,12 +2225,12 @@ export default function App() {
       workspaces,
       currentWorkspace,
       onWorkspaceChange: handleWorkspaceChange,
-      onCreateWorkspace: currentUser ? () => setIsCreateWorkspaceOpen(true) : undefined,
+      onCreateWorkspace: currentUser && hasBusinessEntitlement ? () => setIsCreateWorkspaceOpen(true) : undefined,
       notificationAction
     };
   };
 
-  const isProtectedShellVisible = currentUser || isGuestMode;
+  const isProtectedShellVisible = Boolean(currentUser);
 
   if (!isAppReady || !isAuthReady) {
     return <BrandLoadingScreen />;
@@ -2221,6 +2285,54 @@ export default function App() {
         onClose={() => setIsCreateWorkspaceOpen(false)}
         onCreate={handleCreateWorkspace}
       />
+
+      <AnimatePresence>
+        {isBusinessTrialGateOpen && currentUser && (
+          <motion.div
+            className="fixed inset-0 z-[95] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => !isStartingBusinessTrial && setIsBusinessTrialGateOpen(false)}
+          >
+            <motion.section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="business-trial-title"
+              initial={{ opacity: 0, scale: 0.96, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 12 }}
+              className="w-full max-w-md rounded-3xl border border-surface-container-high bg-background p-6 shadow-2xl"
+              onClick={event => event.stopPropagation()}
+            >
+              <p className="font-sans text-xs font-extrabold uppercase tracking-[0.18em] text-secondary">Workspace</p>
+              <h2 id="business-trial-title" className="mt-2 font-display text-3xl font-semibold text-primary">Start your Business Trial</h2>
+              <p className="mt-3 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">
+                Try Professional Business tools for 14 days. Your trial starts only when you choose the button below.
+              </p>
+              {businessTrialError && <p role="alert" className="mt-4 rounded-2xl bg-red-50 px-4 py-3 font-sans text-xs font-bold text-red-700">{businessTrialError}</p>}
+              <div className="mt-6 flex flex-col gap-2 sm:flex-row-reverse">
+                <button
+                  type="button"
+                  disabled={isStartingBusinessTrial}
+                  onClick={() => void handleStartBusinessTrial()}
+                  className="rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-60"
+                >
+                  {isStartingBusinessTrial ? 'Starting Trial…' : 'Start 14-Day Free Trial'}
+                </button>
+                <button
+                  type="button"
+                  disabled={isStartingBusinessTrial}
+                  onClick={() => setIsBusinessTrialGateOpen(false)}
+                  className="rounded-full bg-surface-container px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-60"
+                >
+                  Maybe Later
+                </button>
+              </div>
+            </motion.section>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {currentUser && pendingTeamInvitations.length > 0 && (
@@ -2291,6 +2403,8 @@ export default function App() {
           categoryCounts={categoryCounts}
           onClose={() => setIsNavigationDrawerOpen(false)}
           onNavigate={handleRootNavigate}
+          onPublicHome={() => window.location.assign('/')}
+          onRequestBusinessAccess={() => handleRootNavigate('business')}
           onSelectCategory={(categoryName) => {
             setSelectedHomeCategory(categoryName);
             setIsFavoritesFilterActive(false);
@@ -2390,7 +2504,7 @@ export default function App() {
             }`}
           >
             <Home className={`w-5 h-5 ${activeTab === 'home' ? 'stroke-[2.5px]' : ''}`} />
-            <span className="font-sans font-semibold text-[10px] mt-1.5 uppercase tracking-wide">Home</span>
+            <span className="font-sans font-semibold text-[10px] mt-1.5 uppercase tracking-wide">My MiseChef</span>
           </button>
 
           <button

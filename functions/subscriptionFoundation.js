@@ -69,9 +69,9 @@ export const hasActiveBusinessEntitlement = (subscription, now = new Date()) => 
   return Boolean(trialEndsAt && now < trialEndsAt);
 };
 
-export const resolveWorkspaceSubscription = ({ data = {}, createTime, now = new Date(), allowTrialProvisioning = false }) => {
-  // Idempotent provisioning may rerun after Firestore assigns createTime. Keep the
-  // first committed trial start so a retry cannot shorten the original 14 days.
+export const resolveWorkspaceSubscription = ({ data = {}, createTime, now = new Date() }) => {
+  // Existing explicit trials retain their first committed start. Missing
+  // subscription data is never interpreted as consent to begin a trial.
   const createdAt = readDate(data.trialStartedAt) || readDate(createTime) || readDate(data.createdAt) || now;
   const canonicalTrialEnd = new Date(createdAt.getTime() + FREE_TRIAL_DAYS * DAY_MS);
   const requestedTrialEnd = readDate(data.trialEndsAt);
@@ -80,11 +80,10 @@ export const resolveWorkspaceSubscription = ({ data = {}, createTime, now = new 
   const storedPlan = hasSubscription ? normalizePlan(data.subscriptionPlan) : null;
   const isInternalUnlimited = storedPlan === 'internal_unlimited';
   const storedStatus = normalizeStatus(data.subscriptionStatus);
-  const isProvisionedTrial = !hasSubscription && allowTrialProvisioning;
-  const isTrial = !isInternalUnlimited && (isProvisionedTrial || (hasSubscription && storedStatus === 'trialing'));
+  const isTrial = !isInternalUnlimited && hasSubscription && storedStatus === 'trialing';
   const expired = isTrial && now >= trialEnd;
-  const plan = isInternalUnlimited ? 'internal_unlimited' : expired ? 'free' : isProvisionedTrial ? 'professional' : !hasSubscription ? 'free' : storedPlan;
-  const status = isInternalUnlimited ? 'active' : expired ? 'active' : isProvisionedTrial ? 'trialing' : !hasSubscription ? 'suspended' : storedStatus;
+  const plan = isInternalUnlimited ? 'internal_unlimited' : expired ? 'free' : !hasSubscription ? 'free' : storedPlan;
+  const status = isInternalUnlimited ? 'active' : expired ? 'active' : !hasSubscription ? 'suspended' : storedStatus;
 
   return {
     subscriptionPlan: plan,
