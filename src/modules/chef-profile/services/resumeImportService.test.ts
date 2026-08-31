@@ -131,6 +131,20 @@ test('the upload and review handlers do not save Chef Profile data before final 
   assert.match(reviewHandler, /setPendingResumeImport\(true\)/);
 });
 
+test('resume review exposes selected choices and a clear apply action', async () => {
+  const source = await readFile(new URL('../ChefProfilePage.tsx', import.meta.url), 'utf8');
+  const review = source.slice(source.indexOf('function ImportReview'), source.indexOf('function ExportModal'));
+
+  assert.match(review, /role="group" aria-label={`\$\{section\.label\} import choice`}/);
+  assert.match(review, /aria-pressed=\{importedSelected\}/);
+  assert.match(review, /aria-pressed=\{!importedSelected\}/);
+  assert.match(review, /importedSelected \? '✓ Accepted' : 'Accept Imported'/);
+  assert.match(review, /disabled=\{section\.status === 'missing'\}/);
+  assert.match(review, />Apply Selections &amp; Continue<\/button>/);
+  assert.match(review, /onClick=\{onConfirm\}/);
+  assert.doesNotMatch(review, /chefProfileService\.save/);
+});
+
 const completeResumeResponse = {
   basicProfile: {
     fullName: 'Chef Ada Wong',
