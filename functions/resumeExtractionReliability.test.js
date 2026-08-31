@@ -56,6 +56,16 @@ test('rejects an omitted required top-level array before sanitization', () => {
   assert.deepEqual(validation.missingFields, ['skills']);
 });
 
+test('missing deterministic employment evidence does not bypass schema validation', () => {
+  const { skills, ...withoutSkills } = completeArrays;
+  const validation = validateResumeExtraction('General chef biography without employment evidence.', withoutSkills);
+
+  assert.equal(validation.employmentValidation.expectedCount, 0);
+  assert.equal(validation.employmentValidation.complete, true);
+  assert.equal(validation.complete, false);
+  assert.deepEqual(validation.missingFields, ['skills']);
+});
+
 test('rejects empty experience when a supported experience heading exists', () => {
   const validation = validateResumeExtraction('Employment History\nHotel\nChef\n2020 - Present', {
     ...completeArrays,
