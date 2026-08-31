@@ -285,8 +285,12 @@ export const validateEmploymentAssociations = (resumeText, experiences) => {
     const entry = actual[index] || {};
     if (!expected.title && !expected.company) issues.push(`experience-${index}-missing-identity`);
     if (expected.startDate && (!entry.startDate || !entry.endDate)) issues.push(`experience-${index}-missing-dates`);
-    if (compact(entry.role) !== compact(expected.title)) issues.push(`experience-${index}-title`);
-    if (compact(entry.organization) !== compact(expected.company)) issues.push(`experience-${index}-company`);
+    if (cleanLine(expected.title) && compact(entry.role) !== compact(expected.title)) {
+      issues.push(`experience-${index}-title`);
+    }
+    if (cleanLine(expected.company) && compact(entry.organization) !== compact(expected.company)) {
+      issues.push(`experience-${index}-company`);
+    }
     if (compact(entry.startDate) !== compact(expected.startDate)) issues.push(`experience-${index}-start-date`);
     if (compact(entry.endDate) !== compact(expected.endDate)) issues.push(`experience-${index}-end-date`);
     if (cleanLine(entry.description) !== cleanLine(expected.description)) issues.push(`experience-${index}-description`);

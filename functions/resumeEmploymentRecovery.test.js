@@ -21,6 +21,19 @@ Managed preparation.
 Maintained food safety standards.
 `;
 
+const missingTitleResume = `
+WORK EXPERIENCE
+Example Hotel
+(Singapore) 2020 - 2022
+Prepared daily service.
+`;
+
+const missingCompanyResume = `
+WORK EXPERIENCE
+Executive Chef 2020 - 2022
+Prepared daily service.
+`;
+
 test('reconstructs ordered employment blocks with bounded multi-line descriptions', () => {
   const experiences = reconstructSourceExperiences(twoRoleResume);
 
@@ -118,6 +131,60 @@ test('release validation rejects duplicate, reordered, or bleeding descriptions'
   assert.ok(result.issues.some(issue => issue.includes('title')));
   assert.ok(result.issues.some(issue => issue.includes('description')));
   assert.ok(result.issues.some(issue => issue.includes('duplicate')));
+});
+
+test('accepts a populated Gemini title when deterministic reconstruction has no title evidence', () => {
+  const expected = reconstructSourceExperiences(missingTitleResume);
+  assert.equal(expected[0].title, '');
+  assert.equal(expected[0].company, 'Example Hotel');
+
+  const recovered = mergeSourceExperiences(missingTitleResume, [{
+    role: 'Sous Chef',
+    organization: 'Example Hotel',
+    location: 'Singapore',
+    startDate: '2020',
+    endDate: '2022',
+    description: 'Prepared daily service.'
+  }]);
+
+  assert.equal(recovered[0].role, 'Sous Chef');
+  assert.equal(validateEmploymentAssociations(missingTitleResume, recovered).complete, true);
+});
+
+test('accepts a populated Gemini company when deterministic reconstruction has no company evidence', () => {
+  const expected = reconstructSourceExperiences(missingCompanyResume);
+  assert.equal(expected[0].title, 'Executive Chef');
+  assert.equal(expected[0].company, '');
+
+  const recovered = mergeSourceExperiences(missingCompanyResume, [{
+    role: 'Executive Chef',
+    organization: 'Example Hotel',
+    startDate: '2020',
+    endDate: '2022',
+    description: 'Prepared daily service.'
+  }]);
+
+  assert.equal(recovered[0].organization, 'Example Hotel');
+  assert.equal(validateEmploymentAssociations(missingCompanyResume, recovered).complete, true);
+});
+
+test('preserves strict title validation when deterministic title evidence exists', () => {
+  const valid = mergeSourceExperiences(twoRoleResume, []);
+  assert.equal(validateEmploymentAssociations(twoRoleResume, valid).complete, true);
+
+  const conflicting = [{ ...valid[0], role: 'Pastry Intern' }, valid[1]];
+  const result = validateEmploymentAssociations(twoRoleResume, conflicting);
+  assert.equal(result.complete, false);
+  assert.ok(result.issues.includes('experience-0-title'));
+});
+
+test('preserves strict company validation when deterministic company evidence exists', () => {
+  const valid = mergeSourceExperiences(twoRoleResume, []);
+  const conflicting = [{ ...valid[0], organization: 'Unrelated Bakery' }, valid[1]];
+  const result = validateEmploymentAssociations(twoRoleResume, conflicting);
+
+  assert.equal(result.complete, false);
+  assert.ok(result.issues.includes('experience-0-company'));
 });
 
 test('preserves Gemini experiences when no deterministic work section is detectable', () => {
