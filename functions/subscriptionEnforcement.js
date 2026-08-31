@@ -3,6 +3,9 @@ import { HttpsError } from 'firebase-functions/v2/https';
 import { requireWorkspaceFeature, SUBSCRIPTION_PLANS, UNLIMITED } from './subscriptionFoundation.js';
 
 const PLAN_LIMITS = Object.freeze(Object.fromEntries(Object.entries(SUBSCRIPTION_PLANS).map(([plan, definition]) => [plan, definition.limits])));
+// Internal abuse/cost ceiling, not a subscription-plan promise. Keep this
+// isolated from Workspace aiRequests and adjust only with product approval.
+export const PERSONAL_RESUME_IMPORT_MONTHLY_SAFETY_LIMIT = 25;
 
 const readString = value => typeof value === 'string' ? value.trim() : '';
 
@@ -38,17 +41,21 @@ const loadMonthlyUsageBaseline = async ({ db, workspaceId, monthKey }) => {
     const record = usageDocument.data() || {};
     if (!isUsageRecordInMonth(record, monthKey)) return usage;
     if (record.status !== 'success') return usage;
+    if (record.feature === 'parseResumeToPortfolio') {
+      usage.personalResumeImports += 1;
+      return usage;
+    }
     usage.aiRequests += 1;
     if (record.feature === 'parseInvoiceToJson') usage.invoiceOcr += 1;
     if (record.feature === 'extractPersonalExpenseReceipt') usage.personalExpenseOcr += 1;
     return usage;
-  }, { aiRequests: 0, invoiceOcr: 0, personalExpenseOcr: 0 });
+  }, { aiRequests: 0, invoiceOcr: 0, personalExpenseOcr: 0, personalResumeImports: 0 });
 };
 
 export const reserveMonthlySubscriptionUsage = async ({ db, entitlements, increments }) => {
   const monthKey = getMonthKey();
   const usageReference = db.collection('subscriptionUsage').doc(`${entitlements.workspaceId}_${monthKey}`);
-  let baseline = { aiRequests: 0, invoiceOcr: 0, personalExpenseOcr: 0 };
+  let baseline = { aiRequests: 0, invoiceOcr: 0, personalExpenseOcr: 0, personalResumeImports: 0 };
 
   try {
     const existingUsage = await usageReference.get();
@@ -71,12 +78,21 @@ export const reserveMonthlySubscriptionUsage = async ({ db, entitlements, increm
     const next = {
       aiRequests: Number(current.aiRequests || 0) + Number(increments.aiRequests || 0),
       invoiceOcr: Number(current.invoiceOcr || 0) + Number(increments.invoiceOcr || 0),
-      personalExpenseOcr: Number(current.personalExpenseOcr || 0) + Number(increments.personalExpenseOcr || 0)
+      personalExpenseOcr: Number(current.personalExpenseOcr || 0) + Number(increments.personalExpenseOcr || 0),
+      personalResumeImports: Number(current.personalResumeImports || 0) + Number(increments.personalResumeImports || 0)
     };
 
-    for (const resource of ['aiRequests', 'invoiceOcr']) {
+    for (const resource of ['aiRequests', 'invoiceOcr', 'personalResumeImports']) {
+      if (!Number(increments[resource] || 0)) continue;
       const limit = entitlements.limits[resource];
       if (limit !== UNLIMITED && next[resource] > limit) {
+        if (resource === 'personalResumeImports') {
+          throw new HttpsError(
+            'resource-exhausted',
+            'Personal Resume Import is temporarily unavailable because its safety limit was reached. Please try again later.',
+            { reason: 'personal-resume-import-limit-reached', resource, limit }
+          );
+        }
         throw getLimitError(resource, limit);
       }
     }
@@ -93,6 +109,17 @@ export const reserveMonthlySubscriptionUsage = async ({ db, entitlements, increm
   return { usageReference, increments };
 };
 
+export const reservePersonalResumeImportUsage = async ({ db, userId }) => (
+  reserveMonthlySubscriptionUsage({
+    db,
+    entitlements: {
+      workspaceId: userId,
+      limits: { personalResumeImports: PERSONAL_RESUME_IMPORT_MONTHLY_SAFETY_LIMIT }
+    },
+    increments: { personalResumeImports: 1 }
+  })
+);
+
 export const releaseMonthlySubscriptionUsage = async ({ db, reservation }) => {
   if (!reservation?.usageReference) return;
 
@@ -104,6 +131,12 @@ export const releaseMonthlySubscriptionUsage = async ({ db, reservation }) => {
       aiRequests: Math.max(0, Number(current.aiRequests || 0) - Number(reservation.increments.aiRequests || 0)),
       invoiceOcr: Math.max(0, Number(current.invoiceOcr || 0) - Number(reservation.increments.invoiceOcr || 0)),
       personalExpenseOcr: Math.max(0, Number(current.personalExpenseOcr || 0) - Number(reservation.increments.personalExpenseOcr || 0)),
+      ...(Object.hasOwn(reservation.increments, 'personalResumeImports') ? {
+        personalResumeImports: Math.max(
+          0,
+          Number(current.personalResumeImports || 0) - Number(reservation.increments.personalResumeImports || 0)
+        )
+      } : {}),
       updatedAt: FieldValue.serverTimestamp()
     });
   });

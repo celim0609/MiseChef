@@ -1,4 +1,34 @@
+import { HttpsError } from 'firebase-functions/v2/https';
+
 export const RESUME_IMPORT_TIMEOUT_MESSAGE = 'AI analysis timed out, please retry';
+
+export const authorizePersonalResumeImportJob = ({ requesterId, personalScopeId }) => {
+  if (!requesterId) {
+    throw new HttpsError('unauthenticated', 'Sign in to import your resume.', {
+      reason: 'personal-resume-authentication-required'
+    });
+  }
+  if (personalScopeId !== requesterId) {
+    throw new HttpsError('permission-denied', 'You can only process your own Resume Import.', {
+      reason: 'personal-resume-owner-mismatch'
+    });
+  }
+  return { userId: requesterId };
+};
+
+export const claimPersonalResumeImportJob = async ({
+  db,
+  jobReference,
+  clientJobReference,
+  requesterId,
+  updatedAt
+}) => db.runTransaction(async transaction => {
+  const currentSnapshot = await transaction.get(jobReference);
+  if (!currentSnapshot.exists || currentSnapshot.data()?.status !== 'pending') return false;
+  transaction.set(jobReference, { status: 'processing', updatedAt }, { merge: true });
+  transaction.set(clientJobReference, { status: 'processing', uid: requesterId, updatedAt }, { merge: true });
+  return true;
+});
 
 export class ResumeImportTimeoutError extends Error {
   constructor(message = RESUME_IMPORT_TIMEOUT_MESSAGE) {
@@ -27,6 +57,13 @@ export const getResumeImportJobError = error => {
     return RESUME_IMPORT_TIMEOUT_MESSAGE;
   }
   if (error?.code === 'resource-exhausted' && typeof error?.message === 'string') {
+    return error.message;
+  }
+  if (
+    ['unauthenticated', 'permission-denied'].includes(error?.code)
+    && ['personal-resume-authentication-required', 'personal-resume-owner-mismatch'].includes(error?.details?.reason)
+    && typeof error?.message === 'string'
+  ) {
     return error.message;
   }
   if (error?.code === 'failed-precondition' && error?.details?.reason === 'incomplete-extraction') {
