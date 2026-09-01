@@ -36,6 +36,153 @@ import {
   assertRelease28RecoveryConverged,
   resolveRelease28RecoveryMode
 } from './betaRelease28Recovery.mjs';
+import {
+  BETA_RUN_33530702897,
+  BETA_RUN_33530702897_AUTHORIZATION,
+  BETA_RUN_33530702897_CONFIRMATION,
+  assertBetaRun33530702897CandidateArtifact,
+  assertBetaRun33530702897FailedRun,
+  assertBetaRun33530702897PartialState,
+  assertBetaRun33530702897RecoveryConverged,
+  expectedCandidateFunctions,
+  resolveBetaRun33530702897RecoveryMode
+} from './betaRun33530702897Recovery.mjs';
+
+const betaRunFunctionGenerations = Object.freeze({
+  activateMiseChefHost: '1788279675848143',
+  authorizeWorkspaceFeature: '1788279743657733',
+  cancelInvoiceUpload: '1788279743683565',
+  cancelPublicStorePayment: '1788279671075432',
+  cleanupMyMiseChefGroupOrder: '1788279743658333',
+  createInvoiceUpload: '1788279743814594',
+  createMiseChefGroupOrder: '1788279743633331',
+  createPublicStorePayment: '1788279738899175',
+  expireWorkspaceTrials: '1788279743692302',
+  extractPersonalExpenseReceipt: '1788279669833488',
+  generateRecipeSteps: '1788279738869930',
+  getDashboardAiUsage: '1788279743615027',
+  getMyMiseChefGroupOrder: '1788279743848864',
+  getPublicDiscoverContent: '1788279738874529',
+  getPublicMiseChefGroupOrder: '1788279743674758',
+  getPublicStorePaymentResult: '1788279738964922',
+  getWorkspaceSubscription: '1788279743991539',
+  listApprovedProducts: '1788279743529616',
+  listMyMiseChefGroupOrders: '1788279743686840',
+  listMyMiseChefStoreOrders: '1788279738954604',
+  parseInvoiceToJson: '1788279738534755',
+  parseResumeToPortfolio: '1788279738876448',
+  processResumeImportJob: '1788279739341066',
+  provisionNewUserWorkspace: '1788279743735936',
+  recordPersonalExpenseSettlement: '1788279738904863',
+  renderPublicStore: '1788279738924800',
+  reviewStoreManualPayment: '1788279738891656',
+  scanRecipeImage: '1788279775951745',
+  startMiseChefBusinessTrial: '1788279743587914',
+  stripeStorePaymentWebhook: '1788279738965763',
+  submitPublicStoreManualPayment: '1788279738883107',
+  syncApprovedProductRecipes: '1788279744160106',
+  syncCanonicalChefProfile: '1788279744435713',
+  syncMiseChefGroupReward: '1788279744120525',
+  syncPublicChefProfile: '1788279744298754',
+  syncPublicRecipe: '1788279744107904',
+  trackPublicProductClick: '1788279743677915',
+  updateMyMiseChefGroupOrderStatus: '1788279743739600',
+  updateStoreGroupOrderBatchStatus: '1788279738890602',
+  updateStoreOrderStatus: '1788279739012235',
+  uploadPublicStorePaymentReceipt: '1788279738893450'
+});
+
+const betaRunFunctions = () => expectedCandidateFunctions().map(item => ({
+  ...item,
+  generation: betaRunFunctionGenerations[item.id],
+  state: 'ACTIVE'
+}));
+
+const readyService = (id, revision = `${id.toLowerCase()}-candidate-ready`) => ({
+  id,
+  latestCreatedRevision: revision,
+  latestReadyRevision: revision,
+  terminalState: 'CONDITION_SUCCEEDED',
+  trafficStatuses: [{ revision, percent: 100, type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION' }]
+});
+
+const betaRunServices = ({ converged = false } = {}) => expectedCandidateFunctions().map(({ id }) => {
+  const failed = BETA_RUN_33530702897.failedServices[id];
+  if (!failed || converged) return readyService(id);
+  return {
+    id,
+    latestCreatedRevision: failed.latestCreatedRevision,
+    latestReadyRevision: failed.latestReadyRevision,
+    terminalState: 'CONDITION_FAILED',
+    trafficStatuses: [{
+      revision: failed.latestReadyRevision,
+      percent: 100,
+      type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION'
+    }]
+  };
+});
+
+const betaRunLive = () => ({
+  rootAsset: BETA_RUN_33530702897.rootAsset,
+  storeAsset: BETA_RUN_33530702897.storeAsset,
+  releaseMetadata: structuredClone(BETA_RUN_33530702897.priorManifest),
+  releaseCommit: BETA_RUN_33530702897.priorCommit,
+  releaseSourceTree: BETA_RUN_33530702897.priorSourceTree,
+  releaseProtectedBaseline: MANDATORY_BETA_BASELINE
+});
+
+const betaRunGitChecks = {
+  resolveSourceTree: commit => commit === BETA_RUN_33530702897.priorCommit
+    ? BETA_RUN_33530702897.priorSourceTree
+    : null,
+  isAncestor: (ancestor, descendant) => (
+    ancestor === MANDATORY_BETA_BASELINE && descendant === BETA_RUN_33530702897.priorCommit
+  )
+};
+
+const assertKnownBetaRunPartial = overrides => assertBetaRun33530702897PartialState({
+  head: BETA_RUN_33530702897.candidateCommit,
+  sourceTree: BETA_RUN_33530702897.candidateSourceTree,
+  liveFingerprint: betaRunLive(),
+  functions: betaRunFunctions(),
+  services: betaRunServices(),
+  storeAssetProof: { status: 200, contentType: 'text/html; charset=utf-8', sha256: 'fallback' },
+  ...betaRunGitChecks,
+  ...overrides
+});
+
+const betaRunConvergedState = () => {
+  const manifest = {
+    kind: 'misechef-beta-release',
+    version: 1,
+    buildId: 'incident-recovery-build',
+    builtAt: new Date().toISOString(),
+    sourceCommit: BETA_RUN_33530702897.candidateCommit,
+    sourceTree: BETA_RUN_33530702897.candidateSourceTree,
+    protectedBaseline: MANDATORY_BETA_BASELINE,
+    entryAsset: BETA_RUN_33530702897.storeAsset,
+    entryAssetSha256: 'a'.repeat(64),
+    storeShellAsset: BETA_RUN_33530702897.storeAsset
+  };
+  return {
+    manifest,
+    functions: betaRunFunctions(),
+    services: betaRunServices({ converged: true }),
+    liveFingerprint: {
+      rootAsset: manifest.entryAsset,
+      storeAsset: manifest.entryAsset,
+      releaseMetadata: manifest,
+      releaseCommit: manifest.sourceCommit,
+      releaseSourceTree: manifest.sourceTree,
+      releaseProtectedBaseline: manifest.protectedBaseline
+    },
+    assetProof: {
+      status: 200,
+      contentType: 'application/javascript; charset=utf-8',
+      sha256: manifest.entryAssetSha256
+    }
+  };
+};
 
 const release28Functions = () => Object.entries(RELEASE_28_INCIDENT.functions).map(([id, value]) => ({
   id,
@@ -439,6 +586,133 @@ test('Release #28 recovery rejects a mixed or unknown release state', () => {
   assert.throws(() => assertRelease28RecoveryConverged(converged), /do not reference the recovered candidate asset/);
 });
 
+test('Beta run 33530702897 recovery requires exact protected authorization and workflow lock', () => {
+  assert.equal(resolveBetaRun33530702897RecoveryMode({
+    confirmation: BETA_RUN_33530702897_CONFIRMATION,
+    authorization: BETA_RUN_33530702897_AUTHORIZATION,
+    githubActions: true,
+    ciLockId: 'misechef-beta-deployment'
+  }), true);
+  for (const override of [
+    { confirmation: 'RECOVER BETA' },
+    { authorization: '' },
+    { githubActions: false },
+    { ciLockId: 'different-lock' }
+  ]) {
+    assert.throws(() => resolveBetaRun33530702897RecoveryMode({
+      confirmation: BETA_RUN_33530702897_CONFIRMATION,
+      authorization: BETA_RUN_33530702897_AUTHORIZATION,
+      githubActions: true,
+      ciLockId: 'misechef-beta-deployment',
+      ...override
+    }), /recovery refused/);
+  }
+});
+
+test('Beta run 33530702897 recovery is bound to both exact failed attempts and their logs', () => {
+  const successfulSteps = [
+    'Verify exact approved candidate SHA',
+    'Validate actual release candidate with immutable trusted gate',
+    'Run complete immutable trusted candidate regression gate',
+    'Run Store Sets Firestore authorization suite',
+    'Authenticate to Beta only'
+  ].map(name => ({ name, conclusion: 'success' }));
+  const job = (id, attempt) => ({
+    id: Number(id),
+    name: 'deploy-beta',
+    conclusion: 'failure',
+    run_attempt: attempt,
+    head_sha: BETA_RUN_33530702897.candidateCommit,
+    steps: [...successfulSteps, {
+      name: 'Run canonical protected full-resource Beta release', conclusion: 'failure'
+    }]
+  });
+  const evidence = {
+    run: {
+      id: Number(BETA_RUN_33530702897.failedRunId),
+      name: 'Beta Release',
+      run_number: BETA_RUN_33530702897.failedRunNumber,
+      run_attempt: 2,
+      event: 'workflow_dispatch',
+      head_branch: 'main',
+      head_sha: BETA_RUN_33530702897.candidateCommit,
+      conclusion: 'failure',
+      path: '.github/workflows/deploy-beta.yml'
+    },
+    attemptOneJobs: [job(BETA_RUN_33530702897.attemptOneJobId, 1)],
+    attemptTwoJobs: [job(BETA_RUN_33530702897.attemptTwoJobId, 2)],
+    attemptOneLog: [
+      'parseResumeToPortfolio',
+      'reviewStoreManualPayment',
+      'syncPublicChefProfile',
+      'Container Healthcheck failed'
+    ].join('\n'),
+    attemptTwoLog: 'Live Beta Hosting and public Store assets do not identify one coherent release.'
+  };
+  assert.doesNotThrow(() => assertBetaRun33530702897FailedRun(evidence));
+  assert.throws(() => assertBetaRun33530702897FailedRun({
+    ...evidence,
+    attemptTwoLog: 'different failure'
+  }), /coherent-release refusal/);
+  assert.throws(() => assertBetaRun33530702897FailedRun({
+    ...evidence,
+    attemptOneJobs: [job(BETA_RUN_33530702897.attemptOneJobId, 2)]
+  }), /attempt 1/);
+});
+
+test('Beta run 33530702897 accepts only the exact audited partial live state', () => {
+  assert.match(assertKnownBetaRunPartial().fingerprint, /^[0-9a-f]{64}$/);
+
+  const functions = betaRunFunctions();
+  functions[0] = { ...functions[0], generation: `${functions[0].generation}9` };
+  assert.throws(() => assertKnownBetaRunPartial({ functions }), /41-Function inventory/);
+
+  const services = betaRunServices();
+  const failedIndex = services.findIndex(item => item.id === 'parseResumeToPortfolio');
+  services[failedIndex] = readyService('parseResumeToPortfolio');
+  assert.throws(() => assertKnownBetaRunPartial({ services }), /failed\/serving revision pair/);
+
+  assert.throws(() => assertKnownBetaRunPartial({
+    liveFingerprint: { ...betaRunLive(), rootAsset: '/assets/changed.js' }
+  }), /root or public Store asset/);
+  assert.throws(() => assertKnownBetaRunPartial({
+    storeAssetProof: { status: 200, contentType: 'application/javascript', sha256: 'unexpected' }
+  }), /HTML fallback/);
+});
+
+test('normal Beta release guard still rejects run 33530702897 partial state', () => {
+  assert.throws(() => assertLiveBaseline({
+    liveFingerprint: betaRunLive(),
+    ...betaRunGitChecks
+  }), /do not identify one coherent release/);
+});
+
+test('Beta run 33530702897 candidate artifact is exact and recovery convergence is complete', () => {
+  const converged = betaRunConvergedState();
+  assert.doesNotThrow(() => assertBetaRun33530702897CandidateArtifact(converged.manifest));
+  assert.doesNotThrow(() => assertBetaRun33530702897RecoveryConverged(converged));
+
+  const htmlFallback = structuredClone(converged);
+  htmlFallback.assetProof.contentType = 'text/html';
+  assert.throws(() => assertBetaRun33530702897RecoveryConverged(htmlFallback), /JavaScript bytes/);
+
+  const staleFunction = structuredClone(converged);
+  staleFunction.functions[0].configurationHash = 'stale';
+  assert.throws(() => assertBetaRun33530702897RecoveryConverged(staleFunction), /authorized candidate/);
+
+  const oldRevision = structuredClone(converged);
+  const index = oldRevision.services.findIndex(item => item.id === 'syncPublicChefProfile');
+  oldRevision.services[index] = readyService(
+    'syncPublicChefProfile',
+    BETA_RUN_33530702897.failedServices.syncPublicChefProfile.latestReadyRevision
+  );
+  assert.throws(() => assertBetaRun33530702897RecoveryConverged(oldRevision), /still serving its prior revision/);
+
+  const notReady = structuredClone(converged);
+  notReady.services[0].latestCreatedRevision = 'newer-failed-revision';
+  assert.throws(() => assertBetaRun33530702897RecoveryConverged(notReady), /ready candidate revision/);
+});
+
 test('historical live manifests require exact SHAs, a matching source tree, and valid history', () => {
   const sourceCommit = 'a'.repeat(40);
   const sourceTree = 'b'.repeat(40);
@@ -562,6 +836,26 @@ test('Release #28 recovery controller retains the full plan and every convergenc
   assert.doesNotMatch(controller, /--only',\s+'(?:functions|hosting|firestore|storage)'/);
 });
 
+test('run 33530702897 recovery controller is single-attempt, full-plan, and proves every convergence boundary', () => {
+  const controller = readFileSync(new URL('./recoverBetaRun33530702897.mjs', import.meta.url), 'utf8');
+  for (const marker of [
+    'verifyBetaRun33530702897FailedRun',
+    'assertBetaRun33530702897PartialState',
+    'assertBetaRun33530702897CandidateArtifact',
+    'assertArtifactCompatibility',
+    'assertPinnedFirebaseCliStorageBehavior',
+    'assertBetaRun33530702897RecoveryConverged',
+    'readCloudRunServiceState',
+    'readLiveAssetProof',
+    'readBetaFunctionState',
+    'FULL_BETA_RESOURCE_PLAN.join'
+  ]) assert.match(controller, new RegExp(marker));
+  assert.equal((controller.match(/spawnSync\('firebase'/g) || []).length, 1);
+  assert.match(controller, /no retry was attempted/);
+  assert.doesNotMatch(controller, /--project',\s*'(?!beta')[^']+'/);
+  assert.doesNotMatch(controller, /--only',\s*'(?:functions|hosting|firestore|storage)'/);
+});
+
 test('baseline validation fails instead of skipping when target context is missing', () => {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const result = spawnSync('node', ['scripts/validateBetaReleaseBaseline.mjs'], {
@@ -577,6 +871,10 @@ test('protected CI supplies external authority and an authoritative concurrency 
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const workflow = readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'deploy-beta.yml'), 'utf8');
   const recoveryWorkflow = readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'recover-beta-release-28.yml'), 'utf8');
+  const incidentRecoveryWorkflow = readFileSync(
+    path.join(repositoryRoot, '.github', 'workflows', 'recover-beta-run-33530702897.yml'),
+    'utf8'
+  );
   const validationWorkflow = readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'validate-beta-candidate.yml'), 'utf8');
   assert.match(workflow, /group: misechef-beta-deployment/);
   assert.match(workflow, /cancel-in-progress: false/);
@@ -600,6 +898,17 @@ test('protected CI supplies external authority and an authoritative concurrency 
   assert.match(recoveryWorkflow, new RegExp(RELEASE_28_INCIDENT.candidateCommit));
   assert.match(recoveryWorkflow, /functions,hosting,firestore,storage|recoverBetaRelease28\.mjs/);
   assert.doesNotMatch(recoveryWorkflow, new RegExp(RELEASE_28_RECOVERY_AUTHORIZATION));
+  assert.match(incidentRecoveryWorkflow, /environment: beta/);
+  assert.match(incidentRecoveryWorkflow, /group: misechef-beta-deployment/);
+  assert.match(incidentRecoveryWorkflow, /cancel-in-progress: false/);
+  assert.match(incidentRecoveryWorkflow, /vars\.MISECHEF_BETA_RUN_33530702897_RECOVERY_GATE_SHA/);
+  assert.match(incidentRecoveryWorkflow, /vars\.MISECHEF_BETA_RUN_33530702897_RECOVERY_AUTHORIZATION/);
+  assert.match(incidentRecoveryWorkflow, /secrets\.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA/);
+  assert.match(incidentRecoveryWorkflow, new RegExp(BETA_RUN_33530702897.candidateCommit));
+  assert.match(incidentRecoveryWorkflow, new RegExp(BETA_RUN_33530702897.candidateSourceTree));
+  assert.match(incidentRecoveryWorkflow, /recoverBetaRun33530702897\.mjs/);
+  assert.doesNotMatch(incidentRecoveryWorkflow, /FIREBASE_SERVICE_ACCOUNT_MISECHEF_PROD|misechef-fa4bf/);
+  assert.doesNotMatch(incidentRecoveryWorkflow, new RegExp(BETA_RUN_33530702897_AUTHORIZATION));
 });
 
 test('repository baseline and documentation contain no stale protected-baseline references', () => {
