@@ -89,6 +89,7 @@ const openGroup = (overrides = {}) => ({
   estimatedReward: 5,
   ...overrides
 });
+const beforeOpenGroupCloses = new Date('2026-09-01T02:00:00.000Z');
 
 test('eligible paid Group Sales produce the expected reward contribution', () => {
   assert.deepEqual(calculateRewardContribution(paidGroupOrder()), {
@@ -219,19 +220,19 @@ test('Host can close only their own open Group and repeated close is idempotent'
     'hostRewardLedger/order-a': ledger
   });
   await assert.rejects(
-    transitionGroupOrder({ db, uid: 'other-host', groupId: 'group-a', nextStatus: 'closed' }),
+    transitionGroupOrder({ db, uid: 'other-host', groupId: 'group-a', nextStatus: 'closed', now: beforeOpenGroupCloses }),
     error => error.code === 'permission-denied'
   );
-  const result = await transitionGroupOrder({ db, uid: 'host-a', groupId: 'group-a', nextStatus: 'closed' });
+  const result = await transitionGroupOrder({ db, uid: 'host-a', groupId: 'group-a', nextStatus: 'closed', now: beforeOpenGroupCloses });
   assert.equal(result.status, 'closed');
   assert.equal(db.documents['groupOrders/group-a'].status, 'closed');
   assert.deepEqual(db.documents['storeOrders/order-a'], paidOrder);
   assert.deepEqual(db.documents['hostRewardLedger/order-a'], ledger);
   const writesAfterClose = db.writes.length;
-  await transitionGroupOrder({ db, uid: 'host-a', groupId: 'group-a', nextStatus: 'closed' });
+  await transitionGroupOrder({ db, uid: 'host-a', groupId: 'group-a', nextStatus: 'closed', now: beforeOpenGroupCloses });
   assert.equal(db.writes.length, writesAfterClose);
   await assert.rejects(
-    transitionGroupOrder({ db, uid: 'host-a', groupId: 'group-a', nextStatus: 'cancelled' }),
+    transitionGroupOrder({ db, uid: 'host-a', groupId: 'group-a', nextStatus: 'cancelled', now: beforeOpenGroupCloses }),
     error => error.code === 'failed-precondition'
   );
 });
@@ -248,7 +249,7 @@ test('Group cancellation is owner-only and leaves existing paid orders and rewar
     'storeOrders/order-a': order,
     'hostRewardLedger/order-a': ledger
   });
-  await transitionGroupOrder({ db, uid: 'host-a', groupId: 'group-a', nextStatus: 'cancelled' });
+  await transitionGroupOrder({ db, uid: 'host-a', groupId: 'group-a', nextStatus: 'cancelled', now: beforeOpenGroupCloses });
   assert.equal(db.documents['groupOrders/group-a'].status, 'cancelled');
   assert.deepEqual(db.documents['storeOrders/order-a'], order);
   assert.deepEqual(db.documents['hostRewardLedger/order-a'], ledger);
@@ -342,7 +343,7 @@ test('archive is owner-only, terminal-only, idempotent, and mutates no order, pa
 
   const openDb = createFakeDb({ 'groupOrders/group-a': openGroup() });
   await assert.rejects(
-    cleanupGroupOrder({ db: openDb, uid: 'host-a', groupId: 'group-a', action: 'archive' }),
+    cleanupGroupOrder({ db: openDb, uid: 'host-a', groupId: 'group-a', action: 'archive', now: beforeOpenGroupCloses }),
     error => error.code === 'failed-precondition'
   );
 });

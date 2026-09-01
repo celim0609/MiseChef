@@ -26,6 +26,12 @@ export interface StoreContact {
   website: string;
 }
 
+export interface CustomerContact {
+  name: string;
+  phone: string;
+  email: string;
+}
+
 export type StoreOrderDay =
   | 'monday'
   | 'tuesday'
@@ -383,6 +389,7 @@ export interface StoreOrder {
   paymentMethodName: string;
   customerName: string;
   phone: string;
+  customerEmail?: string;
   pickupDate: string;
   pickupSession: string;
   pickupLocationId: string;
@@ -462,6 +469,7 @@ export interface StoreOrderDraft {
   paymentMethodId?: StorePaymentMethodId;
   customerName: string;
   phone: string;
+  customerEmail?: string;
   pickupDate: string;
   pickupSession: string;
   pickupLocationId: string;

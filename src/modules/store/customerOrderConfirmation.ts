@@ -1,31 +1,36 @@
 import type { PublicStoreOrderResult } from './types';
+import { getCustomerOrderStatus, type CustomerOrderStatus } from './customerOrderStatus';
 
 export type CustomerOrderConfirmationCopy = {
-  heading: 'Order Successfully Submitted' | 'Payment Proof Submitted' | 'Payment Confirmed';
+  heading: CustomerOrderStatus;
   message: string;
-  paymentLabel: string;
+  statusLabel: CustomerOrderStatus;
 };
 
 export const getCustomerOrderConfirmationCopy = (
-  paymentStatus: PublicStoreOrderResult['paymentStatus']
+  paymentStatus: PublicStoreOrderResult['paymentStatus'],
+  orderStatus?: PublicStoreOrderResult['status']
 ): CustomerOrderConfirmationCopy => {
+  const statusLabel = getCustomerOrderStatus({ paymentStatus, orderStatus });
   if (paymentStatus === 'pending_verification') {
     return {
-      heading: 'Payment Proof Submitted',
-      message: 'Your order has been received. We are verifying your payment. You do not need to pay again.',
-      paymentLabel: 'Payment verification pending'
+      heading: statusLabel,
+      message: 'Your payment proof was submitted. The Store is confirming it now, and you do not need to pay again.',
+      statusLabel
     };
   }
   if (paymentStatus === 'paid') {
     return {
-      heading: 'Payment Confirmed',
+      heading: statusLabel,
       message: 'Your payment was received and your order is confirmed.',
-      paymentLabel: 'Paid'
+      statusLabel
     };
   }
   return {
-    heading: 'Order Successfully Submitted',
-    message: 'Your order is confirmed. Please pay when you collect it.',
-    paymentLabel: 'Cash on pickup'
+    heading: statusLabel,
+    message: orderStatus === 'Confirmed'
+      ? 'Your order is confirmed. Please pay when you collect it.'
+      : 'Your order was submitted and is waiting for payment confirmation.',
+    statusLabel
   };
 };

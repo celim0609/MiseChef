@@ -97,6 +97,35 @@ test('single-merchant order is priced from server products and stores provider-n
   assert.equal(order.items[0].unitPrice, 4.9);
 });
 
+test('authenticated contact email is optional, normalized, and never used as order ownership', () => {
+  const order = buildPendingOrder({
+    id: 'order-contact',
+    orderNumber: 'MC-260726-CONTACT',
+    store,
+    products,
+    optionGroups,
+    paymentProvider: STRIPE_PROVIDER_ID,
+    paymentProviderMode: STRIPE_PROVIDER_MODE,
+    customerUid: 'customer-1',
+    draft: { ...draft, customerEmail: ' Customer@Example.Test ' },
+    now: new Date('2026-07-26T04:00:00.000Z')
+  });
+
+  assert.equal(order.customerUid, 'customer-1');
+  assert.equal(order.customerEmail, 'customer@example.test');
+  assert.throws(() => buildPendingOrder({
+    id: 'order-invalid-contact',
+    orderNumber: 'MC-260726-BADMAIL',
+    store,
+    products,
+    optionGroups,
+    paymentProvider: STRIPE_PROVIDER_ID,
+    paymentProviderMode: STRIPE_PROVIDER_MODE,
+    draft: { ...draft, customerEmail: 'not-an-email' },
+    now: new Date('2026-07-26T04:00:00.000Z')
+  }), /Enter a valid email address/);
+});
+
 test('server pricing adds available option adjustments and preserves them in the order snapshot', () => {
   const adjustedOrder = buildPendingOrder({
     id: 'order-option-adjustment',

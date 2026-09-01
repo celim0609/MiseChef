@@ -14,17 +14,17 @@ const paymentCore = readFileSync(new URL('../../../functions/storePaymentsCore.j
 
 test('customer confirmation copy never confuses order, proof, and paid states', () => {
   assert.deepEqual(getCustomerOrderConfirmationCopy('pending_verification'), {
-    heading: 'Payment Proof Submitted',
-    message: 'Your order has been received. We are verifying your payment. You do not need to pay again.',
-    paymentLabel: 'Payment verification pending'
+    heading: 'Payment Pending',
+    message: 'Your payment proof was submitted. The Store is confirming it now, and you do not need to pay again.',
+    statusLabel: 'Payment Pending'
   });
   assert.deepEqual(getCustomerOrderConfirmationCopy('paid'), {
-    heading: 'Payment Confirmed',
+    heading: 'Order Confirmed',
     message: 'Your payment was received and your order is confirmed.',
-    paymentLabel: 'Paid'
+    statusLabel: 'Order Confirmed'
   });
-  assert.equal(getCustomerOrderConfirmationCopy('pending').heading, 'Order Successfully Submitted');
-  assert.doesNotMatch(JSON.stringify(getCustomerOrderConfirmationCopy('pending_verification')), /Payment Confirmed|"Paid"/);
+  assert.equal(getCustomerOrderConfirmationCopy('pending').heading, 'Payment Pending');
+  assert.doesNotMatch(JSON.stringify(getCustomerOrderConfirmationCopy('pending_verification')), /Payment Confirmed|"Paid"|pending_verification/i);
 });
 
 test('Group entry, checkout, and confirmation show trusted Group and pickup continuity', () => {
