@@ -6,6 +6,7 @@ import { formatPickupDateLabel, getValidPickupDates } from './storeModel';
 import { groupOrderService, storeService } from './services';
 import type { HostGroupOrder, HostGroupOrderSummary, PublicStoreData } from './types';
 import { getCanonicalGroupUrl, getGroupShareData } from './groupSharing';
+import { getCustomerOrderStatus } from './customerOrderStatus';
 
 const statusLabel = (status: HostGroupOrder['status']) => status[0].toUpperCase() + status.slice(1);
 
@@ -275,7 +276,7 @@ export default function HostProgramPage({ slug, currentUser }: { slug: string; c
                     </div>
                   ))}</div>
                   {order.remarks && <p className="mt-3 rounded-xl border border-surface-container-high px-3 py-2 font-sans text-xs font-bold text-on-surface-variant"><span className="font-extrabold text-primary">Remark:</span> {order.remarks}</p>}
-                  <div className="mt-3 flex flex-wrap gap-2"><span className="rounded-full bg-surface-container px-3 py-1 font-sans text-[10px] font-extrabold uppercase text-primary">Payment: {order.paymentStatus.replaceAll('_', ' ')}</span><span className="rounded-full bg-surface-container px-3 py-1 font-sans text-[10px] font-extrabold uppercase text-primary">Fulfilment: {order.fulfilmentStatus || 'New'}</span></div>
+                  <div className="mt-3"><span className="rounded-full bg-surface-container px-3 py-1 font-sans text-[10px] font-extrabold uppercase text-primary">{getCustomerOrderStatus(order)}</span></div>
                 </article>
               ))}</div>
             )}

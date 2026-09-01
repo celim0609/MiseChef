@@ -170,6 +170,10 @@ const validateDraft = (store, draft, currentDate) => {
   if (readString(draft.customerName).length > 120) throw new Error('Name must be 120 characters or fewer.');
   const phone = readString(draft.phone);
   if (phone.replace(/\D/g, '').length < 6 || phone.length > 40) throw new Error('Enter a valid phone number.');
+  const customerEmail = readString(draft.customerEmail).toLowerCase();
+  if (customerEmail && (customerEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail))) {
+    throw new Error('Enter a valid email address.');
+  }
   if (!getValidPickupDates(store, currentDate).includes(readString(draft.pickupDate))) {
     throw new Error('Choose an available pickup date.');
   }
@@ -395,6 +399,7 @@ export const buildPendingOrder = ({
     paymentMethodName: readString(resolvedPaymentMethod.name) || 'Secure online payment',
     customerName: readString(draft.customerName),
     phone: readString(draft.phone),
+    ...(readString(draft.customerEmail) ? { customerEmail: readString(draft.customerEmail).toLowerCase() } : {}),
     pickupDate: readString(draft.pickupDate),
     pickupSession: readString(draft.pickupSession),
     pickupLocationId: readString(pickupLocation.id),

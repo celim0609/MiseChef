@@ -64,6 +64,8 @@ test('My Orders renders each owned order item snapshot without mixing cards', ()
   assert.match(ordersPage, /Remark:/);
   assert.match(ordersPage, /Item details are unavailable for this order/);
   assert.match(ordersPage, /Ordering with \{order\.groupName\}/);
+  assert.match(ordersPage, /getCustomerOrderStatus\(order\)/);
+  assert.doesNotMatch(ordersPage, /replaceAll\('_', ' '\)|order\.fulfilmentStatus \|\| order\.orderStatus/);
   assert.match(customerBackend, /items: \(Array\.isArray\(data\.items\)/);
   assert.match(customerBackend, /remarks: readString\(data\.notes\)/);
   assert.doesNotMatch(customerBackend, /productId:|setId:|optionId:|lineTotal:|receiptPath:/);

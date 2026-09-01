@@ -298,6 +298,7 @@ const toStorePaymentError = error => {
     'Name is required.',
     'Name must be 120 characters or fewer.',
     'Enter a valid phone number.',
+    'Enter a valid email address.',
     'Choose an available pickup date.',
     'Choose a valid pickup session.',
     'Choose a valid pickup location.',

@@ -4,6 +4,7 @@ import { ReceiptText, UsersRound } from 'lucide-react';
 import { formatRegionCurrency } from '../../regions';
 import { customerOrderService } from '../store/services';
 import type { CustomerStoreOrderSummary } from '../store/types';
+import { getCustomerOrderStatus } from '../store/customerOrderStatus';
 
 const formatOrderDate = (value: string) => {
   const date = new Date(value);
@@ -11,8 +12,6 @@ const formatOrderDate = (value: string) => {
     ? 'Date unavailable'
     : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
 };
-
-const paymentLabel = (value: string) => value.replaceAll('_', ' ');
 
 export default function PublicOrdersPage({ currentUser }: { currentUser: User | null }) {
   const [orders, setOrders] = useState<CustomerStoreOrderSummary[]>([]);
@@ -98,8 +97,7 @@ export default function PublicOrdersPage({ currentUser }: { currentUser: User | 
               </section>
               <dl className="mt-5 grid grid-cols-2 gap-4">
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Total</dt><dd className="font-sans text-sm font-extrabold text-primary">{formatRegionCurrency(order.total, order.currency)}</dd></div>
-                <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Payment</dt><dd className="font-sans text-sm font-extrabold capitalize text-primary">{paymentLabel(order.paymentStatus)}</dd></div>
-                <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Order status</dt><dd className="font-sans text-sm font-extrabold text-primary">{order.fulfilmentStatus || order.orderStatus}</dd></div>
+                <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Status</dt><dd className="font-sans text-sm font-extrabold text-primary">{getCustomerOrderStatus(order)}</dd></div>
               </dl>
             </article>
           ))}

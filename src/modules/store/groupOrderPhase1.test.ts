@@ -17,6 +17,7 @@ const publicStorePage = readFileSync(new URL('./PublicStorePage.tsx', import.met
 const hostPage = readFileSync(new URL('./HostProgramPage.tsx', import.meta.url), 'utf8');
 const appSource = readFileSync(new URL('../../App.tsx', import.meta.url), 'utf8');
 const loginSource = readFileSync(new URL('../../components/LoginTab.tsx', import.meta.url), 'utf8');
+const navigationDrawer = readFileSync(new URL('../../components/NavigationDrawer.tsx', import.meta.url), 'utf8');
 const publicLayout = readFileSync(new URL('../public/PublicLayout.tsx', import.meta.url), 'utf8');
 const paymentService = readFileSync(new URL('./services/paymentService.ts', import.meta.url), 'utf8');
 const groupService = readFileSync(new URL('./services/groupOrderService.ts', import.meta.url), 'utf8');
@@ -26,6 +27,7 @@ const storePayments = readFileSync(new URL('../../../functions/storePayments.js'
 
 test('Host and Group links are isolated public routes outside the authenticated app shell', () => {
   assert.deepEqual(resolvePublicRoute('/host/ce-lim-kitchen'), { page: 'host', slug: 'ce-lim-kitchen' });
+  assert.deepEqual(resolvePublicRoute('/host/groups'), { page: 'host', slug: 'groups' });
   assert.deepEqual(resolvePublicRoute('/group/opaque-code'), { page: 'group', shareCode: 'opaque-code' });
 });
 
@@ -195,6 +197,23 @@ test('customer order login return is exact, authenticated, and uses replace navi
   let destination = '';
   assert.equal(replaceWithValidatedPublicAccountReturnTo('?returnTo=%2Forders', value => { destination = value; }), true);
   assert.equal(destination, '/orders');
+});
+
+test('Store login return is strict and the existing Host groups destination resolves safely', () => {
+  assert.equal(getValidatedPublicAccountReturnTo('?returnTo=%2Fstore%2Fmisechef-s-grab-go-store'), '/store/misechef-s-grab-go-store');
+  for (const search of [
+    '?returnTo=%2Fstore',
+    '?returnTo=%2Fstore%2Fa%2Fcheckout',
+    '?returnTo=%2Fstore%2Fa%3Fnext%3D%2Fapp',
+    '?returnTo=https%3A%2F%2Fevil.example%2Fstore%2Fa',
+    '?returnTo=%2F%2Fevil.example%2Fstore%2Fa'
+  ]) assert.equal(getValidatedPublicAccountReturnTo(search), '');
+
+  assert.match(publicLayout, /isHostIndex = route\.page === 'host' && route\.slug === 'groups'/);
+  assert.match(publicLayout, /publicDiscoverStores\.length === 1/);
+  assert.match(publicLayout, /<HostProgramPage slug=\{publicDiscoverStores\[0\]\.slug\} currentUser=\{currentUser\}/);
+  assert.match(publicLayout, /Host \/ My Groups/);
+  assert.match(navigationDrawer, /window\.location\.assign\('\/host\/groups'\)/);
 });
 
 test('Host Center is the single compact dashboard with Create, summaries, Share and Manage', () => {

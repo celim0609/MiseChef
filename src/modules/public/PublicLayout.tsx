@@ -47,18 +47,30 @@ export default function PublicLayout({ pathname, currentUser, onSignOut }: { pat
   const [homepagePromotions, setHomepagePromotions] = useState<HomepagePromotion[]>([]);
   const [chefSearch, setChefSearch] = useState('');
   const [recipeStatus, setRecipeStatus] = useState<PublicSectionStatus>('loading');
+  const [storeStatus, setStoreStatus] = useState<PublicSectionStatus>('loading');
   const [groupStoreSlug, setGroupStoreSlug] = useState('');
   const [hostLookup, setHostLookup] = useState<PublicHostLookup>({ status: 'unavailable', storeSlug: '', userId: '' });
   const [isNightMode, setIsNightMode] = useState(() => typeof document !== 'undefined' && document.documentElement.dataset.appearance === 'dark');
 
-  const routeStoreSlug = route.page === 'store' || route.page === 'host' ? route.slug : '';
+  const isHostIndex = route.page === 'host' && route.slug === 'groups';
+  const routeStoreSlug = route.page === 'store' || (route.page === 'host' && !isHostIndex) ? route.slug : '';
   const hostStoreCandidate = resolvePublicHostStoreCandidate(
     routeStoreSlug,
     route.page === 'group' ? groupStoreSlug : '',
     route.page === 'group' ? [] : publicDiscoverStores.map(store => store.slug)
   );
   const hostAction = resolvePublicHostMenuAction(hostLookup, hostStoreCandidate, currentUser?.uid || '');
-  const loggedOutAccountLink = resolveLoggedOutPublicAccountLink(route.page === 'host' ? route.slug : '');
+  const accountReturnTo = route.page === 'store'
+    ? `/store/${encodeURIComponent(route.slug)}`
+    : route.page === 'host'
+      ? `/host/${encodeURIComponent(route.slug)}`
+      : route.page === 'group'
+        ? `/group/${encodeURIComponent(route.shareCode)}`
+        : route.page === 'orders' ? '/orders' : '';
+  const loggedOutAccountLink = resolveLoggedOutPublicAccountLink(
+    route.page === 'host' && !isHostIndex ? route.slug : '',
+    accountReturnTo
+  );
 
   const toggleAppearance = () => {
     const nextMode = isNightMode ? 'light' : 'dark';
@@ -114,17 +126,20 @@ export default function PublicLayout({ pathname, currentUser, onSignOut }: { pat
 
   useEffect(() => {
     let isCancelled = false;
+    setStoreStatus('loading');
     publicDiscoverService.getHomepageContent()
       .then(content => {
         if (!isCancelled) {
           setPublicDiscoverStores(content.stores);
           setHomepagePromotions(content.promotions);
+          setStoreStatus('ready');
         }
       })
       .catch(() => {
         if (!isCancelled) {
           setPublicDiscoverStores([]);
           setHomepagePromotions([]);
+          setStoreStatus('error');
         }
       });
     return () => { isCancelled = true; };
@@ -210,6 +225,32 @@ export default function PublicLayout({ pathname, currentUser, onSignOut }: { pat
     }
 
     if (route.page === 'host') {
+      if (isHostIndex) {
+        if (!currentUser) {
+          return (
+            <section className="mx-auto max-w-2xl rounded-3xl border border-surface-container-high bg-white p-8 text-center shadow-sm">
+              <h1 className="font-display text-4xl font-bold text-primary">Host / My Groups</h1>
+              <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">Sign in to create, manage, and share your Group Orders.</p>
+              <a href={`/login?returnTo=${encodeURIComponent('/host/groups')}`} className="mt-6 inline-flex rounded-full bg-primary px-6 py-3 font-sans text-xs font-extrabold text-on-primary">Login</a>
+            </section>
+          );
+        }
+        if (storeStatus === 'loading') return <div className="h-80 animate-pulse rounded-3xl bg-surface-container-low" aria-label="Loading Host groups" />;
+        if (publicDiscoverStores.length === 1) {
+          return <HostProgramPage slug={publicDiscoverStores[0].slug} currentUser={currentUser} />;
+        }
+        return (
+          <section className="mx-auto max-w-3xl rounded-3xl border border-surface-container-high bg-white p-8 shadow-sm">
+            <h1 className="font-display text-4xl font-bold text-primary">Host / My Groups</h1>
+            <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">Choose a Store to create or manage its Group Orders.</p>
+            {publicDiscoverStores.length > 0 ? (
+              <div className="mt-6 grid gap-3 sm:grid-cols-2">
+                {publicDiscoverStores.map(store => <a key={store.slug} href={`/host/${encodeURIComponent(store.slug)}`} className="rounded-2xl bg-surface-container-low p-5 font-sans text-sm font-extrabold text-primary">{store.name}</a>)}
+              </div>
+            ) : <p className="mt-6 rounded-2xl bg-surface-container-low p-5 font-sans text-sm font-bold text-on-surface-variant">No Host-enabled Store is available right now.</p>}
+          </section>
+        );
+      }
       return <HostProgramPage slug={route.slug} currentUser={currentUser} />;
     }
 

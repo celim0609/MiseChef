@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { formatRegionCurrency, getRegionConfiguration } from '../../regions';
 import StorePaymentCheckout from './StorePaymentCheckout';
-import { storePaymentService, storeService } from './services';
+import { customerContactService, storePaymentService, storeService } from './services';
 import {
   calculateStoreOptionAdjustedPrice,
   formatStoreOptionSelectionRequirement,
@@ -67,6 +67,7 @@ type CheckoutRecovery = {
 
 const CHECKOUT_RECOVERY_KEY_PREFIX = 'misechef_checkout_recovery_v1:';
 const GROUP_DRAFT_KEY_PREFIX = 'misechef_group_checkout_draft_v1:';
+const STORE_DRAFT_KEY_PREFIX = 'misechef_store_checkout_draft_v1:';
 
 const readCheckoutRecovery = (key: string, slug: string): CheckoutRecovery | null => {
   try {
@@ -132,6 +133,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const checkoutSectionRef = useRef<HTMLElement | null>(null);
   const paymentStageRef = useRef<HTMLElement | null>(null);
   const confirmationRef = useRef<HTMLElement | null>(null);
+  const restoredStoreDraftSlugRef = useRef('');
   const [data, setData] = useState<PublicStoreData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
@@ -142,6 +144,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customerName, setCustomerName] = useState('');
   const [phone, setPhone] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
   const [pickupDate, setPickupDate] = useState('');
   const [pickupSession, setPickupSession] = useState('');
   const [pickupLocationId, setPickupLocationId] = useState('');
@@ -157,6 +160,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const paymentStageKey = paymentSession?.paymentSessionId || '';
   const confirmationKey = placedOrder ? `${placedOrder.orderNumber}:${placedOrder.paymentStatus}` : '';
   const checkoutRecoveryKey = `${CHECKOUT_RECOVERY_KEY_PREFIX}${window.location.pathname}`;
+  const storeDraftKey = `${STORE_DRAFT_KEY_PREFIX}${slug}`;
 
   useEffect(() => {
     if (!paymentStageKey) return;
@@ -206,6 +210,28 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   }, [groupOrder?.id, slug]);
 
   useEffect(() => {
+    if (!currentUser) {
+      setCustomerName('');
+      setPhone('');
+      setCustomerEmail('');
+      return;
+    }
+
+    let cancelled = false;
+    customerContactService.load(currentUser.uid).then(contact => {
+      if (cancelled) return;
+      setCustomerName(current => current || contact.name || currentUser.displayName?.trim() || '');
+      setPhone(current => current || contact.phone);
+      setCustomerEmail(current => current || contact.email || currentUser.email?.trim() || '');
+    }).catch(() => {
+      if (cancelled) return;
+      setCustomerName(current => current || currentUser.displayName?.trim() || '');
+      setCustomerEmail(current => current || currentUser.email?.trim() || '');
+    });
+    return () => { cancelled = true; };
+  }, [currentUser?.uid]);
+
+  useEffect(() => {
     if (!data || !groupOrder?.id) return;
     const key = `${GROUP_DRAFT_KEY_PREFIX}${groupOrder.id}`;
     try {
@@ -214,14 +240,16 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
         cart?: CartLine[];
         customerName?: string;
         phone?: string;
+        customerEmail?: string;
         notes?: string;
         paymentMethodId?: StorePaymentMethodId;
       };
       sessionStorage.removeItem(key);
       if (parsed.groupId !== groupOrder.id || !Array.isArray(parsed.cart)) return;
       setCart(parsed.cart.filter(line => line && typeof line.key === 'string' && typeof line.productId === 'string'));
-      setCustomerName(typeof parsed.customerName === 'string' ? parsed.customerName : '');
-      setPhone(typeof parsed.phone === 'string' ? parsed.phone : '');
+      setCustomerName(current => typeof parsed.customerName === 'string' && parsed.customerName ? parsed.customerName : current);
+      setPhone(current => typeof parsed.phone === 'string' && parsed.phone ? parsed.phone : current);
+      setCustomerEmail(current => typeof parsed.customerEmail === 'string' && parsed.customerEmail ? parsed.customerEmail : current);
       setNotes(typeof parsed.notes === 'string' ? parsed.notes : '');
       if (parsed.paymentMethodId && data.store.paymentMethods.some(method => method.enabled && method.id === parsed.paymentMethodId)) {
         setPaymentMethodId(parsed.paymentMethodId);
@@ -230,6 +258,52 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
       sessionStorage.removeItem(key);
     }
   }, [data, groupOrder?.id]);
+
+  useEffect(() => {
+    if (!data || groupOrder) return;
+    try {
+      const parsed = JSON.parse(sessionStorage.getItem(storeDraftKey) || '') as {
+        slug?: string;
+        cart?: CartLine[];
+        customerName?: string;
+        phone?: string;
+        customerEmail?: string;
+        notes?: string;
+        paymentMethodId?: StorePaymentMethodId;
+      };
+      if (parsed.slug === slug && Array.isArray(parsed.cart)) {
+        setCart(parsed.cart.filter(line => line && typeof line.key === 'string' && typeof line.productId === 'string'));
+        setCustomerName(current => typeof parsed.customerName === 'string' && parsed.customerName ? parsed.customerName : current);
+        setPhone(current => typeof parsed.phone === 'string' && parsed.phone ? parsed.phone : current);
+        setCustomerEmail(current => typeof parsed.customerEmail === 'string' && parsed.customerEmail ? parsed.customerEmail : current);
+        setNotes(typeof parsed.notes === 'string' ? parsed.notes : '');
+        if (parsed.paymentMethodId && data.store.paymentMethods.some(method => method.enabled && method.id === parsed.paymentMethodId)) {
+          setPaymentMethodId(parsed.paymentMethodId);
+        }
+      }
+    } catch {
+      sessionStorage.removeItem(storeDraftKey);
+    } finally {
+      restoredStoreDraftSlugRef.current = slug;
+    }
+  }, [data, groupOrder, slug, storeDraftKey]);
+
+  useEffect(() => {
+    if (groupOrder || restoredStoreDraftSlugRef.current !== slug) return;
+    if (cart.length === 0) {
+      sessionStorage.removeItem(storeDraftKey);
+      return;
+    }
+    sessionStorage.setItem(storeDraftKey, JSON.stringify({
+      slug,
+      cart,
+      customerName,
+      phone,
+      customerEmail,
+      notes,
+      paymentMethodId
+    }));
+  }, [cart, customerEmail, customerName, groupOrder, notes, paymentMethodId, phone, slug, storeDraftKey]);
 
   useEffect(() => {
     const checkoutSection = checkoutSectionRef.current;
@@ -259,6 +333,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
       setCart([]);
       setNotes('');
       setCheckoutError('');
+      sessionStorage.removeItem(storeDraftKey);
       return;
     }
     if (['pending', 'processing'].includes(result.paymentStatus)) {
@@ -502,6 +577,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
         paymentMethodId,
         customerName,
         phone,
+        ...(currentUser && customerEmail.trim() ? { customerEmail: customerEmail.trim() } : {}),
         pickupDate,
         pickupSession,
         pickupLocationId,
@@ -515,6 +591,13 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
         })),
         ...(groupOrder ? { groupShareCode: groupOrder.shareCode } : {})
       }, paymentReturnUrl);
+      if (currentUser) {
+        await customerContactService.save(currentUser.uid, {
+          name: customerName,
+          phone,
+          email: customerEmail || currentUser.email || ''
+        }).catch(() => undefined);
+      }
       sessionStorage.setItem(checkoutRecoveryKey, JSON.stringify({
         slug,
         provider: session.provider,
@@ -557,6 +640,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
       cart,
       customerName,
       phone,
+      customerEmail,
       notes,
       paymentMethodId
     }));
@@ -582,7 +666,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const storeWhatsApp = store.storeContact.whatsapp;
   const bulkOrderWhatsAppUrl = getBusinessWhatsAppUrl(storeWhatsApp);
   const confirmationCopy = placedOrder
-    ? getCustomerOrderConfirmationCopy(placedOrder.paymentStatus)
+    ? getCustomerOrderConfirmationCopy(placedOrder.paymentStatus, placedOrder.status)
     : null;
   const groupLoginReturnTo = groupOrder
     ? `/login?returnTo=${encodeURIComponent(`/group/${encodeURIComponent(groupOrder.shareCode)}`)}`
@@ -772,7 +856,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Date</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{formatPickupDateLabel(placedOrder.pickupDate, store.country)}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Location</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupLocationName}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Time</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupSession}</dd></div>
-                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Payment Status</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{confirmationCopy?.paymentLabel}</dd></div>
+                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Order Status</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{confirmationCopy?.statusLabel}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Payment Method</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.paymentMethodName}</dd></div>
               </dl>
               <div className="mt-4 flex flex-col gap-2">
@@ -909,6 +993,12 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
                       <span className="font-sans text-xs font-extrabold text-primary">Phone</span>
                       <input aria-label="Phone" required autoComplete="tel" inputMode="tel" placeholder="Your phone number" value={phone} onChange={event => setPhone(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                     </label>
+                    {currentUser && (
+                      <label className="block">
+                        <span className="font-sans text-xs font-extrabold text-primary">Email <span className="text-outline">(optional)</span></span>
+                        <input aria-label="Email" type="email" autoComplete="email" placeholder="Your email" value={customerEmail} onChange={event => setCustomerEmail(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                      </label>
+                    )}
                     <label className="block">
                       <span className="font-sans text-xs font-extrabold text-primary">Notes <span className="text-outline">(optional)</span></span>
                       <textarea aria-label="Notes" rows={2} placeholder="Anything the Store should know?" value={notes} onChange={event => setNotes(event.target.value)} className="mt-1.5 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
