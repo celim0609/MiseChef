@@ -15,6 +15,11 @@ import {
   transformDocument,
   validateTransformedDocument
 } from './migrateAuthorizedBetaBusiness.mjs';
+import {
+  PRODUCTION_WORKSPACE_COUNTRY,
+  planProductionWorkspaceCountryPatch,
+  validateProductionWorkspaceCountry
+} from './authorizedBetaBusinessWorkspacePatch.mjs';
 
 test('fixed manifests have exact counts and unique source/destination keys', () => {
   assert.equal(getFirestoreCount(), EXPECTED_COUNTS.firestoreSource);
@@ -38,6 +43,41 @@ test('only the two unrecoverable dangling price histories are explicitly exclude
   assert.equal(EXPECTED_COUNTS.firestoreSource, 208);
   assert.equal(EXPECTED_COUNTS.firestoreCreates, 207);
   assert.equal(EXPECTED_COUNTS.firestoreUpdates, 2);
+});
+
+test('Production workspace country patch is MY-only, field-limited, and update-time protected', () => {
+  assert.equal(PRODUCTION_WORKSPACE_COUNTRY, 'MY');
+  const workspace = {
+    name: `projects/${DESTINATION.projectId}/databases/(default)/documents/workspaces/${DESTINATION.workspaceId}`,
+    updateTime: '2026-09-03T00:00:00.000000Z',
+    fields: {
+      ownerId: { stringValue: DESTINATION.ownerUid },
+      displayName: { stringValue: 'Preserve Me' }
+    }
+  };
+  const plan = planProductionWorkspaceCountryPatch(workspace);
+  assert.equal(plan.required, true);
+  assert.deepEqual(plan.write.update.fields, { country: { stringValue: 'MY' } });
+  assert.deepEqual(plan.write.updateMask, { fieldPaths: ['country'] });
+  assert.deepEqual(plan.write.currentDocument, { updateTime: workspace.updateTime });
+  assert.equal(workspace.fields.displayName.stringValue, 'Preserve Me');
+});
+
+test('Production workspace country patch is idempotent for MY and fails closed for another country', () => {
+  const base = {
+    name: `projects/${DESTINATION.projectId}/databases/(default)/documents/workspaces/${DESTINATION.workspaceId}`,
+    updateTime: '2026-09-03T00:00:00.000000Z'
+  };
+  const alreadyMalaysia = { ...base, fields: { country: { stringValue: 'MY' } } };
+  assert.deepEqual(planProductionWorkspaceCountryPatch(alreadyMalaysia), {
+    required: false,
+    existingCountry: 'MY'
+  });
+  assert.equal(validateProductionWorkspaceCountry(alreadyMalaysia), 'MY');
+  assert.throws(
+    () => planProductionWorkspaceCountryPatch({ ...base, fields: { country: { stringValue: 'SG' } } }),
+    /does not match required country MY/
+  );
 });
 
 test('store and Host Profile document IDs are deterministically re-homed', () => {
