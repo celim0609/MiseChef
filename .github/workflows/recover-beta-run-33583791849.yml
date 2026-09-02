@@ -1,0 +1,121 @@
+name: Beta Run 33583791849 Follow-up Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      recovery_confirmation:
+        description: Type REPAIR BETA RUN 33583791849 to authorize this exact follow-up recovery
+        required: true
+        type: string
+      expected_candidate_sha:
+        description: Exact immutable Beta recovery candidate SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: misechef-beta-deployment
+  cancel-in-progress: false
+
+jobs:
+  recover-beta-run-33583791849:
+    if: ${{ inputs.recovery_confirmation == 'REPAIR BETA RUN 33583791849' && inputs.expected_candidate_sha == 'bba5cc1f166c41a6a92c5fb8275aa37f84acdf42' }}
+    runs-on: ubuntu-latest
+    environment: beta
+    timeout-minutes: 60
+    env:
+      FIREBASE_DEPLOY_TARGET: beta
+      MISECHEF_BETA_PROTECTED_BASELINE: ${{ vars.MISECHEF_BETA_PROTECTED_BASELINE }}
+      MISECHEF_BETA_CI_LOCK_ID: misechef-beta-deployment
+    steps:
+      - name: Check out protected follow-up recovery controller
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ vars.MISECHEF_BETA_RUN_33583791849_RECOVERY_GATE_SHA }}
+          path: recovery-gate
+          fetch-depth: 0
+
+      - name: Check out immutable trusted Beta gate
+        uses: actions/checkout@v4
+        with:
+          ref: 9c2173b9f9ae42b1fc09826c57cef46697759452
+          path: trusted-gate
+          fetch-depth: 0
+
+      - name: Check out exact immutable recovery candidate
+        uses: actions/checkout@v4
+        with:
+          ref: bba5cc1f166c41a6a92c5fb8275aa37f84acdf42
+          path: candidate
+          fetch-depth: 0
+
+      - name: Verify exact protected controller and candidate SHAs
+        env:
+          EXPECTED_GATE_SHA: ${{ vars.MISECHEF_BETA_RUN_33583791849_RECOVERY_GATE_SHA }}
+        run: |
+          test "$(git -C "$GITHUB_WORKSPACE/recovery-gate" rev-parse HEAD)" = "$EXPECTED_GATE_SHA"
+          test "$(git -C "$GITHUB_WORKSPACE/candidate" rev-parse HEAD)" = "${{ inputs.expected_candidate_sha }}"
+          test "$(git -C "$GITHUB_WORKSPACE/candidate" rev-parse HEAD^{tree})" = "c67015bf5fdb9c928bd88d9662d0fee0b27d09cb"
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Java 21 for mandatory Firebase Rules emulators
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install protected recovery controller dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/recovery-gate" ci
+
+      - name: Install immutable trusted gate dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/trusted-gate" ci
+
+      - name: Install exact candidate application dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/candidate" ci
+
+      - name: Install exact candidate Functions dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/candidate/functions" ci
+
+      - name: Install pinned Firebase CLI
+        run: npm install --global firebase-tools@14.22.0
+
+      - name: Validate protected follow-up recovery controller
+        run: |
+          npm --prefix "$GITHUB_WORKSPACE/recovery-gate" run test:beta-deployment-safety
+          npm --prefix "$GITHUB_WORKSPACE/recovery-gate" run test:beta-capabilities
+
+      - name: Validate exact candidate with immutable trusted gate
+        run: >-
+          node "$GITHUB_WORKSPACE/trusted-gate/scripts/validateBetaReleaseBaseline.mjs"
+          --trusted-root "$GITHUB_WORKSPACE/trusted-gate"
+          --candidate-root "$GITHUB_WORKSPACE/candidate"
+
+      - name: Run complete immutable trusted candidate regression gate
+        run: >-
+          node "$GITHUB_WORKSPACE/trusted-gate/scripts/runBetaProtectedTests.mjs"
+          --trusted-root "$GITHUB_WORKSPACE/trusted-gate"
+          --candidate-root "$GITHUB_WORKSPACE/candidate"
+
+      - name: Run Store Sets Firestore authorization suite
+        run: npm --prefix "$GITHUB_WORKSPACE/candidate" run test:store-sets:rules
+
+      - name: Authenticate to Beta only
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA }}
+
+      - name: Run protected one-time follow-up recovery
+        working-directory: recovery-gate
+        env:
+          MISECHEF_BETA_RUN_33583791849_RECOVERY_GATE_SHA: ${{ vars.MISECHEF_BETA_RUN_33583791849_RECOVERY_GATE_SHA }}
+          MISECHEF_BETA_RUN_33583791849_RECOVERY_CONFIRMATION: ${{ inputs.recovery_confirmation }}
+          MISECHEF_BETA_RUN_33583791849_RECOVERY_AUTHORIZATION: ${{ vars.MISECHEF_BETA_RUN_33583791849_RECOVERY_AUTHORIZATION }}
+          MISECHEF_BETA_GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/recoverBetaRun33583791849.mjs --candidate-root "$GITHUB_WORKSPACE/candidate"

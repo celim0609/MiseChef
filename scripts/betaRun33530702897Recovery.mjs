@@ -2,11 +2,23 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { BETA_PROJECT_ID, MANDATORY_BETA_BASELINE } from './betaDeploymentSafety.mjs';
+import {
+  BETA_PROJECT_ID,
+  MANDATORY_BETA_BASELINE,
+  PINNED_FIREBASE_CLI_VERSION
+} from './betaDeploymentSafety.mjs';
 
 export const BETA_RUN_33530702897_CONFIRMATION = 'RECOVER BETA RUN 33530702897';
 export const BETA_RUN_33530702897_AUTHORIZATION =
   'beta-run-33530702897-partial:bba5cc1f166c41a6a92c5fb8275aa37f84acdf42';
+export const BETA_RUN_33583791849_CONFIRMATION = 'REPAIR BETA RUN 33583791849';
+export const BETA_RUN_33583791849_AUTHORIZATION =
+  'beta-run-33583791849-targeted-functions:bba5cc1f166c41a6a92c5fb8275aa37f84acdf42';
+export const BETA_RUN_33583791849_TARGET_FUNCTIONS = Object.freeze([
+  'parseResumeToPortfolio',
+  'reviewStoreManualPayment',
+  'syncPublicChefProfile'
+]);
 
 const candidateHash = '533abe976f99d0e3d20797cdf94316228b8047a7';
 const functionConfigurationHashes = Object.freeze({
@@ -106,6 +118,30 @@ export const BETA_RUN_33530702897 = Object.freeze({
   })
 });
 
+export const BETA_RUN_33583791849 = Object.freeze({
+  id: 'beta-run-33583791849-targeted-functions-follow-up',
+  failedRunId: '33583791849',
+  failedRunNumber: 3,
+  failedJobId: '100103532285',
+  controllerCommit: 'bd2f85d9340e02ffb8c79cd39175fd6b8d1bc897',
+  candidateCommit: BETA_RUN_33530702897.candidateCommit,
+  candidateSourceTree: BETA_RUN_33530702897.candidateSourceTree,
+  functionDigest: BETA_RUN_33530702897.partialFunctionDigest,
+  manifest: Object.freeze({
+    kind: 'misechef-beta-release',
+    version: 1,
+    buildId: '878f4690-d527-4be3-96f5-88e405239cac',
+    builtAt: '2026-09-02T02:41:57.487Z',
+    sourceCommit: BETA_RUN_33530702897.candidateCommit,
+    sourceTree: BETA_RUN_33530702897.candidateSourceTree,
+    protectedBaseline: MANDATORY_BETA_BASELINE,
+    entryAsset: '/assets/index-BGpY59Av.js',
+    entryAssetSha256: '2dc447446ebbacc78658a916963f5f49084638761d5e70b165c3ff7b0ff3aeaa',
+    storeShellAsset: '/assets/index-BGpY59Av.js'
+  }),
+  failedServices: BETA_RUN_33530702897.failedServices
+});
+
 const canonical = value => {
   if (Array.isArray(value)) return value.map(canonical);
   if (value && typeof value === 'object') {
@@ -117,6 +153,7 @@ const same = (left, right) => JSON.stringify(canonical(left)) === JSON.stringify
 const digest = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
 const functionInventoryDigest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const fail = message => { throw new Error(`Beta run 33530702897 recovery refused: ${message}`); };
+const followUpFail = message => { throw new Error(`Beta run 33583791849 follow-up refused: ${message}`); };
 
 const functionConfiguration = item => ({
   platform: item.platform,
@@ -185,6 +222,154 @@ const hasFullReadyTraffic = service => {
       || item.revision === service.latestReadyRevision
       || item.type === 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST'
     ));
+};
+
+export const targetedRepairFirebaseArgs = () => [
+  'deploy',
+  '--project',
+  'beta',
+  '--only',
+  BETA_RUN_33583791849_TARGET_FUNCTIONS.map(id => `functions:${id}`).join(',')
+];
+
+export const assertPinnedFirebaseTargetedRedeployBehavior = ({ version, prepareSource, plannerSource }) => {
+  if (version !== PINNED_FIREBASE_CLI_VERSION) {
+    followUpFail(`Firebase CLI must remain pinned to ${PINNED_FIREBASE_CLI_VERSION}.`);
+  }
+  if (!/endpoint\.targetedByOnly\s*=\s*[^;]*endpointMatchesAnyFilter/.test(String(prepareSource || ''))) {
+    followUpFail('the pinned Firebase CLI no longer marks exact --only Function filters as targeted.');
+  }
+  if (!/!want\[id\]\.targetedByOnly[\s\S]{0,240}have\[id\]\.hash[\s\S]{0,240}want\[id\]\.hash\s*===\s*have\[id\]\.hash/.test(String(plannerSource || ''))) {
+    followUpFail('the pinned Firebase CLI no longer excludes targeted Functions from unchanged-hash skipping.');
+  }
+};
+
+export const resolveBetaRun33583791849RecoveryMode = ({
+  confirmation,
+  authorization,
+  githubActions,
+  ciLockId
+}) => {
+  if (confirmation !== BETA_RUN_33583791849_CONFIRMATION) followUpFail('the incident confirmation is not exact.');
+  if (authorization !== BETA_RUN_33583791849_AUTHORIZATION) {
+    followUpFail('the protected Beta environment has not supplied the exact follow-up authorization.');
+  }
+  if (githubActions !== true || ciLockId !== 'misechef-beta-deployment') {
+    followUpFail('repair is permitted only inside the locked protected Beta workflow.');
+  }
+  return true;
+};
+
+export const assertBetaRun33583791849PostRunState = ({
+  head,
+  sourceTree,
+  liveFingerprint,
+  functions,
+  services,
+  assetProof
+}) => {
+  if (head !== BETA_RUN_33583791849.candidateCommit || sourceTree !== BETA_RUN_33583791849.candidateSourceTree) {
+    followUpFail('the candidate checkout is not the exact authorized SHA and source tree.');
+  }
+  if (!same(liveFingerprint?.releaseMetadata, BETA_RUN_33583791849.manifest)) {
+    followUpFail('the live manifest is not the exact audited post-run 33583791849 manifest.');
+  }
+  if (
+    liveFingerprint?.rootAsset !== BETA_RUN_33583791849.manifest.entryAsset
+    || liveFingerprint?.storeAsset !== BETA_RUN_33583791849.manifest.entryAsset
+  ) followUpFail('Hosting does not serve the exact audited candidate asset at both entry points.');
+  if (
+    assetProof?.status !== 200
+    || !/^(?:application|text)\/javascript(?:;|$)/i.test(String(assetProof?.contentType || ''))
+    || assetProof?.sha256 !== BETA_RUN_33583791849.manifest.entryAssetSha256
+  ) followUpFail('the audited candidate asset bytes or content type changed.');
+
+  const normalizedFunctions = normalizeBetaFunctions(functions);
+  if (functionInventoryDigest(normalizedFunctions) !== BETA_RUN_33583791849.functionDigest) {
+    followUpFail('the exact 41 candidate Function endpoint records changed.');
+  }
+  const expectedFunctions = expectedCandidateFunctions();
+  const expectedById = new Map(expectedFunctions.map(item => [item.id, item]));
+  const serviceById = new Map((services || []).map(item => [item.id, item]));
+  if (!same([...serviceById.keys()].sort(), expectedFunctions.map(item => item.id))) {
+    followUpFail('the Cloud Run service inventory is not exactly 41 Functions.');
+  }
+
+  const oldServing = [];
+  for (const expected of expectedFunctions) {
+    const service = serviceById.get(expected.id);
+    if (service?.latestCreatedHash !== expected.hash) {
+      followUpFail(`Function ${expected.id} latest-created revision is not candidate source.`);
+    }
+    const failed = BETA_RUN_33583791849.failedServices[expected.id];
+    if (failed) {
+      oldServing.push(expected.id);
+      if (
+        service.latestCreatedRevision !== failed.latestCreatedRevision
+        || service.latestReadyRevision !== failed.latestReadyRevision
+        || service.terminalState !== 'CONDITION_FAILED'
+        || !hasFullReadyTraffic(service)
+      ) followUpFail(`Function ${expected.id} no longer has the exact audited failed/serving revision pair.`);
+    } else if (
+      !service?.latestReadyRevision
+      || service.latestCreatedRevision !== service.latestReadyRevision
+      || service.terminalState !== 'CONDITION_SUCCEEDED'
+      || !hasFullReadyTraffic(service)
+    ) followUpFail(`Function ${expected.id} is no longer one of the 38 audited candidate-ready services.`);
+  }
+  if (!same(oldServing.sort(), [...BETA_RUN_33583791849_TARGET_FUNCTIONS].sort())) {
+    followUpFail('the old-serving set is not exactly the three authorized repair targets.');
+  }
+
+  const state = {
+    liveFingerprint,
+    functions: normalizedFunctions,
+    services: [...serviceById.values()].sort((left, right) => left.id.localeCompare(right.id)),
+    assetProof
+  };
+  return { incidentId: BETA_RUN_33583791849.id, fingerprint: digest(state), state };
+};
+
+export const assertBetaRun33583791849TargetedRepair = ({ beforeFunctions, beforeServices, functions, services }) => {
+  const normalizedFunctions = normalizeBetaFunctions(functions);
+  const expectedById = new Map(expectedCandidateFunctions().map(item => [item.id, item]));
+  const beforeFunctionById = new Map(normalizeBetaFunctions(beforeFunctions).map(item => [item.id, item]));
+  const afterFunctionById = new Map(normalizedFunctions.map(item => [item.id, item]));
+  const beforeById = new Map((beforeServices || []).map(item => [item.id, item]));
+  const afterById = new Map((services || []).map(item => [item.id, item]));
+  if (
+    !same([...afterFunctionById.keys()].sort(), [...expectedById.keys()].sort())
+    || !same([...afterById.keys()].sort(), [...expectedById.keys()].sort())
+  ) {
+    followUpFail('the targeted repair did not preserve the exact 41-Function inventory.');
+  }
+  for (const [id, expected] of expectedById) {
+    const beforeFunction = beforeFunctionById.get(id);
+    const afterFunction = afterFunctionById.get(id);
+    const before = beforeById.get(id);
+    const after = afterById.get(id);
+    if (
+      afterFunction?.state !== 'ACTIVE'
+      || afterFunction.hash !== expected.hash
+      || afterFunction.configurationHash !== expected.configurationHash
+    ) followUpFail(`Function ${id} endpoint metadata is not the authorized candidate after targeted repair.`);
+    if (!BETA_RUN_33583791849_TARGET_FUNCTIONS.includes(id)) {
+      if (!same(beforeFunction, afterFunction)) followUpFail(`non-target Function ${id} endpoint changed during targeted repair.`);
+      if (!same(before, after)) followUpFail(`non-target Function ${id} changed during targeted repair.`);
+      continue;
+    }
+    const failed = BETA_RUN_33583791849.failedServices[id];
+    if (
+      !after?.latestReadyRevision
+      || after.latestCreatedRevision === failed.latestCreatedRevision
+      || after.latestReadyRevision === failed.latestReadyRevision
+      || after.latestCreatedRevision !== after.latestReadyRevision
+      || after.latestCreatedHash !== expected.hash
+      || after.terminalState !== 'CONDITION_SUCCEEDED'
+      || !hasFullReadyTraffic(after)
+    ) followUpFail(`Function ${id} did not create a new healthy candidate revision serving 100% traffic.`);
+  }
+  return true;
 };
 
 export const assertBetaRun33530702897PartialState = ({
@@ -340,6 +525,70 @@ export const verifyBetaRun33530702897FailedRun = async ({ repository, token = ''
   });
 };
 
+export const assertBetaRun33583791849FailedRun = ({ run, jobs, log }) => {
+  if (
+    String(run?.id || '') !== BETA_RUN_33583791849.failedRunId
+    || run?.name !== 'Beta Run 33530702897 Recovery'
+    || run?.run_number !== BETA_RUN_33583791849.failedRunNumber
+    || run?.run_attempt !== 1
+    || run?.event !== 'workflow_dispatch'
+    || run?.head_branch !== 'main'
+    || run?.head_sha !== BETA_RUN_33583791849.controllerCommit
+    || run?.conclusion !== 'failure'
+    || run?.path !== '.github/workflows/recover-beta-run-33530702897.yml'
+  ) followUpFail('GitHub does not identify exact failed recovery run 33583791849.');
+  if (jobs?.length !== 1) followUpFail('run 33583791849 does not contain exactly one recovery job.');
+  const job = jobs[0];
+  if (
+    String(job?.id || '') !== BETA_RUN_33583791849.failedJobId
+    || job?.name !== 'recover-beta-run-33530702897'
+    || job?.conclusion !== 'failure'
+    || job?.head_sha !== BETA_RUN_33583791849.controllerCommit
+  ) followUpFail('run 33583791849 job metadata differs from the audited protected recovery.');
+  for (const name of [
+    'Verify exact protected controller and candidate SHAs',
+    'Validate protected incident recovery controller',
+    'Validate exact candidate with immutable trusted gate',
+    'Run complete immutable trusted candidate regression gate',
+    'Run Store Sets Firestore authorization suite',
+    'Authenticate to Beta only'
+  ]) if (!job.steps?.some(step => step.name === name && step.conclusion === 'success')) {
+    followUpFail(`run 33583791849 did not pass protected step ${name}.`);
+  }
+  if (!job.steps?.some(step => step.name === 'Run protected one-time incident convergence' && step.conclusion === 'failure')) {
+    followUpFail('run 33583791849 did not fail in the protected convergence controller.');
+  }
+  const cleanLog = String(log).replace(/\u001b\[[0-9;]*m/g, '');
+  for (const marker of [
+    'functions[parseResumeToPortfolio(us-central1)]',
+    'functions[reviewStoreManualPayment(us-central1)]',
+    'functions[syncPublicChefProfile(us-central1)]',
+    'Skipped (No changes detected)',
+    'hosting[misechef-beta-fa4bf]: release complete',
+    'Function parseResumeToPortfolio does not have a ready candidate revision serving 100% traffic.'
+  ]) if (!cleanLog.includes(marker)) {
+    followUpFail(`run 33583791849 logs are missing ${marker}.`);
+  }
+  return true;
+};
+
+export const verifyBetaRun33583791849FailedRun = async ({ repository, token = '', request = fetch }) => {
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository || '') || !token) {
+    followUpFail('the protected workflow repository identity or GitHub token is unavailable.');
+  }
+  const headers = { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}` };
+  const api = `https://api.github.com/repos/${repository}`;
+  const runUrl = `${api}/actions/runs/${BETA_RUN_33583791849.failedRunId}`;
+  const responses = await Promise.all([
+    request(runUrl, { headers, redirect: 'follow' }),
+    request(`${runUrl}/jobs?per_page=100`, { headers, redirect: 'follow' }),
+    request(`${api}/actions/jobs/${BETA_RUN_33583791849.failedJobId}/logs`, { headers, redirect: 'follow' })
+  ]);
+  if (responses.some(response => !response.ok)) followUpFail('GitHub run 33583791849 provenance could not be read completely.');
+  const [run, jobs, log] = await Promise.all([responses[0].json(), responses[1].json(), responses[2].text()]);
+  return assertBetaRun33583791849FailedRun({ run, jobs: jobs.jobs, log });
+};
+
 export const assertBetaRun33530702897RecoveryConverged = ({ liveFingerprint, functions, services, manifest, assetProof }) => {
   if (
     liveFingerprint?.releaseCommit !== BETA_RUN_33530702897.candidateCommit
@@ -440,6 +689,7 @@ export const readCloudRunServiceState = async ({ firebaseToolsRoot = '', loadSer
       id,
       latestCreatedRevision: String(service.latestCreatedRevision || '').split('/').at(-1),
       latestReadyRevision: String(service.latestReadyRevision || '').split('/').at(-1),
+      latestCreatedHash: String(service.template?.labels?.['firebase-functions-hash'] || ''),
       terminalState: String(service.terminalCondition?.state || ''),
       trafficStatuses: (service.trafficStatuses || []).map(item => ({
         type: item.type || '',
