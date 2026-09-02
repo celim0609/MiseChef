@@ -26,6 +26,19 @@ test('native Share keeps the canonical Group URL in the url field without concat
   assert.doesNotMatch(hostPage, /navigator\.share\(\{[^}]*text:/s);
 });
 
+test('Host group cards view the attributed customer Group route rather than the generic Store', () => {
+  assert.equal(
+    getCanonicalGroupUrl('https://beta.misechef.com', 'opaque share/code'),
+    'https://beta.misechef.com/group/opaque%20share%2Fcode'
+  );
+  assert.match(hostPage, /href=\{getCanonicalGroupUrl\(window\.location\.origin, group\.shareCode\)\}/);
+  const viewStoreIndex = hostPage.indexOf('> View Store</a>');
+  const shareIndex = hostPage.indexOf('> Share</button>', viewStoreIndex);
+  const manageIndex = hostPage.indexOf('>Manage</button>', shareIndex);
+  assert.ok(viewStoreIndex >= 0 && viewStoreIndex < shareIndex && shareIndex < manageIndex);
+  assert.doesNotMatch(hostPage.slice(viewStoreIndex - 300, manageIndex), /\/store\//);
+});
+
 test('Group and normal Store checkouts pass the loaded canonical Store slug into manual payment calls', () => {
   assert.match(publicStorePage, /storeSlug=\{store\.slug\}/);
   assert.match(paymentCheckout, /storeSlug=\{storeSlug\}/);
