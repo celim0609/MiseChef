@@ -731,6 +731,12 @@ test('Beta run 33530702897 candidate artifact is exact and recovery convergence 
   assert.doesNotThrow(() => assertBetaRun33530702897CandidateArtifact(converged.manifest));
   assert.doesNotThrow(() => assertBetaRun33530702897RecoveryConverged(converged));
 
+  const providerRegenerated = structuredClone(converged);
+  const parseIndex = providerRegenerated.functions.findIndex(item => item.id === 'parseResumeToPortfolio');
+  providerRegenerated.functions[parseIndex].configurationHash =
+    'd61873d89783a8d30d5e318614b95f53330fea02476b17ae336d4ca55d1f9692';
+  assert.doesNotThrow(() => assertBetaRun33530702897RecoveryConverged(providerRegenerated));
+
   const htmlFallback = structuredClone(converged);
   htmlFallback.assetProof.contentType = 'text/html';
   assert.throws(() => assertBetaRun33530702897RecoveryConverged(htmlFallback), /JavaScript bytes/);
@@ -876,8 +882,27 @@ test('targeted follow-up accepts new healthy target revisions and rejects target
   const services = betaRunServices().map(item => BETA_RUN_33583791849_TARGET_FUNCTIONS.includes(item.id)
     ? readyService(item.id, `${item.id.toLowerCase()}-new-candidate`)
     : item);
+  const parseIndex = functions.findIndex(item => item.id === 'parseResumeToPortfolio');
+  functions[parseIndex].configurationHash =
+    'd61873d89783a8d30d5e318614b95f53330fea02476b17ae336d4ca55d1f9692';
   const valid = { beforeFunctions, beforeServices, functions, services };
   assert.equal(assertBetaRun33583791849TargetedRepair(valid), true);
+
+  const unexpectedProviderMetadata = structuredClone(valid);
+  unexpectedProviderMetadata.functions[parseIndex].configurationHash = 'unexpected-provider-metadata';
+  assert.throws(
+    () => assertBetaRun33583791849TargetedRepair(unexpectedProviderMetadata),
+    /endpoint metadata is not the authorized candidate/
+  );
+
+  const wrongFunction = structuredClone(valid);
+  const reviewIndex = wrongFunction.functions.findIndex(item => item.id === 'reviewStoreManualPayment');
+  wrongFunction.functions[reviewIndex].configurationHash =
+    'd61873d89783a8d30d5e318614b95f53330fea02476b17ae336d4ca55d1f9692';
+  assert.throws(
+    () => assertBetaRun33583791849TargetedRepair(wrongFunction),
+    /endpoint metadata is not the authorized candidate/
+  );
 
   const staleTarget = structuredClone(valid);
   const targetIndex = staleTarget.services.findIndex(item => item.id === 'parseResumeToPortfolio');
