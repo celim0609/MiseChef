@@ -107,12 +107,9 @@ jobs:
         run: npm --prefix "$GITHUB_WORKSPACE/candidate" run test:store-sets:rules
 
       - name: Authenticate to Beta only
-        id: beta-auth
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA }}
-          token_format: access_token
-          access_token_lifetime: 3600s
 
       - name: Run protected one-time incident convergence
         working-directory: recovery-gate
@@ -121,5 +118,4 @@ jobs:
           MISECHEF_BETA_RUN_33530702897_RECOVERY_CONFIRMATION: ${{ inputs.recovery_confirmation }}
           MISECHEF_BETA_RUN_33530702897_RECOVERY_AUTHORIZATION: ${{ vars.MISECHEF_BETA_RUN_33530702897_RECOVERY_AUTHORIZATION }}
           MISECHEF_BETA_GITHUB_TOKEN: ${{ github.token }}
-          MISECHEF_BETA_GOOGLE_ACCESS_TOKEN: ${{ steps.beta-auth.outputs.access_token }}
         run: node scripts/recoverBetaRun33530702897.mjs --candidate-root "$GITHUB_WORKSPACE/candidate"
