@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   DESTINATION,
   EXCLUDED_COLLECTIONS,
+  EXCLUDED_DANGLING_PRICE_HISTORY,
   EXPECTED_COUNTS,
   FIRESTORE_ALLOWLIST,
   SOURCE,
@@ -23,6 +24,20 @@ test('fixed manifests have exact counts and unique source/destination keys', () 
   assert.equal(new Set(firestorePaths).size, firestorePaths.length);
   assert.equal(new Set(STORAGE_ALLOWLIST.map(item => item.sourcePath)).size, STORAGE_ALLOWLIST.length);
   assert.equal(new Set(STORAGE_ALLOWLIST.map(item => item.destinationPath)).size, STORAGE_ALLOWLIST.length);
+});
+
+test('only the two unrecoverable dangling price histories are explicitly excluded', () => {
+  assert.deepEqual(EXCLUDED_DANGLING_PRICE_HISTORY, [
+    'Ne332R6FT3ugSpHbiooz',
+    'sxltBmx7WQQg95zpx68m'
+  ]);
+  assert.equal(FIRESTORE_ALLOWLIST.ingredientPriceHistory.length, 60);
+  for (const id of EXCLUDED_DANGLING_PRICE_HISTORY) {
+    assert(!FIRESTORE_ALLOWLIST.ingredientPriceHistory.includes(id), `${id} must not be migrated`);
+  }
+  assert.equal(EXPECTED_COUNTS.firestoreSource, 208);
+  assert.equal(EXPECTED_COUNTS.firestoreCreates, 207);
+  assert.equal(EXPECTED_COUNTS.firestoreUpdates, 2);
 });
 
 test('store and Host Profile document IDs are deterministically re-homed', () => {
