@@ -40,14 +40,24 @@ import {
   BETA_RUN_33530702897,
   BETA_RUN_33530702897_AUTHORIZATION,
   BETA_RUN_33530702897_CONFIRMATION,
+  BETA_RUN_33583791849,
+  BETA_RUN_33583791849_AUTHORIZATION,
+  BETA_RUN_33583791849_CONFIRMATION,
+  BETA_RUN_33583791849_TARGET_FUNCTIONS,
   assertBetaRun33530702897CandidateArtifact,
   assertBetaRun33530702897FailedRun,
   assertBetaRun33530702897PartialState,
   assertBetaRun33530702897RecoveryConverged,
+  assertBetaRun33583791849FailedRun,
+  assertBetaRun33583791849PostRunState,
+  assertBetaRun33583791849TargetedRepair,
+  assertPinnedFirebaseTargetedRedeployBehavior,
   expectedCandidateFunctions,
   loadCloudRunServicesWithFirebaseCli,
   readCloudRunServiceState,
-  resolveBetaRun33530702897RecoveryMode
+  resolveBetaRun33530702897RecoveryMode,
+  resolveBetaRun33583791849RecoveryMode,
+  targetedRepairFirebaseArgs
 } from './betaRun33530702897Recovery.mjs';
 
 const betaRunFunctionGenerations = Object.freeze({
@@ -100,10 +110,13 @@ const betaRunFunctions = () => expectedCandidateFunctions().map(item => ({
   state: 'ACTIVE'
 }));
 
+const expectedFunctionById = new Map(expectedCandidateFunctions().map(item => [item.id, item]));
+
 const readyService = (id, revision = `${id.toLowerCase()}-candidate-ready`) => ({
   id,
   latestCreatedRevision: revision,
   latestReadyRevision: revision,
+  latestCreatedHash: expectedFunctionById.get(id)?.hash || '',
   terminalState: 'CONDITION_SUCCEEDED',
   trafficStatuses: [{ revision, percent: 100, type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION' }]
 });
@@ -115,6 +128,7 @@ const betaRunServices = ({ converged = false } = {}) => expectedCandidateFunctio
     id,
     latestCreatedRevision: failed.latestCreatedRevision,
     latestReadyRevision: failed.latestReadyRevision,
+    latestCreatedHash: expectedFunctionById.get(id)?.hash || '',
     terminalState: 'CONDITION_FAILED',
     trafficStatuses: [{
       revision: failed.latestReadyRevision,
@@ -185,6 +199,29 @@ const betaRunConvergedState = () => {
     }
   };
 };
+
+const betaRunPostRecoveryLive = () => ({
+  rootAsset: BETA_RUN_33583791849.manifest.entryAsset,
+  storeAsset: BETA_RUN_33583791849.manifest.entryAsset,
+  releaseMetadata: structuredClone(BETA_RUN_33583791849.manifest),
+  releaseCommit: BETA_RUN_33583791849.candidateCommit,
+  releaseSourceTree: BETA_RUN_33583791849.candidateSourceTree,
+  releaseProtectedBaseline: MANDATORY_BETA_BASELINE
+});
+
+const assertKnownBetaRunPostRecovery = overrides => assertBetaRun33583791849PostRunState({
+  head: BETA_RUN_33583791849.candidateCommit,
+  sourceTree: BETA_RUN_33583791849.candidateSourceTree,
+  liveFingerprint: betaRunPostRecoveryLive(),
+  functions: betaRunFunctions(),
+  services: betaRunServices(),
+  assetProof: {
+    status: 200,
+    contentType: 'text/javascript; charset=utf-8',
+    sha256: BETA_RUN_33583791849.manifest.entryAssetSha256
+  },
+  ...overrides
+});
 
 const release28Functions = () => Object.entries(RELEASE_28_INCIDENT.functions).map(([id, value]) => ({
   id,
@@ -715,6 +752,144 @@ test('Beta run 33530702897 candidate artifact is exact and recovery convergence 
   assert.throws(() => assertBetaRun33530702897RecoveryConverged(notReady), /ready candidate revision/);
 });
 
+test('Beta run 33583791849 follow-up requires exact protected authorization and lock', () => {
+  assert.equal(resolveBetaRun33583791849RecoveryMode({
+    confirmation: BETA_RUN_33583791849_CONFIRMATION,
+    authorization: BETA_RUN_33583791849_AUTHORIZATION,
+    githubActions: true,
+    ciLockId: 'misechef-beta-deployment'
+  }), true);
+  for (const override of [
+    { confirmation: 'REPAIR BETA' },
+    { authorization: '' },
+    { githubActions: false },
+    { ciLockId: 'different-lock' }
+  ]) assert.throws(() => resolveBetaRun33583791849RecoveryMode({
+    confirmation: BETA_RUN_33583791849_CONFIRMATION,
+    authorization: BETA_RUN_33583791849_AUTHORIZATION,
+    githubActions: true,
+    ciLockId: 'misechef-beta-deployment',
+    ...override
+  }), /follow-up refused/);
+});
+
+test('Beta run 33583791849 provenance is bound to the exact failed protected recovery', () => {
+  const successfulSteps = [
+    'Verify exact protected controller and candidate SHAs',
+    'Validate protected incident recovery controller',
+    'Validate exact candidate with immutable trusted gate',
+    'Run complete immutable trusted candidate regression gate',
+    'Run Store Sets Firestore authorization suite',
+    'Authenticate to Beta only'
+  ].map(name => ({ name, conclusion: 'success' }));
+  const evidence = {
+    run: {
+      id: Number(BETA_RUN_33583791849.failedRunId),
+      name: 'Beta Run 33530702897 Recovery',
+      run_number: BETA_RUN_33583791849.failedRunNumber,
+      run_attempt: 1,
+      event: 'workflow_dispatch',
+      head_branch: 'main',
+      head_sha: BETA_RUN_33583791849.controllerCommit,
+      conclusion: 'failure',
+      path: '.github/workflows/recover-beta-run-33530702897.yml'
+    },
+    jobs: [{
+      id: Number(BETA_RUN_33583791849.failedJobId),
+      name: 'recover-beta-run-33530702897',
+      conclusion: 'failure',
+      head_sha: BETA_RUN_33583791849.controllerCommit,
+      steps: [...successfulSteps, { name: 'Run protected one-time incident convergence', conclusion: 'failure' }]
+    }],
+    log: [
+      'functions[parseResumeToPortfolio(us-central1)] Skipped (No changes detected)',
+      'functions[reviewStoreManualPayment(us-central1)] Skipped (No changes detected)',
+      'functions[syncPublicChefProfile(us-central1)] Skipped (No changes detected)',
+      'hosting[misechef-beta-fa4bf]: release complete',
+      'Function parseResumeToPortfolio does not have a ready candidate revision serving 100% traffic.'
+    ].join('\n')
+  };
+  assert.doesNotThrow(() => assertBetaRun33583791849FailedRun(evidence));
+  assert.throws(() => assertBetaRun33583791849FailedRun({
+    ...evidence,
+    run: { ...evidence.run, head_sha: BETA_RUN_33583791849.candidateCommit }
+  }), /exact failed recovery/);
+});
+
+test('Beta run 33583791849 accepts only the exact audited 38-ready and three-old-serving state', () => {
+  assert.match(assertKnownBetaRunPostRecovery().fingerprint, /^[0-9a-f]{64}$/);
+
+  const changedFunctions = betaRunFunctions();
+  changedFunctions[0] = { ...changedFunctions[0], generation: `${changedFunctions[0].generation}9` };
+  assert.throws(() => assertKnownBetaRunPostRecovery({ functions: changedFunctions }), /endpoint records changed/);
+
+  const wrongSplit = betaRunServices();
+  const index = wrongSplit.findIndex(item => item.id === 'parseResumeToPortfolio');
+  wrongSplit[index] = readyService('parseResumeToPortfolio');
+  assert.throws(() => assertKnownBetaRunPostRecovery({ services: wrongSplit }), /failed\/serving revision pair/);
+
+  const wrongSource = betaRunServices();
+  wrongSource[0] = { ...wrongSource[0], latestCreatedHash: 'not-candidate' };
+  assert.throws(() => assertKnownBetaRunPostRecovery({ services: wrongSource }), /not candidate source/);
+
+  assert.throws(() => assertKnownBetaRunPostRecovery({
+    liveFingerprint: { ...betaRunPostRecoveryLive(), rootAsset: '/assets/unknown.js' }
+  }), /exact audited candidate asset/);
+});
+
+test('targeted follow-up redeploy is exactly three Functions and never uses --force', () => {
+  assert.deepEqual(BETA_RUN_33583791849_TARGET_FUNCTIONS, [
+    'parseResumeToPortfolio',
+    'reviewStoreManualPayment',
+    'syncPublicChefProfile'
+  ]);
+  const args = targetedRepairFirebaseArgs();
+  assert.deepEqual(args, [
+    'deploy',
+    '--project',
+    'beta',
+    '--only',
+    'functions:parseResumeToPortfolio,functions:reviewStoreManualPayment,functions:syncPublicChefProfile'
+  ]);
+  assert.doesNotMatch(args.join(' '), /--force/);
+});
+
+test('pinned Firebase targeted behavior prevents exact --only Functions from unchanged-hash skipping', () => {
+  assert.doesNotThrow(() => assertPinnedFirebaseTargetedRedeployBehavior({
+    version: PINNED_FIREBASE_CLI_VERSION,
+    prepareSource: 'endpoint.targetedByOnly = endpointMatchesAnyFilter(endpoint, endpointFilters);',
+    plannerSource: `const skip = !want[id].targetedByOnly && have[id].hash && want[id].hash === have[id].hash;`
+  }));
+  assert.throws(() => assertPinnedFirebaseTargetedRedeployBehavior({
+    version: PINNED_FIREBASE_CLI_VERSION,
+    prepareSource: 'endpoint.targetedByOnly = endpointMatchesAnyFilter(endpoint, endpointFilters);',
+    plannerSource: 'const skip = want[id].hash === have[id].hash;'
+  }), /unchanged-hash skipping/);
+});
+
+test('targeted follow-up accepts new healthy target revisions and rejects target or non-target drift', () => {
+  const beforeFunctions = betaRunFunctions();
+  const beforeServices = betaRunServices();
+  const functions = betaRunFunctions().map(item => BETA_RUN_33583791849_TARGET_FUNCTIONS.includes(item.id)
+    ? { ...item, generation: `${item.generation}1` }
+    : item);
+  const services = betaRunServices().map(item => BETA_RUN_33583791849_TARGET_FUNCTIONS.includes(item.id)
+    ? readyService(item.id, `${item.id.toLowerCase()}-new-candidate`)
+    : item);
+  const valid = { beforeFunctions, beforeServices, functions, services };
+  assert.equal(assertBetaRun33583791849TargetedRepair(valid), true);
+
+  const staleTarget = structuredClone(valid);
+  const targetIndex = staleTarget.services.findIndex(item => item.id === 'parseResumeToPortfolio');
+  staleTarget.services[targetIndex] = structuredClone(beforeServices.find(item => item.id === 'parseResumeToPortfolio'));
+  assert.throws(() => assertBetaRun33583791849TargetedRepair(staleTarget), /new healthy candidate revision/);
+
+  const changedNonTarget = structuredClone(valid);
+  const nonTargetIndex = changedNonTarget.services.findIndex(item => item.id === 'activateMiseChefHost');
+  changedNonTarget.services[nonTargetIndex].latestCreatedRevision = 'unexpected-revision';
+  assert.throws(() => assertBetaRun33583791849TargetedRepair(changedNonTarget), /non-target Function/);
+});
+
 test('Beta recovery Cloud Run verification uses the expected Beta project and normalizes ready revisions', async () => {
   let requestedProject = '';
   const services = await readCloudRunServiceState({
@@ -738,6 +913,7 @@ test('Beta recovery Cloud Run verification uses the expected Beta project and no
     id: 'parseResumeToPortfolio',
     latestCreatedRevision: 'revision-ready',
     latestReadyRevision: 'revision-ready',
+    latestCreatedHash: '',
     terminalState: 'CONDITION_SUCCEEDED',
     trafficStatuses: [{
       type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION',
@@ -946,6 +1122,26 @@ test('run 33530702897 recovery controller is single-attempt, full-plan, and prov
   assert.doesNotMatch(`${controller}\n${incident}`, /MISECHEF_BETA_GOOGLE_ACCESS_TOKEN/);
 });
 
+test('run 33583791849 follow-up controller performs one exact targeted repair before the canonical full plan', () => {
+  const controller = readFileSync(new URL('./recoverBetaRun33583791849.mjs', import.meta.url), 'utf8');
+  for (const marker of [
+    'verifyBetaRun33583791849FailedRun',
+    'assertBetaRun33583791849PostRunState',
+    'assertPinnedFirebaseTargetedRedeployBehavior',
+    'targetedRepairFirebaseArgs',
+    'assertBetaRun33583791849TargetedRepair',
+    'assertBetaRun33530702897RecoveryConverged',
+    'FULL_BETA_RESOURCE_PLAN.join'
+  ]) assert.match(controller, new RegExp(marker));
+  assert.equal((controller.match(/spawnSync\('firebase'/g) || []).length, 2);
+  assert.ok(controller.indexOf("targetedRepairFirebaseArgs()") < controller.indexOf('FULL_BETA_RESOURCE_PLAN.join'));
+  assert.match(controller, /Protected targeted Function repair failed once/);
+  assert.match(controller, /no retry was attempted/);
+  assert.doesNotMatch(controller, /--force/);
+  assert.doesNotMatch(controller, /--project',\s*'(?!beta')[^']+'/);
+  assert.doesNotMatch(controller, /misechef-fa4bf|FIREBASE_SERVICE_ACCOUNT_MISECHEF_PROD/);
+});
+
 test('baseline validation fails instead of skipping when target context is missing', () => {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const result = spawnSync('node', ['scripts/validateBetaReleaseBaseline.mjs'], {
@@ -963,6 +1159,10 @@ test('protected CI supplies external authority and an authoritative concurrency 
   const recoveryWorkflow = readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'recover-beta-release-28.yml'), 'utf8');
   const incidentRecoveryWorkflow = readFileSync(
     path.join(repositoryRoot, '.github', 'workflows', 'recover-beta-run-33530702897.yml'),
+    'utf8'
+  );
+  const followUpRecoveryWorkflow = readFileSync(
+    path.join(repositoryRoot, '.github', 'workflows', 'recover-beta-run-33583791849.yml'),
     'utf8'
   );
   const validationWorkflow = readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'validate-beta-candidate.yml'), 'utf8');
@@ -1017,6 +1217,18 @@ test('protected CI supplies external authority and an authoritative concurrency 
   }
   assert.doesNotMatch(workflow, /id-token:/);
   assert.doesNotMatch(incidentRecoveryWorkflow, /id-token:/);
+  assert.match(followUpRecoveryWorkflow, /environment: beta/);
+  assert.match(followUpRecoveryWorkflow, /group: misechef-beta-deployment/);
+  assert.match(followUpRecoveryWorkflow, /cancel-in-progress: false/);
+  assert.match(followUpRecoveryWorkflow, /vars\.MISECHEF_BETA_RUN_33583791849_RECOVERY_GATE_SHA/);
+  assert.match(followUpRecoveryWorkflow, /vars\.MISECHEF_BETA_RUN_33583791849_RECOVERY_AUTHORIZATION/);
+  assert.match(followUpRecoveryWorkflow, /secrets\.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA/);
+  assert.match(followUpRecoveryWorkflow, new RegExp(BETA_RUN_33583791849.candidateCommit));
+  assert.match(followUpRecoveryWorkflow, new RegExp(BETA_RUN_33583791849.candidateSourceTree));
+  assert.match(followUpRecoveryWorkflow, /recoverBetaRun33583791849\.mjs/);
+  assert.doesNotMatch(followUpRecoveryWorkflow, /FIREBASE_SERVICE_ACCOUNT_MISECHEF_PROD|misechef-fa4bf/);
+  assert.doesNotMatch(followUpRecoveryWorkflow, new RegExp(BETA_RUN_33583791849_AUTHORIZATION));
+  assert.doesNotMatch(followUpRecoveryWorkflow, /--force|id-token:|token_format|access_token/);
 });
 
 test('repository baseline and documentation contain no stale protected-baseline references', () => {
