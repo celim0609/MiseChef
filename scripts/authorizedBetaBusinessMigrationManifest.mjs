@@ -17,6 +17,11 @@ export const DESTINATION = Object.freeze({
 
 const ids = value => value.trim().split(/\s+/).filter(Boolean);
 
+export const EXCLUDED_DANGLING_PRICE_HISTORY = Object.freeze([
+  'Ne332R6FT3ugSpHbiooz',
+  'sxltBmx7WQQg95zpx68m'
+]);
+
 export const FIRESTORE_ALLOWLIST = Object.freeze({
   recipes: ids(`
     recipe_1787310869844 recipe_1787312951630 recipe_1787313375498
@@ -75,17 +80,16 @@ export const FIRESTORE_ALLOWLIST = Object.freeze({
     FjFFVZLFEEN4hT4oXG9h Gp6EMFWKT2dgcDoolAXD HXVWi4v50AjTZsQENcsu
     HjGWniaETs0s8hug5sEZ I2KwBHdYaReccT0jV70U IWYoffxqkNEaLldF10qU
     KGnBPdto3ff4j9it6Pb8 LGMIrJ78pzLEYfjrSXAy LLQEXp9Ygw1MJP0DZdXx
-    Ne332R6FT3ugSpHbiooz PXTJ2f0HqMJ6fI2Iussz ROwrXbHtxC64Qru6Ra69
-    Ro97oTuaj3OhfBXY3Jnj SM4To8UuLN88Cu88lMxY SUMrM3U6aucnN31j9Bpj
-    VxeUIhqiAUEbsJYC9oC5 WGpKBUCcWu9qjFw8iNcK X2oK75GCnaYsqDZUhMVK
-    YAJwsDPst5OUYiu1DaSx ZXM96nLDwwPsVeFvuTSD Zu9tAcWaWfjQsQlyU2Px
-    abECPcattnMSByDGHt6X bKSU5dKKjA6fHDv6Tuk3 cPYFQbEDvFfKoRDJmofT
-    eSq8usqiarLn4O8MzoaJ f5y5v6iXCTkLn7zPqNfE fvjVajoSIDAu6opg8RRu
-    g2NwgZLe9l472XSLZQIW gKS1A2FBM6NbMMYr8FOY h4f3GbSzxJbb4PHfqs8n
-    hfhV7d6fnp0KnkeMqBD1 n0kqSUPOKBAfArtDxGqN nhC6t12ksKsk8XUuwLw2
-    noazhkLFNOrI7W95XuyH oByHTJJbDrl64kwh7hif sxltBmx7WQQg95zpx68m
-    t1dUHYYlZoYw1g7IiCO2 t5HJ506yC7jcQf1hkTEv tdNEBdLSOWNAsqz48jJn
-    wMcghF2C4CluBeLpvw4Q wRkqnf6vomVklq9hMweo
+    PXTJ2f0HqMJ6fI2Iussz ROwrXbHtxC64Qru6Ra69 Ro97oTuaj3OhfBXY3Jnj
+    SM4To8UuLN88Cu88lMxY SUMrM3U6aucnN31j9Bpj VxeUIhqiAUEbsJYC9oC5
+    WGpKBUCcWu9qjFw8iNcK X2oK75GCnaYsqDZUhMVK YAJwsDPst5OUYiu1DaSx
+    ZXM96nLDwwPsVeFvuTSD Zu9tAcWaWfjQsQlyU2Px abECPcattnMSByDGHt6X
+    bKSU5dKKjA6fHDv6Tuk3 cPYFQbEDvFfKoRDJmofT eSq8usqiarLn4O8MzoaJ
+    f5y5v6iXCTkLn7zPqNfE fvjVajoSIDAu6opg8RRu g2NwgZLe9l472XSLZQIW
+    gKS1A2FBM6NbMMYr8FOY h4f3GbSzxJbb4PHfqs8n hfhV7d6fnp0KnkeMqBD1
+    n0kqSUPOKBAfArtDxGqN nhC6t12ksKsk8XUuwLw2 noazhkLFNOrI7W95XuyH
+    oByHTJJbDrl64kwh7hif t1dUHYYlZoYw1g7IiCO2 t5HJ506yC7jcQf1hkTEv
+    tdNEBdLSOWNAsqz48jJn wMcghF2C4CluBeLpvw4Q wRkqnf6vomVklq9hMweo
   `),
   invoices: ids(`
     391LsFlYNm9ljJdYKBP1 4phMm3rYXQJaGa8miRAo 5rJEyMxO0VhLfgu3Lqh2
@@ -196,9 +200,9 @@ export const EXCLUDED_STORAGE_PREFIXES = Object.freeze([
 ]);
 
 export const EXPECTED_COUNTS = Object.freeze({
-  firestoreSource: 210,
-  firestoreCreates: 209,
-  firestoreUpdates: 1,
+  firestoreSource: 208,
+  firestoreCreates: 207,
+  firestoreUpdates: 2,
   storageSource: 49,
   storageCreates: 48,
   storageIdenticalExisting: 1,
