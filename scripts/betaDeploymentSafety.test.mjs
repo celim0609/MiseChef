@@ -45,6 +45,7 @@ import {
   assertBetaRun33530702897PartialState,
   assertBetaRun33530702897RecoveryConverged,
   expectedCandidateFunctions,
+  loadCloudRunServicesWithFirebaseCli,
   readCloudRunServiceState,
   resolveBetaRun33530702897RecoveryMode
 } from './betaRun33530702897Recovery.mjs';
@@ -746,6 +747,57 @@ test('Beta recovery Cloud Run verification uses the expected Beta project and no
   }]);
 });
 
+test('Beta recovery uses the actual pinned Firebase ADC client instead of unavailable runv2.listServices', async () => {
+  const requestedModules = [];
+  const requests = [];
+  let authenticatedProject = '';
+  class PinnedClient {
+    constructor(options) {
+      assert.deepEqual(options, {
+        urlPrefix: 'https://run.googleapis.com',
+        auth: true,
+        apiVersion: 'v2'
+      });
+    }
+
+    async get(requestPath, options) {
+      requests.push({ requestPath, queryParams: options.queryParams });
+      if (requests.length === 1) {
+        return { status: 200, body: { services: [{ name: 'service-one' }], nextPageToken: 'next' } };
+      }
+      return { status: 200, body: { services: [{ name: 'service-two' }] } };
+    }
+  }
+  const pinnedFirebaseRequire = modulePath => {
+    requestedModules.push(modulePath);
+    if (modulePath === './lib/requireAuth.js') {
+      return { requireAuth: async ({ project }) => { authenticatedProject = project; } };
+    }
+    if (modulePath === './lib/apiv2.js') return { Client: PinnedClient };
+    if (modulePath === './lib/api.js') return { runOrigin: () => 'https://run.googleapis.com' };
+    if (modulePath === './lib/gcp/runv2.js') return {};
+    throw new Error(`unexpected module ${modulePath}`);
+  };
+
+  assert.deepEqual(await loadCloudRunServicesWithFirebaseCli({
+    firebaseRequire: pinnedFirebaseRequire,
+    projectId: BETA_PROJECT_ID
+  }), [{ name: 'service-one' }, { name: 'service-two' }]);
+  assert.equal(authenticatedProject, BETA_PROJECT_ID);
+  assert.deepEqual(requestedModules, [
+    './lib/requireAuth.js',
+    './lib/apiv2.js',
+    './lib/api.js'
+  ]);
+  assert.deepEqual(requests, [{
+    requestPath: `/projects/${BETA_PROJECT_ID}/locations/-/services`,
+    queryParams: { pageSize: 100 }
+  }, {
+    requestPath: `/projects/${BETA_PROJECT_ID}/locations/-/services`,
+    queryParams: { pageSize: 100, pageToken: 'next' }
+  }]);
+});
+
 test('historical live manifests require exact SHAs, a matching source tree, and valid history', () => {
   const sourceCommit = 'a'.repeat(40);
   const sourceTree = 'b'.repeat(40);
@@ -889,7 +941,8 @@ test('run 33530702897 recovery controller is single-attempt, full-plan, and prov
   assert.doesNotMatch(controller, /--project',\s*'(?!beta')[^']+'/);
   assert.doesNotMatch(controller, /--only',\s*'(?:functions|hosting|firestore|storage)'/);
   assert.match(incident, /requireAuth/);
-  assert.match(incident, /runv2\.listServices/);
+  assert.match(incident, /new Client\(\{ urlPrefix: runOrigin\(\), auth: true, apiVersion: 'v2' \}\)/);
+  assert.doesNotMatch(incident, /runv2\.listServices/);
   assert.doesNotMatch(`${controller}\n${incident}`, /MISECHEF_BETA_GOOGLE_ACCESS_TOKEN/);
 });
 

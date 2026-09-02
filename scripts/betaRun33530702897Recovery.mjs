@@ -397,6 +397,30 @@ export const readBetaFunctionState = ({ run = execFileSync } = {}) => {
   return normalizeBetaFunctions(parsed.result);
 };
 
+export const loadCloudRunServicesWithFirebaseCli = async ({ firebaseRequire, projectId = BETA_PROJECT_ID }) => {
+  const { requireAuth } = firebaseRequire('./lib/requireAuth.js');
+  const { Client } = firebaseRequire('./lib/apiv2.js');
+  const { runOrigin } = firebaseRequire('./lib/api.js');
+  if (typeof requireAuth !== 'function' || typeof Client !== 'function' || typeof runOrigin !== 'function') {
+    fail('the pinned Firebase CLI does not expose its required ADC Cloud Run client.');
+  }
+  await requireAuth({ project: projectId });
+  const client = new Client({ urlPrefix: runOrigin(), auth: true, apiVersion: 'v2' });
+  const services = [];
+  let pageToken = '';
+  do {
+    const queryParams = { pageSize: 100 };
+    if (pageToken) queryParams.pageToken = pageToken;
+    const response = await client.get(`/projects/${projectId}/locations/-/services`, { queryParams });
+    if (response.status !== 200 || !response.body || !Array.isArray(response.body.services || [])) {
+      fail(`Cloud Run service inventory returned an unreadable HTTP ${response.status}.`);
+    }
+    services.push(...(response.body.services || []));
+    pageToken = response.body.nextPageToken || '';
+  } while (pageToken);
+  return services;
+};
+
 export const readCloudRunServiceState = async ({ firebaseToolsRoot = '', loadServices } = {}) => {
   let services;
   if (loadServices) {
@@ -404,10 +428,7 @@ export const readCloudRunServiceState = async ({ firebaseToolsRoot = '', loadSer
   } else {
     if (!path.isAbsolute(firebaseToolsRoot)) fail('the pinned Firebase CLI root is unavailable.');
     const firebaseRequire = createRequire(path.join(firebaseToolsRoot, 'package.json'));
-    const { requireAuth } = firebaseRequire('./lib/requireAuth.js');
-    const runv2 = firebaseRequire('./lib/gcp/runv2.js');
-    await requireAuth({ project: BETA_PROJECT_ID });
-    services = await runv2.listServices(BETA_PROJECT_ID);
+    services = await loadCloudRunServicesWithFirebaseCli({ firebaseRequire });
   }
 
   const idByServiceName = new Map(expectedCandidateFunctions().map(item => [item.id.toLowerCase(), item.id]));
