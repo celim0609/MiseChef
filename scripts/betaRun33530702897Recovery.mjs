@@ -14,6 +14,9 @@ export const BETA_RUN_33530702897_AUTHORIZATION =
 export const BETA_RUN_33583791849_CONFIRMATION = 'REPAIR BETA RUN 33583791849';
 export const BETA_RUN_33583791849_AUTHORIZATION =
   'beta-run-33583791849-targeted-functions:bba5cc1f166c41a6a92c5fb8275aa37f84acdf42';
+export const BETA_RUN_33586497538_CONTINUATION_CONFIRMATION = 'CONTINUE BETA RUN 33583791849';
+export const BETA_RUN_33586497538_CONTINUATION_AUTHORIZATION =
+  'beta-run-33583791849-complete-resources:bba5cc1f166c41a6a92c5fb8275aa37f84acdf42';
 export const BETA_RUN_33583791849_TARGET_FUNCTIONS = Object.freeze([
   'parseResumeToPortfolio',
   'reviewStoreManualPayment',
@@ -156,6 +159,88 @@ export const BETA_RUN_33583791849 = Object.freeze({
   failedServices: BETA_RUN_33530702897.failedServices
 });
 
+export const BETA_RUN_33586497538 = Object.freeze({
+  id: 'beta-run-33586497538-post-target-continuation',
+  failedRunId: '33586497538',
+  failedRunNumber: 1,
+  failedJobId: '100111637157',
+  controllerCommit: '951441d33e29efca6d2358fe966568be5bce4ea3',
+  candidateCommit: BETA_RUN_33530702897.candidateCommit,
+  candidateSourceTree: BETA_RUN_33530702897.candidateSourceTree,
+  functionDigest: '82a927cd1dc305c43d66bcfff1aeac24add4dda612004525caf2266f529520b2',
+  serviceDigest: '391797ae7ee6f1a5fbe983bf65a77722d3c5b920a7d134967c7bfa6745ee5eca',
+  firestoreIndexDigest: '167a5f23b5b1bf05f3245d6ff0e072ba6c3bf0d8edaf424d62149f9b8d9edea7',
+  servingRevisions: Object.freeze({
+    activateMiseChefHost: 'activatemisechefhost-00025-lep',
+    authorizeWorkspaceFeature: 'authorizeworkspacefeature-00028-gim',
+    cancelInvoiceUpload: 'cancelinvoiceupload-00028-hup',
+    cancelPublicStorePayment: 'cancelpublicstorepayment-00030-max',
+    cleanupMyMiseChefGroupOrder: 'cleanupmymisechefgrouporder-00011-qat',
+    createInvoiceUpload: 'createinvoiceupload-00028-neb',
+    createMiseChefGroupOrder: 'createmisechefgrouporder-00026-xiq',
+    createPublicStorePayment: 'createpublicstorepayment-00036-lit',
+    expireWorkspaceTrials: 'expireworkspacetrials-00029-vaz',
+    extractPersonalExpenseReceipt: 'extractpersonalexpensereceipt-00030-vek',
+    generateRecipeSteps: 'generaterecipesteps-00030-gem',
+    getDashboardAiUsage: 'getdashboardaiusage-00028-git',
+    getMyMiseChefGroupOrder: 'getmymisechefgrouporder-00015-fip',
+    getPublicDiscoverContent: 'getpublicdiscovercontent-00025-qok',
+    getPublicMiseChefGroupOrder: 'getpublicmisechefgrouporder-00026-zug',
+    getPublicStorePaymentResult: 'getpublicstorepaymentresult-00031-yux',
+    getWorkspaceSubscription: 'getworkspacesubscription-00029-mom',
+    listApprovedProducts: 'listapprovedproducts-00028-bec',
+    listMyMiseChefGroupOrders: 'listmymisechefgrouporders-00026-bax',
+    listMyMiseChefStoreOrders: 'listmymisechefstoreorders-00012-yuv',
+    parseInvoiceToJson: 'parseinvoicetojson-00030-med',
+    parseResumeToPortfolio: 'parseresumetoportfolio-00033-heq',
+    processResumeImportJob: 'processresumeimportjob-00028-yax',
+    provisionNewUserWorkspace: 'provisionnewuserworkspace-00030-sif',
+    recordPersonalExpenseSettlement: 'recordpersonalexpensesettlement-00028-ten',
+    renderPublicStore: 'renderpublicstore-00037-qax',
+    reviewStoreManualPayment: 'reviewstoremanualpayment-00030-ren',
+    scanRecipeImage: 'scanrecipeimage-00030-tij',
+    startMiseChefBusinessTrial: 'startmisechefbusinesstrial-00006-vav',
+    stripeStorePaymentWebhook: 'stripestorepaymentwebhook-00032-veb',
+    submitPublicStoreManualPayment: 'submitpublicstoremanualpayment-00030-qoz',
+    syncApprovedProductRecipes: 'syncapprovedproductrecipes-00028-dil',
+    syncCanonicalChefProfile: 'synccanonicalchefprofile-00028-wig',
+    syncMiseChefGroupReward: 'syncmisechefgroupreward-00025-vox',
+    syncPublicChefProfile: 'syncpublicchefprofile-00029-xax',
+    syncPublicRecipe: 'syncpublicrecipe-00029-qak',
+    trackPublicProductClick: 'trackpublicproductclick-00028-mab',
+    updateMyMiseChefGroupOrderStatus: 'updatemymisechefgrouporderstatus-00015-rel',
+    updateStoreGroupOrderBatchStatus: 'updatestoregrouporderbatchstatus-00008-dux',
+    updateStoreOrderStatus: 'updatestoreorderstatus-00031-jom',
+    uploadPublicStorePaymentReceipt: 'uploadpublicstorepaymentreceipt-00030-cik'
+  }),
+  repairedServices: Object.freeze({
+    parseResumeToPortfolio: 'parseresumetoportfolio-00033-heq',
+    reviewStoreManualPayment: 'reviewstoremanualpayment-00030-ren',
+    syncPublicChefProfile: 'syncpublicchefprofile-00029-xax'
+  }),
+  rules: Object.freeze([
+    Object.freeze({
+      name: 'projects/misechef-beta-fa4bf/releases/cloud.firestore',
+      rulesetName: 'projects/misechef-beta-fa4bf/rulesets/c0050fd2-f6bf-4113-aedc-9b112b603127',
+      updateTime: '2026-09-02T02:42:32.577786Z',
+      files: Object.freeze([Object.freeze({
+        name: 'firestore.rules',
+        sha256: '272e00a82f800b8eadf9d995b0087e1e0af2eab687d92cdd2352f48492de098b'
+      })])
+    }),
+    Object.freeze({
+      name: 'projects/misechef-beta-fa4bf/releases/firebase.storage/misechef-beta-fa4bf.firebasestorage.app',
+      rulesetName: 'projects/misechef-beta-fa4bf/rulesets/bc46521f-8c71-4a15-927f-436ff4a421c3',
+      updateTime: '2026-09-02T02:42:31.639734Z',
+      files: Object.freeze([Object.freeze({
+        name: 'storage.rules',
+        sha256: 'e491207dc77d4976d04e5ade924b768bd835302b119a029fd12fdb5b60f0a97a'
+      })])
+    })
+  ]),
+  manifest: BETA_RUN_33583791849.manifest
+});
+
 const canonical = value => {
   if (Array.isArray(value)) return value.map(canonical);
   if (value && typeof value === 'object') {
@@ -270,6 +355,113 @@ export const resolveBetaRun33583791849RecoveryMode = ({
   }
   if (githubActions !== true || ciLockId !== 'misechef-beta-deployment') {
     followUpFail('repair is permitted only inside the locked protected Beta workflow.');
+  }
+  return true;
+};
+
+export const resolveBetaRun33586497538ContinuationMode = ({
+  confirmation,
+  authorization,
+  githubActions,
+  ciLockId
+}) => {
+  if (confirmation !== BETA_RUN_33586497538_CONTINUATION_CONFIRMATION) {
+    followUpFail('the continuation confirmation is not exact.');
+  }
+  if (authorization !== BETA_RUN_33586497538_CONTINUATION_AUTHORIZATION) {
+    followUpFail('the protected Beta environment has not supplied the exact continuation authorization.');
+  }
+  if (githubActions !== true || ciLockId !== 'misechef-beta-deployment') {
+    followUpFail('continuation is permitted only inside the locked protected Beta workflow.');
+  }
+  return true;
+};
+
+export const assertBetaRun33586497538PostTargetState = ({
+  head,
+  sourceTree,
+  liveFingerprint,
+  functions,
+  services,
+  assetProof,
+  rules,
+  firestoreIndexes
+}) => {
+  if (head !== BETA_RUN_33586497538.candidateCommit || sourceTree !== BETA_RUN_33586497538.candidateSourceTree) {
+    followUpFail('the continuation candidate is not the exact authorized SHA and source tree.');
+  }
+  if (
+    !same(liveFingerprint?.releaseMetadata, BETA_RUN_33586497538.manifest)
+    || liveFingerprint?.rootAsset !== BETA_RUN_33586497538.manifest.entryAsset
+    || liveFingerprint?.storeAsset !== BETA_RUN_33586497538.manifest.entryAsset
+  ) followUpFail('Hosting or the live manifest changed after the targeted repair.');
+  if (
+    assetProof?.status !== 200
+    || !/^(?:application|text)\/javascript(?:;|$)/i.test(String(assetProof?.contentType || ''))
+    || assetProof?.sha256 !== BETA_RUN_33586497538.manifest.entryAssetSha256
+  ) followUpFail('the authorized Hosting asset changed after the targeted repair.');
+
+  const normalizedFunctions = normalizeBetaFunctions(functions);
+  const expectedFunctions = expectedCandidateFunctions();
+  const expectedById = new Map(expectedFunctions.map(item => [item.id, item]));
+  if (digest(normalizedFunctions) !== BETA_RUN_33586497538.functionDigest) {
+    followUpFail('the exact audited 41-Function endpoint state changed after targeted repair.');
+  }
+  for (const actual of normalizedFunctions) {
+    const expected = expectedById.get(actual.id);
+    if (
+      actual.state !== 'ACTIVE'
+      || actual.hash !== expected?.hash
+      || !hasAuthorizedCandidateConfiguration(actual, expected)
+    ) followUpFail(`Function ${actual.id} is not the authorized post-target candidate endpoint.`);
+  }
+
+  const normalizedServices = [...(services || [])].sort((left, right) => left.id.localeCompare(right.id));
+  if (digest(normalizedServices) !== BETA_RUN_33586497538.serviceDigest) {
+    followUpFail('the exact audited 41-service Cloud Run state changed after targeted repair.');
+  }
+  const serviceById = new Map(normalizedServices.map(item => [item.id, item]));
+  for (const expected of expectedFunctions) {
+    const service = serviceById.get(expected.id);
+    if (
+      service?.latestCreatedHash !== expected.hash
+      || service.latestCreatedRevision !== service.latestReadyRevision
+      || service.terminalState !== 'CONDITION_SUCCEEDED'
+      || !hasFullReadyTraffic(service)
+    ) followUpFail(`Function ${expected.id} is not healthy, candidate-ready, and serving 100% traffic.`);
+  }
+  for (const [id, revision] of Object.entries(BETA_RUN_33586497538.repairedServices)) {
+    const service = serviceById.get(id);
+    if (service?.latestCreatedRevision !== revision || service.latestReadyRevision !== revision) {
+      followUpFail(`repaired Function ${id} no longer serves its exact authorized revision.`);
+    }
+  }
+  if (!same(rules, BETA_RUN_33586497538.rules)) {
+    followUpFail('Firestore or Storage rules changed after the targeted repair.');
+  }
+  if (digest(firestoreIndexes) !== BETA_RUN_33586497538.firestoreIndexDigest) {
+    followUpFail('Firestore indexes changed after the targeted repair.');
+  }
+
+  const state = {
+    liveFingerprint,
+    functions: normalizedFunctions,
+    services: normalizedServices,
+    assetProof,
+    rules,
+    firestoreIndexes
+  };
+  return { incidentId: BETA_RUN_33586497538.id, fingerprint: digest(state), state };
+};
+
+export const assertBetaRun33586497538AuthorizedRulesContent = ({ rules, firestoreIndexes }) => {
+  const expectedFiles = BETA_RUN_33586497538.rules.map(item => ({ name: item.name, files: item.files }));
+  const actualFiles = [...(rules || [])]
+    .map(item => ({ name: item.name, files: item.files }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  if (!same(actualFiles, expectedFiles)) followUpFail('deployed Firestore or Storage rules are not candidate content.');
+  if (digest(firestoreIndexes) !== BETA_RUN_33586497538.firestoreIndexDigest) {
+    followUpFail('deployed Firestore indexes are not candidate configuration.');
   }
   return true;
 };
@@ -603,6 +795,69 @@ export const verifyBetaRun33583791849FailedRun = async ({ repository, token = ''
   return assertBetaRun33583791849FailedRun({ run, jobs: jobs.jobs, log });
 };
 
+export const assertBetaRun33586497538FailedRun = ({ run, jobs, log }) => {
+  if (
+    String(run?.id || '') !== BETA_RUN_33586497538.failedRunId
+    || run?.name !== 'Beta Run 33583791849 Follow-up Recovery'
+    || run?.run_number !== BETA_RUN_33586497538.failedRunNumber
+    || run?.run_attempt !== 1
+    || run?.event !== 'workflow_dispatch'
+    || run?.head_branch !== 'main'
+    || run?.head_sha !== BETA_RUN_33586497538.controllerCommit
+    || run?.conclusion !== 'failure'
+    || run?.path !== '.github/workflows/recover-beta-run-33583791849.yml'
+  ) followUpFail('GitHub does not identify exact interrupted recovery run 33586497538.');
+  if (jobs?.length !== 1) followUpFail('run 33586497538 does not contain exactly one recovery job.');
+  const job = jobs[0];
+  if (
+    String(job?.id || '') !== BETA_RUN_33586497538.failedJobId
+    || job?.name !== 'recover-beta-run-33583791849'
+    || job?.conclusion !== 'failure'
+    || job?.head_sha !== BETA_RUN_33586497538.controllerCommit
+  ) followUpFail('run 33586497538 job metadata differs from the audited protected recovery.');
+  for (const name of [
+    'Verify exact protected controller and candidate SHAs',
+    'Validate protected follow-up recovery controller',
+    'Validate exact candidate with immutable trusted gate',
+    'Run complete immutable trusted candidate regression gate',
+    'Run Store Sets Firestore authorization suite',
+    'Authenticate to Beta only'
+  ]) if (!job.steps?.some(step => step.name === name && step.conclusion === 'success')) {
+    followUpFail(`run 33586497538 did not pass protected step ${name}.`);
+  }
+  if (!job.steps?.some(step => step.name === 'Run protected one-time follow-up recovery' && step.conclusion === 'failure')) {
+    followUpFail('run 33586497538 did not fail in the protected follow-up controller.');
+  }
+  const cleanLog = String(log).replace(/\u001b\[[0-9;]*m/g, '');
+  for (const marker of [
+    'functions[parseResumeToPortfolio(us-central1)] Successful update operation.',
+    'functions[reviewStoreManualPayment(us-central1)] Successful update operation.',
+    'functions[syncPublicChefProfile(us-central1)] Successful update operation.',
+    'Function parseResumeToPortfolio endpoint metadata is not the authorized candidate after targeted repair.'
+  ]) if (!cleanLog.includes(marker)) followUpFail(`run 33586497538 logs are missing ${marker}.`);
+  for (const forbidden of ['deploying firestore', 'deploying storage', 'deploying hosting']) {
+    if (cleanLog.includes(forbidden)) followUpFail(`run 33586497538 unexpectedly entered ${forbidden}.`);
+  }
+  return true;
+};
+
+export const verifyBetaRun33586497538FailedRun = async ({ repository, token = '', request = fetch }) => {
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository || '') || !token) {
+    followUpFail('the continuation repository identity or GitHub token is unavailable.');
+  }
+  const headers = { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}` };
+  const api = `https://api.github.com/repos/${repository}`;
+  const runUrl = `${api}/actions/runs/${BETA_RUN_33586497538.failedRunId}`;
+  const responses = await Promise.all([
+    request(runUrl, { headers, redirect: 'follow' }),
+    request(`${runUrl}/jobs?per_page=100`, { headers, redirect: 'follow' }),
+    request(`${api}/actions/jobs/${BETA_RUN_33586497538.failedJobId}/logs`, { headers, redirect: 'follow' })
+  ]);
+  if (responses.some(response => !response.ok)) followUpFail('GitHub run 33586497538 provenance could not be read completely.');
+  const [run, jobs, log] = await Promise.all([responses[0].json(), responses[1].json(), responses[2].text()]);
+  return assertBetaRun33586497538FailedRun({ run, jobs: jobs.jobs, log });
+};
+
 export const assertBetaRun33530702897RecoveryConverged = ({ liveFingerprint, functions, services, manifest, assetProof }) => {
   if (
     liveFingerprint?.releaseCommit !== BETA_RUN_33530702897.candidateCommit
@@ -662,6 +917,46 @@ export const readBetaFunctionState = ({ run = execFileSync } = {}) => {
   const parsed = JSON.parse(output);
   if (parsed?.status !== 'success' || !Array.isArray(parsed.result)) fail('Firebase did not return a readable Function inventory.');
   return normalizeBetaFunctions(parsed.result);
+};
+
+export const readBetaFirestoreIndexState = ({ run = execFileSync } = {}) => {
+  const output = run('firebase', ['firestore:indexes', '--project', BETA_PROJECT_ID, '--json'], {
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit']
+  });
+  const parsed = JSON.parse(output);
+  if (parsed?.status !== 'success' || !parsed.result || !Array.isArray(parsed.result.indexes)) {
+    followUpFail('Firebase did not return a readable Firestore index inventory.');
+  }
+  return parsed.result;
+};
+
+export const readBetaRulesState = async ({ firebaseToolsRoot = '' } = {}) => {
+  if (!path.isAbsolute(firebaseToolsRoot)) followUpFail('the pinned Firebase CLI root is unavailable for Rules inspection.');
+  const firebaseRequire = createRequire(path.join(firebaseToolsRoot, 'package.json'));
+  const { requireAuth } = firebaseRequire('./lib/requireAuth.js');
+  const rules = firebaseRequire('./lib/gcp/rules.js');
+  if (
+    typeof requireAuth !== 'function'
+    || typeof rules.listAllReleases !== 'function'
+    || typeof rules.getRulesetContent !== 'function'
+  ) followUpFail('the pinned Firebase CLI does not expose authoritative ADC Rules inspection.');
+  await requireAuth({ project: BETA_PROJECT_ID });
+  const releaseNames = new Set(BETA_RUN_33586497538.rules.map(item => item.name));
+  const releases = (await rules.listAllReleases(BETA_PROJECT_ID)).filter(item => releaseNames.has(item.name));
+  const state = [];
+  for (const release of releases) {
+    const files = await rules.getRulesetContent(release.rulesetName);
+    state.push({
+      name: release.name,
+      rulesetName: release.rulesetName,
+      updateTime: release.updateTime,
+      files: [...(files || [])].map(file => ({
+        name: file.name,
+        sha256: createHash('sha256').update(String(file.content || '')).digest('hex')
+      })).sort((left, right) => left.name.localeCompare(right.name))
+    });
+  }
+  return state.sort((left, right) => left.name.localeCompare(right.name));
 };
 
 export const loadCloudRunServicesWithFirebaseCli = async ({ firebaseRequire, projectId = BETA_PROJECT_ID }) => {
