@@ -44,6 +44,9 @@ import {
   BETA_RUN_33583791849_AUTHORIZATION,
   BETA_RUN_33583791849_CONFIRMATION,
   BETA_RUN_33583791849_TARGET_FUNCTIONS,
+  BETA_RUN_33586497538,
+  BETA_RUN_33586497538_CONTINUATION_AUTHORIZATION,
+  BETA_RUN_33586497538_CONTINUATION_CONFIRMATION,
   assertBetaRun33530702897CandidateArtifact,
   assertBetaRun33530702897FailedRun,
   assertBetaRun33530702897PartialState,
@@ -51,12 +54,16 @@ import {
   assertBetaRun33583791849FailedRun,
   assertBetaRun33583791849PostRunState,
   assertBetaRun33583791849TargetedRepair,
+  assertBetaRun33586497538AuthorizedRulesContent,
+  assertBetaRun33586497538FailedRun,
+  assertBetaRun33586497538PostTargetState,
   assertPinnedFirebaseTargetedRedeployBehavior,
   expectedCandidateFunctions,
   loadCloudRunServicesWithFirebaseCli,
   readCloudRunServiceState,
   resolveBetaRun33530702897RecoveryMode,
   resolveBetaRun33583791849RecoveryMode,
+  resolveBetaRun33586497538ContinuationMode,
   targetedRepairFirebaseArgs
 } from './betaRun33530702897Recovery.mjs';
 
@@ -220,6 +227,98 @@ const assertKnownBetaRunPostRecovery = overrides => assertBetaRun33583791849Post
     contentType: 'text/javascript; charset=utf-8',
     sha256: BETA_RUN_33583791849.manifest.entryAssetSha256
   },
+  ...overrides
+});
+
+const postTargetFunctions = () => betaRunFunctions().map(item => {
+  if (item.id === 'parseResumeToPortfolio') return {
+    ...item,
+    generation: '1788319554509155',
+    configurationHash: 'd61873d89783a8d30d5e318614b95f53330fea02476b17ae336d4ca55d1f9692'
+  };
+  if (item.id === 'reviewStoreManualPayment') return { ...item, generation: '1788319612613755' };
+  if (item.id === 'syncPublicChefProfile') return { ...item, generation: '1788319555228050' };
+  return item;
+});
+
+const postTargetServices = () => expectedCandidateFunctions().map(({ id, hash }) => ({
+  id,
+  latestCreatedRevision: BETA_RUN_33586497538.servingRevisions[id],
+  latestReadyRevision: BETA_RUN_33586497538.servingRevisions[id],
+  latestCreatedHash: hash,
+  terminalState: 'CONDITION_SUCCEEDED',
+  trafficStatuses: [{
+    type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST',
+    revision: '',
+    percent: 100
+  }]
+}));
+
+const postTargetFirestoreIndexes = () => ({
+  indexes: [
+    {
+      collectionGroup: 'personalExpenses', queryScope: 'COLLECTION',
+      fields: [
+        { fieldPath: 'workspaceId', order: 'ASCENDING' },
+        { fieldPath: 'memberId', order: 'ASCENDING' },
+        { fieldPath: '__name__', order: 'ASCENDING' }
+      ], density: 'SPARSE_ALL'
+    },
+    {
+      collectionGroup: 'personalExpenseSettlements', queryScope: 'COLLECTION',
+      fields: [
+        { fieldPath: 'workspaceId', order: 'ASCENDING' },
+        { fieldPath: 'memberId', order: 'ASCENDING' },
+        { fieldPath: '__name__', order: 'ASCENDING' }
+      ], density: 'SPARSE_ALL'
+    },
+    {
+      collectionGroup: 'portfolio', queryScope: 'COLLECTION_GROUP',
+      fields: [
+        { fieldPath: 'publicProfile.enabled', order: 'ASCENDING' },
+        { fieldPath: 'publicProfile.username', order: 'ASCENDING' },
+        { fieldPath: '__name__', order: 'ASCENDING' }
+      ], density: 'SPARSE_ALL'
+    },
+    {
+      collectionGroup: 'storeOrders', queryScope: 'COLLECTION',
+      fields: [
+        { fieldPath: 'customerUid', order: 'ASCENDING' },
+        { fieldPath: 'createdAt', order: 'DESCENDING' },
+        { fieldPath: '__name__', order: 'DESCENDING' }
+      ], density: 'SPARSE_ALL'
+    },
+    {
+      collectionGroup: 'storeOrders', queryScope: 'COLLECTION',
+      fields: [
+        { fieldPath: 'storeId', order: 'ASCENDING' },
+        { fieldPath: 'workspaceId', order: 'ASCENDING' },
+        { fieldPath: 'createdAt', order: 'DESCENDING' },
+        { fieldPath: '__name__', order: 'DESCENDING' }
+      ], density: 'SPARSE_ALL'
+    }
+  ],
+  fieldOverrides: [{
+    collectionGroup: 'portfolio',
+    fieldPath: 'publicProfile.enabled',
+    ttl: false,
+    indexes: [{ order: 'ASCENDING', queryScope: 'COLLECTION_GROUP' }]
+  }]
+});
+
+const postTargetState = overrides => assertBetaRun33586497538PostTargetState({
+  head: BETA_RUN_33586497538.candidateCommit,
+  sourceTree: BETA_RUN_33586497538.candidateSourceTree,
+  liveFingerprint: betaRunPostRecoveryLive(),
+  functions: postTargetFunctions(),
+  services: postTargetServices(),
+  assetProof: {
+    status: 200,
+    contentType: 'text/javascript; charset=utf-8',
+    sha256: BETA_RUN_33586497538.manifest.entryAssetSha256
+  },
+  rules: structuredClone(BETA_RUN_33586497538.rules),
+  firestoreIndexes: postTargetFirestoreIndexes(),
   ...overrides
 });
 
@@ -731,6 +830,12 @@ test('Beta run 33530702897 candidate artifact is exact and recovery convergence 
   assert.doesNotThrow(() => assertBetaRun33530702897CandidateArtifact(converged.manifest));
   assert.doesNotThrow(() => assertBetaRun33530702897RecoveryConverged(converged));
 
+  const providerRegenerated = structuredClone(converged);
+  const parseIndex = providerRegenerated.functions.findIndex(item => item.id === 'parseResumeToPortfolio');
+  providerRegenerated.functions[parseIndex].configurationHash =
+    'd61873d89783a8d30d5e318614b95f53330fea02476b17ae336d4ca55d1f9692';
+  assert.doesNotThrow(() => assertBetaRun33530702897RecoveryConverged(providerRegenerated));
+
   const htmlFallback = structuredClone(converged);
   htmlFallback.assetProof.contentType = 'text/html';
   assert.throws(() => assertBetaRun33530702897RecoveryConverged(htmlFallback), /JavaScript bytes/);
@@ -876,8 +981,27 @@ test('targeted follow-up accepts new healthy target revisions and rejects target
   const services = betaRunServices().map(item => BETA_RUN_33583791849_TARGET_FUNCTIONS.includes(item.id)
     ? readyService(item.id, `${item.id.toLowerCase()}-new-candidate`)
     : item);
+  const parseIndex = functions.findIndex(item => item.id === 'parseResumeToPortfolio');
+  functions[parseIndex].configurationHash =
+    'd61873d89783a8d30d5e318614b95f53330fea02476b17ae336d4ca55d1f9692';
   const valid = { beforeFunctions, beforeServices, functions, services };
   assert.equal(assertBetaRun33583791849TargetedRepair(valid), true);
+
+  const unexpectedProviderMetadata = structuredClone(valid);
+  unexpectedProviderMetadata.functions[parseIndex].configurationHash = 'unexpected-provider-metadata';
+  assert.throws(
+    () => assertBetaRun33583791849TargetedRepair(unexpectedProviderMetadata),
+    /endpoint metadata is not the authorized candidate/
+  );
+
+  const wrongFunction = structuredClone(valid);
+  const reviewIndex = wrongFunction.functions.findIndex(item => item.id === 'reviewStoreManualPayment');
+  wrongFunction.functions[reviewIndex].configurationHash =
+    'd61873d89783a8d30d5e318614b95f53330fea02476b17ae336d4ca55d1f9692';
+  assert.throws(
+    () => assertBetaRun33583791849TargetedRepair(wrongFunction),
+    /endpoint metadata is not the authorized candidate/
+  );
 
   const staleTarget = structuredClone(valid);
   const targetIndex = staleTarget.services.findIndex(item => item.id === 'parseResumeToPortfolio');
@@ -888,6 +1012,108 @@ test('targeted follow-up accepts new healthy target revisions and rejects target
   const nonTargetIndex = changedNonTarget.services.findIndex(item => item.id === 'activateMiseChefHost');
   changedNonTarget.services[nonTargetIndex].latestCreatedRevision = 'unexpected-revision';
   assert.throws(() => assertBetaRun33583791849TargetedRepair(changedNonTarget), /non-target Function/);
+});
+
+test('post-target continuation requires exact protected authorization and lock', () => {
+  assert.equal(resolveBetaRun33586497538ContinuationMode({
+    confirmation: BETA_RUN_33586497538_CONTINUATION_CONFIRMATION,
+    authorization: BETA_RUN_33586497538_CONTINUATION_AUTHORIZATION,
+    githubActions: true,
+    ciLockId: 'misechef-beta-deployment'
+  }), true);
+  for (const override of [
+    { confirmation: 'CONTINUE BETA' },
+    { authorization: '' },
+    { githubActions: false },
+    { ciLockId: 'different-lock' }
+  ]) assert.throws(() => resolveBetaRun33586497538ContinuationMode({
+    confirmation: BETA_RUN_33586497538_CONTINUATION_CONFIRMATION,
+    authorization: BETA_RUN_33586497538_CONTINUATION_AUTHORIZATION,
+    githubActions: true,
+    ciLockId: 'misechef-beta-deployment',
+    ...override
+  }), /follow-up refused/);
+});
+
+test('post-target continuation is bound to exact interrupted protected-run provenance', () => {
+  const successfulSteps = [
+    'Verify exact protected controller and candidate SHAs',
+    'Validate protected follow-up recovery controller',
+    'Validate exact candidate with immutable trusted gate',
+    'Run complete immutable trusted candidate regression gate',
+    'Run Store Sets Firestore authorization suite',
+    'Authenticate to Beta only'
+  ].map(name => ({ name, conclusion: 'success' }));
+  const evidence = {
+    run: {
+      id: Number(BETA_RUN_33586497538.failedRunId),
+      name: 'Beta Run 33583791849 Follow-up Recovery',
+      run_number: BETA_RUN_33586497538.failedRunNumber,
+      run_attempt: 1,
+      event: 'workflow_dispatch',
+      head_branch: 'main',
+      head_sha: BETA_RUN_33586497538.controllerCommit,
+      conclusion: 'failure',
+      path: '.github/workflows/recover-beta-run-33583791849.yml'
+    },
+    jobs: [{
+      id: Number(BETA_RUN_33586497538.failedJobId),
+      name: 'recover-beta-run-33583791849',
+      conclusion: 'failure',
+      head_sha: BETA_RUN_33586497538.controllerCommit,
+      steps: [...successfulSteps, { name: 'Run protected one-time follow-up recovery', conclusion: 'failure' }]
+    }],
+    log: [
+      'functions[parseResumeToPortfolio(us-central1)] Successful update operation.',
+      'functions[reviewStoreManualPayment(us-central1)] Successful update operation.',
+      'functions[syncPublicChefProfile(us-central1)] Successful update operation.',
+      'Function parseResumeToPortfolio endpoint metadata is not the authorized candidate after targeted repair.'
+    ].join('\n')
+  };
+  assert.doesNotThrow(() => assertBetaRun33586497538FailedRun(evidence));
+  assert.throws(() => assertBetaRun33586497538FailedRun({
+    ...evidence,
+    log: `${evidence.log}\ndeploying hosting`
+  }), /unexpectedly entered deploying hosting/);
+});
+
+test('post-target continuation accepts only the exact audited 41/41 state and rejects all resource drift', () => {
+  assert.match(postTargetState().fingerprint, /^[0-9a-f]{64}$/);
+
+  const changedFunction = postTargetFunctions();
+  changedFunction.find(item => item.id === 'parseResumeToPortfolio').configurationHash = 'unexpected';
+  assert.throws(() => postTargetState({ functions: changedFunction }), /endpoint state changed/);
+
+  const changedTarget = postTargetServices();
+  changedTarget.find(item => item.id === 'parseResumeToPortfolio').latestReadyRevision = 'unexpected-revision';
+  assert.throws(() => postTargetState({ services: changedTarget }), /Cloud Run state changed/);
+
+  const changedNonTarget = postTargetServices();
+  changedNonTarget.find(item => item.id === 'activateMiseChefHost').latestCreatedRevision = 'unexpected-revision';
+  assert.throws(() => postTargetState({ services: changedNonTarget }), /Cloud Run state changed/);
+
+  const changedHosting = { ...betaRunPostRecoveryLive(), storeAsset: '/assets/unapproved.js' };
+  assert.throws(() => postTargetState({ liveFingerprint: changedHosting }), /Hosting or the live manifest changed/);
+
+  const changedRules = structuredClone(BETA_RUN_33586497538.rules);
+  changedRules[0].files[0].sha256 = 'unexpected';
+  assert.throws(() => postTargetState({ rules: changedRules }), /rules changed/);
+
+  const changedIndexes = postTargetFirestoreIndexes();
+  changedIndexes.indexes.pop();
+  assert.throws(() => postTargetState({ firestoreIndexes: changedIndexes }), /indexes changed/);
+});
+
+test('post-deploy Rules verifier accepts candidate content across regenerated releases and rejects drift', () => {
+  const rules = structuredClone(BETA_RUN_33586497538.rules).map(item => ({
+    ...item,
+    rulesetName: `${item.rulesetName}-regenerated`,
+    updateTime: '2026-09-02T04:00:00.000000Z'
+  }));
+  const state = { rules, firestoreIndexes: postTargetFirestoreIndexes() };
+  assert.equal(assertBetaRun33586497538AuthorizedRulesContent(state), true);
+  state.rules[1].files[0].sha256 = 'unexpected';
+  assert.throws(() => assertBetaRun33586497538AuthorizedRulesContent(state), /not candidate content/);
 });
 
 test('Beta recovery Cloud Run verification uses the expected Beta project and normalizes ready revisions', async () => {
@@ -1142,6 +1368,36 @@ test('run 33583791849 follow-up controller performs one exact targeted repair be
   assert.doesNotMatch(controller, /misechef-fa4bf|FIREBASE_SERVICE_ACCOUNT_MISECHEF_PROD/);
 });
 
+test('post-target continuation performs one canonical full plan and cannot replay targeted repair', () => {
+  const controller = readFileSync(new URL('./continueBetaRun33583791849.mjs', import.meta.url), 'utf8');
+  const workflow = readFileSync(
+    new URL('../.github/workflows/continue-beta-run-33583791849.yml', import.meta.url),
+    'utf8'
+  );
+  for (const marker of [
+    'verifyBetaRun33583791849FailedRun',
+    'verifyBetaRun33586497538FailedRun',
+    'assertBetaRun33586497538PostTargetState',
+    'assertBetaRun33530702897CandidateArtifact',
+    'assertArtifactCompatibility',
+    'assertPinnedFirebaseCliStorageBehavior',
+    'assertBetaRun33530702897RecoveryConverged',
+    'assertBetaRun33586497538AuthorizedRulesContent',
+    'readBetaRulesState',
+    'readBetaFirestoreIndexState',
+    'FULL_BETA_RESOURCE_PLAN.join'
+  ]) assert.match(controller, new RegExp(marker));
+  assert.equal((controller.match(/spawnSync\('firebase'/g) || []).length, 1);
+  assert.doesNotMatch(controller, /targetedRepairFirebaseArgs|assertBetaRun33583791849TargetedRepair|--force/);
+  assert.doesNotMatch(controller, /--project',\s*'(?!beta')[^']+'/);
+  assert.doesNotMatch(`${controller}\n${workflow}`, /misechef-fa4bf|FIREBASE_SERVICE_ACCOUNT_MISECHEF_PROD/);
+  assert.match(workflow, /environment: beta/);
+  assert.match(workflow, /group: misechef-beta-deployment/);
+  assert.match(workflow, /credentials_json: \$\{\{ secrets\.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA \}\}/);
+  assert.match(workflow, /bba5cc1f166c41a6a92c5fb8275aa37f84acdf42/);
+  assert.match(workflow, /c67015bf5fdb9c928bd88d9662d0fee0b27d09cb/);
+});
+
 test('baseline validation fails instead of skipping when target context is missing', () => {
   const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const result = spawnSync('node', ['scripts/validateBetaReleaseBaseline.mjs'], {
@@ -1163,6 +1419,10 @@ test('protected CI supplies external authority and an authoritative concurrency 
   );
   const followUpRecoveryWorkflow = readFileSync(
     path.join(repositoryRoot, '.github', 'workflows', 'recover-beta-run-33583791849.yml'),
+    'utf8'
+  );
+  const continuationWorkflow = readFileSync(
+    path.join(repositoryRoot, '.github', 'workflows', 'continue-beta-run-33583791849.yml'),
     'utf8'
   );
   const validationWorkflow = readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'validate-beta-candidate.yml'), 'utf8');
@@ -1229,6 +1489,18 @@ test('protected CI supplies external authority and an authoritative concurrency 
   assert.doesNotMatch(followUpRecoveryWorkflow, /FIREBASE_SERVICE_ACCOUNT_MISECHEF_PROD|misechef-fa4bf/);
   assert.doesNotMatch(followUpRecoveryWorkflow, new RegExp(BETA_RUN_33583791849_AUTHORIZATION));
   assert.doesNotMatch(followUpRecoveryWorkflow, /--force|id-token:|token_format|access_token/);
+  assert.match(continuationWorkflow, /environment: beta/);
+  assert.match(continuationWorkflow, /group: misechef-beta-deployment/);
+  assert.match(continuationWorkflow, /cancel-in-progress: false/);
+  assert.match(continuationWorkflow, /vars\.MISECHEF_BETA_RUN_33586497538_CONTINUATION_GATE_SHA/);
+  assert.match(continuationWorkflow, /vars\.MISECHEF_BETA_RUN_33586497538_CONTINUATION_AUTHORIZATION/);
+  assert.match(continuationWorkflow, /secrets\.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA/);
+  assert.match(continuationWorkflow, new RegExp(BETA_RUN_33586497538.candidateCommit));
+  assert.match(continuationWorkflow, new RegExp(BETA_RUN_33586497538.candidateSourceTree));
+  assert.match(continuationWorkflow, /continueBetaRun33583791849\.mjs/);
+  assert.doesNotMatch(continuationWorkflow, /FIREBASE_SERVICE_ACCOUNT_MISECHEF_PROD|misechef-fa4bf/);
+  assert.doesNotMatch(continuationWorkflow, new RegExp(BETA_RUN_33586497538_CONTINUATION_AUTHORIZATION));
+  assert.doesNotMatch(continuationWorkflow, /--force|id-token:|token_format|access_token/);
 });
 
 test('repository baseline and documentation contain no stale protected-baseline references', () => {
