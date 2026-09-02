@@ -112,7 +112,7 @@ const gitChecks = {
   ).status === 0
 };
 const betaOrigin = 'https://misechef-beta-fa4bf.web.app';
-const googleAccessToken = process.env.MISECHEF_BETA_GOOGLE_ACCESS_TOKEN || '';
+const firebaseToolsRoot = path.join(globalNpmRoot, 'firebase-tools');
 const readExpandedLive = async () => {
   const liveFingerprint = await readLiveBetaFingerprint();
   return {
@@ -128,7 +128,7 @@ const readIncidentState = async live => assertBetaRun33530702897PartialState({
   sourceTree,
   liveFingerprint: live.expandedFingerprint,
   functions: readBetaFunctionState(),
-  services: await readCloudRunServiceState({ token: googleAccessToken }),
+  services: await readCloudRunServiceState({ firebaseToolsRoot }),
   storeAssetProof: await readLiveAssetProof({ origin: betaOrigin, asset: BETA_RUN_33530702897.storeAsset }),
   ...gitChecks
 });
@@ -221,7 +221,7 @@ try {
       assertBetaRun33530702897RecoveryConverged({
         liveFingerprint: recoveredLive.expandedFingerprint,
         functions: readBetaFunctionState(),
-        services: await readCloudRunServiceState({ token: googleAccessToken }),
+        services: await readCloudRunServiceState({ firebaseToolsRoot }),
         manifest,
         assetProof: await readLiveAssetProof({ origin: betaOrigin, asset: manifest.entryAsset })
       });

@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import { BETA_PROJECT_ID, MANDATORY_BETA_BASELINE } from './betaDeploymentSafety.mjs';
 
 export const BETA_RUN_33530702897_CONFIRMATION = 'RECOVER BETA RUN 33530702897';
@@ -395,20 +397,18 @@ export const readBetaFunctionState = ({ run = execFileSync } = {}) => {
   return normalizeBetaFunctions(parsed.result);
 };
 
-export const readCloudRunServiceState = async ({ token, request = fetch }) => {
-  if (!token) fail('the Beta-only Google access token is unavailable.');
-  const services = [];
-  let pageToken = '';
-  do {
-    const url = new URL(`https://run.googleapis.com/v2/projects/${BETA_PROJECT_ID}/locations/-/services`);
-    url.searchParams.set('pageSize', '100');
-    if (pageToken) url.searchParams.set('pageToken', pageToken);
-    const response = await request(url, { headers: { Authorization: `Bearer ${token}` } });
-    if (!response.ok) fail(`Cloud Run service inventory returned HTTP ${response.status}.`);
-    const payload = await response.json();
-    services.push(...(payload.services || []));
-    pageToken = payload.nextPageToken || '';
-  } while (pageToken);
+export const readCloudRunServiceState = async ({ firebaseToolsRoot = '', loadServices } = {}) => {
+  let services;
+  if (loadServices) {
+    services = await loadServices(BETA_PROJECT_ID);
+  } else {
+    if (!path.isAbsolute(firebaseToolsRoot)) fail('the pinned Firebase CLI root is unavailable.');
+    const firebaseRequire = createRequire(path.join(firebaseToolsRoot, 'package.json'));
+    const { requireAuth } = firebaseRequire('./lib/requireAuth.js');
+    const runv2 = firebaseRequire('./lib/gcp/runv2.js');
+    await requireAuth({ project: BETA_PROJECT_ID });
+    services = await runv2.listServices(BETA_PROJECT_ID);
+  }
 
   const idByServiceName = new Map(expectedCandidateFunctions().map(item => [item.id.toLowerCase(), item.id]));
   return services.map(service => {

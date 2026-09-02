@@ -45,6 +45,7 @@ import {
   assertBetaRun33530702897PartialState,
   assertBetaRun33530702897RecoveryConverged,
   expectedCandidateFunctions,
+  readCloudRunServiceState,
   resolveBetaRun33530702897RecoveryMode
 } from './betaRun33530702897Recovery.mjs';
 
@@ -713,6 +714,38 @@ test('Beta run 33530702897 candidate artifact is exact and recovery convergence 
   assert.throws(() => assertBetaRun33530702897RecoveryConverged(notReady), /ready candidate revision/);
 });
 
+test('Beta recovery Cloud Run verification uses the expected Beta project and normalizes ready revisions', async () => {
+  let requestedProject = '';
+  const services = await readCloudRunServiceState({
+    loadServices: async project => {
+      requestedProject = project;
+      return [{
+        name: `projects/${project}/locations/us-central1/services/parseresumetoportfolio`,
+        latestCreatedRevision: 'projects/p/locations/us-central1/services/s/revisions/revision-ready',
+        latestReadyRevision: 'projects/p/locations/us-central1/services/s/revisions/revision-ready',
+        terminalCondition: { state: 'CONDITION_SUCCEEDED' },
+        trafficStatuses: [{
+          type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION',
+          revision: 'projects/p/locations/us-central1/services/s/revisions/revision-ready',
+          percent: 100
+        }]
+      }];
+    }
+  });
+  assert.equal(requestedProject, BETA_PROJECT_ID);
+  assert.deepEqual(services, [{
+    id: 'parseResumeToPortfolio',
+    latestCreatedRevision: 'revision-ready',
+    latestReadyRevision: 'revision-ready',
+    terminalState: 'CONDITION_SUCCEEDED',
+    trafficStatuses: [{
+      type: 'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION',
+      revision: 'revision-ready',
+      percent: 100
+    }]
+  }]);
+});
+
 test('historical live manifests require exact SHAs, a matching source tree, and valid history', () => {
   const sourceCommit = 'a'.repeat(40);
   const sourceTree = 'b'.repeat(40);
@@ -838,6 +871,7 @@ test('Release #28 recovery controller retains the full plan and every convergenc
 
 test('run 33530702897 recovery controller is single-attempt, full-plan, and proves every convergence boundary', () => {
   const controller = readFileSync(new URL('./recoverBetaRun33530702897.mjs', import.meta.url), 'utf8');
+  const incident = readFileSync(new URL('./betaRun33530702897Recovery.mjs', import.meta.url), 'utf8');
   for (const marker of [
     'verifyBetaRun33530702897FailedRun',
     'assertBetaRun33530702897PartialState',
@@ -854,6 +888,9 @@ test('run 33530702897 recovery controller is single-attempt, full-plan, and prov
   assert.match(controller, /no retry was attempted/);
   assert.doesNotMatch(controller, /--project',\s*'(?!beta')[^']+'/);
   assert.doesNotMatch(controller, /--only',\s*'(?:functions|hosting|firestore|storage)'/);
+  assert.match(incident, /requireAuth/);
+  assert.match(incident, /runv2\.listServices/);
+  assert.doesNotMatch(`${controller}\n${incident}`, /MISECHEF_BETA_GOOGLE_ACCESS_TOKEN/);
 });
 
 test('baseline validation fails instead of skipping when target context is missing', () => {
@@ -909,6 +946,24 @@ test('protected CI supplies external authority and an authoritative concurrency 
   assert.match(incidentRecoveryWorkflow, /recoverBetaRun33530702897\.mjs/);
   assert.doesNotMatch(incidentRecoveryWorkflow, /FIREBASE_SERVICE_ACCOUNT_MISECHEF_PROD|misechef-fa4bf/);
   assert.doesNotMatch(incidentRecoveryWorkflow, new RegExp(BETA_RUN_33530702897_AUTHORIZATION));
+  const canonicalAuth = workflow.match(/      - name: Authenticate to Beta only[\s\S]*?(?=\n      - name:)/)?.[0] || '';
+  const recoveryAuth = incidentRecoveryWorkflow.match(
+    /      - name: Authenticate to Beta only[\s\S]*?(?=\n      - name:)/
+  )?.[0] || '';
+  assert.match(canonicalAuth, /credentials_json: \$\{\{ secrets\.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA \}\}/);
+  assert.match(recoveryAuth, /credentials_json: \$\{\{ secrets\.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA \}\}/);
+  for (const unsupported of [
+    'token_format',
+    'access_token',
+    'workload_identity_provider',
+    'service_account',
+    'delegates'
+  ]) {
+    assert.doesNotMatch(canonicalAuth, new RegExp(unsupported));
+    assert.doesNotMatch(recoveryAuth, new RegExp(unsupported));
+  }
+  assert.doesNotMatch(workflow, /id-token:/);
+  assert.doesNotMatch(incidentRecoveryWorkflow, /id-token:/);
 });
 
 test('repository baseline and documentation contain no stale protected-baseline references', () => {
