@@ -36,7 +36,7 @@
     "test:homepage-promotions:rules": "firebase emulators:exec --config firebase.rules-test.json --only firestore,storage --project demo-misechef-homepage-promotion-rules \"node --test tests/homepagePromotionAccessControl.test.mjs\"",
     "test:store-sets:rules": "firebase emulators:exec --config firebase.rules-test.json --only firestore,storage --project demo-misechef-store-sets-rules \"node --test tests/storeSetsAccessControl.test.mjs\"",
     "test:recipes:rules": "firebase emulators:exec --config firebase.rules-test.json --only firestore --project demo-misechef-recipe-rules \"node --test tests/recipeWorkspaceAccessControl.test.mjs\"",
-    "test:authorized-beta-business-migration": "node --test scripts/migrateAuthorizedBetaBusiness.test.mjs",
+    "test:authorized-beta-business-migration": "node --test scripts/migrateAuthorizedBetaBusiness.test.mjs scripts/authorizedBetaBusinessMigrationCountry.test.mjs",
     "migration:authorized-beta-business:dry-run": "node scripts/migrateAuthorizedBetaBusiness.mjs --dry-run"
   },
   "dependencies": {
