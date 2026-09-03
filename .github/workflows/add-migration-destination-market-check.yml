@@ -14,44 +14,19 @@ jobs:
   patch-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout migration branch
+        uses: actions/checkout@v4
         with:
           ref: migration/resolve-dry-run-blockers
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Add destination Store market verification
-        shell: bash
-        run: |
-          node <<'NODE'
-          const fs = require('node:fs');
-          const path = 'scripts/migrateAuthorizedBetaBusiness.mjs';
-          let source = fs.readFileSync(path, 'utf8');
-          const before = `  if (phase === 'post-apply' && getField(productionWorkspace, 'country') !== AUTHORIZED_MIGRATION_MARKET.country) {
-            compatibilityBlockers.push(\`Production workspace country is not \${AUTHORIZED_MIGRATION_MARKET.country} after migration.\`);
-          }
-`;
-          const after = `  if (phase === 'post-apply' && getField(productionWorkspace, 'country') !== AUTHORIZED_MIGRATION_MARKET.country) {
-            compatibilityBlockers.push(\`Production workspace country is not \${AUTHORIZED_MIGRATION_MARKET.country} after migration.\`);
-          }
-          if (phase === 'post-apply') {
-            const destinationStore = destinationDocuments
-              .find(entry => entry.destinationPath === \`stores/\${DESTINATION.workspaceId}\`)?.document;
-            try {
-              assertAuthorizedSourceStoreMarket(destinationStore);
-            } catch (error) {
-              compatibilityBlockers.push(\`Production store market verification failed: \${error.message}\`);
-            }
-          }
-`;
-          const occurrences = source.split(before).length - 1;
-          if (occurrences !== 1) throw new Error(`Expected one post-apply workspace market block, found ${occurrences}.`);
-          source = source.replace(before, after);
-          fs.writeFileSync(path, source);
-          NODE
+      - name: Apply guarded destination market patch
+        run: node scripts/patchMigrationDestinationMarketVerification.mjs
 
       - name: Run migration tests
         run: npm run test:authorized-beta-business-migration
