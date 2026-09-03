@@ -3,12 +3,12 @@ import BrandLogo from '../../components/BrandLogo';
 import OriginalPublicLayout from './PublicLayout';
 import PublicComplianceFooter from './PublicComplianceFooter';
 import PublicPolicyPage from './PublicPolicyPage';
-import { resolvePublicRoute } from './publicRoutes';
+import { resolvePublicPolicyRoute } from './publicRoutes';
 
 export default function PublicComplianceLayout({ pathname, currentUser, onSignOut }: { pathname: string; currentUser: User | null; onSignOut: () => Promise<void> }) {
-  const route = resolvePublicRoute(pathname);
+  const policyRoute = resolvePublicPolicyRoute(pathname);
 
-  if (route?.page === 'policy') {
+  if (policyRoute) {
     return (
       <div className="min-h-screen bg-background text-on-surface">
         <header className="border-b border-surface-container-high bg-background/95">
@@ -24,7 +24,7 @@ export default function PublicComplianceLayout({ pathname, currentUser, onSignOu
           </div>
         </header>
         <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-          <PublicPolicyPage policy={route.policy} />
+          <PublicPolicyPage policy={policyRoute.policy} />
         </main>
         <PublicComplianceFooter />
       </div>
