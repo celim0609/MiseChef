@@ -53,9 +53,9 @@ export const buildWorkspaceCountryPatch = workspace => {
         name: workspace.name,
         fields: {
           country: stringValue(AUTHORIZED_MIGRATION_MARKET.country)
-        },
-        updateMask: { fieldPaths: ['country'] }
+        }
       },
+      updateMask: { fieldPaths: ['country'] },
       currentDocument: { updateTime: workspace.updateTime }
     },
     original: workspace
