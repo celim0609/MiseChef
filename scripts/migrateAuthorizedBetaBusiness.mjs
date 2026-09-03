@@ -449,6 +449,15 @@ const inspectEnvironment = async (clients, phase = 'preflight') => {
   if (phase === 'post-apply' && getField(productionWorkspace, 'country') !== AUTHORIZED_MIGRATION_MARKET.country) {
     compatibilityBlockers.push(`Production workspace country is not ${AUTHORIZED_MIGRATION_MARKET.country} after migration.`);
   }
+  if (phase === 'post-apply') {
+    const destinationStore = destinationDocuments
+      .find(entry => entry.destinationPath === `stores/${DESTINATION.workspaceId}`)?.document;
+    try {
+      assertAuthorizedSourceStoreMarket(destinationStore);
+    } catch (error) {
+      compatibilityBlockers.push(`Production store market verification failed: ${error.message}`);
+    }
+  }
 
   const dependencyBlockers = validateDependencies(sourceDocuments.filter(entry => entry.document));
   const sourceScopeBlockers = validateSourceScopes(sourceDocuments);
