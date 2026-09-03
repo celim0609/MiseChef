@@ -9,12 +9,27 @@ export type PublicRoute =
   | { page: 'chefs' }
   | { page: 'chef'; username: string };
 
+export type PublicPolicyRoute = {
+  page: 'policy';
+  policy: 'terms' | 'privacy' | 'refund-cancellation' | 'payment-policy' | 'pickup-policy' | 'contact';
+};
+
 const readSegment = (value: string) => {
   try {
     return decodeURIComponent(value);
   } catch (error) {
     return value;
   }
+};
+
+export const resolvePublicPolicyRoute = (pathname: string): PublicPolicyRoute | null => {
+  if (pathname === '/terms' || pathname === '/terms/') return { page: 'policy', policy: 'terms' };
+  if (pathname === '/privacy' || pathname === '/privacy/') return { page: 'policy', policy: 'privacy' };
+  if (pathname === '/refund-cancellation' || pathname === '/refund-cancellation/') return { page: 'policy', policy: 'refund-cancellation' };
+  if (pathname === '/payment-policy' || pathname === '/payment-policy/') return { page: 'policy', policy: 'payment-policy' };
+  if (pathname === '/pickup-policy' || pathname === '/pickup-policy/') return { page: 'policy', policy: 'pickup-policy' };
+  if (pathname === '/contact-us' || pathname === '/contact-us/') return { page: 'policy', policy: 'contact' };
+  return null;
 };
 
 export const resolvePublicRoute = (pathname: string): PublicRoute | null => {
@@ -44,7 +59,7 @@ export const resolvePublicRoute = (pathname: string): PublicRoute | null => {
   return null;
 };
 
-export const isPublicExperiencePath = (pathname: string) => resolvePublicRoute(pathname) !== null;
+export const isPublicExperiencePath = (pathname: string) => resolvePublicPolicyRoute(pathname) !== null || resolvePublicRoute(pathname) !== null;
 
 export const toPublicSlug = (value: string) => value
   .trim()
