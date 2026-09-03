@@ -18,6 +18,11 @@ import {
   SOURCE,
   STORAGE_ALLOWLIST
 } from './authorizedBetaBusinessMigrationManifest.mjs';
+import {
+  AUTHORIZED_MIGRATION_MARKET,
+  assertAuthorizedSourceStoreMarket,
+  buildWorkspaceCountryPatch
+} from './authorizedBetaBusinessMigrationCountry.mjs';
 
 const APPLY_CONFIRMATION = 'MIGRATE AUTHORIZED BETA BUSINESS';
 const ROLLBACK_CONFIRMATION = 'ROLL BACK AUTHORIZED BETA BUSINESS';
@@ -237,7 +242,6 @@ const listObjects = async (storage, bucket, prefix) => {
 };
 
 const getField = (document, name) => readStringValue(document?.fields?.[name]);
-const effectiveWorkspaceCountry = workspace => getField(workspace, 'country') || 'SG';
 
 const buildSourceEntries = () => Object.entries(FIRESTORE_ALLOWLIST)
   .flatMap(([collection, ids]) => ids.map(id => ({
@@ -418,6 +422,7 @@ const inspectEnvironment = async (clients, phase = 'preflight') => {
   const sourceStore = sourceDocuments.find(entry => entry.sourcePath === `stores/${SOURCE.workspaceId}`)?.document;
 
   const compatibilityBlockers = [];
+  let workspaceCountryPatch = null;
   if (getField(productionCompany, 'subscriptionPlan') !== 'professional'
       || getField(productionCompany, 'subscriptionStatus') !== 'active') {
     compatibilityBlockers.push('Production company is not professional/active.');
@@ -429,10 +434,20 @@ const inspectEnvironment = async (clients, phase = 'preflight') => {
     compatibilityBlockers.push('Production Owner membership is not Active/Owner.');
   }
   if (!productionChefProfile) compatibilityBlockers.push('The newer Production Chef Profile is missing.');
-  const storeCountry = getField(sourceStore, 'country');
-  const workspaceCountry = effectiveWorkspaceCountry(productionWorkspace);
-  if (storeCountry && workspaceCountry !== storeCountry) {
-    compatibilityBlockers.push(`Production workspace effective country ${workspaceCountry} does not match authorized Beta store country ${storeCountry}.`);
+  try {
+    assertAuthorizedSourceStoreMarket(sourceStore);
+  } catch (error) {
+    compatibilityBlockers.push(error.message);
+  }
+  if (getField(productionWorkspace, 'ownerId') === DESTINATION.ownerUid) {
+    try {
+      workspaceCountryPatch = buildWorkspaceCountryPatch(productionWorkspace);
+    } catch (error) {
+      compatibilityBlockers.push(error.message);
+    }
+  }
+  if (phase === 'post-apply' && getField(productionWorkspace, 'country') !== AUTHORIZED_MIGRATION_MARKET.country) {
+    compatibilityBlockers.push(`Production workspace country is not ${AUTHORIZED_MIGRATION_MARKET.country} after migration.`);
   }
 
   const dependencyBlockers = validateDependencies(sourceDocuments.filter(entry => entry.document));
@@ -445,6 +460,11 @@ const inspectEnvironment = async (clients, phase = 'preflight') => {
     .map(item => item.destinationPath);
   const storageIdenticalExisting = storageInspection.filter(item => item.destinationIdentical).length;
   const storageCreates = storageInspection.filter(item => !item.destinationExists).length;
+  const firestoreCreatesPlanned = destinationDocuments.filter(entry => !entry.document).length;
+  const firestoreStoreUpdatesPlanned = destinationDocuments
+    .filter(entry => entry.document && entry.destinationPath === allowedOverwrite).length;
+  const firestoreWorkspaceCountryUpdatesPlanned = workspaceCountryPatch ? 1 : 0;
+  const firestoreUpdatesPlanned = firestoreStoreUpdatesPlanned + firestoreWorkspaceCountryUpdatesPlanned;
 
   const blockers = [
     ...missingSourceDocuments.map(path => `Missing source document: ${path}`),
@@ -461,6 +481,12 @@ const inspectEnvironment = async (clients, phase = 'preflight') => {
   ];
 
   if (phase === 'preflight') {
+    if (firestoreCreatesPlanned !== EXPECTED_COUNTS.firestoreCreates) {
+      blockers.push(`Expected ${EXPECTED_COUNTS.firestoreCreates} Firestore creates, found ${firestoreCreatesPlanned}.`);
+    }
+    if (firestoreUpdatesPlanned !== EXPECTED_COUNTS.firestoreUpdates) {
+      blockers.push(`Expected ${EXPECTED_COUNTS.firestoreUpdates} controlled Firestore updates, found ${firestoreUpdatesPlanned}.`);
+    }
     if (storageCreates !== EXPECTED_COUNTS.storageCreates) {
       blockers.push(`Expected ${EXPECTED_COUNTS.storageCreates} Storage creates, found ${storageCreates}.`);
     }
@@ -478,6 +504,7 @@ const inspectEnvironment = async (clients, phase = 'preflight') => {
     destinationDocuments,
     storageInspection,
     production: { productionCompany, productionWorkspace, productionMembership, productionChefProfile },
+    workspaceCountryPatch,
     report: {
       migrationVersion: MIGRATION_VERSION,
       mode: phase === 'preflight' ? 'dry-run' : 'post-apply-verification',
@@ -487,8 +514,9 @@ const inspectEnvironment = async (clients, phase = 'preflight') => {
       counts: {
         firestoreSourceExpected: EXPECTED_COUNTS.firestoreSource,
         firestoreSourceFound: sourceDocuments.length - missingSourceDocuments.length,
-        firestoreCreatesPlanned: phase === 'preflight' ? destinationDocuments.filter(entry => !entry.document).length : 0,
-        firestoreUpdatesPlanned: phase === 'preflight' ? destinationDocuments.filter(entry => entry.document && entry.destinationPath === allowedOverwrite).length : 0,
+        firestoreCreatesPlanned: phase === 'preflight' ? firestoreCreatesPlanned : 0,
+        firestoreUpdatesPlanned: phase === 'preflight' ? firestoreUpdatesPlanned : 0,
+        firestoreWorkspaceCountryUpdatesPlanned: phase === 'preflight' ? firestoreWorkspaceCountryUpdatesPlanned : 0,
         firestoreCollisions: collisions.length,
         storageSourceExpected: EXPECTED_COUNTS.storageSource,
         storageChecksumsVerified: storageInspection.filter(item => item.sourceMatches).length,
@@ -572,6 +600,12 @@ const applyMigration = async (clients, inspection, snapshotPath) => {
   const existingDocuments = inspection.destinationDocuments
     .filter(entry => entry.document)
     .map(entry => ({ path: entry.destinationPath, document: entry.document }));
+  if (inspection.production.productionWorkspace) {
+    existingDocuments.push({
+      path: `workspaces/${DESTINATION.workspaceId}`,
+      document: inspection.production.productionWorkspace
+    });
+  }
   const manifest = {
     migrationVersion: MIGRATION_VERSION,
     source: SOURCE,
@@ -615,6 +649,8 @@ const applyMigration = async (clients, inspection, snapshotPath) => {
       currentDocument: existing ? { updateTime: existing.updateTime } : { exists: false }
     };
   });
+  if (inspection.workspaceCountryPatch) writes.push(inspection.workspaceCountryPatch.write);
+  assert.equal(writes.length, EXPECTED_COUNTS.firestoreCreates + EXPECTED_COUNTS.firestoreUpdates);
   const writeResults = await commitWrites(clients.firestore, writes);
   assert.equal(writeResults.length, writes.length);
   manifest.completedFirestore = inspection.transformed.map((entry, index) => ({
@@ -622,6 +658,13 @@ const applyMigration = async (clients, inspection, snapshotPath) => {
     action: existingByPath.has(entry.destinationPath) ? 'updated' : 'created',
     updateTime: writeResults[index]?.updateTime
   }));
+  if (inspection.workspaceCountryPatch) {
+    manifest.completedFirestore.push({
+      path: `workspaces/${DESTINATION.workspaceId}`,
+      action: 'updated-country',
+      updateTime: writeResults[inspection.transformed.length]?.updateTime
+    });
+  }
   manifest.status = 'applied-awaiting-verification';
   updateManifest(snapshotPath, manifest);
 
