@@ -44,7 +44,8 @@ test('missing workspace country plans a masked MY-only update with concurrency p
   const patch = buildWorkspaceCountryPatch(original);
   assert.equal(patch.write.update.name, original.name);
   assert.deepEqual(patch.write.update.fields, { country: { stringValue: 'MY' } });
-  assert.deepEqual(patch.write.update.updateMask, { fieldPaths: ['country'] });
+  assert.deepEqual(patch.write.updateMask, { fieldPaths: ['country'] });
+  assert.equal(patch.write.update.updateMask, undefined);
   assert.deepEqual(patch.write.currentDocument, { updateTime: original.updateTime });
   assert.strictEqual(patch.original, original);
 });
