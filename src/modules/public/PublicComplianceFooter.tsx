@@ -1,5 +1,5 @@
 const complianceLinks = [
-  ['Contact Us', '/contact'],
+  ['Contact Us', '/contact-us'],
   ['Terms & Conditions', '/terms'],
   ['Privacy Policy', '/privacy'],
   ['Refund & Cancellation', '/refund-cancellation'],

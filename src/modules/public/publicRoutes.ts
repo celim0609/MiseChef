@@ -28,7 +28,7 @@ export const resolvePublicRoute = (pathname: string): PublicRoute | null => {
   if (pathname === '/refund-cancellation' || pathname === '/refund-cancellation/') return { page: 'policy', policy: 'refund-cancellation' };
   if (pathname === '/payment-policy' || pathname === '/payment-policy/') return { page: 'policy', policy: 'payment-policy' };
   if (pathname === '/pickup-policy' || pathname === '/pickup-policy/') return { page: 'policy', policy: 'pickup-policy' };
-  if (pathname === '/contact' || pathname === '/contact/') return { page: 'policy', policy: 'contact' };
+  if (pathname === '/contact-us' || pathname === '/contact-us/') return { page: 'policy', policy: 'contact' };
 
   const recipeMatch = pathname.match(/^\/recipes\/([^/]+)\/?$/);
   if (recipeMatch?.[1]) return { page: 'recipe', slug: readSegment(recipeMatch[1]) };
