@@ -17,6 +17,7 @@ import { publicChefProfileService, publicDiscoverService, publicRecipeService } 
 import type { PublicDiscoverStoreSummary } from './publicDiscoverModel';
 import PublicChefProfilePage from './PublicChefProfilePage';
 import PublicRecipeDiscoveryPage from './PublicRecipeDiscoveryPage';
+import PublicStoreHomePage from './PublicStoreHomePage';
 import { HostProgramPage, PublicGroupOrderPage, PublicStorePage } from '../store';
 import { HomepageAnnouncementCarousel } from './HomepageCarousels';
 import type { HomepagePromotion } from './homepagePromotions';
@@ -214,6 +215,10 @@ export default function PublicLayout({ pathname, currentUser, onSignOut }: { pat
       }
       const recipe = resolvedPublicRecipes.find(item => toPublicSlug(item.title) === route.slug || item.id === route.slug);
       return recipe ? <PublicRecipeDiscoveryPage recipe={recipe} publicRecipes={resolvedPublicRecipes} publicChefs={publicChefs} /> : <EmptyPublicState title="Recipe not available" message="This recipe is not public or could not be found." icon={<Search className="h-5 w-5" />} />;
+    }
+
+    if (route.page === 'stores') {
+      return <PublicStoreHomePage stores={publicDiscoverStores} status={storeStatus} />;
     }
 
     if (route.page === 'store') {
