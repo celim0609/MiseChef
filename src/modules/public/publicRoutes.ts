@@ -2,6 +2,7 @@ export type PublicRoute =
   | { page: 'home' }
   | { page: 'recipes' }
   | { page: 'recipe'; slug: string }
+  | { page: 'stores' }
   | { page: 'store'; slug: string }
   | { page: 'host'; slug: string }
   | { page: 'group'; shareCode: string }
@@ -35,6 +36,7 @@ export const resolvePublicPolicyRoute = (pathname: string): PublicPolicyRoute | 
 export const resolvePublicRoute = (pathname: string): PublicRoute | null => {
   if (pathname === '/') return { page: 'home' };
   if (pathname === '/recipes' || pathname === '/recipes/') return { page: 'recipes' };
+  if (pathname === '/store' || pathname === '/store/') return { page: 'stores' };
   if (pathname === '/chefs' || pathname === '/chefs/') return { page: 'chefs' };
   if (pathname === '/orders' || pathname === '/orders/') return { page: 'orders' };
 
