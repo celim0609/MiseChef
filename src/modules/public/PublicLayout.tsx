@@ -28,6 +28,7 @@ import PublicOrdersPage from './PublicOrdersPage';
 
 const publicNavigation = [
   { label: 'Home', href: '/' },
+  { label: 'Store', href: '/store' },
   { label: 'Recipes', href: '/recipes' },
   { label: 'Chefs', href: '/chefs' }
 ];
