@@ -1,1 +1,0 @@
-Frontend compliance copy and presentation only. No payment, checkout, orders, POS, authentication, Finance, subscription billing, Store business logic, Functions or backend changes.
