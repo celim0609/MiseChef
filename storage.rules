@@ -100,10 +100,7 @@ service firebase.storage {
           'application/pdf',
           'image/jpeg',
           'image/png',
-          'image/webp',
-          'application/vnd.ms-excel',
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          'text/csv'
+          'image/webp'
         ];
     }
 

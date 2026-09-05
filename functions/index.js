@@ -1322,7 +1322,7 @@ export const createInvoiceUpload = onCall({
   const fileType = readString(request.data?.fileType);
   const size = Number(request.data?.size);
 
-  if (!fileName || !['PDF', 'Image', 'Excel'].includes(fileType)) {
+  if (!fileName || !['PDF', 'Image'].includes(fileType)) {
     throw new HttpsError('invalid-argument', 'Valid invoice file details are required.');
   }
   if (!Number.isFinite(size) || size <= 0 || size > MAX_INVOICE_OCR_BYTES) {
@@ -1566,9 +1566,6 @@ export const parseInvoiceToJson = onCall({
     }
 
     const invoiceRecord = invoiceSnapshot.data() || {};
-    if (invoiceRecord.createdBy !== requesterId) {
-      throw new HttpsError('permission-denied', 'You can only process your own invoices.');
-    }
 
     const entitlements = await requireWorkspaceEntitlements({
       db,
