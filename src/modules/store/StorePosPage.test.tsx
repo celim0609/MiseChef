@@ -4,8 +4,12 @@ import test from 'node:test';
 
 const pageSource = readFileSync(new URL('./StorePosPage.tsx', import.meta.url), 'utf8');
 const serviceSource = readFileSync(new URL('./services/storeOrderService.ts', import.meta.url), 'utf8');
+const ordersPanelSource = readFileSync(new URL('./StoreOrdersPanel.tsx', import.meta.url), 'utf8');
 const appSource = readFileSync(new URL('../../App.tsx', import.meta.url), 'utf8');
 const groupKitchenSource = readFileSync(new URL('./groupKitchenOrderModel.ts', import.meta.url), 'utf8');
+const firestoreIndexes = JSON.parse(readFileSync(new URL('../../../firestore.indexes.json', import.meta.url), 'utf8')) as {
+  indexes: Array<{ collectionGroup: string; fields: Array<{ fieldPath: string; order: string }> }>;
+};
 
 test('POS prioritizes three active kitchen columns and moves Completed to a compact summary', () => {
   for (const label of ['New', 'Preparing', 'Ready']) {
@@ -19,10 +23,17 @@ test('POS prioritizes three active kitchen columns and moves Completed to a comp
 });
 
 test('POS extends the shared realtime service with a tenant-safe ordered Store query', () => {
+  const posSubscriptionSource = serviceSource.slice(
+    serviceSource.indexOf('subscribePosOrders('),
+    serviceSource.indexOf('subscribeOperationalOrders(')
+  );
   assert.match(serviceSource, /subscribePosOrders/);
+  assert.match(serviceSource, /'New',[\s\S]*'Confirmed',[\s\S]*'Paid',[\s\S]*'Preparing',[\s\S]*'Ready'/);
   assert.match(serviceSource, /where\('storeId', '==', storeId\)/);
   assert.match(serviceSource, /where\('workspaceId', '==', workspaceId\)/);
+  assert.match(posSubscriptionSource, /where\('fulfilmentStatus', 'in', ACTIVE_FULFILMENT_STATUSES\)/);
   assert.match(serviceSource, /orderBy\('createdAt', 'desc'\)/);
+  assert.doesNotMatch(posSubscriptionSource, /limit\(/);
   assert.match(serviceSource, /isOrderOperationallyEligible/);
   assert.match(serviceSource, /unresolvedGroupIds/);
   assert.match(serviceSource, /onData\(kitchenOrders, addedNewOrderIds\)/);
@@ -58,9 +69,45 @@ test('Order History is date-scoped independently from the realtime listener', ()
   assert.match(serviceSource, /where\('createdAt', '>=', Timestamp\.fromDate\(start\)\)/);
   assert.match(serviceSource, /where\('createdAt', '<', Timestamp\.fromDate\(end\)\)/);
   assert.match(serviceSource, /where\('createdAt', '>=', start\.toISOString\(\)\)/);
-  assert.match(serviceSource, /subscribeCompletedOrders/);
+  assert.match(serviceSource, /getCompletedOrdersForBusinessDate/);
+  assert.match(serviceSource, /where\('fulfilmentStatus', '==', 'Completed'\)/);
+  assert.match(serviceSource, /where\('fulfilmentUpdatedAt', '>=', Timestamp\.fromDate\(start\)\)/);
+  assert.match(serviceSource, /limit\(STORE_ORDER_DATE_QUERY_LIMIT\)/);
   assert.match(pageSource, /isOrderCompletedOnMalaysiaDate/);
   assert.match(pageSource, /openCompletedHistory/);
+});
+
+test('Store Orders keeps every active state realtime and paginates terminal history', () => {
+  const operationalSubscriptionSource = serviceSource.slice(
+    serviceSource.indexOf('subscribeOperationalOrders('),
+    serviceSource.indexOf('async getTerminalOrderHistoryPage(')
+  );
+  const terminalHistorySource = serviceSource.slice(
+    serviceSource.indexOf('async getTerminalOrderHistoryPage('),
+    serviceSource.indexOf('async getOrdersForBusinessDate(')
+  );
+  assert.match(operationalSubscriptionSource, /where\('storeId', '==', storeId\)/);
+  assert.match(operationalSubscriptionSource, /where\('workspaceId', '==', workspaceId\)/);
+  assert.match(operationalSubscriptionSource, /where\('fulfilmentStatus', 'in', ACTIVE_FULFILMENT_STATUSES\)/);
+  assert.doesNotMatch(operationalSubscriptionSource, /limit\(/);
+  assert.match(terminalHistorySource, /getDocs\(query\(/);
+  assert.doesNotMatch(terminalHistorySource, /onSnapshot\(/);
+  assert.match(terminalHistorySource, /where\('fulfilmentStatus', 'in', TERMINAL_FULFILMENT_STATUSES\)/);
+  assert.match(terminalHistorySource, /startAfter\(cursor\)/);
+  assert.match(terminalHistorySource, /limit\(STORE_ORDER_HISTORY_PAGE_SIZE \+ 1\)/);
+  assert.match(ordersPanelSource, /subscribeOperationalOrders/);
+  assert.match(ordersPanelSource, /getTerminalOrderHistoryPage/);
+  assert.match(ordersPanelSource, /Load More History/);
+});
+
+test('the new order listener shapes have matching composite indexes', () => {
+  const hasIndex = (collectionGroup: string, fieldPaths: string[]) => firestoreIndexes.indexes.some(index => (
+    index.collectionGroup === collectionGroup
+    && index.fields.map(field => field.fieldPath).join(',') === fieldPaths.join(',')
+  ));
+  assert.equal(hasIndex('storeOrders', ['storeId', 'workspaceId', 'fulfilmentStatus', 'createdAt']), true);
+  assert.equal(hasIndex('storeOrders', ['storeId', 'workspaceId', 'fulfilmentStatus', 'fulfilmentUpdatedAt']), true);
+  assert.equal(hasIndex('storeNotifications', ['storeId', 'workspaceId', 'createdAt']), true);
 });
 
 test('safe cancellation requires confirmation and preserves payment semantics', () => {

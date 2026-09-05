@@ -187,6 +187,10 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hasHydratedRef = useRef(false);
   const soundEnabledRef = useRef(soundEnabled);
+  const todayKey = toMalaysiaDateKey(now);
+  const completedQueryDateKey = activeView === 'history' && historyDateBasis === 'completed'
+    ? historyDateKey
+    : todayKey;
 
   useEffect(() => {
     soundEnabledRef.current = soundEnabled;
@@ -261,20 +265,27 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   }, [storeId, workspaceId]);
 
   useEffect(() => {
+    let cancelled = false;
+    const { start, end } = getMalaysiaDateRange(completedQueryDateKey);
     setIsCompletedLoading(true);
-    return storeOrderService.subscribeCompletedOrders(
-      storeId,
-      workspaceId,
-      nextOrders => {
+    if (activeView === 'history' && historyDateBasis === 'completed') setHistoryError('');
+    void storeOrderService.getCompletedOrdersForBusinessDate(storeId, workspaceId, start, end)
+      .then(nextOrders => {
+        if (cancelled) return;
         setCompletedOrders(nextOrders);
         setIsCompletedLoading(false);
-      },
-      error => {
+      })
+      .catch(error => {
+        if (cancelled) return;
         setIsCompletedLoading(false);
-        setErrorMessage(error.message || 'Unable to load completed orders.');
-      }
-    );
-  }, [storeId, workspaceId]);
+        const message = error instanceof Error ? error.message : 'Unable to load completed orders.';
+        if (activeView === 'history' && historyDateBasis === 'completed') setHistoryError(message);
+        else setErrorMessage(message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView, completedQueryDateKey, historyDateBasis, historyRefreshKey, storeId, workspaceId]);
 
   useEffect(() => {
     if (activeView !== 'history' || historyDateBasis !== 'created') return;
@@ -305,7 +316,6 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     { New: [], Preparing: [], Ready: [] }
   ), [orders, storePickupSessions]);
 
-  const todayKey = toMalaysiaDateKey(now);
   const completedTodayOrders = completedOrders.filter(order => isOrderCompletedOnMalaysiaDate(order, todayKey));
   const completedTodayCount = completedTodayOrders.length;
   const activeOnlineOrderCount = countActiveOnlineOrders(orders);
@@ -327,6 +337,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     setErrorMessage('');
     try {
       await storeOrderService.updateFulfilment(order.id, nextStatus);
+      if (nextStatus === 'Completed') setHistoryRefreshKey(current => current + 1);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to update this order.');
     } finally {
@@ -340,6 +351,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     setErrorMessage('');
     try {
       await storeOrderService.updateGroupFulfilment(entry.groupId, entry.batchAction);
+      if (entry.batchAction === 'complete') setHistoryRefreshKey(current => current + 1);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to update this Group.');
     } finally {

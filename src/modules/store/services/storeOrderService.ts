@@ -2,29 +2,55 @@ import {
   collection,
   doc,
   getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
+  startAfter,
   Timestamp,
   updateDoc,
   where,
   type DocumentData,
-  type QueryDocumentSnapshot,
-  type Unsubscribe
+  type QueryDocumentSnapshot
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { getBlob, ref } from 'firebase/storage';
 import { db, functions, storage } from '../../../firebase';
 import { getOrderPickupCode } from '../selling';
 import { normalizeStoreOrderItem } from '../storeOrderSnapshot';
-import { isOrderOperationallyEligible, toActivePosStatus } from '../posOrderModel';
+import {
+  getOrderCompletionTimestamp,
+  isOrderOperationallyEligible,
+  toActivePosStatus
+} from '../posOrderModel';
 import type {
   StoreFulfilmentStatus,
   StoreNotification,
   StoreOrder,
   StoreOrderTimelineEvent
 } from '../types';
+
+export const STORE_ORDER_HISTORY_PAGE_SIZE = 50;
+export const STORE_ORDER_DATE_QUERY_LIMIT = 250;
+
+const ACTIVE_FULFILMENT_STATUSES: StoreFulfilmentStatus[] = [
+  'New',
+  'Confirmed',
+  'Paid',
+  'Preparing',
+  'Ready'
+];
+
+const TERMINAL_FULFILMENT_STATUSES: StoreFulfilmentStatus[] = ['Completed', 'Cancelled'];
+
+export type StoreOrderHistoryCursor = QueryDocumentSnapshot<DocumentData>;
+
+export interface StoreOrderHistoryPage {
+  orders: StoreOrder[];
+  cursor: StoreOrderHistoryCursor | null;
+  hasMore: boolean;
+}
 
 const readString = (value: unknown, fallback = '') => (
   typeof value === 'string' && value.trim() ? value.trim() : fallback
@@ -126,32 +152,6 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
   };
 };
 
-const subscribe = <T,>({
-  collectionName,
-  field,
-  value,
-  normalize,
-  onData,
-  onError
-}: {
-  collectionName: string;
-  field: string;
-  value: string;
-  normalize: (snapshot: QueryDocumentSnapshot<DocumentData>) => T;
-  onData: (items: T[]) => void;
-  onError: (error: Error) => void;
-}): Unsubscribe => {
-  if (!db || !value) {
-    onData([]);
-    return () => undefined;
-  }
-  return onSnapshot(
-    query(collection(db, collectionName), where(field, '==', value)),
-    snapshot => onData(snapshot.docs.map(normalize)),
-    error => onError(error)
-  );
-};
-
 export const storeOrderService = {
   subscribePosOrders(
     storeId: string,
@@ -169,6 +169,7 @@ export const storeOrderService = {
         collection(db, 'storeOrders'),
         where('storeId', '==', storeId),
         where('workspaceId', '==', workspaceId),
+        where('fulfilmentStatus', 'in', ACTIVE_FULFILMENT_STATUSES),
         orderBy('createdAt', 'desc')
       ),
       snapshot => {
@@ -194,7 +195,7 @@ export const storeOrderService = {
     );
   },
 
-  subscribeCompletedOrders(
+  subscribeOperationalOrders(
     storeId: string,
     workspaceId: string,
     onData: (orders: StoreOrder[]) => void,
@@ -209,34 +210,36 @@ export const storeOrderService = {
         collection(db, 'storeOrders'),
         where('storeId', '==', storeId),
         where('workspaceId', '==', workspaceId),
-        where('fulfilmentStatus', '==', 'Completed')
+        where('fulfilmentStatus', 'in', ACTIVE_FULFILMENT_STATUSES),
+        orderBy('createdAt', 'desc')
       ),
-      snapshot => onData(snapshot.docs
-        .map(normalizeOrder)
-        .sort((a, b) => (b.completedAt || b.fulfilmentUpdatedAt)
-          .localeCompare(a.completedAt || a.fulfilmentUpdatedAt))),
+      snapshot => onData(snapshot.docs.map(normalizeOrder)),
       error => onError(error)
     );
   },
 
-  subscribeOrders(
+  async getTerminalOrderHistoryPage(
+    storeId: string,
     workspaceId: string,
-    onData: (orders: StoreOrder[]) => void,
-    onError: (error: Error) => void
-  ) {
-    return subscribe({
-      collectionName: 'storeOrders',
-      field: 'workspaceId',
-      value: workspaceId,
-      normalize: normalizeOrder,
-      onData: orders => onData(
-        orders
-          .filter(order => Boolean(order.fulfilmentStatus)
-            || ['pending_verification', 'rejected'].includes(order.payment.status))
-          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      ),
-      onError
-    });
+    cursor: StoreOrderHistoryCursor | null = null
+  ): Promise<StoreOrderHistoryPage> {
+    if (!db || !storeId || !workspaceId) return { orders: [], cursor: null, hasMore: false };
+    const snapshot = await getDocs(query(
+      collection(db, 'storeOrders'),
+      where('storeId', '==', storeId),
+      where('workspaceId', '==', workspaceId),
+      where('fulfilmentStatus', 'in', TERMINAL_FULFILMENT_STATUSES),
+      orderBy('createdAt', 'desc'),
+      ...(cursor ? [startAfter(cursor)] : []),
+      limit(STORE_ORDER_HISTORY_PAGE_SIZE + 1)
+    ));
+    const hasMore = snapshot.docs.length > STORE_ORDER_HISTORY_PAGE_SIZE;
+    const pageDocuments = snapshot.docs.slice(0, STORE_ORDER_HISTORY_PAGE_SIZE);
+    return {
+      orders: pageDocuments.map(normalizeOrder),
+      cursor: hasMore ? pageDocuments.at(-1) || null : null,
+      hasMore
+    };
   },
 
   async getOrdersForBusinessDate(
@@ -256,14 +259,16 @@ export const storeOrderService = {
         ...baseConstraints,
         where('createdAt', '>=', Timestamp.fromDate(start)),
         where('createdAt', '<', Timestamp.fromDate(end)),
-        orderBy('createdAt', 'desc')
+        orderBy('createdAt', 'desc'),
+        limit(STORE_ORDER_DATE_QUERY_LIMIT)
       )),
       getDocs(query(
         collection(db, 'storeOrders'),
         ...baseConstraints,
         where('createdAt', '>=', start.toISOString()),
         where('createdAt', '<', end.toISOString()),
-        orderBy('createdAt', 'desc')
+        orderBy('createdAt', 'desc'),
+        limit(STORE_ORDER_DATE_QUERY_LIMIT)
       ))
     ]);
     const ordersById = new Map(
@@ -271,6 +276,45 @@ export const storeOrderService = {
         .map(snapshot => [snapshot.id, normalizeOrder(snapshot)] as const)
     );
     return [...ordersById.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  },
+
+  async getCompletedOrdersForBusinessDate(
+    storeId: string,
+    workspaceId: string,
+    start: Date,
+    end: Date
+  ): Promise<StoreOrder[]> {
+    if (!db || !storeId || !workspaceId) return [];
+    const baseConstraints = [
+      where('storeId', '==', storeId),
+      where('workspaceId', '==', workspaceId),
+      where('fulfilmentStatus', '==', 'Completed')
+    ] as const;
+    const [canonicalSnapshot, legacySnapshot] = await Promise.all([
+      getDocs(query(
+        collection(db, 'storeOrders'),
+        ...baseConstraints,
+        where('fulfilmentUpdatedAt', '>=', Timestamp.fromDate(start)),
+        where('fulfilmentUpdatedAt', '<', Timestamp.fromDate(end)),
+        orderBy('fulfilmentUpdatedAt', 'desc'),
+        limit(STORE_ORDER_DATE_QUERY_LIMIT)
+      )),
+      getDocs(query(
+        collection(db, 'storeOrders'),
+        ...baseConstraints,
+        where('fulfilmentUpdatedAt', '>=', start.toISOString()),
+        where('fulfilmentUpdatedAt', '<', end.toISOString()),
+        orderBy('fulfilmentUpdatedAt', 'desc'),
+        limit(STORE_ORDER_DATE_QUERY_LIMIT)
+      ))
+    ]);
+    const ordersById = new Map(
+      [...canonicalSnapshot.docs, ...legacySnapshot.docs]
+        .map(snapshot => [snapshot.id, normalizeOrder(snapshot)] as const)
+    );
+    return [...ordersById.values()].sort((a, b) => (
+      getOrderCompletionTimestamp(b).localeCompare(getOrderCompletionTimestamp(a))
+    ));
   },
 
   subscribeTimeline(
@@ -309,16 +353,25 @@ export const storeOrderService = {
   },
 
   subscribeNotifications(
+    storeId: string,
     workspaceId: string,
     onData: (notifications: StoreNotification[]) => void,
     onError: (error: Error) => void
   ) {
-    return subscribe({
-      collectionName: 'storeNotifications',
-      field: 'workspaceId',
-      value: workspaceId,
-      normalize: (snapshot): StoreNotification => {
-        const data = snapshot.data() as Record<string, unknown>;
+    if (!db || !storeId || !workspaceId) {
+      onData([]);
+      return () => undefined;
+    }
+    return onSnapshot(
+      query(
+        collection(db, 'storeNotifications'),
+        where('storeId', '==', storeId),
+        where('workspaceId', '==', workspaceId),
+        orderBy('createdAt', 'desc'),
+        limit(50)
+      ),
+      snapshot => onData(snapshot.docs.map((documentSnapshot): StoreNotification => {
+        const data = documentSnapshot.data() as Record<string, unknown>;
         const rawType = readString(data.type);
         const type: StoreNotification['type'] = rawType === 'payment_verification_required'
           ? 'payment_submitted'
@@ -328,7 +381,7 @@ export const storeOrderService = {
               ? rawType as StoreNotification['type']
               : 'new_order';
         return {
-          id: snapshot.id,
+          id: documentSnapshot.id,
           workspaceId: readString(data.workspaceId),
           storeId: readString(data.storeId),
           orderId: readString(data.orderId),
@@ -339,12 +392,9 @@ export const storeOrderService = {
           readAt: readTimestamp(data.readAt),
           createdAt: readTimestamp(data.createdAt)
         };
-      },
-      onData: notifications => onData(
-        notifications.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      ),
-      onError
-    });
+      })),
+      error => onError(error)
+    );
   },
 
   async markNotificationRead(notificationId: string) {

@@ -10,7 +10,7 @@ import {
   X
 } from 'lucide-react';
 import { formatRegionCurrency } from '../../regions';
-import { storeOrderService } from './services';
+import { storeOrderService, type StoreOrderHistoryCursor } from './services';
 import { formatPickupDateLabel } from './storeModel';
 import { isOrderOperationallyEligible } from './posOrderModel';
 import WhatsAppCustomerButton from './WhatsAppCustomerButton';
@@ -61,6 +61,7 @@ const paymentStatusLabel = (status: StoreOrder['payment']['status']) => ({
 })[status];
 
 interface StoreOrdersPanelProps {
+  storeId: string;
   workspaceId: string;
   country: 'MY' | 'SG';
   currency: 'MYR' | 'SGD';
@@ -73,6 +74,7 @@ interface StoreOrdersPanelProps {
 }
 
 export default function StoreOrdersPanel({
+  storeId,
   workspaceId,
   country,
   currency,
@@ -83,18 +85,54 @@ export default function StoreOrdersPanel({
   canProcessOrders,
   canReviewPayments
 }: StoreOrdersPanelProps) {
-  const [orders, setOrders] = useState<StoreOrder[]>([]);
+  const [operationalOrders, setOperationalOrders] = useState<StoreOrder[]>([]);
+  const [historyOrders, setHistoryOrders] = useState<StoreOrder[]>([]);
+  const [historyCursor, setHistoryCursor] = useState<StoreOrderHistoryCursor | null>(null);
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [timeline, setTimeline] = useState<StoreOrderTimelineEvent[]>([]);
   const [activeFilter, setActiveFilter] = useState<(typeof FILTERS)[number]>('All');
   const [isUpdating, setIsUpdating] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  useEffect(() => storeOrderService.subscribeOrders(
+  useEffect(() => storeOrderService.subscribeOperationalOrders(
+    storeId,
     workspaceId,
-    setOrders,
+    setOperationalOrders,
     error => setErrorMessage(error.message || 'Unable to load orders.')
-  ), [workspaceId]);
+  ), [storeId, workspaceId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setHistoryOrders([]);
+    setHistoryCursor(null);
+    setHasMoreHistory(false);
+    setIsHistoryLoading(true);
+    void storeOrderService.getTerminalOrderHistoryPage(storeId, workspaceId)
+      .then(page => {
+        if (cancelled) return;
+        setHistoryOrders(page.orders);
+        setHistoryCursor(page.cursor);
+        setHasMoreHistory(page.hasMore);
+      })
+      .catch(error => {
+        if (!cancelled) setErrorMessage(error instanceof Error ? error.message : 'Unable to load Order History.');
+      })
+      .finally(() => {
+        if (!cancelled) setIsHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [historyRefreshKey, storeId, workspaceId]);
+
+  const orders = useMemo(() => {
+    const ordersById = new Map<string, StoreOrder>(historyOrders.map(order => [order.id, order]));
+    for (const order of operationalOrders) ordersById.set(order.id, order);
+    return [...ordersById.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [historyOrders, operationalOrders]);
 
   useEffect(() => {
     if (focusOrderId && orders.some(order => order.id === focusOrderId)) {
@@ -133,10 +171,33 @@ export default function StoreOrdersPanel({
     setErrorMessage('');
     try {
       await storeOrderService.updateFulfilment(selectedOrder.id, nextStatus);
+      if (nextStatus === 'Completed' || nextStatus === 'Cancelled') {
+        setHistoryRefreshKey(current => current + 1);
+      }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to update this order.');
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const loadMoreHistory = async () => {
+    if (!historyCursor || isHistoryLoading) return;
+    setIsHistoryLoading(true);
+    setErrorMessage('');
+    try {
+      const page = await storeOrderService.getTerminalOrderHistoryPage(storeId, workspaceId, historyCursor);
+      setHistoryOrders(current => {
+        const ordersById = new Map<string, StoreOrder>(current.map(order => [order.id, order]));
+        for (const order of page.orders) ordersById.set(order.id, order);
+        return [...ordersById.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      });
+      setHistoryCursor(page.cursor);
+      setHasMoreHistory(page.hasMore);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to load more Order History.');
+    } finally {
+      setIsHistoryLoading(false);
     }
   };
 
@@ -243,6 +304,16 @@ export default function StoreOrdersPanel({
               <h2 className="mt-4 font-display text-2xl font-bold text-primary">No {activeFilter === 'All' ? '' : activeFilter.toLowerCase()} orders yet</h2>
               <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Paid customer orders will appear here.</p>
             </div>
+          )}
+          {hasMoreHistory && ['All', 'Paid', 'Completed', 'Cancelled'].includes(activeFilter) && (
+            <button
+              type="button"
+              disabled={isHistoryLoading}
+              onClick={() => void loadMoreHistory()}
+              className="w-full rounded-full border border-surface-container-high bg-white px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-50"
+            >
+              {isHistoryLoading ? 'Loading Order History…' : 'Load More History'}
+            </button>
           )}
         </div>
 

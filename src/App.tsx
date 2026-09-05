@@ -739,13 +739,14 @@ export default function App() {
     }
     return storeOrderService.subscribeNotifications(
       currentWorkspace.id,
+      currentWorkspace.id,
       setStoreNotifications,
       error => setNotification({
         message: error.message || 'Unable to load Store notifications.',
         type: 'error'
       })
     );
-  }, [currentUser, currentWorkspace, currentWorkspaceRole, hasBusinessEntitlement]);
+  }, [currentUser?.uid, currentWorkspace?.id, currentWorkspaceRole, hasBusinessEntitlement]);
 
   const handleRootNavigate = (tab: RootTab) => {
     if (addingRecipe || editingRecipe) {

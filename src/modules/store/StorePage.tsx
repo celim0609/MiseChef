@@ -1201,6 +1201,7 @@ export default function StorePage({
 
       {activeView === 'orders' && (
         <StoreOrdersPanel
+          storeId={store.id}
           workspaceId={workspace.id}
           country={region.country}
           currency={region.currency}
