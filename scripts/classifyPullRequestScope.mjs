@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 export const APPROVED_PRODUCTION_CONTROLLER_PATHS = Object.freeze([
   '.github/workflows/deploy-production.yml',
   'scripts/deployProduction.mjs',
+  'scripts/productionFirestoreReadSafety.mjs',
   'scripts/productionDeploymentSafety.mjs',
   'scripts/productionDeploymentSafety.test.mjs',
   'scripts/productionLiveRelease.mjs',

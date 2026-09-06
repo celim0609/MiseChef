@@ -1,7 +1,10 @@
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, limit, query, where } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import { normalizeSubscriptionPlan } from '../../../services/subscriptionService';
 import type { AdminCompanyMemberRecord, AdminCompanyRecord } from '../types';
+import { countDistinctSuppliersByCompany } from './adminCompanyMetrics';
+
+export const ADMIN_SUPPLIER_METRIC_INGREDIENT_CAP = 1_000;
 
 const readString = (value: unknown, fallback = '') => typeof value === 'string' && value.trim() ? value.trim() : fallback;
 
@@ -30,22 +33,6 @@ const increment = (map: Map<string, number>, key: string) => {
   map.set(key, (map.get(key) || 0) + 1);
 };
 
-const countDistinctSuppliersByCompany = (ingredients: Array<Record<string, unknown>>) => {
-  const suppliersByCompany = new Map<string, Set<string>>();
-
-  ingredients.forEach(ingredient => {
-    const companyId = getDocumentCompanyId(ingredient);
-    const supplierId = readString(ingredient.supplierId);
-    if (!companyId || !supplierId) return;
-
-    const current = suppliersByCompany.get(companyId) || new Set<string>();
-    current.add(supplierId);
-    suppliersByCompany.set(companyId, current);
-  });
-
-  return suppliersByCompany;
-};
-
 export const adminCompanyService = {
   async listCompanies(): Promise<AdminCompanyRecord[]> {
     if (!db) return [];
@@ -55,9 +42,20 @@ export const adminCompanyService = {
       getDocs(collection(db, 'users')),
       getDocs(collection(db, 'recipes')).catch(() => null),
       getDocs(collection(db, 'invoices')).catch(() => null),
-      getDocs(collection(db, 'ingredients')).catch(() => null),
+      // supplierCount only uses ingredients with a non-empty supplierId. Keep
+      // the Admin result identical while bounding the collection read. The extra
+      // sentinel document makes the cap fail closed instead of showing a partial count.
+      getDocs(query(
+        collection(db, 'ingredients'),
+        where('supplierId', '!=', ''),
+        limit(ADMIN_SUPPLIER_METRIC_INGREDIENT_CAP + 1)
+      )).catch(() => null),
       getDocs(collection(db, 'ai_usage')).catch(() => null)
     ]);
+
+    if (ingredientsSnapshot && ingredientsSnapshot.size > ADMIN_SUPPLIER_METRIC_INGREDIENT_CAP) {
+      throw new Error(`Admin supplier metrics exceeded the safe ingredient read cap of ${ADMIN_SUPPLIER_METRIC_INGREDIENT_CAP}.`);
+    }
 
     const usersById = new Map<string, Record<string, unknown>>();
     const membersByCompany = new Map<string, AdminCompanyMemberRecord[]>();

@@ -25,7 +25,7 @@ const fakeGit = ({ output = '', failDiff = false } = {}) => (_root, args) => {
   throw new Error(`Unexpected git command: ${args.join(' ')}`);
 };
 
-test('exact six approved controller files classify as production-controller-only', () => {
+test('every approved controller file classifies as production-controller-only', () => {
   const output = encode(APPROVED_PRODUCTION_CONTROLLER_PATHS.map(filePath => ['A', filePath]));
   const report = classifyNameStatusZ(output);
   assert.equal(report.scope, 'production-controller-only');
