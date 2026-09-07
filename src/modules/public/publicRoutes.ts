@@ -15,6 +15,8 @@ export type PublicPolicyRoute = {
   policy: 'terms' | 'privacy' | 'refund-cancellation' | 'payment-policy' | 'pickup-policy' | 'contact';
 };
 
+export type PublicAboutRoute = { page: 'about' };
+
 const readSegment = (value: string) => {
   try {
     return decodeURIComponent(value);
@@ -61,7 +63,11 @@ export const resolvePublicRoute = (pathname: string): PublicRoute | null => {
   return null;
 };
 
-export const isPublicExperiencePath = (pathname: string) => resolvePublicPolicyRoute(pathname) !== null || resolvePublicRoute(pathname) !== null;
+export const resolvePublicAboutRoute = (pathname: string): PublicAboutRoute | null => (
+  pathname === '/about-us' || pathname === '/about-us/' ? { page: 'about' } : null
+);
+
+export const isPublicExperiencePath = (pathname: string) => resolvePublicPolicyRoute(pathname) !== null || resolvePublicAboutRoute(pathname) !== null || resolvePublicRoute(pathname) !== null;
 
 export const toPublicSlug = (value: string) => value
   .trim()

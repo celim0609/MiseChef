@@ -2,6 +2,7 @@ const footerGroups = [
   {
     title: 'MiseChef',
     links: [
+      ['About Us', '/about-us'],
       ['Contact Us', '/contact-us'],
       ['Store', '/store'],
       ['Become a Host', '/host']
@@ -33,7 +34,7 @@ export default function PublicComplianceFooter() {
             <p className="font-display text-2xl font-bold text-primary">MiseChef</p>
             <p className="mt-3 max-w-xs font-sans text-sm font-bold leading-6 text-on-surface-variant">Food ordering & kitchen operations.</p>
             <p className="mt-5 font-sans text-xs font-bold leading-6 text-on-surface-variant">Operated by CL WISE EMPIRE</p>
-            <p className="font-sans text-xs font-bold leading-6 text-on-surface-variant">Business Registration No. 003882452-K</p>
+            <p className="font-sans text-xs font-bold leading-6 text-on-surface-variant">Business Registration No. 202603223516 (003882452-K)</p>
           </div>
 
           {footerGroups.map(group => (
