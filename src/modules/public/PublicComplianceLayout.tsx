@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import type { User } from 'firebase/auth';
 import BrandLogo from '../../components/BrandLogo';
 import OriginalPublicLayout from './PublicLayout';
+import PublicAboutPage from './PublicAboutPage';
 import PublicComplianceFooter from './PublicComplianceFooter';
 import PublicPolicyPage from './PublicPolicyPage';
 import PublicStoreHomePage from './PublicStoreHomePage';
-import { resolvePublicPolicyRoute, resolvePublicRoute } from './publicRoutes';
+import { resolvePublicAboutRoute, resolvePublicPolicyRoute, resolvePublicRoute } from './publicRoutes';
 import { publicDiscoverService } from './services';
 import type { PublicDiscoverStoreSummary } from './publicDiscoverModel';
 import type { PublicSectionStatus } from './PublicContent';
@@ -57,6 +58,7 @@ const PublicStoreHomeExperience = () => {
 
 export default function PublicComplianceLayout({ pathname, currentUser, onSignOut }: { pathname: string; currentUser: User | null; onSignOut: () => Promise<void> }) {
   const policyRoute = resolvePublicPolicyRoute(pathname);
+  const aboutRoute = resolvePublicAboutRoute(pathname);
   const publicRoute = resolvePublicRoute(pathname);
 
   if (policyRoute) {
@@ -76,6 +78,29 @@ export default function PublicComplianceLayout({ pathname, currentUser, onSignOu
         </header>
         <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
           <PublicPolicyPage policy={policyRoute.policy} />
+        </main>
+        <PublicComplianceFooter />
+      </div>
+    );
+  }
+
+  if (aboutRoute) {
+    return (
+      <div className="min-h-screen bg-background text-on-surface">
+        <header className="border-b border-surface-container-high bg-background/95">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6 lg:px-8">
+            <a href="/" className="flex items-center gap-3" aria-label="MiseChef public home">
+              <BrandLogo className="h-8 w-auto" />
+              <div>
+                <p className="font-display text-2xl font-bold italic text-primary">MiseChef</p>
+                <p className="font-sans text-[9px] font-extrabold uppercase tracking-[0.18em] text-outline">About Us</p>
+              </div>
+            </a>
+            <a href="/" className="rounded-full border border-primary px-4 py-2 font-sans text-xs font-extrabold text-primary">Back to MiseChef</a>
+          </div>
+        </header>
+        <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+          <PublicAboutPage />
         </main>
         <PublicComplianceFooter />
       </div>

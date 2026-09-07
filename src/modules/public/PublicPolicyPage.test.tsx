@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isPublicExperiencePath, resolvePublicPolicyRoute } from './publicRoutes';
+import { isPublicExperiencePath, resolvePublicAboutRoute, resolvePublicPolicyRoute } from './publicRoutes';
 
 test('compliance routes are public without authentication', () => {
   assert.deepEqual(resolvePublicPolicyRoute('/terms'), { page: 'policy', policy: 'terms' });
@@ -13,4 +13,10 @@ test('compliance routes are public without authentication', () => {
   for (const pathname of ['/terms', '/privacy', '/refund-cancellation', '/payment-policy', '/pickup-policy', '/contact-us']) {
     assert.equal(isPublicExperiencePath(pathname), true);
   }
+});
+
+test('About Us is public without authentication', () => {
+  assert.deepEqual(resolvePublicAboutRoute('/about-us'), { page: 'about' });
+  assert.deepEqual(resolvePublicAboutRoute('/about-us/'), { page: 'about' });
+  assert.equal(isPublicExperiencePath('/about-us'), true);
 });
