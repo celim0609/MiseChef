@@ -1,18 +1,12 @@
 import { collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import { invoiceService } from '../../costing/services';
-import type { CostingInvoice } from '../../costing/types';
+import { storeOrderService } from '../../store/services';
 import { DEFAULT_REGION_CONFIGURATION } from '../../../regions';
 import {
-  getBusinessDateKey,
-  getBusinessMonthDateKeys,
-  getInvoiceKpiDate,
-  getInvoiceKpiTotal,
-  getPurchaseCostPercentage,
-  isPurchaseKpiEligible,
-  isSameBusinessDay,
-  isSameBusinessMonth
+  getBusinessDateKey
 } from '../purchaseKpi';
+import { calculateBusinessAccounting } from '../accounting';
 import type { BusinessDashboardSummary, BusinessSale } from '../types';
 
 const removeUndefinedFields = <T,>(value: T): T => {
@@ -34,13 +28,15 @@ const normalizeSale = (sale: BusinessSale): BusinessSale => ({
   notes: sale.notes || ''
 });
 
-const getInvoiceSupplier = (invoice: CostingInvoice) => invoice.supplier || invoice.extractedData?.supplier || 'Unknown Supplier';
-
 export const businessService = {
-  async listSales(workspaceId?: string): Promise<BusinessSale[]> {
+  async listSales(workspaceId?: string, dateRange?: { from: string; to: string }): Promise<BusinessSale[]> {
     if (!db || !workspaceId) return [];
 
-    const salesQuery = query(collection(db, 'businessSales'), where('workspaceId', '==', workspaceId));
+    const constraints = [where('workspaceId', '==', workspaceId)];
+    if (dateRange) {
+      constraints.push(where('date', '>=', dateRange.from), where('date', '<=', dateRange.to));
+    }
+    const salesQuery = query(collection(db, 'businessSales'), ...constraints);
     const snapshot = await getDocs(salesQuery);
 
     return snapshot.docs
@@ -68,6 +64,21 @@ export const businessService = {
     return sale;
   },
 
+  async getAccountingReport(userId?: string, workspaceId = userId, from = '', to = '', timeZone = DEFAULT_REGION_CONFIGURATION.timeZone) {
+    if (!userId || !workspaceId || !from || !to || from > to) {
+      return calculateBusinessAccounting({ from: '1970-01-01', to: '1970-01-01', invoices: [], manualSales: [], storeOrders: [], timeZone });
+    }
+    const start = new Date(`${from}T00:00:00Z`);
+    const end = new Date(`${to}T00:00:00Z`);
+    end.setUTCDate(end.getUTCDate() + 1);
+    const [manualSales, invoices, storeOrders] = await Promise.all([
+      this.listSales(workspaceId, { from, to }),
+      invoiceService.listInvoices(userId, { workspaceId }),
+      storeOrderService.getCompletedWorkspaceOrdersForBusinessDate(workspaceId, start, end)
+    ]);
+    return calculateBusinessAccounting({ from, to, invoices, manualSales, storeOrders, timeZone });
+  },
+
   async getDashboardSummary(userId?: string, workspaceId = userId, timeZone = DEFAULT_REGION_CONFIGURATION.timeZone): Promise<BusinessDashboardSummary> {
     if (!userId || !workspaceId) {
       return {
@@ -84,61 +95,19 @@ export const businessService = {
     }
 
     const today = new Date();
-    const [sales, invoices] = await Promise.all([
-      this.listSales(workspaceId),
-      invoiceService.listInvoices(userId, { workspaceId })
+    const todayKey = getBusinessDateKey(today, timeZone);
+    const monthStart = `${todayKey.slice(0, 7)}-01`;
+    const rangeStart = new Date(`${monthStart}T00:00:00Z`);
+    const rangeEnd = new Date(`${todayKey}T00:00:00Z`);
+    rangeEnd.setUTCDate(rangeEnd.getUTCDate() + 1);
+    const [sales, invoices, storeOrders] = await Promise.all([
+      this.listSales(workspaceId, { from: monthStart, to: todayKey }),
+      invoiceService.listInvoices(userId, { workspaceId }),
+      storeOrderService.getCompletedWorkspaceOrdersForBusinessDate(workspaceId, rangeStart, rangeEnd)
     ]);
-
-    const todaySalesRecords = sales.filter(sale => isSameBusinessDay(sale.date, today, timeZone));
-    const todaySales = todaySalesRecords
-      .reduce((sum, sale) => sum + sale.amount, 0);
-
-    const approvedInvoices = invoices.filter(isPurchaseKpiEligible);
-
-    const todayPurchaseInvoices = approvedInvoices.filter(invoice => getInvoiceKpiDate(invoice, timeZone) === getBusinessDateKey(today, timeZone));
-    const todayPurchases = todayPurchaseInvoices
-      .reduce((sum, invoice) => sum + getInvoiceKpiTotal(invoice), 0);
-
-    const monthSalesRecords = sales.filter(sale => isSameBusinessMonth(sale.date, today, timeZone));
-    const monthSales = monthSalesRecords
-      .reduce((sum, sale) => sum + sale.amount, 0);
-
-    const monthInvoices = approvedInvoices
-      .filter(invoice => isSameBusinessMonth(getInvoiceKpiDate(invoice, timeZone), today, timeZone));
-
-    const monthPurchases = monthInvoices
-      .reduce((sum, invoice) => sum + getInvoiceKpiTotal(invoice), 0);
-
-    const monthlyTrend = getBusinessMonthDateKeys(today, timeZone).map(date => {
-      const dailySales = sales
-        .filter(sale => sale.date === date)
-        .reduce((sum, sale) => sum + sale.amount, 0);
-      const dailyPurchases = monthInvoices
-        .filter(invoice => getInvoiceKpiDate(invoice, timeZone) === date)
-        .reduce((sum, invoice) => sum + getInvoiceKpiTotal(invoice), 0);
-
-      return {
-        date,
-        sales: dailySales,
-        purchases: dailyPurchases,
-        purchaseCostPercentage: getPurchaseCostPercentage(dailyPurchases, dailySales)
-      };
-    });
-
-    const supplierMap = new Map<string, { supplier: string; totalSpend: number; invoiceCount: number }>();
-    monthInvoices.forEach(invoice => {
-      const supplier = getInvoiceSupplier(invoice);
-      const current = supplierMap.get(supplier) || { supplier, totalSpend: 0, invoiceCount: 0 };
-      current.totalSpend += getInvoiceKpiTotal(invoice);
-      current.invoiceCount += 1;
-      supplierMap.set(supplier, current);
-    });
-
-    const topSuppliers = Array.from(supplierMap.values())
-      .sort((a, b) => b.totalSpend - a.totalSpend)
-      .slice(0, 5);
-
-    const purchaseCostPercentage = getPurchaseCostPercentage(monthPurchases, monthSales);
+    const accounting = calculateBusinessAccounting({ from: monthStart, to: todayKey, invoices, manualSales: sales, storeOrders, timeZone });
+    const todayAccounting = calculateBusinessAccounting({ from: todayKey, to: todayKey, invoices, manualSales: sales, storeOrders, timeZone });
+    const { totalSales: monthSales, totalPurchases: monthPurchases, purchaseCostPercentage, salesTrend: monthlyTrend } = accounting;
     const sevenDaysAgo = new Date(today);
     sevenDaysAgo.setDate(today.getDate() - 7);
     const hasInvoiceThisWeek = invoices.some(invoice => new Date(invoice.uploadDate) >= sevenDaysAgo);
@@ -148,25 +117,25 @@ export const businessService = {
         : purchaseCostPercentage !== null && purchaseCostPercentage > 30
           ? { id: 'purchase-cost-watch', severity: 'warning' as const, message: `Purchase cost is approaching target at ${purchaseCostPercentage.toFixed(1)}%.` }
           : null,
-      sales.length > 0 && todaySalesRecords.length === 0 ? { id: 'no-sales-today', severity: 'warning' as const, message: 'No sales entered today.' } : null,
+      (sales.length > 0 || storeOrders.length > 0) && todayAccounting.salesRecordCount === 0 ? { id: 'no-sales-today', severity: 'warning' as const, message: 'No sales recorded today.' } : null,
       invoices.length > 0 && !hasInvoiceThisWeek ? { id: 'no-invoices-week', severity: 'info' as const, message: 'No invoices uploaded this week.' } : null
     ].filter(Boolean);
 
     return {
-      todaySales,
-      todayPurchases,
+      todaySales: todayAccounting.totalSales,
+      todayPurchases: todayAccounting.totalPurchases,
       monthSales,
       monthPurchases,
       purchaseCostPercentage,
       monthlyTrend,
-      topSuppliers,
+      topSuppliers: accounting.supplierSpend.slice(0, 5),
       alerts,
       availability: {
-        todaySales: todaySalesRecords.length > 0,
-        todayPurchases: todayPurchaseInvoices.length > 0,
-        monthSales: monthSalesRecords.length > 0,
-        monthPurchases: monthInvoices.length > 0,
-        sales: sales.length > 0,
+        todaySales: todayAccounting.salesRecordCount > 0,
+        todayPurchases: todayAccounting.purchaseRecordCount > 0,
+        monthSales: accounting.salesRecordCount > 0,
+        monthPurchases: accounting.purchaseRecordCount > 0,
+        sales: accounting.salesRecordCount > 0,
         invoices: invoices.length > 0
       }
     };

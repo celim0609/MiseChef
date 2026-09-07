@@ -70,8 +70,13 @@ test('Order History is date-scoped independently from the realtime listener', ()
   assert.match(serviceSource, /where\('createdAt', '<', Timestamp\.fromDate\(end\)\)/);
   assert.match(serviceSource, /where\('createdAt', '>=', start\.toISOString\(\)\)/);
   assert.match(serviceSource, /getCompletedOrdersForBusinessDate/);
+  assert.match(serviceSource, /where\('storeId', '==', storeId\)/);
+  assert.match(serviceSource, /where\('workspaceId', '==', workspaceId\)/);
   assert.match(serviceSource, /where\('fulfilmentStatus', '==', 'Completed'\)/);
-  assert.match(serviceSource, /where\('fulfilmentUpdatedAt', '>=', Timestamp\.fromDate\(start\)\)/);
+  assert.match(serviceSource, /where\('completedAt', '>=', Timestamp\.fromDate\(start\)\)/);
+  assert.match(serviceSource, /where\('completedAt', '<', Timestamp\.fromDate\(end\)\)/);
+  assert.match(serviceSource, /where\('completedAt', '>=', start\.toISOString\(\)\)/);
+  assert.match(serviceSource, /where\('completedAt', '<', end\.toISOString\(\)\)/);
   assert.match(serviceSource, /limit\(STORE_ORDER_DATE_QUERY_LIMIT\)/);
   assert.match(pageSource, /isOrderCompletedOnMalaysiaDate/);
   assert.match(pageSource, /openCompletedHistory/);
@@ -107,6 +112,7 @@ test('the new order listener shapes have matching composite indexes', () => {
   ));
   assert.equal(hasIndex('storeOrders', ['storeId', 'workspaceId', 'fulfilmentStatus', 'createdAt']), true);
   assert.equal(hasIndex('storeOrders', ['storeId', 'workspaceId', 'fulfilmentStatus', 'fulfilmentUpdatedAt']), true);
+  assert.equal(hasIndex('storeOrders', ['storeId', 'workspaceId', 'fulfilmentStatus', 'completedAt']), true);
   assert.equal(hasIndex('storeNotifications', ['storeId', 'workspaceId', 'createdAt']), true);
 });
 
