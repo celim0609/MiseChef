@@ -10,22 +10,24 @@ export interface BusinessSale {
 }
 
 export interface BusinessDashboardSummary {
-  todaySales: number;
-  todayPurchases: number;
-  monthSales: number;
-  monthPurchases: number;
+  sales: number;
+  purchases: number;
+  netResult: number;
   purchaseCostPercentage: number | null;
-  monthlyTrend: BusinessDailyTrend[];
+  trend: BusinessDailyTrend[];
   topSuppliers: BusinessTopSupplier[];
   alerts: BusinessAlert[];
   availability: {
-    todaySales: boolean;
-    todayPurchases: boolean;
-    monthSales: boolean;
-    monthPurchases: boolean;
     sales: boolean;
-    invoices: boolean;
+    purchases: boolean;
   };
+}
+
+export type BusinessDashboardPeriod = 'today' | 'this-week' | 'this-month' | 'last-month' | 'custom';
+
+export interface BusinessDateRange {
+  from: string;
+  to: string;
 }
 
 export interface BusinessDailyTrend {
