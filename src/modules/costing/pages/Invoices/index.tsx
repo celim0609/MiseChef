@@ -3,6 +3,8 @@ import { Archive, RotateCcw, Search, Trash2, Upload } from 'lucide-react';
 import { getInvoiceDisplayName, getInvoiceSecondaryLabel, invoiceLifecycleService, invoiceProcessor, invoiceService } from '../../services';
 import { getCustomerFriendlyErrorMessage } from '../../../../utils/customerErrorMessages';
 import type { CostingInvoice, CostingInvoiceFileType, CostingInvoiceStatus } from '../../types';
+import { getInvoiceKpiDate } from '../../../business/purchaseKpi';
+import { DEFAULT_REGION_CONFIGURATION } from '../../../../regions';
 
 interface CostingInvoicesPageProps {
   userId?: string;
@@ -65,6 +67,8 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
   const [showArchived, setShowArchived] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<CostingInvoiceStatus | null>(getInitialStatusFilter);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -291,6 +295,9 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
 
   const visibleInvoices = invoiceHistory.filter(invoice => {
     if (statusFilter && invoice.processingStatus !== statusFilter) return false;
+    const accountingDate = getInvoiceKpiDate(invoice, DEFAULT_REGION_CONFIGURATION.timeZone);
+    if (fromDate && (!accountingDate || accountingDate < fromDate)) return false;
+    if (toDate && (!accountingDate || accountingDate > toDate)) return false;
 
     const query = searchQuery.trim().toLowerCase();
     if (!query) return true;
@@ -335,6 +342,16 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
               {showArchived ? 'Hide Archived' : 'Show Archived'}
             </button>
           </div>
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <label className="font-sans text-xs font-extrabold text-on-surface-variant">From
+            <input type="date" value={fromDate} max={toDate || undefined} onChange={event => setFromDate(event.target.value)} className="mt-1 block rounded-xl border border-surface-container-high bg-white px-3 py-2 font-sans text-sm text-primary" />
+          </label>
+          <label className="font-sans text-xs font-extrabold text-on-surface-variant">To
+            <input type="date" value={toDate} min={fromDate || undefined} onChange={event => setToDate(event.target.value)} className="mt-1 block rounded-xl border border-surface-container-high bg-white px-3 py-2 font-sans text-sm text-primary" />
+          </label>
+          {(fromDate || toDate) && <button type="button" onClick={() => { setFromDate(''); setToDate(''); }} className="rounded-full border border-surface-container-high px-4 py-2 font-sans text-xs font-extrabold text-primary">Clear dates</button>}
+          <p className="pb-2 font-sans text-xs font-bold text-on-surface-variant">Filters use invoice date when available.</p>
         </div>
 
         <input ref={singleUploadInputRef} type="file" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp,.xls,.xlsx,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" onChange={handleInvoiceUpload} className="hidden" />

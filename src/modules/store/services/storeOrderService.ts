@@ -294,17 +294,17 @@ export const storeOrderService = {
       getDocs(query(
         collection(db, 'storeOrders'),
         ...baseConstraints,
-        where('fulfilmentUpdatedAt', '>=', Timestamp.fromDate(start)),
-        where('fulfilmentUpdatedAt', '<', Timestamp.fromDate(end)),
-        orderBy('fulfilmentUpdatedAt', 'desc'),
+        where('completedAt', '>=', Timestamp.fromDate(start)),
+        where('completedAt', '<', Timestamp.fromDate(end)),
+        orderBy('completedAt', 'desc'),
         limit(STORE_ORDER_DATE_QUERY_LIMIT)
       )),
       getDocs(query(
         collection(db, 'storeOrders'),
         ...baseConstraints,
-        where('fulfilmentUpdatedAt', '>=', start.toISOString()),
-        where('fulfilmentUpdatedAt', '<', end.toISOString()),
-        orderBy('fulfilmentUpdatedAt', 'desc'),
+        where('completedAt', '>=', start.toISOString()),
+        where('completedAt', '<', end.toISOString()),
+        orderBy('completedAt', 'desc'),
         limit(STORE_ORDER_DATE_QUERY_LIMIT)
       ))
     ]);

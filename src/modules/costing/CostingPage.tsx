@@ -28,7 +28,7 @@ export default function CostingPage({ activeTab, userId, workspaceId, invoiceId,
     case 'costingInvoiceDetail':
       return <InvoiceDetailPage invoiceId={invoiceId} userId={userId} workspaceId={workspaceId} canManageInvoices={canManageInvoices} onBack={onBackToInvoices} />;
     case 'costingReports':
-      return <CostingReportsPage />;
+      return <CostingReportsPage userId={userId} workspaceId={workspaceId} />;
     case 'costing':
     default:
       return <CostingInvoicesPage userId={userId} workspaceId={workspaceId} canManageInvoices={canManageInvoices} onOpenInvoice={onOpenInvoice} />;
