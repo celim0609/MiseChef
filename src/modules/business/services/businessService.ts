@@ -74,7 +74,7 @@ export const businessService = {
     const [manualSales, invoices, storeOrders] = await Promise.all([
       this.listSales(workspaceId, { from, to }),
       invoiceService.listInvoices(userId, { workspaceId }),
-      storeOrderService.getCompletedOrdersForBusinessDate(workspaceId, workspaceId, start, end)
+      storeOrderService.getCompletedWorkspaceOrdersForBusinessDate(workspaceId, start, end)
     ]);
     return calculateBusinessAccounting({ from, to, invoices, manualSales, storeOrders, timeZone });
   },
@@ -103,7 +103,7 @@ export const businessService = {
     const [sales, invoices, storeOrders] = await Promise.all([
       this.listSales(workspaceId, { from: monthStart, to: todayKey }),
       invoiceService.listInvoices(userId, { workspaceId }),
-      storeOrderService.getCompletedOrdersForBusinessDate(workspaceId, workspaceId, rangeStart, rangeEnd)
+      storeOrderService.getCompletedWorkspaceOrdersForBusinessDate(workspaceId, rangeStart, rangeEnd)
     ]);
     const accounting = calculateBusinessAccounting({ from: monthStart, to: todayKey, invoices, manualSales: sales, storeOrders, timeZone });
     const todayAccounting = calculateBusinessAccounting({ from: todayKey, to: todayKey, invoices, manualSales: sales, storeOrders, timeZone });

@@ -317,6 +317,43 @@ export const storeOrderService = {
     ));
   },
 
+  async getCompletedWorkspaceOrdersForBusinessDate(
+    workspaceId: string,
+    start: Date,
+    end: Date
+  ): Promise<StoreOrder[]> {
+    if (!db || !workspaceId) return [];
+    const baseConstraints = [
+      where('workspaceId', '==', workspaceId),
+      where('fulfilmentStatus', '==', 'Completed')
+    ] as const;
+    const [canonicalSnapshot, legacySnapshot] = await Promise.all([
+      getDocs(query(
+        collection(db, 'storeOrders'),
+        ...baseConstraints,
+        where('completedAt', '>=', Timestamp.fromDate(start)),
+        where('completedAt', '<', Timestamp.fromDate(end)),
+        orderBy('completedAt', 'desc'),
+        limit(STORE_ORDER_DATE_QUERY_LIMIT)
+      )),
+      getDocs(query(
+        collection(db, 'storeOrders'),
+        ...baseConstraints,
+        where('completedAt', '>=', start.toISOString()),
+        where('completedAt', '<', end.toISOString()),
+        orderBy('completedAt', 'desc'),
+        limit(STORE_ORDER_DATE_QUERY_LIMIT)
+      ))
+    ]);
+    const ordersById = new Map(
+      [...canonicalSnapshot.docs, ...legacySnapshot.docs]
+        .map(snapshot => [snapshot.id, normalizeOrder(snapshot)] as const)
+    );
+    return [...ordersById.values()].sort((a, b) => (
+      getOrderCompletionTimestamp(b).localeCompare(getOrderCompletionTimestamp(a))
+    ));
+  },
+
   subscribeTimeline(
     workspaceId: string,
     orderId: string,
