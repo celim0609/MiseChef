@@ -15,7 +15,7 @@ test('compliance routes are public without authentication', () => {
   }
 });
 
-test('About Us is public without authentication', () => {
+test('Founder Story About Us is public without authentication', () => {
   assert.deepEqual(resolvePublicAboutRoute('/about-us'), { page: 'about' });
   assert.deepEqual(resolvePublicAboutRoute('/about-us/'), { page: 'about' });
   assert.equal(isPublicExperiencePath('/about-us'), true);

@@ -93,13 +93,13 @@ export default function PublicComplianceLayout({ pathname, currentUser, onSignOu
               <BrandLogo className="h-8 w-auto" />
               <div>
                 <p className="font-display text-2xl font-bold italic text-primary">MiseChef</p>
-                <p className="font-sans text-[9px] font-extrabold uppercase tracking-[0.18em] text-outline">About Us</p>
+                <p className="font-sans text-[9px] font-extrabold uppercase tracking-[0.18em] text-outline">Founder Story</p>
               </div>
             </a>
             <a href="/" className="rounded-full border border-primary px-4 py-2 font-sans text-xs font-extrabold text-primary">Back to MiseChef</a>
           </div>
         </header>
-        <main className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+        <main>
           <PublicAboutPage />
         </main>
         <PublicComplianceFooter />
