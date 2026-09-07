@@ -3,11 +3,8 @@ import { db } from '../../../firebase';
 import { invoiceService } from '../../costing/services';
 import { storeOrderService } from '../../store/services';
 import { DEFAULT_REGION_CONFIGURATION } from '../../../regions';
-import {
-  getBusinessDateKey
-} from '../purchaseKpi';
-import { calculateBusinessAccounting } from '../accounting';
-import type { BusinessDashboardSummary, BusinessSale } from '../types';
+import { calculateBusinessAccounting, createBusinessDashboardSummary, getBusinessDashboardPeriodRange } from '../accounting';
+import type { BusinessDashboardSummary, BusinessDateRange, BusinessSale } from '../types';
 
 const removeUndefinedFields = <T,>(value: T): T => {
   if (Array.isArray(value)) return value.map(item => removeUndefinedFields(item)) as T;
@@ -79,65 +76,18 @@ export const businessService = {
     return calculateBusinessAccounting({ from, to, invoices, manualSales, storeOrders, timeZone });
   },
 
-  async getDashboardSummary(userId?: string, workspaceId = userId, timeZone = DEFAULT_REGION_CONFIGURATION.timeZone): Promise<BusinessDashboardSummary> {
+  async getDashboardSummary(
+    userId?: string,
+    workspaceId = userId,
+    timeZone = DEFAULT_REGION_CONFIGURATION.timeZone,
+    dateRange?: BusinessDateRange
+  ): Promise<BusinessDashboardSummary> {
     if (!userId || !workspaceId) {
-      return {
-        todaySales: 0,
-        todayPurchases: 0,
-        monthSales: 0,
-        monthPurchases: 0,
-        purchaseCostPercentage: null,
-        monthlyTrend: [],
-        topSuppliers: [],
-        alerts: [],
-        availability: { todaySales: false, todayPurchases: false, monthSales: false, monthPurchases: false, sales: false, invoices: false }
-      };
+      return createBusinessDashboardSummary(calculateBusinessAccounting({ from: '1970-01-01', to: '1970-01-01', invoices: [], manualSales: [], storeOrders: [], timeZone }));
     }
 
-    const today = new Date();
-    const todayKey = getBusinessDateKey(today, timeZone);
-    const monthStart = `${todayKey.slice(0, 7)}-01`;
-    const rangeStart = new Date(`${monthStart}T00:00:00Z`);
-    const rangeEnd = new Date(`${todayKey}T00:00:00Z`);
-    rangeEnd.setUTCDate(rangeEnd.getUTCDate() + 1);
-    const [sales, invoices, storeOrders] = await Promise.all([
-      this.listSales(workspaceId, { from: monthStart, to: todayKey }),
-      invoiceService.listInvoices(userId, { workspaceId }),
-      storeOrderService.getCompletedWorkspaceOrdersForBusinessDate(workspaceId, rangeStart, rangeEnd)
-    ]);
-    const accounting = calculateBusinessAccounting({ from: monthStart, to: todayKey, invoices, manualSales: sales, storeOrders, timeZone });
-    const todayAccounting = calculateBusinessAccounting({ from: todayKey, to: todayKey, invoices, manualSales: sales, storeOrders, timeZone });
-    const { totalSales: monthSales, totalPurchases: monthPurchases, purchaseCostPercentage, salesTrend: monthlyTrend } = accounting;
-    const sevenDaysAgo = new Date(today);
-    sevenDaysAgo.setDate(today.getDate() - 7);
-    const hasInvoiceThisWeek = invoices.some(invoice => new Date(invoice.uploadDate) >= sevenDaysAgo);
-    const alerts = [
-      purchaseCostPercentage !== null && purchaseCostPercentage > 35
-        ? { id: 'purchase-cost-high', severity: 'danger' as const, message: `Purchase cost is above target at ${purchaseCostPercentage.toFixed(1)}%.` }
-        : purchaseCostPercentage !== null && purchaseCostPercentage > 30
-          ? { id: 'purchase-cost-watch', severity: 'warning' as const, message: `Purchase cost is approaching target at ${purchaseCostPercentage.toFixed(1)}%.` }
-          : null,
-      (sales.length > 0 || storeOrders.length > 0) && todayAccounting.salesRecordCount === 0 ? { id: 'no-sales-today', severity: 'warning' as const, message: 'No sales recorded today.' } : null,
-      invoices.length > 0 && !hasInvoiceThisWeek ? { id: 'no-invoices-week', severity: 'info' as const, message: 'No invoices uploaded this week.' } : null
-    ].filter(Boolean);
-
-    return {
-      todaySales: todayAccounting.totalSales,
-      todayPurchases: todayAccounting.totalPurchases,
-      monthSales,
-      monthPurchases,
-      purchaseCostPercentage,
-      monthlyTrend,
-      topSuppliers: accounting.supplierSpend.slice(0, 5),
-      alerts,
-      availability: {
-        todaySales: todayAccounting.salesRecordCount > 0,
-        todayPurchases: todayAccounting.purchaseRecordCount > 0,
-        monthSales: accounting.salesRecordCount > 0,
-        monthPurchases: accounting.purchaseRecordCount > 0,
-        sales: accounting.salesRecordCount > 0,
-        invoices: invoices.length > 0
-      }
-    };
+    const range = dateRange || getBusinessDashboardPeriodRange({ period: 'this-month', now: new Date(), timeZone });
+    if (!range) return createBusinessDashboardSummary(calculateBusinessAccounting({ from: '1970-01-01', to: '1970-01-01', invoices: [], manualSales: [], storeOrders: [], timeZone }));
+    return createBusinessDashboardSummary(await this.getAccountingReport(userId, workspaceId, range.from, range.to, timeZone));
   }
 };
