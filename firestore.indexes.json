@@ -9,6 +9,14 @@
       ]
     },
     {
+      "collectionGroup": "businessSales",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "workspaceId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "storeOrders",
       "queryScope": "COLLECTION",
       "fields": [
