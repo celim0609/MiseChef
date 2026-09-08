@@ -385,13 +385,16 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
       checkoutAccessToken: returnedCheckoutAccessToken
     } satisfies CheckoutRecovery));
     setIsPlacingOrder(true);
-    const returnAction = wasCancelled
-      ? storePaymentService.cancel(
+    const cancelReturnedPayment = returnedProvider === 'curlec'
+      ? Promise.resolve()
+      : storePaymentService.cancel(
         slug,
         returnedProvider,
         returnedPaymentSessionId,
         returnedCheckoutAccessToken
-      ).then(() => {
+      );
+    const returnAction = wasCancelled
+      ? cancelReturnedPayment.then(() => {
         sessionStorage.removeItem(checkoutRecoveryKey);
         setPaymentSession(null);
         setCheckoutError('Payment was cancelled. Your order has not been paid. You can try again.');
@@ -913,12 +916,14 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
                   paymentSession.checkoutAccessToken
                 )}
                 onBack={async () => {
-                  await storePaymentService.cancel(
-                    slug,
-                    paymentSession.provider,
-                    paymentSession.paymentSessionId,
-                    paymentSession.checkoutAccessToken
-                  );
+                  if (paymentSession.provider !== 'curlec') {
+                    await storePaymentService.cancel(
+                      slug,
+                      paymentSession.provider,
+                      paymentSession.paymentSessionId,
+                      paymentSession.checkoutAccessToken
+                    );
+                  }
                   sessionStorage.removeItem(checkoutRecoveryKey);
                   setPaymentSession(null);
                   setCheckoutError('');
