@@ -7,7 +7,8 @@ export type StorePaymentMethodId =
   | 'touch_n_go_qr'
   | 'duitnow_qr'
   | 'bank_transfer'
-  | 'stripe';
+  | 'stripe'
+  | 'curlec';
 
 export interface StorePaymentMethodConfig {
   id: StorePaymentMethodId;
@@ -488,8 +489,17 @@ export type StorePaymentCheckout =
     redirectUrl: string;
   }
   | {
+    type: 'curlec_standard_checkout';
+    keyId: string;
+    orderId: string;
+    amountMinor: number;
+    currency: RegionCurrency;
+    name: string;
+    description: string;
+  }
+  | {
     type: 'manual_payment';
-    methodId: Exclude<StorePaymentMethodId, 'stripe'>;
+    methodId: Exclude<StorePaymentMethodId, 'stripe' | 'curlec'>;
     methodName: string;
     qrCodeUrl: string;
     instructions: string;

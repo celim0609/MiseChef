@@ -85,6 +85,9 @@ const db = getFirestore();
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
 const stripeSecretKey = defineSecret('STRIPE_SECRET_KEY');
 const stripeWebhookSecret = defineSecret('STRIPE_WEBHOOK_SECRET');
+const curlecKeyId = defineSecret('CURLEC_KEY_ID');
+const curlecKeySecret = defineSecret('CURLEC_KEY_SECRET');
+const curlecWebhookSecret = defineSecret('CURLEC_WEBHOOK_SECRET');
 const sellingWorkspaceId = defineString('SELLING_WORKSPACE_ID', { default: '' });
 const publicSiteOrigin = defineString('PUBLIC_SITE_ORIGIN', { default: '' });
 const MODEL = 'gemini-2.5-flash';
@@ -322,7 +325,7 @@ const toStorePaymentError = error => {
 export const createPublicStorePayment = onCall({
   region: REGION,
   invoker: 'public',
-  secrets: [stripeSecretKey],
+  secrets: [stripeSecretKey, curlecKeyId, curlecKeySecret],
   timeoutSeconds: 30,
   memory: '256MiB'
 }, async request => {
@@ -331,6 +334,8 @@ export const createPublicStorePayment = onCall({
       db,
       resolveAdapter: paymentMethod => createPaymentAdapter(paymentMethod.provider, {
         stripeSecretKey: stripeSecretKey.value(),
+        curlecKeyId: curlecKeyId.value(),
+        curlecKeySecret: curlecKeySecret.value(),
         method: paymentMethod
       }),
       sellingWorkspaceId: sellingWorkspaceId.value(),
@@ -416,13 +421,15 @@ export const reviewStoreManualPayment = onCall({
 export const getPublicStorePaymentResult = onCall({
   region: REGION,
   invoker: 'public',
-  secrets: [stripeSecretKey],
+  secrets: [stripeSecretKey, curlecKeyId, curlecKeySecret],
   timeoutSeconds: 20,
   memory: '256MiB'
 }, async request => {
   try {
     const adapter = createPaymentAdapter(request.data?.provider, {
-      stripeSecretKey: stripeSecretKey.value()
+      stripeSecretKey: stripeSecretKey.value(),
+      curlecKeyId: curlecKeyId.value(),
+      curlecKeySecret: curlecKeySecret.value()
     });
     return await getStorePaymentResult({
       db,
@@ -445,13 +452,15 @@ export const getPublicStorePaymentResult = onCall({
 export const cancelPublicStorePayment = onCall({
   region: REGION,
   invoker: 'public',
-  secrets: [stripeSecretKey],
+  secrets: [stripeSecretKey, curlecKeyId, curlecKeySecret],
   timeoutSeconds: 20,
   memory: '256MiB'
 }, async request => {
   try {
     const adapter = createPaymentAdapter(request.data?.provider, {
-      stripeSecretKey: stripeSecretKey.value()
+      stripeSecretKey: stripeSecretKey.value(),
+      curlecKeyId: curlecKeyId.value(),
+      curlecKeySecret: curlecKeySecret.value()
     });
     return await cancelStorePayment({
       db,
@@ -498,6 +507,45 @@ export const stripeStorePaymentWebhook = onRequest({
       name: error?.name || '',
       code: error?.code || '',
       message: error?.message || ''
+    });
+    response.status(400).send('Webhook rejected');
+  }
+});
+
+export const curlecStorePaymentWebhook = onRequest({
+  region: REGION,
+  invoker: 'public',
+  secrets: [curlecKeyId, curlecKeySecret, curlecWebhookSecret],
+  timeoutSeconds: 30,
+  memory: '256MiB'
+}, async (request, response) => {
+  if (request.method !== 'POST') {
+    response.status(405).send('Method not allowed');
+    return;
+  }
+  try {
+    const adapter = createPaymentAdapter('curlec', {
+      curlecKeyId: curlecKeyId.value(),
+      curlecKeySecret: curlecKeySecret.value()
+    });
+    const signature = request.get('X-Razorpay-Signature');
+    const { verifyCurlecWebhookSignature, getCurlecWebhookDedupeId } = await import('./paymentProviders/curlecStandardCheckout.js');
+    if (!verifyCurlecWebhookSignature(request.rawBody, signature, curlecWebhookSecret.value())) {
+      throw new Error('Invalid Curlec webhook signature.');
+    }
+    const payload = request.body;
+    // Curlec documents this header as the duplicate-event identity. Keep the
+    // signed-payload hash only as a retry-stable fallback for older deliveries.
+    const event = {
+      ...payload,
+      id: request.get('x-razorpay-event-id') || getCurlecWebhookDedupeId(payload),
+      type: payload?.event
+    };
+    const result = await handleStorePaymentWebhook({ db, adapter, event });
+    response.status(200).json(result);
+  } catch (error) {
+    logger.warn('Curlec Store payment webhook rejected', {
+      name: error?.name || '', code: error?.code || '', message: error?.message || ''
     });
     response.status(400).send('Webhook rejected');
   }
