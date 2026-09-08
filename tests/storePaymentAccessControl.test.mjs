@@ -82,7 +82,8 @@ const createStoreRecord = () => ({
     { id: 'touch_n_go_qr', enabled: false, qrCodeUrl: '', instructions: '' },
     { id: 'duitnow_qr', enabled: false, qrCodeUrl: '', instructions: '' },
     { id: 'bank_transfer', enabled: false, qrCodeUrl: '', instructions: '' },
-    { id: 'stripe', enabled: true, qrCodeUrl: '', instructions: '' }
+    { id: 'stripe', enabled: true, qrCodeUrl: '', instructions: '' },
+    { id: 'curlec', enabled: false, qrCodeUrl: '', instructions: '' }
   ],
   hostProgram: { enabled: false, rewardPercent: 5, minimumQualifyingSales: 0 },
   country: 'MY',

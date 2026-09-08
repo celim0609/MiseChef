@@ -112,11 +112,12 @@ const getPaymentMethodDescription = (methodId: StorePaymentMethodId) => {
     case 'bank_transfer': return 'Transfer directly to the Store.';
     case 'cash_on_pickup': return 'Pay when collecting your order.';
     case 'stripe': return 'Secure online payment. Instant confirmation.';
+    case 'curlec': return 'Secure online payment. Instant confirmation.';
   }
 };
 
 const getPaymentActionLabel = (methodId: StorePaymentMethodId) => {
-  if (methodId === 'stripe') return 'Continue to Secure Payment';
+  if (methodId === 'stripe' || methodId === 'curlec') return 'Continue to Secure Payment';
   if (methodId === 'cash_on_pickup') return 'Place Order';
   return 'Continue to Payment';
 };
@@ -124,7 +125,7 @@ const getPaymentActionLabel = (methodId: StorePaymentMethodId) => {
 function PaymentMethodIcon({ methodId }: { methodId: StorePaymentMethodId }) {
   const iconClassName = 'h-5 w-5';
   if (methodId === 'cash_on_pickup') return <Banknote className={iconClassName} aria-hidden="true" />;
-  if (methodId === 'stripe') return <CreditCard className={iconClassName} aria-hidden="true" />;
+  if (methodId === 'stripe' || methodId === 'curlec') return <CreditCard className={iconClassName} aria-hidden="true" />;
   if (methodId === 'bank_transfer') return <Landmark className={iconClassName} aria-hidden="true" />;
   return <QrCode className={iconClassName} aria-hidden="true" />;
 }
@@ -1038,7 +1039,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
 
                 <section aria-labelledby="payment-instructions-heading" className="rounded-2xl bg-surface-container-low p-4">
                   <h3 id="payment-instructions-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Payment Instructions</h3>
-                  {paymentMethodId === 'stripe' ? (
+                  {paymentMethodId === 'stripe' || paymentMethodId === 'curlec' ? (
                     <p className="mt-2 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">Your order details are saved first, then secure payment continues on the next step.</p>
                   ) : (
                     <>

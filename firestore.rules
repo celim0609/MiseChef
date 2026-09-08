@@ -382,7 +382,7 @@ service cloud.firestore {
         && data.unavailableDates is list
         && data.unavailableDates.size() <= 60
         && data.paymentMethods is list
-        && data.paymentMethods.size() == 5
+        && data.paymentMethods.size() == 6
         && data.hostProgram is map
         && data.hostProgram.keys().hasOnly(['enabled', 'rewardPercent', 'minimumQualifyingSales'])
         && data.hostProgram.enabled is bool
@@ -396,6 +396,7 @@ service cloud.firestore {
         && isValidStorePaymentMethod(data.paymentMethods[2], 'duitnow_qr')
         && isValidStorePaymentMethod(data.paymentMethods[3], 'bank_transfer')
         && isValidStorePaymentMethod(data.paymentMethods[4], 'stripe')
+        && isValidStorePaymentMethod(data.paymentMethods[5], 'curlec')
         && (data.country == 'MY' || (
           data.paymentMethods[1].enabled == false
           && data.paymentMethods[1].qrCodeUrl == ''

@@ -152,7 +152,23 @@ export const reconcileStorePayment = async ({ db, payment }) => {
       || readString(payment.currency).toUpperCase() !== readString(order.currency)) {
       throw new Error('Payment amount does not match this MiseChef order.');
     }
+    const providerTransactionId = readString(payment.providerTransactionId);
+    if (providerTransactionId) {
+      const paymentIdQuery = db.collection('storeOrders')
+        .where('payment.providerTransactionId', '==', providerTransactionId)
+        .limit(2);
+      const matchingPayments = await transaction.get(paymentIdQuery);
+      if (!matchingPayments.empty && matchingPayments.docs.some(document => document.id !== orderId)) {
+        throw new Error('Payment transaction is already bound to a different MiseChef order.');
+      }
+    }
 
+    const previousPaymentStatus = readString(order.payment?.status);
+    // A payment confirmation is terminal. Gateways can legitimately send an
+    // older failed/expired event after capture, but it must never undo fulfilment.
+    if (previousPaymentStatus === PAYMENT_STATUS.paid && payment.status !== PAYMENT_STATUS.paid) {
+      return order;
+    }
     const paymentStatus = payment.status;
     const isNewPaidOrder = paymentStatus === PAYMENT_STATUS.paid
       && readString(order.payment?.status) !== PAYMENT_STATUS.paid;
@@ -171,7 +187,7 @@ export const reconcileStorePayment = async ({ db, payment }) => {
       paymentMethodId: providerPaymentMethod || 'online',
       paymentMethodName: paymentMethodLabel(providerPaymentMethod),
       'payment.status': paymentStatus,
-      'payment.providerTransactionId': readString(payment.providerTransactionId),
+      'payment.providerTransactionId': providerTransactionId,
       'payment.providerPaymentMethod': providerPaymentMethod,
       'payment.failureCode': readString(payment.failureCode),
       'payment.updatedAt': new Date().toISOString(),
@@ -462,12 +478,23 @@ export const handleStorePaymentWebhook = async ({ db, adapter, event }) => {
     return { received: true, ignored: true };
   }
   const providerPaymentId = readString(update.payment?.providerPaymentId);
+  // Curlec webhooks are keyed by the gateway Order ID. Resolve the local order
+  // from that server-persisted ID instead of requiring notes to be echoed back.
+  if (!readString(update.payment?.orderId) && providerPaymentId) {
+    const orders = await db.collection('storeOrders')
+      .where('payment.providerPaymentId', '==', providerPaymentId).limit(2).get();
+    if (orders.size !== 1) throw new Error('Curlec payment has no unique MiseChef order.');
+    update.payment.orderId = orders.docs[0].id;
+  }
+  const eventReference = db.collection('storePaymentEvents').doc(event.id);
+  const priorEvent = await eventReference.get();
+  if (priorEvent.exists) return { received: true, duplicate: true };
   if (update.kind === 'refund') {
     await reconcileStoreRefund({ db, payment: update.payment });
   } else {
     await reconcileStorePayment({ db, payment: update.payment });
   }
-  await db.collection('storePaymentEvents').doc(event.id).set({
+  await eventReference.set({
     provider: adapter.provider,
     providerMode: adapter.mode,
     type: event.type,

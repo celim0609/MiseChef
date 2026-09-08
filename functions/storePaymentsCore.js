@@ -41,7 +41,8 @@ export const STORE_PAYMENT_METHODS = Object.freeze({
   touch_n_go_qr: { name: 'Touch ’n Go eWallet', provider: 'manual', mode: 'manual', receiptAllowed: true },
   duitnow_qr: { name: 'DuitNow QR', provider: 'manual', mode: 'manual', receiptAllowed: true },
   bank_transfer: { name: 'Bank Transfer', provider: 'manual', mode: 'manual', receiptAllowed: true },
-  stripe: { name: 'Stripe', provider: 'stripe', mode: 'single_merchant', receiptAllowed: false }
+  stripe: { name: 'Stripe', provider: 'stripe', mode: 'single_merchant', receiptAllowed: false },
+  curlec: { name: 'Curlec', provider: 'curlec', mode: 'standard_checkout', receiptAllowed: false }
 });
 
 export const getEnabledStorePaymentMethod = (store, methodId) => {
@@ -56,6 +57,8 @@ export const getEnabledStorePaymentMethod = (store, methodId) => {
   }
   const rawMethods = Array.isArray(store.paymentMethods) ? store.paymentMethods : [];
   const configured = rawMethods.find(method => readString(method?.id) === id);
+  // Legacy Stores keep their existing Stripe default. New gateway methods are
+  // opt-in and must be explicitly enabled by the Store owner.
   const enabled = configured ? configured.enabled === true : id === 'stripe';
   if (!enabled) throw new Error('This payment method is no longer available.');
   const qrCodeUrl = readString(configured?.qrCodeUrl);
