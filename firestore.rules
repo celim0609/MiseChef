@@ -311,7 +311,23 @@ service cloud.firestore {
         && contact.website.size() <= 500;
     }
 
-    function isValidStoreSettings(data, workspaceId) {
+    function hasValidStorePaymentMethods(data) {
+      return data.paymentMethods is list
+        && data.paymentMethods.size() == 6
+        && isValidStorePaymentMethod(data.paymentMethods[0], 'cash_on_pickup')
+        && isValidStorePaymentMethod(data.paymentMethods[1], 'touch_n_go_qr')
+        && isValidStorePaymentMethod(data.paymentMethods[2], 'duitnow_qr')
+        && isValidStorePaymentMethod(data.paymentMethods[3], 'bank_transfer')
+        && isValidStorePaymentMethod(data.paymentMethods[4], 'stripe')
+        && isValidStorePaymentMethod(data.paymentMethods[5], 'curlec')
+        && (data.country == 'MY' || (
+          data.paymentMethods[1].enabled == false
+          && data.paymentMethods[1].qrCodeUrl == ''
+          && data.paymentMethods[1].instructions == ''
+        ));
+    }
+
+    function isValidStoreSettings(data, workspaceId, validatePaymentMethods) {
       return data.keys().hasOnly([
           'id',
           'workspaceId',
@@ -381,8 +397,6 @@ service cloud.firestore {
         && data.maximumAdvanceDays in [7, 14, 30]
         && data.unavailableDates is list
         && data.unavailableDates.size() <= 60
-        && data.paymentMethods is list
-        && data.paymentMethods.size() == 6
         && data.hostProgram is map
         && data.hostProgram.keys().hasOnly(['enabled', 'rewardPercent', 'minimumQualifyingSales'])
         && data.hostProgram.enabled is bool
@@ -391,17 +405,7 @@ service cloud.firestore {
         && data.hostProgram.rewardPercent <= 100
         && data.hostProgram.minimumQualifyingSales is number
         && data.hostProgram.minimumQualifyingSales >= 0
-        && isValidStorePaymentMethod(data.paymentMethods[0], 'cash_on_pickup')
-        && isValidStorePaymentMethod(data.paymentMethods[1], 'touch_n_go_qr')
-        && isValidStorePaymentMethod(data.paymentMethods[2], 'duitnow_qr')
-        && isValidStorePaymentMethod(data.paymentMethods[3], 'bank_transfer')
-        && isValidStorePaymentMethod(data.paymentMethods[4], 'stripe')
-        && isValidStorePaymentMethod(data.paymentMethods[5], 'curlec')
-        && (data.country == 'MY' || (
-          data.paymentMethods[1].enabled == false
-          && data.paymentMethods[1].qrCodeUrl == ''
-          && data.paymentMethods[1].instructions == ''
-        ))
+        && (!validatePaymentMethods || hasValidStorePaymentMethods(data))
         && hasValidStoreRegion(data)
         && data.createdBy is string
         && data.createdAt is string
@@ -1223,14 +1227,18 @@ service cloud.firestore {
       allow read: if true;
       allow create: if hasActiveBusinessEntitlement(workspaceId)
         && isWorkspaceOwnerOrManager(workspaceId)
-        && isValidStoreSettings(request.resource.data, workspaceId)
+        && isValidStoreSettings(request.resource.data, workspaceId, true)
         && storeMatchesWorkspaceCountry(request.resource.data, workspaceId)
         && request.resource.data.createdBy == request.auth.uid
         && existsAfter(/databases/$(database)/documents/storeSlugs/$(request.resource.data.slug))
         && getAfter(/databases/$(database)/documents/storeSlugs/$(request.resource.data.slug)).data.workspaceId == workspaceId;
       allow update: if hasActiveBusinessEntitlement(workspaceId)
         && isWorkspaceOwnerOrManager(workspaceId)
-        && isValidStoreSettings(request.resource.data, workspaceId)
+        && isValidStoreSettings(
+          request.resource.data,
+          workspaceId,
+          request.resource.data.diff(resource.data).affectedKeys().hasAny(['paymentMethods'])
+        )
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'name',
           'logoUrl',

@@ -88,7 +88,8 @@ test('Store Contact fields are schema-bounded and remain under existing Store te
   assert.match(firestoreRules, /function isValidStoreContact\(contact\)/);
   assert.match(firestoreRules, /contact\.keys\(\)\.hasOnly/);
   assert.match(storeRules, /allow update: if hasActiveBusinessEntitlement\(workspaceId\)[\s\S]*isWorkspaceOwnerOrManager\(workspaceId\)/);
-  assert.match(storeRules, /isValidStoreSettings\(request\.resource\.data, workspaceId\)/);
+  assert.match(storeRules, /isValidStoreSettings\(request\.resource\.data, workspaceId, true\)/);
+  assert.match(storeRules, /isValidStoreSettings\(\s*request\.resource\.data,\s*workspaceId,\s*request\.resource\.data\.diff\(resource\.data\)\.affectedKeys\(\)\.hasAny\(\['paymentMethods'\]\)\s*\)/);
   assert.doesNotMatch(storeRules, /allow (create|update|delete): if true/);
 });
 

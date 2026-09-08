@@ -267,6 +267,17 @@ test('matching Owner and Manager can update validated Store Contact settings', a
   }));
 });
 
+test('Store Contact updates cannot include an invalid Curlec payment-method mutation', async () => {
+  const invalidCurlecMethods = createStoreRecord().paymentMethods.map(method => method.id === 'curlec'
+    ? { ...method, id: 'not-curlec' }
+    : method);
+  await assertFails(ownerA.firestore().doc(`stores/${WORKSPACE_A}`).update({
+    storeContact: { ...STORE_CONTACT, instagram: 'https://instagram.com/payment-kitchen' },
+    paymentMethods: invalidCurlecMethods,
+    updatedAt: '2026-08-03T03:00:00.000Z'
+  }));
+});
+
 test('MY Store can configure Touch ’n Go while SG Store cannot configure or enable it', async () => {
   const malaysiaMethods = createStoreRecord().paymentMethods.map(method => method.id === 'touch_n_go_qr'
     ? { ...method, enabled: true, qrCodeUrl: 'https://storage.test/tng.png', instructions: 'Pay exactly.' }
