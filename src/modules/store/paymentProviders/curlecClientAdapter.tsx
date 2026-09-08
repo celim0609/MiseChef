@@ -30,6 +30,10 @@ function CurlecCheckout({ session, customerName, phone, onComplete, onBack }: Pa
         key: checkout.keyId, order_id: checkout.orderId, amount: checkout.amountMinor,
         currency: checkout.currency, name: checkout.name, description: checkout.description,
         prefill: { name: customerName, contact: phone },
+        // MiseChef already collects the customer's phone before payment. Keep
+        // Curlec's duplicate contact step out of the checkout flow; email is
+        // optional and does not need to be collected again by the gateway.
+        hidden: { contact: true, email: true },
         handler: () => { void onComplete(session.paymentSessionId); },
         modal: { ondismiss: () => { setOpening(false); } }
       });
