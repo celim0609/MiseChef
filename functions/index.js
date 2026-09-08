@@ -34,6 +34,7 @@ import { startBusinessTrial } from './businessTrial.js';
 import {
   createPaymentAdapter
 } from './paymentProviders/index.js';
+import { CurlecOrderCreationError } from './paymentProviders/curlecStandardCheckout.js';
 import {
   cancelStorePayment,
   createStorePayment,
@@ -282,11 +283,19 @@ export const expireWorkspaceTrials = onSchedule({
 });
 
 const toStorePaymentError = error => {
-  logger.error('Store payment request failed', {
-    name: error?.name || '',
-    code: error?.code || '',
-    message: error?.message || ''
-  });
+  if (error instanceof CurlecOrderCreationError) {
+    logger.error('Curlec order creation failed', {
+      curlecHttpStatus: error.curlecHttpStatus,
+      curlecErrorCode: error.curlecErrorCode,
+      curlecErrorDescription: error.curlecErrorDescription
+    });
+  } else {
+    logger.error('Store payment request failed', {
+      name: error?.name || '',
+      code: error?.code || '',
+      message: error?.message || ''
+    });
+  }
   const message = readString(error?.message);
   if ([
     'This Store is no longer available.',

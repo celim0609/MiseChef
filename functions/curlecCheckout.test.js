@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHmac } from 'node:crypto';
 import {
+  CurlecOrderCreationError,
   createCurlecStandardCheckoutAdapter,
   getCurlecWebhookDedupeId,
   verifyCurlecWebhookSignature
@@ -24,6 +25,41 @@ test('Curlec creates an order using only the authoritative minor amount and curr
     notes: { misechefOrderId: 'mise-order-1', misechefOrderNumber: 'MC-0908-ABCD' }
   });
   assert.doesNotMatch(requests[0].options.body, /total|client/i);
+});
+
+test('Curlec order failures retain only sanitized gateway diagnostics', async () => {
+  const adapter = createCurlecStandardCheckoutAdapter('key_id', 'key_secret', {
+    fetchImpl: async () => ({
+      ok: false,
+      status: 400,
+      json: async () => ({
+        error: {
+          code: 'BAD_REQUEST_ERROR',
+          description: 'The amount must be at least 10.',
+          metadata: { requestBody: 'must-not-be-retained' }
+        }
+      })
+    })
+  });
+
+  await assert.rejects(adapter.createPayment({ order }), error => {
+    assert.ok(error instanceof CurlecOrderCreationError);
+    assert.equal(error.message, 'Curlec could not create a payment order.');
+    assert.deepEqual({
+      httpStatus: error.curlecHttpStatus,
+      errorCode: error.curlecErrorCode,
+      errorDescription: error.curlecErrorDescription
+    }, {
+      httpStatus: 400,
+      errorCode: 'BAD_REQUEST_ERROR',
+      errorDescription: 'The amount must be at least 10.'
+    });
+    assert.deepEqual(Object.keys(error).sort(), [
+      'curlecErrorCode', 'curlecErrorDescription', 'curlecHttpStatus', 'name'
+    ]);
+    assert.doesNotMatch(JSON.stringify(error), /requestBody|key_secret|key_id/i);
+    return true;
+  });
 });
 
 test('Curlec webhook signatures use raw bytes and reject invalid values', () => {

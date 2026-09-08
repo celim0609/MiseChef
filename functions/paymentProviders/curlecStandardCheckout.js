@@ -4,6 +4,19 @@ import { PAYMENT_STATUS, readString } from '../storePaymentsCore.js';
 export const CURLEC_PROVIDER_ID = 'curlec';
 export const CURLEC_PROVIDER_MODE = 'standard_checkout';
 const API_URL = 'https://api.razorpay.com/v1/orders';
+const MAX_DIAGNOSTIC_TEXT_LENGTH = 512;
+
+const diagnosticText = value => readString(value).slice(0, MAX_DIAGNOSTIC_TEXT_LENGTH);
+
+export class CurlecOrderCreationError extends Error {
+  constructor({ httpStatus = null, errorCode = '', errorDescription = '' } = {}) {
+    super('Curlec could not create a payment order.');
+    this.name = 'CurlecOrderCreationError';
+    this.curlecHttpStatus = Number.isInteger(httpStatus) ? httpStatus : null;
+    this.curlecErrorCode = diagnosticText(errorCode);
+    this.curlecErrorDescription = diagnosticText(errorDescription);
+  }
+}
 
 const normalizePayment = payment => ({
   providerPaymentId: readString(payment?.order_id),
@@ -43,21 +56,32 @@ export const createCurlecStandardCheckoutAdapter = (keyId, keySecret, { fetchImp
     mode: CURLEC_PROVIDER_MODE,
     requiresSellingWorkspace: true,
     async createPayment({ order }) {
-      const response = await fetchImpl(API_URL, {
-        method: 'POST',
-        headers: {
-          authorization: `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString('base64')}`,
-          'content-type': 'application/json'
-        },
-        body: JSON.stringify({
-          amount: order.payment.amountMinor,
-          currency: order.currency,
-          receipt: order.orderNumber,
-          notes: { misechefOrderId: order.id, misechefOrderNumber: order.orderNumber }
-        })
-      });
+      let response;
+      try {
+        response = await fetchImpl(API_URL, {
+          method: 'POST',
+          headers: {
+            authorization: `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString('base64')}`,
+            'content-type': 'application/json'
+          },
+          body: JSON.stringify({
+            amount: order.payment.amountMinor,
+            currency: order.currency,
+            receipt: order.orderNumber,
+            notes: { misechefOrderId: order.id, misechefOrderNumber: order.orderNumber }
+          })
+        });
+      } catch {
+        throw new CurlecOrderCreationError();
+      }
       const gatewayOrder = await response.json().catch(() => ({}));
-      if (!response.ok || !readString(gatewayOrder?.id)) throw new Error('Curlec could not create a payment order.');
+      if (!response.ok || !readString(gatewayOrder?.id)) {
+        throw new CurlecOrderCreationError({
+          httpStatus: response.status,
+          errorCode: gatewayOrder?.error?.code,
+          errorDescription: gatewayOrder?.error?.description || gatewayOrder?.error?.message
+        });
+      }
       if (Number(gatewayOrder.amount) !== Number(order.payment.amountMinor)
         || readString(gatewayOrder.currency).toUpperCase() !== readString(order.currency)) {
         throw new Error('Curlec order amount validation failed.');

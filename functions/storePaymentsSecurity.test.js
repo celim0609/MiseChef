@@ -26,6 +26,10 @@ const paymentProviderRegistry = readFileSync(
   new URL('./paymentProviders/index.js', import.meta.url),
   'utf8'
 );
+const curlecAdapter = readFileSync(
+  new URL('./paymentProviders/curlecStandardCheckout.js', import.meta.url),
+  'utf8'
+);
 const clientPaymentProviderRegistry = readFileSync(
   new URL('../src/modules/store/paymentProviders/index.ts', import.meta.url),
   'utf8'
@@ -56,6 +60,16 @@ test('Stripe secrets stay server-side and webhook verification uses the raw sign
 test('Curlec uses the documented stable event-id header with a retry-stable signed-payload fallback', () => {
   assert.match(functionsIndex, /x-razorpay-event-id/);
   assert.match(functionsIndex, /getCurlecWebhookDedupeId\(payload\)/);
+});
+
+test('Curlec order-creation diagnostics retain only safe gateway fields', () => {
+  assert.match(functionsIndex, /CurlecOrderCreationError/);
+  assert.match(functionsIndex, /curlecHttpStatus: error\.curlecHttpStatus/);
+  assert.match(functionsIndex, /curlecErrorCode: error\.curlecErrorCode/);
+  assert.match(functionsIndex, /curlecErrorDescription: error\.curlecErrorDescription/);
+  assert.match(functionsIndex, /Secure payment could not be started\. Please try again\./);
+  assert.match(curlecAdapter, /MAX_DIAGNOSTIC_TEXT_LENGTH = 512/);
+  assert.doesNotMatch(curlecAdapter, /gatewayOrder\?\.error\?\.metadata/);
 });
 
 test('single-merchant routing is server configured and client orders cannot name a merchant', () => {
