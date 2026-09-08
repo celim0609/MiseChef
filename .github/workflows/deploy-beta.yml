@@ -33,7 +33,8 @@ jobs:
         env:
           RELEASE_CONFIRMATION: ${{ inputs.release_confirmation }}
         run: |
-          if [[ "$RELEASE_CONFIRMATION" != "RELEASE BETA" ]]; then
+          normalized_confirmation="$(printf '%s' "$RELEASE_CONFIRMATION" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+          if [[ "$normalized_confirmation" != "RELEASE BETA" ]]; then
             echo "Protected Beta release confirmation is invalid." >&2
             exit 1
           fi
