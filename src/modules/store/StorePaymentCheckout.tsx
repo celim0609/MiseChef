@@ -5,6 +5,7 @@ export default function StorePaymentCheckout({
   session,
   customerName,
   phone,
+  customerEmail,
   currency,
   total,
   storeSlug,
@@ -39,6 +40,7 @@ export default function StorePaymentCheckout({
         session={session}
         customerName={customerName}
         phone={phone}
+        customerEmail={customerEmail}
         currency={currency}
         total={total}
         storeSlug={storeSlug}

@@ -17,7 +17,23 @@ const loadCurlecCheckout = () => new Promise<void>((resolve, reject) => {
   document.head.appendChild(script);
 });
 
-function CurlecCheckout({ session, customerName, phone, onComplete, onBack }: PaymentProviderCheckoutProps) {
+export function normalizeCurlecContact(phone: string) {
+  const contact = phone.trim();
+  if (/^\+60\d+$/.test(contact)) return contact;
+  if (/^60\d+$/.test(contact)) return `+${contact}`;
+  if (/^0\d+$/.test(contact)) return `+60${contact.slice(1)}`;
+  return contact;
+}
+
+export function getCurlecPrefill(customerName: string, phone: string, customerEmail: string) {
+  return {
+    name: customerName,
+    contact: normalizeCurlecContact(phone),
+    ...(customerEmail.trim() ? { email: customerEmail.trim() } : {})
+  };
+}
+
+function CurlecCheckout({ session, customerName, phone, customerEmail, onComplete, onBack }: PaymentProviderCheckoutProps) {
   const [error, setError] = useState('');
   const [opening, setOpening] = useState(false);
   const checkout = session.checkout;
@@ -29,7 +45,7 @@ function CurlecCheckout({ session, customerName, phone, onComplete, onBack }: Pa
       const razorpay = new window.Razorpay!({
         key: checkout.keyId, order_id: checkout.orderId, amount: checkout.amountMinor,
         currency: checkout.currency, name: checkout.name, description: checkout.description,
-        prefill: { name: customerName, contact: phone },
+        prefill: getCurlecPrefill(customerName, phone, customerEmail),
         // MiseChef already collects the customer's phone before payment. Keep
         // Curlec's duplicate contact step out of the checkout flow; email is
         // optional and does not need to be collected again by the gateway.
