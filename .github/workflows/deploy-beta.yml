@@ -21,7 +21,6 @@ concurrency:
 
 jobs:
   deploy-beta:
-    if: ${{ inputs.release_confirmation == 'RELEASE BETA' }}
     runs-on: ubuntu-latest
     environment: beta
     timeout-minutes: 60
@@ -30,6 +29,16 @@ jobs:
       MISECHEF_BETA_CI_LOCK_ID: misechef-beta-deployment
       FIREBASE_DEPLOY_TARGET: beta
     steps:
+      - name: Verify protected release confirmation
+        env:
+          RELEASE_CONFIRMATION: ${{ inputs.release_confirmation }}
+        run: |
+          if [[ "$RELEASE_CONFIRMATION" != "RELEASE BETA" ]]; then
+            echo "Protected Beta release confirmation is invalid." >&2
+            exit 1
+          fi
+          echo "Protected Beta release confirmation accepted."
+
       - name: Check out immutable trusted Beta gate
         uses: actions/checkout@v4
         with:
