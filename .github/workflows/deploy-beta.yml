@@ -40,7 +40,7 @@ jobs:
       - name: Check out exact release candidate
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.expected_candidate_sha }}
           path: candidate
           fetch-depth: 0
 
