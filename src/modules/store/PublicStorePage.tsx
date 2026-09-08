@@ -894,6 +894,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
                 session={paymentSession}
                 customerName={customerName}
                 phone={phone}
+                customerEmail={customerEmail}
                 currency={store.currency}
                 total={cartTotal}
                 storeSlug={store.slug}

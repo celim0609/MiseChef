@@ -6,6 +6,7 @@ export interface PaymentProviderCheckoutProps {
   session: StorePaymentSession;
   customerName: string;
   phone: string;
+  customerEmail: string;
   currency: RegionCurrency;
   total: number;
   storeSlug: string;
