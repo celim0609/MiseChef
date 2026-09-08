@@ -39,10 +39,10 @@ function CurlecCheckout({ session, customerName, phone, onComplete, onBack }: Pa
       });
       razorpay.on('payment.failed', () => setError('Payment was not completed. You can try again.'));
       razorpay.open();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Curlec checkout could not open.'); }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Payment checkout could not open.'); }
     finally { setOpening(false); }
   };
-  return <div className="space-y-3"><p className="font-sans text-sm font-bold text-on-surface-variant">Continue to Curlec to choose an enabled payment method.</p>{error && <p role="alert" className="rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{error}</p>}<button type="button" onClick={() => void open()} disabled={opening} className="inline-flex min-h-12 w-full items-center justify-center rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">{opening ? 'Opening payment…' : 'Pay with Curlec'}</button><button type="button" onClick={() => void onBack()} className="w-full font-sans text-xs font-extrabold text-primary">Back to checkout</button></div>;
+  return <div className="space-y-3"><p className="font-sans text-sm font-bold text-on-surface-variant">Choose your preferred payment method on the next step.</p>{error && <p role="alert" className="rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{error}</p>}<button type="button" onClick={() => void open()} disabled={opening} className="inline-flex min-h-12 w-full items-center justify-center rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">{opening ? 'Opening payment…' : 'Continue to Payment'}</button><button type="button" onClick={() => void onBack()} className="w-full font-sans text-xs font-extrabold text-primary">Back to checkout</button></div>;
 }
 
 export const curlecClientPaymentAdapter: PaymentProviderClientAdapter = { provider: 'curlec', Checkout: CurlecCheckout };
