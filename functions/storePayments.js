@@ -20,8 +20,9 @@ import {
   revalidateCheckoutGroupInTransaction,
   resolveCheckoutGroup
 } from './groupOrders.js';
+import { revalidateDeliveryForPayment } from './storeDelivery.js';
 
-const loadStoreCheckoutData = async (db, slug) => {
+export const loadStoreCheckoutData = async (db, slug) => {
   const storeSnapshot = await db.collection('stores')
     .where('slug', '==', readString(slug).toLowerCase())
     .limit(1)
@@ -301,9 +302,14 @@ export const createStorePayment = async ({
   slug,
   draft,
   returnUrl,
+  deliveryProvider,
   now = new Date()
 }) => {
   const checkoutData = await loadStoreCheckoutData(db, slug);
+  if (readString(draft?.fulfilmentMethod) === 'delivery') {
+    if (!deliveryProvider) throw new Error('Delivery is not configured.');
+    draft = { ...draft, deliverySnapshot: await revalidateDeliveryForPayment({ provider: deliveryProvider, store: checkoutData.store, draft }) };
+  }
   const groupOrder = await resolveCheckoutGroup({ db, store: checkoutData.store, draft, now });
   const paymentMethod = getEnabledStorePaymentMethod(checkoutData.store, draft?.paymentMethodId);
   const activeAdapter = adapter || resolveAdapter(paymentMethod);
@@ -491,10 +497,10 @@ export const handleStorePaymentWebhook = async ({ db, adapter, event, onRejectio
     update.payment.orderId = orders.docs[0].id;
   }
   const eventReference = db.collection('storePaymentEvents').doc(event.id);
-  onRejectionStage?.('event_dedupe_read');
+    onRejectionStage?.('event_dedupe_read');
   const priorEvent = await eventReference.get();
   if (priorEvent.exists) return { received: true, duplicate: true };
-  onRejectionStage?.('reconciliation');
+    onRejectionStage?.('reconciliation');
   if (update.kind === 'refund') {
     await reconcileStoreRefund({ db, payment: update.payment });
   } else {

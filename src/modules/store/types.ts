@@ -27,6 +27,16 @@ export interface StoreContact {
   website: string;
 }
 
+export interface StoreDeliveryConfig {
+  enabled: boolean;
+  provider: 'lalamove';
+  environment: 'sandbox';
+  market: 'MY';
+  pickupLocationId: string;
+  serviceType: string;
+  pickup: { name: string; address: string; latitude: string; longitude: string; contactName: string; contactPhoneE164: string };
+}
+
 export interface CustomerContact {
   name: string;
   phone: string;
@@ -59,6 +69,7 @@ export interface WorkspaceStore {
   businessHours: string;
   pickupEnabled: boolean;
   deliveryEnabled: boolean;
+  delivery?: StoreDeliveryConfig;
   pickupSessions: string[];
   pickupLocations: StorePickupLocation[];
   orderDays: StoreOrderDay[];
@@ -85,6 +96,7 @@ export interface StoreSettingsDraft {
   businessHours: string;
   pickupEnabled: boolean;
   deliveryEnabled: boolean;
+  delivery?: StoreDeliveryConfig;
   pickupSessions: string[];
   pickupLocations: StorePickupLocation[];
   orderDays: StoreOrderDay[];
@@ -375,6 +387,9 @@ export interface StoreOrder {
   storeId: string;
   workspaceId: string;
   orderSource: StoreOrderSource;
+  fulfilmentMethod?: 'pickup' | 'delivery';
+  totals?: { merchandiseSubtotal: number; discountTotal: number; discountedMerchandiseTotal: number; deliveryFee: number; grandTotal: number; currency: RegionCurrency };
+  delivery?: { fulfilmentMethod: 'delivery'; dispatch?: { status?: string; errorCode?: string }; providerOrder?: { orderId?: string; status?: string; driverId?: string; shareLink?: string }; recipient?: { address?: string }; quote?: { fee?: number; expiresAt?: string } };
   customerUid?: string;
   groupOrder?: {
     id: string;
@@ -467,6 +482,7 @@ export interface CustomerStoreOrderSummary {
 }
 
 export interface StoreOrderDraft {
+  fulfilmentMethod?: 'pickup' | 'delivery';
   paymentMethodId?: StorePaymentMethodId;
   customerName: string;
   phone: string;
@@ -477,6 +493,13 @@ export interface StoreOrderDraft {
   notes: string;
   selections: CartSelection[];
   groupShareCode?: string;
+  deliveryQuoteId?: string;
+  destination?: {
+    formattedAddress: string;
+    latitude: string;
+    longitude: string;
+    deliveryInstructions?: string;
+  };
 }
 
 export type StorePaymentCheckout =

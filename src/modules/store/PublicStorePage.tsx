@@ -22,6 +22,7 @@ import {
 import { formatRegionCurrency, getRegionConfiguration } from '../../regions';
 import StorePaymentCheckout from './StorePaymentCheckout';
 import { customerContactService, storePaymentService, storeService } from './services';
+import { storeDeliveryService, type DeliveryQuote } from './services/deliveryService';
 import {
   calculateStoreOptionAdjustedPrice,
   formatStoreOptionSelectionRequirement,
@@ -149,6 +150,12 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const [pickupDate, setPickupDate] = useState('');
   const [pickupSession, setPickupSession] = useState('');
   const [pickupLocationId, setPickupLocationId] = useState('');
+  const [fulfilmentMethod, setFulfilmentMethod] = useState<'pickup' | 'delivery'>('pickup');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryLatitude, setDeliveryLatitude] = useState('');
+  const [deliveryLongitude, setDeliveryLongitude] = useState('');
+  const [deliveryInstructions, setDeliveryInstructions] = useState('');
+  const [deliveryQuote, setDeliveryQuote] = useState<DeliveryQuote | null>(null);
   const [notes, setNotes] = useState('');
   const [paymentMethodId, setPaymentMethodId] = useState<StorePaymentMethodId>('stripe');
   const [checkoutError, setCheckoutError] = useState('');
@@ -577,7 +584,9 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
     setCheckoutError('');
     setIsPlacingOrder(true);
     try {
+      if (fulfilmentMethod === 'delivery' && !deliveryQuote) throw new Error('Get a delivery quote before payment.');
       const session = await storePaymentService.createPayment(slug, {
+        fulfilmentMethod,
         paymentMethodId,
         customerName,
         phone,
@@ -585,6 +594,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
         pickupDate,
         pickupSession,
         pickupLocationId,
+        ...(fulfilmentMethod === 'delivery' && deliveryQuote ? { deliveryQuoteId: deliveryQuote.quote.quotationId, destination: { formattedAddress: deliveryAddress, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions } } : {}),
         notes,
         selections: cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({
           productId,
@@ -635,6 +645,16 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
     } finally {
       setIsPlacingOrder(false);
     }
+  };
+
+  const requestDeliveryQuote = async () => {
+    if (!deliveryAddress || !deliveryLatitude || !deliveryLongitude) { setCheckoutError('Choose a complete delivery address and map coordinates.'); return; }
+    if (!Number.isFinite(Number(deliveryLatitude)) || Number(deliveryLatitude) < -90 || Number(deliveryLatitude) > 90 || !Number.isFinite(Number(deliveryLongitude)) || Number(deliveryLongitude) < -180 || Number(deliveryLongitude) > 180) { setCheckoutError('Enter valid delivery coordinates.'); return; }
+    setCheckoutError('');
+    try {
+      const quote = await storeDeliveryService.quote(slug, cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({ productId, ...(setId ? { setId } : {}), quantity, selectedOptions, ...(selectedSetItems ? { selectedSetItems } : {}) })), { formattedAddress: deliveryAddress, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions });
+      setDeliveryQuote(quote);
+    } catch (error) { setDeliveryQuote(null); setCheckoutError(error instanceof Error ? error.message : 'Unable to quote delivery.'); }
   };
 
   const preserveGroupCheckoutDraft = () => {
@@ -963,7 +983,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
               </div>
               <div className="mt-4 flex justify-between gap-3 font-sans text-base font-extrabold text-primary">
                 <span>Total</span>
-                <span>{formatRegionCurrency(cartTotal, store.currency)}</span>
+                <span>{formatRegionCurrency(cartTotal + (deliveryQuote?.quote.fee || 0), store.currency)}</span>
               </div>
 
               <form onSubmit={startPayment} className="mt-6 space-y-6">
@@ -1013,7 +1033,26 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
                   </div>
                 </section>
 
-                <section aria-labelledby="pickup-details-heading">
+                <section aria-labelledby="fulfilment-heading">
+                  <h3 id="fulfilment-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Fulfilment</h3>
+                  <div className="mt-3 flex gap-2">
+                    <button type="button" onClick={() => { setFulfilmentMethod('pickup'); setDeliveryQuote(null); }} className={`rounded-xl px-4 py-3 text-sm font-bold ${fulfilmentMethod === 'pickup' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Pickup</button>
+                    {store.delivery?.enabled && !groupOrder && <button type="button" onClick={() => setFulfilmentMethod('delivery')} className={`rounded-xl px-4 py-3 text-sm font-bold ${fulfilmentMethod === 'delivery' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Delivery</button>}
+                  </div>
+                </section>
+
+                {fulfilmentMethod === 'delivery' && <section aria-labelledby="delivery-details-heading">
+                  <h3 id="delivery-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Delivery address</h3>
+                  <div className="mt-3 space-y-3">
+                    <input aria-label="Delivery address" required placeholder="Selected delivery address" value={deliveryAddress} onChange={event => { setDeliveryAddress(event.target.value); setDeliveryQuote(null); }} className="min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
+                    <p className="text-xs font-bold text-amber-800">Beta test fallback: use coordinates from a controlled map pin. Address search will replace this without changing delivery pricing.</p><div className="grid grid-cols-2 gap-2"><input aria-label="Delivery latitude" required inputMode="decimal" placeholder="Latitude" value={deliveryLatitude} onChange={event => { setDeliveryLatitude(event.target.value); setDeliveryQuote(null); }} className="min-h-12 rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" /><input aria-label="Delivery longitude" required inputMode="decimal" placeholder="Longitude" value={deliveryLongitude} onChange={event => { setDeliveryLongitude(event.target.value); setDeliveryQuote(null); }} className="min-h-12 rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" /></div>
+                    <textarea aria-label="Delivery instructions" rows={2} placeholder="Unit, floor, or delivery instructions" value={deliveryInstructions} onChange={event => setDeliveryInstructions(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
+                    <button type="button" onClick={requestDeliveryQuote} className="rounded-full bg-secondary px-5 py-3 text-sm font-extrabold text-on-secondary">Get delivery fee</button>
+                    {deliveryQuote && <p className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-900">Delivery {formatRegionCurrency(deliveryQuote.quote.fee, store.currency)} · valid until {new Date(deliveryQuote.quote.expiresAt).toLocaleTimeString()}</p>}
+                  </div>
+                </section>}
+
+                {fulfilmentMethod === 'pickup' && <section aria-labelledby="pickup-details-heading">
                   <h3 id="pickup-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup Details</h3>
                   <div className="mt-3 space-y-3">
                     <label className="block">
@@ -1041,7 +1080,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
                       </select>
                     </label>
                   </div>
-                </section>
+                </section>}
 
                 <section aria-labelledby="payment-instructions-heading" className="rounded-2xl bg-surface-container-low p-4">
                   <h3 id="payment-instructions-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Payment Instructions</h3>

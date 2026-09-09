@@ -128,6 +128,11 @@ export const updateStoreOrderFulfilment = async ({
     if (!orderSnapshot.exists) throw new HttpsError('not-found', 'This order could not be found.');
 
     const order = orderSnapshot.data() || {};
+    if (order.fulfilmentMethod === 'delivery'
+      && normalizedNextStatus === STORE_FULFILMENT_STATUS.completed
+      && readString(order.delivery?.providerOrder?.status) !== 'COMPLETED') {
+      throw new HttpsError('failed-precondition', 'A delivery order can only complete after Lalamove confirms delivery.');
+    }
     const workspaceId = readString(order.workspaceId);
     if (!workspaceId) throw new HttpsError('failed-precondition', 'This order has no Workspace.');
 
