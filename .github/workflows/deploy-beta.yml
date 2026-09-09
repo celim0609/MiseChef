@@ -116,4 +116,5 @@ jobs:
         working-directory: candidate
         env:
           MISECHEF_BETA_TRUSTED_GATE_ROOT: ${{ github.workspace }}/trusted-gate
+          VITE_GOOGLE_PLACES_API_KEY: ${{ secrets.VITE_GOOGLE_PLACES_API_KEY }}
         run: npm run deploy:beta
