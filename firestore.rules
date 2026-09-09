@@ -304,6 +304,25 @@ service cloud.firestore {
         && contact.website.size() <= 500;
     }
 
+    function isValidStoreDelivery(delivery) {
+      return delivery is map
+        && delivery.keys().hasOnly(['enabled', 'provider', 'environment', 'market', 'pickupLocationId', 'serviceType', 'pickup'])
+        && delivery.enabled is bool
+        && delivery.provider == 'lalamove'
+        && delivery.environment == 'sandbox'
+        && delivery.market == 'MY'
+        && delivery.pickupLocationId is string
+        && delivery.serviceType is string && delivery.serviceType.size() <= 80
+        && delivery.pickup is map
+        && delivery.pickup.keys().hasOnly(['name', 'address', 'latitude', 'longitude', 'contactName', 'contactPhoneE164'])
+        && delivery.pickup.name is string && delivery.pickup.name.size() <= 120
+        && delivery.pickup.address is string && delivery.pickup.address.size() <= 500
+        && delivery.pickup.latitude is string && delivery.pickup.latitude.size() <= 32
+        && delivery.pickup.longitude is string && delivery.pickup.longitude.size() <= 32
+        && delivery.pickup.contactName is string && delivery.pickup.contactName.size() <= 120
+        && delivery.pickup.contactPhoneE164 is string && delivery.pickup.contactPhoneE164.size() <= 20;
+    }
+
     function isValidStoreSettings(data, workspaceId) {
       return data.keys().hasOnly([
           'id',
@@ -319,6 +338,7 @@ service cloud.firestore {
           'businessHours',
           'pickupEnabled',
           'deliveryEnabled',
+          'delivery',
           'pickupSessions',
           'pickupLocations',
           'orderDays',
@@ -354,6 +374,7 @@ service cloud.firestore {
         && data.businessHours.size() <= 300
         && data.pickupEnabled is bool
         && data.deliveryEnabled is bool
+        && (!('delivery' in data) || isValidStoreDelivery(data.delivery))
         && data.pickupSessions is list
         && data.pickupSessions.size() <= 20
         && data.pickupLocations is list
@@ -1012,6 +1033,7 @@ service cloud.firestore {
           'businessHours',
           'pickupEnabled',
           'deliveryEnabled',
+          'delivery',
           'pickupSessions',
           'pickupLocations',
           'orderDays',

@@ -15,8 +15,9 @@ import {
   STORE_NOTIFICATION_TYPE
 } from './storeNotifications.js';
 import { resolveCheckoutGroup } from './groupOrders.js';
+import { revalidateDeliveryForPayment } from './storeDelivery.js';
 
-const loadStoreCheckoutData = async (db, slug) => {
+export const loadStoreCheckoutData = async (db, slug) => {
   const storeSnapshot = await db.collection('stores')
     .where('slug', '==', readString(slug).toLowerCase())
     .limit(1)
@@ -279,9 +280,14 @@ export const createStorePayment = async ({
   slug,
   draft,
   returnUrl,
+  deliveryProvider,
   now = new Date()
 }) => {
   const checkoutData = await loadStoreCheckoutData(db, slug);
+  if (readString(draft?.fulfilmentMethod) === 'delivery') {
+    if (!deliveryProvider) throw new Error('Delivery is not configured.');
+    draft = { ...draft, deliverySnapshot: await revalidateDeliveryForPayment({ provider: deliveryProvider, store: checkoutData.store, draft }) };
+  }
   const groupOrder = await resolveCheckoutGroup({ db, store: checkoutData.store, draft, now });
   const paymentMethod = getEnabledStorePaymentMethod(checkoutData.store, draft?.paymentMethodId);
   const activeAdapter = adapter || resolveAdapter(paymentMethod);

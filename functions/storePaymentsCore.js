@@ -162,21 +162,23 @@ export const getValidPickupDates = (store, currentDate = new Date()) => {
 };
 
 const validateDraft = (store, draft, currentDate) => {
-  if (store.pickupEnabled !== true) throw new Error('Pickup ordering is not available.');
+  const isDelivery = readString(draft.fulfilmentMethod) === 'delivery';
+  if (!isDelivery && store.pickupEnabled !== true) throw new Error('Pickup ordering is not available.');
   if (!readString(draft.customerName)) throw new Error('Name is required.');
   if (readString(draft.customerName).length > 120) throw new Error('Name must be 120 characters or fewer.');
   const phone = readString(draft.phone);
   if (phone.replace(/\D/g, '').length < 6 || phone.length > 40) throw new Error('Enter a valid phone number.');
-  if (!getValidPickupDates(store, currentDate).includes(readString(draft.pickupDate))) {
+  if (!isDelivery && !getValidPickupDates(store, currentDate).includes(readString(draft.pickupDate))) {
     throw new Error('Choose an available pickup date.');
   }
-  if (!Array.isArray(store.pickupSessions) || !store.pickupSessions.includes(readString(draft.pickupSession))) {
+  if (!isDelivery && (!Array.isArray(store.pickupSessions) || !store.pickupSessions.includes(readString(draft.pickupSession)))) {
     throw new Error('Choose a valid pickup session.');
   }
-  if (!Array.isArray(store.pickupLocations)
-    || !store.pickupLocations.some(location => readString(location.id) === readString(draft.pickupLocationId))) {
+  if (!isDelivery && (!Array.isArray(store.pickupLocations)
+    || !store.pickupLocations.some(location => readString(location.id) === readString(draft.pickupLocationId)))) {
     throw new Error('Choose a valid pickup location.');
   }
+  if (isDelivery && !draft.deliverySnapshot) throw new Error('Refresh your delivery quote before checkout.');
   if (readString(draft.notes).length > 500) throw new Error('Notes must be 500 characters or fewer.');
   if (!Array.isArray(draft.selections) || draft.selections.length === 0) throw new Error('Your cart is empty.');
   if (draft.selections.length > 50) throw new Error('Your cart contains too many items.');
@@ -362,7 +364,9 @@ export const buildPendingOrder = ({
   const pickupLocation = store.pickupLocations.find(
     location => readString(location.id) === readString(draft.pickupLocationId)
   );
-  const total = roundMoney(items.reduce((sum, item) => sum + item.lineTotal, 0));
+  const merchandiseSubtotal = roundMoney(items.reduce((sum, item) => sum + item.lineTotal, 0));
+  const deliveryFee = draft.deliverySnapshot ? roundMoney(Math.max(0, readNumber(draft.deliverySnapshot.fee))) : 0;
+  const total = roundMoney(merchandiseSubtotal + deliveryFee);
   const amountMinor = Math.round(total * 100);
   if (amountMinor < 1) throw new Error('Order total must be greater than zero.');
   const createdAt = now.toISOString();
@@ -390,15 +394,18 @@ export const buildPendingOrder = ({
     paymentMethodName: readString(resolvedPaymentMethod.name) || 'Secure online payment',
     customerName: readString(draft.customerName),
     phone: readString(draft.phone),
+    fulfilmentMethod: draft.deliverySnapshot ? 'delivery' : 'pickup',
     pickupDate: readString(draft.pickupDate),
     pickupSession: readString(draft.pickupSession),
-    pickupLocationId: readString(pickupLocation.id),
-    pickupLocationName: readString(pickupLocation.name),
-    pickupLocationAddress: readString(pickupLocation.address),
-    pickupLocationNotes: readString(pickupLocation.notes),
+    pickupLocationId: readString(pickupLocation?.id),
+    pickupLocationName: readString(pickupLocation?.name),
+    pickupLocationAddress: readString(pickupLocation?.address),
+    pickupLocationNotes: readString(pickupLocation?.notes),
     notes: readString(draft.notes),
     items,
     itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
+    totals: { merchandiseSubtotal, discountTotal: 0, discountedMerchandiseTotal: merchandiseSubtotal, deliveryFee, grandTotal: total, currency: region.currency },
+    ...(draft.deliverySnapshot ? { delivery: draft.deliverySnapshot } : {}),
     total,
     status: 'Awaiting Payment',
     fulfilmentStatus: 'New',

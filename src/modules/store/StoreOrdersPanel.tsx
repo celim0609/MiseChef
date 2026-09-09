@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { formatRegionCurrency } from '../../regions';
 import { storeOrderService } from './services';
+import { storeDeliveryService } from './services/deliveryService';
 import { formatPickupDateLabel } from './storeModel';
 import WhatsAppCustomerButton from './WhatsAppCustomerButton';
 import type {
@@ -130,6 +131,19 @@ export default function StoreOrdersPanel({
     } finally {
       setIsUpdating(false);
     }
+  };
+
+  const dispatchDelivery = async (orderId: string) => {
+    setErrorMessage('');
+    setIsUpdating(true);
+    try {
+      const result = await storeDeliveryService.dispatch(orderId);
+      if (result.status === 'dispatch_blocked_requote') setErrorMessage(`Dispatch blocked: refreshed fee exceeds the RM5 absorption limit by ${result.difference?.toFixed(2) || '0.00'}.`);
+    } catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to dispatch delivery.'); } finally { setIsUpdating(false); }
+  };
+  const cancelDelivery = async (orderId: string) => {
+    setErrorMessage(''); setIsUpdating(true);
+    try { await storeDeliveryService.cancel(orderId); } catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to cancel delivery.'); } finally { setIsUpdating(false); }
   };
 
   const reviewPayment = async (decision: 'approve' | 'reject') => {
@@ -344,6 +358,11 @@ export default function StoreOrdersPanel({
                   Mark {NEXT_STATUS[selectedOrder.fulfilmentStatus as StoreFulfilmentStatus]}
                 </button>
               )}
+              {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && selectedOrder.fulfilmentStatus === 'Ready' && selectedOrder.delivery?.dispatch?.status !== 'created' && (
+                <button type="button" disabled={isUpdating} onClick={() => dispatchDelivery(selectedOrder.id)} className="mt-3 w-full rounded-full bg-secondary px-5 py-3 font-sans text-xs font-extrabold text-on-secondary disabled:opacity-50">Request Lalamove delivery</button>
+              )}
+              {selectedOrder.fulfilmentMethod === 'delivery' && <div className="mt-3 rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary">Delivery: {selectedOrder.delivery?.dispatch?.status || 'not requested'}{selectedOrder.delivery?.providerOrder?.orderId ? ` · Lalamove ${selectedOrder.delivery.providerOrder.orderId}` : ''}</div>}
+              {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && selectedOrder.delivery?.dispatch?.status === 'created' && <button type="button" disabled={isUpdating} onClick={() => cancelDelivery(selectedOrder.id)} className="mt-3 w-full rounded-full border border-error px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">Cancel Lalamove delivery</button>}
               <WhatsAppCustomerButton
                 order={selectedOrder}
                 country={country}
