@@ -27,7 +27,6 @@ test('trusted checkout ignores client prices and snapshots current set and produ
   assert.equal(items[0].setSnapshot.regularValue, 9.9);
   assert.deepEqual(items[0].setSnapshot.selectedGroups.map(item => item.productName), ['Nasi Lemak', 'Kopi Ice']);
 });
-
 test('trusted checkout rejects missing, foreign, duplicate and unavailable set selections', () => {
   const base = { productId: 'breakfast', setId: 'breakfast', quantity: 1, selectedOptions: [] };
   assert.throws(() => buildOrderItems([{ ...base, selectedSetItems: [{ groupId: 'main', productId: 'nasi' }] }], products, [], [set]), /Choose 1 Drink/);
@@ -43,4 +42,3 @@ test('standalone trusted checkout stays unchanged when no set id is supplied', (
   assert.equal(items[0].lineTotal, 7);
   assert.equal(items[0].setSnapshot, undefined);
 });
-

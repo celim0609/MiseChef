@@ -15,6 +15,11 @@ const setRecord = (available = true, overrides = {}) => ({
   groups: [{ id: 'main', name: 'Main', required: true, selectionCount: 1, sortOrder: 0, options: [{ productId: 'nasi', priceAdjustment: 0, sortOrder: 0 }] }],
   createdBy: 'owner', createdAt: now, updatedAt: now, ...overrides
 });
+const productRecord = (id, overrides = {}) => ({
+  id, storeId: 'workspace', workspaceId: 'workspace', photoUrl: 'https://example.test/product.jpg',
+  name: 'Store Product', description: '', price: 8, available: true, optionGroupIds: [],
+  createdBy: 'owner', createdAt: now, updatedAt: now, ...overrides
+});
 
 before(async () => {
   testEnv = await initializeTestEnvironment({
@@ -32,6 +37,7 @@ after(async () => testEnv.cleanup());
 const authDb = (uid) => testEnv.authenticatedContext(uid, { email: `${uid}@example.test` }).firestore();
 const seedWorkspace = async () => testEnv.withSecurityRulesDisabled(async context => {
   const db = context.firestore();
+  await setDoc(doc(db, 'workspaces', 'workspace'), { id: 'workspace', ownerId: 'owner', subscriptionPlan: 'professional', subscriptionStatus: 'active' });
   await setDoc(doc(db, 'stores', 'workspace'), { id: 'workspace', workspaceId: 'workspace' });
   await Promise.all([
     setDoc(doc(db, 'workspaceMembers', 'workspace_owner'), { workspaceId: 'workspace', userId: 'owner', role: 'Owner', status: 'Active' }),
@@ -69,6 +75,19 @@ test('set updates cannot move ownership to another workspace', async () => {
   await seedWorkspace();
   await testEnv.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'storeSets', 'breakfast'), setRecord()));
   await assertFails(setDoc(doc(authDb('owner'), 'storeSets', 'breakfast'), setRecord(true, { workspaceId: 'other', storeId: 'other' })));
+});
+
+test('Store Product recipeId is optional and must reference a Recipe in the same Workspace', async () => {
+  await seedWorkspace();
+  await testEnv.withSecurityRulesDisabled(context => Promise.all([
+    setDoc(doc(context.firestore(), 'recipes', 'workspace-recipe'), { workspaceId: 'workspace' }),
+    setDoc(doc(context.firestore(), 'recipes', 'other-recipe'), { workspaceId: 'other' })
+  ]));
+  const owner = authDb('owner');
+  await assertSucceeds(setDoc(doc(owner, 'storeProducts', 'unlinked'), productRecord('unlinked')));
+  await assertSucceeds(setDoc(doc(owner, 'storeProducts', 'linked'), productRecord('linked', { recipeId: 'workspace-recipe' })));
+  await assertFails(setDoc(doc(owner, 'storeProducts', 'missing'), productRecord('missing', { recipeId: 'missing-recipe' })));
+  await assertFails(setDoc(doc(owner, 'storeProducts', 'foreign'), productRecord('foreign', { recipeId: 'other-recipe' })));
 });
 
 test('set images follow the same Store product-manager boundary and remain publicly readable', async () => {

@@ -4,6 +4,33 @@ const readStringArray = value => Array.isArray(value)
   ? value.map(readString).filter(Boolean)
   : [];
 
+const socialDomains = {
+  instagram: ['instagram.com'],
+  tiktok: ['tiktok.com'],
+  facebook: ['facebook.com', 'fb.com'],
+  linkedin: ['linkedin.com'],
+  youtube: ['youtube.com', 'youtu.be']
+};
+
+export const normalizePublicChefSocialUrl = (platform, value) => {
+  const candidate = readString(value);
+  if (!socialDomains[platform] || !candidate) return '';
+  try {
+    const parsed = new URL(candidate);
+    const hostname = parsed.hostname.toLowerCase();
+    return parsed.protocol === 'https:' && socialDomains[platform].some(domain => hostname === domain || hostname.endsWith(`.${domain}`))
+      ? parsed.toString()
+      : '';
+  } catch {
+    return '';
+  }
+};
+
+const sanitizeSocialLinks = value => Object.fromEntries(Object.keys(socialDomains).flatMap(platform => {
+  const url = normalizePublicChefSocialUrl(platform, value?.[platform]);
+  return url ? [[platform, url]] : [];
+}));
+
 const sanitizeAbout = value => {
   if (!value || typeof value !== 'object') return null;
   const about = {
@@ -117,9 +144,7 @@ const buildCanonicalProjection = source => {
       const language = readString(item?.language);
       return language ? { language, proficiency: readString(item?.proficiency) } : null;
     }),
-    socialLinks: Object.fromEntries(Object.entries(source.socialLinks || {})
-      .map(([key, value]) => [key, readString(value)])
-      .filter(([, value]) => Boolean(value))),
+    socialLinks: sanitizeSocialLinks(source.socialLinks),
     partnerSpotlight: { enabled: false, partners: [] },
     publishedAt: source.createdAt?.toDate?.()?.toISOString?.() || readString(source.createdAt)
   };

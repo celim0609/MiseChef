@@ -13,4 +13,3 @@ test('activate and deactivate stay inside Store management', () => {
   assert.match(storePage, /type StoreView = 'products' \| 'sets' \| 'orders' \| 'pickup' \| 'settings'/);
   assert.match(storePage, /activeView === 'sets'/);
 });
-

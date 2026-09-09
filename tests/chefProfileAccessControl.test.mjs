@@ -98,6 +98,26 @@ describe('chefProfiles ownership', () => {
     })));
     await assertFails(getDoc(doc(attacker, 'chefProfiles', 'alice')));
   });
+
+  test('social link writes require HTTPS and the matching platform domain', async () => {
+    const reference = doc(ownerFirestore('alice'), 'chefProfiles', 'alice');
+    await assertSucceeds(setDoc(reference, profile('alice', {
+      socialLinks: {
+        instagram: 'https://instagram.com/chef-alice',
+        facebook: 'https://fb.com/chef-alice',
+        youtube: 'https://youtu.be/video'
+      }
+    })));
+    await assertFails(setDoc(reference, profile('alice', {
+      socialLinks: { instagram: 'http://instagram.com/chef-alice' }
+    })));
+    await assertFails(setDoc(reference, profile('alice', {
+      socialLinks: { instagram: 'https://facebook.com/chef-alice' }
+    })));
+    await assertFails(setDoc(reference, profile('alice', {
+      socialLinks: { custom: 'https://example.test/chef-alice' }
+    })));
+  });
 });
 
 describe('resume management isolation', () => {

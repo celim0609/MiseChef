@@ -49,4 +49,3 @@ export const createRecipeQrDataUrl = (
 ) => generate(publicRecipeUrl, STORE_QR_OPTIONS);
 
 export const createRecipeQrBlob = createStoreQrBlob;
-

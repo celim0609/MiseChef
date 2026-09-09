@@ -6,6 +6,12 @@ import { getValidPickupDates, readString } from './storePaymentsCore.js';
 const roundMoney = value => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 const publicCode = () => randomBytes(18).toString('base64url');
 const toIso = value => value?.toDate ? value.toDate().toISOString() : readString(value);
+const groupStatus = (data, now = new Date()) => {
+  if (data?.status === 'cancelled') return 'cancelled';
+  if (data?.status === 'closed') return 'closed';
+  const closesAt = new Date(toIso(data?.closesAt));
+  return !Number.isNaN(closesAt.getTime()) && closesAt <= now ? 'closed' : 'open';
+};
 
 const loadEnabledStore = async (db, slug) => {
   const snapshot = await db.collection('stores')
@@ -97,6 +103,8 @@ export const createGroupOrder = async ({ db, uid, email, displayName, slug, inpu
     status: 'open',
     rewardPercent,
     minimumQualifyingSales,
+    lifetimeOrderCount: 0,
+    archived: false,
     orderCount: 0,
     eligibleSales: 0,
     estimatedReward: 0,
@@ -119,7 +127,7 @@ const publicGroup = (id, data, now = new Date()) => ({
   pickupLocationName: readString(data.pickupLocationName),
   pickupLocationAddress: readString(data.pickupLocationAddress),
   closesAt: toIso(data.closesAt),
-  status: data.status === 'cancelled' ? 'cancelled' : new Date(toIso(data.closesAt)) <= now ? 'closed' : 'open'
+  status: groupStatus(data, now)
 });
 
 export const getPublicGroupOrder = async ({ db, shareCode, now = new Date() }) => {
@@ -143,17 +151,158 @@ export const listHostGroupOrders = async ({ db, uid, slug, now = new Date() }) =
   }
   const snapshot = await db.collection('groupOrders').where('hostId', '==', uid).get();
   const groups = snapshot.docs
-    .filter(document => readString(document.data().storeId) === store.id)
+    .filter(document => readString(document.data().storeId) === store.id && document.data().archived !== true)
     .map(document => ({
       ...publicGroup(document.id, document.data(), now),
       rewardPercent: Number(document.data().rewardPercent) || 0,
       minimumQualifyingSales: Number(document.data().minimumQualifyingSales) || 0,
+      lifetimeOrderCount: Number.isInteger(document.data().lifetimeOrderCount)
+        ? document.data().lifetimeOrderCount
+        : null,
+      archived: document.data().archived === true,
       orderCount: Number(document.data().orderCount) || 0,
       eligibleSales: Number(document.data().eligibleSales) || 0,
       estimatedReward: Number(document.data().estimatedReward) || 0
     }))
     .sort((a, b) => b.closesAt.localeCompare(a.closesAt));
   return { hostActive: true, groups };
+};
+
+export const transitionGroupOrder = async ({ db, uid, groupId, nextStatus, now = new Date() }) => {
+  if (!uid) throw new HttpsError('unauthenticated', 'Sign in to manage Group Orders.');
+  const normalizedGroupId = readString(groupId);
+  if (!normalizedGroupId) throw new HttpsError('invalid-argument', 'Choose a Group Order.');
+  if (!['closed', 'cancelled'].includes(nextStatus)) {
+    throw new HttpsError('invalid-argument', 'Choose a valid Group status.');
+  }
+  return db.runTransaction(async transaction => {
+    const reference = db.collection('groupOrders').doc(normalizedGroupId);
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists) throw new HttpsError('not-found', 'This Group Order could not be found.');
+    const group = snapshot.data();
+    if (readString(group.hostId) !== uid) {
+      throw new HttpsError('permission-denied', 'You can manage only your own Group Orders.');
+    }
+    const currentStatus = groupStatus(group, now);
+    if (currentStatus === nextStatus) {
+      return { groupId: normalizedGroupId, status: nextStatus };
+    }
+    if (currentStatus !== 'open') {
+      throw new HttpsError('failed-precondition', 'A closed or cancelled Group cannot be changed.');
+    }
+    const auditPrefix = nextStatus === 'closed' ? 'closed' : 'cancelled';
+    transaction.update(reference, {
+      status: nextStatus,
+      [`${auditPrefix}At`]: FieldValue.serverTimestamp(),
+      [`${auditPrefix}By`]: uid,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    return { groupId: normalizedGroupId, status: nextStatus };
+  });
+};
+
+export const cleanupGroupOrder = async ({ db, uid, groupId, action, now = new Date() }) => {
+  if (!uid) throw new HttpsError('unauthenticated', 'Sign in to clean up Group Orders.');
+  const normalizedGroupId = readString(groupId);
+  if (!normalizedGroupId) throw new HttpsError('invalid-argument', 'Choose a Group Order.');
+  if (!['delete', 'archive'].includes(action)) {
+    throw new HttpsError('invalid-argument', 'Choose a valid Group cleanup action.');
+  }
+  return db.runTransaction(async transaction => {
+    const reference = db.collection('groupOrders').doc(normalizedGroupId);
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists) throw new HttpsError('not-found', 'This Group Order could not be found.');
+    const group = snapshot.data();
+    if (readString(group.hostId) !== uid) {
+      throw new HttpsError('permission-denied', 'You can clean up only your own Group Orders.');
+    }
+    if (action === 'delete') {
+      if (!Number.isInteger(group.lifetimeOrderCount) || group.lifetimeOrderCount !== 0) {
+        throw new HttpsError('failed-precondition', 'This Group has order history and cannot be deleted. Close or cancel it before archiving.');
+      }
+      transaction.delete(reference);
+      return { groupId: normalizedGroupId, action: 'deleted' };
+    }
+    if (group.archived === true) {
+      return { groupId: normalizedGroupId, action: 'archived' };
+    }
+    const currentStatus = readString(group.status) === 'completed' ? 'completed' : groupStatus(group, now);
+    if (!['closed', 'cancelled', 'completed'].includes(currentStatus)) {
+      throw new HttpsError('failed-precondition', 'Close or cancel this Group before archiving it.');
+    }
+    transaction.update(reference, {
+      archived: true,
+      archivedAt: FieldValue.serverTimestamp(),
+      archivedBy: uid,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    return { groupId: normalizedGroupId, action: 'archived' };
+  });
+};
+
+const hostOrder = document => {
+  const data = document.data();
+  return {
+    id: document.id,
+    orderNumber: readString(data.orderNumber),
+    customerName: readString(data.customerName) || 'Customer',
+    itemCount: Math.max(0, Number(data.itemCount) || 0),
+    items: (Array.isArray(data.items) ? data.items : []).map(item => ({
+      productName: readString(item?.setSnapshot?.setName) || readString(item?.productName) || 'Item',
+      quantity: Math.max(0, Number(item?.quantity) || 0),
+      setSelections: (Array.isArray(item?.setSnapshot?.selectedGroups) ? item.setSnapshot.selectedGroups : [])
+        .map(selection => ({
+          groupName: readString(selection?.groupName),
+          productName: readString(selection?.productName)
+        }))
+        .filter(selection => selection.productName),
+      selectedOptions: (Array.isArray(item?.selectedOptions) ? item.selectedOptions : [])
+        .map(option => ({
+          groupName: readString(option?.groupName),
+          optionName: readString(option?.optionName)
+        }))
+        .filter(option => option.optionName)
+    })),
+    remarks: readString(data.notes),
+    total: roundMoney(Math.max(0, Number(data.total) || 0)),
+    currency: data.currency === 'SGD' ? 'SGD' : 'MYR',
+    paymentStatus: readString(data.payment?.status) || 'pending',
+    fulfilmentStatus: readString(data.fulfilmentStatus) || 'New',
+    createdAt: toIso(data.createdAt)
+  };
+};
+
+export const listHostGroupOrdersDetail = async ({ db, uid, groupId, now = new Date() }) => {
+  if (!uid) throw new HttpsError('unauthenticated', 'Sign in to manage Group Orders.');
+  const normalizedGroupId = readString(groupId);
+  if (!normalizedGroupId) throw new HttpsError('invalid-argument', 'Choose a Group Order.');
+  const groupSnapshot = await db.collection('groupOrders').doc(normalizedGroupId).get();
+  if (!groupSnapshot.exists) throw new HttpsError('not-found', 'This Group Order could not be found.');
+  const group = groupSnapshot.data();
+  if (readString(group.hostId) !== uid) {
+    throw new HttpsError('permission-denied', 'You can view only your own Group Orders.');
+  }
+  const ordersSnapshot = await db.collection('storeOrders')
+    .where('groupOrder.id', '==', normalizedGroupId)
+    .get();
+  const orders = ordersSnapshot.docs
+    .map(hostOrder)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return {
+    group: {
+      ...publicGroup(groupSnapshot.id, group, now),
+      rewardPercent: Number(group.rewardPercent) || 0,
+      minimumQualifyingSales: Number(group.minimumQualifyingSales) || 0,
+      lifetimeOrderCount: Number.isInteger(group.lifetimeOrderCount) ? group.lifetimeOrderCount : null,
+      archived: group.archived === true,
+      archivedAt: toIso(group.archivedAt),
+      archivedBy: readString(group.archivedBy),
+      orderCount: Number(group.orderCount) || 0,
+      eligibleSales: Number(group.eligibleSales) || 0,
+      estimatedReward: Number(group.estimatedReward) || 0
+    },
+    orders
+  };
 };
 
 export const resolveCheckoutGroup = async ({ db, store, draft, now = new Date() }) => {
@@ -179,6 +328,38 @@ export const resolveCheckoutGroup = async ({ db, store, draft, now = new Date() 
   };
 };
 
+export const revalidateCheckoutGroupInTransaction = async ({ db, transaction, groupOrder, store, draft, now = new Date() }) => {
+  if (!groupOrder?.id) return null;
+  const snapshot = await transaction.get(db.collection('groupOrders').doc(groupOrder.id));
+  const data = snapshot.data();
+  if (!snapshot.exists || readString(data?.storeId) !== readString(store.id)) {
+    throw new Error('This Group Order belongs to a different Store.');
+  }
+  if (groupStatus(data, now) !== 'open') throw new Error('This Group Order is closed.');
+  if (readString(draft.pickupDate) !== readString(data.pickupDate)
+    || readString(draft.pickupSession) !== readString(data.pickupSession)
+    || readString(draft.pickupLocationId) !== readString(data.pickupLocationId)) {
+    throw new Error('Pickup details must match this Group Order.');
+  }
+  return {
+    id: snapshot.id,
+    shareCode: readString(data.shareCode),
+    name: readString(data.name),
+    hostId: readString(data.hostId),
+    hostName: readString(data.hostName),
+    rewardPercent: Number(data.rewardPercent) || 0
+  };
+};
+
+export const incrementGroupLifetimeOrderCountInTransaction = ({ db, transaction, groupOrder }) => {
+  const groupId = readString(groupOrder?.id);
+  if (!groupId) return;
+  transaction.update(db.collection('groupOrders').doc(groupId), {
+    lifetimeOrderCount: FieldValue.increment(1),
+    updatedAt: FieldValue.serverTimestamp()
+  });
+};
+
 export const calculateRewardContribution = order => {
   if (!order?.groupOrder?.id || order.orderSource !== 'online') return { eligibleSales: 0, rewardAmount: 0, eligible: false };
   const paid = order.payment?.status === 'paid';
@@ -192,45 +373,54 @@ export const calculateRewardContribution = order => {
   return { eligibleSales, rewardAmount, eligible: eligibleSales > 0 };
 };
 
-export const projectGroupReward = async ({ db, orderId, order }) => {
+export const projectGroupRewardInTransaction = async ({ db, transaction, orderId, order }) => {
   const entryReference = db.collection('hostRewardLedger').doc(orderId);
+  const previousSnapshot = await transaction.get(entryReference);
+  const previous = previousSnapshot.exists ? previousSnapshot.data() : null;
+  const previousGroupId = readString(previous?.groupId);
+  const nextGroupId = readString(order?.groupOrder?.id);
+  if (previousGroupId && nextGroupId && previousGroupId !== nextGroupId) {
+    throw new Error('An order cannot move between Group Orders.');
+  }
+  const groupId = nextGroupId || previousGroupId;
+  if (!groupId) return;
+  const groupReference = db.collection('groupOrders').doc(groupId);
+  const groupSnapshot = await transaction.get(groupReference);
+  if (!groupSnapshot.exists) return;
+  const group = groupSnapshot.data();
+  const contribution = order ? calculateRewardContribution(order) : { eligibleSales: 0, rewardAmount: 0, eligible: false };
+  const previousSales = Number(previous?.eligibleSales) || 0;
+  const previousEligible = previous?.eligible === true;
+  const orderCount = Math.max(0, (Number(group.orderCount) || 0) + (contribution.eligible ? 1 : 0) - (previousEligible ? 1 : 0));
+  const eligibleSales = roundMoney(Math.max(0, (Number(group.eligibleSales) || 0) + contribution.eligibleSales - previousSales));
+  const minimum = Number(group.minimumQualifyingSales) || 0;
+  const estimatedReward = eligibleSales >= minimum
+    ? roundMoney(eligibleSales * (Number(group.rewardPercent) || 0) / 100)
+    : 0;
+  transaction.set(groupReference, { orderCount, eligibleSales, estimatedReward, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  transaction.set(entryReference, {
+    orderId,
+    groupId,
+    hostId: readString(group.hostId),
+    workspaceId: readString(group.workspaceId),
+    storeId: readString(group.storeId),
+    eligible: contribution.eligible,
+    eligibleSales: contribution.eligibleSales,
+    rewardAmount: contribution.rewardAmount,
+    status: contribution.eligible ? 'pending' : 'excluded',
+    reason: contribution.eligible ? '' : 'not_paid_cancelled_or_refunded',
+    updatedAt: FieldValue.serverTimestamp()
+  }, { merge: true });
+};
+
+export const projectGroupReward = async ({ db, orderId }) => {
   await db.runTransaction(async transaction => {
-    const previousSnapshot = await transaction.get(entryReference);
-    const previous = previousSnapshot.exists ? previousSnapshot.data() : null;
-    const previousGroupId = readString(previous?.groupId);
-    const nextGroupId = readString(order?.groupOrder?.id);
-    if (previousGroupId && nextGroupId && previousGroupId !== nextGroupId) {
-      throw new Error('An order cannot move between Group Orders.');
-    }
-    const groupId = nextGroupId || previousGroupId;
-    if (!groupId) return;
-    const groupReference = db.collection('groupOrders').doc(groupId);
-    const groupSnapshot = await transaction.get(groupReference);
-    if (!groupSnapshot.exists) return;
-    const group = groupSnapshot.data();
-    const contribution = order ? calculateRewardContribution(order) : { eligibleSales: 0, rewardAmount: 0, eligible: false };
-    const previousSales = Number(previous?.eligibleSales) || 0;
-    const previousReward = Number(previous?.rewardAmount) || 0;
-    const previousEligible = previous?.eligible === true;
-    const orderCount = Math.max(0, (Number(group.orderCount) || 0) + (contribution.eligible ? 1 : 0) - (previousEligible ? 1 : 0));
-    const eligibleSales = roundMoney(Math.max(0, (Number(group.eligibleSales) || 0) + contribution.eligibleSales - previousSales));
-    const minimum = Number(group.minimumQualifyingSales) || 0;
-    const estimatedReward = eligibleSales >= minimum
-      ? roundMoney(eligibleSales * (Number(group.rewardPercent) || 0) / 100)
-      : 0;
-    transaction.set(groupReference, { orderCount, eligibleSales, estimatedReward, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-    transaction.set(entryReference, {
+    const orderSnapshot = await transaction.get(db.collection('storeOrders').doc(orderId));
+    await projectGroupRewardInTransaction({
+      db,
+      transaction,
       orderId,
-      groupId,
-      hostId: readString(group.hostId),
-      workspaceId: readString(group.workspaceId),
-      storeId: readString(group.storeId),
-      eligible: contribution.eligible,
-      eligibleSales: contribution.eligibleSales,
-      rewardAmount: contribution.rewardAmount,
-      status: contribution.eligible ? 'pending' : 'excluded',
-      reason: contribution.eligible ? '' : 'not_paid_cancelled_or_refunded',
-      updatedAt: FieldValue.serverTimestamp()
-    }, { merge: true });
+      order: orderSnapshot.exists ? { id: orderSnapshot.id, ...orderSnapshot.data() } : null
+    });
   });
 };

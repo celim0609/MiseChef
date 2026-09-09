@@ -57,6 +57,21 @@ after(async () => {
 });
 
 describe('Workspace Recipe visibility', () => {
+  test('a registered Personal user owns their UID recipe namespace without receiving a Business Workspace', async () => {
+    const personalRecipe = recipe({ id: 'personal-recipe', workspaceId: 'personal-user', userId: 'personal-user' });
+    const db = authDb('personal-user');
+    await assertSucceeds(setDoc(doc(db, 'recipes', personalRecipe.id), personalRecipe));
+    await assertSucceeds(setDoc(doc(db, 'categories', 'personal-category'), {
+      id: 'personal-category', workspaceId: 'personal-user', companyId: 'personal-user',
+      userId: 'personal-user', name: 'Personal'
+    }));
+    const recipes = await assertSucceeds(getDocs(query(collection(db, 'recipes'), where('workspaceId', '==', 'personal-user'))));
+    assert.deepEqual(recipes.docs.map(item => item.id), ['personal-recipe']);
+    await assertFails(setDoc(doc(authDb('other-user'), 'recipes', 'stolen-personal-recipe'), {
+      ...personalRecipe, id: 'stolen-personal-recipe'
+    }));
+  });
+
   test('owner and same-workspace member query a private recipe by workspaceId, including after refresh', async () => {
     const workspaceId = 'owner-a';
     await seedWorkspace({

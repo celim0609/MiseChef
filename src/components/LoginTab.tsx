@@ -122,7 +122,7 @@ const getAuthErrorMessage = (error: unknown) => {
 interface LoginTabProps {
   currentUser: User | null;
   onAuthenticated: () => void;
-  onContinueAsGuest: () => void;
+  onContinueAsGuest: () => void | Promise<void>;
 }
 
 export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGuest }: LoginTabProps) {
@@ -195,13 +195,8 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
         }
       }
       setAuthError(getAuthErrorMessage(error));
-      setIsSubmitting(false);
     } finally {
-      if (auth.currentUser) {
-        setAuthMessage('Signed in with Google successfully.');
-        onAuthenticated();
-        setIsSubmitting(false);
-      }
+      setIsSubmitting(false);
     }
   };
 
@@ -292,7 +287,7 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
                   </button>
                   <button
                     type="button"
-                    onClick={onContinueAsGuest}
+                    onClick={() => void onContinueAsGuest()}
                     className={secondaryButtonClass}
                   >
                     Continue as Guest

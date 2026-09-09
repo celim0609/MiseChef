@@ -41,18 +41,24 @@ export const STORE_PAYMENT_METHODS = Object.freeze({
   touch_n_go_qr: { name: 'Touch ’n Go eWallet', provider: 'manual', mode: 'manual', receiptAllowed: true },
   duitnow_qr: { name: 'DuitNow QR', provider: 'manual', mode: 'manual', receiptAllowed: true },
   bank_transfer: { name: 'Bank Transfer', provider: 'manual', mode: 'manual', receiptAllowed: true },
-  stripe: { name: 'Stripe', provider: 'stripe', mode: 'single_merchant', receiptAllowed: false }
+  stripe: { name: 'Stripe', provider: 'stripe', mode: 'single_merchant', receiptAllowed: false },
+  curlec: { name: 'Curlec', provider: 'curlec', mode: 'standard_checkout', receiptAllowed: false }
 });
 
 export const getEnabledStorePaymentMethod = (store, methodId) => {
   const id = readString(methodId) || 'stripe';
   const definition = STORE_PAYMENT_METHODS[id];
   if (!definition) throw new Error('Choose a valid payment method.');
+  if (id === 'cash_on_pickup') {
+    throw new Error('Cash on Pickup is temporarily unavailable.');
+  }
   if (id === 'touch_n_go_qr' && readString(store.country) !== 'MY') {
     throw new Error('Touch ’n Go eWallet is available only for Malaysia Stores.');
   }
   const rawMethods = Array.isArray(store.paymentMethods) ? store.paymentMethods : [];
   const configured = rawMethods.find(method => readString(method?.id) === id);
+  // Legacy Stores keep their existing Stripe default. New gateway methods are
+  // opt-in and must be explicitly enabled by the Store owner.
   const enabled = configured ? configured.enabled === true : id === 'stripe';
   if (!enabled) throw new Error('This payment method is no longer available.');
   const qrCodeUrl = readString(configured?.qrCodeUrl);
@@ -168,6 +174,10 @@ const validateDraft = (store, draft, currentDate) => {
   if (readString(draft.customerName).length > 120) throw new Error('Name must be 120 characters or fewer.');
   const phone = readString(draft.phone);
   if (phone.replace(/\D/g, '').length < 6 || phone.length > 40) throw new Error('Enter a valid phone number.');
+  const customerEmail = readString(draft.customerEmail).toLowerCase();
+  if (customerEmail && (customerEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail))) {
+    throw new Error('Enter a valid email address.');
+  }
   if (!isDelivery && !getValidPickupDates(store, currentDate).includes(readString(draft.pickupDate))) {
     throw new Error('Choose an available pickup date.');
   }
@@ -345,6 +355,7 @@ export const buildPendingOrder = ({
   paymentProviderMode,
   paymentMethod,
   groupOrder = null,
+  customerUid = '',
   draft,
   now = new Date()
 }) => {
@@ -378,6 +389,7 @@ export const buildPendingOrder = ({
     storeId: readString(store.id) || readString(store.workspaceId),
     workspaceId: readString(store.workspaceId) || readString(store.id),
     orderSource: 'online',
+    ...(readString(customerUid) ? { customerUid: readString(customerUid) } : {}),
     ...(groupOrder ? {
       groupOrder: {
         id: readString(groupOrder.id),
@@ -395,6 +407,7 @@ export const buildPendingOrder = ({
     customerName: readString(draft.customerName),
     phone: readString(draft.phone),
     fulfilmentMethod: draft.deliverySnapshot ? 'delivery' : 'pickup',
+    ...(readString(draft.customerEmail) ? { customerEmail: readString(draft.customerEmail).toLowerCase() } : {}),
     pickupDate: readString(draft.pickupDate),
     pickupSession: readString(draft.pickupSession),
     pickupLocationId: readString(pickupLocation?.id),
@@ -437,6 +450,21 @@ export const buildPendingOrder = ({
   };
 };
 
+export const toPublicGroupOrderContext = order => {
+  const id = readString(order?.groupOrder?.id);
+  if (!id) return {};
+  return {
+    groupOrder: {
+      id,
+      name: readString(order.groupOrder?.name),
+      hostName: readString(order.groupOrder?.hostName),
+      pickupDate: readString(order.pickupDate),
+      pickupSession: readString(order.pickupSession),
+      pickupLocationName: readString(order.pickupLocationName)
+    }
+  };
+};
+
 export const toPublicOrderResult = order => ({
   orderNumber: readString(order.orderNumber),
   pickupCode: readString(order.pickupCode),
@@ -448,5 +476,6 @@ export const toPublicOrderResult = order => ({
   pickupLocationName: readString(order.pickupLocationName),
   total: readNumber(order.total),
   status: readString(order.status),
-  paymentStatus: readString(order.payment?.status)
+  paymentStatus: readString(order.payment?.status),
+  ...toPublicGroupOrderContext(order)
 });

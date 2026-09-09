@@ -53,6 +53,11 @@ test('Stripe secrets stay server-side and webhook verification uses the raw sign
   assert.match(stripeAdapter, /refund\./);
 });
 
+test('Curlec uses the documented stable event-id header with a retry-stable signed-payload fallback', () => {
+  assert.match(functionsIndex, /x-razorpay-event-id/);
+  assert.match(functionsIndex, /getCurlecWebhookDedupeId\(payload\)/);
+});
+
 test('single-merchant routing is server configured and client orders cannot name a merchant', () => {
   assert.match(functionsIndex, /defineString\('SELLING_WORKSPACE_ID'/);
   assert.match(paymentService, /assertSellingWorkspace\(checkoutData\.store, sellingWorkspaceId\)/);

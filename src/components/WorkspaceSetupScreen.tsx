@@ -11,9 +11,9 @@ export default function WorkspaceSetupScreen({ error = '' }: { error?: string })
         className="w-full max-w-md rounded-3xl border border-surface-container-high bg-surface-container-low p-8 text-center shadow-sm"
       >
         <BrandLogo className="mx-auto h-10 w-auto" />
-        <h1 className="mt-6 font-display text-3xl font-semibold text-primary">Setting up your workspace…</h1>
+        <h1 className="mt-6 font-display text-3xl font-semibold text-primary">Setting up My MiseChef…</h1>
         <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">
-          {error || 'Preparing your profile, Owner access, and Professional trial.'}
+          {error || 'Preparing your personal profile and recipes.'}
         </p>
       </motion.section>
     </div>

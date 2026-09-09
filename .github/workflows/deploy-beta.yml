@@ -104,4 +104,6 @@ jobs:
 
       - name: Run canonical protected full-resource Beta release
         working-directory: candidate
+        env:
+          MISECHEF_BETA_TRUSTED_GATE_ROOT: ${{ github.workspace }}/trusted-gate
         run: npm run deploy:beta

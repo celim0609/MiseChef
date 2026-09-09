@@ -1,13 +1,21 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  MAX_STORE_GROUP_BATCH_ORDERS,
   canTransitionStoreFulfilment,
+  updateStoreGroupOrderFulfilment,
   updateStoreOrderFulfilment
 } from './storeFulfilment.js';
 
 const snapshot = value => ({
   exists: value !== undefined,
   data: () => value
+});
+
+const activeBusinessWorkspace = workspace => ({
+  subscriptionPlan: 'professional',
+  subscriptionStatus: 'active',
+  ...workspace
 });
 
 const createFakeDb = documents => {
@@ -20,10 +28,33 @@ const createFakeDb = documents => {
   return {
     writes,
     collection(collectionName) {
-      return { doc: id => reference(collectionName, id) };
+      return {
+        doc: id => reference(collectionName, id),
+        where: (field, operator, value) => ({ collectionName, field, operator, value, query: true })
+      };
     },
     runTransaction: handler => handler({
-      get: ref => Promise.resolve(snapshot(documents[ref.key])),
+      get: ref => {
+        if (!ref.query) {
+          const value = documents[ref.key];
+          return Promise.resolve(snapshot(
+            ref.collectionName === 'workspaces' && value !== undefined
+              ? activeBusinessWorkspace(value)
+              : value
+          ));
+        }
+        const fieldValue = (data, field) => field.split('.').reduce((value, key) => value?.[key], data);
+        return Promise.resolve({
+          docs: Object.entries(documents)
+            .filter(([key, data]) => key.startsWith(`${ref.collectionName}/`)
+              && ref.operator === '=='
+              && fieldValue(data, ref.field) === ref.value)
+            .map(([key, data]) => {
+              const id = key.slice(key.indexOf('/') + 1);
+              return { id, ref: reference(ref.collectionName, id), data: () => data };
+            })
+        });
+      },
       update: (ref, data) => writes.push({ operation: 'update', ref, data }),
       create: (ref, data) => writes.push({ operation: 'create', ref, data })
     })
@@ -32,6 +63,7 @@ const createFakeDb = documents => {
 
 const paidOrder = {
   id: 'order-a',
+  customerUid: 'customer-a',
   orderNumber: 'MC-001',
   workspaceId: 'workspace-a',
   storeId: 'workspace-a',
@@ -85,6 +117,23 @@ test('New, Paid, Preparing, and Ready can cancel while Completed cannot', () => 
   assert.equal(canTransitionStoreFulfilment({ currentStatus: 'Cancelled', nextStatus: 'Preparing' }), false);
 });
 
+test('Store fulfilment fails closed without an active Business entitlement', async () => {
+  const db = createFakeDb({
+    'storeOrders/order-a': paidOrder,
+    'workspaces/workspace-a': { ownerId: 'owner-a', subscriptionPlan: 'free', subscriptionStatus: 'active' }
+  });
+  await assert.rejects(
+    updateStoreOrderFulfilment({
+      db,
+      uid: 'owner-a',
+      orderId: 'order-a',
+      nextStatus: 'Preparing'
+    }),
+    error => error?.code === 'permission-denied' && /Business subscription/.test(error.message)
+  );
+  assert.equal(db.writes.length, 0);
+});
+
 test('cancellation preserves payment data and writes the required audit fields', async () => {
   const db = createFakeDb({
     'storeOrders/order-a': paidOrder,
@@ -106,6 +155,7 @@ test('cancellation preserves payment data and writes the required audit fields',
   assert.ok(update.cancelledAt);
   assert.equal('payment' in update, false);
   assert.equal('status' in update, false);
+  assert.equal('customerUid' in update, false);
   assert.equal(result.cancellationReason, 'Customer requested cancellation');
   assert.equal(db.writes[1].data.cancellationReason, 'Customer requested cancellation');
 });
@@ -148,6 +198,27 @@ test('Workspace Owner can update fulfilment and a permanent server timeline even
   assert.equal(db.writes[1].data.previousStatus, 'Paid');
   assert.equal(db.writes[1].data.newStatus, 'Preparing');
   assert.equal(db.writes[1].data.actingUserId, 'owner-a');
+});
+
+test('an online manual order cannot enter operations until payment is confirmed', async () => {
+  const db = createFakeDb({
+    'storeOrders/order-a': {
+      ...paidOrder,
+      fulfilmentStatus: 'New',
+      orderSource: 'online',
+      paymentMethodId: 'duitnow_qr',
+      payment: { status: 'pending_verification', refundStatus: 'none' }
+    },
+    'workspaces/workspace-a': { ownerId: 'owner-a' }
+  });
+
+  await assert.rejects(updateStoreOrderFulfilment({
+    db,
+    uid: 'owner-a',
+    orderId: 'order-a',
+    nextStatus: 'Preparing'
+  }), error => error.code === 'failed-precondition' && /Confirm payment/.test(error.message));
+  assert.equal(db.writes.length, 0);
 });
 
 test('completion writes a canonical completion clock without changing payment or creation fields', async () => {
@@ -254,4 +325,168 @@ test('marking an order Ready creates one deterministic persistent notification',
   assert.equal(db.writes[2].data.type, 'order_ready');
   assert.equal(db.writes[2].data.orderId, 'order-a');
   assert.equal(db.writes[2].data.readAt, null);
+});
+
+const groupOrder = (id, overrides = {}) => ({
+  orderNumber: `MC-${id}`,
+  workspaceId: 'workspace-a',
+  storeId: 'store-a',
+  groupOrder: { id: 'group-a' },
+  fulfilmentStatus: 'New',
+  payment: { status: 'paid', refundStatus: 'none' },
+  ...overrides
+});
+
+const groupDocuments = orders => ({
+  'groupOrders/group-a': { workspaceId: 'workspace-a', storeId: 'store-a', hostUid: 'host-a' },
+  'workspaces/workspace-a': { ownerId: 'owner-a' },
+  ...Object.fromEntries(orders.map(([id, data]) => [`storeOrders/${id}`, data]))
+});
+
+test('Group batch start advances only exact paid New members and preserves every other order', async () => {
+  const db = createFakeDb({
+    ...groupDocuments([
+      ['eligible', groupOrder('eligible')],
+      ['preparing', groupOrder('preparing', { fulfilmentStatus: 'Preparing' })],
+      ['ready', groupOrder('ready', { fulfilmentStatus: 'Ready' })],
+      ['pending', groupOrder('pending', { payment: { status: 'pending_verification', refundStatus: 'none' } })],
+      ['cancelled', groupOrder('cancelled', { fulfilmentStatus: 'Cancelled' })],
+      ['completed', groupOrder('completed', { fulfilmentStatus: 'Completed' })]
+    ]),
+    'storeOrders/other-group': groupOrder('other-group', { groupOrder: { id: 'group-b' } })
+  });
+
+  const result = await updateStoreGroupOrderFulfilment({
+    db,
+    uid: 'owner-a',
+    groupId: 'group-a',
+    action: 'start_preparing'
+  });
+
+  assert.equal(result.matchedOrderCount, 6);
+  assert.equal(result.transitionedOrderCount, 1);
+  const updates = db.writes.filter(write => write.operation === 'update');
+  assert.deepEqual(updates.map(write => write.ref.key), ['storeOrders/eligible']);
+  assert.equal(updates[0].data.fulfilmentStatus, 'Preparing');
+  assert.equal('payment' in updates[0].data, false);
+  assert.equal('groupOrder' in updates[0].data, false);
+  assert.equal(db.writes[1].ref.key, 'storeOrderTimeline/eligible_preparing');
+});
+
+test('Group batch Ready advances only paid Preparing members and preserves Ready notifications', async () => {
+  const db = createFakeDb(groupDocuments([
+    ['new', groupOrder('new')],
+    ['preparing-a', groupOrder('preparing-a', { fulfilmentStatus: 'Preparing' })],
+    ['preparing-b', groupOrder('preparing-b', { fulfilmentStatus: 'Preparing' })],
+    ['ready', groupOrder('ready', { fulfilmentStatus: 'Ready' })]
+  ]));
+
+  const result = await updateStoreGroupOrderFulfilment({
+    db,
+    uid: 'owner-a',
+    groupId: 'group-a',
+    action: 'mark_ready'
+  });
+
+  assert.equal(result.transitionedOrderCount, 2);
+  assert.deepEqual(
+    db.writes.filter(write => write.operation === 'update').map(write => write.ref.key),
+    ['storeOrders/preparing-a', 'storeOrders/preparing-b']
+  );
+  assert.deepEqual(
+    db.writes.filter(write => write.ref.collectionName === 'storeNotifications').map(write => write.ref.key),
+    ['storeNotifications/order-ready_preparing-a', 'storeNotifications/order-ready_preparing-b']
+  );
+});
+
+test('Group batch completion advances only paid Ready members and is an idempotent no-op afterward', async () => {
+  const documents = groupDocuments([
+    ['ready', groupOrder('ready', { fulfilmentStatus: 'Ready' })],
+    ['completed', groupOrder('completed', { fulfilmentStatus: 'Completed' })]
+  ]);
+  const db = createFakeDb(documents);
+  const result = await updateStoreGroupOrderFulfilment({
+    db,
+    uid: 'owner-a',
+    groupId: 'group-a',
+    action: 'complete'
+  });
+  assert.equal(result.transitionedOrderCount, 1);
+  assert.equal(db.writes[0].data.fulfilmentStatus, 'Completed');
+  assert.ok(db.writes[0].data.completedAt);
+
+  const noOpDb = createFakeDb(groupDocuments([
+    ['completed', groupOrder('completed', { fulfilmentStatus: 'Completed' })]
+  ]));
+  const noOp = await updateStoreGroupOrderFulfilment({
+    db: noOpDb,
+    uid: 'owner-a',
+    groupId: 'group-a',
+    action: 'complete'
+  });
+  assert.equal(noOp.transitionedOrderCount, 0);
+  assert.equal(noOpDb.writes.length, 0);
+});
+
+test('Group Host ownership alone never grants Kitchen batch authority', async () => {
+  const db = createFakeDb({
+    ...groupDocuments([['eligible', groupOrder('eligible')]]),
+    'workspaces/workspace-a': { ownerId: 'owner-a' }
+  });
+  await assert.rejects(updateStoreGroupOrderFulfilment({
+    db,
+    uid: 'host-a',
+    groupId: 'group-a',
+    action: 'start_preparing'
+  }), error => error.code === 'permission-denied');
+  assert.equal(db.writes.length, 0);
+});
+
+test('an active Kitchen operator can run a Group batch through the existing Store role boundary', async () => {
+  const db = createFakeDb({
+    ...groupDocuments([['eligible', groupOrder('eligible')]]),
+    'workspaceMembers/workspace-a_chef-a': {
+      userId: 'chef-a',
+      workspaceId: 'workspace-a',
+      role: 'Chef',
+      status: 'Active'
+    }
+  });
+  const result = await updateStoreGroupOrderFulfilment({
+    db,
+    uid: 'chef-a',
+    groupId: 'group-a',
+    action: 'start_preparing'
+  });
+  assert.equal(result.transitionedOrderCount, 1);
+  assert.equal(db.writes[0].data.fulfilmentUpdatedBy, 'chef-a');
+});
+
+test('Group batch fails closed on canonical Store identity mismatch before any write', async () => {
+  const db = createFakeDb(groupDocuments([
+    ['eligible', groupOrder('eligible')],
+    ['wrong-store', groupOrder('wrong-store', { storeId: 'store-b' })]
+  ]));
+  await assert.rejects(updateStoreGroupOrderFulfilment({
+    db,
+    uid: 'owner-a',
+    groupId: 'group-a',
+    action: 'start_preparing'
+  }), error => error.code === 'failed-precondition');
+  assert.equal(db.writes.length, 0);
+});
+
+test('Group batch enforces its atomic write ceiling before any write', async () => {
+  const orders = Array.from({ length: MAX_STORE_GROUP_BATCH_ORDERS + 1 }, (_, index) => {
+    const id = `order-${index}`;
+    return [id, groupOrder(id)];
+  });
+  const db = createFakeDb(groupDocuments(orders));
+  await assert.rejects(updateStoreGroupOrderFulfilment({
+    db,
+    uid: 'owner-a',
+    groupId: 'group-a',
+    action: 'start_preparing'
+  }), error => error.code === 'resource-exhausted');
+  assert.equal(db.writes.length, 0);
 });

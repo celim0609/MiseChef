@@ -13,6 +13,10 @@ interface CostingInvoicesPageProps {
   onQuickAddHandled?: (requestId: number) => void;
 }
 
+const INVOICE_FILE_ACCEPT = 'application/pdf,.pdf,image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp';
+const SUPPORTED_INVOICE_EXTENSIONS = ['.pdf', '.jpg', '.jpeg', '.png', '.webp'];
+const SUPPORTED_INVOICE_MIME_TYPES = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp']);
+
 const statusClassName: Record<CostingInvoiceStatus, string> = {
   Pending: 'bg-yellow-100 text-yellow-800',
   Processing: 'bg-blue-100 text-blue-800',
@@ -22,18 +26,17 @@ const statusClassName: Record<CostingInvoiceStatus, string> = {
   Archived: 'bg-surface-container-high text-on-surface-variant'
 };
 
-const formatFileSize = (size: number) => {
-  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-};
-
 const formatUploadDate = (value: string) => value ? new Date(value).toLocaleString() : '';
 
-const getFileType = (file: File): CostingInvoiceFileType => {
-  if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) return 'PDF';
-  if (file.type.startsWith('image/')) return 'Image';
-  return 'Excel';
+const isSupportedInvoiceFile = (file: File) => {
+  const lowerName = file.name.toLowerCase();
+  return SUPPORTED_INVOICE_MIME_TYPES.has(file.type.toLowerCase())
+    || SUPPORTED_INVOICE_EXTENSIONS.some(extension => lowerName.endsWith(extension));
 };
+
+const getFileType = (file: File): CostingInvoiceFileType => (
+  file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf') ? 'PDF' : 'Image'
+);
 
 const isDirectDeleteStatus = (status: CostingInvoiceStatus) => ['Pending', 'Processed', 'Failed'].includes(status);
 const invoiceStatuses: CostingInvoiceStatus[] = ['Pending', 'Processing', 'Processed', 'Imported', 'Failed', 'Archived'];
@@ -84,19 +87,14 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
         const invoices = await invoiceService.listInvoices(userId, { includeArchived: showArchived, workspaceId: workspaceId || userId });
         if (!isCancelled) setInvoiceHistory(invoices);
       } catch (err) {
-        if (!isCancelled) {
-          setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to load invoices.'));
-        }
+        if (!isCancelled) setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to load invoices.'));
       } finally {
         if (!isCancelled) setIsLoading(false);
       }
     };
 
     loadInvoices();
-
-    return () => {
-      isCancelled = true;
-    };
+    return () => { isCancelled = true; };
   }, [showArchived, userId, workspaceId]);
 
   const handleInvoiceUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -114,27 +112,45 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
     setMessage('');
     setErrorMessage('');
 
+    let successCount = 0;
+    const failures: string[] = [];
+
     try {
-      const uploadedInvoices: CostingInvoice[] = [];
       for (let index = 0; index < files.length; index += 1) {
         const file = files[index];
-        const invoice = await invoiceService.uploadInvoice({
-          file,
-          fileType: getFileType(file),
-          userId,
-          workspaceId: workspaceId || userId,
-          onProgress: progress => {
-            const fileOffset = (index / files.length) * 100;
-            setUploadProgress(Math.round(fileOffset + (progress / files.length)));
-          }
-        });
-        uploadedInvoices.push(invoice);
+        if (!isSupportedInvoiceFile(file)) {
+          failures.push(`${file.name}: unsupported file type`);
+          setUploadProgress(Math.round(((index + 1) / files.length) * 100));
+          continue;
+        }
+
+        try {
+          const invoice = await invoiceService.uploadInvoice({
+            file,
+            fileType: getFileType(file),
+            userId,
+            workspaceId: workspaceId || userId,
+            onProgress: progress => {
+              const fileOffset = (index / files.length) * 100;
+              setUploadProgress(Math.round(fileOffset + (progress / files.length)));
+            }
+          });
+          successCount += 1;
+          setInvoiceHistory(current => [invoice, ...current]);
+        } catch (err) {
+          failures.push(`${file.name}: ${getCustomerFriendlyErrorMessage(err, 'upload failed')}`);
+        }
       }
 
-      setInvoiceHistory(current => [...uploadedInvoices, ...current]);
-      setMessage(files.length === 1 ? 'Invoice uploaded.' : `${files.length} invoices uploaded.`);
-    } catch (err) {
-      setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to upload invoice.'));
+      if (successCount > 0) {
+        setMessage(successCount === 1 ? '1 invoice uploaded.' : `${successCount} invoices uploaded.`);
+      }
+      if (failures.length > 0) {
+        const failureSummary = failures.length === 1 ? failures[0] : `${failures.length} files failed to upload.`;
+        setErrorMessage(successCount > 0
+          ? `${failureSummary} The successful uploads are already in Invoice History.`
+          : failureSummary);
+      }
     } finally {
       setIsUploading(false);
       setUploadProgress(null);
@@ -157,14 +173,10 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
     setActiveLifecycleInvoiceId(invoice.id);
     setErrorMessage('');
     setMessage('');
-
     try {
       const updates = await invoiceService.archiveInvoice(invoice, userId);
-      if (showArchived) {
-        updateInvoiceInHistory(invoice.id, updates);
-      } else {
-        removeInvoiceFromHistory(invoice.id);
-      }
+      if (showArchived) updateInvoiceInHistory(invoice.id, updates);
+      else removeInvoiceFromHistory(invoice.id);
       notifyInvoiceLifecycleChanged();
       setMessage('Invoice archived. It is hidden from the default history view.');
     } catch (err) {
@@ -179,7 +191,6 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
     setActiveLifecycleInvoiceId(invoice.id);
     setErrorMessage('');
     setMessage('');
-
     try {
       const updates = await invoiceService.restoreInvoice(invoice, userId);
       updateInvoiceInHistory(invoice.id, updates);
@@ -194,7 +205,6 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
 
   const handleDeleteInvoice = async (invoice: CostingInvoice) => {
     if (!userId || !canManageInvoices) return;
-
     const isImported = invoice.processingStatus === 'Imported' || Boolean(invoice.approvedAt);
     const confirmed = window.confirm(isImported
       ? 'Delete this imported invoice?\n\nThis will roll back imported ingredient changes, mark price history as rolled back, queue recipe recalculation, delete the invoice record, and delete the uploaded file.'
@@ -204,7 +214,6 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
     setActiveLifecycleInvoiceId(invoice.id);
     setErrorMessage('');
     setMessage('');
-
     try {
       if (isImported) {
         await invoiceLifecycleService.rollbackImport({ invoice, userId, workspaceId: workspaceId || userId });
@@ -224,40 +233,19 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
 
   const handleProcessInvoice = async (invoice: CostingInvoice) => {
     if (invoice.processingStatus !== 'Pending') return;
-
     const processingStartedAt = new Date().toISOString();
     setProcessingInvoiceId(invoice.id);
     setMessage('');
     setErrorMessage('');
-    updateInvoiceInHistory(invoice.id, {
-      processingStatus: 'Processing',
-      status: 'Processing',
-      processingStartedAt,
-      errorMessage: null
-    });
+    updateInvoiceInHistory(invoice.id, { processingStatus: 'Processing', status: 'Processing', processingStartedAt, errorMessage: null });
 
     try {
-      await invoiceService.updateInvoice(invoice.id, {
-        processingStatus: 'Processing',
-        status: 'Processing',
-        processingStartedAt,
-        errorMessage: null
-      });
-
-      const result = await invoiceProcessor.processInvoice({
-        ...invoice,
-        processingStatus: 'Processing',
-        status: 'Processing',
-        processingStartedAt,
-        errorMessage: null
-      });
+      await invoiceService.updateInvoice(invoice.id, { processingStatus: 'Processing', status: 'Processing', processingStartedAt, errorMessage: null });
+      const result = await invoiceProcessor.processInvoice({ ...invoice, processingStatus: 'Processing', status: 'Processing', processingStartedAt, errorMessage: null });
       const extractedData = result.extractedData;
       const processingCompletedAt = new Date().toISOString();
       const processedUpdates: Partial<CostingInvoice> = {
-        processingStatus: 'Processed',
-        status: 'Processed',
-        processingCompletedAt,
-        extractedData,
+        processingStatus: 'Processed', status: 'Processed', processingCompletedAt, extractedData,
         supplier: extractedData?.supplier || invoice.supplier,
         invoiceNumber: extractedData?.invoiceNumber || invoice.invoiceNumber,
         invoiceDate: extractedData?.invoiceDate || invoice.invoiceDate,
@@ -267,20 +255,13 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
         total: extractedData?.total ?? invoice.total,
         errorMessage: null
       };
-
       await invoiceService.updateInvoice(invoice.id, processedUpdates);
       updateInvoiceInHistory(invoice.id, processedUpdates);
       setMessage('Invoice OCR completed.');
     } catch (err) {
       const processingCompletedAt = new Date().toISOString();
       const errorText = getCustomerFriendlyErrorMessage(err, 'Unable to process invoice.');
-      const failedUpdates: Partial<CostingInvoice> = {
-        processingStatus: 'Failed',
-        status: 'Failed',
-        processingCompletedAt,
-        errorMessage: errorText
-      };
-
+      const failedUpdates: Partial<CostingInvoice> = { processingStatus: 'Failed', status: 'Failed', processingCompletedAt, errorMessage: errorText };
       await invoiceService.updateInvoice(invoice.id, failedUpdates).catch(() => undefined);
       updateInvoiceInHistory(invoice.id, failedUpdates);
       setErrorMessage(errorText);
@@ -291,18 +272,10 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
 
   const visibleInvoices = invoiceHistory.filter(invoice => {
     if (statusFilter && invoice.processingStatus !== statusFilter) return false;
-
     const query = searchQuery.trim().toLowerCase();
     if (!query) return true;
-
-    return [
-      invoice.fileName,
-      invoice.displayName,
-      invoice.supplier,
-      invoice.invoiceNumber,
-      invoice.processingStatus,
-      invoice.status
-    ].some(value => String(value || '').toLowerCase().includes(query));
+    return [invoice.fileName, invoice.displayName, invoice.supplier, invoice.invoiceNumber, invoice.processingStatus, invoice.status]
+      .some(value => String(value || '').toLowerCase().includes(query));
   });
 
   const clearStatusFilter = () => {
@@ -315,31 +288,24 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
       <section className="bg-surface-container-low border border-surface-container-high rounded-2xl p-6 sm:p-8 shadow-sm">
         <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Costing</p>
         <h2 className="font-display text-3xl sm:text-4xl font-bold text-primary tracking-tight mt-1">Invoice Upload</h2>
-        <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">Upload supplier invoices now. OCR, AI parsing, ingredient creation, and costing calculations will be added later.</p>
+        <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">Upload supplier invoices, extract invoice data with OCR, review ingredient matches, and update costing from one workflow.</p>
       </section>
 
       <section className="rounded-2xl border border-surface-container-high bg-white p-5 shadow-sm space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="font-sans text-xs font-extrabold text-primary uppercase tracking-[0.16em]">Invoice Center</p>
-            <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Supported files: PDF, images, Excel, and CSV exports.</p>
+            <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Supported files: PDF, JPG, PNG, and WEBP up to 10 MB.</p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
-            <button type="button" onClick={() => singleUploadInputRef.current?.click()} disabled={isUploading} className="rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary shadow-sm active:scale-95 transition-all disabled:opacity-50">
-              Upload Invoice
-            </button>
-            <button type="button" onClick={() => multipleUploadInputRef.current?.click()} disabled={isUploading} className="rounded-full border border-surface-container-high px-5 py-3 font-sans text-xs font-extrabold text-primary active:scale-95 transition-all disabled:opacity-50">
-              Upload Multiple
-            </button>
-            <button type="button" onClick={() => setShowArchived(current => !current)} className="rounded-full border border-surface-container-high px-5 py-3 font-sans text-xs font-extrabold text-primary active:scale-95 transition-all">
-              {showArchived ? 'Hide Archived' : 'Show Archived'}
-            </button>
+            <button type="button" onClick={() => singleUploadInputRef.current?.click()} disabled={isUploading} className="rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary shadow-sm active:scale-95 transition-all disabled:opacity-50">Upload Invoice</button>
+            <button type="button" onClick={() => multipleUploadInputRef.current?.click()} disabled={isUploading} className="rounded-full border border-surface-container-high px-5 py-3 font-sans text-xs font-extrabold text-primary active:scale-95 transition-all disabled:opacity-50">Upload Multiple</button>
+            <button type="button" onClick={() => setShowArchived(current => !current)} className="rounded-full border border-surface-container-high px-5 py-3 font-sans text-xs font-extrabold text-primary active:scale-95 transition-all">{showArchived ? 'Hide Archived' : 'Show Archived'}</button>
           </div>
         </div>
 
-        <input ref={singleUploadInputRef} type="file" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp,.xls,.xlsx,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" onChange={handleInvoiceUpload} className="hidden" />
-        <input ref={multipleUploadInputRef} type="file" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp,.xls,.xlsx,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" multiple onChange={handleInvoiceUpload} className="hidden" />
-
+        <input ref={singleUploadInputRef} type="file" accept={INVOICE_FILE_ACCEPT} onChange={handleInvoiceUpload} className="hidden" />
+        <input ref={multipleUploadInputRef} type="file" accept={INVOICE_FILE_ACCEPT} multiple onChange={handleInvoiceUpload} className="hidden" />
         {isUploading && uploadProgress !== null && <p className="font-sans text-xs font-extrabold text-secondary">Uploading invoices... {uploadProgress}%</p>}
         {message && <p className="font-sans text-xs font-extrabold text-primary">{message}</p>}
         {errorMessage && <p className="font-sans text-xs font-extrabold text-error">{errorMessage}</p>}
@@ -361,20 +327,10 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
         <div className="flex max-w-xl flex-col gap-3 sm:flex-row sm:items-center">
           <label className="relative block flex-1">
             <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-outline" />
-            <input
-              value={searchQuery}
-              onChange={event => setSearchQuery(event.target.value)}
-              placeholder="Search invoices, suppliers, numbers, status..."
-              className="w-full rounded-full border border-surface-container-high bg-white py-3 pl-11 pr-4 font-sans text-sm font-bold text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
-            />
+            <input value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="Search invoices, suppliers, numbers, status..." className="w-full rounded-full border border-surface-container-high bg-white py-3 pl-11 pr-4 font-sans text-sm font-bold text-primary outline-none focus:border-primary focus:ring-2 focus:ring-primary/10" />
           </label>
           {statusFilter && (
-            <button
-              type="button"
-              onClick={clearStatusFilter}
-              className="w-fit rounded-full border border-primary/20 bg-primary/10 px-4 py-2 font-sans text-xs font-extrabold text-primary transition-colors hover:bg-primary/15"
-              aria-label={`Clear ${getStatusFilterLabel(statusFilter)} filter`}
-            >
+            <button type="button" onClick={clearStatusFilter} className="w-fit rounded-full border border-primary/20 bg-primary/10 px-4 py-2 font-sans text-xs font-extrabold text-primary transition-colors hover:bg-primary/15" aria-label={`Clear ${getStatusFilterLabel(statusFilter)} filter`}>
               {getStatusFilterLabel(statusFilter)} ×
             </button>
           )}
@@ -396,56 +352,32 @@ export default function CostingInvoicesPage({ userId, workspaceId, canManageInvo
                   <td className="px-4 py-3 font-bold text-primary">
                     <button type="button" onClick={() => onOpenInvoice(invoice.id)} className="text-left hover:underline">
                       <span className="block font-extrabold">{getInvoiceDisplayName(invoice)}</span>
-                      {getInvoiceSecondaryLabel(invoice) && (
-                        <span className="mt-1 block text-xs font-bold text-on-surface-variant">{getInvoiceSecondaryLabel(invoice)}</span>
-                      )}
+                      {getInvoiceSecondaryLabel(invoice) && <span className="mt-1 block text-xs font-bold text-on-surface-variant">{getInvoiceSecondaryLabel(invoice)}</span>}
                     </button>
                   </td>
                   <td className="px-4 py-3 font-bold text-on-surface-variant">{formatUploadDate(invoice.uploadDate)}</td>
                   <td className="px-4 py-3"><span className={`rounded-full px-3 py-1 font-sans text-[10px] font-extrabold ${statusClassName[invoice.processingStatus]}`}>{processingInvoiceId === invoice.id ? 'Processing...' : invoice.processingStatus}</span></td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleProcessInvoice(invoice)}
-                        disabled={invoice.processingStatus !== 'Pending' || processingInvoiceId === invoice.id}
-                        className="rounded-full bg-primary px-4 py-2 font-sans text-xs font-extrabold text-on-primary active:scale-95 transition-all disabled:cursor-not-allowed disabled:opacity-50"
-                      >
+                      <button type="button" onClick={() => handleProcessInvoice(invoice)} disabled={invoice.processingStatus !== 'Pending' || processingInvoiceId === invoice.id} className="rounded-full bg-primary px-4 py-2 font-sans text-xs font-extrabold text-on-primary active:scale-95 transition-all disabled:cursor-not-allowed disabled:opacity-50">
                         {processingInvoiceId === invoice.id ? 'Processing...' : invoice.processingStatus === 'Pending' ? 'Process Invoice' : invoice.processingStatus}
                       </button>
                       {canManageInvoices && invoice.processingStatus !== 'Archived' && (
-                        <button type="button" onClick={() => handleArchiveInvoice(invoice)} disabled={activeLifecycleInvoiceId === invoice.id || invoice.processingStatus === 'Processing'} className="rounded-full border border-surface-container-high px-3 py-2 font-sans text-xs font-extrabold text-primary disabled:opacity-50">
-                          <Archive className="h-3.5 w-3.5" />
-                        </button>
+                        <button type="button" onClick={() => handleArchiveInvoice(invoice)} disabled={activeLifecycleInvoiceId === invoice.id || invoice.processingStatus === 'Processing'} className="rounded-full border border-surface-container-high px-3 py-2 font-sans text-xs font-extrabold text-primary disabled:opacity-50"><Archive className="h-3.5 w-3.5" /></button>
                       )}
                       {canManageInvoices && invoice.processingStatus === 'Archived' && (
-                        <button type="button" onClick={() => handleRestoreInvoice(invoice)} disabled={activeLifecycleInvoiceId === invoice.id} className="rounded-full border border-primary/30 px-3 py-2 font-sans text-xs font-extrabold text-primary disabled:opacity-50">
-                          <RotateCcw className="h-3.5 w-3.5" />
-                        </button>
+                        <button type="button" onClick={() => handleRestoreInvoice(invoice)} disabled={activeLifecycleInvoiceId === invoice.id} className="rounded-full border border-primary/30 px-3 py-2 font-sans text-xs font-extrabold text-primary disabled:opacity-50"><RotateCcw className="h-3.5 w-3.5" /></button>
                       )}
                       {canManageInvoices && invoice.processingStatus !== 'Processing' && (
-                        <button type="button" onClick={() => handleDeleteInvoice(invoice)} disabled={activeLifecycleInvoiceId === invoice.id} className="rounded-full border border-error/30 px-3 py-2 font-sans text-xs font-extrabold text-error disabled:opacity-50">
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        <button type="button" onClick={() => handleDeleteInvoice(invoice)} disabled={activeLifecycleInvoiceId === invoice.id} className="rounded-full border border-error/30 px-3 py-2 font-sans text-xs font-extrabold text-error disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" /></button>
                       )}
                     </div>
                   </td>
                 </tr>
               )) : isLoading ? (
-                <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center">
-                    <p className="font-sans text-sm font-bold text-on-surface-variant">Loading invoices...</p>
-                  </td>
-                </tr>
+                <tr><td colSpan={4} className="px-4 py-10 text-center"><p className="font-sans text-sm font-bold text-on-surface-variant">Loading invoices...</p></td></tr>
               ) : (
-                <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center">
-                    <Upload className="mx-auto h-8 w-8 text-outline" />
-                    <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">
-                      {searchQuery || statusFilter ? 'No invoices match your filters.' : 'No invoices uploaded yet.'}
-                    </p>
-                  </td>
-                </tr>
+                <tr><td colSpan={4} className="px-4 py-10 text-center"><Upload className="mx-auto h-8 w-8 text-outline" /><p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">{searchQuery || statusFilter ? 'No invoices match your filters.' : 'No invoices uploaded yet.'}</p></td></tr>
               )}
             </tbody>
           </table>

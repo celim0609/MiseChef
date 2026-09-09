@@ -2,6 +2,8 @@ import { doc, getDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '../firebase';
 import type { BillingCycle, PlanLimits, SubscriptionPlan, SubscriptionStatus, Workspace } from '../types';
+import { hasActiveBusinessEntitlement } from './businessEntitlement';
+export { hasActiveBusinessEntitlement } from './businessEntitlement';
 import {
   canPlanUseFeature,
   formatSubscriptionPlanName,
@@ -21,8 +23,6 @@ import {
 export type SubscriptionFeature = PlanFeature | 'advancedReports' | 'teamManagement';
 
 export type SubscriptionLimitType = keyof PlanLimits;
-
-export const FREE_TRIAL_DAYS = 14;
 
 export interface WorkspaceSubscription {
   workspaceId: string;
@@ -51,7 +51,8 @@ const normalizeSubscriptionStatus = (status: unknown): SubscriptionStatus => {
   if (normalized === 'past_due') return 'past_due';
   if (normalized === 'cancelled') return 'cancelled';
   if (normalized === 'suspended') return 'suspended';
-  return 'active';
+  if (normalized === 'active') return 'active';
+  return 'suspended';
 };
 
 const normalizeBillingCycle = (cycle: unknown): BillingCycle => readString(cycle).toLowerCase() === 'yearly' ? 'yearly' : 'monthly';
@@ -68,25 +69,11 @@ const readDate = (value: unknown) => {
 const normalizeWorkspaceSubscription = (workspaceId: string, data: Partial<Workspace> | Record<string, unknown>): WorkspaceSubscription => {
   const raw = data as Record<string, unknown>;
   const now = new Date();
-  const createdAt = readDate(data.createdAt) || readDate(data.trialStartedAt) || now;
-  const canonicalTrialEndsAt = new Date(createdAt.getTime() + FREE_TRIAL_DAYS * 24 * 60 * 60 * 1000);
-  const storedTrialEndsAt = readDate(data.trialEndsAt);
-  const trialEndsAt = storedTrialEndsAt && storedTrialEndsAt <= canonicalTrialEndsAt ? storedTrialEndsAt : canonicalTrialEndsAt;
-  const hasStoredSubscription = typeof data.subscriptionPlan === 'string' && Boolean(data.subscriptionPlan.trim());
-  const normalizedStoredPlan = hasStoredSubscription ? normalizeSubscriptionPlan(data.subscriptionPlan) : null;
-  const isInternalUnlimited = normalizedStoredPlan === 'internal_unlimited';
-  const storedStatus = normalizeSubscriptionStatus(data.subscriptionStatus);
-  const isTrial = !isInternalUnlimited && (storedStatus === 'trialing' || !hasStoredSubscription);
-  const trialExpired = isTrial && now >= trialEndsAt;
-  const subscriptionPlan = isInternalUnlimited
-    ? 'internal_unlimited'
-    : trialExpired
-    ? 'free'
-    : !hasStoredSubscription ? 'professional' : normalizedStoredPlan || 'free';
-  const subscriptionStatus = isInternalUnlimited
-    ? 'active'
-    : trialExpired ? 'active' : !hasStoredSubscription ? 'trialing' : storedStatus;
-  const trialDaysRemaining = subscriptionStatus === 'trialing'
+  const subscriptionPlan = normalizeSubscriptionPlan(data.subscriptionPlan);
+  const subscriptionStatus = normalizeSubscriptionStatus(data.subscriptionStatus);
+  const trialStartedAt = readDate(data.trialStartedAt);
+  const trialEndsAt = readDate(data.trialEndsAt);
+  const trialDaysRemaining = subscriptionStatus === 'trialing' && trialEndsAt
     ? Math.max(0, Math.ceil((trialEndsAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)))
     : 0;
 
@@ -99,8 +86,8 @@ const normalizeWorkspaceSubscription = (workspaceId: string, data: Partial<Works
     subscriptionStartedAt: readString(raw.subscriptionStartedAt),
     subscriptionRenewalAt: readString(raw.subscriptionRenewalAt),
     subscriptionCancelledAt: raw.subscriptionCancelledAt === null ? null : readString(raw.subscriptionCancelledAt) || null,
-    trialStartedAt: isInternalUnlimited ? null : isTrial ? createdAt.toISOString() : readDate(data.trialStartedAt)?.toISOString() || null,
-    trialEndsAt: isInternalUnlimited ? null : isTrial ? trialEndsAt.toISOString() : storedTrialEndsAt?.toISOString() || null,
+    trialStartedAt: trialStartedAt?.toISOString() || null,
+    trialEndsAt: trialEndsAt?.toISOString() || null,
     trialDaysRemaining,
     limits: getPlanLimits(subscriptionPlan)
   };
@@ -125,6 +112,7 @@ export const subscriptionService = {
   getRequiredPlanForLimit,
   formatSubscriptionPlanName,
   isSubscriptionStatusActive,
+  hasActiveBusinessEntitlement,
 
   async getWorkspaceSubscription(workspaceId: string): Promise<WorkspaceSubscription> {
     if (!db || !workspaceId) {
@@ -151,7 +139,9 @@ export const subscriptionService = {
 
   async canUseFeature(companyId: string, feature: SubscriptionFeature): Promise<boolean> {
     const subscription = await this.getCompanySubscription(companyId);
-    return isSubscriptionStatusActive(subscription.subscriptionStatus) && canPlanUseFeature(subscription.subscriptionPlan, normalizeSubscriptionFeature(feature));
+    const normalizedFeature = normalizeSubscriptionFeature(feature);
+    if (normalizedFeature === 'recipes') return canPlanUseFeature(subscription.subscriptionPlan, normalizedFeature);
+    return hasActiveBusinessEntitlement(subscription) && canPlanUseFeature(subscription.subscriptionPlan, normalizedFeature);
   },
 
   async isWithinLimit(companyId: string, limitType: SubscriptionLimitType, currentUsage = 0): Promise<boolean> {

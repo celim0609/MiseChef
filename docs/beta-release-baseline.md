@@ -35,3 +35,15 @@ The CI concurrency group is authoritative for supported releases. An emergency l
 Release validation and mandatory regression tests cover Recipe Creator Attribution, Recipe Cost Analysis and canonical Selling Price placement, active Workspace MYR/SGD currency, Recipe Share and its public projection, Quick Add, Finance, Supplier Invoice/OCR, Store, Host Group Order, Team, Recipe Library and public Discover, and Owner navigation.
 
 The generated `functions/generated/publicStoreAppShell.html` is the only documented post-build dirty-source exception. It is derived from `dist/index.html`, verified against the exact Hosting asset, packaged with `renderPublicStore`, and restored locally after the release command finishes.
+
+## One-time Release #28 partial-deployment recovery
+
+The standard Beta Release path continues to require a coherent live Hosting and public Store shell. The only supported exception is the incident-specific recovery for failed Beta Release run `33189217434`, candidate `3443de1b21042573aeffb7f23171abd2a23eff24`.
+
+Recovery requires both the exact workflow confirmation `RECOVER BETA RELEASE 28` and this protected GitHub `beta` environment variable:
+
+`MISECHEF_BETA_RELEASE_28_RECOVERY_AUTHORIZATION=release-28-partial:33189217434:3443de1b21042573aeffb7f23171abd2a23eff24`
+
+The protected environment must also set `MISECHEF_BETA_RELEASE_28_RECOVERY_GATE_SHA` to the exact reviewed commit that introduces the recovery controller. The dedicated workflow checks out the controller from that external SHA and separately checks out candidate `3443de1b21042573aeffb7f23171abd2a23eff24`; the controller changes are therefore never represented as candidate application or Functions code.
+
+Candidate source has no fallback authorization. The recovery additionally verifies the failed GitHub run, the prior manifest lineage, the exact live Hosting/Store assets, all 37 Function generations and hashes, candidate artifact reproduction, and post-deploy convergence. Once those resources converge, the recorded incident fingerprint no longer matches and the recovery cannot be reused.

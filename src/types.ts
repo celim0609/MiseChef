@@ -25,12 +25,22 @@ export interface Ingredient {
 export interface RecipeCostBreakdownItem {
   recipeIngredientId: string;
   ingredientId?: string;
+  linkedRecipeId?: string;
+  itemType?: 'ingredient' | 'linkedRecipe';
   ingredientName: string;
   quantity: number;
   unit: string;
   unitCost: number;
   ingredientCost: number;
   percentageOfTotalRecipeCost: number;
+}
+
+export interface LinkedRecipeComponent {
+  id: string;
+  recipeId: string;
+  recipeTitle?: string;
+  quantity: number;
+  unit: 'portion';
 }
 
 export interface RecipeCosting {
@@ -102,6 +112,7 @@ export interface Recipe {
   story: string;
   chefNotes?: string;
   ingredients: Ingredient[];
+  linkedRecipes?: LinkedRecipeComponent[];
   method: MethodStep[];
   recommendedProducts?: RecommendedProduct[];
   recommendedProductIds?: string[];
@@ -110,6 +121,8 @@ export interface Recipe {
   costing?: RecipeCosting;
   recipeCostLastCalculatedAt?: string;
   chefName: string;
+  chefUsername?: string;
+  publicDisplayName?: string;
   chefAvatar?: string;
   isSaved: boolean;
   collections: string[]; // collection IDs
@@ -138,11 +151,11 @@ export interface ChefProfile {
 
 export const DEFAULT_CHEF_PROFILE: ChefProfile = {
   photo: '',
-  name: 'Ce Lim',
-  jobTitle: 'Junior Sous Chef',
-  yearsExperience: '8+',
-  bio: 'Passionate chef specializing in bakery, pastry, school meals, and recipe development.',
-  quote: 'Every recipe tells a story.'
+  name: '',
+  jobTitle: '',
+  yearsExperience: '',
+  bio: '',
+  quote: ''
 };
 
 export type UserRole = 'super_admin' | 'admin' | 'user';

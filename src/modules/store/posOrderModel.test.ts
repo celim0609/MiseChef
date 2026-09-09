@@ -58,7 +58,20 @@ test('payment state coexists with every operational fulfilment state', () => {
   assert.deepEqual(orders.map(value => toActivePosStatus(value.fulfilmentStatus)), [
     'New', 'New', 'Preparing', 'Ready', null, null
   ]);
-  assert.equal(countActiveOnlineOrders(orders), 4);
+  assert.equal(countActiveOnlineOrders(orders), 3);
+});
+
+test('pending manual payments stay out of the active queue until confirmation', () => {
+  const pending = {
+    ...order('manual', 'New', 'pending_verification'),
+    paymentMethodId: 'duitnow_qr'
+  } as StoreOrder;
+  const paid = {
+    ...pending,
+    payment: { ...pending.payment, status: 'paid' as const }
+  };
+  assert.equal(countActiveOnlineOrders([pending]), 0);
+  assert.equal(countActiveOnlineOrders([paid]), 1);
 });
 
 test('Malaysia business dates do not follow UTC midnight', () => {

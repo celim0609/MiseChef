@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { discoverFirebaseFunctions, validateBetaCapabilities } from './betaCapabilities.mjs';
+import {
+  discoverFirebaseFunctions,
+  readProtectedContract,
+  validateBetaCapabilities,
+  validateTrustedGate
+} from './betaCapabilities.mjs';
 
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const trustedRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const clone = value => JSON.parse(JSON.stringify(value));
 const removalFor = capabilityId => ({
   schemaVersion: 1,
@@ -45,7 +50,10 @@ const writeFixture = ({
   firestoreRules = 'match /fixtures/{fixtureId} { allow read: if true; }',
   storageRules = 'match /fixtures/{fixtureId} { allow read: if true; }',
   indexes,
-  rewrites
+  rewrites,
+  contract,
+  candidateAuthority,
+  candidateRemovals
 } = {}) => {
   const root = mkdtempSync(path.join(tmpdir(), 'misechef-capabilities-'));
   mkdirSync(path.join(root, 'config'), { recursive: true });
@@ -58,35 +66,56 @@ const writeFixture = ({
   writeFileSync(path.join(root, 'storage.rules'), storageRules);
   writeFileSync(path.join(root, 'firestore.indexes.json'), JSON.stringify({ indexes: indexes ?? [{ collectionGroup: 'fixtures', queryScope: 'COLLECTION', fields: [{ fieldPath: 'createdAt', order: 'DESCENDING' }] }] }));
   writeFileSync(path.join(root, 'firebase.json'), JSON.stringify({ hosting: { rewrites: rewrites ?? [{ source: '**', destination: '/index.html' }] } }));
+  if (contract) writeFileSync(path.join(root, 'config/beta-capabilities.json'), JSON.stringify(contract));
+  if (candidateAuthority) writeFileSync(path.join(root, 'config/beta-capability-authority.json'), JSON.stringify(candidateAuthority));
+  if (candidateRemovals) writeFileSync(path.join(root, 'config/beta-capability-removals.json'), JSON.stringify(candidateRemovals));
   return root;
 };
 
 const validateFixture = (root, contract, protectedContract = contract, removals = { schemaVersion: 1, removals: [] }) =>
-  validateBetaCapabilities({ repositoryRoot: root, contract, protectedContract, removals });
+  validateBetaCapabilities({ candidateRoot: root, trustedRoot, contract, protectedContract, removals });
 
-test('the repository satisfies the protected Release #16 capability contract', () => {
-  const result = validateBetaCapabilities({ repositoryRoot });
+test('trusted gate resolves the immutable Release #16 contract without application source', () => {
+  const result = validateTrustedGate({ trustedRoot });
   assert.equal(result.ok, true, result.errors.join('\n'));
-  assert.equal(result.counts.protectedFunctions, 35);
-  assert.equal(result.counts.discoveredFunctions, 35);
+  assert.equal(result.authorityCommit, '472a4a8412ff97a726b902f94cfa703dc7bbad0d');
+  assert.equal(result.baselineCommit, '06a37c0d30c47e037994454119a0461955df4ee3');
 });
 
-test('the authority commit prevents a candidate from hiding deletion in its manifest', () => {
-  const candidate = JSON.parse(readFileSync(path.join(repositoryRoot, 'config/beta-capabilities.json'), 'utf8'));
-  candidate.cloudFunctions = candidate.cloudFunctions.filter(name => name !== 'activateMiseChefHost');
-  const result = validateBetaCapabilities({ repositoryRoot, contract: candidate });
+test('the trusted contract prevents a candidate from hiding deletion in its manifest', () => {
+  const protectedContract = fixtureContract();
+  const candidate = clone(protectedContract);
+  candidate.cloudFunctions = [];
+  const root = writeFixture({ contract: candidate, functionSource: '' });
+  const result = validateBetaCapabilities({ candidateRoot: root, trustedRoot, protectedContract });
   assert.equal(result.ok, false);
-  assert.match(result.errors.join('\n'), /function\.activateMiseChefHost: deleted from candidate cloudFunctions contract/);
+  assert.match(result.errors.join('\n'), /function\.fixtureFunction: deleted from candidate cloudFunctions contract/);
 });
 
 test('the candidate cannot casually repoint the accepted authority commit', () => {
   assert.throws(
-    () => validateBetaCapabilities({
-      repositoryRoot,
-      authority: { schemaVersion: 1, contractCommit: 'f'.repeat(40), contractPath: 'config/beta-capabilities.json' }
+    () => readProtectedContract(trustedRoot, {
+      schemaVersion: 1,
+      contractCommit: 'f'.repeat(40),
+      contractPath: 'config/beta-capabilities.json'
     }),
     /does not match the mandatory accepted authority/
   );
+});
+
+test('candidate authority and removal files cannot approve their own protected deletion', () => {
+  const protectedContract = fixtureContract();
+  const candidate = clone(protectedContract);
+  candidate.cloudFunctions = [];
+  const root = writeFixture({
+    contract: candidate,
+    functionSource: '',
+    candidateAuthority: { schemaVersion: 1, contractCommit: 'f'.repeat(40), contractPath: 'config/beta-capabilities.json' },
+    candidateRemovals: removalFor('function.fixtureFunction')
+  });
+  const result = validateBetaCapabilities({ candidateRoot: root, trustedRoot, protectedContract });
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join('\n'), /function\.fixtureFunction/);
 });
 
 test('Firebase Function discovery uses exported builder-call AST nodes, not strings or comments', () => {

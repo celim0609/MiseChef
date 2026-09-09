@@ -5,6 +5,7 @@ type PlanExperience = {
   id: PublicSubscriptionPlan;
   name: string;
   eyebrow: string;
+  price: string;
   description: string;
   features: string[];
   cta: string;
@@ -17,26 +18,29 @@ type ComparisonValue = boolean | string;
 const PRICING_PLANS: PlanExperience[] = [
   {
     id: 'free',
-    name: 'Free',
+    name: 'Personal',
     eyebrow: 'Free forever',
-    description: 'Perfect for individual chefs getting started.',
-    features: ['1 Workspace', 'Public Chef Profile', 'Public Store', 'QR Payments', 'WhatsApp', 'Notifications', 'Up to 20 Products', 'Up to 50 Orders / month'],
+    price: 'RM0 forever',
+    description: 'Your personal MiseChef account—no Business Workspace required.',
+    features: ['Recipes', 'My Orders', 'Host Center', 'Personal Profile'],
     cta: 'Get Started Free',
     href: '/login'
   },
   {
     id: 'starter',
     name: 'Starter',
-    eyebrow: '14-day free trial',
+    eyebrow: 'Business Workspace',
+    price: 'RM39/month',
     description: 'For home businesses and small cafés.',
-    features: ['Everything in Free', 'Unlimited Products', 'Unlimited Orders', 'Stripe Payments', 'More Team Members', 'Better Reports'],
-    cta: 'Start Free Trial',
+    features: ['Business Workspace', 'Store Management', 'Unlimited Products', 'Unlimited Orders', 'Stripe Payments'],
+    cta: 'Choose Starter',
     href: '/login?plan=starter'
   },
   {
     id: 'professional',
     name: 'Professional',
-    eyebrow: '14-day free trial',
+    eyebrow: '14-Day Professional Trial',
+    price: 'RM79/month',
     description: 'For restaurants and growing businesses.',
     features: ['Everything in Starter', 'Recipe Costing', 'Inventory', 'Purchasing', 'Invoice OCR', 'AI Features'],
     cta: 'Start Free Trial',
@@ -46,7 +50,8 @@ const PRICING_PLANS: PlanExperience[] = [
   {
     id: 'business',
     name: 'Business',
-    eyebrow: 'Tailored rollout',
+    eyebrow: 'Business Workspace',
+    price: 'RM149/month',
     description: 'For multi-location operations.',
     features: ['Everything in Professional', 'Unlimited Team Members', 'Multi-location Operations', 'Centralized Visibility', 'Guided Rollout'],
     cta: 'Contact Sales',
@@ -55,16 +60,17 @@ const PRICING_PLANS: PlanExperience[] = [
 ];
 
 const COMPARISON_ROWS: Array<{ feature: string; values: Record<PublicSubscriptionPlan, ComparisonValue> }> = [
-  { feature: 'Public Chef Profile', values: { free: true, starter: true, professional: true, business: true } },
-  { feature: 'Public Store', values: { free: true, starter: true, professional: true, business: true } },
-  { feature: 'QR Payments', values: { free: true, starter: true, professional: true, business: true } },
-  { feature: 'WhatsApp', values: { free: true, starter: true, professional: true, business: true } },
-  { feature: 'Notifications', values: { free: true, starter: true, professional: true, business: true } },
+  { feature: 'Recipes', values: { free: true, starter: true, professional: true, business: true } },
+  { feature: 'My Orders', values: { free: true, starter: true, professional: true, business: true } },
+  { feature: 'Host Center', values: { free: true, starter: true, professional: true, business: true } },
+  { feature: 'Personal Profile', values: { free: true, starter: true, professional: true, business: true } },
+  { feature: 'Business Workspace', values: { free: false, starter: true, professional: true, business: true } },
+  { feature: 'Store Management', values: { free: false, starter: true, professional: true, business: true } },
   { feature: 'Stripe Payments', values: { free: false, starter: true, professional: true, business: true } },
-  { feature: 'Products', values: { free: '20', starter: 'Unlimited', professional: 'Unlimited', business: 'Unlimited' } },
-  { feature: 'Orders', values: { free: '50 / month', starter: 'Unlimited', professional: 'Unlimited', business: 'Unlimited' } },
-  { feature: 'Team Members', values: { free: '1', starter: '3', professional: '10', business: 'Unlimited' } },
-  { feature: 'Reports', values: { free: 'Basic', starter: 'Better', professional: 'Advanced', business: 'Multi-location' } },
+  { feature: 'Products', values: { free: false, starter: 'Unlimited', professional: 'Unlimited', business: 'Unlimited' } },
+  { feature: 'Business Orders', values: { free: false, starter: 'Unlimited', professional: 'Unlimited', business: 'Unlimited' } },
+  { feature: 'Team Members', values: { free: false, starter: '3', professional: '10', business: '50' } },
+  { feature: 'Reports', values: { free: false, starter: false, professional: 'Advanced', business: 'Multi-location' } },
   { feature: 'Recipe Costing', values: { free: false, starter: false, professional: true, business: true } },
   { feature: 'Inventory', values: { free: false, starter: false, professional: true, business: true } },
   { feature: 'Purchasing', values: { free: false, starter: false, professional: true, business: true } },
@@ -102,6 +108,7 @@ export default function PricingExperience({ currentPlan, inApp = false }: Pricin
                 <div>
                   <p className={`font-sans text-[10px] font-extrabold uppercase tracking-[0.18em] ${plan.highlighted ? 'text-on-primary/65' : 'text-secondary'}`}>{plan.eyebrow}</p>
                   <h3 className="mt-2 font-display text-3xl font-bold">{plan.name}</h3>
+                  <p className={`mt-1 font-sans text-sm font-extrabold ${plan.highlighted ? 'text-on-primary' : 'text-primary'}`}>{plan.price}</p>
                 </div>
                 {isCurrent && <span className={`rounded-full px-3 py-1 font-sans text-[10px] font-extrabold ${plan.highlighted ? 'bg-white/15 text-white' : 'bg-primary/10 text-primary'}`}>Current</span>}
               </div>

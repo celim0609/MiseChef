@@ -24,7 +24,6 @@ test('Recipe sharing uses a stable public ID route outside the authenticated app
   );
   assert.doesNotMatch(path, /^\/app(?:\/|$)/);
 });
-
 test('title changes do not change the shared Recipe URL', () => {
   const first = getRecipeShareData('https://misechef.ai', { id: 'stable-id', title: 'First title' });
   const renamed = getRecipeShareData('https://misechef.ai', { id: 'stable-id', title: 'Renamed title' });
@@ -62,4 +61,3 @@ test('Workspace-only Recipes expose no public link, QR, copy, download, or nativ
   assert.match(shareDialogSource, /Download QR/);
   assert.match(shareDialogSource, /navigator\.share/);
 });
-

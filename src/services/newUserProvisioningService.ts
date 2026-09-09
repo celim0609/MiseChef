@@ -5,15 +5,17 @@ import { selectClientProvisioningDisplayName } from './newUserProvisioningModel'
 
 export interface NewUserProvisioningResult {
   ready: true;
-  workspaceId: string;
   displayName: string;
-  workspaceName: string;
-  role: 'Owner';
   userRole: 'super_admin' | 'admin' | 'user';
-  subscriptionPlan: 'free' | 'starter' | 'professional' | 'business' | 'internal_unlimited';
-  subscriptionStatus: 'active' | 'trialing' | 'past_due' | 'cancelled' | 'suspended';
-  trialStartedAt: string | null;
-  trialEndsAt: string | null;
+}
+
+export interface BusinessTrialResult {
+  workspaceId: string;
+  workspaceName: string;
+  subscriptionPlan: 'professional';
+  subscriptionStatus: 'trialing';
+  trialStartedAt: string;
+  trialEndsAt: string;
 }
 
 const pendingRegistrationNames = new Map<string, string>();
@@ -51,4 +53,11 @@ export const ensureNewUserProvisioned = (user: User, enteredName?: string): Prom
 
   provisioningRequests.set(user.uid, request);
   return request;
+};
+
+export const startBusinessTrial = async (user: User): Promise<BusinessTrialResult> => {
+  if (!functions) throw new Error("We couldn't connect to Business trial setup. Please try again.");
+  const start = httpsCallable<Record<string, never>, BusinessTrialResult>(functions, 'startMiseChefBusinessTrial');
+  const response = await start({});
+  return response.data;
 };

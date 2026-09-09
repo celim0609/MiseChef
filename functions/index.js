@@ -21,6 +21,7 @@ import {
   createInvoiceUploadReservation,
   releaseMonthlySubscriptionUsage,
   requireWorkspaceEntitlements,
+  reservePersonalResumeImportUsage,
   reserveMonthlySubscriptionUsage
 } from './subscriptionEnforcement.js';
 import {
@@ -29,6 +30,7 @@ import {
   requireWorkspaceFeature
 } from './subscriptionFoundation.js';
 import { provisionNewUser } from './newUserProvisioning.js';
+import { startBusinessTrial } from './businessTrial.js';
 import {
   createPaymentAdapter
 } from './paymentProviders/index.js';
@@ -43,25 +45,36 @@ import {
   submitManualStorePayment,
   uploadManualStorePaymentReceipt
 } from './storeManualPayments.js';
-import { updateStoreOrderFulfilment } from './storeFulfilment.js';
+import {
+  updateStoreGroupOrderFulfilment,
+  updateStoreOrderFulfilment
+} from './storeFulfilment.js';
 import { createLalamoveSandboxProvider } from './lalamoveSandbox.js';
 import { createStoreDeliveryQuote, dispatchStoreDelivery, refreshStoreDelivery, cancelStoreDelivery, reconcileActiveDeliveries, getLalamoveSandboxCityInfo } from './storeDelivery.js';
+import { listCustomerOrders } from './customerOrders.js';
 import {
   activateHostProfile,
   createGroupOrder,
+  cleanupGroupOrder,
   getPublicGroupOrder,
+  listHostGroupOrdersDetail,
   listHostGroupOrders,
-  projectGroupReward
+  projectGroupReward,
+  transitionGroupOrder
 } from './groupOrders.js';
 import {
   extractResumeWithCompletenessRetry,
   ResumeExtractionIncompleteError
 } from './resumeExtractionReliability.js';
+import { generateGeminiJsonWithRetry } from './geminiReliability.js';
 import { createStoreSocialPreviewHandler } from './storeSocialPreview.js';
 import { recordPersonalExpenseSettlement as recordPersonalExpenseSettlementCore } from './personalExpenseSettlements.js';
 import { sanitizeExtractedPersonalExpenseMerchant } from './personalExpenseReceipt.js';
 import { loadPublicDiscoverStores } from './publicDiscover.js';
+import { loadPublicHomepagePromotions } from './homepagePromotions.js';
 import {
+  authorizePersonalResumeImportJob,
+  claimPersonalResumeImportJob,
   getResumeImportClientJobPath,
   getResumeImportJobError,
   withResumeImportTimeout
@@ -76,6 +89,9 @@ const stripeSecretKey = defineSecret('STRIPE_SECRET_KEY');
 const stripeWebhookSecret = defineSecret('STRIPE_WEBHOOK_SECRET');
 const lalamoveSandboxApiKey = defineSecret('LALAMOVE_API_KEY');
 const lalamoveSandboxApiSecret = defineSecret('LALAMOVE_API_SECRET');
+const curlecKeyId = defineSecret('CURLEC_KEY_ID');
+const curlecKeySecret = defineSecret('CURLEC_KEY_SECRET');
+const curlecWebhookSecret = defineSecret('CURLEC_WEBHOOK_SECRET');
 const sellingWorkspaceId = defineString('SELLING_WORKSPACE_ID', { default: '' });
 const publicSiteOrigin = defineString('PUBLIC_SITE_ORIGIN', { default: '' });
 const MODEL = 'gemini-2.5-flash';
@@ -150,6 +166,12 @@ export const getPublicDiscoverContent = onCall({
         .map(document => ({ id: document.id, ...document.data() }))
         .sort((a, b) => readString(b.updatedAt).localeCompare(readString(a.updatedAt)));
     }
+  }),
+  promotions: await loadPublicHomepagePromotions({
+    loadPromotions: async () => {
+      const snapshot = await db.collection('homepagePromotions').orderBy('sortOrder').get();
+      return snapshot.docs.map(document => ({ id: document.id, ...document.data() }));
+    }
   })
 }));
 
@@ -160,6 +182,13 @@ export const provisionNewUserWorkspace = onCall({ region: REGION }, async reques
   email: request.auth?.token?.email || '',
   authDisplayName: request.auth?.token?.name || '',
   requestedDisplayName: request.data?.displayName || ''
+}));
+
+export const startMiseChefBusinessTrial = onCall({ region: REGION }, async request => startBusinessTrial({
+  db,
+  uid: request.auth?.uid,
+  email: request.auth?.token?.email || '',
+  authDisplayName: request.auth?.token?.name || ''
 }));
 
 export const activateMiseChefHost = onCall({ region: REGION }, async request => activateHostProfile({
@@ -188,13 +217,32 @@ export const listMyMiseChefGroupOrders = onCall({ region: REGION }, async reques
   slug: request.data?.slug
 }));
 
+export const getMyMiseChefGroupOrder = onCall({ region: REGION }, async request => listHostGroupOrdersDetail({
+  db,
+  uid: request.auth?.uid,
+  groupId: request.data?.groupId
+}));
+
+export const updateMyMiseChefGroupOrderStatus = onCall({ region: REGION }, async request => transitionGroupOrder({
+  db,
+  uid: request.auth?.uid,
+  groupId: request.data?.groupId,
+  nextStatus: request.data?.nextStatus
+}));
+
+export const cleanupMyMiseChefGroupOrder = onCall({ region: REGION }, async request => cleanupGroupOrder({
+  db,
+  uid: request.auth?.uid,
+  groupId: request.data?.groupId,
+  action: request.data?.action
+}));
+
 export const syncMiseChefGroupReward = onDocumentWritten({
   document: 'storeOrders/{orderId}',
   region: REGION
 }, async event => projectGroupReward({
   db,
-  orderId: event.params.orderId,
-  order: event.data?.after?.exists ? event.data.after.data() : null
+  orderId: event.params.orderId
 }));
 
 export const getWorkspaceSubscription = onCall({ region: REGION }, async request => {
@@ -257,6 +305,7 @@ const toStorePaymentError = error => {
     'Name is required.',
     'Name must be 120 characters or fewer.',
     'Enter a valid phone number.',
+    'Enter a valid email address.',
     'Choose an available pickup date.',
     'Choose a valid pickup session.',
     'Choose a valid pickup location.',
@@ -280,7 +329,7 @@ const toStorePaymentError = error => {
 export const createPublicStorePayment = onCall({
   region: REGION,
   invoker: 'public',
-  secrets: [stripeSecretKey, lalamoveSandboxApiKey, lalamoveSandboxApiSecret],
+  secrets: [stripeSecretKey, curlecKeyId, curlecKeySecret, lalamoveSandboxApiKey, lalamoveSandboxApiSecret],
   timeoutSeconds: 30,
   memory: '256MiB'
 }, async request => {
@@ -289,12 +338,15 @@ export const createPublicStorePayment = onCall({
       db,
       resolveAdapter: paymentMethod => createPaymentAdapter(paymentMethod.provider, {
         stripeSecretKey: stripeSecretKey.value(),
+        curlecKeyId: curlecKeyId.value(),
+        curlecKeySecret: curlecKeySecret.value(),
         method: paymentMethod
       }),
       sellingWorkspaceId: sellingWorkspaceId.value(),
       ...(request.data?.order?.fulfilmentMethod === 'delivery' ? {
         deliveryProvider: createLalamoveSandboxProvider({ apiKey: lalamoveSandboxApiKey.value(), apiSecret: lalamoveSandboxApiSecret.value() })
       } : {}),
+      customerUid: request.auth?.uid || '',
       slug: request.data?.slug,
       draft: request.data?.order,
       returnUrl: request.data?.returnUrl
@@ -349,6 +401,15 @@ export const reconcileLalamoveSandboxDeliveries = onSchedule({ region: REGION, s
   const provider = createLalamoveSandboxProvider({ apiKey: lalamoveSandboxApiKey.value(), apiSecret: lalamoveSandboxApiSecret.value() });
   await reconcileActiveDeliveries({ db, provider });
 });
+
+export const listMyMiseChefStoreOrders = onCall({
+  region: REGION,
+  timeoutSeconds: 20,
+  memory: '256MiB'
+}, async request => listCustomerOrders({
+  db,
+  uid: request.auth?.uid
+}));
 
 export const uploadPublicStorePaymentReceipt = onCall({
   region: REGION,
@@ -412,13 +473,15 @@ export const reviewStoreManualPayment = onCall({
 export const getPublicStorePaymentResult = onCall({
   region: REGION,
   invoker: 'public',
-  secrets: [stripeSecretKey],
+  secrets: [stripeSecretKey, curlecKeyId, curlecKeySecret],
   timeoutSeconds: 20,
   memory: '256MiB'
 }, async request => {
   try {
     const adapter = createPaymentAdapter(request.data?.provider, {
-      stripeSecretKey: stripeSecretKey.value()
+      stripeSecretKey: stripeSecretKey.value(),
+      curlecKeyId: curlecKeyId.value(),
+      curlecKeySecret: curlecKeySecret.value()
     });
     return await getStorePaymentResult({
       db,
@@ -441,13 +504,15 @@ export const getPublicStorePaymentResult = onCall({
 export const cancelPublicStorePayment = onCall({
   region: REGION,
   invoker: 'public',
-  secrets: [stripeSecretKey],
+  secrets: [stripeSecretKey, curlecKeyId, curlecKeySecret],
   timeoutSeconds: 20,
   memory: '256MiB'
 }, async request => {
   try {
     const adapter = createPaymentAdapter(request.data?.provider, {
-      stripeSecretKey: stripeSecretKey.value()
+      stripeSecretKey: stripeSecretKey.value(),
+      curlecKeyId: curlecKeyId.value(),
+      curlecKeySecret: curlecKeySecret.value()
     });
     return await cancelStorePayment({
       db,
@@ -499,6 +564,45 @@ export const stripeStorePaymentWebhook = onRequest({
   }
 });
 
+export const curlecStorePaymentWebhook = onRequest({
+  region: REGION,
+  invoker: 'public',
+  secrets: [curlecKeyId, curlecKeySecret, curlecWebhookSecret],
+  timeoutSeconds: 30,
+  memory: '256MiB'
+}, async (request, response) => {
+  if (request.method !== 'POST') {
+    response.status(405).send('Method not allowed');
+    return;
+  }
+  try {
+    const adapter = createPaymentAdapter('curlec', {
+      curlecKeyId: curlecKeyId.value(),
+      curlecKeySecret: curlecKeySecret.value()
+    });
+    const signature = request.get('X-Razorpay-Signature');
+    const { verifyCurlecWebhookSignature, getCurlecWebhookDedupeId } = await import('./paymentProviders/curlecStandardCheckout.js');
+    if (!verifyCurlecWebhookSignature(request.rawBody, signature, curlecWebhookSecret.value())) {
+      throw new Error('Invalid Curlec webhook signature.');
+    }
+    const payload = request.body;
+    // Curlec documents this header as the duplicate-event identity. Keep the
+    // signed-payload hash only as a retry-stable fallback for older deliveries.
+    const event = {
+      ...payload,
+      id: request.get('x-razorpay-event-id') || getCurlecWebhookDedupeId(payload),
+      type: payload?.event
+    };
+    const result = await handleStorePaymentWebhook({ db, adapter, event });
+    response.status(200).json(result);
+  } catch (error) {
+    logger.warn('Curlec Store payment webhook rejected', {
+      name: error?.name || '', code: error?.code || '', message: error?.message || ''
+    });
+    response.status(400).send('Webhook rejected');
+  }
+});
+
 export const updateStoreOrderStatus = onCall({
   region: REGION,
   timeoutSeconds: 20,
@@ -520,6 +624,29 @@ export const updateStoreOrderStatus = onCall({
       message: error?.message || ''
     });
     throw new HttpsError('internal', 'This order could not be updated. Please try again.');
+  }
+});
+
+export const updateStoreGroupOrderBatchStatus = onCall({
+  region: REGION,
+  timeoutSeconds: 60,
+  memory: '256MiB'
+}, async request => {
+  try {
+    return await updateStoreGroupOrderFulfilment({
+      db,
+      uid: request.auth?.uid,
+      groupId: request.data?.groupId,
+      action: request.data?.action
+    });
+  } catch (error) {
+    if (error instanceof HttpsError) throw error;
+    logger.error('Store Group fulfilment update failed', {
+      name: error?.name || '',
+      code: error?.code || '',
+      message: error?.message || ''
+    });
+    throw new HttpsError('internal', 'This Group could not be updated. Please try again.');
   }
 });
 
@@ -594,10 +721,8 @@ export const syncPublicRecipe = onDocumentWritten({
   region: REGION
 }, async event => {
   const recipeSnapshot = event.data?.after;
-  await syncPublicRecipeProjection(
-    event.params.recipeId,
-    recipeSnapshot?.exists ? recipeSnapshot.data() : null
-  );
+  const recipe = recipeSnapshot?.exists ? recipeSnapshot.data() : null;
+  await syncPublicRecipeProjection(event.params.recipeId, recipe);
 });
 
 export const syncApprovedProductRecipes = onDocumentWritten({
@@ -923,7 +1048,7 @@ const portfolioResumeResponseSchema = {
       properties: {
         instagram: { type: Type.STRING }, tiktok: { type: Type.STRING },
         facebook: { type: Type.STRING }, linkedin: { type: Type.STRING },
-        youtube: { type: Type.STRING }, website: { type: Type.STRING }
+        youtube: { type: Type.STRING }
       }
     },
     contact: {
@@ -1297,7 +1422,7 @@ export const createInvoiceUpload = onCall({
   const fileType = readString(request.data?.fileType);
   const size = Number(request.data?.size);
 
-  if (!fileName || !['PDF', 'Image', 'Excel'].includes(fileType)) {
+  if (!fileName || !['PDF', 'Image'].includes(fileType)) {
     throw new HttpsError('invalid-argument', 'Valid invoice file details are required.');
   }
   if (!Number.isFinite(size) || size <= 0 || size > MAX_INVOICE_OCR_BYTES) {
@@ -1541,9 +1666,6 @@ export const parseInvoiceToJson = onCall({
     }
 
     const invoiceRecord = invoiceSnapshot.data() || {};
-    if (invoiceRecord.createdBy !== requesterId) {
-      throw new HttpsError('permission-denied', 'You can only process your own invoices.');
-    }
 
     const entitlements = await requireWorkspaceEntitlements({
       db,
@@ -1851,11 +1973,10 @@ export const parseResumeToPortfolio = onCall({
   const jobReference = db.collection('resumeImportJobs').doc();
   const clientJobReference = db.doc(getResumeImportClientJobPath(requesterId, jobReference.id));
   const createdAt = FieldValue.serverTimestamp();
-  const workspaceId = readString(request.data?.workspaceId) || requesterId;
   const job = {
     status: 'pending',
     uid: requesterId,
-    workspaceId,
+    workspaceId: requesterId,
     resumeText,
     debug: request.data?.debug === true,
     createdAt,
@@ -1888,7 +2009,7 @@ export const processResumeImportJob = onDocumentCreated({
   secrets: [geminiApiKey],
   timeoutSeconds: 120,
   memory: '256MiB',
-  minInstances: 1
+  minInstances: 0
 }, async event => {
   const jobSnapshot = event.data;
   if (!jobSnapshot) return;
@@ -1929,20 +2050,21 @@ export const processResumeImportJob = onDocumentCreated({
     if (!requesterId || !resumeText || resumeText.length < 80 || resumeText.length > 50_000) {
       throw new HttpsError('invalid-argument', 'Resume import job data is invalid.');
     }
-    const entitlementPromise = requireWorkspaceEntitlements({
-      db,
-      uid: requesterId,
-      workspaceId
+    const personalAuthorization = authorizePersonalResumeImportJob({
+      requesterId,
+      personalScopeId: workspaceId
     });
-    const [, entitlements] = await Promise.all([
-      updateJob({ status: 'processing' }),
-      entitlementPromise
-    ]);
-    companyId = entitlements.workspaceId;
-    usageReservation = await reserveMonthlySubscriptionUsage({
+    const claimed = await claimPersonalResumeImportJob({
       db,
-      entitlements,
-      increments: { aiRequests: 1 }
+      jobReference: jobSnapshot.ref,
+      clientJobReference,
+      requesterId,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    if (!claimed) return;
+    usageReservation = await reservePersonalResumeImportUsage({
+      db,
+      userId: personalAuthorization.userId
     });
 
     const prompt = buildResumeImportPrompt(resumeText);
@@ -1956,50 +2078,63 @@ export const processResumeImportJob = onDocumentCreated({
       extraction = await withResumeImportTimeout(() => extractResumeWithCompletenessRetry({
         resumeText,
         extract: async retryInstruction => {
-          const geminiStartedAt = Date.now();
-          attempts += 1;
-          let response;
-          try {
-            response = await ai.models.generateContent({
-              model: RESUME_MODEL,
-              contents: `${prompt}${retryInstruction}`,
-              config: {
-                responseMimeType: 'application/json',
-                responseSchema: portfolioResumeResponseSchema,
-                thinkingConfig: { thinkingBudget: 0 },
-                httpOptions: { timeout: RESUME_GEMINI_REQUEST_TIMEOUT_MS }
+          return generateGeminiJsonWithRetry({
+            generate: async () => {
+              const geminiStartedAt = Date.now();
+              attempts += 1;
+              try {
+                const response = await ai.models.generateContent({
+                  model: RESUME_MODEL,
+                  contents: `${prompt}${retryInstruction}`,
+                  config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: portfolioResumeResponseSchema,
+                    thinkingConfig: { thinkingBudget: 0 },
+                    httpOptions: { timeout: RESUME_GEMINI_REQUEST_TIMEOUT_MS }
+                  }
+                });
+                const responseMs = Date.now() - geminiStartedAt;
+                timings.geminiResponseMs += responseMs;
+                timings.geminiAttempts.push({
+                  attempt: attempts,
+                  responseMs,
+                  retryForCompleteness: Boolean(retryInstruction),
+                  promptTokens: response.usageMetadata?.promptTokenCount || 0,
+                  responseTokens: response.usageMetadata?.candidatesTokenCount || 0,
+                  thinkingTokens: response.usageMetadata?.thoughtsTokenCount || 0,
+                  serviceTier: response.usageMetadata?.serviceTier || ''
+                });
+                return response;
+              } catch (error) {
+                const responseMs = Date.now() - geminiStartedAt;
+                timings.geminiResponseMs += responseMs;
+                timings.geminiAttempts.push({
+                  attempt: attempts,
+                  responseMs,
+                  retryForCompleteness: Boolean(retryInstruction),
+                  errorStatus: error?.status || '',
+                  errorCode: error?.code || ''
+                });
+                throw error;
               }
-            });
-          } catch (error) {
-            const responseMs = Date.now() - geminiStartedAt;
-            timings.geminiResponseMs += responseMs;
-            timings.geminiAttempts.push({
-              attempt: attempts,
-              responseMs,
-              retryForCompleteness: Boolean(retryInstruction),
-              errorStatus: error?.status || '',
-              errorCode: error?.code || ''
-            });
-            throw error;
-          }
-          const responseMs = Date.now() - geminiStartedAt;
-          timings.geminiResponseMs += responseMs;
-          timings.geminiAttempts.push({
-            attempt: attempts,
-            responseMs,
-            retryForCompleteness: Boolean(retryInstruction),
-            promptTokens: response.usageMetadata?.promptTokenCount || 0,
-            responseTokens: response.usageMetadata?.candidatesTokenCount || 0,
-            thinkingTokens: response.usageMetadata?.thoughtsTokenCount || 0,
-            serviceTier: response.usageMetadata?.serviceTier || ''
+            },
+            parse: responseText => {
+              const parseStartedAt = Date.now();
+              try {
+                return parseJsonResponse(responseText, {}, includeDiagnostics);
+              } finally {
+                timings.jsonParsingMs += Date.now() - parseStartedAt;
+              }
+            },
+            onFailure: failure => logger.warn('AI resume extraction attempt failed', {
+              requesterId,
+              action,
+              attempt: failure.attempt,
+              failureType: failure.type,
+              status: failure.status,
+              retryForCompleteness: Boolean(retryInstruction)
+            })
           });
-          const parseStartedAt = Date.now();
-          const parsed = parseJsonResponse(response.text, {}, includeDiagnostics);
-          timings.jsonParsingMs += Date.now() - parseStartedAt;
-          return {
-            response,
-            parsed
-          };
         },
         onIncomplete: (validation, extractionAttempt) => {
           logger.warn('AI resume extraction incomplete', {

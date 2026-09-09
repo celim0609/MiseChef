@@ -4,8 +4,6 @@ import { uploadPortfolioCertificatePdf, uploadUserProfilePhoto } from '../../ser
 import { storage } from '../../firebase';
 import { getImmediateMediaUrl, resolveStorageUrl } from '../../services/storageReference';
 import { RESUME_IMPORT_SLOW_MESSAGE, subscribeToResumeImportJob, type ResumeImportServerTimings } from '../../services/resumeImportJobs';
-import type { Recipe } from '../../types';
-import type { Portfolio, PortfolioProfileSource } from '../portfolio/types';
 import { calculateCompletion, DEFAULT_SKILLS, emptyChefProfile, getNextAction, sanitizeProfile, slugifyProfile } from './model';
 import { chefProfileService } from './services/chefProfileService';
 import { exportChefProfilePdf } from './services/resumeExportService';
@@ -16,13 +14,10 @@ import { resumeManagementService, type ManagedChefResume } from './services/resu
 import { acquireResumeImportLock, applyResumeReviewChoices, assessResumeImport, defaultResumeReviewChoices, getResumeImportErrorMessage, type ResumeReviewChoice, type ResumeReviewSectionKey } from './services/resumeManagementModel';
 import { openResolvedMedia } from '../../services/mediaOpen';
 import type { ChefAward, ChefCertificate, ChefEducation, ChefExperience, ChefLanguage, ChefProfile, ImportedChefProfile, ResumeExportSettings } from './types';
+import { CHEF_SOCIAL_LABELS, CHEF_SOCIAL_PLATFORMS, getChefSocialLinkError, getChefSocialLinksValidationError, sanitizeChefSocialLinks } from './socialLinks';
 
 interface ChefProfilePageProps {
-  profile: PortfolioProfileSource;
-  initialPortfolio: Portfolio;
-  recipes: Recipe[];
   userId?: string;
-  workspaceId?: string;
 }
 
 const STEPS = ['Basic Information', 'Skills', 'Work Experience', 'Education', 'Certificates', 'Awards & Languages', 'Social Links', 'Review & Publish'];
@@ -57,15 +52,15 @@ const Card = ({ title, icon, children, action }: { title: string; icon?: ReactNo
   </section>
 );
 
-const TextField = ({ label, value, onChange, type = 'text', placeholder = '' }: { key?: string; label: string; value?: string; onChange: (value: string) => void; type?: string; placeholder?: string }) => (
-  <label className={labelClass}><span>{label}</span><input type={type} value={value || ''} placeholder={placeholder} onChange={event => onChange(event.target.value)} className={fieldClass} /></label>
+const TextField = ({ label, value, onChange, type = 'text', placeholder = '', error = '' }: { key?: string; label: string; value?: string; onChange: (value: string) => void; type?: string; placeholder?: string; error?: string }) => (
+  <label className={labelClass}><span>{label}</span><input type={type} value={value || ''} placeholder={placeholder} onChange={event => onChange(event.target.value)} aria-invalid={Boolean(error)} className={`${fieldClass} ${error ? 'border-error focus:border-error' : ''}`} />{error && <span className="block text-[11px] font-bold text-error">{error}</span>}</label>
 );
 
 const RemoveButton = ({ onClick }: { onClick: () => void }) => (
   <button type="button" onClick={onClick} aria-label="Remove entry" className="rounded-full border border-error/20 p-2 text-error"><X className="h-4 w-4" /></button>
 );
 
-export default function ChefProfilePage({ profile: account, initialPortfolio, userId, workspaceId }: ChefProfilePageProps) {
+export default function ChefProfilePage({ userId }: ChefProfilePageProps) {
   const [profile, setProfile] = useState<ChefProfile | null>(null);
   const [screen, setScreen] = useState<'loading' | 'entry' | 'builder' | 'dashboard'>('loading');
   const [step, setStep] = useState(0);
@@ -144,40 +139,58 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
   } : null, [profile, resolvedProfilePhotoUrl]);
 
   useEffect(() => {
+    let cancelled = false;
+    setProfile(null);
+    setScreen(userId ? 'loading' : 'entry');
+    setImported(null);
+    setReviewChoices(null);
+    setPendingResumeImport(false);
+    setSaveState('');
     if (!userId) {
-      setProfile(null);
-      setScreen('entry');
-      return;
+      return () => { cancelled = true; };
     }
-    chefProfileService.load(userId, initialPortfolio, workspaceId, account.displayName, account.email || '')
+    chefProfileService.load(userId)
       .then(value => {
-        setProfile(value);
-        const hasMeaningfulData = Boolean(value?.basicInfo.fullName && value.basicInfo.professionalTitle);
+        if (cancelled) return;
+        const ownedProfile = value || emptyChefProfile(userId);
+        setProfile(ownedProfile);
+        const hasMeaningfulData = Boolean(ownedProfile.basicInfo.fullName && ownedProfile.basicInfo.professionalTitle);
         setScreen(hasMeaningfulData ? 'dashboard' : 'entry');
       })
       .catch(() => {
-        setProfile(emptyChefProfile(userId, account.displayName, account.email || ''));
+        if (cancelled) return;
+        setProfile(emptyChefProfile(userId));
         setScreen('entry');
       });
-  }, [userId, workspaceId, account.displayName, account.email, initialPortfolio]);
+    return () => { cancelled = true; };
+  }, [userId]);
 
   useEffect(() => {
+    let cancelled = false;
+    setManagedResume(null);
+    setResumeLoading(Boolean(userId));
+    setImportError('');
+    setResumeAction('');
+    setConfirmResumeDelete(false);
     if (!userId) {
-      setManagedResume(null);
-      setResumeLoading(false);
-      return;
+      return () => { cancelled = true; };
     }
-    setResumeLoading(true);
     resumeManagementService.load(userId)
       .then(value => {
+        if (cancelled) return;
         setManagedResume(value);
         if (value?.draft) {
           setImported(value.draft);
           setReviewChoices(defaultResumeReviewChoices(value.draft));
         }
       })
-      .catch(() => setImportError('We could not load your saved resume details.'))
-      .finally(() => setResumeLoading(false));
+      .catch(() => {
+        if (!cancelled) setImportError('We could not load your saved resume details.');
+      })
+      .finally(() => {
+        if (!cancelled) setResumeLoading(false);
+      });
+    return () => { cancelled = true; };
   }, [userId]);
 
   useEffect(() => {
@@ -276,6 +289,13 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
       setStep(0);
       return;
     }
+    const socialLinkError = getChefSocialLinksValidationError(candidate.socialLinks);
+    if (socialLinkError) {
+      setSaveState(socialLinkError);
+      setStep(6);
+      setScreen('builder');
+      return;
+    }
     setSaveState('Saving...');
     try {
       const saved = await chefProfileService.save({ ...candidate, completionPercentage: calculateCompletion(candidate) });
@@ -297,6 +317,13 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
     if (step === 0 && (!profile?.basicInfo.fullName.trim() || !profile.basicInfo.professionalTitle.trim())) {
       setSaveState('Add your full name and professional title to continue.');
       return;
+    }
+    if (step === 6 && profile) {
+      const socialLinkError = getChefSocialLinksValidationError(profile.socialLinks);
+      if (socialLinkError) {
+        setSaveState(socialLinkError);
+        return;
+      }
     }
     if (pendingResumeImport) {
       setSaveState('Import review in progress — your existing profile has not been overwritten.');
@@ -320,7 +347,7 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
     setReviewChoices(null);
     let registeredResume: ManagedChefResume | null = null;
     try {
-      const result = await importResume(file, userId, workspaceId || userId, setImportStage, async upload => {
+      const result = await importResume(file, userId, userId, setImportStage, async upload => {
         const record = await resumeManagementService.registerUpload(userId, upload, managedResume);
         registeredResume = { ...record, uploadedAt: new Date() };
         setManagedResume(registeredResume);
@@ -355,7 +382,7 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
     setReviewChoices(null);
     let jobStarted = false;
     try {
-      const retry = await retryResumeImport(managedResume, userId, workspaceId || userId, setImportStage);
+      const retry = await retryResumeImport(managedResume, userId, userId, setImportStage);
       const jobId = retry.jobId;
       resumeClientTimings.current = retry.timings;
       setResumeJobMessage('Analyzing resume, this may take 30–60 seconds');
@@ -512,7 +539,7 @@ export default function ChefProfilePage({ profile: account, initialPortfolio, us
         <DashboardSection title="Education" value={`${profile.education.length} ${profile.education.length === 1 ? 'entry' : 'entries'}`} onEdit={() => { setStep(3); setScreen('builder'); }} />
         <DashboardSection title="Certificates" value={`${profile.certificates.length} ${profile.certificates.length === 1 ? 'entry' : 'entries'}`} onEdit={() => { setStep(4); setScreen('builder'); }} />
         <DashboardSection title="Awards & Languages" value={`${profile.awards.length} awards · ${profile.languages.length} languages`} onEdit={() => { setStep(5); setScreen('builder'); }} />
-        <DashboardSection title="Social Links" value={Object.values(profile.socialLinks).filter(Boolean).join(' · ') || 'Not added'} onEdit={() => { setStep(6); setScreen('builder'); }} />
+        <DashboardSection title="Social Links" value={Object.values(sanitizeChefSocialLinks(profile.socialLinks)).join(' · ') || 'Not added'} onEdit={() => { setStep(6); setScreen('builder'); }} />
         <DashboardSection title="Portfolio" value={`${profile.portfolio.length} items`} onEdit={() => { setStep(7); setScreen('builder'); }} />
       </div>
       {showExport && profileWithResolvedMedia && <ExportModal profile={profileWithResolvedMedia} settings={exportSettings} onSettings={setExportSettings} onClose={() => setShowExport(false)} />}
@@ -573,7 +600,7 @@ function renderStep(
   if (step === 3) return <ArrayEditor items={profile.education} addLabel="Add education" onAdd={() => update(current => ({ ...current, education: [...current.education, emptyEducation()] }))} render={(item: ChefEducation) => <div className="grid gap-3 sm:grid-cols-2"><TextField label="School name" value={item.schoolName} onChange={value => updateArray<ChefEducation>('education', item.id, { schoolName: value })} /><TextField label="Qualification" value={item.qualification} onChange={value => updateArray<ChefEducation>('education', item.id, { qualification: value })} /><TextField label="Field of study" value={item.fieldOfStudy} onChange={value => updateArray<ChefEducation>('education', item.id, { fieldOfStudy: value })} /><TextField label="Start year" value={item.startYear} onChange={value => updateArray<ChefEducation>('education', item.id, { startYear: value })} /><TextField label="End year" value={item.endYear} onChange={value => updateArray<ChefEducation>('education', item.id, { endYear: value })} /><label className={`${labelClass} sm:col-span-2`}><span>Description</span><textarea value={item.description || ''} onChange={event => updateArray<ChefEducation>('education', item.id, { description: event.target.value })} rows={3} className={fieldClass} /></label><RemoveButton onClick={() => removeArray('education', item.id)} /></div>} />;
   if (step === 4) return <ArrayEditor items={profile.certificates} addLabel="Add certificate" onAdd={() => update(current => ({ ...current, certificates: [...current.certificates, emptyCertificate()] }))} render={(item: ChefCertificate) => <div className="grid gap-3 sm:grid-cols-2"><TextField label="Certificate name" value={item.name} onChange={value => updateArray<ChefCertificate>('certificates', item.id, { name: value })} /><TextField label="Issuing organisation" value={item.issuingOrganisation} onChange={value => updateArray<ChefCertificate>('certificates', item.id, { issuingOrganisation: value })} /><TextField label="Issue date" type="date" value={item.issueDate} onChange={value => updateArray<ChefCertificate>('certificates', item.id, { issueDate: value })} /><TextField label="Expiry date" type="date" value={item.expiryDate} onChange={value => updateArray<ChefCertificate>('certificates', item.id, { expiryDate: value })} /><TextField label="Credential URL" type="url" value={item.credentialUrl} onChange={value => updateArray<ChefCertificate>('certificates', item.id, { credentialUrl: value })} /><label className={labelClass}><span>Attachment (PDF)</span><input type="file" accept="application/pdf,.pdf" onChange={event => uploadCertificate(item.id, event.target.files?.[0])} className="text-sm font-bold" />{item.attachmentUrl && <span className="text-secondary">Uploaded privately</span>}</label><label className="flex items-center gap-2 self-end py-3 font-sans text-sm font-bold"><input type="checkbox" checked={item.showPublicly === true} onChange={event => updateArray<ChefCertificate>('certificates', item.id, { showPublicly: event.target.checked })} />Show certificate details publicly</label><RemoveButton onClick={() => removeArray('certificates', item.id)} /></div>} />;
   if (step === 5) return <div className="space-y-8"><ArrayEditor title="Awards" items={profile.awards} addLabel="Add award" onAdd={() => update(current => ({ ...current, awards: [...current.awards, emptyAward()] }))} render={(item: ChefAward) => <div className="grid gap-3 sm:grid-cols-2"><TextField label="Award name" value={item.name} onChange={value => updateArray<ChefAward>('awards', item.id, { name: value })} /><TextField label="Issuing organisation" value={item.issuingOrganisation} onChange={value => updateArray<ChefAward>('awards', item.id, { issuingOrganisation: value })} /><TextField label="Year" value={item.year} onChange={value => updateArray<ChefAward>('awards', item.id, { year: value })} /><RemoveButton onClick={() => removeArray('awards', item.id)} /></div>} /><ArrayEditor title="Languages" items={profile.languages} addLabel="Add language" onAdd={() => update(current => ({ ...current, languages: [...current.languages, emptyLanguage()] }))} render={(item: ChefLanguage) => <div className="grid gap-3 sm:grid-cols-2"><TextField label="Language" value={item.language} onChange={value => updateArray<ChefLanguage>('languages', item.id, { language: value })} /><label className={labelClass}><span>Proficiency</span><select value={item.proficiency || ''} onChange={event => updateArray<ChefLanguage>('languages', item.id, { proficiency: event.target.value })} className={fieldClass}><option value="">Select</option><option>Basic</option><option>Conversational</option><option>Professional</option><option>Native</option></select></label><RemoveButton onClick={() => removeArray('languages', item.id)} /></div>} /></div>;
-  if (step === 6) return <div className="grid gap-4 sm:grid-cols-2">{(['instagram', 'tiktok', 'facebook', 'linkedin', 'youtube', 'website'] as const).map(key => <TextField key={key} label={key === 'website' ? 'Personal website' : key[0].toUpperCase() + key.slice(1)} type="url" value={profile.socialLinks[key]} onChange={value => update(current => ({ ...current, socialLinks: { ...current.socialLinks, [key]: value } }))} />)}</div>;
+  if (step === 6) return <div className="grid gap-4 sm:grid-cols-2">{CHEF_SOCIAL_PLATFORMS.map(key => <TextField key={key} label={CHEF_SOCIAL_LABELS[key]} type="url" placeholder="https://…" value={profile.socialLinks[key]} error={getChefSocialLinkError(key, profile.socialLinks[key])} onChange={value => update(current => ({ ...current, socialLinks: { ...current.socialLinks, [key]: value } }))} />)}</div>;
   return <div className="space-y-5"><div className="rounded-2xl bg-white p-5"><div className="flex items-center gap-4">{resolvedProfilePhotoUrl && <img src={resolvedProfilePhotoUrl} className="h-16 w-16 rounded-full object-cover" alt="" />}<div><h2 className="font-display text-2xl font-bold text-primary">{profile.basicInfo.fullName || 'Needs Review'}</h2><p className="font-sans text-sm font-bold text-on-surface-variant">{profile.basicInfo.professionalTitle || 'Needs Review'}</p></div></div>{profile.basicInfo.summary && <p className="mt-4 font-sans text-sm leading-relaxed">{profile.basicInfo.summary}</p>}</div><ReviewLine label="Skills" value={`${profile.skills.length} selected`} /><ReviewLine label="Work Experience" value={`${profile.experiences.length} entries`} /><ReviewLine label="Education" value={`${profile.education.length} entries`} /><ReviewLine label="Certificates" value={`${profile.certificates.length} entries`} /><ReviewLine label="Awards" value={`${profile.awards.length} entries`} /><ReviewLine label="Languages" value={`${profile.languages.length} entries`} />
     <div className="space-y-3"><h3 className="font-display text-xl font-bold text-primary">Portfolio</h3>{profile.portfolio.map(item => <div key={item.id} className="grid gap-3 rounded-2xl border border-surface-container-high bg-white p-4 sm:grid-cols-2"><TextField label="Title" value={item.title} onChange={value => update(current => ({ ...current, portfolio: current.portfolio.map(entry => entry.id === item.id ? { ...entry, title: value } : entry) }))} /><TextField label="Project URL" type="url" value={item.projectUrl} onChange={value => update(current => ({ ...current, portfolio: current.portfolio.map(entry => entry.id === item.id ? { ...entry, projectUrl: value } : entry) }))} /><TextField label="Image URL" type="url" value={item.imageUrl} onChange={value => update(current => ({ ...current, portfolio: current.portfolio.map(entry => entry.id === item.id ? { ...entry, imageUrl: value } : entry) }))} /><label className={`${labelClass} sm:col-span-2`}><span>Description</span><textarea value={item.description || ''} onChange={event => update(current => ({ ...current, portfolio: current.portfolio.map(entry => entry.id === item.id ? { ...entry, description: event.target.value } : entry) }))} rows={2} className={fieldClass} /></label><RemoveButton onClick={() => update(current => ({ ...current, portfolio: current.portfolio.filter(entry => entry.id !== item.id) }))} /></div>)}<button type="button" onClick={() => update(current => ({ ...current, portfolio: [...current.portfolio, { id: crypto.randomUUID(), title: '', description: '', imageUrl: '' }] }))} className="inline-flex items-center gap-2 rounded-full border border-primary px-4 py-2.5 font-sans text-xs font-extrabold text-primary"><Plus className="h-4 w-4" />Add portfolio item</button></div>
     <TextField label="Public profile slug" value={profile.profileSlug} onChange={value => update(current => ({ ...current, profileSlug: slugifyProfile(value) }))} /><p className="flex items-center gap-2 font-sans text-xs font-bold text-on-surface-variant"><Shield className="h-4 w-4" />Only published profile fields will be shown publicly. Private contact and files stay hidden.</p></div>;
@@ -709,13 +736,13 @@ function ImportReview({ current, imported, choices, onChoices, onChange, onCance
       const status = statusPresentation[section.status];
       const importedSelected = choices[section.key] === 'imported';
       return <section key={section.key} className={`rounded-2xl border p-4 ${section.status === 'missing' ? 'border-error/30 bg-error-container/40' : 'border-surface-container-high bg-white'}`}>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h3 className="font-display text-xl font-bold text-primary">{section.label}</h3><p className={`mt-1 font-sans text-xs font-extrabold ${status.className}`}>{status.symbol} {status.label}</p>{section.confidence > 0 && <p className="mt-1 font-sans text-sm tracking-[.16em] text-secondary" aria-label={`${section.confidence} out of 5 confidence`}>{'★'.repeat(section.confidence)}{'☆'.repeat(5 - section.confidence)}</p>}{section.confidence > 0 && section.confidence < 4 && <p className="mt-1 font-sans text-xs font-bold text-tertiary">Lower confidence — check this section manually.</p>}</div><div className="flex flex-wrap gap-2"><button type="button" disabled={section.status === 'missing'} onClick={() => onChoices({ ...choices, [section.key]: 'imported' })} className={`rounded-full px-3 py-2 font-sans text-xs font-extrabold disabled:cursor-not-allowed disabled:opacity-40 ${importedSelected ? 'bg-secondary text-on-secondary' : 'border border-secondary text-secondary'}`}>Accept Imported</button><button type="button" onClick={() => onChoices({ ...choices, [section.key]: 'existing' })} className={`rounded-full px-3 py-2 font-sans text-xs font-extrabold ${!importedSelected ? 'bg-primary text-on-primary' : 'border border-primary text-primary'}`}>Keep Existing</button></div></div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h3 className="font-display text-xl font-bold text-primary">{section.label}</h3><p className={`mt-1 font-sans text-xs font-extrabold ${status.className}`}>{status.symbol} {status.label}</p>{section.confidence > 0 && <p className="mt-1 font-sans text-sm tracking-[.16em] text-secondary" aria-label={`${section.confidence} out of 5 confidence`}>{'★'.repeat(section.confidence)}{'☆'.repeat(5 - section.confidence)}</p>}{section.confidence > 0 && section.confidence < 4 && <p className="mt-1 font-sans text-xs font-bold text-tertiary">Lower confidence — check this section manually.</p>}</div><div role="group" aria-label={`${section.label} import choice`} className="flex flex-wrap gap-2"><button type="button" aria-pressed={importedSelected} disabled={section.status === 'missing'} onClick={() => onChoices({ ...choices, [section.key]: 'imported' })} className={`rounded-full px-3 py-2 font-sans text-xs font-extrabold disabled:cursor-not-allowed disabled:opacity-40 ${importedSelected ? 'bg-secondary text-on-secondary' : 'border border-secondary text-secondary'}`}>{importedSelected ? '✓ Accepted' : 'Accept Imported'}</button><button type="button" aria-pressed={!importedSelected} onClick={() => onChoices({ ...choices, [section.key]: 'existing' })} className={`rounded-full px-3 py-2 font-sans text-xs font-extrabold ${!importedSelected ? 'bg-primary text-on-primary' : 'border border-primary text-primary'}`}>Keep Existing</button></div></div>
         <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto_1fr]"><div className="rounded-xl bg-surface-container-low p-3"><p className="font-sans text-[10px] font-extrabold uppercase tracking-[.14em] text-outline">Current Profile</p><p className="mt-2 whitespace-pre-line font-sans text-xs font-bold leading-relaxed text-on-surface-variant">{resumeSectionPreview(section.key, current)}</p></div><div className="hidden items-center text-outline md:flex">→</div><div className="rounded-xl bg-surface-container-low p-3"><p className="font-sans text-[10px] font-extrabold uppercase tracking-[.14em] text-outline">Imported Resume</p><p className="mt-2 whitespace-pre-line font-sans text-xs font-bold leading-relaxed text-on-surface-variant">{resumeSectionPreview(section.key, imported)}</p></div></div>
       </section>;
     })}</div>
     {Boolean(imported.unmappedSections?.length) && <div className="mt-4 rounded-xl bg-tertiary-container p-4 text-on-tertiary-container"><p className="font-sans text-xs font-extrabold">Sections needing manual review</p><ul className="mt-2 list-disc space-y-1 pl-5 font-sans text-xs font-bold">{imported.unmappedSections?.map((section, index) => <li key={`${section.sectionName}-${index}`}>{section.sectionName}{section.reason ? ` — ${section.reason}` : ''}</li>)}</ul></div>}
     <div className="mt-5 rounded-xl bg-white p-4"><p className="font-sans text-sm font-extrabold text-primary">{selectedCount} of {assessments.length} imported sections selected</p><p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Selected imported sections become an editable profile draft. The saved and public profiles remain unchanged until final save.</p></div>
-    <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onCancel} className="rounded-full px-5 py-3 font-sans text-xs font-extrabold text-on-surface-variant">Cancel import</button><button type="button" onClick={onConfirm} className="rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">Continue to Full Review</button></div>
+    <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={onCancel} className="rounded-full px-5 py-3 font-sans text-xs font-extrabold text-on-surface-variant">Cancel import</button><button type="button" onClick={onConfirm} className="rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">Apply Selections &amp; Continue</button></div>
   </div>;
 }
 

@@ -8,6 +8,7 @@ export const calculateRecipeEditorCostPreview = ({
   libraryIngredients,
   servings,
   sellingPrice,
+  recipes = [],
   calculatedAt = new Date().toISOString()
 }: {
   recipe: Recipe;
@@ -15,6 +16,7 @@ export const calculateRecipeEditorCostPreview = ({
   libraryIngredients: CostingIngredient[];
   servings: string;
   sellingPrice: string;
+  recipes?: Recipe[];
   calculatedAt?: string;
 }) => {
   const parsedServings = Number(servings);
@@ -25,5 +27,5 @@ export const calculateRecipeEditorCostPreview = ({
     ingredients,
     servings: Number.isFinite(parsedServings) && parsedServings > 0 ? parsedServings : 0,
     sellingPrice: Number.isFinite(parsedSellingPrice) && parsedSellingPrice >= 0 ? parsedSellingPrice : 0
-  }, libraryIngredients, calculatedAt);
+  }, libraryIngredients, calculatedAt, recipes);
 };

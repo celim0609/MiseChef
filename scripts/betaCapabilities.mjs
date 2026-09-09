@@ -208,7 +208,7 @@ const compareProtectedContract = (protectedContract, candidateContract, approved
   }
 };
 
-const readProtectedContract = (root, authority) => {
+export const readProtectedContract = (gitRepositoryRoot, authority) => {
   if (!authority || authority.schemaVersion !== 1 || !/^[0-9a-f]{40}$/.test(authority.contractCommit || '') || typeof authority.contractPath !== 'string') {
     throw new Error('config/beta-capability-authority.json is malformed');
   }
@@ -218,7 +218,7 @@ const readProtectedContract = (root, authority) => {
     );
   }
   const content = execFileSync('git', ['show', `${authority.contractCommit}:${authority.contractPath}`], {
-    cwd: root,
+    cwd: gitRepositoryRoot,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe']
   });
@@ -229,18 +229,25 @@ const objectWithoutId = object => Object.fromEntries(Object.entries(object).filt
 const containsObject = (items, protectedItem) => items.some(item => canonical(item) === canonical(objectWithoutId(protectedItem)));
 
 export const validateBetaCapabilities = ({
-  repositoryRoot,
+  candidateRoot,
+  trustedRoot,
+  authorityGitRoot,
   contract,
   protectedContract,
   removals,
   authority
 } = {}) => {
-  const root = path.resolve(repositoryRoot || process.cwd());
-  const readJson = file => parseJson(readFileSync(path.join(root, file), 'utf8'), file);
-  const candidate = contract || readJson('config/beta-capabilities.json');
-  const removalConfig = removals || readJson('config/beta-capability-removals.json');
-  const authorityConfig = authority || (!protectedContract ? readJson('config/beta-capability-authority.json') : undefined);
-  const protectedCandidate = protectedContract || readProtectedContract(root, authorityConfig);
+  if (!candidateRoot || !trustedRoot) {
+    throw new Error('Both candidateRoot and trustedRoot are required; validation never infers a candidate tree from trusted gate files.');
+  }
+  const root = path.resolve(candidateRoot);
+  const trustRoot = path.resolve(trustedRoot);
+  const readCandidateJson = file => parseJson(readFileSync(path.join(root, file), 'utf8'), `candidate ${file}`);
+  const readTrustedJson = file => parseJson(readFileSync(path.join(trustRoot, file), 'utf8'), `trusted ${file}`);
+  const candidate = contract || readCandidateJson('config/beta-capabilities.json');
+  const removalConfig = removals || readTrustedJson('config/beta-capability-removals.json');
+  const authorityConfig = authority || (!protectedContract ? readTrustedJson('config/beta-capability-authority.json') : undefined);
+  const protectedCandidate = protectedContract || readProtectedContract(path.resolve(authorityGitRoot || trustRoot), authorityConfig);
   const errors = [];
   const acceptedRemovals = new Set();
 
@@ -311,11 +318,11 @@ export const validateBetaCapabilities = ({
     if (!storageRules.includes(capability.path)) reportMissing(capability.id, `Storage match ${capability.path} is absent`, approvedRemovals, errors, acceptedRemovals);
   }
 
-  const indexes = readJson('firestore.indexes.json').indexes || [];
+  const indexes = readCandidateJson('firestore.indexes.json').indexes || [];
   for (const index of candidate.indexes || []) {
     if (!containsObject(indexes, index)) reportMissing(index.id, 'protected composite index is absent or changed', approvedRemovals, errors, acceptedRemovals);
   }
-  const rewrites = readJson('firebase.json').hosting?.rewrites || [];
+  const rewrites = readCandidateJson('firebase.json').hosting?.rewrites || [];
   for (const rewrite of candidate.hostingRewrites || []) {
     if (!containsObject(rewrites, rewrite)) reportMissing(rewrite.id, 'protected Hosting rewrite is absent or changed', approvedRemovals, errors, acceptedRemovals);
   }
@@ -355,8 +362,47 @@ export const validateBetaCapabilities = ({
   };
 };
 
+export const validateTrustedGate = ({ trustedRoot, authorityGitRoot } = {}) => {
+  if (!trustedRoot) throw new Error('trustedRoot is required for gate-integrity validation.');
+  const trustRoot = path.resolve(trustedRoot);
+  const readTrustedJson = file => parseJson(readFileSync(path.join(trustRoot, file), 'utf8'), `trusted ${file}`);
+  const contract = readTrustedJson('config/beta-capabilities.json');
+  const authority = readTrustedJson('config/beta-capability-authority.json');
+  const removals = readTrustedJson('config/beta-capability-removals.json');
+  const baseline = readTrustedJson('config/beta-release-baseline.json');
+  const protectedContract = readProtectedContract(path.resolve(authorityGitRoot || trustRoot), authority);
+  const errors = [];
+  const acceptedRemovals = new Set();
+  const approvedRemovals = validateRemovalRecords(removals, protectedContract.baseline?.release || 0, errors);
+
+  if (baseline.minimumCommit !== protectedContract.baseline?.sourceCommit) {
+    errors.push('Trusted release baseline does not match the immutable capability contract baseline.');
+  }
+  if (canonical(contract) !== canonical(protectedContract)) {
+    errors.push('Trusted working contract differs from the immutable contract stored at the authority commit.');
+  }
+  compareProtectedContract(protectedContract, contract, approvedRemovals, errors, acceptedRemovals);
+  for (const removalId of approvedRemovals.keys()) {
+    if (!acceptedRemovals.has(removalId)) errors.push(`${removalId}: trusted removal record is stale`);
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    baselineCommit: baseline.minimumCommit,
+    authorityCommit: authority.contractCommit,
+    contractId: contract.contractId
+  };
+};
+
 export const assertBetaCapabilities = options => {
   const report = validateBetaCapabilities(options);
   if (!report.ok) throw new Error(`Beta capability regression detected:\n- ${report.errors.join('\n- ')}`);
+  return report;
+};
+
+export const assertTrustedGate = options => {
+  const report = validateTrustedGate(options);
+  if (!report.ok) throw new Error(`Trusted Beta gate integrity failure:\n- ${report.errors.join('\n- ')}`);
   return report;
 };

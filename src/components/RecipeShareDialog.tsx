@@ -18,7 +18,6 @@ interface RecipeShareDialogProps {
   recipe: Recipe;
   onClose: () => void;
 }
-
 export default function RecipeShareDialog({ recipe, onClose }: RecipeShareDialogProps) {
   const isPublic = recipe.visibility === 'public';
   const publicUrl = useMemo(
@@ -163,4 +162,3 @@ export default function RecipeShareDialog({ recipe, onClose }: RecipeShareDialog
     </div>
   );
 }
-

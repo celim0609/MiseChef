@@ -13,6 +13,7 @@ import { formatRegionCurrency } from '../../regions';
 import { storeOrderService } from './services';
 import { storeDeliveryService } from './services/deliveryService';
 import { formatPickupDateLabel } from './storeModel';
+import { isOrderOperationallyEligible } from './posOrderModel';
 import WhatsAppCustomerButton from './WhatsAppCustomerButton';
 import type {
   StoreFulfilmentStatus,
@@ -21,17 +22,20 @@ import type {
   StoreOrderTimelineEvent
 } from './types';
 
-const FILTERS: Array<'All' | StoreFulfilmentStatus> = [
+const FILTERS = [
   'All',
+  'Payment Review',
+  'New',
   'Confirmed',
   'Paid',
   'Preparing',
   'Ready',
   'Completed',
   'Cancelled'
-];
+] as const;
 
 const NEXT_STATUS: Partial<Record<StoreFulfilmentStatus, StoreFulfilmentStatus>> = {
+  New: 'Preparing',
   Confirmed: 'Preparing',
   Paid: 'Preparing',
   Preparing: 'Ready',
@@ -114,11 +118,15 @@ export default function StoreOrdersPanel({
     );
   }, [selectedOrderId, workspaceId]);
 
-  const visibleOrders = useMemo(() => (
-    activeFilter === 'All'
-      ? orders
-      : orders.filter(order => order.fulfilmentStatus === activeFilter)
-  ), [activeFilter, orders]);
+  const visibleOrders = useMemo(() => orders.filter(order => {
+    if (activeFilter === 'All') return true;
+    if (activeFilter === 'Payment Review') return order.payment.status === 'pending_verification';
+    if (activeFilter === 'Paid') return order.payment.status === 'paid';
+    if (activeFilter === 'New') {
+      return order.payment.status === 'paid' && order.fulfilmentStatus === 'New';
+    }
+    return order.fulfilmentStatus === activeFilter;
+  }), [activeFilter, orders]);
 
   const updateStatus = async (nextStatus: StoreFulfilmentStatus) => {
     if (!selectedOrder || isUpdating) return;
@@ -225,7 +233,9 @@ export default function StoreOrdersPanel({
                   <span className="mt-1 block font-sans text-sm font-extrabold text-on-surface">{order.customerName}</span>
                 </span>
                 <span className="rounded-full bg-surface-container px-3 py-1.5 font-sans text-[10px] font-extrabold text-primary">
-                  {order.fulfilmentStatus || paymentStatusLabel(order.payment.status)}
+                  {order.payment.status === 'pending_verification'
+                    ? 'Payment Review'
+                    : order.fulfilmentStatus || paymentStatusLabel(order.payment.status)}
                 </span>
               </span>
               <span className="mt-4 grid gap-2 font-sans text-xs font-bold text-on-surface-variant sm:grid-cols-2">
@@ -337,17 +347,26 @@ export default function StoreOrdersPanel({
               </ol>
             </div>
 
-            <div className="mt-7 flex flex-col gap-2 sm:flex-row">
+            {selectedOrder.payment.status === 'paid' && (
+              <div className="mt-7 rounded-2xl border border-green-200 bg-green-50 p-4 text-green-900">
+                <p className="font-sans text-sm font-extrabold">Payment confirmed ✓</p>
+                <p className="mt-1 font-sans text-xs font-bold">Next: Send customer confirmation via WhatsApp</p>
+              </div>
+            )}
+
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               {canReviewPayments && selectedOrder.payment.status === 'pending_verification' && (
                 <>
                   {selectedOrder.payment.receiptPath && (
                     <button type="button" disabled={isUpdating} onClick={() => storeOrderService.openReceipt(selectedOrder.payment.receiptPath).catch(error => setErrorMessage(error.message))} className="rounded-full bg-surface-container px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-50">View Receipt</button>
                   )}
-                  <button type="button" disabled={isUpdating} onClick={() => reviewPayment('approve')} className="rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">Approve Payment</button>
+                  <button type="button" disabled={isUpdating} onClick={() => reviewPayment('approve')} className="rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">Confirm Payment</button>
                   <button type="button" disabled={isUpdating} onClick={() => reviewPayment('reject')} className="rounded-full bg-error/10 px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">Reject Payment</button>
                 </>
               )}
-              {canProcessOrders && NEXT_STATUS[selectedOrder.fulfilmentStatus as StoreFulfilmentStatus] && (
+              {canProcessOrders
+                && isOrderOperationallyEligible(selectedOrder)
+                && NEXT_STATUS[selectedOrder.fulfilmentStatus as StoreFulfilmentStatus] && (
                 <button
                   type="button"
                   disabled={isUpdating}

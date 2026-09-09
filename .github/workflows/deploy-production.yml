@@ -1,0 +1,172 @@
+name: Production Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_confirmation:
+        description: Type RELEASE PRODUCTION to confirm the protected full-resource release
+        required: true
+        type: string
+      expected_candidate_sha:
+        description: Exact approved 40-character Beta-tested candidate SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: misechef-production-deployment
+  cancel-in-progress: false
+
+jobs:
+  validate-production-candidate:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.release_confirmation == 'RELEASE PRODUCTION' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FIREBASE_DEPLOY_TARGET: beta
+      MISECHEF_BETA_PROTECTED_BASELINE: 06a37c0d30c47e037994454119a0461955df4ee3
+      MISECHEF_BETA_ENFORCE_CLEAN: 1
+    steps:
+      - name: Check out Production release controller from main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+          persist-credentials: false
+
+      - name: Check out immutable trusted validation gate
+        uses: actions/checkout@v4
+        with:
+          ref: 9c2173b9f9ae42b1fc09826c57cef46697759452
+          path: trusted-gate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check out exact approved candidate SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.expected_candidate_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact candidate checkout
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_candidate_sha }}
+        run: |
+          if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Expected candidate SHA must be an exact lowercase 40-character Git SHA." >&2
+            exit 1
+          fi
+          test "$(git -C "$GITHUB_WORKSPACE/candidate" rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Java 21 for mandatory Firebase Rules emulators
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install trusted gate dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/trusted-gate" ci
+
+      - name: Install candidate application dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/candidate" ci
+
+      - name: Install candidate Functions dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/candidate/functions" ci
+
+      - name: Install pinned Firebase CLI
+        run: npm install --global firebase-tools@14.22.0
+
+      - name: Validate candidate with immutable trusted Beta gate
+        run: >-
+          node "$GITHUB_WORKSPACE/trusted-gate/scripts/validateBetaReleaseBaseline.mjs"
+          --trusted-root "$GITHUB_WORKSPACE/trusted-gate"
+          --candidate-root "$GITHUB_WORKSPACE/candidate"
+
+      - name: Run complete immutable trusted candidate regression gate
+        run: >-
+          node "$GITHUB_WORKSPACE/trusted-gate/scripts/runBetaProtectedTests.mjs"
+          --trusted-root "$GITHUB_WORKSPACE/trusted-gate"
+          --candidate-root "$GITHUB_WORKSPACE/candidate"
+
+      - name: Run Store Sets Firestore authorization suite
+        run: npm --prefix "$GITHUB_WORKSPACE/candidate" run test:store-sets:rules
+
+      - name: Test Production deployment safety controller
+        run: node --test "$GITHUB_WORKSPACE/controller/scripts/productionDeploymentSafety.test.mjs"
+
+  deploy-production:
+    needs: validate-production-candidate
+    if: ${{ github.ref == 'refs/heads/main' && inputs.release_confirmation == 'RELEASE PRODUCTION' }}
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 75
+    env:
+      FIREBASE_DEPLOY_TARGET: production
+      MISECHEF_PRODUCTION_CI_LOCK_ID: misechef-production-deployment
+      MISECHEF_PRODUCTION_EXPECTED_SHA: ${{ inputs.expected_candidate_sha }}
+      MISECHEF_PRODUCTION_APPROVED_SHA: ${{ vars.MISECHEF_PRODUCTION_APPROVED_SHA }}
+      MISECHEF_PRODUCTION_PROTECTED_BASELINE: ${{ vars.MISECHEF_PRODUCTION_PROTECTED_BASELINE }}
+      MISECHEF_PRODUCTION_BOOTSTRAP_HOSTING_VERSION: ${{ vars.MISECHEF_PRODUCTION_BOOTSTRAP_HOSTING_VERSION }}
+      MISECHEF_PRODUCTION_BOOTSTRAP_LIVE_ASSET: ${{ vars.MISECHEF_PRODUCTION_BOOTSTRAP_LIVE_ASSET }}
+      VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+      VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+      VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
+      VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+      VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+      VITE_STRIPE_PUBLISHABLE_KEY: ${{ vars.VITE_STRIPE_PUBLISHABLE_KEY }}
+      SELLING_WORKSPACE_ID: ${{ vars.SELLING_WORKSPACE_ID }}
+      PUBLIC_SITE_ORIGIN: ${{ vars.PUBLIC_SITE_ORIGIN }}
+    steps:
+      - name: Check out protected Production controller from main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: controller
+          persist-credentials: false
+
+      - name: Check out exact Environment-approved candidate SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.expected_candidate_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify candidate equals external Production authority
+        run: |
+          test "$(git -C "$GITHUB_WORKSPACE/candidate" rev-parse HEAD)" = "$MISECHEF_PRODUCTION_EXPECTED_SHA"
+          test "$MISECHEF_PRODUCTION_EXPECTED_SHA" = "$MISECHEF_PRODUCTION_APPROVED_SHA"
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install candidate application dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/candidate" ci
+
+      - name: Install candidate Functions dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/candidate/functions" ci
+
+      - name: Install pinned Firebase CLI
+        run: npm install --global firebase-tools@14.22.0
+
+      - name: Authenticate to Production only
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MISECHEF_PRODUCTION }}
+
+      - name: Run canonical protected full-resource Production release
+        run: >-
+          node "$GITHUB_WORKSPACE/controller/scripts/deployProduction.mjs"
+          --candidate-root "$GITHUB_WORKSPACE/candidate"

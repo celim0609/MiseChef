@@ -1,6 +1,7 @@
 import { useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Copy, Pencil, Plus, Trash2, X } from 'lucide-react';
 import type { User } from 'firebase/auth';
+import type { Recipe } from '../../types';
 import { formatRegionCurrency } from '../../regions';
 import { uploadStoreSetImage } from '../../services/storage';
 import { storeService } from './services';
@@ -17,6 +18,7 @@ interface StoreSetsPanelProps {
   workspaceId: string;
   currency: 'MYR' | 'SGD';
   products: StoreProduct[];
+  recipes: Recipe[];
   sets: StoreSet[];
   onSetsChange: (sets: StoreSet[]) => void;
   onMessage: (message: string, isError?: boolean) => void;
@@ -49,6 +51,7 @@ export default function StoreSetsPanel({
   workspaceId,
   currency,
   products,
+  recipes,
   sets,
   onSetsChange,
   onMessage
@@ -69,8 +72,8 @@ export default function StoreSetsPanel({
     ...draft
   }, products), [currentUser.uid, draft, editing, products, workspaceId]);
   const analysis = useMemo(
-    () => calculateStoreSetAnalysis(draft, products, defaultSelections),
-    [defaultSelections, draft, products]
+    () => calculateStoreSetAnalysis(draft, products, defaultSelections, recipes),
+    [defaultSelections, draft, products, recipes]
   );
 
   const openNew = () => {
@@ -209,7 +212,7 @@ export default function StoreSetsPanel({
             ))}
           </div>
 
-          <div className="mt-6 rounded-2xl border border-primary/15 bg-primary/5 p-4"><h3 className="font-display text-lg font-bold text-primary">Live Cost Analysis</h3><p className="mt-1 text-[11px] font-bold text-on-surface-variant">Based on the first available required choices. Customer selections recalculate live.</p><dl className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-3"><div><dt className="font-bold text-outline">Regular Value</dt><dd className="mt-1 font-extrabold text-primary">{formatRegionCurrency(analysis.regularValue, currency)}</dd></div><div><dt className="font-bold text-outline">Customer Saving</dt><dd className="mt-1 font-extrabold text-primary">{formatRegionCurrency(analysis.customerSaving, currency)}</dd></div><div><dt className="font-bold text-outline">Estimated Cost</dt><dd className="mt-1 font-extrabold text-primary">{analysis.estimatedCost === null ? 'Not available' : formatRegionCurrency(analysis.estimatedCost, currency)}</dd></div><div><dt className="font-bold text-outline">Selling Price</dt><dd className="mt-1 font-extrabold text-primary">{formatRegionCurrency(analysis.sellingPrice, currency)}</dd></div><div><dt className="font-bold text-outline">Gross Profit</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossProfit === null ? 'Not available' : formatRegionCurrency(analysis.grossProfit, currency)}</dd></div><div><dt className="font-bold text-outline">Gross Margin</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossMargin === null ? 'Not available' : `${analysis.grossMargin.toFixed(1)}%`}</dd></div></dl></div>
+          <div className="mt-6 rounded-2xl border border-primary/15 bg-primary/5 p-4"><h3 className="font-display text-lg font-bold text-primary">Live Cost Analysis</h3><p className="mt-1 text-[11px] font-bold text-on-surface-variant">Based on the first available required choices. Customer selections recalculate live.</p><dl className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-3"><div><dt className="font-bold text-outline">Regular Value</dt><dd className="mt-1 font-extrabold text-primary">{formatRegionCurrency(analysis.regularValue, currency)}</dd></div><div><dt className="font-bold text-outline">Customer Saving</dt><dd className="mt-1 font-extrabold text-primary">{formatRegionCurrency(analysis.customerSaving, currency)}</dd></div><div><dt className="font-bold text-outline">Estimated Cost</dt><dd className="mt-1 font-extrabold text-primary">{analysis.estimatedCost === null ? 'Cost unavailable' : formatRegionCurrency(analysis.estimatedCost, currency)}</dd></div><div><dt className="font-bold text-outline">Selling Price</dt><dd className="mt-1 font-extrabold text-primary">{formatRegionCurrency(analysis.sellingPrice, currency)}</dd></div><div><dt className="font-bold text-outline">Gross Profit</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossProfit === null ? 'Missing recipe cost' : formatRegionCurrency(analysis.grossProfit, currency)}</dd></div><div><dt className="font-bold text-outline">Gross Margin</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossMargin === null ? 'Missing recipe cost' : `${analysis.grossMargin.toFixed(1)}%`}</dd></div></dl></div>
           <button type="submit" disabled={isSaving} className="mt-6 w-full rounded-full bg-primary px-5 py-3.5 text-sm font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : editing ? 'Save Set' : 'Create Set'}</button>
         </form>
       )}
@@ -224,4 +227,3 @@ export default function StoreSetsPanel({
     </section>
   );
 }
-

@@ -1,5 +1,5 @@
 import { HttpsError } from 'firebase-functions/v2/https';
-import { requireWorkspaceAccess } from './subscriptionFoundation.js';
+import { requireWorkspaceFeature } from './subscriptionFoundation.js';
 
 const readString = value => typeof value === 'string' ? value.trim() : '';
 const readNumber = value => {
@@ -17,7 +17,12 @@ export const recordPersonalExpenseSettlement = async ({
   workspaceId,
   memberId,
   amount,
-  resolveWorkspaceAccess = requireWorkspaceAccess,
+  resolveWorkspaceAccess = ({ db: firestore, uid, workspaceId: id }) => requireWorkspaceFeature({
+    db: firestore,
+    uid,
+    workspaceId: id,
+    feature: 'finance'
+  }),
   now = () => new Date()
 }) => {
   const normalizedMemberId = readString(memberId);

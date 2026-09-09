@@ -4,6 +4,8 @@ import test from 'node:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { Recipe } from '../../types';
 import PublicHomePage from '../../modules/public/PublicHomePage';
+import { HomepagePromotionCarousel } from '../../modules/public/HomepageCarousels';
+import { DEFAULT_HOMEPAGE_PROMOTIONS } from '../../modules/public/homepagePromotions';
 import { createPublicHomeDiscoverItems } from '../../modules/public/publicDiscoverModel';
 import DiscoverCarousel from './DiscoverCarousel';
 import {
@@ -24,6 +26,7 @@ const searchSource = readFileSync(new URL('../SearchTab.tsx', import.meta.url), 
 const stylesSource = readFileSync(new URL('../../index.css', import.meta.url), 'utf8');
 const publicHomeSource = readFileSync(new URL('../../modules/public/PublicHomePage.tsx', import.meta.url), 'utf8');
 const publicRecipeServiceSource = readFileSync(new URL('../../modules/public/services/publicRecipeService.ts', import.meta.url), 'utf8');
+const homepageCarouselsSource = readFileSync(new URL('../../modules/public/HomepageCarousels.tsx', import.meta.url), 'utf8');
 
 const recipe = (overrides: Partial<Recipe> = {}): Recipe => ({
   id: 'recipe-1',
@@ -111,14 +114,15 @@ test('carousel markup is stable, accessible, and keyboard navigable', () => {
   assert.match(markup, /Next Discover item/);
   assert.match(markup, /Show Discover item 1 of 2/);
   assert.match(markup, /View Recipe →/);
-  assert.match(markup, /hidden h-full w-\[42%\].*sm:block/);
+  assert.match(markup, /hidden w-\[42%\] sm:block/);
   assert.match(markup, /bg-surface-container-low/);
   assert.match(markup, /text-on-surface-variant/);
+  assert.match(markup, /Pause Discover carousel/);
 });
 
 test('motion pauses during interaction, resumes via cleaned timers, and respects reduced motion', () => {
-  assert.match(componentSource, /isHovering \|\| hasFocusWithin \|\| isPointerActive/);
-  assert.match(componentSource, /window\.setTimeout\(moveNext, DISCOVER_AUTOPLAY_MS\)/);
+  assert.match(componentSource, /isHovering \|\| hasFocusWithin \|\| isPointerActive \|\| isPaused/);
+  assert.match(componentSource, /window\.setTimeout\(moveNext, autoplayMs\)/);
   assert.match(componentSource, /return \(\) => window\.clearTimeout\(timer\)/);
   assert.match(componentSource, /prefers-reduced-motion: reduce/);
   assert.match(componentSource, /mediaQuery\.removeEventListener\('change', updatePreference\)/);
@@ -156,11 +160,12 @@ test('public Discover uses only public recipe projections and minimal public Sto
   assert.match(publicRecipeServiceSource, /collection\(db, 'publicRecipes'\)/);
 });
 
-test('public homepage keeps its Hero and Featured Recipes with one Discover placement between them', () => {
-  const heroIndex = publicHomeSource.indexOf('Discover recipes from chefs worth following.');
+test('public homepage keeps one hero carousel before promotions, categories, and recipe discovery', () => {
   const discoverIndex = publicHomeSource.indexOf('<DiscoverCarousel');
-  const featuredIndex = publicHomeSource.indexOf('title="Featured Recipes"');
-  assert.ok(heroIndex >= 0 && heroIndex < discoverIndex && discoverIndex < featuredIndex);
+  const promotionIndex = publicHomeSource.indexOf('<HomepagePromotionCarousel');
+  const categoryIndex = publicHomeSource.indexOf('id="category-shortcuts-title"');
+  const popularIndex = publicHomeSource.indexOf('id="popular-recipes-title"');
+  assert.ok(discoverIndex >= 0 && discoverIndex < promotionIndex && promotionIndex < categoryIndex && categoryIndex < popularIndex);
   assert.equal(publicHomeSource.split('<DiscoverCarousel').length - 1, 1);
 
   const markup = renderToStaticMarkup(
@@ -168,10 +173,29 @@ test('public homepage keeps its Hero and Featured Recipes with one Discover plac
       publicRecipes={[recipe({ visibility: 'public' })]}
       publicChefs={[]}
       publicDiscoverStores={[]}
+      promotions={[]}
     />
   );
-  assert.match(markup, /Discover recipes from chefs worth following\./);
-  assert.match(markup, /aria-label="Discover new public MiseChef content"/);
-  assert.match(markup, /Featured Recipes/);
+  assert.match(markup, /aria-label="MiseChef featured stories"/);
+  assert.match(markup, /Made for the way food moves/);
+  assert.match(markup, /MiseChef Go/);
+  assert.match(markup, /Find your next favourite/);
+  assert.match(markup, /Popular &amp; newly discovered/);
   assert.doesNotMatch(markup, /Private Recipe/);
+});
+
+test('four promotion cards render a continuous accessible track with safe external links', () => {
+  const promotions = DEFAULT_HOMEPAGE_PROMOTIONS.map((promotion, index) => index === 0 ? {
+    ...promotion,
+    href: 'https://misechef.example/go',
+    linkType: 'external' as const
+  } : promotion);
+  const markup = renderToStaticMarkup(<HomepagePromotionCarousel promotions={promotions} />);
+  assert.equal((markup.match(/data-promotion-card="true"/g) || []).length, 8);
+  assert.equal((markup.match(/data-promotion-clone="true"/g) || []).length, 4);
+  assert.match(markup, /target="_blank"/);
+  assert.match(markup, /rel="noopener noreferrer"/);
+  assert.match(markup, /aria-hidden="true"/);
+  assert.match(homepageCarouselsSource, /if \(cardCount < 2 \|\| reducedMotion \|\| isPaused \|\| isInteracting\) return/);
+  assert.match(homepageCarouselsSource, /scrollTo\(\{ left: \(targetIndex % cardCount\) \* distance, behavior: 'auto' \}\)/);
 });

@@ -1,9 +1,8 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { assertBetaCapabilities } from './betaCapabilities.mjs';
+import { readGateRoots } from './betaGateCli.mjs';
 
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const report = assertBetaCapabilities({ repositoryRoot });
+const { trustedRoot, candidateRoot } = readGateRoots();
+const report = assertBetaCapabilities({ trustedRoot, candidateRoot });
 
 console.log(
   `Beta capability contract passed: ${report.counts.capabilities} capabilities, `

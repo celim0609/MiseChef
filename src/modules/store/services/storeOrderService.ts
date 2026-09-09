@@ -18,6 +18,7 @@ import { getBlob, ref } from 'firebase/storage';
 import { db, functions, storage } from '../../../firebase';
 import { getOrderPickupCode } from '../selling';
 import { normalizeStoreOrderItem } from '../storeOrderSnapshot';
+import { isOrderOperationallyEligible, toActivePosStatus } from '../posOrderModel';
 import type {
   StoreFulfilmentStatus,
   StoreNotification,
@@ -28,6 +29,8 @@ import type {
 const readString = (value: unknown, fallback = '') => (
   typeof value === 'string' && value.trim() ? value.trim() : fallback
 );
+
+const readExactString = (value: unknown) => typeof value === 'string' ? value : '';
 
 const readNumber = (value: unknown) => (
   Number.isFinite(Number(value)) ? Number(value) : 0
@@ -60,8 +63,8 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     storeId: readString(data.storeId),
     workspaceId: readString(data.workspaceId),
     orderSource: data.orderSource === 'pos' ? 'pos' : 'online',
-    ...(groupOrder && readString(groupOrder.id) ? { groupOrder: {
-      id: readString(groupOrder.id),
+    ...(groupOrder && readExactString(groupOrder.id) ? { groupOrder: {
+      id: readExactString(groupOrder.id),
       shareCode: readString(groupOrder.shareCode),
       name: readString(groupOrder.name),
       hostId: readString(groupOrder.hostId),
@@ -163,6 +166,7 @@ export const storeOrderService = {
       onData([], []);
       return () => undefined;
     }
+    let knownOperationalOrderIds = new Set<string>();
     return onSnapshot(
       query(
         collection(db, 'storeOrders'),
@@ -170,12 +174,25 @@ export const storeOrderService = {
         where('workspaceId', '==', workspaceId),
         orderBy('createdAt', 'desc')
       ),
-      snapshot => onData(
-        snapshot.docs.map(normalizeOrder),
-        snapshot.docChanges()
-          .filter(change => change.type === 'added' && readString(change.doc.data().fulfilmentStatus) === 'New')
-          .map(change => change.doc.id)
-      ),
+      snapshot => {
+        const orders = snapshot.docs.map(normalizeOrder);
+        const operationalOrders = orders.filter(isOrderOperationallyEligible);
+        const unresolvedGroupIds = new Set(orders
+          .filter(order => order.groupOrder?.id
+            && order.fulfilmentStatus !== 'Completed'
+            && order.fulfilmentStatus !== 'Cancelled')
+          .map(order => order.groupOrder?.id || ''));
+        const kitchenOrders = orders.filter(order => (
+          (operationalOrders.includes(order) && Boolean(toActivePosStatus(order.fulfilmentStatus)))
+          || Boolean(order.groupOrder?.id && unresolvedGroupIds.has(order.groupOrder.id))
+        ));
+        const nextOperationalOrderIds = new Set(operationalOrders.map(order => order.id));
+        const addedNewOrderIds = operationalOrders
+          .filter(order => order.fulfilmentStatus === 'New' && !knownOperationalOrderIds.has(order.id))
+          .map(order => order.id);
+        knownOperationalOrderIds = nextOperationalOrderIds;
+        onData(kitchenOrders, addedNewOrderIds);
+      },
       error => onError(error)
     );
   },
@@ -355,6 +372,18 @@ export const storeOrderService = {
       nextStatus,
       ...(cancellationReason ? { cancellationReason } : {})
     })).data;
+  },
+
+  async updateGroupFulfilment(
+    groupId: string,
+    action: 'start_preparing' | 'mark_ready' | 'complete'
+  ) {
+    if (!functions) throw new Error('Group updates are temporarily unavailable.');
+    const updateGroupStatus = httpsCallable<
+      { groupId: string; action: 'start_preparing' | 'mark_ready' | 'complete' },
+      { groupId: string; action: string; fulfilmentStatus: StoreFulfilmentStatus; transitionedOrderCount: number }
+    >(functions, 'updateStoreGroupOrderBatchStatus');
+    return (await updateGroupStatus({ groupId, action })).data;
   },
 
   async reviewManualPayment(orderId: string, decision: 'approve' | 'reject') {

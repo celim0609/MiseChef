@@ -1,179 +1,60 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { Timestamp } from 'firebase-admin/firestore';
-import { buildProvisioningRecords, getPersonalWorkspaceName, provisionNewUser, selectProvisioningDisplayName } from './newUserProvisioning.js';
+import { buildProvisioningRecords, provisionNewUser, selectProvisioningDisplayName } from './newUserProvisioning.js';
 
 const UID = 'fresh-user';
 const EMAIL = 'fresh@example.test';
 const NOW = new Date('2026-08-09T00:00:00.000Z');
 
-test('entered registration name provisions profile, workspace, Owner membership, and exact trial atomically', () => {
-  const records = buildProvisioningRecords({
-    uid: UID,
-    email: EMAIL,
-    displayName: 'Aisha Rahman',
-    now: NOW,
-    workspaceCreateTime: Timestamp.fromDate(NOW)
-  });
-
+test('registration provisions only the Personal account and never a workspace or trial', () => {
+  const records = buildProvisioningRecords({ uid: UID, email: EMAIL, displayName: 'Aisha Rahman', now: NOW });
   assert.equal(records.user.displayName, 'Aisha Rahman');
   assert.equal(records.user.profile.name, 'Aisha Rahman');
-  assert.equal(records.workspace.name, "Aisha's Workspace");
-  assert.deepEqual(records.user.onboarding, {
-    version: 1,
-    status: 'pending',
-    goals: [],
-    createdAt: NOW.toISOString(),
-    updatedAt: NOW.toISOString(),
-    completedAt: null
-  });
-  assert.equal(records.workspace.ownerId, UID);
-  assert.equal(records.membership.id, `${UID}_${UID}`);
-  assert.equal(records.membership.role, 'Owner');
-  assert.equal(records.membership.status, 'Active');
-  assert.equal(records.workspace.subscriptionPlan, 'professional');
-  assert.equal(records.workspace.subscriptionStatus, 'trialing');
-  assert.equal(records.workspace.trialStartedAt.toDate().toISOString(), NOW.toISOString());
-  assert.equal(records.workspace.trialEndsAt.toDate().toISOString(), '2026-08-23T00:00:00.000Z');
+  assert.equal(records.user.companyId, undefined);
+  assert.equal(records.user.companyRole, undefined);
+  assert.equal(records.workspace, undefined);
+  assert.equal(records.membership, undefined);
+  assert.equal(records.company, undefined);
   assert.equal(records.result.ready, true);
+  assert.equal(records.result.userRole, 'user');
+  assert.equal(records.result.subscriptionStatus, undefined);
 });
 
-test('idempotent provisioning preserves manually edited workspace and profile names without extending trial', () => {
-  const trialStart = Timestamp.fromDate(new Date('2026-08-08T00:00:00.000Z'));
-  const trialEnd = Timestamp.fromDate(new Date('2026-08-22T00:00:00.000Z'));
+test('idempotent Personal provisioning preserves edited profile and existing business identity fields', () => {
   const records = buildProvisioningRecords({
-    uid: UID,
-    email: EMAIL,
-    displayName: 'New Auth Name',
-    now: NOW,
-    workspaceCreateTime: trialStart,
-    userExists: true,
-    workspaceExists: true,
-    membershipExists: true,
+    uid: UID, email: EMAIL, displayName: 'New Auth Name', now: NOW, userExists: true,
     existingUser: {
-      uid: UID,
-      displayName: 'Existing Auth Name',
+      uid: UID, companyId: 'existing-business', companyRole: 'owner', displayName: 'Existing Auth Name',
       profile: { name: 'Chef-edited Profile', photo: '' }
-    },
-    existingWorkspace: {
-      id: UID,
-      name: 'My Hand-edited Restaurant',
-      ownerId: UID,
-      createdAt: '2026-08-08T00:00:00.000Z',
-      subscriptionPlan: 'professional',
-      subscriptionStatus: 'trialing',
-      trialStartedAt: trialStart,
-      trialEndsAt: trialEnd,
-      members: []
-    },
-    existingMembership: {
-      id: `${UID}_${UID}`,
-      createdAt: '2026-08-08T00:00:00.000Z'
     }
   });
-
+  assert.equal(records.user.displayName, 'Existing Auth Name');
   assert.equal(records.user.profile.name, 'Chef-edited Profile');
-  assert.equal(records.workspace.name, 'My Hand-edited Restaurant');
-  assert.equal(records.workspace.trialStartedAt.toDate().toISOString(), '2026-08-08T00:00:00.000Z');
-  assert.equal(records.workspace.trialEndsAt.toDate().toISOString(), '2026-08-22T00:00:00.000Z');
-  assert.equal(records.membership.workspaceName, 'My Hand-edited Restaurant');
+  assert.equal(records.user.companyId, 'existing-business');
+  assert.equal(records.user.companyRole, 'owner');
   assert.equal(records.user.onboarding, undefined);
 });
 
-test('idempotent retry keeps an existing exact 14-day trial when Firestore createTime differs', () => {
-  const originalStart = Timestamp.fromDate(new Date('2026-08-09T16:05:35.792Z'));
-  const originalEnd = Timestamp.fromDate(new Date('2026-08-23T16:05:35.792Z'));
-  const firestoreCreateTime = Timestamp.fromDate(new Date('2026-08-09T16:05:35.816Z'));
-  const records = buildProvisioningRecords({
-    uid: UID,
-    email: EMAIL,
-    displayName: 'Aisha Rahman',
-    now: new Date('2026-08-09T16:05:36.000Z'),
-    workspaceCreateTime: firestoreCreateTime,
-    userExists: true,
-    workspaceExists: true,
-    membershipExists: true,
-    existingWorkspace: {
-      id: UID,
-      name: "Aisha's Workspace",
-      ownerId: UID,
-      subscriptionPlan: 'professional',
-      subscriptionStatus: 'trialing',
-      trialStartedAt: originalStart,
-      trialEndsAt: originalEnd
-    }
-  });
-
-  assert.equal(records.workspace.trialStartedAt.toDate().toISOString(), '2026-08-09T16:05:35.792Z');
-  assert.equal(records.workspace.trialEndsAt.toDate().toISOString(), '2026-08-23T16:05:35.792Z');
-});
-
-test('personal workspace naming is neutral and uses the first name only', () => {
-  assert.equal(getPersonalWorkspaceName('Aisha Rahman'), "Aisha's Workspace");
-  assert.equal(getPersonalWorkspaceName(''), "Chef's Workspace");
-});
-
 test('entered registration name wins before Firebase Auth displayName is available', () => {
-  assert.equal(selectProvisioningDisplayName({
-    requestedDisplayName: 'Entered Name',
-    authDisplayName: '',
-    email: EMAIL
-  }), 'Entered Name');
+  assert.equal(selectProvisioningDisplayName({ requestedDisplayName: 'Entered Name', authDisplayName: '', email: EMAIL }), 'Entered Name');
 });
 
-test('minimum workspace readiness documents commit through one transaction', async () => {
+test('Personal provisioning transaction writes only the user document', async () => {
   const writes = [];
   const authUpdates = [];
-  const refs = new Map();
   const db = {
-    collection(collectionName) {
-      return {
-        doc(documentId) {
-          const ref = { path: `${collectionName}/${documentId}` };
-          refs.set(ref.path, ref);
-          return ref;
-        }
-      };
-    },
+    collection(collectionName) { return { doc(documentId) { return { path: `${collectionName}/${documentId}` }; } }; },
     async runTransaction(callback) {
       return callback({
-        async get(ref) {
-          return {
-            exists: false,
-            createTime: undefined,
-            data: () => undefined,
-            ref
-          };
-        },
-        set(ref, data, options) {
-          writes.push({ path: ref.path, data, options });
-        }
+        async get(ref) { return { exists: false, data: () => undefined, ref }; },
+        set(ref, data, options) { writes.push({ path: ref.path, data, options }); }
       });
     }
   };
-  const auth = {
-    async updateUser(uid, update) {
-      authUpdates.push({ uid, update });
-    }
-  };
-
-  const result = await provisionNewUser({
-    db,
-    auth,
-    uid: UID,
-    email: EMAIL,
-    authDisplayName: '',
-    requestedDisplayName: 'Atomic Chef',
-    now: NOW
-  });
-
+  const auth = { async updateUser(uid, update) { authUpdates.push({ uid, update }); } };
+  const result = await provisionNewUser({ db, auth, uid: UID, email: EMAIL, authDisplayName: '', requestedDisplayName: 'Atomic Chef', now: NOW });
   assert.equal(result.ready, true);
   assert.deepEqual(authUpdates, [{ uid: UID, update: { displayName: 'Atomic Chef' } }]);
-  assert.deepEqual(writes.map(write => write.path).sort(), [
-    `companies/${UID}`,
-    `users/${UID}`,
-    `workspaceMembers/${UID}_${UID}`,
-    `workspaces/${UID}`
-  ]);
+  assert.deepEqual(writes.map(write => write.path), [`users/${UID}`]);
   assert.ok(writes.every(write => write.options?.merge === true));
 });

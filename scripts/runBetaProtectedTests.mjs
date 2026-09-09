@@ -1,40 +1,106 @@
 import { execFileSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readGateRoots } from './betaGateCli.mjs';
 
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const run = (command, args) => execFileSync(command, args, {
-  cwd: repositoryRoot,
+const { trustedRoot, candidateRoot } = readGateRoots();
+const run = (command, args, cwd = candidateRoot) => execFileSync(command, args, {
+  cwd,
   env: process.env,
   stdio: 'inherit'
 });
 
-const sourceTests = readdirSync(path.join(repositoryRoot, 'src'), { recursive: true })
+const candidateBinary = name => path.join(candidateRoot, 'node_modules', '.bin', name);
+const sourceTests = readdirSync(path.join(candidateRoot, 'src'), { recursive: true })
   .filter(file => /\.test\.(ts|tsx)$/.test(file))
   .map(file => path.join('src', file))
   .sort();
+const functionTests = readdirSync(path.join(candidateRoot, 'functions'))
+  .filter(file => file.endsWith('.test.js'))
+  .sort();
 
-run('npm', ['run', 'lint']);
-run('npm', ['run', 'validate:beta-capabilities']);
-run('npm', ['run', 'test:beta-capabilities']);
-run('node', ['--import', 'tsx', '--test', ...sourceTests]);
-run('npm', ['--prefix', 'functions', 'test']);
+console.log(`Trusted gate root: ${trustedRoot}`);
+console.log(`Candidate root: ${candidateRoot}`);
 
-try {
-  run('java', ['-version']);
-} catch {
-  if (process.env.MISECHEF_BETA_VERIFY_ONLY === '1' && process.env.MISECHEF_BETA_ALLOW_MISSING_JAVA_FOR_VERIFY === '1') {
-    console.warn('Java/emulator suites skipped only for non-deploy verification. A real Beta deployment will fail here.');
-    process.exit(0);
+run(process.execPath, [
+  path.join(trustedRoot, 'scripts', 'validateBetaCapabilities.mjs'),
+  '--trusted-root', trustedRoot,
+  '--candidate-root', candidateRoot
+], trustedRoot);
+
+console.log('Running candidate TypeScript validation.');
+run(candidateBinary('tsc'), ['--noEmit']);
+
+console.log(`Running ${sourceTests.length} candidate frontend/model test files.`);
+run(candidateBinary('tsx'), ['--test', ...sourceTests]);
+
+console.log(`Running ${functionTests.length} candidate Functions test files.`);
+run(process.execPath, ['--test', ...functionTests], path.join(candidateRoot, 'functions'));
+
+console.log('Verifying mandatory Java runtime.');
+run('java', ['-version']);
+
+const rulesSuites = [
+  {
+    label: 'Recipe Rules',
+    only: 'firestore',
+    project: 'demo-misechef-recipe-rules',
+    tests: ['tests/recipeWorkspaceAccessControl.test.mjs']
+  },
+  {
+    label: 'Resume Import Rules',
+    only: 'firestore',
+    project: 'demo-misechef-resume-import-rules',
+    tests: ['tests/resumeImportJobAccessControl.test.mjs']
+  },
+  {
+    label: 'Chef Profile Rules',
+    only: 'firestore,storage',
+    project: 'demo-misechef-chef-profile-rules',
+    tests: ['tests/chefProfileAccessControl.test.mjs']
+  },
+  {
+    label: 'Personal Expenses Rules',
+    only: 'firestore,storage',
+    project: 'demo-misechef-personal-expense-rules',
+    tests: ['tests/personalExpenseAccessControl.test.mjs']
+  },
+  {
+    label: 'Store Payment / Order Rules',
+    only: 'firestore,storage',
+    project: 'demo-misechef-store-payment-rules',
+    tests: ['tests/storePaymentAccessControl.test.mjs', 'tests/storeOrderHistoryIntegration.test.mjs']
+  },
+  {
+    label: 'Store Sets Rules',
+    only: 'firestore,storage',
+    project: 'demo-misechef-store-sets-rules',
+    tests: ['tests/storeSetsAccessControl.test.mjs']
+  },
+  {
+    label: 'Homepage Promotions Rules',
+    only: 'firestore,storage',
+    project: 'demo-misechef-homepage-promotion-rules',
+    tests: ['tests/homepagePromotionAccessControl.test.mjs']
+  },
+  {
+    label: 'Business Entitlement Rules',
+    only: 'firestore,storage',
+    project: 'demo-misechef-business-entitlement-rules',
+    tests: ['tests/businessEntitlementAccessControl.test.mjs']
   }
-  throw new Error('Java is required for mandatory Beta Firestore/Storage Rules regression tests.');
+];
+
+for (const suite of rulesSuites) {
+  console.log(`Running mandatory candidate suite: ${suite.label}`);
+  const testCommand = ['node', '--test', ...suite.tests].join(' ');
+  run('firebase', [
+    'emulators:exec',
+    '--only', suite.only,
+    '--project', suite.project,
+    testCommand
+  ]);
+  console.log(`PASS: ${suite.label}`);
 }
 
-run('npm', ['run', 'test:recipes:rules']);
-run('npm', ['run', 'test:resume-import:rules']);
-run('npm', ['run', 'test:chef-profile:rules']);
-run('npm', ['run', 'test:personal-expenses:rules']);
-run('npm', ['run', 'test:store-payments:rules']);
-run('npm', ['run', 'test:store-sets:rules']);
-console.log('All protected Beta integration suites passed.');
+console.log('All protected candidate regression suites passed with no skips.');

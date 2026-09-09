@@ -3,10 +3,12 @@ import { ArrowRight, Utensils } from 'lucide-react';
 import type { Recipe } from '../../types';
 import { getRecipeCategories } from '../../utils/categoryUtils';
 import { toPublicSlug } from './publicRoutes';
+import { safePublicDisplayName } from './publicRecipeAuthor';
 
 export interface PublicChefSummary {
   username: string;
   name: string;
+  publicDisplayName?: string;
   avatar?: string;
   cover?: string;
   professionalTitle?: string;
@@ -60,7 +62,7 @@ export const PublicRecipeCard = ({ recipe }: { recipe: Recipe; key?: Key }) => (
     <div className="p-5">
       <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.14em] text-secondary">{getRecipeCategories(recipe).join(', ') || 'Recipe'}</p>
       <h3 className="mt-2 font-display text-xl font-semibold text-primary group-hover:text-secondary">{recipe.title}</h3>
-      <p className="mt-2 font-sans text-xs font-bold text-on-surface-variant">By {recipe.chefName || 'MiseChef'}</p>
+      <p className="mt-2 font-sans text-xs font-bold text-on-surface-variant">By {safePublicDisplayName(recipe.publicDisplayName || recipe.chefName) || 'MiseChef'}</p>
     </div>
   </a>
 );

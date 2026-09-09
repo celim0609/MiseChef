@@ -76,7 +76,10 @@ export interface ChefSocialLinks {
   facebook?: string;
   linkedin?: string;
   youtube?: string;
+  /** Legacy-only. Retained in storage when already present, but never editable or public. */
   website?: string;
+  /** Legacy-only alias. Retained in storage when already present, but never editable or public. */
+  personalWebsite?: string;
 }
 
 export interface ChefProfile {

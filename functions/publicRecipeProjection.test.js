@@ -42,4 +42,3 @@ test('public Recipe projection allowlists presentation data and removes every in
   assert.deepEqual(projection.method, [{ description: 'Mix.', stepNumber: 1 }]);
   assert.equal(JSON.stringify(projection).includes('secret'), false);
 });
-

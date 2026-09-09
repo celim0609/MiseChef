@@ -7,7 +7,8 @@ export type StorePaymentMethodId =
   | 'touch_n_go_qr'
   | 'duitnow_qr'
   | 'bank_transfer'
-  | 'stripe';
+  | 'stripe'
+  | 'curlec';
 
 export interface StorePaymentMethodConfig {
   id: StorePaymentMethodId;
@@ -34,6 +35,12 @@ export interface StoreDeliveryConfig {
   pickupLocationId: string;
   serviceType: string;
   pickup: { name: string; address: string; latitude: string; longitude: string; contactName: string; contactPhoneE164: string };
+}
+
+export interface CustomerContact {
+  name: string;
+  phone: string;
+  email: string;
 }
 
 export type StoreOrderDay =
@@ -125,9 +132,32 @@ export interface PublicGroupOrder {
 export interface HostGroupOrder extends PublicGroupOrder {
   rewardPercent: number;
   minimumQualifyingSales: number;
+  lifetimeOrderCount: number | null;
+  archived: boolean;
+  archivedAt?: string;
+  archivedBy?: string;
   orderCount: number;
   eligibleSales: number;
   estimatedReward: number;
+}
+
+export interface HostGroupOrderSummary {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  itemCount: number;
+  items: Array<{
+    productName: string;
+    quantity: number;
+    setSelections: Array<{ groupName: string; productName: string }>;
+    selectedOptions: Array<{ groupName: string; optionName: string }>;
+  }>;
+  remarks: string;
+  total: number;
+  currency: RegionCurrency;
+  paymentStatus: StoreOrder['payment']['status'];
+  fulfilmentStatus: StoreFulfilmentStatus | '';
+  createdAt: string;
 }
 
 export interface StorePickupLocation {
@@ -183,7 +213,8 @@ export interface StoreProduct {
   name: string;
   description: string;
   price: number;
-  /** Current per-item cost when the Store product has costing data attached. */
+  recipeId?: string;
+  /** Legacy field retained only for existing order/data compatibility. */
   estimatedCost?: number;
   available: boolean;
   optionGroupIds: string[];
@@ -197,6 +228,7 @@ export interface StoreProductDraft {
   name: string;
   description: string;
   price: number;
+  recipeId?: string;
   available: boolean;
   optionGroupIds: string[];
 }
@@ -358,6 +390,7 @@ export interface StoreOrder {
   fulfilmentMethod?: 'pickup' | 'delivery';
   totals?: { merchandiseSubtotal: number; discountTotal: number; discountedMerchandiseTotal: number; deliveryFee: number; grandTotal: number; currency: RegionCurrency };
   delivery?: { fulfilmentMethod: 'delivery'; dispatch?: { status?: string; errorCode?: string }; providerOrder?: { orderId?: string; status?: string; driverId?: string; shareLink?: string }; recipient?: { address?: string }; quote?: { fee?: number; expiresAt?: string } };
+  customerUid?: string;
   groupOrder?: {
     id: string;
     shareCode: string;
@@ -372,6 +405,7 @@ export interface StoreOrder {
   paymentMethodName: string;
   customerName: string;
   phone: string;
+  customerEmail?: string;
   pickupDate: string;
   pickupSession: string;
   pickupLocationId: string;
@@ -427,11 +461,32 @@ export interface StoreOrder {
   updatedAt: string;
 }
 
+export interface CustomerStoreOrderSummary {
+  orderNumber: string;
+  orderDate: string;
+  storeName: string;
+  itemCount: number;
+  items: Array<{
+    productName: string;
+    quantity: number;
+    setSelections: Array<{ groupName: string; productName: string }>;
+    selectedOptions: Array<{ groupName: string; optionName: string }>;
+  }>;
+  remarks: string;
+  total: number;
+  currency: RegionCurrency;
+  paymentStatus: StoreOrder['payment']['status'];
+  orderStatus: StoreOrder['status'];
+  fulfilmentStatus: StoreFulfilmentStatus;
+  groupName?: string;
+}
+
 export interface StoreOrderDraft {
   fulfilmentMethod?: 'pickup' | 'delivery';
   paymentMethodId?: StorePaymentMethodId;
   customerName: string;
   phone: string;
+  customerEmail?: string;
   pickupDate: string;
   pickupSession: string;
   pickupLocationId: string;
@@ -457,8 +512,17 @@ export type StorePaymentCheckout =
     redirectUrl: string;
   }
   | {
+    type: 'curlec_standard_checkout';
+    keyId: string;
+    orderId: string;
+    amountMinor: number;
+    currency: RegionCurrency;
+    name: string;
+    description: string;
+  }
+  | {
     type: 'manual_payment';
-    methodId: Exclude<StorePaymentMethodId, 'stripe'>;
+    methodId: Exclude<StorePaymentMethodId, 'stripe' | 'curlec'>;
     methodName: string;
     qrCodeUrl: string;
     instructions: string;
@@ -467,6 +531,15 @@ export type StorePaymentCheckout =
     currency: RegionCurrency;
   };
 
+export interface PublicOrderGroupContext {
+  id: string;
+  name: string;
+  hostName: string;
+  pickupDate: string;
+  pickupSession: string;
+  pickupLocationName: string;
+}
+
 export interface StorePaymentSession {
   orderNumber: string;
   pickupCode: string;
@@ -474,6 +547,7 @@ export interface StorePaymentSession {
   paymentSessionId: string;
   checkout: StorePaymentCheckout;
   checkoutAccessToken: string;
+  groupOrder?: PublicOrderGroupContext;
 }
 
 export interface PublicStoreOrderResult {
@@ -488,4 +562,5 @@ export interface PublicStoreOrderResult {
   total: number;
   status: StoreOrder['status'];
   paymentStatus: StoreOrder['payment']['status'];
+  groupOrder?: PublicOrderGroupContext;
 }

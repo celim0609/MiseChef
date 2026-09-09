@@ -26,6 +26,7 @@ export const getStoreProductEditorDraft = (product: StoreProduct): StoreProductD
   name: product.name,
   description: product.description,
   price: product.price,
+  ...(product.recipeId ? { recipeId: product.recipeId } : {}),
   available: product.available,
   optionGroupIds: [...product.optionGroupIds]
 });
@@ -67,6 +68,7 @@ export const buildUpdatedStoreProduct = (
   name: draft.name.trim(),
   description: draft.description.trim(),
   price: draft.price,
+  recipeId: draft.recipeId,
   available: draft.available,
   optionGroupIds: [...draft.optionGroupIds],
   updatedAt

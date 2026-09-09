@@ -82,7 +82,8 @@ const createStoreRecord = () => ({
     { id: 'touch_n_go_qr', enabled: false, qrCodeUrl: '', instructions: '' },
     { id: 'duitnow_qr', enabled: false, qrCodeUrl: '', instructions: '' },
     { id: 'bank_transfer', enabled: false, qrCodeUrl: '', instructions: '' },
-    { id: 'stripe', enabled: true, qrCodeUrl: '', instructions: '' }
+    { id: 'stripe', enabled: true, qrCodeUrl: '', instructions: '' },
+    { id: 'curlec', enabled: false, qrCodeUrl: '', instructions: '' }
   ],
   hostProgram: { enabled: false, rewardPercent: 5, minimumQualifyingSales: 0 },
   country: 'MY',
@@ -103,6 +104,7 @@ let memberA;
 let ownerB;
 let managerB;
 let ownerSg;
+let customerA;
 
 before(async () => {
   environment = await initializeTestEnvironment({
@@ -118,13 +120,14 @@ before(async () => {
   ownerB = environment.authenticatedContext('owner-b', { email: 'owner-b@example.test' });
   managerB = environment.authenticatedContext('manager-b', { email: 'manager-b@example.test' });
   ownerSg = environment.authenticatedContext('owner-sg', { email: 'owner-sg@example.test' });
+  customerA = environment.authenticatedContext('customer-a', { email: 'customer-a@example.test' });
 
   await environment.withSecurityRulesDisabled(async context => {
     const db = context.firestore();
     await Promise.all([
-      db.doc(`workspaces/${WORKSPACE_A}`).set({ id: WORKSPACE_A, ownerId: 'owner-a', country: 'MY' }),
-      db.doc(`workspaces/${WORKSPACE_B}`).set({ id: WORKSPACE_B, ownerId: 'owner-b', country: 'MY' }),
-      db.doc(`workspaces/${WORKSPACE_SG}`).set({ id: WORKSPACE_SG, ownerId: 'owner-sg', country: 'SG' }),
+      db.doc(`workspaces/${WORKSPACE_A}`).set({ id: WORKSPACE_A, ownerId: 'owner-a', country: 'MY', subscriptionPlan: 'professional', subscriptionStatus: 'active' }),
+      db.doc(`workspaces/${WORKSPACE_B}`).set({ id: WORKSPACE_B, ownerId: 'owner-b', country: 'MY', subscriptionPlan: 'professional', subscriptionStatus: 'active' }),
+      db.doc(`workspaces/${WORKSPACE_SG}`).set({ id: WORKSPACE_SG, ownerId: 'owner-sg', country: 'SG', subscriptionPlan: 'professional', subscriptionStatus: 'active' }),
       db.doc(`workspaceMembers/${WORKSPACE_A}_owner-a`).set({
         workspaceId: WORKSPACE_A, userId: 'owner-a', role: 'Owner', status: 'Active'
       }),
@@ -158,6 +161,7 @@ before(async () => {
       }),
       db.doc(`storeOrders/${ORDER_A}`).set({
         id: ORDER_A,
+        customerUid: 'customer-a',
         workspaceId: WORKSPACE_A,
         storeId: WORKSPACE_A,
         status: 'Pending Verification',
@@ -235,6 +239,8 @@ test('Host data is private to its account and all Host writes remain server-only
   await assertFails(hostB.firestore().doc('hostRewardLedger/reward-a').get());
   await assertFails(hostA.firestore().doc('groupOrders/client-group').set({ hostId: 'host-a', workspaceId: WORKSPACE_A }));
   await assertFails(hostA.firestore().doc('groupOrders/group-a').update({ eligibleSales: 999999 }));
+  await assertFails(hostA.firestore().doc('groupOrders/group-a').update({ archived: true, archivedBy: 'host-a' }));
+  await assertFails(hostA.firestore().doc('groupOrders/group-a').delete());
   await assertFails(hostA.firestore().doc('hostRewardLedger/reward-a').update({ rewardAmount: 999999 }));
 });
 
@@ -245,6 +251,8 @@ test('only matching Workspace roles with View Orders can read the protected orde
   await assertSucceeds(memberA.firestore().doc(`storeOrders/${ORDER_A}`).get());
   await assertFails(ownerB.firestore().doc(`storeOrders/${ORDER_A}`).get());
   await assertFails(managerB.firestore().doc(`storeOrders/${ORDER_A}`).get());
+  await assertFails(customerA.firestore().doc(`storeOrders/${ORDER_A}`).get());
+  await assertFails(customerA.firestore().collection('storeOrders').where('customerUid', '==', 'customer-a').get());
 });
 
 test('matching Owner and Manager can update validated Store Contact settings', async () => {
@@ -256,6 +264,17 @@ test('matching Owner and Manager can update validated Store Contact settings', a
     storeContact: { ...STORE_CONTACT, whatsapp: '+60111222333' },
     businessWhatsApp: '+60111222333',
     updatedAt: '2026-08-03T02:00:00.000Z'
+  }));
+});
+
+test('Store Contact updates cannot include an invalid Curlec payment-method mutation', async () => {
+  const invalidCurlecMethods = createStoreRecord().paymentMethods.map(method => method.id === 'curlec'
+    ? { ...method, id: 'not-curlec' }
+    : method);
+  await assertFails(ownerA.firestore().doc(`stores/${WORKSPACE_A}`).update({
+    storeContact: { ...STORE_CONTACT, instagram: 'https://instagram.com/payment-kitchen' },
+    paymentMethods: invalidCurlecMethods,
+    updatedAt: '2026-08-03T03:00:00.000Z'
   }));
 });
 
@@ -328,7 +347,9 @@ test('canonical Workspace ownerId authorizes a legacy Owner without a membership
     await db.doc(`workspaces/${workspaceId}`).set({
       id: workspaceId,
       ownerId: 'legacy-owner',
-      country: 'MY'
+      country: 'MY',
+      subscriptionPlan: 'professional',
+      subscriptionStatus: 'active'
     });
     await db.doc(`stores/${workspaceId}`).set({
       ...createStoreRecord(),

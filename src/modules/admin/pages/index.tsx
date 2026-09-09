@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Activity, Building2, CreditCard, Database, DollarSign, FlaskConical, HeartPulse, PackageCheck, Settings, Users, WalletCards } from 'lucide-react';
+import { Activity, Building2, CreditCard, Database, DollarSign, FlaskConical, HeartPulse, Megaphone, PackageCheck, Settings, Users, WalletCards } from 'lucide-react';
 
 export interface AdminPageDefinition {
   title: string;
@@ -13,6 +13,7 @@ export const adminPageDefinitions: AdminPageDefinition[] = [
   { title: 'AI Usage', icon: <Database className="h-5 w-5" /> },
   { title: 'Subscriptions', icon: <CreditCard className="h-5 w-5" /> },
   { title: 'Approved Products', icon: <PackageCheck className="h-5 w-5" /> },
+  { title: 'Homepage Promotions', icon: <Megaphone className="h-5 w-5" /> },
   { title: 'Workspace QA', icon: <FlaskConical className="h-5 w-5" /> },
   { title: 'Finance', icon: <DollarSign className="h-5 w-5" /> },
   { title: 'Infrastructure', icon: <WalletCards className="h-5 w-5" /> },

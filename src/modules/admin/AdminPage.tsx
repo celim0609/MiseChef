@@ -9,6 +9,7 @@ import { AdminOverviewPage } from './pages/OverviewPage';
 import { AdminSubscriptionsPage } from './pages/SubscriptionsPage';
 import { AdminUsersPage } from './pages/UsersPage';
 import { AdminWorkspaceQaPage } from './pages/WorkspaceQaPage';
+import { AdminHomepagePromotionsPage } from './pages/HomepagePromotionsPage';
 
 const liveSectionDetails: Record<string, { status: string; subtitle: string }> = {
   Overview: { status: 'Status: LIVE', subtitle: 'Platform Dashboard' },
@@ -17,6 +18,7 @@ const liveSectionDetails: Record<string, { status: string; subtitle: string }> =
   'AI Usage': { status: 'Status: LIVE', subtitle: 'AI Usage Dashboard' },
   Subscriptions: { status: 'Status: LIVE', subtitle: 'Subscription Management' },
   'Approved Products': { status: 'Status: LIVE', subtitle: 'Manage Chef Recommendations' },
+  'Homepage Promotions': { status: 'Status: LIVE', subtitle: 'Manage Public Homepage Campaigns' },
   'Workspace QA': { status: 'Founder Tool', subtitle: 'Test Multi-Workspace Behaviour' }
 };
 
@@ -90,6 +92,8 @@ export function AdminPage({ currentUser, currentUserRole, onWorkspaceCreated }: 
         <AdminSubscriptionsPage />
       ) : activeSection === 'Approved Products' ? (
         <AdminApprovedProductsPage currentUser={currentUser} />
+      ) : activeSection === 'Homepage Promotions' ? (
+        <AdminHomepagePromotionsPage currentUser={currentUser} />
       ) : activeSection === 'Workspace QA' ? (
         <AdminWorkspaceQaPage
           currentUser={currentUser}

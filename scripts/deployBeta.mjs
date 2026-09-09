@@ -31,6 +31,9 @@ import { readLiveBetaFingerprint } from './betaLiveRelease.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const verifyOnly = process.argv.includes('--verify-only');
+const trustedGateRoot = process.env.MISECHEF_BETA_TRUSTED_GATE_ROOT
+  ? path.resolve(process.env.MISECHEF_BETA_TRUSTED_GATE_ROOT)
+  : '';
 const git = args => execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trimEnd();
 const run = (command, args, extraEnv = {}) => execFileSync(command, args, {
   cwd: repositoryRoot,
@@ -123,6 +126,9 @@ const restoreGeneratedFiles = () => {
 };
 
 try {
+  if (!trustedGateRoot || trustedGateRoot === repositoryRoot) {
+    throw new Error('MISECHEF_BETA_TRUSTED_GATE_ROOT must identify the separate trusted gate checkout.');
+  }
   const liveBefore = await readLiveBetaFingerprint();
   assertLiveBaseline({
     liveFingerprint: liveBefore,
@@ -143,12 +149,20 @@ try {
     }
   }
 
-  run('node', ['scripts/validateBetaReleaseBaseline.mjs'], {
+  run('node', [
+    path.join(trustedGateRoot, 'scripts', 'validateBetaReleaseBaseline.mjs'),
+    '--trusted-root', trustedGateRoot,
+    '--candidate-root', repositoryRoot
+  ], {
     FIREBASE_DEPLOY_TARGET: 'beta',
     MISECHEF_BETA_PROTECTED_BASELINE: authorityBaseline,
     MISECHEF_BETA_ENFORCE_CLEAN: '1'
   });
-  run('node', ['scripts/runBetaProtectedTests.mjs'], {
+  run('node', [
+    path.join(trustedGateRoot, 'scripts', 'runBetaProtectedTests.mjs'),
+    '--trusted-root', trustedGateRoot,
+    '--candidate-root', repositoryRoot
+  ], {
     FIREBASE_DEPLOY_TARGET: 'beta',
     MISECHEF_BETA_PROTECTED_BASELINE: authorityBaseline,
     MISECHEF_BETA_VERIFY_ONLY: verifyOnly ? '1' : '0'

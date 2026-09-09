@@ -1,16 +1,22 @@
 import { httpsCallable } from 'firebase/functions';
 import { functions } from '../../../firebase';
 import type { PublicDiscoverStoreSummary } from '../publicDiscoverModel';
+import { mapHomepagePromotion, sortActiveHomepagePromotions, type HomepagePromotion } from '../homepagePromotions';
 
-const listFeaturedStores = async (): Promise<PublicDiscoverStoreSummary[]> => {
-  if (!functions) return [];
-  const loadDiscoverContent = httpsCallable<Record<string, never>, { stores?: unknown[] }>(
+export interface PublicHomepageContent {
+  stores: PublicDiscoverStoreSummary[];
+  promotions: HomepagePromotion[];
+}
+
+const getHomepageContent = async (): Promise<PublicHomepageContent> => {
+  if (!functions) return { stores: [], promotions: [] };
+  const loadDiscoverContent = httpsCallable<Record<string, never>, { stores?: unknown[]; promotions?: unknown[] }>(
     functions,
     'getPublicDiscoverContent'
   );
   const result = await loadDiscoverContent({});
 
-  return Array.isArray(result.data.stores)
+  const stores = Array.isArray(result.data.stores)
     ? result.data.stores.flatMap(value => {
       if (!value || typeof value !== 'object') return [];
       const source = value as Record<string, unknown>;
@@ -41,8 +47,22 @@ const listFeaturedStores = async (): Promise<PublicDiscoverStoreSummary[]> => {
       }];
     })
     : [];
+
+  const promotions = Array.isArray(result.data.promotions)
+    ? sortActiveHomepagePromotions(result.data.promotions.flatMap(value => {
+      if (!value || typeof value !== 'object') return [];
+      const source = value as Record<string, unknown>;
+      const id = typeof source.id === 'string' ? source.id : '';
+      return id ? [mapHomepagePromotion(id, source)] : [];
+    }))
+    : [];
+
+  return { stores, promotions };
 };
 
 export const publicDiscoverService = {
-  listFeaturedStores
+  getHomepageContent,
+  async listFeaturedStores() {
+    return (await getHomepageContent()).stores;
+  }
 };

@@ -18,6 +18,14 @@
       ]
     },
     {
+      "collectionGroup": "storeOrders",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "customerUid", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "personalExpenses",
       "queryScope": "COLLECTION",
       "fields": [

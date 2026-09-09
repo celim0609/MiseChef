@@ -63,7 +63,8 @@ export const STORE_PAYMENT_METHODS: Array<{ id: StorePaymentMethodConfig['id']; 
   { id: 'touch_n_go_qr', label: 'Touch ’n Go eWallet' },
   { id: 'duitnow_qr', label: 'DuitNow QR' },
   { id: 'bank_transfer', label: 'Bank Transfer' },
-  { id: 'stripe', label: 'Stripe' }
+  { id: 'stripe', label: 'Stripe' },
+  { id: 'curlec', label: 'Curlec' }
 ];
 export const getStorePaymentMethodLabel = (id: StorePaymentMethodConfig['id']) => (
   STORE_PAYMENT_METHODS.find(method => method.id === id)?.label || 'Payment'
@@ -330,6 +331,7 @@ export const normalizeStoreProduct = (
   name: readString(data.name, 'Product'),
   description: readString(data.description),
   price: readPrice(data.price),
+  recipeId: readString(data.recipeId) || readString(data.linkedRecipeId) || undefined,
   ...(Number.isFinite(Number(data.estimatedCost)) && Number(data.estimatedCost) >= 0
     ? { estimatedCost: Number(data.estimatedCost) }
     : {}),

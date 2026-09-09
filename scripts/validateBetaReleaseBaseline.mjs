@@ -1,6 +1,5 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import {
   MANDATORY_BETA_BASELINE,
@@ -9,15 +8,17 @@ import {
   assertExplicitBetaStorageTarget
 } from './betaDeploymentSafety.mjs';
 import { assertBetaCapabilities } from './betaCapabilities.mjs';
+import { readGateRoots } from './betaGateCli.mjs';
 
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const readRepositoryFile = filePath => readFileSync(path.join(repositoryRoot, filePath), 'utf8');
-const baseline = JSON.parse(readRepositoryFile('config/beta-release-baseline.json'));
-const firebaseConfig = JSON.parse(readRepositoryFile('firebase.json'));
-const firebaseRc = JSON.parse(readRepositoryFile('.firebaserc'));
+const { trustedRoot, candidateRoot } = readGateRoots();
+const readCandidateFile = filePath => readFileSync(path.join(candidateRoot, filePath), 'utf8');
+const readTrustedFile = filePath => readFileSync(path.join(trustedRoot, filePath), 'utf8');
+const baseline = JSON.parse(readTrustedFile('config/beta-release-baseline.json'));
+const firebaseConfig = JSON.parse(readCandidateFile('firebase.json'));
+const firebaseRc = JSON.parse(readCandidateFile('.firebaserc'));
 const firebaseProjects = firebaseRc.projects || {};
 
-const capabilityReport = assertBetaCapabilities({ repositoryRoot });
+const capabilityReport = assertBetaCapabilities({ trustedRoot, candidateRoot });
 
 assertExplicitBetaStorageTarget({ firebaseConfig, firebaseRc });
 
@@ -29,7 +30,7 @@ if (firebaseProjects.beta !== baseline.projectId || baseline.projectId !== 'mise
   throw new Error('Beta project mapping does not match the protected misechef-beta-fa4bf release target.');
 }
 
-const git = args => execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trimEnd();
+const git = args => execFileSync('git', args, { cwd: candidateRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trimEnd();
 const candidateCommit = git(['rev-parse', 'HEAD']);
 const authorityBaseline = process.env.MISECHEF_BETA_PROTECTED_BASELINE || MANDATORY_BETA_BASELINE;
 assertAuthority({
@@ -39,7 +40,7 @@ assertAuthority({
   isAncestor: (ancestor, descendant) => {
     try {
       execFileSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
-        cwd: repositoryRoot,
+        cwd: candidateRoot,
         stdio: 'ignore'
       });
       return true;
@@ -83,6 +84,10 @@ const requiredSourceMarkers = [
   ['functions/index.js', 'syncPublicRecipeProjection', 'public Recipe projection sync'],
   ['src/components/SearchTab.tsx', '<DiscoverCarousel items={discoverItems}', 'Recipe Library Discover carousel'],
   ['src/modules/public/PublicHomePage.tsx', '<DiscoverCarousel', 'public Discover carousel'],
+  ['src/modules/public/PublicHomePage.tsx', '<HomepagePromotionCarousel', 'public Homepage promotion carousel'],
+  ['src/modules/admin/pages/HomepagePromotionsPage.tsx', 'AdminHomepagePromotionsPage', 'super-admin Homepage promotion management'],
+  ['functions/index.js', 'loadPublicHomepagePromotions', 'public Homepage promotion projection'],
+  ['firestore.rules', 'match /homepagePromotions/{promotionId}', 'Homepage promotion super-admin rules'],
   ['src/modules/public/PublicLayout.tsx', '<PublicRecipeDiscoveryPage', 'public Discover Recipe route'],
   ['src/modules/public/services/publicRecipeService.ts', "collection(db, 'publicRecipes')", 'public Discover projection source'],
   ['src/components/RecipeCostAnalysis.tsx', 'Selling Price', 'Recipe Cost Analysis summary'],
@@ -107,14 +112,14 @@ const requiredSourceMarkers = [
 
 const missing = requiredSourceMarkers.flatMap(([filePath, marker, label]) => {
   try {
-    return readRepositoryFile(filePath).includes(marker) ? [] : [`${label}: marker missing from ${filePath}`];
+    return readCandidateFile(filePath).includes(marker) ? [] : [`${label}: marker missing from ${filePath}`];
   } catch {
     return [`${label}: ${filePath} is missing`];
   }
 });
 
-const recipeEditorSource = readRepositoryFile('src/components/AddRecipeTab.tsx');
-const recipeCreatorSource = readRepositoryFile('src/services/recipeCreator.ts');
+const recipeEditorSource = readCandidateFile('src/components/AddRecipeTab.tsx');
+const recipeCreatorSource = readCandidateFile('src/services/recipeCreator.ts');
 const creatorFields = ['workspaceId', 'companyId', 'userId', 'createdBy', 'createdByName', 'createdAt'];
 if (!creatorFields.every(field => recipeCreatorSource.includes(`${field}: original.${field}`))) {
   missing.push('Recipe creator attribution: edit/save must preserve all original creator and Workspace identity fields');
@@ -139,7 +144,7 @@ if (!recipeEditorOrderIsProtected) {
 
 const sellingPriceBindingCount = recipeEditorSource.split('sellingPriceValue={sellingPrice}').length - 1;
 const sellingPriceChangeBindingCount = recipeEditorSource.split('onSellingPriceChange={value => {').length - 1;
-const recipeCostAnalysisSource = readRepositoryFile('src/components/RecipeCostAnalysis.tsx');
+const recipeCostAnalysisSource = readCandidateFile('src/components/RecipeCostAnalysis.tsx');
 const editableSellingPriceInputCount = recipeCostAnalysisSource.split('type="number"').length - 1;
 if (
   sellingPriceBindingCount !== 1
@@ -152,7 +157,7 @@ if (
   );
 }
 
-const workspaceRegionProviderSource = readRepositoryFile('src/regions/WorkspaceRegionProvider.tsx');
+const workspaceRegionProviderSource = readCandidateFile('src/regions/WorkspaceRegionProvider.tsx');
 if (
   !workspaceRegionProviderSource.includes('getWorkspaceRegionConfiguration(workspace)')
   || !workspaceRegionProviderSource.includes('[workspace?.country]')
@@ -163,14 +168,14 @@ if (
   );
 }
 
-const navigationSource = readRepositoryFile('src/components/NavigationDrawer.tsx');
+const navigationSource = readCandidateFile('src/components/NavigationDrawer.tsx');
 for (const marker of ['FINANCE_NAVIGATION.label', '>Costing</span>', "label: 'Store'", "label: 'Team'"]) {
   if (!navigationSource.includes(marker)) {
     missing.push(`Owner navigation: missing ${marker}`);
   }
 }
 
-const publicProjectionSource = readRepositoryFile('functions/publicRecipeProjection.js');
+const publicProjectionSource = readCandidateFile('functions/publicRecipeProjection.js');
 for (const forbidden of ['workspaceId', 'sellingPrice', 'costing', 'ingredientId', 'supplierId', 'chefNotes']) {
   if (publicProjectionSource.includes(`source.${forbidden}`)) {
     missing.push(`Public Recipe projection: internal source field is accessed: ${forbidden}`);
