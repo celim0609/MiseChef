@@ -54,6 +54,8 @@ import {
   updateStoreGroupOrderFulfilment,
   updateStoreOrderFulfilment
 } from './storeFulfilment.js';
+import { createLalamoveSandboxProvider } from './lalamoveSandbox.js';
+import { createStoreDeliveryQuote, dispatchStoreDelivery, refreshStoreDelivery, cancelStoreDelivery, reconcileActiveDeliveries, getLalamoveSandboxCityInfo } from './storeDelivery.js';
 import { listCustomerOrders } from './customerOrders.js';
 import {
   activateHostProfile,
@@ -90,6 +92,8 @@ const db = getFirestore();
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
 const stripeSecretKey = defineSecret('STRIPE_SECRET_KEY');
 const stripeWebhookSecret = defineSecret('STRIPE_WEBHOOK_SECRET');
+const lalamoveSandboxApiKey = defineSecret('LALAMOVE_API_KEY');
+const lalamoveSandboxApiSecret = defineSecret('LALAMOVE_API_SECRET');
 const curlecKeyId = defineSecret('CURLEC_KEY_ID');
 const curlecKeySecret = defineSecret('CURLEC_KEY_SECRET');
 const curlecWebhookSecret = defineSecret('CURLEC_WEBHOOK_SECRET');
@@ -338,7 +342,7 @@ const toStorePaymentError = error => {
 export const createPublicStorePayment = onCall({
   region: REGION,
   invoker: 'public',
-  secrets: [stripeSecretKey, curlecKeyId, curlecKeySecret],
+  secrets: [stripeSecretKey, curlecKeyId, curlecKeySecret, lalamoveSandboxApiKey, lalamoveSandboxApiSecret],
   timeoutSeconds: 30,
   memory: '256MiB'
 }, async request => {
@@ -352,6 +356,9 @@ export const createPublicStorePayment = onCall({
         method: paymentMethod
       }),
       sellingWorkspaceId: sellingWorkspaceId.value(),
+      ...(request.data?.order?.fulfilmentMethod === 'delivery' ? {
+        deliveryProvider: createLalamoveSandboxProvider({ apiKey: lalamoveSandboxApiKey.value(), apiSecret: lalamoveSandboxApiSecret.value() })
+      } : {}),
       customerUid: request.auth?.uid || '',
       slug: request.data?.slug,
       draft: request.data?.order,
@@ -361,6 +368,51 @@ export const createPublicStorePayment = onCall({
     if (error instanceof HttpsError) throw error;
     throw toStorePaymentError(error);
   }
+});
+
+// A quote is public only in the same sense as Store checkout: it resolves the
+// Store from its slug and re-prices the cart server-side. It never creates an order.
+export const createPublicStoreDeliveryQuote = onCall({
+  region: REGION,
+  invoker: 'public',
+  secrets: [lalamoveSandboxApiKey, lalamoveSandboxApiSecret],
+  timeoutSeconds: 30,
+  memory: '256MiB'
+}, async request => {
+  const provider = createLalamoveSandboxProvider({ apiKey: lalamoveSandboxApiKey.value(), apiSecret: lalamoveSandboxApiSecret.value() });
+  return createStoreDeliveryQuote({ db, provider, slug: request.data?.slug, draft: request.data?.delivery });
+});
+
+export const getStoreLalamoveSandboxCityInfo = onCall({ region: REGION, secrets: [lalamoveSandboxApiKey, lalamoveSandboxApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => {
+  const provider = createLalamoveSandboxProvider({ apiKey: lalamoveSandboxApiKey.value(), apiSecret: lalamoveSandboxApiSecret.value() });
+  return getLalamoveSandboxCityInfo({ db, uid: request.auth?.uid, workspaceId: request.data?.workspaceId, provider });
+});
+
+export const dispatchStoreLalamoveDelivery = onCall({
+  region: REGION,
+  secrets: [lalamoveSandboxApiKey, lalamoveSandboxApiSecret],
+  timeoutSeconds: 60,
+  memory: '256MiB'
+}, async request => {
+  const provider = createLalamoveSandboxProvider({ apiKey: lalamoveSandboxApiKey.value(), apiSecret: lalamoveSandboxApiSecret.value() });
+  return dispatchStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId });
+});
+
+export const refreshStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveSandboxApiKey, lalamoveSandboxApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => {
+  const provider = createLalamoveSandboxProvider({ apiKey: lalamoveSandboxApiKey.value(), apiSecret: lalamoveSandboxApiSecret.value() });
+  return refreshStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId });
+});
+
+export const cancelStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveSandboxApiKey, lalamoveSandboxApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => {
+  const provider = createLalamoveSandboxProvider({ apiKey: lalamoveSandboxApiKey.value(), apiSecret: lalamoveSandboxApiSecret.value() });
+  return cancelStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId });
+});
+
+// Webhooks intentionally do not update orders: Lalamove's public docs do not
+// publish a verifiable inbound authentication contract. This scheduled pull is authoritative.
+export const reconcileLalamoveSandboxDeliveries = onSchedule({ region: REGION, schedule: 'every 5 minutes', secrets: [lalamoveSandboxApiKey, lalamoveSandboxApiSecret] }, async () => {
+  const provider = createLalamoveSandboxProvider({ apiKey: lalamoveSandboxApiKey.value(), apiSecret: lalamoveSandboxApiSecret.value() });
+  await reconcileActiveDeliveries({ db, provider });
 });
 
 export const listMyMiseChefStoreOrders = onCall({

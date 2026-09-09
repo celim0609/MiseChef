@@ -32,6 +32,7 @@ import {
   uploadStoreProductPhoto
 } from '../../services/storage';
 import { storeService } from './services';
+import { storeDeliveryService } from './services/deliveryService';
 import StoreOrdersPanel from './StoreOrdersPanel';
 import StoreSetsPanel from './StoreSetsPanel';
 import {
@@ -119,6 +120,7 @@ const toSettingsDraft = (store: WorkspaceStore): StoreSettingsDraft => ({
   businessHours: store.businessHours,
   pickupEnabled: store.pickupEnabled,
   deliveryEnabled: store.deliveryEnabled,
+  ...(store.delivery ? { delivery: { ...store.delivery, pickup: { ...store.delivery.pickup } } } : {}),
   pickupSessions: [...store.pickupSessions],
   pickupLocations: store.pickupLocations.map(location => ({ ...location })),
   orderDays: [...store.orderDays],
@@ -184,6 +186,7 @@ export default function StorePage({
   const [activeView, setActiveView] = useState<StoreView>('products');
   const [store, setStore] = useState<WorkspaceStore | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<StoreSettingsDraft | null>(null);
+  const [deliveryServiceKeys, setDeliveryServiceKeys] = useState<string[]>([]);
   const [products, setProducts] = useState<StoreProduct[]>([]);
   const [currentRecipeCosting, setCurrentRecipeCosting] = useState<Recipe[]>([]);
   const [sets, setSets] = useState<StoreSet[]>([]);
@@ -1478,6 +1481,21 @@ export default function StorePage({
               </div>
             </fieldset>
           </div>
+          <section className="mt-8 rounded-3xl bg-surface-container-low p-5">
+            <h2 className="font-display text-2xl font-bold text-primary">Delivery</h2>
+            <p className="mt-1 text-sm font-bold text-on-surface-variant">Sandbox-only Lalamove configuration. Credentials remain on the server.</p>
+            {(() => { const delivery = settingsDraft.delivery || { enabled: false, provider: 'lalamove' as const, environment: 'sandbox' as const, market: 'MY' as const, pickupLocationId: '', serviceType: '', pickup: { name: '', address: '', latitude: '', longitude: '', contactName: '', contactPhoneE164: '' } }; const update = (next: typeof delivery) => updateSettings('delivery', next); return <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <label className="flex items-center gap-2 md:col-span-2"><input type="checkbox" checked={delivery.enabled} onChange={event => update({ ...delivery, enabled: event.target.checked })} /><span className="font-bold">Enable delivery</span></label>
+              <label><span className="text-xs font-bold">Provider</span><input disabled value="Lalamove" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <label><span className="text-xs font-bold">Environment</span><input disabled value="Sandbox only" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <label><span className="text-xs font-bold">Pickup location</span><select value={delivery.pickupLocationId} onChange={event => { const location = settingsDraft.pickupLocations.find(item => item.id === event.target.value); update({ ...delivery, pickupLocationId: event.target.value, pickup: { ...delivery.pickup, name: location?.name || delivery.pickup.name, address: location?.address || delivery.pickup.address } }); }} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold"><option value="">Choose existing location</option>{settingsDraft.pickupLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
+              <label><span className="text-xs font-bold">Lalamove service type</span><input value={delivery.serviceType} onChange={event => update({ ...delivery, serviceType: event.target.value })} placeholder="Select after City Info" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <label className="md:col-span-2"><span className="text-xs font-bold">Pickup address</span><input value={delivery.pickup.address} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, address: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <label><span className="text-xs font-bold">Latitude</span><input inputMode="decimal" value={delivery.pickup.latitude} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, latitude: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Longitude</span><input inputMode="decimal" value={delivery.pickup.longitude} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, longitude: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <label><span className="text-xs font-bold">Sender name</span><input value={delivery.pickup.contactName} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, contactName: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Sender phone (E.164)</span><input value={delivery.pickup.contactPhoneE164} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, contactPhoneE164: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <button type="button" onClick={() => storeDeliveryService.cityInfo(workspace.id).then(data => setDeliveryServiceKeys(data)).catch(error => setErrorMessage(error instanceof Error ? error.message : 'Unable to load City Info.'))} className="rounded-full bg-white px-4 py-2 text-xs font-bold text-primary">Load Sandbox City Info</button>{deliveryServiceKeys.length > 0 && <p className="self-center text-xs font-bold">Available keys: {deliveryServiceKeys.join(', ')}</p>}
+            </div>; })()}
+          </section>
           <div className="mt-7 flex justify-end">
             <button type="submit" disabled={isSaving} className="rounded-full bg-primary px-6 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : 'Save Store Settings'}</button>
           </div>

@@ -38,6 +38,10 @@ export const createDefaultStoreContact = (): StoreContact => ({
   tiktok: '',
   website: ''
 });
+export const createDefaultStoreDelivery = (): import('./types').StoreDeliveryConfig => ({
+  enabled: false, provider: 'lalamove', environment: 'sandbox', market: 'MY', pickupLocationId: '', serviceType: '',
+  pickup: { name: '', address: '', latitude: '', longitude: '', contactName: '', contactPhoneE164: '' }
+});
 
 export const normalizeStoreContact = (
   value: unknown,
@@ -224,6 +228,7 @@ export const createDefaultWorkspaceStore = (
     businessHours: DEFAULT_STORE_BUSINESS_HOURS,
     pickupEnabled: false,
     deliveryEnabled: false,
+    delivery: createDefaultStoreDelivery(),
     pickupSessions: [],
     pickupLocations: [],
     orderDays: [...DEFAULT_STORE_ORDER_DAYS],
@@ -262,6 +267,11 @@ export const normalizeWorkspaceStore = (
     businessHours: readString(data.businessHours, DEFAULT_STORE_BUSINESS_HOURS),
     pickupEnabled: readBoolean(data.pickupEnabled),
     deliveryEnabled: readBoolean(data.deliveryEnabled),
+    delivery: (() => {
+      const raw = data.delivery && typeof data.delivery === 'object' ? data.delivery as Record<string, unknown> : {};
+      const pickup = raw.pickup && typeof raw.pickup === 'object' ? raw.pickup as Record<string, unknown> : {};
+      return { ...createDefaultStoreDelivery(), enabled: readBoolean(raw.enabled), pickupLocationId: readString(raw.pickupLocationId), serviceType: readString(raw.serviceType), pickup: { name: readString(pickup.name), address: readString(pickup.address), latitude: readString(pickup.latitude), longitude: readString(pickup.longitude), contactName: readString(pickup.contactName), contactPhoneE164: readString(pickup.contactPhoneE164) } };
+    })(),
     pickupSessions: Array.isArray(data.pickupSessions)
       ? [...new Set(data.pickupSessions.filter((session): session is string => typeof session === 'string' && Boolean(session.trim())).map(session => session.trim()))]
       : [],
@@ -338,6 +348,12 @@ export const validateStoreSettings = (
   draft: StoreSettingsDraft,
   country: 'MY' | 'SG' = 'MY'
 ) => {
+  const delivery = draft.delivery;
+  if (delivery?.enabled) {
+    const latitude = Number(delivery.pickup.latitude); const longitude = Number(delivery.pickup.longitude);
+    if (delivery.provider !== 'lalamove' || delivery.environment !== 'sandbox' || delivery.market !== 'MY') return 'Delivery must use Lalamove Sandbox for Malaysia.';
+    if (!delivery.pickupLocationId || !delivery.serviceType.trim() || !delivery.pickup.address.trim() || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180 || !delivery.pickup.contactName.trim() || !/^\+[1-9]\d{1,14}$/.test(delivery.pickup.contactPhoneE164.trim())) return 'Complete the delivery pickup, coordinates, sender contact, and service type.';
+  }
   const pickupSessions = draft.pickupSessions.map(session => session.trim()).filter(Boolean);
   if (!draft.name.trim()) return 'Store name is required.';
   if (draft.name.trim().length > 120) return 'Store name must be 120 characters or fewer.';
