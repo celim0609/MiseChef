@@ -504,12 +504,6 @@ export const stripeStorePaymentWebhook = onRequest({
     response.status(405).send('Method not allowed');
     return;
   }
-  let rejectionStage = 'signature';
-  let signatureDiagnostics = {
-    signaturePresent: false,
-    rawBodyPresent: false,
-    rawBodyByteLength: 0
-  };
   try {
     const adapter = createPaymentAdapter('stripe', {
       stripeSecretKey: stripeSecretKey.value()
@@ -537,11 +531,19 @@ export const curlecStorePaymentWebhook = onRequest({
   secrets: [curlecKeyId, curlecKeySecret, curlecWebhookSecret],
   timeoutSeconds: 30,
   memory: '256MiB'
-}, async (request, response) => {
+}, curlecStorePaymentWebhookHandler);
+
+export async function curlecStorePaymentWebhookHandler(request, response) {
   if (request.method !== 'POST') {
     response.status(405).send('Method not allowed');
     return;
   }
+  let rejectionStage = 'signature';
+  let signatureDiagnostics = {
+    signaturePresent: false,
+    rawBodyPresent: false,
+    rawBodyByteLength: 0
+  };
   try {
     const adapter = createPaymentAdapter('curlec', {
       curlecKeyId: curlecKeyId.value(),
@@ -580,7 +582,7 @@ export const curlecStorePaymentWebhook = onRequest({
     }));
     response.status(400).send('Webhook rejected');
   }
-});
+}
 
 export const updateStoreOrderStatus = onCall({
   region: REGION,

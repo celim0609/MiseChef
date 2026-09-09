@@ -4,6 +4,7 @@ import {
   createCurlecWebhookRejectionLog,
   getCurlecWebhookSignatureDiagnostics
 } from './curlecWebhookDiagnostics.js';
+import { curlecStorePaymentWebhookHandler } from './index.js';
 import { handleStorePaymentWebhook } from './storePayments.js';
 
 const sensitiveValue = 'must-not-appear-in-diagnostics';
@@ -38,6 +39,23 @@ test('missing Curlec raw body records the signature stage without body content',
     rejectionStage: 'signature', errorCategory: 'TypeError', errorMessage: 'Curlec webhook signature rejected.',
     signaturePresent: true, rawBodyPresent: false, rawBodyByteLength: 0
   });
+});
+
+test('Curlec webhook handler catch scope returns its generic 400 response', async () => {
+  let statusCode = 0;
+  let responseBody = '';
+  await curlecStorePaymentWebhookHandler({
+    method: 'POST',
+    rawBody: undefined,
+    get: () => undefined
+  }, {
+    status: code => {
+      statusCode = code;
+      return { send: body => { responseBody = body; } };
+    }
+  });
+  assert.equal(statusCode, 400);
+  assert.equal(responseBody, 'Webhook rejected');
 });
 
 test('later webhook validation failures retain their stage and only safe messages', () => {
