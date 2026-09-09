@@ -472,7 +472,10 @@ export const cancelStorePayment = async ({
   return toPublicOrderResult(cancelledOrder);
 };
 
-export const handleStorePaymentWebhook = async ({ db, adapter, event }) => {
+export const handleStorePaymentWebhook = async ({ db, adapter, event, onRejectionStage }) => {
+  // This callback is diagnostic-only. It does not alter webhook processing or
+  // reconciliation and is omitted by every existing provider call path.
+  onRejectionStage?.('captured_event_validation');
   const update = await adapter.readWebhookUpdate(event);
   if (update.kind === 'ignored') {
     return { received: true, ignored: true };
@@ -481,14 +484,17 @@ export const handleStorePaymentWebhook = async ({ db, adapter, event }) => {
   // Curlec webhooks are keyed by the gateway Order ID. Resolve the local order
   // from that server-persisted ID instead of requiring notes to be echoed back.
   if (!readString(update.payment?.orderId) && providerPaymentId) {
+    onRejectionStage?.('provider_order_resolution');
     const orders = await db.collection('storeOrders')
       .where('payment.providerPaymentId', '==', providerPaymentId).limit(2).get();
     if (orders.size !== 1) throw new Error('Curlec payment has no unique MiseChef order.');
     update.payment.orderId = orders.docs[0].id;
   }
   const eventReference = db.collection('storePaymentEvents').doc(event.id);
+  onRejectionStage?.('event_dedupe_read');
   const priorEvent = await eventReference.get();
   if (priorEvent.exists) return { received: true, duplicate: true };
+  onRejectionStage?.('reconciliation');
   if (update.kind === 'refund') {
     await reconcileStoreRefund({ db, payment: update.payment });
   } else {

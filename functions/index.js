@@ -42,6 +42,10 @@ import {
   handleStorePaymentWebhook
 } from './storePayments.js';
 import {
+  createCurlecWebhookRejectionLog,
+  getCurlecWebhookSignatureDiagnostics
+} from './curlecWebhookDiagnostics.js';
+import {
   reviewManualStorePayment,
   submitManualStorePayment,
   uploadManualStorePaymentReceipt
@@ -500,6 +504,12 @@ export const stripeStorePaymentWebhook = onRequest({
     response.status(405).send('Method not allowed');
     return;
   }
+  let rejectionStage = 'signature';
+  let signatureDiagnostics = {
+    signaturePresent: false,
+    rawBodyPresent: false,
+    rawBodyByteLength: 0
+  };
   try {
     const adapter = createPaymentAdapter('stripe', {
       stripeSecretKey: stripeSecretKey.value()
@@ -538,6 +548,10 @@ export const curlecStorePaymentWebhook = onRequest({
       curlecKeySecret: curlecKeySecret.value()
     });
     const signature = request.get('X-Razorpay-Signature');
+    signatureDiagnostics = getCurlecWebhookSignatureDiagnostics({
+      signature,
+      rawBody: request.rawBody
+    });
     const { verifyCurlecWebhookSignature, getCurlecWebhookDedupeId } = await import('./paymentProviders/curlecStandardCheckout.js');
     if (!verifyCurlecWebhookSignature(request.rawBody, signature, curlecWebhookSecret.value())) {
       throw new Error('Invalid Curlec webhook signature.');
@@ -545,17 +559,25 @@ export const curlecStorePaymentWebhook = onRequest({
     const payload = request.body;
     // Curlec documents this header as the duplicate-event identity. Keep the
     // signed-payload hash only as a retry-stable fallback for older deliveries.
+    rejectionStage = 'dedupe_identity';
     const event = {
       ...payload,
       id: request.get('x-razorpay-event-id') || getCurlecWebhookDedupeId(payload),
       type: payload?.event
     };
-    const result = await handleStorePaymentWebhook({ db, adapter, event });
+    const result = await handleStorePaymentWebhook({
+      db,
+      adapter,
+      event,
+      onRejectionStage: stage => { rejectionStage = stage; }
+    });
     response.status(200).json(result);
   } catch (error) {
-    logger.warn('Curlec Store payment webhook rejected', {
-      name: error?.name || '', code: error?.code || '', message: error?.message || ''
-    });
+    logger.warn('Curlec Store payment webhook rejected', createCurlecWebhookRejectionLog({
+      rejectionStage,
+      error,
+      signatureDiagnostics
+    }));
     response.status(400).send('Webhook rejected');
   }
 });
