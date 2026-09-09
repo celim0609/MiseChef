@@ -112,7 +112,7 @@ const getPaymentMethodDescription = (methodId: StorePaymentMethodId) => {
     case 'bank_transfer': return 'Transfer directly to the Store.';
     case 'cash_on_pickup': return 'Pay when collecting your order.';
     case 'stripe': return 'Secure online payment. Instant confirmation.';
-    case 'curlec': return 'Secure online payment. Instant confirmation.';
+    case 'curlec': return 'Card · E-Wallet. Instant confirmation.';
   }
 };
 

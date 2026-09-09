@@ -50,6 +50,11 @@ function CurlecCheckout({ session, customerName, phone, customerEmail, onComplet
         // Curlec's duplicate contact step out of the checkout flow; email is
         // optional and does not need to be collected again by the gateway.
         hidden: { contact: true, email: true },
+        config: {
+          display: {
+            hide: [{ method: 'fpx' }]
+          }
+        },
         handler: () => { void onComplete(session.paymentSessionId); },
         modal: { ondismiss: () => { setOpening(false); } }
       });

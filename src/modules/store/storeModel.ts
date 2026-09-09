@@ -60,7 +60,7 @@ export const STORE_PAYMENT_METHODS: Array<{ id: StorePaymentMethodConfig['id']; 
   { id: 'duitnow_qr', label: 'DuitNow QR' },
   { id: 'bank_transfer', label: 'Bank Transfer' },
   { id: 'stripe', label: 'Stripe' },
-  { id: 'curlec', label: 'Curlec' }
+  { id: 'curlec', label: 'Online Payment' }
 ];
 export const getStorePaymentMethodLabel = (id: StorePaymentMethodConfig['id']) => (
   STORE_PAYMENT_METHODS.find(method => method.id === id)?.label || 'Payment'
