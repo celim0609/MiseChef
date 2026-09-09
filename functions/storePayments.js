@@ -64,7 +64,8 @@ const paymentMethodLabel = method => ({
   card: 'Debit / Credit Card',
   fpx: 'FPX',
   paynow: 'PayNow',
-  grabpay: 'GrabPay'
+  grabpay: 'GrabPay',
+  wallet: 'E-Wallet'
 })[method] || 'Secure online payment';
 
 const hashCheckoutAccessToken = token => createHash('sha256')
