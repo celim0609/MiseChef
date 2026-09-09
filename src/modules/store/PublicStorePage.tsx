@@ -23,6 +23,7 @@ import { formatRegionCurrency, getRegionConfiguration } from '../../regions';
 import StorePaymentCheckout from './StorePaymentCheckout';
 import { customerContactService, storePaymentService, storeService } from './services';
 import { storeDeliveryService, type DeliveryQuote } from './services/deliveryService';
+import { getSelectedPlace, searchMalaysiaPlaces, type PlaceSuggestion } from './services/googlePlaces';
 import {
   calculateStoreOptionAdjustedPrice,
   formatStoreOptionSelectionRequirement,
@@ -151,10 +152,16 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const [pickupSession, setPickupSession] = useState('');
   const [pickupLocationId, setPickupLocationId] = useState('');
   const [fulfilmentMethod, setFulfilmentMethod] = useState<'pickup' | 'delivery'>('pickup');
+  const [deliveryAddressQuery, setDeliveryAddressQuery] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryLatitude, setDeliveryLatitude] = useState('');
   const [deliveryLongitude, setDeliveryLongitude] = useState('');
+  const [deliveryUnit, setDeliveryUnit] = useState('');
   const [deliveryInstructions, setDeliveryInstructions] = useState('');
+  const [deliverySuggestions, setDeliverySuggestions] = useState<PlaceSuggestion[]>([]);
+  const [deliveryAddressError, setDeliveryAddressError] = useState('');
+  const [isSearchingDeliveryAddress, setIsSearchingDeliveryAddress] = useState(false);
+  const [isSelectingDeliveryAddress, setIsSelectingDeliveryAddress] = useState(false);
   const [deliveryQuote, setDeliveryQuote] = useState<DeliveryQuote | null>(null);
   const [notes, setNotes] = useState('');
   const [paymentMethodId, setPaymentMethodId] = useState<StorePaymentMethodId>('stripe');
@@ -169,6 +176,13 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const confirmationKey = placedOrder ? `${placedOrder.orderNumber}:${placedOrder.paymentStatus}` : '';
   const checkoutRecoveryKey = `${CHECKOUT_RECOVERY_KEY_PREFIX}${window.location.pathname}`;
   const storeDraftKey = `${STORE_DRAFT_KEY_PREFIX}${slug}`;
+  const deliveryPlacesSessionRef = useRef(crypto.randomUUID());
+
+  const deliveryAddressForQuote = [deliveryAddress, deliveryUnit.trim()].filter(Boolean).join(', ');
+  const deliveryRemarks = [
+    deliveryUnit.trim() ? `Unit / Floor: ${deliveryUnit.trim()}` : '',
+    deliveryInstructions.trim() ? `Instructions: ${deliveryInstructions.trim()}` : ''
+  ].filter(Boolean).join('\n');
 
   useEffect(() => {
     if (!paymentStageKey) return;
@@ -185,6 +199,28 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
     });
     return () => window.cancelAnimationFrame(frame);
   }, [confirmationKey]);
+
+  useEffect(() => {
+    if (deliveryAddressQuery.trim().length < 3 || (deliveryAddress && deliveryAddressQuery === deliveryAddress)) {
+      setDeliverySuggestions([]);
+      setIsSearchingDeliveryAddress(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      setIsSearchingDeliveryAddress(true);
+      setDeliveryAddressError('');
+      searchMalaysiaPlaces(deliveryAddressQuery, deliveryPlacesSessionRef.current, controller.signal)
+        .then(setDeliverySuggestions)
+        .catch(error => {
+          if (error instanceof DOMException && error.name === 'AbortError') return;
+          setDeliverySuggestions([]);
+          setDeliveryAddressError(error instanceof Error ? error.message : 'Address search is temporarily unavailable.');
+        })
+        .finally(() => setIsSearchingDeliveryAddress(false));
+    }, 250);
+    return () => { controller.abort(); window.clearTimeout(timeout); };
+  }, [deliveryAddress, deliveryAddressQuery]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -594,7 +630,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
         pickupDate,
         pickupSession,
         pickupLocationId,
-        ...(fulfilmentMethod === 'delivery' && deliveryQuote ? { deliveryQuoteId: deliveryQuote.quote.quotationId, destination: { formattedAddress: deliveryAddress, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions } } : {}),
+        ...(fulfilmentMethod === 'delivery' && deliveryQuote ? { deliveryQuoteId: deliveryQuote.quote.quotationId, destination: { formattedAddress: deliveryAddressForQuote, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions: deliveryRemarks } } : {}),
         notes,
         selections: cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({
           productId,
@@ -648,13 +684,31 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   };
 
   const requestDeliveryQuote = async () => {
-    if (!deliveryAddress || !deliveryLatitude || !deliveryLongitude) { setCheckoutError('Choose a complete delivery address and map coordinates.'); return; }
-    if (!Number.isFinite(Number(deliveryLatitude)) || Number(deliveryLatitude) < -90 || Number(deliveryLatitude) > 90 || !Number.isFinite(Number(deliveryLongitude)) || Number(deliveryLongitude) < -180 || Number(deliveryLongitude) > 180) { setCheckoutError('Enter valid delivery coordinates.'); return; }
+    if (!deliveryAddress || !deliveryLatitude || !deliveryLongitude) { setCheckoutError('Choose a delivery address from the search results.'); return; }
     setCheckoutError('');
     try {
-      const quote = await storeDeliveryService.quote(slug, cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({ productId, ...(setId ? { setId } : {}), quantity, selectedOptions, ...(selectedSetItems ? { selectedSetItems } : {}) })), { formattedAddress: deliveryAddress, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions });
+      const quote = await storeDeliveryService.quote(slug, cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({ productId, ...(setId ? { setId } : {}), quantity, selectedOptions, ...(selectedSetItems ? { selectedSetItems } : {}) })), { formattedAddress: deliveryAddressForQuote, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions: deliveryRemarks });
       setDeliveryQuote(quote);
     } catch (error) { setDeliveryQuote(null); setCheckoutError(error instanceof Error ? error.message : 'Unable to quote delivery.'); }
+  };
+
+  const selectDeliveryAddress = async (suggestion: PlaceSuggestion) => {
+    setIsSelectingDeliveryAddress(true);
+    setDeliveryAddressError('');
+    try {
+      const selected = await getSelectedPlace(suggestion.placeId, deliveryPlacesSessionRef.current);
+      setDeliveryAddress(selected.formattedAddress);
+      setDeliveryAddressQuery(selected.formattedAddress);
+      setDeliveryLatitude(selected.latitude);
+      setDeliveryLongitude(selected.longitude);
+      setDeliverySuggestions([]);
+      setDeliveryQuote(null);
+      deliveryPlacesSessionRef.current = crypto.randomUUID();
+    } catch (error) {
+      setDeliveryAddressError(error instanceof Error ? error.message : 'Unable to select this address.');
+    } finally {
+      setIsSelectingDeliveryAddress(false);
+    }
   };
 
   const preserveGroupCheckoutDraft = () => {
@@ -1044,10 +1098,25 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
                 {fulfilmentMethod === 'delivery' && <section aria-labelledby="delivery-details-heading">
                   <h3 id="delivery-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Delivery address</h3>
                   <div className="mt-3 space-y-3">
-                    <input aria-label="Delivery address" required placeholder="Selected delivery address" value={deliveryAddress} onChange={event => { setDeliveryAddress(event.target.value); setDeliveryQuote(null); }} className="min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
-                    <p className="text-xs font-bold text-amber-800">Beta test fallback: use coordinates from a controlled map pin. Address search will replace this without changing delivery pricing.</p><div className="grid grid-cols-2 gap-2"><input aria-label="Delivery latitude" required inputMode="decimal" placeholder="Latitude" value={deliveryLatitude} onChange={event => { setDeliveryLatitude(event.target.value); setDeliveryQuote(null); }} className="min-h-12 rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" /><input aria-label="Delivery longitude" required inputMode="decimal" placeholder="Longitude" value={deliveryLongitude} onChange={event => { setDeliveryLongitude(event.target.value); setDeliveryQuote(null); }} className="min-h-12 rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" /></div>
-                    <textarea aria-label="Delivery instructions" rows={2} placeholder="Unit, floor, or delivery instructions" value={deliveryInstructions} onChange={event => setDeliveryInstructions(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
-                    <button type="button" onClick={requestDeliveryQuote} className="rounded-full bg-secondary px-5 py-3 text-sm font-extrabold text-on-secondary">Get delivery fee</button>
+                    <div className="relative">
+                      <label className="block">
+                        <span className="font-sans text-xs font-extrabold text-primary">Search delivery address</span>
+                        <input aria-label="Search delivery address" required autoComplete="off" placeholder="Search Malaysia addresses and places" value={deliveryAddressQuery} onChange={event => { setDeliveryAddressQuery(event.target.value); setDeliveryAddress(''); setDeliveryLatitude(''); setDeliveryLongitude(''); setDeliveryQuote(null); }} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
+                      </label>
+                      {(isSearchingDeliveryAddress || isSelectingDeliveryAddress) && <p className="mt-2 text-xs font-bold text-on-surface-variant">Searching addresses…</p>}
+                      {deliverySuggestions.length > 0 && <div role="listbox" aria-label="Delivery address results" className="absolute z-10 mt-1 w-full overflow-hidden rounded-2xl border border-surface-container-high bg-white shadow-lg">
+                        {deliverySuggestions.map(suggestion => <button key={suggestion.placeId} type="button" role="option" onClick={() => selectDeliveryAddress(suggestion)} className="block w-full border-b border-surface-container-low px-4 py-3 text-left last:border-0 hover:bg-surface-container-low">
+                          <span className="block font-sans text-sm font-extrabold text-primary">{suggestion.primaryText}</span>
+                          {suggestion.secondaryText && <span className="mt-0.5 block text-xs font-bold text-on-surface-variant">{suggestion.secondaryText}</span>}
+                        </button>)}
+                        <p className="px-4 py-2 text-[10px] font-bold text-on-surface-variant">Powered by Google</p>
+                      </div>}
+                      {deliveryAddress && <p className="mt-2 text-xs font-bold text-emerald-800">Selected: {deliveryAddress}</p>}
+                      {deliveryAddressError && <p role="alert" className="mt-2 text-xs font-bold text-error">{deliveryAddressError}</p>}
+                    </div>
+                    <input aria-label="Unit or floor" placeholder="Unit / Floor (optional)" value={deliveryUnit} onChange={event => { setDeliveryUnit(event.target.value); setDeliveryQuote(null); }} className="min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
+                    <textarea aria-label="Delivery instructions" rows={2} placeholder="Delivery instructions (optional)" value={deliveryInstructions} onChange={event => setDeliveryInstructions(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
+                    <button type="button" disabled={!deliveryAddress || isSelectingDeliveryAddress} onClick={requestDeliveryQuote} className="rounded-full bg-secondary px-5 py-3 text-sm font-extrabold text-on-secondary disabled:opacity-50">Get delivery fee</button>
                     {deliveryQuote && <p className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-900">Delivery {formatRegionCurrency(deliveryQuote.quote.fee, store.currency)} · valid until {new Date(deliveryQuote.quote.expiresAt).toLocaleTimeString()}</p>}
                   </div>
                 </section>}
