@@ -52,7 +52,7 @@ function CurlecCheckout({ session, customerName, phone, customerEmail, onComplet
         hidden: { contact: true, email: true },
         config: {
           display: {
-            hide: [{ method: 'fpx' }]
+            hide: [{ method: 'fpx' }, { method: 'card' }]
           }
         },
         handler: () => { void onComplete(session.paymentSessionId); },
