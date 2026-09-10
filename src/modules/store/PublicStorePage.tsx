@@ -896,7 +896,7 @@ const deliveryAddressForQuote = deliveryAddress;
           <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Products &amp; Sets</p>
           <div className="mt-2 flex items-center justify-between gap-4">
             <h2 className="font-display text-3xl font-bold text-primary">Available now</h2>
-            <button type="button" onClick={() => setIsCheckoutOpen(true)} className="hidden shrink-0 rounded-full border border-surface-container-high bg-white px-4 py-2 font-sans text-xs font-extrabold text-primary shadow-sm sm:inline-flex">Cart · {cartCount} · {formatRegionCurrency(checkoutTotal, store.currency)}</button>
+            <button type="button" onClick={() => setIsCheckoutOpen(true)} className="hidden min-h-12 shrink-0 items-center rounded-full bg-primary px-5 py-3 font-sans text-sm font-extrabold text-on-primary shadow-lg shadow-primary/15 sm:inline-flex">View Cart · {cartCount} {cartCount === 1 ? 'item' : 'items'} · {formatRegionCurrency(checkoutTotal, store.currency)}</button>
           </div>
           {products.length > 0 || sets.length > 0 ? (
             <>
@@ -1316,9 +1316,9 @@ const deliveryAddressForQuote = deliveryAddress;
       </section>
 
       {cartCount > 0 && !isCheckoutOpen && (
-        <button type="button" onClick={() => setIsCheckoutOpen(true)} className="fixed inset-x-3 bottom-3 z-40 flex items-center justify-between gap-3 rounded-2xl bg-primary px-4 py-3 text-on-primary shadow-2xl shadow-primary/30 lg:hidden">
-          <span className="text-left font-sans text-xs font-bold">{cartCount} {cartCount === 1 ? 'item' : 'items'} · {formatRegionCurrency(checkoutTotal, store.currency)}</span>
-          <span className="rounded-full bg-white px-4 py-2 font-sans text-xs font-extrabold text-primary">Checkout</span>
+        <button type="button" onClick={() => setIsCheckoutOpen(true)} className="fixed inset-x-3 bottom-3 z-40 flex min-h-14 items-center justify-between gap-3 rounded-2xl bg-primary px-5 py-3.5 text-on-primary shadow-2xl shadow-primary/30 lg:hidden">
+          <span className="text-left font-sans text-sm font-extrabold">{cartCount} {cartCount === 1 ? 'item' : 'items'} · {formatRegionCurrency(checkoutTotal, store.currency)}</span>
+          <span className="rounded-full bg-white px-5 py-2.5 font-sans text-sm font-extrabold text-primary">Checkout</span>
         </button>
       )}
 
