@@ -123,6 +123,7 @@ function PaymentMethodIcon({ methodId }: { methodId: StorePaymentMethodId }) {
 
 export default function PublicStorePage({ slug, groupOrder, currentUser }: { slug: string; groupOrder?: PublicGroupOrder; currentUser?: User | null }) {
   const catalogueTopRef = useRef<HTMLElement | null>(null);
+  const catalogueEndRef = useRef<HTMLDivElement | null>(null);
   const mainSectionRef = useRef<HTMLElement | null>(null);
   const setsSectionRef = useRef<HTMLElement | null>(null);
   const drinksSectionRef = useRef<HTMLElement | null>(null);
@@ -166,6 +167,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const [paymentSession, setPaymentSession] = useState<StorePaymentSession | null>(null);
   const [placedOrder, setPlacedOrder] = useState<PublicStoreOrderResult | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+  const [isCatalogueCartVisible, setIsCatalogueCartVisible] = useState(true);
   const [activeCatalogueSection, setActiveCatalogueSection] = useState<'all' | 'main' | 'sets' | 'drinks'>('all');
   const [isHostInfoOpen, setIsHostInfoOpen] = useState(false);
   const [isAccountSuggestionDismissed, setIsAccountSuggestionDismissed] = useState(false);
@@ -374,6 +376,22 @@ const deliveryAddressForQuote = deliveryAddress;
     return () => {
       observer.disconnect();
       window.removeEventListener('scroll', updateTopSection);
+    };
+  }, [data]);
+
+  useEffect(() => {
+    const updateCatalogueCartVisibility = () => {
+      const top = catalogueTopRef.current?.getBoundingClientRect();
+      const end = catalogueEndRef.current?.getBoundingClientRect();
+      if (!top || !end) return;
+      setIsCatalogueCartVisible(top.top < window.innerHeight && end.top > window.innerHeight - 96);
+    };
+    window.addEventListener('scroll', updateCatalogueCartVisibility, { passive: true });
+    window.addEventListener('resize', updateCatalogueCartVisibility);
+    updateCatalogueCartVisibility();
+    return () => {
+      window.removeEventListener('scroll', updateCatalogueCartVisibility);
+      window.removeEventListener('resize', updateCatalogueCartVisibility);
     };
   }, [data]);
 
@@ -894,10 +912,7 @@ const deliveryAddressForQuote = deliveryAddress;
       <div>
         <section ref={catalogueTopRef} className="min-w-0">
           <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Products &amp; Sets</p>
-          <div className="mt-2 flex items-center justify-between gap-4">
-            <h2 className="font-display text-3xl font-bold text-primary">Available now</h2>
-            <button type="button" onClick={() => setIsCheckoutOpen(true)} className="hidden min-h-12 shrink-0 items-center rounded-full bg-primary px-5 py-3 font-sans text-sm font-extrabold text-on-primary shadow-lg shadow-primary/15 sm:inline-flex">View Cart · {cartCount} {cartCount === 1 ? 'item' : 'items'} · {formatRegionCurrency(checkoutTotal, store.currency)}</button>
-          </div>
+          <h2 className="mt-2 font-display text-3xl font-bold text-primary">Available now</h2>
           {products.length > 0 || sets.length > 0 ? (
             <>
               <nav aria-label="Catalogue sections" className="sticky top-0 z-20 -mx-1 mt-5 overflow-x-auto border-y border-surface-container-high bg-surface/95 px-1 py-2 backdrop-blur lg:top-3">
@@ -982,6 +997,7 @@ const deliveryAddressForQuote = deliveryAddress;
               <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Please check back soon.</p>
             </div>
           )}
+          <div ref={catalogueEndRef} aria-hidden="true" />
         </section>
 
         <aside ref={checkoutSectionRef} id="customer-order" className={`${isCheckoutOpen ? 'fixed inset-0 z-50 block overflow-y-auto bg-surface p-4 pb-8 lg:mx-auto lg:max-w-6xl lg:p-8' : 'hidden'} scroll-mt-24 rounded-3xl border border-surface-container-high bg-white shadow-2xl`}>
@@ -1294,6 +1310,10 @@ const deliveryAddressForQuote = deliveryAddress;
           ) : null}
         </aside>
       </div>
+
+      {cartCount > 0 && isCatalogueCartVisible && !isCheckoutOpen && (
+        <button type="button" onClick={() => setIsCheckoutOpen(true)} className="fixed bottom-6 right-6 z-40 hidden min-h-12 items-center rounded-full bg-primary px-5 py-3 font-sans text-sm font-extrabold text-on-primary shadow-xl shadow-primary/25 transition-transform hover:-translate-y-0.5 lg:inline-flex">View Cart · {cartCount} {cartCount === 1 ? 'item' : 'items'} · {formatRegionCurrency(checkoutTotal, store.currency)}</button>
+      )}
 
       <section className="rounded-3xl border border-surface-container-high bg-white px-6 py-8 text-center shadow-sm">
         <MessageCircle className="mx-auto h-7 w-7 text-primary" />
