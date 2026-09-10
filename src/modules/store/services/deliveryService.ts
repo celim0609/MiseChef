@@ -8,12 +8,12 @@ const getFunctions = () => {
 };
 
 export type DeliveryDestination = { formattedAddress: string; latitude: string; longitude: string; deliveryInstructions?: string };
-export type DeliveryQuote = { quote: { quotationId: string; expiresAt: string; fee: number; currency: 'MYR' }; merchandiseSubtotal: number; destination: DeliveryDestination };
+export type DeliveryQuote = { quote: { quotationId: string; expiresAt: string; customerDeliveryFee: number; currency: 'MYR' }; merchandiseSubtotal: number; destination: DeliveryDestination };
 
 export const storeDeliveryService = {
-  async quote(slug: string, selections: CartSelection[], destination: DeliveryDestination): Promise<DeliveryQuote> {
-    const call = httpsCallable<{ slug: string; delivery: { selections: CartSelection[]; destination: DeliveryDestination } }, DeliveryQuote>(getFunctions(), 'createPublicStoreDeliveryQuote');
-    return (await call({ slug, delivery: { selections, destination } })).data;
+  async quote(slug: string, selections: CartSelection[], destination: DeliveryDestination, deliveryDate: string, deliverySession: string): Promise<DeliveryQuote> {
+    const call = httpsCallable<{ slug: string; delivery: { selections: CartSelection[]; destination: DeliveryDestination; deliveryDate: string; deliverySession: string } }, DeliveryQuote>(getFunctions(), 'createPublicStoreDeliveryQuote');
+    return (await call({ slug, delivery: { selections, destination, deliveryDate, deliverySession } })).data;
   },
   async dispatch(orderId: string): Promise<{ status: string; orderId?: string; difference?: number }> {
     const call = httpsCallable<{ orderId: string }, { status: string; orderId?: string; difference?: number }>(getFunctions(), 'dispatchStoreLalamoveDelivery');

@@ -10,6 +10,7 @@ import type {
   StoreOrderItem,
   StoreOrderDraft,
   StoreOrderDay,
+  StoreMaximumAdvanceDays,
   StoreSet,
   StorePaymentMethodConfig,
   StoreContact,
@@ -40,7 +41,9 @@ export const createDefaultStoreContact = (): StoreContact => ({
 });
 export const createDefaultStoreDelivery = (): import('./types').StoreDeliveryConfig => ({
   enabled: false, provider: 'lalamove', environment: 'sandbox', market: 'MY', pickupLocationId: '', serviceType: '',
-  pickup: { name: '', address: '', latitude: '', longitude: '', contactName: '', contactPhoneE164: '' }
+  pickup: { name: '', address: '', latitude: '', longitude: '', contactName: '', contactPhoneE164: '' },
+  subsidy: { enabled: false, minimumMerchandiseSpend: 0, maximumCustomerDeliveryCharge: 0 },
+  fulfilment: { preOrder: { enabled: true, orderDays: [...DEFAULT_STORE_ORDER_DAYS], earliestDays: 0, maximumAdvanceDays: 14, unavailableDates: [], sessions: [] }, instant: { enabled: false } }
 });
 
 export const normalizeStoreContact = (
@@ -270,7 +273,11 @@ export const normalizeWorkspaceStore = (
     delivery: (() => {
       const raw = data.delivery && typeof data.delivery === 'object' ? data.delivery as Record<string, unknown> : {};
       const pickup = raw.pickup && typeof raw.pickup === 'object' ? raw.pickup as Record<string, unknown> : {};
-      return { ...createDefaultStoreDelivery(), enabled: readBoolean(raw.enabled), pickupLocationId: readString(raw.pickupLocationId), serviceType: readString(raw.serviceType), pickup: { name: readString(pickup.name), address: readString(pickup.address), latitude: readString(pickup.latitude), longitude: readString(pickup.longitude), contactName: readString(pickup.contactName), contactPhoneE164: readString(pickup.contactPhoneE164) } };
+      const subsidy = raw.subsidy && typeof raw.subsidy === 'object' ? raw.subsidy as Record<string, unknown> : {};
+      const fulfilment = raw.fulfilment && typeof raw.fulfilment === 'object' ? raw.fulfilment as Record<string, unknown> : {};
+      const preOrder = fulfilment.preOrder && typeof fulfilment.preOrder === 'object' ? fulfilment.preOrder as Record<string, unknown> : {};
+      const defaults = createDefaultStoreDelivery();
+      return { ...defaults, enabled: readBoolean(raw.enabled), pickupLocationId: readString(raw.pickupLocationId), serviceType: readString(raw.serviceType), pickup: { name: readString(pickup.name), address: readString(pickup.address), latitude: readString(pickup.latitude), longitude: readString(pickup.longitude), contactName: readString(pickup.contactName), contactPhoneE164: readString(pickup.contactPhoneE164) }, subsidy: { enabled: readBoolean(subsidy.enabled), minimumMerchandiseSpend: Math.max(0, readPrice(subsidy.minimumMerchandiseSpend)), maximumCustomerDeliveryCharge: Math.max(0, readPrice(subsidy.maximumCustomerDeliveryCharge)) }, fulfilment: { preOrder: { enabled: preOrder.enabled !== false, orderDays: Array.isArray(preOrder.orderDays) ? preOrder.orderDays.filter((day): day is StoreOrderDay => DEFAULT_STORE_ORDER_DAYS.includes(day as StoreOrderDay)) : (rawOrderDays ? rawOrderDays.filter((day): day is StoreOrderDay => DEFAULT_STORE_ORDER_DAYS.includes(day as StoreOrderDay)) : defaults.fulfilment.preOrder.orderDays), earliestDays: preOrder.earliestDays === 1 ? 1 : readEarliestPickupDays(data.earliestPickupDays), maximumAdvanceDays: [7, 14, 30].includes(readPrice(preOrder.maximumAdvanceDays)) ? readPrice(preOrder.maximumAdvanceDays) as StoreMaximumAdvanceDays : readMaximumAdvanceDays(data.maximumAdvanceDays), unavailableDates: Array.isArray(preOrder.unavailableDates) ? preOrder.unavailableDates.filter((date): date is string => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) : (Array.isArray(data.unavailableDates) ? data.unavailableDates.filter((date): date is string => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) : []), sessions: Array.isArray(preOrder.sessions) ? [...new Set(preOrder.sessions.filter((session): session is string => typeof session === 'string' && Boolean(session.trim())).map(session => session.trim()))] : (Array.isArray(data.pickupSessions) ? data.pickupSessions.filter((session): session is string => typeof session === 'string' && Boolean(session.trim())).map(session => session.trim()) : []) }, instant: { enabled: false } } };
     })(),
     pickupSessions: Array.isArray(data.pickupSessions)
       ? [...new Set(data.pickupSessions.filter((session): session is string => typeof session === 'string' && Boolean(session.trim())).map(session => session.trim()))]
@@ -353,6 +360,8 @@ export const validateStoreSettings = (
     const latitude = Number(delivery.pickup.latitude); const longitude = Number(delivery.pickup.longitude);
     if (delivery.provider !== 'lalamove' || delivery.environment !== 'sandbox' || delivery.market !== 'MY') return 'Delivery must use Lalamove Sandbox for Malaysia.';
     if (!delivery.pickupLocationId || !delivery.serviceType.trim() || !delivery.pickup.address.trim() || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180 || !delivery.pickup.contactName.trim() || !/^\+[1-9]\d{1,14}$/.test(delivery.pickup.contactPhoneE164.trim())) return 'Complete the delivery pickup, coordinates, sender contact, and service type.';
+    if (!delivery.fulfilment.preOrder.enabled || delivery.fulfilment.preOrder.sessions.length === 0) return 'Enable pre-order delivery and add at least one delivery session.';
+    if (delivery.subsidy.minimumMerchandiseSpend < 0 || delivery.subsidy.maximumCustomerDeliveryCharge < 0) return 'Delivery subsidy values cannot be negative.';
   }
   const pickupSessions = draft.pickupSessions.map(session => session.trim()).filter(Boolean);
   if (!draft.name.trim()) return 'Store name is required.';

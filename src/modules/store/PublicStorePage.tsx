@@ -152,6 +152,8 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const [pickupSession, setPickupSession] = useState('');
   const [pickupLocationId, setPickupLocationId] = useState('');
   const [fulfilmentMethod, setFulfilmentMethod] = useState<'pickup' | 'delivery'>('pickup');
+  const [deliveryDate, setDeliveryDate] = useState('');
+  const [deliverySession, setDeliverySession] = useState('');
   const [deliveryAddressQuery, setDeliveryAddressQuery] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryLatitude, setDeliveryLatitude] = useState('');
@@ -163,6 +165,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const [isSearchingDeliveryAddress, setIsSearchingDeliveryAddress] = useState(false);
   const [isSelectingDeliveryAddress, setIsSelectingDeliveryAddress] = useState(false);
   const [deliveryQuote, setDeliveryQuote] = useState<DeliveryQuote | null>(null);
+  const [isCalculatingDelivery, setIsCalculatingDelivery] = useState(false);
   const [notes, setNotes] = useState('');
   const [paymentMethodId, setPaymentMethodId] = useState<StorePaymentMethodId>('stripe');
   const [checkoutError, setCheckoutError] = useState('');
@@ -177,8 +180,9 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const checkoutRecoveryKey = `${CHECKOUT_RECOVERY_KEY_PREFIX}${window.location.pathname}`;
   const storeDraftKey = `${STORE_DRAFT_KEY_PREFIX}${slug}`;
   const deliveryPlacesSessionRef = useRef(crypto.randomUUID());
+  const deliveryQuoteRequestRef = useRef(0);
 
-  const deliveryAddressForQuote = [deliveryAddress, deliveryUnit.trim()].filter(Boolean).join(', ');
+const deliveryAddressForQuote = deliveryAddress;
   const deliveryRemarks = [
     deliveryUnit.trim() ? `Unit / Floor: ${deliveryUnit.trim()}` : '',
     deliveryInstructions.trim() ? `Instructions: ${deliveryInstructions.trim()}` : ''
@@ -234,6 +238,9 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
         setPickupDate(groupOrder?.pickupDate || (storeData ? getValidPickupDates(storeData.store)[0] || '' : ''));
         setPickupSession(groupOrder?.pickupSession || storeData?.store.pickupSessions[0] || '');
         setPickupLocationId(groupOrder?.pickupLocationId || storeData?.store.pickupLocations[0]?.id || '');
+        const preOrder = storeData?.store.delivery?.fulfilment.preOrder;
+        setDeliveryDate(storeData && preOrder ? getValidPickupDates({ ...storeData.store, orderDays: preOrder.orderDays, earliestPickupDays: preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates })[0] || '' : '');
+        setDeliverySession(preOrder?.sessions[0] || '');
         setPaymentMethodId(storeData?.store.paymentMethods.find(
           method => method.enabled && method.id !== 'cash_on_pickup'
         )?.id || 'stripe');
@@ -620,7 +627,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
     setCheckoutError('');
     setIsPlacingOrder(true);
     try {
-      if (fulfilmentMethod === 'delivery' && !deliveryQuote) throw new Error('Get a delivery quote before payment.');
+      if (fulfilmentMethod === 'delivery' && !deliveryQuote) throw new Error('Delivery fee is still being calculated.');
       const session = await storePaymentService.createPayment(slug, {
         fulfilmentMethod,
         paymentMethodId,
@@ -630,7 +637,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
         pickupDate,
         pickupSession,
         pickupLocationId,
-        ...(fulfilmentMethod === 'delivery' && deliveryQuote ? { deliveryQuoteId: deliveryQuote.quote.quotationId, destination: { formattedAddress: deliveryAddressForQuote, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions: deliveryRemarks } } : {}),
+        ...(fulfilmentMethod === 'delivery' && deliveryQuote ? { deliveryQuoteId: deliveryQuote.quote.quotationId, deliveryDate, deliverySession, destination: { formattedAddress: deliveryAddressForQuote, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions: deliveryRemarks } } : {}),
         notes,
         selections: cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({
           productId,
@@ -684,15 +691,33 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   };
 
   const requestDeliveryQuote = async () => {
-    if (!deliveryAddress || !deliveryLatitude || !deliveryLongitude) { setCheckoutError('Choose a delivery address from the search results.'); return; }
+    if (!deliveryAddress || !deliveryLatitude || !deliveryLongitude || !deliveryDate || !deliverySession) return;
+    const requestId = ++deliveryQuoteRequestRef.current;
+    setIsCalculatingDelivery(true);
     setCheckoutError('');
     try {
-      const quote = await storeDeliveryService.quote(slug, cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({ productId, ...(setId ? { setId } : {}), quantity, selectedOptions, ...(selectedSetItems ? { selectedSetItems } : {}) })), { formattedAddress: deliveryAddressForQuote, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions: deliveryRemarks });
-      setDeliveryQuote(quote);
-    } catch (error) { setDeliveryQuote(null); setCheckoutError(error instanceof Error ? error.message : 'Unable to quote delivery.'); }
+      const quote = await storeDeliveryService.quote(slug, cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({ productId, ...(setId ? { setId } : {}), quantity, selectedOptions, ...(selectedSetItems ? { selectedSetItems } : {}) })), { formattedAddress: deliveryAddressForQuote, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions: deliveryRemarks }, deliveryDate, deliverySession);
+      if (requestId === deliveryQuoteRequestRef.current) setDeliveryQuote(quote);
+    } catch (error) { if (requestId === deliveryQuoteRequestRef.current) { setDeliveryQuote(null); setCheckoutError(error instanceof Error ? error.message : 'Unable to calculate delivery.'); } } finally { if (requestId === deliveryQuoteRequestRef.current) setIsCalculatingDelivery(false); }
   };
 
+  useEffect(() => {
+    if (fulfilmentMethod !== 'delivery' || !deliveryAddress || !deliveryLatitude || !deliveryLongitude || !deliveryDate || !deliverySession) return;
+    setDeliveryQuote(null);
+    void requestDeliveryQuote();
+  // Provider quotations do not include the preorder slot. Unit and instructions are intentionally excluded.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fulfilmentMethod, deliveryAddress, deliveryLatitude, deliveryLongitude, cart]);
+
+  useEffect(() => {
+    const expiresAt = Date.parse(deliveryQuote?.quote.expiresAt || '');
+    if (!Number.isFinite(expiresAt)) return;
+    const timeout = window.setTimeout(() => setDeliveryQuote(null), Math.max(0, expiresAt - Date.now()));
+    return () => window.clearTimeout(timeout);
+  }, [deliveryQuote?.quote.expiresAt]);
+
   const selectDeliveryAddress = async (suggestion: PlaceSuggestion) => {
+    deliveryQuoteRequestRef.current += 1;
     setIsSelectingDeliveryAddress(true);
     setDeliveryAddressError('');
     try {
@@ -1037,7 +1062,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
               </div>
               <div className="mt-4 flex justify-between gap-3 font-sans text-base font-extrabold text-primary">
                 <span>Total</span>
-                <span>{formatRegionCurrency(cartTotal + (deliveryQuote?.quote.fee || 0), store.currency)}</span>
+                <span>{formatRegionCurrency(cartTotal + (deliveryQuote?.quote.customerDeliveryFee || 0), store.currency)}</span>
               </div>
 
               <form onSubmit={startPayment} className="mt-6 space-y-6">
@@ -1091,17 +1116,20 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
                   <h3 id="fulfilment-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Fulfilment</h3>
                   <div className="mt-3 flex gap-2">
                     <button type="button" onClick={() => { setFulfilmentMethod('pickup'); setDeliveryQuote(null); }} className={`rounded-xl px-4 py-3 text-sm font-bold ${fulfilmentMethod === 'pickup' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Pickup</button>
-                    {store.delivery?.enabled && !groupOrder && <button type="button" onClick={() => setFulfilmentMethod('delivery')} className={`rounded-xl px-4 py-3 text-sm font-bold ${fulfilmentMethod === 'delivery' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Delivery</button>}
+                    {store.delivery?.enabled && store.delivery.fulfilment.preOrder.enabled && !groupOrder && <button type="button" onClick={() => setFulfilmentMethod('delivery')} className={`rounded-xl px-4 py-3 text-sm font-bold ${fulfilmentMethod === 'delivery' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Delivery</button>}
                   </div>
                 </section>
 
                 {fulfilmentMethod === 'delivery' && <section aria-labelledby="delivery-details-heading">
                   <h3 id="delivery-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Delivery address</h3>
                   <div className="mt-3 space-y-3">
+                    <label className="block"><span className="font-sans text-xs font-extrabold text-primary">Delivery date</span><select aria-label="Delivery date" value={deliveryDate} onChange={event => setDeliveryDate(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">{getValidPickupDates({ ...store, orderDays: store.delivery.fulfilment.preOrder.orderDays, earliestPickupDays: store.delivery.fulfilment.preOrder.earliestDays, maximumAdvanceDays: store.delivery.fulfilment.preOrder.maximumAdvanceDays, unavailableDates: store.delivery.fulfilment.preOrder.unavailableDates }).map(date => <option key={date} value={date}>{formatPickupDateLabel(date, store.country)}</option>)}</select></label>
+                    <label className="block"><span className="font-sans text-xs font-extrabold text-primary">Delivery session</span><select aria-label="Delivery session" value={deliverySession} onChange={event => setDeliverySession(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">{store.delivery.fulfilment.preOrder.sessions.map(session => <option key={session} value={session}>{session}</option>)}</select></label>
+                    {store.delivery.subsidy.enabled && <p className="text-xs font-bold text-on-surface-variant">Spend {formatRegionCurrency(store.delivery.subsidy.minimumMerchandiseSpend, store.currency)} to enjoy delivery capped at {formatRegionCurrency(store.delivery.subsidy.maximumCustomerDeliveryCharge, store.currency)}.</p>}
                     <div className="relative">
                       <label className="block">
                         <span className="font-sans text-xs font-extrabold text-primary">Search delivery address</span>
-                        <input aria-label="Search delivery address" required autoComplete="off" placeholder="Search Malaysia addresses and places" value={deliveryAddressQuery} onChange={event => { setDeliveryAddressQuery(event.target.value); setDeliveryAddress(''); setDeliveryLatitude(''); setDeliveryLongitude(''); setDeliveryQuote(null); }} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
+                        <input aria-label="Search delivery address" required autoComplete="off" placeholder="Search Malaysia addresses and places" value={deliveryAddressQuery} onChange={event => { deliveryQuoteRequestRef.current += 1; setDeliveryAddressQuery(event.target.value); setDeliveryAddress(''); setDeliveryLatitude(''); setDeliveryLongitude(''); setDeliveryQuote(null); }} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
                       </label>
                       {(isSearchingDeliveryAddress || isSelectingDeliveryAddress) && <p className="mt-2 text-xs font-bold text-on-surface-variant">Searching addresses…</p>}
                       {deliverySuggestions.length > 0 && <div role="listbox" aria-label="Delivery address results" className="absolute z-10 mt-1 w-full overflow-hidden rounded-2xl border border-surface-container-high bg-white shadow-lg">
@@ -1114,10 +1142,10 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
                       {deliveryAddress && <p className="mt-2 text-xs font-bold text-emerald-800">Selected: {deliveryAddress}</p>}
                       {deliveryAddressError && <p role="alert" className="mt-2 text-xs font-bold text-error">{deliveryAddressError}</p>}
                     </div>
-                    <input aria-label="Unit or floor" placeholder="Unit / Floor (optional)" value={deliveryUnit} onChange={event => { setDeliveryUnit(event.target.value); setDeliveryQuote(null); }} className="min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
+                    <input aria-label="Unit or floor" placeholder="Unit / Floor (optional)" value={deliveryUnit} onChange={event => setDeliveryUnit(event.target.value)} className="min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
                     <textarea aria-label="Delivery instructions" rows={2} placeholder="Delivery instructions (optional)" value={deliveryInstructions} onChange={event => setDeliveryInstructions(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
-                    <button type="button" disabled={!deliveryAddress || isSelectingDeliveryAddress} onClick={requestDeliveryQuote} className="rounded-full bg-secondary px-5 py-3 text-sm font-extrabold text-on-secondary disabled:opacity-50">Get delivery fee</button>
-                    {deliveryQuote && <p className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-900">Delivery {formatRegionCurrency(deliveryQuote.quote.fee, store.currency)} · valid until {new Date(deliveryQuote.quote.expiresAt).toLocaleTimeString()}</p>}
+                    {isCalculatingDelivery && <p className="text-sm font-bold text-on-surface-variant">Calculating delivery…</p>}
+                    {deliveryQuote && <p className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-900">Delivery {formatRegionCurrency(deliveryQuote.quote.customerDeliveryFee, store.currency)}</p>}
                   </div>
                 </section>}
 
