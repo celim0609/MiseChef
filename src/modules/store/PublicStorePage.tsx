@@ -1000,7 +1000,7 @@ const deliveryAddressForQuote = deliveryAddress;
           <div ref={catalogueEndRef} aria-hidden="true" />
         </section>
 
-        <aside ref={checkoutSectionRef} id="customer-order" className={`${isCheckoutOpen ? 'fixed inset-0 z-50 block overflow-y-auto bg-surface p-4 pb-8 lg:mx-auto lg:max-w-6xl lg:p-8' : 'hidden'} scroll-mt-24 rounded-3xl border border-surface-container-high bg-white shadow-2xl`}>
+        <aside ref={checkoutSectionRef} id="customer-order" className={`${isCheckoutOpen ? 'fixed inset-0 z-50 block overflow-y-auto bg-surface p-4 pb-8 lg:mx-auto lg:max-w-[60rem] lg:p-8' : 'hidden'} scroll-mt-24 rounded-3xl border border-surface-container-high bg-white shadow-2xl`}>
           <div className="mb-4 flex items-center justify-between">
             <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Checkout</p>
             <button type="button" onClick={() => setIsCheckoutOpen(false)} className="rounded-full bg-surface-container p-2 text-primary" aria-label="Close checkout"><X className="h-5 w-5" /></button>
@@ -1154,7 +1154,7 @@ const deliveryAddressForQuote = deliveryAddress;
                 <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold text-primary"><dt>Total</dt><dd>{formatRegionCurrency(checkoutTotal, store.currency)}</dd></div>
               </dl>
 
-              <form onSubmit={startPayment} className="mt-5 flex flex-col gap-5 pb-20">
+              <form id="store-checkout-form" onSubmit={startPayment} className="mt-5 flex flex-col gap-5 pb-28">
                 {paymentMethods.length === 1 ? (
                   <section aria-label="Payment method" className="order-4 flex items-center justify-between rounded-xl border border-surface-container-high px-3 py-3">
                     <span className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Payment</span>
@@ -1297,13 +1297,12 @@ const deliveryAddressForQuote = deliveryAddress;
                 )}
 
                 {checkoutError && <p role="alert" className="order-7 rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
-                <div className="sticky bottom-3 z-30 order-8 -mx-2 rounded-2xl bg-white/95 p-2 shadow-xl shadow-primary/10 backdrop-blur lg:bottom-4 lg:mx-0 lg:shadow-lg">
-                  <button type="submit" disabled={isPlacingOrder} className="min-h-12 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary shadow-lg shadow-primary/20 disabled:opacity-50">
-                    {isPlacingOrder ? 'Placing Order…' : `${getPaymentActionLabel(paymentMethodId)} · ${formatRegionCurrency(checkoutTotal, store.currency)}`}
-                  </button>
-                  <p className="mt-2 text-center font-sans text-[10px] font-bold text-outline">No login, email, or account required.</p>
-                </div>
               </form>
+              <div className="sticky bottom-3 z-30 -mx-2 rounded-2xl bg-white/95 p-2 shadow-xl shadow-primary/10 backdrop-blur lg:bottom-4 lg:mx-0 lg:shadow-lg">
+                <button form="store-checkout-form" type="submit" disabled={isPlacingOrder} className="min-h-12 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary shadow-lg shadow-primary/20 disabled:opacity-50">
+                  {isPlacingOrder ? 'Placing Order…' : `${getPaymentActionLabel(paymentMethodId)} · ${formatRegionCurrency(checkoutTotal, store.currency)}`}
+                </button>
+              </div>
             </>
           ) : !placedOrder && canOrderPickup ? (
             <p className="mt-5 font-sans text-sm font-bold text-on-surface-variant">Add a product or set to start your pickup pre-order.</p>
