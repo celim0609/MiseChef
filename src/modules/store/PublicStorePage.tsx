@@ -165,7 +165,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [paymentSession, setPaymentSession] = useState<StorePaymentSession | null>(null);
   const [placedOrder, setPlacedOrder] = useState<PublicStoreOrderResult | null>(null);
-  const [isMobileCheckoutOpen, setIsMobileCheckoutOpen] = useState(false);
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [activeCatalogueSection, setActiveCatalogueSection] = useState<'all' | 'main' | 'sets' | 'drinks'>('all');
   const [isHostInfoOpen, setIsHostInfoOpen] = useState(false);
   const [isAccountSuggestionDismissed, setIsAccountSuggestionDismissed] = useState(false);
@@ -981,10 +981,31 @@ const deliveryAddressForQuote = deliveryAddress;
           )}
         </section>
 
-        <aside ref={checkoutSectionRef} id="customer-order" className={`${isMobileCheckoutOpen ? 'fixed inset-0 z-50 block overflow-y-auto bg-surface p-4 pb-8' : 'hidden'} scroll-mt-24 lg:sticky lg:top-4 lg:block lg:self-start lg:rounded-3xl lg:border lg:border-surface-container-high lg:bg-white lg:p-4 lg:shadow-sm`}>
-          <div className="mb-4 flex items-center justify-between lg:hidden">
+        <aside className="hidden self-start rounded-3xl border border-surface-container-high bg-white p-4 shadow-sm lg:block">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2 font-display text-xl font-bold text-primary"><ShoppingCart className="h-5 w-5" /> Your Order</h2>
+            <span className="rounded-full bg-primary/10 px-3 py-1 font-sans text-xs font-extrabold text-primary">{cartCount}</span>
+          </div>
+          {cartDetails.length > 0 ? <>
+            <div className="mt-4 space-y-3">
+              {cartDetails.map(({ line, product, set, lineTotal }) => (product || set) && <div key={line.key} className="flex items-start justify-between gap-3 font-sans text-sm">
+                <span className="min-w-0 font-extrabold text-primary">{set?.name || product?.name} × {line.quantity}</span>
+                <span className="shrink-0 font-extrabold text-secondary">{formatRegionCurrency(lineTotal, store.currency)}</span>
+              </div>)}
+            </div>
+            <dl className="mt-4 space-y-2 border-t border-surface-container-high pt-4 font-sans text-sm font-bold text-on-surface-variant">
+              <div className="flex justify-between gap-3"><dt>Subtotal</dt><dd className="text-primary">{formatRegionCurrency(cartTotal, store.currency)}</dd></div>
+              {fulfilmentMethod === 'delivery' && deliveryQuote && <div className="flex justify-between gap-3"><dt>Delivery Fee</dt><dd className="text-primary">{formatRegionCurrency(customerDeliveryFee, store.currency)}</dd></div>}
+              <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold text-primary"><dt>Total</dt><dd>{formatRegionCurrency(checkoutTotal, store.currency)}</dd></div>
+            </dl>
+            <button type="button" onClick={() => setIsCheckoutOpen(true)} className="mt-5 min-h-12 w-full rounded-full bg-primary px-5 py-3 font-sans text-sm font-extrabold text-on-primary">Checkout · {formatRegionCurrency(checkoutTotal, store.currency)}</button>
+          </> : <p className="mt-4 font-sans text-sm font-bold text-on-surface-variant">Add a product or set to begin.</p>}
+        </aside>
+
+        <aside ref={checkoutSectionRef} id="customer-order" className={`${isCheckoutOpen ? 'fixed inset-0 z-50 block overflow-y-auto bg-surface p-4 pb-8 lg:mx-auto lg:max-w-6xl lg:p-8' : 'hidden'} scroll-mt-24 rounded-3xl border border-surface-container-high bg-white shadow-2xl`}>
+          <div className="mb-4 flex items-center justify-between">
             <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Checkout</p>
-            <button type="button" onClick={() => setIsMobileCheckoutOpen(false)} className="rounded-full bg-surface-container p-2 text-primary" aria-label="Close checkout"><X className="h-5 w-5" /></button>
+            <button type="button" onClick={() => setIsCheckoutOpen(false)} className="rounded-full bg-surface-container p-2 text-primary" aria-label="Close checkout"><X className="h-5 w-5" /></button>
           </div>
           <div className="flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 font-display text-xl font-bold text-primary"><ShoppingCart className="h-5 w-5" /> Order Summary</h2>
@@ -1135,13 +1156,13 @@ const deliveryAddressForQuote = deliveryAddress;
                 <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold text-primary"><dt>Total</dt><dd>{formatRegionCurrency(checkoutTotal, store.currency)}</dd></div>
               </dl>
 
-              <form onSubmit={startPayment} className="mt-5 space-y-5 pb-20 lg:pb-0">
+              <form onSubmit={startPayment} className="mt-5 flex flex-col gap-5 pb-20">
                 {paymentMethods.length === 1 ? (
-                  <section aria-label="Payment method" className="flex items-center justify-between rounded-xl border border-surface-container-high px-3 py-3">
+                  <section aria-label="Payment method" className="order-4 flex items-center justify-between rounded-xl border border-surface-container-high px-3 py-3">
                     <span className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Payment</span>
                     <span className="inline-flex items-center gap-2 font-sans text-sm font-extrabold text-primary">{getStorePaymentMethodLabel(paymentMethods[0].id)} <CheckCircle2 className="h-4 w-4 text-emerald-700" aria-hidden="true" /></span>
                   </section>
-                ) : <fieldset>
+                ) : <fieldset className="order-4">
                   <legend className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Payment</legend>
                   <div className="mt-2 space-y-2">
                     {paymentMethods.map(method => {
@@ -1157,7 +1178,7 @@ const deliveryAddressForQuote = deliveryAddress;
                   </div>
                 </fieldset>}
 
-                <section aria-labelledby="customer-details-heading">
+                <section aria-labelledby="customer-details-heading" className="order-3">
                   <h3 id="customer-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Customer</h3>
                   <div className="mt-2 space-y-2">
                     <label className="block">
@@ -1181,7 +1202,7 @@ const deliveryAddressForQuote = deliveryAddress;
                   </div>
                 </section>
 
-                <section aria-labelledby="fulfilment-heading">
+                <section aria-labelledby="fulfilment-heading" className="order-1">
                   <h3 id="fulfilment-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Fulfilment</h3>
                   <div className="mt-2 flex gap-2">
                     <button type="button" onClick={() => { setFulfilmentMethod('pickup'); setDeliveryQuote(null); }} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${fulfilmentMethod === 'pickup' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Pickup</button>
@@ -1189,7 +1210,7 @@ const deliveryAddressForQuote = deliveryAddress;
                   </div>
                 </section>
 
-                {fulfilmentMethod === 'delivery' && <section aria-labelledby="delivery-details-heading">
+                {fulfilmentMethod === 'delivery' && <section aria-labelledby="delivery-details-heading" className="order-2">
                   <h3 id="delivery-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Delivery Details</h3>
                   <div className="mt-2 space-y-2">
                     <label className="block"><span className="font-sans text-xs font-extrabold text-primary">Delivery date</span><select aria-label="Delivery date" value={deliveryDate} onChange={event => setDeliveryDate(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">{getValidPickupDates({ ...store, orderDays: store.delivery.fulfilment.preOrder.orderDays, earliestPickupDays: store.delivery.fulfilment.preOrder.earliestDays, maximumAdvanceDays: store.delivery.fulfilment.preOrder.maximumAdvanceDays, unavailableDates: store.delivery.fulfilment.preOrder.unavailableDates }).map(date => <option key={date} value={date}>{formatPickupDateLabel(date, store.country)}</option>)}</select></label>
@@ -1218,7 +1239,7 @@ const deliveryAddressForQuote = deliveryAddress;
                   </div>
                 </section>}
 
-                {fulfilmentMethod === 'pickup' && <section aria-labelledby="pickup-details-heading">
+                {fulfilmentMethod === 'pickup' && <section aria-labelledby="pickup-details-heading" className="order-2">
                   <h3 id="pickup-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup Details</h3>
                   <div className="mt-2 space-y-2">
                     <label className="block">
@@ -1248,7 +1269,7 @@ const deliveryAddressForQuote = deliveryAddress;
                   </div>
                 </section>}
 
-                <section aria-labelledby="payment-instructions-heading" className="rounded-xl bg-surface-container-low p-3">
+                <section aria-labelledby="payment-instructions-heading" className="order-5 rounded-xl bg-surface-container-low p-3">
                   <h3 id="payment-instructions-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Payment Instructions</h3>
                   {paymentMethodId === 'stripe' || paymentMethodId === 'curlec' ? (
                     <p className="mt-2 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">Your order details are saved first, then secure payment continues on the next step.</p>
@@ -1266,7 +1287,7 @@ const deliveryAddressForQuote = deliveryAddress;
                 </section>
 
                 {groupOrder && !currentUser && !isAccountSuggestionDismissed && (
-                  <section aria-labelledby="group-account-suggestion-heading" className="rounded-2xl border border-secondary/25 bg-secondary/10 p-4">
+                  <section aria-labelledby="group-account-suggestion-heading" className="order-6 rounded-2xl border border-secondary/25 bg-secondary/10 p-4">
                     <h3 id="group-account-suggestion-heading" className="font-display text-lg font-bold text-primary">Want to track this order later?</h3>
                     <p className="mt-1 font-sans text-xs font-bold leading-relaxed text-on-surface-variant">Sign in or create a free MiseChef account before checkout to keep this order in My Orders.</p>
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -1277,8 +1298,8 @@ const deliveryAddressForQuote = deliveryAddress;
                   </section>
                 )}
 
-                {checkoutError && <p role="alert" className="rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
-                <div className="sticky bottom-3 z-30 -mx-2 rounded-2xl bg-white/95 p-2 shadow-xl shadow-primary/10 backdrop-blur lg:bottom-4 lg:mx-0 lg:bg-white/95 lg:shadow-lg">
+                {checkoutError && <p role="alert" className="order-7 rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
+                <div className="sticky bottom-3 z-30 order-8 -mx-2 rounded-2xl bg-white/95 p-2 shadow-xl shadow-primary/10 backdrop-blur lg:bottom-4 lg:mx-0 lg:shadow-lg">
                   <button type="submit" disabled={isPlacingOrder} className="min-h-12 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary shadow-lg shadow-primary/20 disabled:opacity-50">
                     {isPlacingOrder ? 'Placing Order…' : `${getPaymentActionLabel(paymentMethodId)} · ${formatRegionCurrency(checkoutTotal, store.currency)}`}
                   </button>
@@ -1312,9 +1333,9 @@ const deliveryAddressForQuote = deliveryAddress;
         <a href="/" className="mt-5 inline-flex shrink-0 items-center gap-2 rounded-full bg-white px-5 py-3 font-sans text-xs font-extrabold text-primary sm:mt-0"><Compass className="h-4 w-4" /> Explore MiseChef</a>
       </section>
 
-      {cartCount > 0 && !isMobileCheckoutOpen && (
-        <button type="button" onClick={() => setIsMobileCheckoutOpen(true)} className="fixed inset-x-3 bottom-3 z-40 flex items-center justify-between gap-3 rounded-2xl bg-primary px-4 py-3 text-on-primary shadow-2xl shadow-primary/30 lg:hidden">
-          <span className="text-left font-sans text-xs font-bold"><span className="block text-[10px] uppercase tracking-[0.14em] text-on-primary/70">Total</span>{formatRegionCurrency(checkoutTotal, store.currency)}</span>
+      {cartCount > 0 && !isCheckoutOpen && (
+        <button type="button" onClick={() => setIsCheckoutOpen(true)} className="fixed inset-x-3 bottom-3 z-40 flex items-center justify-between gap-3 rounded-2xl bg-primary px-4 py-3 text-on-primary shadow-2xl shadow-primary/30 lg:hidden">
+          <span className="text-left font-sans text-xs font-bold">{cartCount} {cartCount === 1 ? 'item' : 'items'} · {formatRegionCurrency(checkoutTotal, store.currency)}</span>
           <span className="rounded-full bg-white px-4 py-2 font-sans text-xs font-extrabold text-primary">Checkout</span>
         </button>
       )}

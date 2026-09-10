@@ -169,7 +169,7 @@ test('checkout presents only enabled methods in a compact hierarchy', () => {
   assert.match(publicStorePage, /getPaymentActionLabel\(paymentMethodId\)/);
   assert.match(publicStorePage, /return 'Continue to Payment'/);
   assert.match(publicStorePage, /sticky bottom-3/);
-  assert.match(publicStorePage, /cartCount > 0 && !isMobileCheckoutOpen/);
+  assert.match(publicStorePage, /cartCount > 0 && !isCheckoutOpen/);
   assert.match(publicStorePage, /customerDeliveryFee/);
   assert.match(publicStorePage, /checkoutTotal/);
 });
