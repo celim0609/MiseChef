@@ -107,17 +107,6 @@ const selectionKey = (productId: string, selectedOptions: CartSelection['selecte
   `${productId}:${selectedOptions.map(option => `${option.groupId}=${option.optionId}`).sort().join('|')}`
 );
 
-const getPaymentMethodDescription = (methodId: StorePaymentMethodId) => {
-  switch (methodId) {
-    case 'touch_n_go_qr': return 'Scan the QR code to pay.';
-    case 'duitnow_qr': return 'Pay using your banking app.';
-    case 'bank_transfer': return 'Transfer directly to the Store.';
-    case 'cash_on_pickup': return 'Pay when collecting your order.';
-    case 'stripe': return 'Secure online payment. Instant confirmation.';
-    case 'curlec': return 'E-Wallet · Instant confirmation.';
-  }
-};
-
 const getPaymentActionLabel = (methodId: StorePaymentMethodId) => {
   if (methodId === 'stripe' || methodId === 'curlec') return 'Continue to Secure Payment';
   if (methodId === 'cash_on_pickup') return 'Place Order';
@@ -133,6 +122,10 @@ function PaymentMethodIcon({ methodId }: { methodId: StorePaymentMethodId }) {
 }
 
 export default function PublicStorePage({ slug, groupOrder, currentUser }: { slug: string; groupOrder?: PublicGroupOrder; currentUser?: User | null }) {
+  const catalogueTopRef = useRef<HTMLElement | null>(null);
+  const mainSectionRef = useRef<HTMLElement | null>(null);
+  const setsSectionRef = useRef<HTMLElement | null>(null);
+  const drinksSectionRef = useRef<HTMLElement | null>(null);
   const checkoutSectionRef = useRef<HTMLElement | null>(null);
   const paymentStageRef = useRef<HTMLElement | null>(null);
   const confirmationRef = useRef<HTMLElement | null>(null);
@@ -172,7 +165,8 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [paymentSession, setPaymentSession] = useState<StorePaymentSession | null>(null);
   const [placedOrder, setPlacedOrder] = useState<PublicStoreOrderResult | null>(null);
-  const [isCheckoutVisible, setIsCheckoutVisible] = useState(false);
+  const [isMobileCheckoutOpen, setIsMobileCheckoutOpen] = useState(false);
+  const [activeCatalogueSection, setActiveCatalogueSection] = useState<'all' | 'main' | 'sets' | 'drinks'>('all');
   const [isHostInfoOpen, setIsHostInfoOpen] = useState(false);
   const [isAccountSuggestionDismissed, setIsAccountSuggestionDismissed] = useState(false);
   const paymentStageKey = paymentSession?.paymentSessionId || '';
@@ -357,14 +351,30 @@ const deliveryAddressForQuote = deliveryAddress;
   }, [cart, customerEmail, customerName, groupOrder, notes, paymentMethodId, phone, slug, storeDraftKey]);
 
   useEffect(() => {
-    const checkoutSection = checkoutSectionRef.current;
-    if (!checkoutSection || typeof IntersectionObserver === 'undefined') return;
-    const observer = new IntersectionObserver(
-      ([entry]) => setIsCheckoutVisible(entry.isIntersecting),
-      { threshold: 0.05 }
-    );
-    observer.observe(checkoutSection);
-    return () => observer.disconnect();
+    const sections = [
+      ['main', mainSectionRef.current],
+      ['sets', setsSectionRef.current],
+      ['drinks', drinksSectionRef.current]
+    ] as const;
+    const visibleSections = sections.filter((entry): entry is readonly ['main' | 'sets' | 'drinks', HTMLElement] => Boolean(entry[1]));
+    if (visibleSections.length === 0 || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(entries => {
+      const visible = entries
+        .filter(entry => entry.isIntersecting)
+        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      const section = visibleSections.find(([, element]) => element === visible?.target);
+      if (section) setActiveCatalogueSection(section[0]);
+    }, { rootMargin: '-20% 0px -65% 0px', threshold: [0.05, 0.4] });
+    visibleSections.forEach(([, element]) => observer.observe(element));
+    const updateTopSection = () => {
+      if ((catalogueTopRef.current?.getBoundingClientRect().top || 0) >= -8) setActiveCatalogueSection('all');
+    };
+    window.addEventListener('scroll', updateTopSection, { passive: true });
+    updateTopSection();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('scroll', updateTopSection);
+    };
   }, [data]);
 
   const verifyPayment = async (
@@ -540,7 +550,19 @@ const deliveryAddressForQuote = deliveryAddress;
   );
 
   const cartTotal = cartDetails.reduce((sum, item) => sum + item.lineTotal, 0);
+  const customerDeliveryFee = deliveryQuote?.quote.customerDeliveryFee || 0;
+  const checkoutTotal = cartTotal + customerDeliveryFee;
   const cartCount = cart.reduce((sum, line) => sum + line.quantity, 0);
+  const paymentMethods = data?.store.paymentMethods.filter(
+    method => method.enabled && method.id !== 'cash_on_pickup'
+  ) || [];
+  const drinkProductIds = useMemo(() => new Set(
+    (data?.sets || []).flatMap(set => set.groups.flatMap(group => /drink/i.test(group.name)
+      ? group.options.map(option => option.productId)
+      : []))
+  ), [data?.sets]);
+  const drinkProducts = useMemo(() => (data?.products || []).filter(product => drinkProductIds.has(product.id)), [data?.products, drinkProductIds]);
+  const mainProducts = useMemo(() => (data?.products || []).filter(product => !drinkProductIds.has(product.id)), [data?.products, drinkProductIds]);
   const validPickupDates = useMemo(
     () => data ? getValidPickupDates(data.store) : [],
     [data]
@@ -869,35 +891,75 @@ const deliveryAddressForQuote = deliveryAddress;
         </section>
       )}
 
-      <div className="grid items-start gap-8 lg:grid-cols-[minmax(0,1fr)_23rem]">
-        <section>
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_23rem]">
+        <section ref={catalogueTopRef} className="min-w-0">
           <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Products &amp; Sets</p>
           <h2 className="mt-2 font-display text-3xl font-bold text-primary">Available now</h2>
           {products.length > 0 || sets.length > 0 ? (
-            <div className="mt-6 grid gap-5 sm:grid-cols-2">
+            <>
+              <nav aria-label="Catalogue sections" className="sticky top-0 z-20 -mx-1 mt-5 overflow-x-auto border-y border-surface-container-high bg-surface/95 px-1 py-2 backdrop-blur lg:top-3">
+                <div className="flex min-w-max gap-2">
+                  {([
+                    ['all', 'All', catalogueTopRef],
+                    ['main', 'Main', mainSectionRef],
+                    ['sets', 'Sets', setsSectionRef],
+                    ['drinks', 'Drinks', drinksSectionRef]
+                  ] as const).map(([id, label, ref]) => {
+                    const unavailable = (id === 'sets' && sets.length === 0) || (id === 'main' && mainProducts.length === 0) || (id === 'drinks' && drinkProducts.length === 0);
+                    return <button key={id} type="button" disabled={unavailable} onClick={() => { setActiveCatalogueSection(id); ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} className={`rounded-full px-4 py-2 font-sans text-xs font-extrabold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${activeCatalogueSection === id ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary hover:bg-surface-container-high'}`}>{label}</button>;
+                  })}
+                </div>
+              </nav>
+              <div className="mt-6 space-y-10">
+                {mainProducts.length > 0 && <section ref={mainSectionRef} id="catalogue-main" className="scroll-mt-20">
+                  <h3 className="font-display text-2xl font-bold text-primary">Main</h3>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                    {mainProducts.map(product => (
+                      <article key={product.id} className="overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
+                        {product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-48 w-full object-cover" referrerPolicy="no-referrer" />}
+                        <div className="p-4">
+                          <h4 className="font-display text-xl font-bold text-primary">{product.name}</h4>
+                          <p className="mt-1 font-sans text-base font-extrabold text-secondary">{formatRegionCurrency(product.price, store.currency)}</p>
+                          {product.description && <p className="mt-2 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{product.description}</p>}
+                          {canOrderPickup && <button type="button" disabled={!hasAvailableProductOptions(product)} onClick={() => startAddingProduct(product)} className="mt-4 w-full rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
+                            {!hasAvailableProductOptions(product) ? 'Options unavailable' : product.optionGroupIds.length > 0 ? 'Choose Options' : 'Add to Cart'}
+                          </button>}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </section>}
+                {sets.length > 0 && <section ref={setsSectionRef} id="catalogue-sets" className="scroll-mt-20">
+                  <h3 className="font-display text-2xl font-bold text-primary">Sets</h3>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
               {sets.map(set => {
                 const unavailableReason = getStoreSetUnavailableReason(set, products);
                 return <article key={`set-${set.id}`} className="overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
-                  {set.photoUrl && <img src={set.photoUrl} alt={set.name} className="h-52 w-full object-cover" referrerPolicy="no-referrer" />}
-                  <div className="p-5">
+                  {set.photoUrl && <img src={set.photoUrl} alt={set.name} className="h-48 w-full object-cover" referrerPolicy="no-referrer" />}
+                  <div className="p-4">
                     <p className="text-[10px] font-extrabold uppercase tracking-wider text-secondary">{set.category || 'Set & Combo'}</p>
-                    <h3 className="mt-1 font-display text-2xl font-bold text-primary">{set.name}</h3>
-                    <p className="mt-2 font-sans text-lg font-extrabold text-secondary">{formatRegionCurrency(set.price, store.currency)}</p>
-                    {set.description && <p className="mt-3 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{set.description}</p>}
-                    {unavailableReason && <p className="mt-3 text-xs font-bold text-error">{unavailableReason}</p>}
-                    {canOrderPickup && <button type="button" disabled={Boolean(unavailableReason)} onClick={() => startAddingSet(set)} className="mt-5 w-full rounded-full bg-primary px-5 py-3 text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">{unavailableReason ? 'Currently unavailable' : 'Choose Set'}</button>}
+                    <h4 className="mt-1 font-display text-xl font-bold text-primary">{set.name}</h4>
+                    <p className="mt-1 font-sans text-base font-extrabold text-secondary">{formatRegionCurrency(set.price, store.currency)}</p>
+                    {set.description && <p className="mt-2 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{set.description}</p>}
+                    {unavailableReason && <p className="mt-2 text-xs font-bold text-error">{unavailableReason}</p>}
+                    {canOrderPickup && <button type="button" disabled={Boolean(unavailableReason)} onClick={() => startAddingSet(set)} className="mt-4 w-full rounded-full bg-primary px-5 py-3 text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">{unavailableReason ? 'Currently unavailable' : 'Choose Set'}</button>}
                   </div>
                 </article>;
               })}
-              {products.map(product => (
+                  </div>
+                </section>}
+                {drinkProducts.length > 0 && <section ref={drinksSectionRef} id="catalogue-drinks" className="scroll-mt-20">
+                  <h3 className="font-display text-2xl font-bold text-primary">Drinks</h3>
+                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              {drinkProducts.map(product => (
                 <article key={product.id} className="overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
-                  {product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-52 w-full object-cover" referrerPolicy="no-referrer" />}
-                  <div className="p-5">
-                    <h3 className="font-display text-2xl font-bold text-primary">{product.name}</h3>
-                    <p className="mt-2 font-sans text-lg font-extrabold text-secondary">{formatRegionCurrency(product.price, store.currency)}</p>
-                    {product.description && <p className="mt-3 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{product.description}</p>}
+                  {product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-48 w-full object-cover" referrerPolicy="no-referrer" />}
+                  <div className="p-4">
+                    <h4 className="font-display text-xl font-bold text-primary">{product.name}</h4>
+                    <p className="mt-1 font-sans text-base font-extrabold text-secondary">{formatRegionCurrency(product.price, store.currency)}</p>
+                    {product.description && <p className="mt-2 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{product.description}</p>}
                     {canOrderPickup && (
-                      <button type="button" disabled={!hasAvailableProductOptions(product)} onClick={() => startAddingProduct(product)} className="mt-5 w-full rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
+                      <button type="button" disabled={!hasAvailableProductOptions(product)} onClick={() => startAddingProduct(product)} className="mt-4 w-full rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
                         {!hasAvailableProductOptions(product)
                           ? 'Options unavailable'
                           : product.optionGroupIds.length > 0 ? 'Choose Options' : 'Add to Cart'}
@@ -906,7 +968,10 @@ const deliveryAddressForQuote = deliveryAddress;
                   </div>
                 </article>
               ))}
-            </div>
+                  </div>
+                </section>}
+              </div>
+            </>
           ) : (
             <div className="mt-6 rounded-3xl border border-dashed border-outline-variant bg-surface-container-low px-6 py-14 text-center">
               <PackageOpen className="mx-auto h-8 w-8 text-primary" />
@@ -916,9 +981,13 @@ const deliveryAddressForQuote = deliveryAddress;
           )}
         </section>
 
-        <aside ref={checkoutSectionRef} id="customer-order" className="scroll-mt-24 rounded-3xl border border-surface-container-high bg-white p-5 shadow-sm lg:sticky lg:top-6">
+        <aside ref={checkoutSectionRef} id="customer-order" className={`${isMobileCheckoutOpen ? 'fixed inset-0 z-50 block overflow-y-auto bg-surface p-4 pb-8' : 'hidden'} scroll-mt-24 lg:sticky lg:top-4 lg:block lg:self-start lg:rounded-3xl lg:border lg:border-surface-container-high lg:bg-white lg:p-4 lg:shadow-sm`}>
+          <div className="mb-4 flex items-center justify-between lg:hidden">
+            <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Checkout</p>
+            <button type="button" onClick={() => setIsMobileCheckoutOpen(false)} className="rounded-full bg-surface-container p-2 text-primary" aria-label="Close checkout"><X className="h-5 w-5" /></button>
+          </div>
           <div className="flex items-center justify-between gap-3">
-            <h2 className="flex items-center gap-2 font-display text-2xl font-bold text-primary"><ShoppingCart className="h-5 w-5" /> Order Summary</h2>
+            <h2 className="flex items-center gap-2 font-display text-xl font-bold text-primary"><ShoppingCart className="h-5 w-5" /> Order Summary</h2>
             <span className="rounded-full bg-primary/10 px-3 py-1 font-sans text-xs font-extrabold text-primary">{cartCount}</span>
           </div>
 
@@ -998,7 +1067,7 @@ const deliveryAddressForQuote = deliveryAddress;
                 phone={phone}
                 customerEmail={customerEmail}
                 currency={store.currency}
-                total={cartTotal}
+                total={checkoutTotal}
                 storeSlug={store.slug}
                 storeName={store.name}
                 storeWhatsApp={storeWhatsApp}
@@ -1060,37 +1129,37 @@ const deliveryAddressForQuote = deliveryAddress;
                   </div>
                 ))}
               </div>
-              <div className="mt-4 flex justify-between gap-3 font-sans text-base font-extrabold text-primary">
-                <span>Total</span>
-                <span>{formatRegionCurrency(cartTotal + (deliveryQuote?.quote.customerDeliveryFee || 0), store.currency)}</span>
-              </div>
+              <dl className="mt-4 space-y-2 border-t border-surface-container-high pt-4 font-sans text-sm font-bold text-on-surface-variant">
+                <div className="flex justify-between gap-3"><dt>Subtotal</dt><dd className="text-primary">{formatRegionCurrency(cartTotal, store.currency)}</dd></div>
+                {fulfilmentMethod === 'delivery' && deliveryQuote && <div className="flex justify-between gap-3"><dt>Delivery Fee</dt><dd className="text-primary">{formatRegionCurrency(customerDeliveryFee, store.currency)}</dd></div>}
+                <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold text-primary"><dt>Total</dt><dd>{formatRegionCurrency(checkoutTotal, store.currency)}</dd></div>
+              </dl>
 
-              <form onSubmit={startPayment} className="mt-6 space-y-6">
-                <fieldset>
-                  <legend className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Payment Method</legend>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    {store.paymentMethods.filter(
-                      method => method.enabled && method.id !== 'cash_on_pickup'
-                    ).map(method => {
+              <form onSubmit={startPayment} className="mt-5 space-y-5 pb-20 lg:pb-0">
+                {paymentMethods.length === 1 ? (
+                  <section aria-label="Payment method" className="flex items-center justify-between rounded-xl border border-surface-container-high px-3 py-3">
+                    <span className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Payment</span>
+                    <span className="inline-flex items-center gap-2 font-sans text-sm font-extrabold text-primary">{getStorePaymentMethodLabel(paymentMethods[0].id)} <CheckCircle2 className="h-4 w-4 text-emerald-700" aria-hidden="true" /></span>
+                  </section>
+                ) : <fieldset>
+                  <legend className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Payment</legend>
+                  <div className="mt-2 space-y-2">
+                    {paymentMethods.map(method => {
                       const isSelected = paymentMethodId === method.id;
                       return (
-                        <label key={method.id} className={`relative flex min-h-28 cursor-pointer flex-col rounded-2xl border p-3.5 transition-colors ${isSelected ? 'border-primary bg-primary/5 shadow-sm ring-1 ring-primary/20' : 'border-surface-container-high bg-white hover:border-outline-variant'}`}>
+                        <label key={method.id} className={`relative flex cursor-pointer items-center justify-between rounded-xl border px-3 py-3 transition-colors ${isSelected ? 'border-primary bg-primary/5 ring-1 ring-primary/20' : 'border-surface-container-high bg-white hover:border-outline-variant'}`}>
                           <input type="radio" name="paymentMethod" value={method.id} checked={isSelected} onChange={() => setPaymentMethodId(method.id)} className="sr-only" />
-                          <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${isSelected ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>
-                            <PaymentMethodIcon methodId={method.id} />
-                          </span>
-                          {isSelected && <CheckCircle2 className="absolute right-3 top-3 h-5 w-5 text-primary" aria-hidden="true" />}
-                          <span className="mt-3 font-sans text-sm font-extrabold leading-tight text-primary">{getStorePaymentMethodLabel(method.id)}</span>
-                          <span className="mt-1 font-sans text-[11px] font-bold leading-snug text-on-surface-variant">{getPaymentMethodDescription(method.id)}</span>
+                          <span className="flex items-center gap-2 font-sans text-sm font-extrabold text-primary"><PaymentMethodIcon methodId={method.id} /> {getStorePaymentMethodLabel(method.id)}</span>
+                          {isSelected && <CheckCircle2 className="h-5 w-5 text-primary" aria-hidden="true" />}
                         </label>
                       );
                     })}
                   </div>
-                </fieldset>
+                </fieldset>}
 
                 <section aria-labelledby="customer-details-heading">
-                  <h3 id="customer-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Customer Details</h3>
-                  <div className="mt-3 space-y-3">
+                  <h3 id="customer-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Customer</h3>
+                  <div className="mt-2 space-y-2">
                     <label className="block">
                       <span className="font-sans text-xs font-extrabold text-primary">Name</span>
                       <input aria-label="Name" required autoComplete="name" placeholder="Your name" value={customerName} onChange={event => setCustomerName(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
@@ -1114,15 +1183,15 @@ const deliveryAddressForQuote = deliveryAddress;
 
                 <section aria-labelledby="fulfilment-heading">
                   <h3 id="fulfilment-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Fulfilment</h3>
-                  <div className="mt-3 flex gap-2">
-                    <button type="button" onClick={() => { setFulfilmentMethod('pickup'); setDeliveryQuote(null); }} className={`rounded-xl px-4 py-3 text-sm font-bold ${fulfilmentMethod === 'pickup' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Pickup</button>
-                    {store.delivery?.enabled && store.delivery.fulfilment.preOrder.enabled && !groupOrder && <button type="button" onClick={() => setFulfilmentMethod('delivery')} className={`rounded-xl px-4 py-3 text-sm font-bold ${fulfilmentMethod === 'delivery' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Delivery</button>}
+                  <div className="mt-2 flex gap-2">
+                    <button type="button" onClick={() => { setFulfilmentMethod('pickup'); setDeliveryQuote(null); }} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${fulfilmentMethod === 'pickup' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Pickup</button>
+                    {store.delivery?.enabled && store.delivery.fulfilment.preOrder.enabled && !groupOrder && <button type="button" onClick={() => setFulfilmentMethod('delivery')} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${fulfilmentMethod === 'delivery' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Delivery</button>}
                   </div>
                 </section>
 
                 {fulfilmentMethod === 'delivery' && <section aria-labelledby="delivery-details-heading">
-                  <h3 id="delivery-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Delivery address</h3>
-                  <div className="mt-3 space-y-3">
+                  <h3 id="delivery-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Delivery Details</h3>
+                  <div className="mt-2 space-y-2">
                     <label className="block"><span className="font-sans text-xs font-extrabold text-primary">Delivery date</span><select aria-label="Delivery date" value={deliveryDate} onChange={event => setDeliveryDate(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">{getValidPickupDates({ ...store, orderDays: store.delivery.fulfilment.preOrder.orderDays, earliestPickupDays: store.delivery.fulfilment.preOrder.earliestDays, maximumAdvanceDays: store.delivery.fulfilment.preOrder.maximumAdvanceDays, unavailableDates: store.delivery.fulfilment.preOrder.unavailableDates }).map(date => <option key={date} value={date}>{formatPickupDateLabel(date, store.country)}</option>)}</select></label>
                     <label className="block"><span className="font-sans text-xs font-extrabold text-primary">Delivery session</span><select aria-label="Delivery session" value={deliverySession} onChange={event => setDeliverySession(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">{store.delivery.fulfilment.preOrder.sessions.map(session => <option key={session} value={session}>{session}</option>)}</select></label>
                     {store.delivery.subsidy.enabled && <p className="text-xs font-bold text-on-surface-variant">Spend {formatRegionCurrency(store.delivery.subsidy.minimumMerchandiseSpend, store.currency)} to enjoy delivery capped at {formatRegionCurrency(store.delivery.subsidy.maximumCustomerDeliveryCharge, store.currency)}.</p>}
@@ -1151,7 +1220,7 @@ const deliveryAddressForQuote = deliveryAddress;
 
                 {fulfilmentMethod === 'pickup' && <section aria-labelledby="pickup-details-heading">
                   <h3 id="pickup-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup Details</h3>
-                  <div className="mt-3 space-y-3">
+                  <div className="mt-2 space-y-2">
                     <label className="block">
                       <span className="font-sans text-xs font-extrabold text-primary">Date</span>
                       <select aria-label="Pickup date" required disabled={Boolean(groupOrder)} value={pickupDate} onChange={event => setPickupDate(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary disabled:opacity-70">
@@ -1179,7 +1248,7 @@ const deliveryAddressForQuote = deliveryAddress;
                   </div>
                 </section>}
 
-                <section aria-labelledby="payment-instructions-heading" className="rounded-2xl bg-surface-container-low p-4">
+                <section aria-labelledby="payment-instructions-heading" className="rounded-xl bg-surface-container-low p-3">
                   <h3 id="payment-instructions-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Payment Instructions</h3>
                   {paymentMethodId === 'stripe' || paymentMethodId === 'curlec' ? (
                     <p className="mt-2 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">Your order details are saved first, then secure payment continues on the next step.</p>
@@ -1209,9 +1278,9 @@ const deliveryAddressForQuote = deliveryAddress;
                 )}
 
                 {checkoutError && <p role="alert" className="rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
-                <div className="sticky bottom-3 z-30 -mx-2 rounded-2xl bg-white/95 p-2 shadow-xl shadow-primary/10 backdrop-blur lg:static lg:mx-0 lg:bg-transparent lg:p-0 lg:shadow-none">
+                <div className="sticky bottom-3 z-30 -mx-2 rounded-2xl bg-white/95 p-2 shadow-xl shadow-primary/10 backdrop-blur lg:bottom-4 lg:mx-0 lg:bg-white/95 lg:shadow-lg">
                   <button type="submit" disabled={isPlacingOrder} className="min-h-12 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary shadow-lg shadow-primary/20 disabled:opacity-50">
-                    {isPlacingOrder ? 'Placing Order…' : getPaymentActionLabel(paymentMethodId)}
+                    {isPlacingOrder ? 'Placing Order…' : `${getPaymentActionLabel(paymentMethodId)} · ${formatRegionCurrency(checkoutTotal, store.currency)}`}
                   </button>
                   <p className="mt-2 text-center font-sans text-[10px] font-bold text-outline">No login, email, or account required.</p>
                 </div>
@@ -1243,11 +1312,11 @@ const deliveryAddressForQuote = deliveryAddress;
         <a href="/" className="mt-5 inline-flex shrink-0 items-center gap-2 rounded-full bg-white px-5 py-3 font-sans text-xs font-extrabold text-primary sm:mt-0"><Compass className="h-4 w-4" /> Explore MiseChef</a>
       </section>
 
-      {cartCount > 0 && !isCheckoutVisible && (
-        <a href="#customer-order" className="fixed inset-x-4 bottom-4 z-40 flex items-center justify-between rounded-full bg-primary px-5 py-3.5 text-on-primary shadow-2xl shadow-primary/30 lg:hidden">
-          <span className="font-sans text-sm font-extrabold">View order · {cartCount}</span>
-          <span className="font-sans text-sm font-extrabold">{formatRegionCurrency(cartTotal, store.currency)}</span>
-        </a>
+      {cartCount > 0 && !isMobileCheckoutOpen && (
+        <button type="button" onClick={() => setIsMobileCheckoutOpen(true)} className="fixed inset-x-3 bottom-3 z-40 flex items-center justify-between gap-3 rounded-2xl bg-primary px-4 py-3 text-on-primary shadow-2xl shadow-primary/30 lg:hidden">
+          <span className="text-left font-sans text-xs font-bold"><span className="block text-[10px] uppercase tracking-[0.14em] text-on-primary/70">Total</span>{formatRegionCurrency(checkoutTotal, store.currency)}</span>
+          <span className="rounded-full bg-white px-4 py-2 font-sans text-xs font-extrabold text-primary">Checkout</span>
+        </button>
       )}
 
       {configuringSet && configuredSetAnalysis && (

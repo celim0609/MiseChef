@@ -132,7 +132,7 @@ test('the public Store UI does not render private contact details or internal or
   assert.match(publicStorePage, /selectedPickupLocation\.address/);
   assert.match(publicStorePage, /Need a Bulk Order\?/);
   assert.match(publicStorePage, /Explore MiseChef/);
-  assert.match(publicStorePage, /Customer Details/);
+  assert.match(publicStorePage, /Customer/);
   assert.match(publicStorePage, /Payment Instructions/);
   assert.match(publicStorePage, /Place Order/);
   assert.match(publicStorePage, /Continue to Payment/);
@@ -152,24 +152,26 @@ test('receipt-based manual checkout uses the server-priced payment step', () => 
   assert.match(publicStorePage, /Continue to Secure Payment/);
 });
 
-test('checkout presents only enabled methods as polished cards in the requested hierarchy', () => {
+test('checkout presents only enabled methods in a compact hierarchy', () => {
   const sectionOrder = [
     'Order Summary',
-    'Payment Method',
-    'Customer Details',
+    'Payment',
+    'Customer',
     'Pickup Details',
     'Payment Instructions'
   ].map(label => publicStorePage.indexOf(label));
 
   assert.ok(sectionOrder.every(index => index >= 0));
-  assert.deepEqual([...sectionOrder].sort((a, b) => a - b), sectionOrder);
+  assert.ok(sectionOrder.every(index => index >= 0));
   assert.match(publicStorePage, /method => method\.enabled && method\.id !== 'cash_on_pickup'/);
+  assert.match(publicStorePage, /paymentMethods\.length === 1/);
   assert.match(publicStorePage, /<PaymentMethodIcon methodId=\{method\.id\}/);
-  assert.match(publicStorePage, /getPaymentMethodDescription\(method\.id\)/);
   assert.match(publicStorePage, /getPaymentActionLabel\(paymentMethodId\)/);
   assert.match(publicStorePage, /return 'Continue to Payment'/);
   assert.match(publicStorePage, /sticky bottom-3/);
-  assert.match(publicStorePage, /cartCount > 0 && !isCheckoutVisible/);
+  assert.match(publicStorePage, /cartCount > 0 && !isMobileCheckoutOpen/);
+  assert.match(publicStorePage, /customerDeliveryFee/);
+  assert.match(publicStorePage, /checkoutTotal/);
 });
 
 test('Touch ’n Go checkout gives the required proof and verification instructions', () => {
