@@ -891,10 +891,13 @@ const deliveryAddressForQuote = deliveryAddress;
         </section>
       )}
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_23rem]">
+      <div>
         <section ref={catalogueTopRef} className="min-w-0">
           <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Products &amp; Sets</p>
-          <h2 className="mt-2 font-display text-3xl font-bold text-primary">Available now</h2>
+          <div className="mt-2 flex items-center justify-between gap-4">
+            <h2 className="font-display text-3xl font-bold text-primary">Available now</h2>
+            <button type="button" onClick={() => setIsCheckoutOpen(true)} className="hidden shrink-0 rounded-full border border-surface-container-high bg-white px-4 py-2 font-sans text-xs font-extrabold text-primary shadow-sm sm:inline-flex">Cart · {cartCount} · {formatRegionCurrency(checkoutTotal, store.currency)}</button>
+          </div>
           {products.length > 0 || sets.length > 0 ? (
             <>
               <nav aria-label="Catalogue sections" className="sticky top-0 z-20 -mx-1 mt-5 overflow-x-auto border-y border-surface-container-high bg-surface/95 px-1 py-2 backdrop-blur lg:top-3">
@@ -913,7 +916,7 @@ const deliveryAddressForQuote = deliveryAddress;
               <div className="mt-6 space-y-10">
                 {mainProducts.length > 0 && <section ref={mainSectionRef} id="catalogue-main" className="scroll-mt-20">
                   <h3 className="font-display text-2xl font-bold text-primary">Main</h3>
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {mainProducts.map(product => (
                       <article key={product.id} className="overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
                         {product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-48 w-full object-cover" referrerPolicy="no-referrer" />}
@@ -931,7 +934,7 @@ const deliveryAddressForQuote = deliveryAddress;
                 </section>}
                 {sets.length > 0 && <section ref={setsSectionRef} id="catalogue-sets" className="scroll-mt-20">
                   <h3 className="font-display text-2xl font-bold text-primary">Sets</h3>
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {sets.map(set => {
                 const unavailableReason = getStoreSetUnavailableReason(set, products);
                 return <article key={`set-${set.id}`} className="overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
@@ -950,7 +953,7 @@ const deliveryAddressForQuote = deliveryAddress;
                 </section>}
                 {drinkProducts.length > 0 && <section ref={drinksSectionRef} id="catalogue-drinks" className="scroll-mt-20">
                   <h3 className="font-display text-2xl font-bold text-primary">Drinks</h3>
-                  <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                  <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {drinkProducts.map(product => (
                 <article key={product.id} className="overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
                   {product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-48 w-full object-cover" referrerPolicy="no-referrer" />}
@@ -980,27 +983,6 @@ const deliveryAddressForQuote = deliveryAddress;
             </div>
           )}
         </section>
-
-        <aside className="hidden self-start rounded-3xl border border-surface-container-high bg-white p-4 shadow-sm lg:block">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="flex items-center gap-2 font-display text-xl font-bold text-primary"><ShoppingCart className="h-5 w-5" /> Your Order</h2>
-            <span className="rounded-full bg-primary/10 px-3 py-1 font-sans text-xs font-extrabold text-primary">{cartCount}</span>
-          </div>
-          {cartDetails.length > 0 ? <>
-            <div className="mt-4 space-y-3">
-              {cartDetails.map(({ line, product, set, lineTotal }) => (product || set) && <div key={line.key} className="flex items-start justify-between gap-3 font-sans text-sm">
-                <span className="min-w-0 font-extrabold text-primary">{set?.name || product?.name} × {line.quantity}</span>
-                <span className="shrink-0 font-extrabold text-secondary">{formatRegionCurrency(lineTotal, store.currency)}</span>
-              </div>)}
-            </div>
-            <dl className="mt-4 space-y-2 border-t border-surface-container-high pt-4 font-sans text-sm font-bold text-on-surface-variant">
-              <div className="flex justify-between gap-3"><dt>Subtotal</dt><dd className="text-primary">{formatRegionCurrency(cartTotal, store.currency)}</dd></div>
-              {fulfilmentMethod === 'delivery' && deliveryQuote && <div className="flex justify-between gap-3"><dt>Delivery Fee</dt><dd className="text-primary">{formatRegionCurrency(customerDeliveryFee, store.currency)}</dd></div>}
-              <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold text-primary"><dt>Total</dt><dd>{formatRegionCurrency(checkoutTotal, store.currency)}</dd></div>
-            </dl>
-            <button type="button" onClick={() => setIsCheckoutOpen(true)} className="mt-5 min-h-12 w-full rounded-full bg-primary px-5 py-3 font-sans text-sm font-extrabold text-on-primary">Checkout · {formatRegionCurrency(checkoutTotal, store.currency)}</button>
-          </> : <p className="mt-4 font-sans text-sm font-bold text-on-surface-variant">Add a product or set to begin.</p>}
-        </aside>
 
         <aside ref={checkoutSectionRef} id="customer-order" className={`${isCheckoutOpen ? 'fixed inset-0 z-50 block overflow-y-auto bg-surface p-4 pb-8 lg:mx-auto lg:max-w-6xl lg:p-8' : 'hidden'} scroll-mt-24 rounded-3xl border border-surface-container-high bg-white shadow-2xl`}>
           <div className="mb-4 flex items-center justify-between">
