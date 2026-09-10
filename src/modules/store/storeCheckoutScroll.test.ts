@@ -17,7 +17,7 @@ test('new payment and confirmation stages scroll their actual sections into view
 test('checkout scrolling is keyed only to intentional stage transitions', () => {
   assert.match(publicStorePage, /useEffect\(\(\) => \{\s*if \(!paymentStageKey\) return;[\s\S]*\}, \[paymentStageKey\]\)/);
   assert.match(publicStorePage, /useEffect\(\(\) => \{\s*if \(!confirmationKey\) return;[\s\S]*\}, \[confirmationKey\]\)/);
-  assert.equal((publicStorePage.match(/scrollIntoView/g) || []).length, 2);
+  assert.equal((publicStorePage.match(/scrollIntoView/g) || []).length, 3);
   assert.equal((publicStorePage.match(/window\.requestAnimationFrame/g) || []).length, 2);
   assert.equal((publicStorePage.match(/window\.cancelAnimationFrame/g) || []).length, 2);
 });
