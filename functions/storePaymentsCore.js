@@ -376,7 +376,12 @@ export const buildPendingOrder = ({
     location => readString(location.id) === readString(draft.pickupLocationId)
   );
   const merchandiseSubtotal = roundMoney(items.reduce((sum, item) => sum + item.lineTotal, 0));
-  const deliveryFee = draft.deliverySnapshot ? roundMoney(Math.max(0, readNumber(draft.deliverySnapshot.fee))) : 0;
+  const providerDeliveryFee = draft.deliverySnapshot ? roundMoney(Math.max(0, readNumber(draft.deliverySnapshot.quote?.fee))) : 0;
+  const subsidy = store.delivery?.subsidy || {};
+  const subsidyApplied = Boolean(draft.deliverySnapshot && subsidy.enabled === true && merchandiseSubtotal >= Math.max(0, readNumber(subsidy.minimumMerchandiseSpend)));
+  const deliveryFeeCap = roundMoney(Math.max(0, readNumber(subsidy.maximumCustomerDeliveryCharge)));
+  const deliveryFee = draft.deliverySnapshot ? (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee) : 0;
+  const storeAbsorbedDeliveryFee = roundMoney(Math.max(providerDeliveryFee - deliveryFee, 0));
   const total = roundMoney(merchandiseSubtotal + deliveryFee);
   const amountMinor = Math.round(total * 100);
   if (amountMinor < 1) throw new Error('Order total must be greater than zero.');
@@ -418,7 +423,7 @@ export const buildPendingOrder = ({
     items,
     itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
     totals: { merchandiseSubtotal, discountTotal: 0, discountedMerchandiseTotal: merchandiseSubtotal, deliveryFee, grandTotal: total, currency: region.currency },
-    ...(draft.deliverySnapshot ? { delivery: draft.deliverySnapshot } : {}),
+    ...(draft.deliverySnapshot ? { delivery: { ...draft.deliverySnapshot, pricing: { providerDeliveryFee, customerDeliveryFee: deliveryFee, storeAbsorbedDeliveryFee, subsidyEnabled: subsidy.enabled === true, subsidyApplied, minimumMerchandiseSpend: roundMoney(Math.max(0, readNumber(subsidy.minimumMerchandiseSpend))), deliveryFeeCap, currency: region.currency } } } : {}),
     total,
     status: 'Awaiting Payment',
     fulfilmentStatus: 'New',
