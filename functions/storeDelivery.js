@@ -121,13 +121,16 @@ export const getLalamoveSandboxCityInfo = async ({ db, uid, workspaceId, provide
   return provider.getCityInfo('MY');
 };
 
-export const revalidateDeliveryForPayment = async ({ provider, store, draft }) => {
+// A provider quotation cannot be atomically locked together with a third-party
+// payment-session request. Refuse quotations that are about to expire before
+// the order/payment boundary so no payment session is opened on a quote that
+// is likely to expire while that boundary is crossed.
+export const revalidateDeliveryForPayment = async ({ provider, store, draft, now = Date.now(), minimumValidityMs = 0 }) => {
   const { config, pickup } = validateStoreDelivery(store);
   const destination = validateDestination(draft?.destination);
   const schedule = validateDeliverySchedule(store, config, draft);
   const quote = quoteSnapshot(await provider.retrieveQuote({ market: 'MY', quotationId: readString(draft?.deliveryQuoteId) }));
-  const now = Date.now();
-  if (!quote.quotationId || quote.currency !== 'MYR' || Date.parse(quote.expiresAt) <= now || quote.serviceType !== config.serviceType || quote.stops.length !== 2) throw deliveryError('Refresh your delivery quote before checkout.');
+  if (!quote.quotationId || quote.currency !== 'MYR' || Date.parse(quote.expiresAt) <= Number(now) + Number(minimumValidityMs) || quote.serviceType !== config.serviceType || quote.stops.length !== 2) throw deliveryError('Refresh your delivery quote before checkout.');
   const dropoff = quote.stops[1] || {};
   if (readString(dropoff.address) !== destination.address || readString(dropoff.coordinates?.lat) !== destination.latitude || readString(dropoff.coordinates?.lng) !== destination.longitude) throw deliveryError('Delivery quote no longer matches the selected address.');
   return { fulfilmentMethod: 'delivery', fulfilmentMode: schedule.mode, ...(schedule.mode === 'preorder' ? { schedule } : {}), quote, pickup: { name: readString(pickup.name), address: readString(pickup.address), latitude: pickup.latitude, longitude: pickup.longitude, contactName: pickup.contactName, contactPhoneE164: pickup.contactPhoneE164 }, recipient: { name: readString(draft.customerName), phoneE164: readString(draft.phone), address: destination.address, latitude: destination.latitude, longitude: destination.longitude, instructions: destination.instructions }, dispatch: { status: 'not_requested' }, lifecycle: { state: 'not_started' } };

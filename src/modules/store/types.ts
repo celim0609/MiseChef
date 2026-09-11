@@ -497,6 +497,8 @@ export interface CustomerStoreOrderSummary {
 }
 
 export interface StoreOrderDraft {
+  /** Opaque client-generated idempotency key for one checkout submission. */
+  checkoutAttemptId?: string;
   fulfilmentMethod?: 'pickup' | 'delivery';
   paymentMethodId?: StorePaymentMethodId;
   customerName: string;

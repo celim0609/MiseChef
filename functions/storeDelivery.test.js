@@ -8,14 +8,23 @@ const fulfilment = readFileSync(new URL('./storeFulfilment.js', import.meta.url)
 
 test('delivery checkout revalidates the provider quote, expiry, route, cart, and ignores client totals', () => {
   assert.match(source, /buildOrderItems\(draft\?\.selections/);
-  assert.match(source, /Date\.parse\(quote\.expiresAt\) <= now/);
+  assert.match(source, /Date\.parse\(quote\.expiresAt\) <= Number\(now\) \+ Number\(minimumValidityMs\)/);
   assert.match(source, /Delivery quote no longer matches/);
   assert.doesNotMatch(source, /draft\?\.total/);
   assert.match(payments, /revalidateDeliveryForPayment/);
+  assert.match(payments, /PAYMENT_DELIVERY_QUOTE_MINIMUM_VALIDITY_MS = 30_000/);
+  assert.match(payments, /minimumValidityMs: PAYMENT_DELIVERY_QUOTE_MINIMUM_VALIDITY_MS/);
 });
 test('delivery payment cannot be created without a quote snapshot while pickup remains independent', () => {
   assert.match(payments, /A valid delivery quote is required before payment/);
   assert.match(payments, /readString\(draft\?\.fulfilmentMethod\) === 'delivery'/);
+});
+test('delivery payment checkout reserves one opaque attempt before creating an order or provider session', () => {
+  assert.match(payments, /const checkoutAttemptId = isCheckoutAttemptId\(draft\?\.checkoutAttemptId\)/);
+  assert.match(payments, /storeCheckoutAttempts/);
+  assert.match(payments, /This checkout is already being created\. Please wait\./);
+  assert.match(payments, /transaction\.create\(checkoutAttemptReference/);
+  assert.match(payments, /const payment = await activeAdapter\.createPayment/);
 });
 test('dispatch is tenant guarded, idempotent, recovers provider failures, and applies exact RM5 limit', () => {
   assert.match(source, /assertWorkspaceOperator/);
