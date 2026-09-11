@@ -43,3 +43,10 @@ test('delivery status updates preserve terminal outcomes, history, driver data, 
   assert.match(source, /provider_terminal/);
   assert.match(source, /difference > 5/);
 });
+test('instant checkout is Store-configured and server-time validated without a preorder schedule', () => {
+  assert.match(source, /validateInstantSchedule/);
+  assert.match(source, /timeZone: zone/);
+  assert.match(source, /Instant delivery is unavailable/);
+  assert.match(source, /fulfilmentMode: schedule\.mode/);
+  assert.match(source, /schedule\.mode === 'preorder'/);
+});

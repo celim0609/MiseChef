@@ -31,6 +31,19 @@ const validatePreOrderSchedule = (store, config, draft) => {
   if (!Array.isArray(preOrder.sessions) || !preOrder.sessions.includes(deliverySession)) throw deliveryError('Choose a valid delivery session.');
   return { mode: 'preorder', date: deliveryDate, session: deliverySession, timeZone: 'Asia/Kuala_Lumpur' };
 };
+const validateInstantSchedule = (store, config) => {
+  const instant = config.fulfilment?.instant || {};
+  if (instant.enabled !== true) throw deliveryError('Instant delivery is unavailable for this Store. Choose Pre-order delivery.');
+  const zone = readString(store.timeZone) || 'Asia/Kuala_Lumpur';
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
+  const current = Number(parts.find(part => part.type === 'hour')?.value || 99) * 60 + Number(parts.find(part => part.type === 'minute')?.value || 99);
+  const minutes = value => { const match = /^(\d\d):(\d\d)$/.exec(readString(value)); return match ? Number(match[1]) * 60 + Number(match[2]) : -1; };
+  const start = minutes(instant.operatingHours?.start); const end = minutes(instant.operatingHours?.end);
+  const open = start >= 0 && end >= 0 && (start <= end ? current >= start && current < end : current >= start || current < end);
+  if (!open) throw deliveryError('Instant delivery is currently unavailable. Choose Pre-order delivery.');
+  return { mode: 'instant' };
+};
+const validateDeliverySchedule = (store, config, draft) => readString(draft?.fulfilmentMode) === 'instant' ? validateInstantSchedule(store, config) : validatePreOrderSchedule(store, config, draft);
 const customerPricing = ({ providerFee, config, merchandiseSubtotal }) => {
   const subsidy = config.subsidy || {}; const eligible = subsidy.enabled === true && merchandiseSubtotal >= Number(subsidy.minimumMerchandiseSpend || 0);
   const customerDeliveryFee = eligible ? money(Math.min(providerFee, Number(subsidy.maximumCustomerDeliveryCharge || 0))) : providerFee;
@@ -85,7 +98,7 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
   const checkout = await loadStoreCheckoutData(db, slug);
   const { config, pickup } = validateStoreDelivery(checkout.store);
   const destination = validateDestination(draft?.destination);
-  const schedule = validatePreOrderSchedule(checkout.store, config, draft);
+  const schedule = validateDeliverySchedule(checkout.store, config, draft);
   // Rebuild cart on the server. The browser does not send prices or service type.
   const items = buildOrderItems(draft?.selections || [], checkout.products, checkout.optionGroups, checkout.sets);
   if (!items.length) throw deliveryError('Your cart is empty.');
@@ -111,13 +124,13 @@ export const getLalamoveSandboxCityInfo = async ({ db, uid, workspaceId, provide
 export const revalidateDeliveryForPayment = async ({ provider, store, draft }) => {
   const { config, pickup } = validateStoreDelivery(store);
   const destination = validateDestination(draft?.destination);
-  const schedule = validatePreOrderSchedule(store, config, draft);
+  const schedule = validateDeliverySchedule(store, config, draft);
   const quote = quoteSnapshot(await provider.retrieveQuote({ market: 'MY', quotationId: readString(draft?.deliveryQuoteId) }));
   const now = Date.now();
   if (!quote.quotationId || quote.currency !== 'MYR' || Date.parse(quote.expiresAt) <= now || quote.serviceType !== config.serviceType || quote.stops.length !== 2) throw deliveryError('Refresh your delivery quote before checkout.');
   const dropoff = quote.stops[1] || {};
   if (readString(dropoff.address) !== destination.address || readString(dropoff.coordinates?.lat) !== destination.latitude || readString(dropoff.coordinates?.lng) !== destination.longitude) throw deliveryError('Delivery quote no longer matches the selected address.');
-  return { fulfilmentMethod: 'delivery', fulfilmentMode: 'preorder', schedule, quote, pickup: { name: readString(pickup.name), address: readString(pickup.address), latitude: pickup.latitude, longitude: pickup.longitude, contactName: pickup.contactName, contactPhoneE164: pickup.contactPhoneE164 }, recipient: { name: readString(draft.customerName), phoneE164: readString(draft.phone), address: destination.address, latitude: destination.latitude, longitude: destination.longitude, instructions: destination.instructions }, dispatch: { status: 'not_requested' } };
+  return { fulfilmentMethod: 'delivery', fulfilmentMode: schedule.mode, ...(schedule.mode === 'preorder' ? { schedule } : {}), quote, pickup: { name: readString(pickup.name), address: readString(pickup.address), latitude: pickup.latitude, longitude: pickup.longitude, contactName: pickup.contactName, contactPhoneE164: pickup.contactPhoneE164 }, recipient: { name: readString(draft.customerName), phoneE164: readString(draft.phone), address: destination.address, latitude: destination.latitude, longitude: destination.longitude, instructions: destination.instructions }, dispatch: { status: 'not_requested' }, lifecycle: { state: 'not_started' } };
 };
 
 export const dispatchStoreDelivery = async ({ db, provider, uid, orderId }) => {
