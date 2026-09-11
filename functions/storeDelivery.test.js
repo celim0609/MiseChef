@@ -13,6 +13,10 @@ test('delivery checkout revalidates the provider quote, expiry, route, cart, and
   assert.doesNotMatch(source, /draft\?\.total/);
   assert.match(payments, /revalidateDeliveryForPayment/);
 });
+test('delivery payment cannot be created without a quote snapshot while pickup remains independent', () => {
+  assert.match(payments, /A valid delivery quote is required before payment/);
+  assert.match(payments, /readString\(draft\?\.fulfilmentMethod\) === 'delivery'/);
+});
 test('dispatch is tenant guarded, idempotent, recovers provider failures, and applies exact RM5 limit', () => {
   assert.match(source, /assertWorkspaceOperator/);
   assert.match(source, /delivery\.dispatch\?\.status === 'created'/);
