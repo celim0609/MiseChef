@@ -24,6 +24,7 @@ import StorePaymentCheckout from './StorePaymentCheckout';
 import { customerContactService, storePaymentService, storeService } from './services';
 import { storeDeliveryService, type DeliveryQuote } from './services/deliveryService';
 import { getSelectedPlace, searchMalaysiaPlaces, type PlaceSuggestion } from './services/googlePlaces';
+import { quoteHasSufficientLifetime, scheduleDeliveryQuoteRefresh } from './deliveryQuoteFreshness';
 import {
   calculateStoreOptionAdjustedPrice,
   formatStoreOptionSelectionRequirement,
@@ -160,6 +161,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const [isSearchingDeliveryAddress, setIsSearchingDeliveryAddress] = useState(false);
   const [isSelectingDeliveryAddress, setIsSelectingDeliveryAddress] = useState(false);
   const [deliveryQuote, setDeliveryQuote] = useState<DeliveryQuote | null>(null);
+  const [lastResolvedDeliveryFee, setLastResolvedDeliveryFee] = useState<number | null>(null);
   const [isCalculatingDelivery, setIsCalculatingDelivery] = useState(false);
   const [isRefreshingDeliveryQuote, setIsRefreshingDeliveryQuote] = useState(false);
   const [notes, setNotes] = useState('');
@@ -575,11 +577,11 @@ const deliveryAddressForQuote = deliveryAddress;
   );
 
   const cartTotal = cartDetails.reduce((sum, item) => sum + item.lineTotal, 0);
-  const deliveryQuoteMinimumValidityMs = Math.max(0, Number(deliveryQuote?.quote.minimumValidityMs || 30_000));
+  const deliveryQuoteMinimumValidityMs = Math.max(0, Number(deliveryQuote?.quote.minimumValidityMs || 5_000));
   const deliveryQuoteHasSufficientLifetime = Boolean(
     deliveryQuote?.quote.quotationId
       && Number.isFinite(deliveryQuote.quote.customerDeliveryFee)
-      && Date.parse(deliveryQuote.quote.expiresAt) > Date.now() + deliveryQuoteMinimumValidityMs
+      && quoteHasSufficientLifetime({ expiresAt: deliveryQuote.quote.expiresAt, minimumValidityMs: deliveryQuoteMinimumValidityMs })
   );
   const customerDeliveryFee = deliveryQuoteHasSufficientLifetime ? deliveryQuote!.quote.customerDeliveryFee : 0;
   const checkoutTotal = cartTotal + customerDeliveryFee;
@@ -768,7 +770,10 @@ const deliveryAddressForQuote = deliveryAddress;
     if (!refresh) setCheckoutError('');
     try {
       const quote = await storeDeliveryService.quote(slug, cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({ productId, ...(setId ? { setId } : {}), quantity, selectedOptions, ...(selectedSetItems ? { selectedSetItems } : {}) })), { formattedAddress: deliveryAddressForQuote, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions: deliveryRemarks }, deliveryDate, deliverySession, deliveryMode);
-      if (requestId === deliveryQuoteRequestRef.current) setDeliveryQuote(quote);
+      if (requestId === deliveryQuoteRequestRef.current) {
+        setDeliveryQuote(quote);
+        setLastResolvedDeliveryFee(quote.quote.customerDeliveryFee);
+      }
     } catch (error) { if (requestId === deliveryQuoteRequestRef.current) { setDeliveryQuote(null); setCheckoutError(error instanceof Error ? error.message : 'Unable to calculate delivery.'); } } finally { if (requestId === deliveryQuoteRequestRef.current) { setIsCalculatingDelivery(false); setIsRefreshingDeliveryQuote(false); } }
   };
 
@@ -776,15 +781,18 @@ const deliveryAddressForQuote = deliveryAddress;
     if (fulfilmentMethod !== 'delivery' || !deliveryAddress || !deliveryLatitude || !deliveryLongitude || (deliveryMode === 'preorder' && (!deliveryDate || !deliverySession))) return;
     deliveryQuoteRefreshAttemptsRef.current = 0;
     setDeliveryQuote(null);
+    setLastResolvedDeliveryFee(null);
     void requestDeliveryQuote();
   // Provider quotations do not include the preorder slot. Unit and instructions are intentionally excluded.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fulfilmentMethod, deliveryMode, deliveryAddress, deliveryLatitude, deliveryLongitude, cart]);
 
   useEffect(() => {
-    const expiresAt = Date.parse(deliveryQuote?.quote.expiresAt || '');
-    if (!Number.isFinite(expiresAt)) return;
-    const timeout = window.setTimeout(() => {
+    const timeout = scheduleDeliveryQuoteRefresh({
+      expiresAt: deliveryQuote?.quote.expiresAt || '',
+      minimumValidityMs: deliveryQuoteMinimumValidityMs,
+      schedule: window.setTimeout,
+      onRefresh: () => {
       // A valid payment session has already been server-created from an
       // immutable delivery snapshot. Do not let this browser-only timer
       // overwrite that payment stage with a stale quote error.
@@ -803,8 +811,9 @@ const deliveryAddressForQuote = deliveryAddress;
       setCheckoutError('');
       setIsRefreshingDeliveryQuote(true);
       void requestDeliveryQuote({ refresh: true });
-    }, Math.max(0, expiresAt - Date.now() - deliveryQuoteMinimumValidityMs));
-    return () => window.clearTimeout(timeout);
+      }
+    });
+    return () => { if (timeout !== null) window.clearTimeout(timeout); };
   }, [deliveryQuote?.quote.expiresAt, deliveryQuoteMinimumValidityMs]);
 
   const selectDeliveryAddress = async (suggestion: PlaceSuggestion) => {
@@ -819,6 +828,7 @@ const deliveryAddressForQuote = deliveryAddress;
       setDeliveryLongitude(selected.longitude);
       setDeliverySuggestions([]);
       setDeliveryQuote(null);
+      setLastResolvedDeliveryFee(null);
       deliveryPlacesSessionRef.current = crypto.randomUUID();
     } catch (error) {
       setDeliveryAddressError(error instanceof Error ? error.message : 'Unable to select this address.');
@@ -1201,8 +1211,8 @@ const deliveryAddressForQuote = deliveryAddress;
               </div>
               <dl className="mt-4 space-y-2 border-t border-surface-container-high pt-4 font-sans text-sm font-bold text-on-surface-variant">
                 <div className="flex justify-between gap-3"><dt>Subtotal</dt><dd className="text-primary">{formatRegionCurrency(cartTotal, store.currency)}</dd></div>
-                {fulfilmentMethod === 'delivery' && deliveryQuote && <div className="flex justify-between gap-3"><dt>Delivery Fee</dt><dd className="text-primary">{formatRegionCurrency(customerDeliveryFee, store.currency)}</dd></div>}
-                <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold text-primary"><dt>Total</dt><dd>{formatRegionCurrency(checkoutTotal, store.currency)}</dd></div>
+                {fulfilmentMethod === 'delivery' && <div className="flex justify-between gap-3"><dt>Delivery Fee</dt><dd className="text-primary">{deliveryQuoteHasSufficientLifetime ? formatRegionCurrency(customerDeliveryFee, store.currency) : lastResolvedDeliveryFee !== null ? `${formatRegionCurrency(lastResolvedDeliveryFee, store.currency)} · refreshing` : 'Calculating…'}</dd></div>}
+                <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold text-primary"><dt>Total</dt><dd>{fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Pending delivery fee' : formatRegionCurrency(checkoutTotal, store.currency)}</dd></div>
               </dl>
 
               <form id="store-checkout-form" onSubmit={startPayment} className="mt-5 flex flex-col gap-5 pb-28">
@@ -1351,7 +1361,7 @@ const deliveryAddressForQuote = deliveryAddress;
               </form>
               <div className="sticky bottom-3 z-30 -mx-2 rounded-2xl bg-white/95 p-2 shadow-xl shadow-primary/10 backdrop-blur lg:bottom-4 lg:mx-0 lg:shadow-lg">
                 <button form="store-checkout-form" type="submit" disabled={isPlacingOrder || !deliveryQuoteReady} className="min-h-12 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary shadow-lg shadow-primary/20 disabled:opacity-50">
-                  {isPlacingOrder ? 'Placing Order…' : `${getPaymentActionLabel(paymentMethodId)} · ${formatRegionCurrency(checkoutTotal, store.currency)}`}
+                  {isPlacingOrder ? 'Placing Order…' : fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Calculating delivery fee…' : `${getPaymentActionLabel(paymentMethodId)} · ${formatRegionCurrency(checkoutTotal, store.currency)}`}
                 </button>
               </div>
             </>
@@ -1362,7 +1372,7 @@ const deliveryAddressForQuote = deliveryAddress;
       </div>
 
       {cartCount > 0 && isCatalogueCartVisible && !isCheckoutOpen && (
-        <button type="button" onClick={() => setIsCheckoutOpen(true)} className="fixed bottom-6 right-6 z-40 hidden min-h-12 items-center rounded-full bg-primary px-5 py-3 font-sans text-sm font-extrabold text-on-primary shadow-xl shadow-primary/25 transition-transform hover:-translate-y-0.5 lg:inline-flex">View Cart · {cartCount} {cartCount === 1 ? 'item' : 'items'} · {formatRegionCurrency(checkoutTotal, store.currency)}</button>
+        <button type="button" onClick={() => setIsCheckoutOpen(true)} className="fixed bottom-6 right-6 z-40 hidden min-h-12 items-center rounded-full bg-primary px-5 py-3 font-sans text-sm font-extrabold text-on-primary shadow-xl shadow-primary/25 transition-transform hover:-translate-y-0.5 lg:inline-flex">View Cart · {cartCount} {cartCount === 1 ? 'item' : 'items'} · {fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Delivery pending' : formatRegionCurrency(checkoutTotal, store.currency)}</button>
       )}
 
       <section className="rounded-3xl border border-surface-container-high bg-white px-6 py-8 text-center shadow-sm">
@@ -1387,7 +1397,7 @@ const deliveryAddressForQuote = deliveryAddress;
 
       {cartCount > 0 && !isCheckoutOpen && (
         <button type="button" onClick={() => setIsCheckoutOpen(true)} className="fixed inset-x-3 bottom-3 z-40 flex min-h-14 items-center justify-between gap-3 rounded-2xl bg-primary px-5 py-3.5 text-on-primary shadow-2xl shadow-primary/30 lg:hidden">
-          <span className="text-left font-sans text-sm font-extrabold">{cartCount} {cartCount === 1 ? 'item' : 'items'} · {formatRegionCurrency(checkoutTotal, store.currency)}</span>
+          <span className="text-left font-sans text-sm font-extrabold">{cartCount} {cartCount === 1 ? 'item' : 'items'} · {fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Delivery pending' : formatRegionCurrency(checkoutTotal, store.currency)}</span>
           <span className="rounded-full bg-white px-5 py-2.5 font-sans text-sm font-extrabold text-primary">Checkout</span>
         </button>
       )}

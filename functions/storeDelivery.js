@@ -7,7 +7,7 @@ const money = value => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 // This buffer applies at the checkout-to-payment boundary. It is returned with
 // a quote so the browser never presents a quote as payable when the server
 // would reject it as too close to expiry.
-export const DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS = 30_000;
+export const DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS = 5_000;
 const coord = value => typeof value === 'string' && /^-?\d{1,3}(\.\d{1,15})?$/.test(value) && Math.abs(Number(value)) <= 180 ? value : '';
 const deliveryError = message => new HttpsError('failed-precondition', message);
 const deliveryConfig = store => store?.delivery && typeof store.delivery === 'object' ? store.delivery : {};
