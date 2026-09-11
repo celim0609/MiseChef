@@ -1,4 +1,5 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { HttpsError } from 'firebase-functions/v2/https';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   PAYMENT_REFUND_STATUS,
@@ -309,6 +310,9 @@ export const createStorePayment = async ({
   const checkoutData = await loadStoreCheckoutData(db, slug);
   if (readString(draft?.fulfilmentMethod) === 'delivery') {
     if (!deliveryProvider) throw new Error('Delivery is not configured.');
+    if (!readString(draft?.deliveryQuoteId) || !draft?.destination || typeof draft.destination !== 'object') {
+      throw new HttpsError('failed-precondition', 'A valid delivery quote is required before payment.');
+    }
     draft = { ...draft, deliverySnapshot: await revalidateDeliveryForPayment({ provider: deliveryProvider, store: checkoutData.store, draft }) };
   }
   const groupOrder = await resolveCheckoutGroup({ db, store: checkoutData.store, draft, now });
