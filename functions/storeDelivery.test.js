@@ -27,3 +27,19 @@ test('refresh, cancellation, reconciliation, and completion remain server-author
   assert.match(source, /provider\.retrieveOrder/);
   assert.match(fulfilment, /delivery order can only complete after Lalamove confirms/);
 });
+test('instant delivery has an independent documented provider lifecycle and never changes kitchen readiness at assignment', () => {
+  assert.match(source, /LALAMOVE_DELIVERY_LIFECYCLE/);
+  for (const status of ['ASSIGNING_DRIVER', 'ON_GOING', 'PICKED_UP', 'COMPLETED', 'CANCELED', 'EXPIRED', 'REJECTED']) assert.match(source, new RegExp(status));
+  assert.match(source, /\['Preparing', 'Ready'\]/);
+  assert.match(source, /delivery\.fulfilmentMode === 'instant'/);
+  assert.doesNotMatch(source, /fulfilmentStatus: 'Dispatching'/);
+});
+test('delivery status updates preserve terminal outcomes, history, driver data, and server-authoritative reconciliation', () => {
+  assert.match(source, /TERMINAL_DELIVERY_STATES/);
+  assert.match(source, /delivery\.lifecycle\.history/);
+  assert.match(source, /provider\.retrieveDriver/);
+  assert.match(source, /Lalamove returns 403 until driver details are permitted/);
+  assert.match(source, /scheduled_reconciliation/);
+  assert.match(source, /provider_terminal/);
+  assert.match(source, /difference > 5/);
+});

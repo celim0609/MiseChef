@@ -23,6 +23,10 @@ export const storeDeliveryService = {
     const call = httpsCallable<{ orderId: string }, { status: string }>(getFunctions(), 'cancelStoreLalamoveDelivery');
     return (await call({ orderId })).data;
   },
+  async refresh(orderId: string): Promise<{ status: string; lifecycleState?: string }> {
+    const call = httpsCallable<{ orderId: string }, { status: string; lifecycleState?: string }>(getFunctions(), 'refreshStoreLalamoveDelivery');
+    return (await call({ orderId })).data;
+  },
   async cityInfo(workspaceId: string): Promise<string[]> {
     const call = httpsCallable<{ workspaceId: string }, Array<{ services?: Array<{ key?: string }> }>>(getFunctions(), 'getStoreLalamoveSandboxCityInfo');
     const cities = (await call({ workspaceId })).data;

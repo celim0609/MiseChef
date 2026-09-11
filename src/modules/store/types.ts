@@ -394,7 +394,17 @@ export interface StoreOrder {
   orderSource: StoreOrderSource;
   fulfilmentMethod?: 'pickup' | 'delivery';
   totals?: { merchandiseSubtotal: number; discountTotal: number; discountedMerchandiseTotal: number; deliveryFee: number; grandTotal: number; currency: RegionCurrency };
-  delivery?: { fulfilmentMethod: 'delivery'; dispatch?: { status?: string; errorCode?: string }; providerOrder?: { orderId?: string; status?: string; driverId?: string; shareLink?: string }; recipient?: { address?: string }; quote?: { fee?: number; expiresAt?: string } };
+  delivery?: {
+    fulfilmentMethod: 'delivery';
+    fulfilmentMode?: 'preorder' | 'instant';
+    // Checkout pricing/address snapshots are created server-side at payment time.
+    // The fields below are server-controlled mutable delivery operations only.
+    dispatch?: { status?: string; errorCode?: string; attempt?: number };
+    lifecycle?: { state?: 'not_started' | 'assigning_driver' | 'driver_assigned' | 'picked_up' | 'completed' | 'canceled' | 'expired' | 'rejected'; providerStatus?: string; changedAt?: string; history?: Array<{ state: string; providerStatus: string; source: string; occurredAt: string }> };
+    providerOrder?: { orderId?: string; status?: string; driverId?: string; shareLink?: string; driver?: { name?: string; phone?: string; plateNumber?: string; photo?: string; coordinates?: { lat?: string; lng?: string; updatedAt?: string } } };
+    recipient?: { address?: string };
+    quote?: { fee?: number; expiresAt?: string };
+  };
   customerUid?: string;
   groupOrder?: {
     id: string;
