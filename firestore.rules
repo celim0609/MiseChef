@@ -311,9 +311,12 @@ service cloud.firestore {
         && contact.website.size() <= 500;
     }
 
+    function isValidDeliverySubsidy(value) { return value is map && value.keys().hasOnly(['enabled', 'minimumMerchandiseSpend', 'maximumCustomerDeliveryCharge']) && value.enabled is bool && value.minimumMerchandiseSpend is number && value.minimumMerchandiseSpend >= 0 && value.minimumMerchandiseSpend <= 100000 && value.maximumCustomerDeliveryCharge is number && value.maximumCustomerDeliveryCharge >= 0 && value.maximumCustomerDeliveryCharge <= 100000; }
+    function isValidDeliveryPreOrder(value) { return value is map && value.keys().hasOnly(['enabled', 'orderDays', 'earliestDays', 'maximumAdvanceDays', 'unavailableDates', 'sessions']) && value.enabled is bool && value.orderDays is list && value.orderDays.size() <= 7 && value.earliestDays is int && (value.earliestDays == 0 || value.earliestDays == 1) && value.maximumAdvanceDays is int && (value.maximumAdvanceDays == 7 || value.maximumAdvanceDays == 14 || value.maximumAdvanceDays == 30) && value.unavailableDates is list && value.unavailableDates.size() <= 100 && value.sessions is list && value.sessions.size() <= 20; }
+    function isValidDeliveryInstant(value) { return value is map && value.keys().hasOnly(['enabled', 'operatingHours', 'preparationMinutes']) && value.enabled is bool && value.operatingHours is map && value.operatingHours.keys().hasOnly(['start', 'end']) && value.operatingHours.start is string && value.operatingHours.start.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') && value.operatingHours.end is string && value.operatingHours.end.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') && value.preparationMinutes is int && value.preparationMinutes >= 0 && value.preparationMinutes <= 180; }
     function isValidStoreDelivery(delivery) {
       return delivery is map
-        && delivery.keys().hasOnly(['enabled', 'provider', 'environment', 'market', 'pickupLocationId', 'serviceType', 'pickup'])
+        && delivery.keys().hasOnly(['enabled', 'provider', 'environment', 'market', 'pickupLocationId', 'serviceType', 'pickup', 'subsidy', 'fulfilment'])
         && delivery.enabled is bool
         && delivery.provider == 'lalamove'
         && delivery.environment == 'sandbox'
@@ -327,7 +330,14 @@ service cloud.firestore {
         && delivery.pickup.latitude is string && delivery.pickup.latitude.size() <= 32
         && delivery.pickup.longitude is string && delivery.pickup.longitude.size() <= 32
         && delivery.pickup.contactName is string && delivery.pickup.contactName.size() <= 120
-        && delivery.pickup.contactPhoneE164 is string && delivery.pickup.contactPhoneE164.size() <= 20;
+        && delivery.pickup.contactPhoneE164 is string && delivery.pickup.contactPhoneE164.size() <= 20
+        && (!('subsidy' in delivery) || isValidDeliverySubsidy(delivery.subsidy))
+        && (!('fulfilment' in delivery) || (
+          delivery.fulfilment is map
+          && delivery.fulfilment.keys().hasOnly(['preOrder', 'instant'])
+          && isValidDeliveryPreOrder(delivery.fulfilment.preOrder)
+          && isValidDeliveryInstant(delivery.fulfilment.instant)
+        ));
     }
 
     function hasValidStorePaymentMethods(data) {
@@ -1259,7 +1269,9 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/storeSlugs/$(request.resource.data.slug)).data.workspaceId == workspaceId;
       allow update: if hasActiveBusinessEntitlement(workspaceId)
         && isWorkspaceOwnerOrManager(workspaceId)
-        && isValidStoreSettings(
+        && ((request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentMethods', 'updatedAt'])
+          && hasValidStorePaymentMethods(request.resource.data)) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['delivery', 'deliveryEnabled', 'updatedAt'])
+          && isValidStoreDelivery(request.resource.data.delivery)) || (isValidStoreSettings(
           request.resource.data,
           workspaceId,
           request.resource.data.diff(resource.data).affectedKeys().hasAny(['paymentMethods'])
@@ -1285,7 +1297,7 @@ service cloud.firestore {
           'paymentMethods',
           'hostProgram',
           'updatedAt'
-        ]);
+        ])));
       allow delete: if false;
     }
 

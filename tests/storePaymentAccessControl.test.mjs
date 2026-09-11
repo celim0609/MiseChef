@@ -92,6 +92,7 @@ const createStoreRecord = () => ({
   createdAt: '2026-08-03T00:00:00.000Z',
   updatedAt: '2026-08-03T00:00:00.000Z'
 });
+const validDelivery = () => ({ enabled: true, provider: 'lalamove', environment: 'sandbox', market: 'MY', pickupLocationId: 'pickup-a', serviceType: 'MOTORCYCLE', pickup: { name: 'Pickup', address: '1 Test Street', latitude: '4.6', longitude: '101.1', contactName: 'Sender', contactPhoneE164: '+60123456789' }, subsidy: { enabled: true, minimumMerchandiseSpend: 20, maximumCustomerDeliveryCharge: 5 }, fulfilment: { preOrder: { enabled: true, orderDays: ['monday'], earliestDays: 0, maximumAdvanceDays: 14, unavailableDates: [], sessions: ['Lunch'] }, instant: { enabled: true, operatingHours: { start: '09:00', end: '21:00' }, preparationMinutes: 20 } } });
 const firestoreRules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
 const storageRules = readFileSync(new URL('../storage.rules', import.meta.url), 'utf8');
 
@@ -265,6 +266,24 @@ test('matching Owner and Manager can update validated Store Contact settings', a
     businessWhatsApp: '+60111222333',
     updatedAt: '2026-08-03T02:00:00.000Z'
   }));
+});
+
+test('strict delivery configuration accepts configured subsidy, preorder, instant, and both modes', async () => {
+  const ref = ownerA.firestore().doc(`stores/${WORKSPACE_A}`);
+  await assertSucceeds(ref.update({ delivery: validDelivery(), deliveryEnabled: true, updatedAt: '2026-09-11T00:00:00.000Z' }));
+  await assertSucceeds(ref.update({ delivery: { ...validDelivery(), fulfilment: { ...validDelivery().fulfilment, instant: { ...validDelivery().fulfilment.instant, enabled: false } } }, updatedAt: '2026-09-11T00:01:00.000Z' }));
+});
+
+test('strict delivery configuration rejects unknown nested keys and malformed instant settings', async () => {
+  const ref = ownerA.firestore().doc(`stores/${WORKSPACE_A}`);
+  for (const delivery of [
+    { ...validDelivery(), unknown: true },
+    { ...validDelivery(), subsidy: { ...validDelivery().subsidy, unknown: true } },
+    { ...validDelivery(), fulfilment: { ...validDelivery().fulfilment, unknown: true } },
+    { ...validDelivery(), fulfilment: { ...validDelivery().fulfilment, instant: { ...validDelivery().fulfilment.instant, operatingHours: { start: '9am', end: '21:00' } } } },
+    { ...validDelivery(), fulfilment: { ...validDelivery().fulfilment, instant: { ...validDelivery().fulfilment.instant, preparationMinutes: 181 } } }
+  ]) await assertFails(ref.update({ delivery, updatedAt: '2026-09-11T00:02:00.000Z' }));
+  await assertFails(ownerB.firestore().doc(`stores/${WORKSPACE_A}`).update({ delivery: validDelivery(), updatedAt: '2026-09-11T00:03:00.000Z' }));
 });
 
 test('Store Contact updates cannot include an invalid Curlec payment-method mutation', async () => {
