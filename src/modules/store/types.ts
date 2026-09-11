@@ -38,7 +38,7 @@ export interface StoreDeliveryConfig {
   subsidy: { enabled: boolean; minimumMerchandiseSpend: number; maximumCustomerDeliveryCharge: number };
   fulfilment: {
     preOrder: { enabled: boolean; orderDays: StoreOrderDay[]; earliestDays: StoreEarliestPickupDays; maximumAdvanceDays: StoreMaximumAdvanceDays; unavailableDates: string[]; sessions: string[] };
-    instant: { enabled: false };
+    instant: { enabled: boolean; operatingHours: { start: string; end: string }; preparationMinutes: number };
   };
 }
 
@@ -509,6 +509,7 @@ export interface StoreOrderDraft {
   selections: CartSelection[];
   groupShareCode?: string;
   deliveryQuoteId?: string;
+  fulfilmentMode?: 'preorder' | 'instant';
   destination?: {
     formattedAddress: string;
     latitude: string;

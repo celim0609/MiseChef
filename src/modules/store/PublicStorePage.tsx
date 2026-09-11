@@ -148,6 +148,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const [fulfilmentMethod, setFulfilmentMethod] = useState<'pickup' | 'delivery'>('pickup');
   const [deliveryDate, setDeliveryDate] = useState('');
   const [deliverySession, setDeliverySession] = useState('');
+  const [deliveryMode, setDeliveryMode] = useState<'preorder' | 'instant'>('preorder');
   const [deliveryAddressQuery, setDeliveryAddressQuery] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryLatitude, setDeliveryLatitude] = useState('');
@@ -677,7 +678,7 @@ const deliveryAddressForQuote = deliveryAddress;
         pickupDate,
         pickupSession,
         pickupLocationId,
-        ...(fulfilmentMethod === 'delivery' && deliveryQuote ? { deliveryQuoteId: deliveryQuote.quote.quotationId, deliveryDate, deliverySession, destination: { formattedAddress: deliveryAddressForQuote, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions: deliveryRemarks } } : {}),
+        ...(fulfilmentMethod === 'delivery' && deliveryQuote ? { deliveryQuoteId: deliveryQuote.quote.quotationId, fulfilmentMode: deliveryMode, ...(deliveryMode === 'preorder' ? { deliveryDate, deliverySession } : {}), destination: { formattedAddress: deliveryAddressForQuote, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions: deliveryRemarks } } : {}),
         notes,
         selections: cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({
           productId,
@@ -731,23 +732,23 @@ const deliveryAddressForQuote = deliveryAddress;
   };
 
   const requestDeliveryQuote = async () => {
-    if (!deliveryAddress || !deliveryLatitude || !deliveryLongitude || !deliveryDate || !deliverySession) return;
+    if (!deliveryAddress || !deliveryLatitude || !deliveryLongitude || (deliveryMode === 'preorder' && (!deliveryDate || !deliverySession))) return;
     const requestId = ++deliveryQuoteRequestRef.current;
     setIsCalculatingDelivery(true);
     setCheckoutError('');
     try {
-      const quote = await storeDeliveryService.quote(slug, cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({ productId, ...(setId ? { setId } : {}), quantity, selectedOptions, ...(selectedSetItems ? { selectedSetItems } : {}) })), { formattedAddress: deliveryAddressForQuote, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions: deliveryRemarks }, deliveryDate, deliverySession);
+      const quote = await storeDeliveryService.quote(slug, cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({ productId, ...(setId ? { setId } : {}), quantity, selectedOptions, ...(selectedSetItems ? { selectedSetItems } : {}) })), { formattedAddress: deliveryAddressForQuote, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions: deliveryRemarks }, deliveryDate, deliverySession, deliveryMode);
       if (requestId === deliveryQuoteRequestRef.current) setDeliveryQuote(quote);
     } catch (error) { if (requestId === deliveryQuoteRequestRef.current) { setDeliveryQuote(null); setCheckoutError(error instanceof Error ? error.message : 'Unable to calculate delivery.'); } } finally { if (requestId === deliveryQuoteRequestRef.current) setIsCalculatingDelivery(false); }
   };
 
   useEffect(() => {
-    if (fulfilmentMethod !== 'delivery' || !deliveryAddress || !deliveryLatitude || !deliveryLongitude || !deliveryDate || !deliverySession) return;
+    if (fulfilmentMethod !== 'delivery' || !deliveryAddress || !deliveryLatitude || !deliveryLongitude || (deliveryMode === 'preorder' && (!deliveryDate || !deliverySession))) return;
     setDeliveryQuote(null);
     void requestDeliveryQuote();
   // Provider quotations do not include the preorder slot. Unit and instructions are intentionally excluded.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fulfilmentMethod, deliveryAddress, deliveryLatitude, deliveryLongitude, cart]);
+  }, [fulfilmentMethod, deliveryMode, deliveryAddress, deliveryLatitude, deliveryLongitude, cart]);
 
   useEffect(() => {
     const expiresAt = Date.parse(deliveryQuote?.quote.expiresAt || '');
@@ -1204,15 +1205,15 @@ const deliveryAddressForQuote = deliveryAddress;
                   <h3 id="fulfilment-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Fulfilment</h3>
                   <div className="mt-2 flex gap-2">
                     <button type="button" onClick={() => { setFulfilmentMethod('pickup'); setDeliveryQuote(null); }} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${fulfilmentMethod === 'pickup' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Pickup</button>
-                    {store.delivery?.enabled && store.delivery.fulfilment.preOrder.enabled && !groupOrder && <button type="button" onClick={() => setFulfilmentMethod('delivery')} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${fulfilmentMethod === 'delivery' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Delivery</button>}
+                    {store.delivery?.enabled && (store.delivery.fulfilment.preOrder.enabled || store.delivery.fulfilment.instant.enabled) && !groupOrder && <button type="button" onClick={() => { setFulfilmentMethod('delivery'); setDeliveryMode(store.delivery?.fulfilment.instant.enabled && !store.delivery?.fulfilment.preOrder.enabled ? 'instant' : 'preorder'); }} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${fulfilmentMethod === 'delivery' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Delivery</button>}
                   </div>
                 </section>
 
                 {fulfilmentMethod === 'delivery' && <section aria-labelledby="delivery-details-heading" className="order-2">
                   <h3 id="delivery-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Delivery Details</h3>
                   <div className="mt-2 space-y-2">
-                    <label className="block"><span className="font-sans text-xs font-extrabold text-primary">Delivery date</span><select aria-label="Delivery date" value={deliveryDate} onChange={event => setDeliveryDate(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">{getValidPickupDates({ ...store, orderDays: store.delivery.fulfilment.preOrder.orderDays, earliestPickupDays: store.delivery.fulfilment.preOrder.earliestDays, maximumAdvanceDays: store.delivery.fulfilment.preOrder.maximumAdvanceDays, unavailableDates: store.delivery.fulfilment.preOrder.unavailableDates }).map(date => <option key={date} value={date}>{formatPickupDateLabel(date, store.country)}</option>)}</select></label>
-                    <label className="block"><span className="font-sans text-xs font-extrabold text-primary">Delivery session</span><select aria-label="Delivery session" value={deliverySession} onChange={event => setDeliverySession(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">{store.delivery.fulfilment.preOrder.sessions.map(session => <option key={session} value={session}>{session}</option>)}</select></label>
+                    {store.delivery.fulfilment.preOrder.enabled && store.delivery.fulfilment.instant.enabled && <div className="flex gap-2"><button type="button" onClick={() => { setDeliveryMode('instant'); setDeliveryQuote(null); }} className={`rounded-xl px-4 py-2 text-sm font-bold ${deliveryMode === 'instant' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Deliver now</button><button type="button" onClick={() => { setDeliveryMode('preorder'); setDeliveryQuote(null); }} className={`rounded-xl px-4 py-2 text-sm font-bold ${deliveryMode === 'preorder' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Pre-order</button></div>}
+                    {deliveryMode === 'preorder' && <><label className="block"><span className="font-sans text-xs font-extrabold text-primary">Delivery date</span><select aria-label="Delivery date" value={deliveryDate} onChange={event => setDeliveryDate(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">{getValidPickupDates({ ...store, orderDays: store.delivery.fulfilment.preOrder.orderDays, earliestPickupDays: store.delivery.fulfilment.preOrder.earliestDays, maximumAdvanceDays: store.delivery.fulfilment.preOrder.maximumAdvanceDays, unavailableDates: store.delivery.fulfilment.preOrder.unavailableDates }).map(date => <option key={date} value={date}>{formatPickupDateLabel(date, store.country)}</option>)}</select></label><label className="block"><span className="font-sans text-xs font-extrabold text-primary">Delivery session</span><select aria-label="Delivery session" value={deliverySession} onChange={event => setDeliverySession(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">{store.delivery.fulfilment.preOrder.sessions.map(session => <option key={session} value={session}>{session}</option>)}</select></label></>}
                     {store.delivery.subsidy.enabled && <p className="text-xs font-bold text-on-surface-variant">Spend {formatRegionCurrency(store.delivery.subsidy.minimumMerchandiseSpend, store.currency)} to enjoy delivery capped at {formatRegionCurrency(store.delivery.subsidy.maximumCustomerDeliveryCharge, store.currency)}.</p>}
                     <div className="relative">
                       <label className="block">
