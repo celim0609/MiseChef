@@ -60,6 +60,17 @@ const paymentStatusLabel = (status: StoreOrder['payment']['status']) => ({
   cancelled: 'Cancelled',
   rejected: 'Rejected'
 })[status];
+const deliveryLifecycleLabel = (state?: string) => ({
+  not_started: 'Preparing · Driver not requested', assigning_driver: 'Finding driver…', driver_assigned: 'Driver assigned',
+  picked_up: 'Picked up · On the way', completed: 'Delivered', canceled: 'Delivery cancelled',
+  expired: 'No driver found / Expired', rejected: 'Driver matching failed'
+})[state || 'not_started'] || 'Preparing · Driver not requested';
+const activeDeliveryLifecycle = (state?: string) => ['assigning_driver', 'driver_assigned', 'picked_up'].includes(state || '');
+const deliveryElapsed = (history?: Array<{ occurredAt: string }>) => {
+  const startedAt = Date.parse(history?.[history.length - 1]?.occurredAt || '');
+  if (!Number.isFinite(startedAt)) return '';
+  return `${Math.max(0, Math.floor((Date.now() - startedAt) / 60000))} min`;
+};
 
 interface StoreOrdersPanelProps {
   storeId: string;
@@ -214,6 +225,18 @@ export default function StoreOrdersPanel({
     setErrorMessage(''); setIsUpdating(true);
     try { await storeDeliveryService.cancel(orderId); } catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to cancel delivery.'); } finally { setIsUpdating(false); }
   };
+  const refreshDelivery = async (orderId: string) => {
+    setErrorMessage(''); setIsUpdating(true);
+    try { await storeDeliveryService.refresh(orderId); } catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to refresh delivery.'); } finally { setIsUpdating(false); }
+  };
+
+  // While this specific POS order is open, refresh at a bounded cadence. The
+  // scheduled five-minute reconciliation remains the durable fallback.
+  useEffect(() => {
+    if (!selectedOrder || !activeDeliveryLifecycle(selectedOrder.delivery?.lifecycle?.state) || !selectedOrder.delivery?.providerOrder?.orderId) return;
+    const timer = window.setInterval(() => { void storeDeliveryService.refresh(selectedOrder.id).catch(() => undefined); }, 20_000);
+    return () => window.clearInterval(timer);
+  }, [selectedOrder?.id, selectedOrder?.delivery?.lifecycle?.state, selectedOrder?.delivery?.providerOrder?.orderId]);
 
   const reviewPayment = async (decision: 'approve' | 'reject') => {
     if (!selectedOrder || isUpdating) return;
@@ -448,11 +471,12 @@ export default function StoreOrdersPanel({
                   Mark {NEXT_STATUS[selectedOrder.fulfilmentStatus as StoreFulfilmentStatus]}
                 </button>
               )}
-              {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && selectedOrder.fulfilmentStatus === 'Ready' && selectedOrder.delivery?.dispatch?.status !== 'created' && (
-                <button type="button" disabled={isUpdating} onClick={() => dispatchDelivery(selectedOrder.id)} className="mt-3 w-full rounded-full bg-secondary px-5 py-3 font-sans text-xs font-extrabold text-on-secondary disabled:opacity-50">Request Lalamove delivery</button>
+              {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && selectedOrder.delivery?.lifecycle?.state !== 'completed' && !['created', 'creating', 'provider_terminal', 'cancelled'].includes(selectedOrder.delivery?.dispatch?.status || '') && ((selectedOrder.delivery?.fulfilmentMode === 'instant' && ['Preparing', 'Ready'].includes(selectedOrder.fulfilmentStatus)) || (selectedOrder.delivery?.fulfilmentMode !== 'instant' && selectedOrder.fulfilmentStatus === 'Ready')) && (
+                <button type="button" disabled={isUpdating} onClick={() => dispatchDelivery(selectedOrder.id)} className="mt-3 w-full rounded-full bg-secondary px-5 py-3 font-sans text-xs font-extrabold text-on-secondary disabled:opacity-50">{selectedOrder.delivery?.fulfilmentMode === 'instant' ? 'Find Driver' : 'Request Lalamove delivery'}</button>
               )}
-              {selectedOrder.fulfilmentMethod === 'delivery' && <div className="mt-3 rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary">Delivery: {selectedOrder.delivery?.dispatch?.status || 'not requested'}{selectedOrder.delivery?.providerOrder?.orderId ? ` · Lalamove ${selectedOrder.delivery.providerOrder.orderId}` : ''}</div>}
-              {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && selectedOrder.delivery?.dispatch?.status === 'created' && <button type="button" disabled={isUpdating} onClick={() => cancelDelivery(selectedOrder.id)} className="mt-3 w-full rounded-full border border-error px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">Cancel Lalamove delivery</button>}
+              {selectedOrder.fulfilmentMethod === 'delivery' && <div className="mt-3 rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>Delivery: {deliveryLifecycleLabel(selectedOrder.delivery?.lifecycle?.state)}</p>{selectedOrder.delivery?.lifecycle?.state === 'assigning_driver' && deliveryElapsed(selectedOrder.delivery.lifecycle.history) && <p className="mt-1 text-xs">Searching for {deliveryElapsed(selectedOrder.delivery.lifecycle.history)}</p>}{selectedOrder.delivery?.providerOrder?.driver?.name && <p className="mt-1 text-xs">Driver: {selectedOrder.delivery.providerOrder.driver.name}{selectedOrder.delivery.providerOrder.driver.plateNumber ? ` · ${selectedOrder.delivery.providerOrder.driver.plateNumber}` : ''}</p>}{selectedOrder.delivery?.providerOrder?.driver?.phone && <p className="mt-1 text-xs">{selectedOrder.delivery.providerOrder.driver.phone}</p>}{selectedOrder.delivery?.providerOrder?.shareLink && <a className="mt-2 inline-block text-xs underline" href={selectedOrder.delivery.providerOrder.shareLink} target="_blank" rel="noreferrer">Track delivery</a>}{['expired', 'rejected', 'canceled'].includes(selectedOrder.delivery?.lifecycle?.state || '') && <p className="mt-2 text-xs">Merchant review required. A replacement is never created automatically.</p>}</div>}
+              {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && activeDeliveryLifecycle(selectedOrder.delivery?.lifecycle?.state) && <button type="button" disabled={isUpdating} onClick={() => refreshDelivery(selectedOrder.id)} className="mt-3 rounded-full border border-outline px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-50">Refresh delivery</button>}
+              {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && ['assigning_driver', 'driver_assigned'].includes(selectedOrder.delivery?.lifecycle?.state || '') && <button type="button" disabled={isUpdating} onClick={() => cancelDelivery(selectedOrder.id)} className="mt-3 rounded-full border border-error px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">Cancel Lalamove delivery</button>}
               <WhatsAppCustomerButton
                 order={selectedOrder}
                 country={country}
