@@ -178,6 +178,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const storeDraftKey = `${STORE_DRAFT_KEY_PREFIX}${slug}`;
   const deliveryPlacesSessionRef = useRef(crypto.randomUUID());
   const deliveryQuoteRequestRef = useRef(0);
+  const deliveryQuoteRefreshAttemptsRef = useRef(0);
 
 const deliveryAddressForQuote = deliveryAddress;
   const deliveryRemarks = [
@@ -745,6 +746,7 @@ const deliveryAddressForQuote = deliveryAddress;
 
   useEffect(() => {
     if (fulfilmentMethod !== 'delivery' || !deliveryAddress || !deliveryLatitude || !deliveryLongitude || (deliveryMode === 'preorder' && (!deliveryDate || !deliverySession))) return;
+    deliveryQuoteRefreshAttemptsRef.current = 0;
     setDeliveryQuote(null);
     void requestDeliveryQuote();
   // Provider quotations do not include the preorder slot. Unit and instructions are intentionally excluded.
@@ -754,7 +756,21 @@ const deliveryAddressForQuote = deliveryAddress;
   useEffect(() => {
     const expiresAt = Date.parse(deliveryQuote?.quote.expiresAt || '');
     if (!Number.isFinite(expiresAt)) return;
-    const timeout = window.setTimeout(() => { setDeliveryQuote(null); setCheckoutError('Delivery quote expired. Please select your address again to refresh it.'); }, Math.max(0, expiresAt - Date.now()));
+    const timeout = window.setTimeout(() => {
+      // Preserve the selected destination and refresh once automatically. A
+      // bounded retry prevents a provider returning immediately-expired quotes
+      // from creating a request loop.
+      if (deliveryQuoteRefreshAttemptsRef.current >= 2) {
+        setDeliveryQuote(null);
+        setCheckoutError('Delivery quote expired. Please try again shortly.');
+        return;
+      }
+      deliveryQuoteRefreshAttemptsRef.current += 1;
+      setDeliveryQuote(null);
+      setIsCalculatingDelivery(true);
+      setCheckoutError('');
+      void requestDeliveryQuote();
+    }, Math.max(0, expiresAt - Date.now()));
     return () => window.clearTimeout(timeout);
   }, [deliveryQuote?.quote.expiresAt]);
 
