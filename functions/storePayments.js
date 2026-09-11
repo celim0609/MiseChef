@@ -21,11 +21,7 @@ import {
   revalidateCheckoutGroupInTransaction,
   resolveCheckoutGroup
 } from './groupOrders.js';
-import { revalidateDeliveryForPayment } from './storeDelivery.js';
-
-// See revalidateDeliveryForPayment. This buffer is deliberately server-side:
-// a browser cannot turn an almost-expired delivery quote into a payable order.
-export const PAYMENT_DELIVERY_QUOTE_MINIMUM_VALIDITY_MS = 30_000;
+import { DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS, revalidateDeliveryForPayment } from './storeDelivery.js';
 
 export const loadStoreCheckoutData = async (db, slug) => {
   const storeSnapshot = await db.collection('stores')
@@ -326,7 +322,7 @@ export const createStorePayment = async ({
         store: checkoutData.store,
         draft,
         now: now.getTime(),
-        minimumValidityMs: PAYMENT_DELIVERY_QUOTE_MINIMUM_VALIDITY_MS
+        minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS
       })
     };
   }

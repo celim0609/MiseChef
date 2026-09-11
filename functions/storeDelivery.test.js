@@ -12,8 +12,9 @@ test('delivery checkout revalidates the provider quote, expiry, route, cart, and
   assert.match(source, /Delivery quote no longer matches/);
   assert.doesNotMatch(source, /draft\?\.total/);
   assert.match(payments, /revalidateDeliveryForPayment/);
-  assert.match(payments, /PAYMENT_DELIVERY_QUOTE_MINIMUM_VALIDITY_MS = 30_000/);
-  assert.match(payments, /minimumValidityMs: PAYMENT_DELIVERY_QUOTE_MINIMUM_VALIDITY_MS/);
+  assert.match(source, /DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS = 30_000/);
+  assert.match(payments, /minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS/);
+  assert.match(source, /minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS/);
 });
 test('delivery payment cannot be created without a quote snapshot while pickup remains independent', () => {
   assert.match(payments, /A valid delivery quote is required before payment/);
@@ -25,6 +26,7 @@ test('delivery payment checkout reserves one opaque attempt before creating an o
   assert.match(payments, /This checkout is already being created\. Please wait\./);
   assert.match(payments, /transaction\.create\(checkoutAttemptReference/);
   assert.match(payments, /const payment = await activeAdapter\.createPayment/);
+  assert.ok(payments.indexOf('deliverySnapshot: await revalidateDeliveryForPayment') < payments.indexOf('const checkoutAttemptReference'));
 });
 test('dispatch is tenant guarded, idempotent, recovers provider failures, and applies exact RM5 limit', () => {
   assert.match(source, /assertWorkspaceOperator/);

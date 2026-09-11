@@ -31,4 +31,9 @@ test('delivery quote expiry cannot overwrite an accepted payment session and ser
   assert.match(publicStorePage, /const checkoutAttemptIdRef = useRef\(crypto\.randomUUID\(\)\)/);
   assert.match(publicStorePage, /checkoutAttemptId: checkoutAttemptIdRef\.current/);
   assert.match(publicStorePage, /disabled=\{isPlacingOrder \|\| !deliveryQuoteReady\}/);
+  assert.match(publicStorePage, /deliveryQuoteHasSufficientLifetime/);
+  assert.match(publicStorePage, /expiresAt - Date\.now\(\) - deliveryQuoteMinimumValidityMs/);
+  assert.match(publicStorePage, /requestDeliveryQuote\(\{ refresh: true \}\)/);
+  assert.match(publicStorePage, /Refreshing delivery fee…/);
+  assert.match(publicStorePage, /deliveryQuoteId: deliveryQuote\.quote\.quotationId/);
 });
