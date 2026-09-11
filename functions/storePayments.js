@@ -23,6 +23,10 @@ import {
 } from './groupOrders.js';
 import { revalidateDeliveryForPayment } from './storeDelivery.js';
 
+// See revalidateDeliveryForPayment. This buffer is deliberately server-side:
+// a browser cannot turn an almost-expired delivery quote into a payable order.
+export const PAYMENT_DELIVERY_QUOTE_MINIMUM_VALIDITY_MS = 30_000;
+
 export const loadStoreCheckoutData = async (db, slug) => {
   const storeSnapshot = await db.collection('stores')
     .where('slug', '==', readString(slug).toLowerCase())
@@ -72,6 +76,8 @@ const paymentMethodLabel = method => ({
 const hashCheckoutAccessToken = token => createHash('sha256')
   .update(readString(token))
   .digest('hex');
+
+const isCheckoutAttemptId = value => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(readString(value));
 
 const CHECKOUT_RETURN_HOSTS = new Set([
   'misechef.ai',
@@ -313,7 +319,16 @@ export const createStorePayment = async ({
     if (!readString(draft?.deliveryQuoteId) || !draft?.destination || typeof draft.destination !== 'object') {
       throw new HttpsError('failed-precondition', 'A valid delivery quote is required before payment.');
     }
-    draft = { ...draft, deliverySnapshot: await revalidateDeliveryForPayment({ provider: deliveryProvider, store: checkoutData.store, draft }) };
+    draft = {
+      ...draft,
+      deliverySnapshot: await revalidateDeliveryForPayment({
+        provider: deliveryProvider,
+        store: checkoutData.store,
+        draft,
+        now: now.getTime(),
+        minimumValidityMs: PAYMENT_DELIVERY_QUOTE_MINIMUM_VALIDITY_MS
+      })
+    };
   }
   const groupOrder = await resolveCheckoutGroup({ db, store: checkoutData.store, draft, now });
   const paymentMethod = getEnabledStorePaymentMethod(checkoutData.store, draft?.paymentMethodId);
@@ -324,9 +339,19 @@ export const createStorePayment = async ({
   const checkoutReturnUrl = activeAdapter.provider === 'stripe'
     ? validateStoreCheckoutReturnUrl(returnUrl)
     : '';
+  // Current clients always provide a UUID. Keep older deployed clients
+  // compatible during a rolling release, but they cannot select an attempt id.
+  const checkoutAttemptId = isCheckoutAttemptId(draft?.checkoutAttemptId)
+    ? readString(draft.checkoutAttemptId)
+    : randomBytes(16).toString('hex');
   const orderReference = db.collection('storeOrders').doc();
   const checkoutAccessToken = randomBytes(32).toString('hex');
   const storeId = readString(checkoutData.store.id) || readString(checkoutData.store.workspaceId);
+  // A public checkout can be retried by the browser or a network intermediary.
+  // Reserve this opaque, browser-generated attempt inside the same transaction
+  // as the order so retries cannot produce a second order/payment session.
+  const checkoutAttemptReference = db.collection('storeCheckoutAttempts')
+    .doc(hashCheckoutAccessToken(`${storeId}:${checkoutAttemptId}`));
   const { order } = await db.runTransaction(async transaction => {
     const currentGroupOrder = await revalidateCheckoutGroupInTransaction({
       db,
@@ -336,6 +361,10 @@ export const createStorePayment = async ({
       draft,
       now
     });
+    const existingAttempt = await transaction.get(checkoutAttemptReference);
+    if (existingAttempt.exists) {
+      throw new HttpsError('already-exists', 'This checkout is already being created. Please wait.');
+    }
     const reference = await createAvailableOrderReference({
       date: now,
       exists: async ({ orderNumber, pickupCode, businessDateKey }) => {
@@ -383,6 +412,11 @@ export const createStorePayment = async ({
       businessDateKey: reference.businessDateKey,
       storeId,
       workspaceId: readString(checkoutData.store.workspaceId),
+      createdAt: now.toISOString()
+    });
+    transaction.create(checkoutAttemptReference, {
+      orderId: orderReference.id,
+      storeId,
       createdAt: now.toISOString()
     });
     transaction.create(orderReference, pendingOrder);

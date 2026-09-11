@@ -179,6 +179,10 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const deliveryPlacesSessionRef = useRef(crypto.randomUUID());
   const deliveryQuoteRequestRef = useRef(0);
   const deliveryQuoteRefreshAttemptsRef = useRef(0);
+  const checkoutAttemptIdRef = useRef(crypto.randomUUID());
+  // Once the server has accepted checkout, a client-side quote timer must not
+  // clear the amount/session that the server has already snapshotted.
+  const checkoutTransitionRef = useRef(false);
 
 const deliveryAddressForQuote = deliveryAddress;
   const deliveryRemarks = [
@@ -668,6 +672,7 @@ const deliveryAddressForQuote = deliveryAddress;
     event.preventDefault();
     if (!data || isPlacingOrder) return;
     setCheckoutError('');
+    checkoutTransitionRef.current = true;
     setIsPlacingOrder(true);
     try {
       if (fulfilmentMethod === 'delivery' && !deliveryQuoteReady) throw new Error(isCalculatingDelivery ? 'Calculating delivery fee…' : 'A valid delivery quote is required before payment.');
@@ -676,6 +681,7 @@ const deliveryAddressForQuote = deliveryAddress;
         paymentMethodId,
         customerName,
         phone,
+        checkoutAttemptId: checkoutAttemptIdRef.current,
         ...(currentUser && customerEmail.trim() ? { customerEmail: customerEmail.trim() } : {}),
         pickupDate,
         pickupSession,
@@ -727,6 +733,15 @@ const deliveryAddressForQuote = deliveryAddress;
         setPaymentSession(session);
       }
     } catch (error) {
+      checkoutTransitionRef.current = false;
+      // The server deliberately rejects quotes that are too close to expiry.
+      // Keep the cart and selected address, then recover by refreshing the
+      // quote instead of leaving a pending merchandise-only checkout.
+      if (fulfilmentMethod === 'delivery' && error instanceof Error && error.message.includes('Refresh your delivery quote before checkout.')) {
+        deliveryQuoteRefreshAttemptsRef.current = 0;
+        setDeliveryQuote(null);
+        void requestDeliveryQuote();
+      }
       setCheckoutError(error instanceof Error ? error.message : 'Unable to start secure payment. Please try again.');
     } finally {
       setIsPlacingOrder(false);
@@ -757,6 +772,10 @@ const deliveryAddressForQuote = deliveryAddress;
     const expiresAt = Date.parse(deliveryQuote?.quote.expiresAt || '');
     if (!Number.isFinite(expiresAt)) return;
     const timeout = window.setTimeout(() => {
+      // A valid payment session has already been server-created from an
+      // immutable delivery snapshot. Do not let this browser-only timer
+      // overwrite that payment stage with a stale quote error.
+      if (checkoutTransitionRef.current) return;
       // Preserve the selected destination and refresh once automatically. A
       // bounded retry prevents a provider returning immediately-expired quotes
       // from creating a request loop.
