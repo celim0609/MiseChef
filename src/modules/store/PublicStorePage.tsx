@@ -571,6 +571,7 @@ const deliveryAddressForQuote = deliveryAddress;
   const cartTotal = cartDetails.reduce((sum, item) => sum + item.lineTotal, 0);
   const customerDeliveryFee = deliveryQuote?.quote.customerDeliveryFee || 0;
   const checkoutTotal = cartTotal + customerDeliveryFee;
+  const deliveryQuoteReady = fulfilmentMethod !== 'delivery' || Boolean(deliveryQuote?.quote.quotationId && Number.isFinite(deliveryQuote.quote.customerDeliveryFee));
   const cartCount = cart.reduce((sum, line) => sum + line.quantity, 0);
   const paymentMethods = data?.store.paymentMethods.filter(
     method => method.enabled && method.id !== 'cash_on_pickup'
@@ -668,7 +669,7 @@ const deliveryAddressForQuote = deliveryAddress;
     setCheckoutError('');
     setIsPlacingOrder(true);
     try {
-      if (fulfilmentMethod === 'delivery' && !deliveryQuote) throw new Error('Delivery fee is still being calculated.');
+      if (fulfilmentMethod === 'delivery' && !deliveryQuoteReady) throw new Error(isCalculatingDelivery ? 'Calculating delivery fee…' : 'A valid delivery quote is required before payment.');
       const session = await storePaymentService.createPayment(slug, {
         fulfilmentMethod,
         paymentMethodId,
@@ -753,7 +754,7 @@ const deliveryAddressForQuote = deliveryAddress;
   useEffect(() => {
     const expiresAt = Date.parse(deliveryQuote?.quote.expiresAt || '');
     if (!Number.isFinite(expiresAt)) return;
-    const timeout = window.setTimeout(() => setDeliveryQuote(null), Math.max(0, expiresAt - Date.now()));
+    const timeout = window.setTimeout(() => { setDeliveryQuote(null); setCheckoutError('Delivery quote expired. Please select your address again to refresh it.'); }, Math.max(0, expiresAt - Date.now()));
     return () => window.clearTimeout(timeout);
   }, [deliveryQuote?.quote.expiresAt]);
 
@@ -1233,7 +1234,7 @@ const deliveryAddressForQuote = deliveryAddress;
                     </div>
                     <input aria-label="Unit or floor" placeholder="Unit / Floor (optional)" value={deliveryUnit} onChange={event => setDeliveryUnit(event.target.value)} className="min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
                     <textarea aria-label="Delivery instructions" rows={2} placeholder="Delivery instructions (optional)" value={deliveryInstructions} onChange={event => setDeliveryInstructions(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
-                    {isCalculatingDelivery && <p className="text-sm font-bold text-on-surface-variant">Calculating delivery…</p>}
+                    {isCalculatingDelivery && <p className="text-sm font-bold text-on-surface-variant">Calculating delivery fee…</p>}
                     {deliveryQuote && <p className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-900">Delivery {formatRegionCurrency(deliveryQuote.quote.customerDeliveryFee, store.currency)}</p>}
                   </div>
                 </section>}
@@ -1300,7 +1301,7 @@ const deliveryAddressForQuote = deliveryAddress;
                 {checkoutError && <p role="alert" className="order-7 rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
               </form>
               <div className="sticky bottom-3 z-30 -mx-2 rounded-2xl bg-white/95 p-2 shadow-xl shadow-primary/10 backdrop-blur lg:bottom-4 lg:mx-0 lg:shadow-lg">
-                <button form="store-checkout-form" type="submit" disabled={isPlacingOrder} className="min-h-12 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary shadow-lg shadow-primary/20 disabled:opacity-50">
+                <button form="store-checkout-form" type="submit" disabled={isPlacingOrder || !deliveryQuoteReady} className="min-h-12 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary shadow-lg shadow-primary/20 disabled:opacity-50">
                   {isPlacingOrder ? 'Placing Order…' : `${getPaymentActionLabel(paymentMethodId)} · ${formatRegionCurrency(checkoutTotal, store.currency)}`}
                 </button>
               </div>
