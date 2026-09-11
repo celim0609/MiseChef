@@ -4,6 +4,10 @@ import { buildOrderItems, getValidPickupDates, readString } from './storePayment
 import { loadStoreCheckoutData } from './storePayments.js';
 
 const money = value => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+// This buffer applies at the checkout-to-payment boundary. It is returned with
+// a quote so the browser never presents a quote as payable when the server
+// would reject it as too close to expiry.
+export const DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS = 30_000;
 const coord = value => typeof value === 'string' && /^-?\d{1,3}(\.\d{1,15})?$/.test(value) && Math.abs(Number(value)) <= 180 ? value : '';
 const deliveryError = message => new HttpsError('failed-precondition', message);
 const deliveryConfig = store => store?.delivery && typeof store.delivery === 'object' ? store.delivery : {};
@@ -110,7 +114,7 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
   if (!quote.quotationId || quote.currency !== 'MYR' || quote.fee < 0 || !quote.expiresAt) throw new Error('Lalamove returned an invalid quotation.');
   const merchandiseSubtotal = money(items.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0));
   const pricing = customerPricing({ providerFee: quote.fee, config, merchandiseSubtotal });
-  return { quote: { quotationId: quote.quotationId, expiresAt: quote.expiresAt, customerDeliveryFee: pricing.customerDeliveryFee, currency: 'MYR' }, merchandiseSubtotal, destination, schedule };
+  return { quote: { quotationId: quote.quotationId, expiresAt: quote.expiresAt, customerDeliveryFee: pricing.customerDeliveryFee, currency: 'MYR', minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS }, merchandiseSubtotal, destination, schedule };
 };
 
 export const getLalamoveSandboxCityInfo = async ({ db, uid, workspaceId, provider }) => {

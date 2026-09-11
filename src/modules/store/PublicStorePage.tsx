@@ -161,6 +161,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const [isSelectingDeliveryAddress, setIsSelectingDeliveryAddress] = useState(false);
   const [deliveryQuote, setDeliveryQuote] = useState<DeliveryQuote | null>(null);
   const [isCalculatingDelivery, setIsCalculatingDelivery] = useState(false);
+  const [isRefreshingDeliveryQuote, setIsRefreshingDeliveryQuote] = useState(false);
   const [notes, setNotes] = useState('');
   const [paymentMethodId, setPaymentMethodId] = useState<StorePaymentMethodId>('stripe');
   const [checkoutError, setCheckoutError] = useState('');
@@ -574,9 +575,15 @@ const deliveryAddressForQuote = deliveryAddress;
   );
 
   const cartTotal = cartDetails.reduce((sum, item) => sum + item.lineTotal, 0);
-  const customerDeliveryFee = deliveryQuote?.quote.customerDeliveryFee || 0;
+  const deliveryQuoteMinimumValidityMs = Math.max(0, Number(deliveryQuote?.quote.minimumValidityMs || 30_000));
+  const deliveryQuoteHasSufficientLifetime = Boolean(
+    deliveryQuote?.quote.quotationId
+      && Number.isFinite(deliveryQuote.quote.customerDeliveryFee)
+      && Date.parse(deliveryQuote.quote.expiresAt) > Date.now() + deliveryQuoteMinimumValidityMs
+  );
+  const customerDeliveryFee = deliveryQuoteHasSufficientLifetime ? deliveryQuote!.quote.customerDeliveryFee : 0;
   const checkoutTotal = cartTotal + customerDeliveryFee;
-  const deliveryQuoteReady = fulfilmentMethod !== 'delivery' || Boolean(deliveryQuote?.quote.quotationId && Number.isFinite(deliveryQuote.quote.customerDeliveryFee));
+  const deliveryQuoteReady = fulfilmentMethod !== 'delivery' || deliveryQuoteHasSufficientLifetime;
   const cartCount = cart.reduce((sum, line) => sum + line.quantity, 0);
   const paymentMethods = data?.store.paymentMethods.filter(
     method => method.enabled && method.id !== 'cash_on_pickup'
@@ -675,7 +682,9 @@ const deliveryAddressForQuote = deliveryAddress;
     checkoutTransitionRef.current = true;
     setIsPlacingOrder(true);
     try {
-      if (fulfilmentMethod === 'delivery' && !deliveryQuoteReady) throw new Error(isCalculatingDelivery ? 'Calculating delivery fee…' : 'A valid delivery quote is required before payment.');
+      if (fulfilmentMethod === 'delivery' && !deliveryQuoteReady) {
+        throw new Error('Refreshing delivery fee…');
+      }
       const session = await storePaymentService.createPayment(slug, {
         fulfilmentMethod,
         paymentMethodId,
@@ -737,26 +746,30 @@ const deliveryAddressForQuote = deliveryAddress;
       // The server deliberately rejects quotes that are too close to expiry.
       // Keep the cart and selected address, then recover by refreshing the
       // quote instead of leaving a pending merchandise-only checkout.
-      if (fulfilmentMethod === 'delivery' && error instanceof Error && error.message.includes('Refresh your delivery quote before checkout.')) {
-        deliveryQuoteRefreshAttemptsRef.current = 0;
-        setDeliveryQuote(null);
-        void requestDeliveryQuote();
+      if (fulfilmentMethod === 'delivery' && error instanceof Error && (error.message.includes('Refresh your delivery quote before checkout.') || error.message === 'Refreshing delivery fee…')) {
+        if (!isCalculatingDelivery) {
+          deliveryQuoteRefreshAttemptsRef.current = 0;
+          setDeliveryQuote(null);
+          void requestDeliveryQuote({ refresh: true });
+        }
+      } else {
+        setCheckoutError(error instanceof Error ? error.message : 'Unable to start secure payment. Please try again.');
       }
-      setCheckoutError(error instanceof Error ? error.message : 'Unable to start secure payment. Please try again.');
     } finally {
       setIsPlacingOrder(false);
     }
   };
 
-  const requestDeliveryQuote = async () => {
+  const requestDeliveryQuote = async ({ refresh = false }: { refresh?: boolean } = {}) => {
     if (!deliveryAddress || !deliveryLatitude || !deliveryLongitude || (deliveryMode === 'preorder' && (!deliveryDate || !deliverySession))) return;
     const requestId = ++deliveryQuoteRequestRef.current;
     setIsCalculatingDelivery(true);
-    setCheckoutError('');
+    setIsRefreshingDeliveryQuote(refresh);
+    if (!refresh) setCheckoutError('');
     try {
       const quote = await storeDeliveryService.quote(slug, cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({ productId, ...(setId ? { setId } : {}), quantity, selectedOptions, ...(selectedSetItems ? { selectedSetItems } : {}) })), { formattedAddress: deliveryAddressForQuote, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions: deliveryRemarks }, deliveryDate, deliverySession, deliveryMode);
       if (requestId === deliveryQuoteRequestRef.current) setDeliveryQuote(quote);
-    } catch (error) { if (requestId === deliveryQuoteRequestRef.current) { setDeliveryQuote(null); setCheckoutError(error instanceof Error ? error.message : 'Unable to calculate delivery.'); } } finally { if (requestId === deliveryQuoteRequestRef.current) setIsCalculatingDelivery(false); }
+    } catch (error) { if (requestId === deliveryQuoteRequestRef.current) { setDeliveryQuote(null); setCheckoutError(error instanceof Error ? error.message : 'Unable to calculate delivery.'); } } finally { if (requestId === deliveryQuoteRequestRef.current) { setIsCalculatingDelivery(false); setIsRefreshingDeliveryQuote(false); } }
   };
 
   useEffect(() => {
@@ -788,10 +801,11 @@ const deliveryAddressForQuote = deliveryAddress;
       setDeliveryQuote(null);
       setIsCalculatingDelivery(true);
       setCheckoutError('');
-      void requestDeliveryQuote();
-    }, Math.max(0, expiresAt - Date.now()));
+      setIsRefreshingDeliveryQuote(true);
+      void requestDeliveryQuote({ refresh: true });
+    }, Math.max(0, expiresAt - Date.now() - deliveryQuoteMinimumValidityMs));
     return () => window.clearTimeout(timeout);
-  }, [deliveryQuote?.quote.expiresAt]);
+  }, [deliveryQuote?.quote.expiresAt, deliveryQuoteMinimumValidityMs]);
 
   const selectDeliveryAddress = async (suggestion: PlaceSuggestion) => {
     deliveryQuoteRequestRef.current += 1;
@@ -1269,8 +1283,8 @@ const deliveryAddressForQuote = deliveryAddress;
                     </div>
                     <input aria-label="Unit or floor" placeholder="Unit / Floor (optional)" value={deliveryUnit} onChange={event => setDeliveryUnit(event.target.value)} className="min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
                     <textarea aria-label="Delivery instructions" rows={2} placeholder="Delivery instructions (optional)" value={deliveryInstructions} onChange={event => setDeliveryInstructions(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
-                    {isCalculatingDelivery && <p className="text-sm font-bold text-on-surface-variant">Calculating delivery fee…</p>}
-                    {deliveryQuote && <p className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-900">Delivery {formatRegionCurrency(deliveryQuote.quote.customerDeliveryFee, store.currency)}</p>}
+                    {isCalculatingDelivery && <p className="text-sm font-bold text-on-surface-variant">{isRefreshingDeliveryQuote ? 'Refreshing delivery fee…' : 'Calculating delivery fee…'}</p>}
+                    {deliveryQuoteHasSufficientLifetime && <p className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-900">Delivery {formatRegionCurrency(customerDeliveryFee, store.currency)}</p>}
                   </div>
                 </section>}
 
