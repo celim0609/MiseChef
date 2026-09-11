@@ -47,7 +47,39 @@ const assertWorkspaceOperator = async ({ db, uid, order }) => {
   const workspace = workspaceSnapshot.data() || {}; const membership = membershipSnapshot.data() || {};
   if (readString(workspace.ownerId) !== uid && !(membership.userId === uid && membership.workspaceId === workspaceId && membership.status === 'Active' && ACTIVE_OPERATOR_ROLES.has(readString(membership.role)))) throw new HttpsError('permission-denied', 'Your Workspace role cannot manage this delivery.');
 };
-export const mapLalamoveStatus = status => ({ COMPLETED: 'Completed', PICKED_UP: 'Out for delivery', ON_GOING: 'Driver assigned', ASSIGNING_DRIVER: 'Dispatching' })[readString(status)] || 'Dispatching';
+export const mapLalamoveStatus = status => ({
+  ASSIGNING_DRIVER: 'Finding driver', ON_GOING: 'Driver assigned', PICKED_UP: 'Picked up / On the way', COMPLETED: 'Delivered',
+  CANCELED: 'Cancelled', EXPIRED: 'No driver found / Expired', REJECTED: 'Driver matching failed'
+})[readString(status)] || 'Finding driver';
+
+// This is deliberately a provider-status projection, not kitchen fulfilment.
+// Lalamove does not publish "arriving" or "arrived" order statuses.
+export const LALAMOVE_DELIVERY_LIFECYCLE = Object.freeze({
+  ASSIGNING_DRIVER: 'assigning_driver',
+  ON_GOING: 'driver_assigned',
+  PICKED_UP: 'picked_up',
+  COMPLETED: 'completed',
+  CANCELED: 'canceled',
+  EXPIRED: 'expired',
+  REJECTED: 'rejected'
+});
+const TERMINAL_DELIVERY_STATES = new Set(['completed', 'canceled', 'expired', 'rejected']);
+export const projectLalamoveLifecycle = ({ status, driverId }) => {
+  const providerStatus = readString(status);
+  if (providerStatus === 'ON_GOING' && readString(driverId)) return LALAMOVE_DELIVERY_LIFECYCLE.ON_GOING;
+  return LALAMOVE_DELIVERY_LIFECYCLE[providerStatus] || 'assigning_driver';
+};
+const deliveryHistoryEntry = ({ state, providerStatus, source }) => ({
+  state,
+  providerStatus: readString(providerStatus),
+  source,
+  occurredAt: new Date().toISOString()
+});
+const canReplaceProviderState = ({ existingState, nextState }) => {
+  if (existingState === nextState) return false;
+  // A terminal provider result must not be overwritten by a late webhook/poll.
+  return !TERMINAL_DELIVERY_STATES.has(existingState);
+};
 
 export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) => {
   const checkout = await loadStoreCheckoutData(db, slug);
@@ -97,10 +129,24 @@ export const dispatchStoreDelivery = async ({ db, provider, uid, orderId }) => {
   const result = await db.runTransaction(async transaction => {
     const snap = await transaction.get(orderRef); if (!snap.exists) throw new HttpsError('not-found', 'This order could not be found.');
     const order = snap.data(); const delivery = order.delivery || {};
-    if (order.payment?.status !== 'paid' || order.fulfilmentStatus !== 'Ready' || delivery.fulfilmentMethod !== 'delivery') throw deliveryError('Only ready, paid delivery orders can be dispatched.');
+    const instant = delivery.fulfilmentMode === 'instant';
+    const kitchenEligible = instant
+      ? ['Preparing', 'Ready'].includes(readString(order.fulfilmentStatus))
+      : readString(order.fulfilmentStatus) === 'Ready';
+    if (order.payment?.status !== 'paid' || !kitchenEligible || delivery.fulfilmentMethod !== 'delivery') throw deliveryError(instant ? 'Only preparing or ready, paid instant delivery orders can find a driver.' : 'Only ready, paid pre-order delivery orders can be dispatched.');
+    if (TERMINAL_DELIVERY_STATES.has(readString(delivery.lifecycle?.state))) throw deliveryError('This delivery is terminal. Merchant review is required before requesting a replacement.');
     if (delivery.dispatch?.status === 'created') return { order, alreadyCreated: true };
     if (delivery.dispatch?.status === 'creating') return { order, alreadyCreating: true };
-    transaction.update(orderRef, { 'delivery.dispatch.status': 'creating', 'delivery.dispatch.requestedBy': uid, 'delivery.dispatch.requestedAt': FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+    transaction.update(orderRef, {
+      'delivery.dispatch.status': 'creating',
+      'delivery.dispatch.requestedBy': uid,
+      'delivery.dispatch.requestedAt': FieldValue.serverTimestamp(),
+      'delivery.dispatch.attempt': Number(delivery.dispatch?.attempt || 0) + 1,
+      'delivery.lifecycle.state': 'assigning_driver',
+      'delivery.lifecycle.providerStatus': 'ASSIGNING_DRIVER',
+      'delivery.lifecycle.changedAt': FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    });
     return { order, alreadyCreated: false };
   });
   if (result.alreadyCreated) return { status: 'created' };
@@ -113,12 +159,73 @@ export const dispatchStoreDelivery = async ({ db, provider, uid, orderId }) => {
   if (difference > 5) { await orderRef.update({ 'delivery.dispatch.status': 'dispatch_blocked_requote', 'delivery.dispatch.errorCode': 'requote_exceeds_absorption_limit', 'delivery.dispatch.requoteFee': freshQuote.fee }); return { status: 'dispatch_blocked_requote', difference }; }
   const [senderStop, recipientStop] = freshQuote.stops;
   const created = await provider.createOrder({ market: 'MY', data: { quotationId: freshQuote.quotationId, sender: { stopId: senderStop.stopId, name: delivery.pickup.contactName, phone: delivery.pickup.contactPhoneE164 }, recipients: [{ stopId: recipientStop.stopId, name: delivery.recipient.name, phone: delivery.recipient.phoneE164, remarks: delivery.recipient.instructions }], isPODEnabled: true, metadata: { misechefOrderId: result.order.id, misechefOrderNumber: result.order.orderNumber } } });
-  await orderRef.update({ 'delivery.dispatch.status': 'created', 'delivery.providerOrder': { orderId: created.orderId, quotationId: created.quotationId, status: created.status, driverId: created.driverId || '', shareLink: created.shareLink || '', priceBreakdown: created.priceBreakdown || {}, lastSyncedAt: FieldValue.serverTimestamp() }, fulfilmentStatus: 'Dispatching', updatedAt: FieldValue.serverTimestamp() });
+  const lifecycleState = projectLalamoveLifecycle(created);
+  await orderRef.update({
+    'delivery.dispatch.status': 'created',
+    'delivery.providerOrder': { orderId: created.orderId, quotationId: created.quotationId, status: created.status, driverId: created.driverId || '', shareLink: created.shareLink || '', priceBreakdown: created.priceBreakdown || {}, lastSyncedAt: FieldValue.serverTimestamp() },
+    'delivery.lifecycle.state': lifecycleState,
+    'delivery.lifecycle.providerStatus': readString(created.status) || 'ASSIGNING_DRIVER',
+    'delivery.lifecycle.changedAt': FieldValue.serverTimestamp(),
+    'delivery.lifecycle.history': [deliveryHistoryEntry({ state: lifecycleState, providerStatus: created.status || 'ASSIGNING_DRIVER', source: 'create_order' })],
+    updatedAt: FieldValue.serverTimestamp()
+  });
   return { status: 'created', orderId: created.orderId };
   } catch (error) {
-    await orderRef.update({ 'delivery.dispatch.status': 'failed', 'delivery.dispatch.errorCode': readString(error?.message).slice(0, 120) || 'provider_error', updatedAt: FieldValue.serverTimestamp() }).catch(() => undefined);
+    await orderRef.update({ 'delivery.dispatch.status': 'failed', 'delivery.dispatch.errorCode': readString(error?.message).slice(0, 120) || 'provider_error', 'delivery.lifecycle.state': 'not_started', updatedAt: FieldValue.serverTimestamp() }).catch(() => undefined);
     throw error;
   }
+};
+
+const providerDriverSnapshot = async ({ provider, detail }) => {
+  const driverId = readString(detail.driverId);
+  if (!driverId) return null;
+  try {
+    const driver = await provider.retrieveDriver({ market: 'MY', orderId: readString(detail.orderId), driverId });
+    return {
+      driverId,
+      name: readString(driver.name), phone: readString(driver.phone), plateNumber: readString(driver.plateNumber), photo: readString(driver.photo),
+      coordinates: driver.coordinates && readString(driver.coordinates.lat) && readString(driver.coordinates.lng)
+        ? { lat: readString(driver.coordinates.lat), lng: readString(driver.coordinates.lng), updatedAt: readString(driver.coordinates.updatedAt) }
+        : undefined,
+      fetchedAt: new Date().toISOString()
+    };
+  } catch (error) {
+    // Lalamove returns 403 until driver details are permitted. It is not a delivery failure.
+    if (Number(error?.status) === 403 || /403|forbidden/i.test(readString(error?.message))) return null;
+    throw error;
+  }
+};
+const buildProviderDetailUpdate = async ({ provider, order, detail, source }) => {
+  const providerStatus = readString(detail.status);
+  const nextState = projectLalamoveLifecycle(detail);
+  const currentState = readString(order.delivery?.lifecycle?.state);
+  const stateChanged = canReplaceProviderState({ existingState: currentState, nextState });
+  const driver = await providerDriverSnapshot({ provider, detail });
+  const update = {
+    'delivery.providerOrder.status': providerStatus,
+    'delivery.providerOrder.driverId': readString(detail.driverId),
+    'delivery.providerOrder.shareLink': readString(detail.shareLink),
+    'delivery.providerOrder.priceBreakdown': detail.priceBreakdown || {},
+    'delivery.providerOrder.lastSyncedAt': FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp()
+  };
+  if (TERMINAL_DELIVERY_STATES.has(currentState) && currentState !== nextState) {
+    // A delayed poll/event must not make a terminal operational state look active again.
+    delete update['delivery.providerOrder.status'];
+    delete update['delivery.providerOrder.driverId'];
+    delete update['delivery.providerOrder.shareLink'];
+    delete update['delivery.providerOrder.priceBreakdown'];
+  }
+  if (driver) update['delivery.providerOrder.driver'] = driver;
+  if (stateChanged) {
+    update['delivery.lifecycle.state'] = nextState;
+    update['delivery.lifecycle.providerStatus'] = providerStatus;
+    update['delivery.lifecycle.changedAt'] = FieldValue.serverTimestamp();
+    update['delivery.lifecycle.history'] = FieldValue.arrayUnion(deliveryHistoryEntry({ state: nextState, providerStatus, source }));
+  }
+  if (TERMINAL_DELIVERY_STATES.has(nextState)) update['delivery.dispatch.status'] = nextState === 'completed' ? 'completed' : 'provider_terminal';
+  if (nextState === 'completed') { update.fulfilmentStatus = 'Completed'; update.completedAt = FieldValue.serverTimestamp(); }
+  return { update, nextState };
 };
 
 export const refreshStoreDelivery = async ({ db, provider, uid, orderId }) => {
@@ -130,11 +237,9 @@ export const refreshStoreDelivery = async ({ db, provider, uid, orderId }) => {
   await assertWorkspaceOperator({ db, uid, order });
   if (!providerOrderId) throw deliveryError('This delivery has not been dispatched.');
   const detail = await provider.retrieveOrder({ market: 'MY', orderId: providerOrderId });
-  const status = readString(detail.status);
-  const update = { 'delivery.providerOrder.status': status, 'delivery.providerOrder.driverId': readString(detail.driverId), 'delivery.providerOrder.shareLink': readString(detail.shareLink), 'delivery.providerOrder.priceBreakdown': detail.priceBreakdown || {}, 'delivery.providerOrder.lastSyncedAt': FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() };
-  if (status === 'COMPLETED') { update.fulfilmentStatus = 'Completed'; update.completedAt = FieldValue.serverTimestamp(); }
+  const { update, nextState } = await buildProviderDetailUpdate({ provider, order, detail: { ...detail, orderId: providerOrderId }, source: 'manual_refresh' });
   await ref.update(update);
-  return { status };
+  return { status: readString(detail.status), lifecycleState: nextState };
 };
 
 export const cancelStoreDelivery = async ({ db, provider, uid, orderId }) => {
@@ -148,7 +253,7 @@ export const cancelStoreDelivery = async ({ db, provider, uid, orderId }) => {
   await ref.update({ 'delivery.dispatch.status': 'cancel_requested', updatedAt: FieldValue.serverTimestamp() });
   try { await provider.cancelOrder({ market: 'MY', orderId: providerOrderId }); }
   catch (error) { await ref.update({ 'delivery.dispatch.status': 'created', 'delivery.dispatch.errorCode': readString(error?.message).slice(0, 120) || 'cancel_failed' }); throw error; }
-  await ref.update({ 'delivery.dispatch.status': 'cancelled', 'delivery.providerOrder.status': 'CANCELED', updatedAt: FieldValue.serverTimestamp() });
+  await ref.update({ 'delivery.dispatch.status': 'cancelled', 'delivery.providerOrder.status': 'CANCELED', 'delivery.lifecycle.state': 'canceled', 'delivery.lifecycle.providerStatus': 'CANCELED', 'delivery.lifecycle.changedAt': FieldValue.serverTimestamp(), 'delivery.lifecycle.history': FieldValue.arrayUnion(deliveryHistoryEntry({ state: 'canceled', providerStatus: 'CANCELED', source: 'merchant_cancel' })), updatedAt: FieldValue.serverTimestamp() });
   return { status: 'cancelled' };
 };
 
@@ -156,6 +261,11 @@ export const reconcileActiveDeliveries = async ({ db, provider, limit = 50 }) =>
   const active = await db.collection('storeOrders').where('delivery.dispatch.status', 'in', ['created', 'cancel_requested']).limit(limit).get();
   return Promise.all(active.docs.map(async doc => {
     const order = doc.data(); const providerOrderId = readString(order.delivery?.providerOrder?.orderId); if (!providerOrderId) return null;
-    try { const detail = await provider.retrieveOrder({ market: 'MY', orderId: providerOrderId }); const status = readString(detail.status); const update = { 'delivery.providerOrder.status': status, 'delivery.providerOrder.driverId': readString(detail.driverId), 'delivery.providerOrder.lastSyncedAt': FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }; if (status === 'COMPLETED') { update.fulfilmentStatus = 'Completed'; update.completedAt = FieldValue.serverTimestamp(); } await doc.ref.update(update); return status; } catch { return null; }
+    try {
+      const detail = await provider.retrieveOrder({ market: 'MY', orderId: providerOrderId });
+      const { update } = await buildProviderDetailUpdate({ provider, order, detail: { ...detail, orderId: providerOrderId }, source: 'scheduled_reconciliation' });
+      await doc.ref.update(update);
+      return readString(detail.status);
+    } catch { return null; }
   }));
 };

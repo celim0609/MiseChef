@@ -408,8 +408,8 @@ export const cancelStoreLalamoveDelivery = onCall({ region: REGION, secrets: [la
   return cancelStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId });
 });
 
-// Webhooks intentionally do not update orders: Lalamove's public docs do not
-// publish a verifiable inbound authentication contract. This scheduled pull is authoritative.
+// No webhook endpoint is enabled yet. Scheduled order-detail reconciliation is
+// authoritative until a dedicated, replay-safe v3 signature verifier is shipped.
 export const reconcileLalamoveSandboxDeliveries = onSchedule({ region: REGION, schedule: 'every 5 minutes', secrets: [lalamoveSandboxApiKey, lalamoveSandboxApiSecret] }, async () => {
   const provider = createLalamoveSandboxProvider({ apiKey: lalamoveSandboxApiKey.value(), apiSecret: lalamoveSandboxApiSecret.value() });
   await reconcileActiveDeliveries({ db, provider });
