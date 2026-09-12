@@ -2,6 +2,7 @@ import { HttpsError } from 'firebase-functions/v2/https';
 
 const readString = value => typeof value === 'string' ? value.trim() : '';
 const readNumber = value => Number.isFinite(Number(value)) ? Number(value) : 0;
+const hasNumber = value => (typeof value === 'number' || (typeof value === 'string' && value.trim() !== '')) && Number.isFinite(Number(value));
 const toIso = value => value?.toDate instanceof Function
   ? value.toDate().toISOString()
   : readString(value);
@@ -14,6 +15,7 @@ const customerOrderItem = value => {
   return {
     productName,
     quantity,
+    ...(hasNumber(item.lineTotal) ? { lineTotal: Math.max(0, readNumber(item.lineTotal)) } : {}),
     setSelections: (Array.isArray(item.setSnapshot?.selectedGroups) ? item.setSnapshot.selectedGroups : [])
       .map(selection => ({
         groupName: readString(selection?.groupName),
@@ -31,6 +33,7 @@ const customerOrderItem = value => {
 
 const customerOrder = document => {
   const data = document.data() || {};
+  const totals = data.totals && typeof data.totals === 'object' ? data.totals : {};
   return {
     orderNumber: readString(data.orderNumber),
     orderDate: toIso(data.createdAt),
@@ -39,6 +42,15 @@ const customerOrder = document => {
     items: (Array.isArray(data.items) ? data.items : []).map(customerOrderItem).filter(Boolean),
     remarks: readString(data.notes),
     total: Math.max(0, readNumber(data.total)),
+    fulfilmentMethod: data.fulfilmentMethod === 'delivery' ? 'delivery' : 'pickup',
+    ...(hasNumber(totals.grandTotal) ? { totals: {
+      merchandiseSubtotal: Math.max(0, readNumber(totals.merchandiseSubtotal)),
+      discountTotal: Math.max(0, readNumber(totals.discountTotal)),
+      discountedMerchandiseTotal: Math.max(0, readNumber(totals.discountedMerchandiseTotal)),
+      deliveryFee: Math.max(0, readNumber(totals.deliveryFee)),
+      grandTotal: Math.max(0, readNumber(totals.grandTotal)),
+      currency: data.currency === 'SGD' ? 'SGD' : 'MYR'
+    } } : {}),
     currency: data.currency === 'SGD' ? 'SGD' : 'MYR',
     paymentStatus: readString(data.payment?.status) || 'pending',
     orderStatus: readString(data.status) || 'Awaiting Payment',

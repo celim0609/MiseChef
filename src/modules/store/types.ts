@@ -154,12 +154,15 @@ export interface HostGroupOrderSummary {
   items: Array<{
     productName: string;
     quantity: number;
+    lineTotal?: number;
     setSelections: Array<{ groupName: string; productName: string }>;
     selectedOptions: Array<{ groupName: string; optionName: string }>;
   }>;
   remarks: string;
   total: number;
   currency: RegionCurrency;
+  fulfilmentMethod: 'pickup' | 'delivery';
+  totals?: NonNullable<StoreOrder['totals']>;
   paymentStatus: StoreOrder['payment']['status'];
   fulfilmentStatus: StoreFulfilmentStatus | '';
   createdAt: string;

@@ -584,7 +584,10 @@ const deliveryAddressForQuote = deliveryAddress;
       && quoteHasSufficientLifetime({ expiresAt: deliveryQuote.quote.expiresAt, minimumValidityMs: deliveryQuoteMinimumValidityMs })
   );
   const customerDeliveryFee = deliveryQuoteHasSufficientLifetime ? deliveryQuote!.quote.customerDeliveryFee : 0;
-  const checkoutTotal = cartTotal + customerDeliveryFee;
+  const checkoutMerchandiseSubtotal = deliveryQuoteHasSufficientLifetime
+    ? deliveryQuote!.merchandiseSubtotal
+    : cartTotal;
+  const checkoutTotal = checkoutMerchandiseSubtotal + customerDeliveryFee;
   const deliveryQuoteReady = fulfilmentMethod !== 'delivery' || deliveryQuoteHasSufficientLifetime;
   const cartCount = cart.reduce((sum, line) => sum + line.quantity, 0);
   const paymentMethods = data?.store.paymentMethods.filter(
@@ -1180,12 +1183,14 @@ const deliveryAddressForQuote = deliveryAddress;
             </section>
           ) : cartDetails.length > 0 ? (
             <>
+              <section aria-labelledby="checkout-order-summary-heading">
+                <h3 id="checkout-order-summary-heading" className="mt-5 font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Order Summary</h3>
               <div className="mt-5 space-y-4">
                 {cartDetails.map(({ line, product, set, options, setItems, lineTotal }) => (product || set) && (
                   <div key={line.key} className="border-b border-surface-container-high pb-4">
                     <div className="flex justify-between gap-3">
                       <div>
-                        <p className="font-sans text-sm font-extrabold text-primary">{set?.name || product?.name}</p>
+                        <p className="font-sans text-sm font-extrabold text-primary">{line.quantity} × {set?.name || product?.name}</p>
                         {setItems.map(({ group, product: selectedProduct, adjustment }, index) => group && selectedProduct && (
                           <p key={`${group.id}-${selectedProduct.id}-${index}`} className="mt-0.5 font-sans text-[11px] font-bold text-on-surface-variant">
                             {group.name}: {selectedProduct.name}
@@ -1209,11 +1214,14 @@ const deliveryAddressForQuote = deliveryAddress;
                   </div>
                 ))}
               </div>
-              <dl className="mt-4 space-y-2 border-t border-surface-container-high pt-4 font-sans text-sm font-bold text-on-surface-variant">
-                <div className="flex justify-between gap-3"><dt>Subtotal</dt><dd className="text-primary">{formatRegionCurrency(cartTotal, store.currency)}</dd></div>
+              <div className="mt-4 border-t border-surface-container-high pt-4">
+                <dl className="space-y-2 font-sans text-sm font-bold text-on-surface-variant">
+                <div className="flex justify-between gap-3"><dt>Items subtotal</dt><dd className="text-primary">{formatRegionCurrency(checkoutMerchandiseSubtotal, store.currency)}</dd></div>
                 {fulfilmentMethod === 'delivery' && <div className="flex justify-between gap-3"><dt>Delivery Fee</dt><dd className="text-primary">{deliveryQuoteHasSufficientLifetime ? formatRegionCurrency(customerDeliveryFee, store.currency) : lastResolvedDeliveryFee !== null ? `${formatRegionCurrency(lastResolvedDeliveryFee, store.currency)} · refreshing` : 'Calculating…'}</dd></div>}
                 <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold text-primary"><dt>Total</dt><dd>{fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Pending delivery fee' : formatRegionCurrency(checkoutTotal, store.currency)}</dd></div>
-              </dl>
+                </dl>
+              </div>
+              </section>
 
               <form id="store-checkout-form" onSubmit={startPayment} className="mt-5 flex flex-col gap-5 pb-28">
                 {paymentMethods.length === 1 ? (
