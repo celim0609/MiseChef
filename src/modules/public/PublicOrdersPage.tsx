@@ -81,7 +81,10 @@ export default function PublicOrdersPage({ currentUser }: { currentUser: User | 
                 {order.items.length > 0 ? (
                   <div className="mt-3 space-y-4">{order.items.map((item, itemIndex) => (
                     <div key={`${order.orderNumber}-${itemIndex}`}>
-                      <p className="font-sans text-sm font-extrabold text-primary">{item.quantity} × {item.productName}</p>
+                      <div className="flex justify-between gap-3">
+                        <p className="font-sans text-sm font-extrabold text-primary">{item.quantity} × {item.productName}</p>
+                        {typeof item.lineTotal === 'number' && <p className="shrink-0 font-sans text-sm font-extrabold text-primary">{formatRegionCurrency(item.lineTotal, order.currency)}</p>}
+                      </div>
                       {item.setSelections.map((selection, selectionIndex) => (
                         <p key={`${order.orderNumber}-set-${itemIndex}-${selectionIndex}`} className="mt-1 font-sans text-xs font-bold text-on-surface-variant">{selection.groupName && `${selection.groupName}: `}{selection.productName}</p>
                       ))}
@@ -95,10 +98,14 @@ export default function PublicOrdersPage({ currentUser }: { currentUser: User | 
                 )}
                 {order.remarks && <p className="mt-4 rounded-xl bg-white px-3 py-2 font-sans text-xs font-bold text-on-surface-variant"><span className="font-extrabold text-primary">Remark:</span> {order.remarks}</p>}
               </section>
-              <dl className="mt-5 grid grid-cols-2 gap-4">
-                <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Total</dt><dd className="font-sans text-sm font-extrabold text-primary">{formatRegionCurrency(order.total, order.currency)}</dd></div>
-                <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Status</dt><dd className="font-sans text-sm font-extrabold text-primary">{getCustomerOrderStatus(order)}</dd></div>
+              {order.totals ? <dl aria-label={`Order total for ${order.orderNumber}`} className="mt-5 space-y-2 border-t border-surface-container-high pt-4 font-sans text-sm font-bold text-on-surface-variant">
+                <div className="flex justify-between gap-3"><dt>Items subtotal</dt><dd className="text-primary">{formatRegionCurrency(order.totals.merchandiseSubtotal, order.currency)}</dd></div>
+                {order.totals.discountTotal > 0 && <div className="flex justify-between gap-3"><dt>Discount</dt><dd className="text-primary">−{formatRegionCurrency(order.totals.discountTotal, order.currency)}</dd></div>}
+                {order.fulfilmentMethod === 'delivery' && <div className="flex justify-between gap-3"><dt>Delivery fee</dt><dd className="text-primary">{formatRegionCurrency(order.totals.deliveryFee, order.currency)}</dd></div>}
+                <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold text-primary"><dt>Total</dt><dd>{formatRegionCurrency(order.totals.grandTotal, order.currency)}</dd></div>
               </dl>
+              : <dl className="mt-5"><div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Total</dt><dd className="font-sans text-sm font-extrabold text-primary">{formatRegionCurrency(order.total, order.currency)}</dd></div></dl>}
+              <dl className="mt-4"><div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Status</dt><dd className="font-sans text-sm font-extrabold text-primary">{getCustomerOrderStatus(order)}</dd></div></dl>
             </article>
           ))}
         </section>

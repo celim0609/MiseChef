@@ -42,3 +42,14 @@ test('delivery quote expiry cannot overwrite an accepted payment session and ser
   assert.match(publicStorePage, /setLastResolvedDeliveryFee\(quote\.quote\.customerDeliveryFee\)/);
   assert.match(publicStorePage, /Pending delivery fee/);
 });
+
+test('checkout pricing summary uses the validated delivery quote rather than a second delivery calculation', () => {
+  assert.match(publicStorePage, /const checkoutMerchandiseSubtotal = deliveryQuoteHasSufficientLifetime/);
+  assert.match(publicStorePage, /deliveryQuote!\.merchandiseSubtotal/);
+  assert.match(publicStorePage, /const checkoutTotal = checkoutMerchandiseSubtotal \+ customerDeliveryFee/);
+  assert.match(publicStorePage, /Order Summary/);
+  assert.match(publicStorePage, /\{line\.quantity\} × \{set\?\.name \|\| product\?\.name\}/);
+  assert.match(publicStorePage, /Items subtotal/);
+  assert.match(publicStorePage, /Delivery Fee/);
+  assert.match(publicStorePage, /getPaymentActionLabel\(paymentMethodId\).*checkoutTotal/);
+});

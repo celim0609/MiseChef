@@ -117,6 +117,8 @@ test('customer listing is authenticated, owner-scoped, newest-first and sanitize
     { id: 'order-a-new', data: {
       customerUid: 'customer-a', orderNumber: 'MC-A-NEW', createdAt: '2026-08-29T01:00:00.000Z',
       storeName: 'Store A', itemCount: 2, total: 20, currency: 'MYR', status: 'Pending Verification', fulfilmentStatus: 'New',
+      fulfilmentMethod: 'delivery',
+      totals: { merchandiseSubtotal: 16, discountTotal: 0, discountedMerchandiseTotal: 16, deliveryFee: 4, grandTotal: 20, currency: 'MYR' },
       payment: { status: 'pending_verification' }, groupOrder: { id: 'group-a', name: 'Office Lunch', hostId: 'host-a' },
       notes: 'Less spicy',
       items: [
@@ -135,7 +137,7 @@ test('customer listing is authenticated, owner-scoped, newest-first and sanitize
           },
           selectedOptions: [{ groupId: 'spice', groupName: 'Spice', optionId: 'private-option-id', optionName: 'Mild' }]
         },
-        { productId: 'private-kuih-id', productName: 'Kuih', quantity: 1, selectedOptions: [] }
+        { productId: 'private-kuih-id', productName: 'Kuih', quantity: 1, lineTotal: 4, selectedOptions: [] }
       ]
     } },
     { id: 'order-b', data: {
@@ -149,21 +151,27 @@ test('customer listing is authenticated, owner-scoped, newest-first and sanitize
   const result = await listCustomerOrders({ db, uid: 'customer-a' });
   assert.deepEqual(result.orders.map(order => order.orderNumber), ['MC-A-NEW', 'MC-A-OLD']);
   assert.equal(result.orders[0].groupName, 'Office Lunch');
+  assert.deepEqual(result.orders[0].totals, {
+    merchandiseSubtotal: 16, discountTotal: 0, discountedMerchandiseTotal: 16,
+    deliveryFee: 4, grandTotal: 20, currency: 'MYR'
+  });
+  assert.equal(result.orders[0].fulfilmentMethod, 'delivery');
   assert.deepEqual(Object.keys(result.orders[0]).sort(), [
-    'currency', 'fulfilmentStatus', 'groupName', 'itemCount', 'items', 'orderDate', 'orderNumber',
-    'orderStatus', 'paymentStatus', 'remarks', 'storeName', 'total'
+    'currency', 'fulfilmentMethod', 'fulfilmentStatus', 'groupName', 'itemCount', 'items', 'orderDate', 'orderNumber',
+    'orderStatus', 'paymentStatus', 'remarks', 'storeName', 'total', 'totals'
   ]);
   assert.deepEqual(result.orders[0].items, [
     {
       productName: 'Nasi Lemak Set',
       quantity: 1,
+      lineTotal: 12,
       setSelections: [
         { groupName: 'Main', productName: 'Nasi Lemak' },
         { groupName: 'Drink', productName: 'Teh-O Hot' }
       ],
       selectedOptions: [{ groupName: 'Spice', optionName: 'Mild' }]
     },
-    { productName: 'Kuih', quantity: 1, setSelections: [], selectedOptions: [] }
+    { productName: 'Kuih', quantity: 1, lineTotal: 4, setSelections: [], selectedOptions: [] }
   ]);
   assert.equal(result.orders[0].remarks, 'Less spicy');
   assert.deepEqual(result.orders[1].items, []);

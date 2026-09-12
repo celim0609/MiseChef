@@ -55,6 +55,10 @@ test('My Orders renders each owned order item snapshot without mixing cards', ()
   assert.match(ordersPage, /<article key=\{order\.orderNumber\}/);
   assert.match(ordersPage, /order\.items\.map\(\(item, itemIndex\)/);
   assert.match(ordersPage, /\{item\.quantity\} × \{item\.productName\}/);
+  assert.match(ordersPage, /formatRegionCurrency\(item\.lineTotal, order\.currency\)/);
+  assert.match(ordersPage, /Items subtotal/);
+  assert.match(ordersPage, /order\.totals\.deliveryFee/);
+  assert.match(ordersPage, /order\.totals\.grandTotal/);
   assert.match(ordersPage, /item\.setSelections\.map/);
   assert.match(ordersPage, /selection\.groupName/);
   assert.match(ordersPage, /selection\.productName/);
@@ -68,7 +72,7 @@ test('My Orders renders each owned order item snapshot without mixing cards', ()
   assert.doesNotMatch(ordersPage, /replaceAll\('_', ' '\)|order\.fulfilmentStatus \|\| order\.orderStatus/);
   assert.match(customerBackend, /items: \(Array\.isArray\(data\.items\)/);
   assert.match(customerBackend, /remarks: readString\(data\.notes\)/);
-  assert.doesNotMatch(customerBackend, /productId:|setId:|optionId:|lineTotal:|receiptPath:/);
+  assert.doesNotMatch(customerBackend, /productId:|setId:|optionId:|receiptPath:/);
 });
 
 test('customer query has its exact index while direct Store order reads remain role-gated', () => {
