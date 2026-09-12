@@ -697,7 +697,7 @@ const deliveryAddressForQuote = deliveryAddress;
         pickupDate,
         pickupSession,
         pickupLocationId,
-        ...(fulfilmentMethod === 'delivery' && deliveryQuote ? { deliveryQuoteId: deliveryQuote.quote.quotationId, fulfilmentMode: deliveryMode, ...(deliveryMode === 'preorder' ? { deliveryDate, deliverySession } : {}), destination: { formattedAddress: deliveryAddressForQuote, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions: deliveryRemarks } } : {}),
+        ...(fulfilmentMethod === 'delivery' && deliveryQuote ? { deliveryQuoteId: deliveryQuote.quote.quotationId, fulfilmentMode: deliveryMode, ...(deliveryMode === 'preorder' ? { deliveryDate, deliverySession } : {}), destination: { formattedAddress: deliveryQuote.destination.address, latitude: deliveryQuote.destination.latitude, longitude: deliveryQuote.destination.longitude, deliveryInstructions: deliveryRemarks } } : {}),
         notes,
         selections: cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({
           productId,
@@ -748,7 +748,7 @@ const deliveryAddressForQuote = deliveryAddress;
       // The server deliberately rejects quotes that are too close to expiry.
       // Keep the cart and selected address, then recover by refreshing the
       // quote instead of leaving a pending merchandise-only checkout.
-      if (fulfilmentMethod === 'delivery' && error instanceof Error && (error.message.includes('Refresh your delivery quote before checkout.') || error.message === 'Refreshing delivery fee…')) {
+      if (fulfilmentMethod === 'delivery' && error instanceof Error && (error.message.includes('Refresh your delivery quote before checkout.') || error.message.includes('Delivery quote no longer matches the selected address.') || error.message === 'Refreshing delivery fee…')) {
         if (!isCalculatingDelivery) {
           deliveryQuoteRefreshAttemptsRef.current = 0;
           setDeliveryQuote(null);

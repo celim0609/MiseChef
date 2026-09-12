@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { sameDeliveryCoordinates } from './storeDelivery.js';
 
 const source = readFileSync(new URL('./storeDelivery.js', import.meta.url), 'utf8');
 const payments = readFileSync(new URL('./storePayments.js', import.meta.url), 'utf8');
@@ -15,6 +16,15 @@ test('delivery checkout revalidates the provider quote, expiry, route, cart, and
   assert.match(source, /DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS = 5_000/);
   assert.match(payments, /minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS/);
   assert.match(source, /minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS/);
+  assert.match(source, /sameDeliveryCoordinates\(dropoff\.coordinates\?\.lat, destination\.latitude\)/);
+  assert.match(source, /typeof value === 'number'/);
+});
+test('provider numeric coordinates and equivalent customer strings do not create a false destination mismatch', () => {
+  assert.match(source, /String\(Number\(raw\)\)/);
+  assert.match(source, /sameDeliveryCoordinates/);
+  assert.equal(sameDeliveryCoordinates(4.6569255, '4.65692550'), true);
+  assert.equal(sameDeliveryCoordinates(101.1172608, '101.1172608'), true);
+  assert.equal(sameDeliveryCoordinates(4.6569255, '4.6569256'), false);
 });
 test('delivery payment cannot be created without a quote snapshot while pickup remains independent', () => {
   assert.match(payments, /A valid delivery quote is required before payment/);
