@@ -470,6 +470,53 @@ export const toPublicGroupOrderContext = order => {
   };
 };
 
+// This is deliberately a projection of the already-persisted order snapshot.
+// It is used only by the intermediate customer payment screen; it never
+// recalculates prices or exposes internal product, set, or option identifiers.
+export const toPublicPaymentOrderSummary = order => {
+  const totals = order?.totals;
+  const fulfilmentMethod = readString(order?.fulfilmentMethod);
+  const requiredTotals = ['merchandiseSubtotal', 'discountTotal', 'discountedMerchandiseTotal', 'deliveryFee', 'grandTotal'];
+  if (!['pickup', 'delivery'].includes(fulfilmentMethod)
+    || !Array.isArray(order?.items) || order.items.length === 0
+    || !requiredTotals.every(key => Number.isFinite(totals?.[key]) && totals[key] >= 0)
+    || !readString(totals?.currency)) return null;
+  const items = order.items.map(item => {
+    const quantity = Number(item?.quantity);
+    const lineTotal = Number(item?.lineTotal);
+    if (!readString(item?.productName) || !Number.isInteger(quantity) || quantity < 1 || !Number.isFinite(lineTotal) || lineTotal < 0) return null;
+    const selectedOptions = Array.isArray(item.selectedOptions) ? item.selectedOptions.flatMap(option => (
+      readString(option?.groupName) && readString(option?.optionName) && Number.isFinite(option?.priceAdjustment)
+        ? [{ groupName: readString(option.groupName), optionName: readString(option.optionName), priceAdjustment: option.priceAdjustment }]
+        : []
+    )) : [];
+    const selectedGroups = Array.isArray(item?.setSnapshot?.selectedGroups) ? item.setSnapshot.selectedGroups.flatMap(selection => (
+      readString(selection?.groupName) && readString(selection?.productName) && Number.isFinite(selection?.priceAdjustment)
+        ? [{ groupName: readString(selection.groupName), productName: readString(selection.productName), priceAdjustment: selection.priceAdjustment }]
+        : []
+    )) : [];
+    return {
+      productName: readString(item.productName), quantity, lineTotal, selectedOptions,
+      ...(readString(item?.setSnapshot?.setName) && selectedGroups.length
+        ? { setSnapshot: { setName: readString(item.setSnapshot.setName), selectedGroups } }
+        : {})
+    };
+  });
+  if (items.some(item => item === null)) return null;
+  return {
+    fulfilmentMethod,
+    items,
+    totals: {
+      merchandiseSubtotal: totals.merchandiseSubtotal,
+      discountTotal: totals.discountTotal,
+      discountedMerchandiseTotal: totals.discountedMerchandiseTotal,
+      deliveryFee: totals.deliveryFee,
+      grandTotal: totals.grandTotal,
+      currency: readString(totals.currency)
+    }
+  };
+};
+
 export const toPublicOrderResult = order => ({
   orderNumber: readString(order.orderNumber),
   pickupCode: readString(order.pickupCode),
