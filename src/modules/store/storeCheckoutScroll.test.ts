@@ -22,29 +22,28 @@ test('checkout scrolling is keyed only to intentional stage transitions', () => 
   assert.equal((publicStorePage.match(/window\.cancelAnimationFrame/g) || []).length, 2);
 });
 
-test('delivery quote expiry cannot overwrite an accepted payment session and server quote refresh errors recover safely', () => {
-  assert.match(publicStorePage, /const checkoutTransitionRef = useRef\(false\)/);
-  assert.match(publicStorePage, /checkoutTransitionRef\.current = true/);
-  assert.match(publicStorePage, /if \(checkoutTransitionRef\.current\) return;/);
+test('delivery quote is refreshed only when payment begins and never by an idle expiry timer', () => {
   assert.match(publicStorePage, /Refresh your delivery quote before checkout\./);
-  assert.match(publicStorePage, /setDeliveryQuote\(null\);\s*setLastResolvedDeliveryFee\(null\);\s*void requestDeliveryQuote\(\);/);
   assert.match(publicStorePage, /const checkoutAttemptIdRef = useRef\(crypto\.randomUUID\(\)\)/);
   assert.match(publicStorePage, /checkoutAttemptId: checkoutAttemptIdRef\.current/);
   assert.match(publicStorePage, /disabled=\{isPlacingOrder \|\| !deliveryQuoteReady\}/);
   assert.match(publicStorePage, /deliveryQuoteHasSufficientLifetime/);
-  assert.match(publicStorePage, /scheduleDeliveryQuoteRefresh/);
-  assert.match(publicStorePage, /requestDeliveryQuote\(\{ refresh: true \}\)/);
-  assert.match(publicStorePage, /Refreshing delivery fee…/);
-  assert.match(publicStorePage, /deliveryQuoteId: deliveryQuote\.quote\.quotationId/);
-  assert.match(publicStorePage, /formattedAddress: deliveryQuote\.destination\.address/);
-  assert.match(publicStorePage, /latitude: deliveryQuote\.destination\.latitude/);
-  assert.match(publicStorePage, /Delivery quote no longer matches the selected address/);
-  assert.match(publicStorePage, /setLastResolvedDeliveryFee\(quote\.quote\.customerDeliveryFee\)/);
-  assert.match(publicStorePage, /Pending delivery fee/);
+  assert.match(publicStorePage, /if \(!deliveryQuoteHasSufficientLifetime\) \{\s*const refreshed = await refreshDeliveryQuoteForPayment\(\)/);
+  assert.match(publicStorePage, /const refreshDeliveryQuoteForPayment/);
+  assert.match(publicStorePage, /customerDeliveryFeeChanged/);
+  assert.match(publicStorePage, /Confirm updated total/);
+  assert.doesNotMatch(publicStorePage, /scheduleDeliveryQuoteRefresh|deliveryQuoteRefreshAttemptsRef|checkoutTransitionRef/);
+});
+
+test('a re-quote keeps a stable fee eligible for one payment retry and requires confirmation only for a changed fee', () => {
+  assert.match(publicStorePage, /let refreshedForPayment = false/);
+  assert.match(publicStorePage, /if \(fulfilmentMethod !== 'delivery' \|\| refreshedForPayment \|\| !message\.includes\('Refresh your delivery quote before checkout\.'\)\) throw error/);
+  assert.match(publicStorePage, /setDeliveryPriceConfirmation\(\{ previousFee: previousQuote\.quote\.customerDeliveryFee, currentFee: refreshedQuote\.quote\.customerDeliveryFee \}\)/);
+  assert.match(publicStorePage, /if \(previousQuote\) setDeliveryQuote\(previousQuote\)/);
 });
 
 test('checkout pricing summary uses the validated delivery quote rather than a second delivery calculation', () => {
-  assert.match(publicStorePage, /const checkoutMerchandiseSubtotal = deliveryQuoteHasSufficientLifetime/);
+  assert.match(publicStorePage, /const checkoutMerchandiseSubtotal = hasDisplayableDeliveryQuote/);
   assert.match(publicStorePage, /deliveryQuote!\.merchandiseSubtotal/);
   assert.match(publicStorePage, /const checkoutTotal = checkoutMerchandiseSubtotal \+ customerDeliveryFee/);
   assert.match(publicStorePage, /Order Summary/);

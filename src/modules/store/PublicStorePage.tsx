@@ -24,7 +24,7 @@ import StorePaymentCheckout from './StorePaymentCheckout';
 import { customerContactService, storePaymentService, storeService } from './services';
 import { storeDeliveryService, type DeliveryQuote } from './services/deliveryService';
 import { getSelectedPlace, searchMalaysiaPlaces, type PlaceSuggestion } from './services/googlePlaces';
-import { quoteHasSufficientLifetime, scheduleDeliveryQuoteRefresh } from './deliveryQuoteFreshness';
+import { customerDeliveryFeeChanged, quoteHasSufficientLifetime } from './deliveryQuoteFreshness';
 import {
   calculateStoreOptionAdjustedPrice,
   formatStoreOptionSelectionRequirement,
@@ -161,9 +161,9 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const [isSearchingDeliveryAddress, setIsSearchingDeliveryAddress] = useState(false);
   const [isSelectingDeliveryAddress, setIsSelectingDeliveryAddress] = useState(false);
   const [deliveryQuote, setDeliveryQuote] = useState<DeliveryQuote | null>(null);
-  const [lastResolvedDeliveryFee, setLastResolvedDeliveryFee] = useState<number | null>(null);
   const [isCalculatingDelivery, setIsCalculatingDelivery] = useState(false);
   const [isRefreshingDeliveryQuote, setIsRefreshingDeliveryQuote] = useState(false);
+  const [deliveryPriceConfirmation, setDeliveryPriceConfirmation] = useState<{ previousFee: number; currentFee: number } | null>(null);
   const [notes, setNotes] = useState('');
   const [paymentMethodId, setPaymentMethodId] = useState<StorePaymentMethodId>('stripe');
   const [checkoutError, setCheckoutError] = useState('');
@@ -181,11 +181,7 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const storeDraftKey = `${STORE_DRAFT_KEY_PREFIX}${slug}`;
   const deliveryPlacesSessionRef = useRef(crypto.randomUUID());
   const deliveryQuoteRequestRef = useRef(0);
-  const deliveryQuoteRefreshAttemptsRef = useRef(0);
   const checkoutAttemptIdRef = useRef(crypto.randomUUID());
-  // Once the server has accepted checkout, a client-side quote timer must not
-  // clear the amount/session that the server has already snapshotted.
-  const checkoutTransitionRef = useRef(false);
 
 const deliveryAddressForQuote = deliveryAddress;
   const deliveryRemarks = [
@@ -578,17 +574,20 @@ const deliveryAddressForQuote = deliveryAddress;
 
   const cartTotal = cartDetails.reduce((sum, item) => sum + item.lineTotal, 0);
   const deliveryQuoteMinimumValidityMs = Math.max(0, Number(deliveryQuote?.quote.minimumValidityMs || 5_000));
-  const deliveryQuoteHasSufficientLifetime = Boolean(
+  const hasDisplayableDeliveryQuote = Boolean(
     deliveryQuote?.quote.quotationId
       && Number.isFinite(deliveryQuote.quote.customerDeliveryFee)
-      && quoteHasSufficientLifetime({ expiresAt: deliveryQuote.quote.expiresAt, minimumValidityMs: deliveryQuoteMinimumValidityMs })
   );
-  const customerDeliveryFee = deliveryQuoteHasSufficientLifetime ? deliveryQuote!.quote.customerDeliveryFee : 0;
-  const checkoutMerchandiseSubtotal = deliveryQuoteHasSufficientLifetime
+  const deliveryQuoteHasSufficientLifetime = Boolean(
+    hasDisplayableDeliveryQuote
+      && quoteHasSufficientLifetime({ expiresAt: deliveryQuote!.quote.expiresAt, minimumValidityMs: deliveryQuoteMinimumValidityMs })
+  );
+  const customerDeliveryFee = hasDisplayableDeliveryQuote ? deliveryQuote!.quote.customerDeliveryFee : 0;
+  const checkoutMerchandiseSubtotal = hasDisplayableDeliveryQuote
     ? deliveryQuote!.merchandiseSubtotal
     : cartTotal;
   const checkoutTotal = checkoutMerchandiseSubtotal + customerDeliveryFee;
-  const deliveryQuoteReady = fulfilmentMethod !== 'delivery' || deliveryQuoteHasSufficientLifetime;
+  const deliveryQuoteReady = fulfilmentMethod !== 'delivery' || (hasDisplayableDeliveryQuote && !isRefreshingDeliveryQuote);
   const cartCount = cart.reduce((sum, line) => sum + line.quantity, 0);
   const paymentMethods = data?.store.paymentMethods.filter(
     method => method.enabled && method.id !== 'cash_on_pickup'
@@ -684,13 +683,24 @@ const deliveryAddressForQuote = deliveryAddress;
     event.preventDefault();
     if (!data || isPlacingOrder) return;
     setCheckoutError('');
-    checkoutTransitionRef.current = true;
     setIsPlacingOrder(true);
     try {
-      if (fulfilmentMethod === 'delivery' && !deliveryQuoteReady) {
-        throw new Error('Refreshing delivery fee…');
+      let quoteForPayment = deliveryQuote;
+      let refreshedForPayment = false;
+      if (fulfilmentMethod === 'delivery') {
+        if (!hasDisplayableDeliveryQuote) throw new Error('A delivery fee is required before payment.');
+        if (!deliveryQuoteHasSufficientLifetime) {
+          const refreshed = await refreshDeliveryQuoteForPayment();
+          if (!refreshed) return;
+          quoteForPayment = refreshed;
+          refreshedForPayment = true;
+        }
+        if (deliveryPriceConfirmation) setDeliveryPriceConfirmation(null);
       }
-      const session = await storePaymentService.createPayment(slug, {
+      let session: StorePaymentSession;
+      while (true) {
+        try {
+          session = await storePaymentService.createPayment(slug, {
         fulfilmentMethod,
         paymentMethodId,
         customerName,
@@ -700,7 +710,7 @@ const deliveryAddressForQuote = deliveryAddress;
         pickupDate,
         pickupSession,
         pickupLocationId,
-        ...(fulfilmentMethod === 'delivery' && deliveryQuote ? { deliveryQuoteId: deliveryQuote.quote.quotationId, fulfilmentMode: deliveryMode, ...(deliveryMode === 'preorder' ? { deliveryDate, deliverySession } : {}), destination: { formattedAddress: deliveryQuote.destination.address, latitude: deliveryQuote.destination.latitude, longitude: deliveryQuote.destination.longitude, deliveryInstructions: deliveryRemarks } } : {}),
+        ...(fulfilmentMethod === 'delivery' && quoteForPayment ? { deliveryQuoteId: quoteForPayment.quote.quotationId, fulfilmentMode: deliveryMode, ...(deliveryMode === 'preorder' ? { deliveryDate, deliverySession } : {}), destination: { formattedAddress: quoteForPayment.destination.address, latitude: quoteForPayment.destination.latitude, longitude: quoteForPayment.destination.longitude, deliveryInstructions: deliveryRemarks } } : {}),
         notes,
         selections: cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({
           productId,
@@ -710,7 +720,17 @@ const deliveryAddressForQuote = deliveryAddress;
           ...(selectedSetItems ? { selectedSetItems } : {})
         })),
         ...(groupOrder ? { groupShareCode: groupOrder.shareCode } : {})
-      }, paymentReturnUrl);
+          }, paymentReturnUrl);
+          break;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : '';
+          if (fulfilmentMethod !== 'delivery' || refreshedForPayment || !message.includes('Refresh your delivery quote before checkout.')) throw error;
+          const refreshed = await refreshDeliveryQuoteForPayment();
+          if (!refreshed) return;
+          quoteForPayment = refreshed;
+          refreshedForPayment = true;
+        }
+      }
       if (currentUser) {
         await customerContactService.save(currentUser.uid, {
           name: customerName,
@@ -747,77 +767,52 @@ const deliveryAddressForQuote = deliveryAddress;
         setPaymentSession(session);
       }
     } catch (error) {
-      checkoutTransitionRef.current = false;
-      // The server deliberately rejects quotes that are too close to expiry.
-      // Keep the cart and selected address, then recover by refreshing the
-      // quote instead of leaving a pending merchandise-only checkout.
-      if (fulfilmentMethod === 'delivery' && error instanceof Error && (error.message.includes('Refresh your delivery quote before checkout.') || error.message.includes('Delivery quote no longer matches the selected address.') || error.message === 'Refreshing delivery fee…')) {
-        if (!isCalculatingDelivery) {
-          deliveryQuoteRefreshAttemptsRef.current = 0;
-          setDeliveryQuote(null);
-          void requestDeliveryQuote({ refresh: true });
-        }
-      } else {
-        setCheckoutError(error instanceof Error ? error.message : 'Unable to start secure payment. Please try again.');
-      }
+      setCheckoutError(error instanceof Error ? error.message : 'Unable to start secure payment. Please try again.');
     } finally {
       setIsPlacingOrder(false);
     }
   };
 
-  const requestDeliveryQuote = async ({ refresh = false }: { refresh?: boolean } = {}) => {
-    if (!deliveryAddress || !deliveryLatitude || !deliveryLongitude || (deliveryMode === 'preorder' && (!deliveryDate || !deliverySession))) return;
+  const requestDeliveryQuote = async ({ refresh = false }: { refresh?: boolean } = {}): Promise<DeliveryQuote | null> => {
+    if (!deliveryAddress || !deliveryLatitude || !deliveryLongitude || (deliveryMode === 'preorder' && (!deliveryDate || !deliverySession))) return null;
     const requestId = ++deliveryQuoteRequestRef.current;
     setIsCalculatingDelivery(true);
     setIsRefreshingDeliveryQuote(refresh);
-    if (!refresh) setCheckoutError('');
+    setCheckoutError('');
     try {
       const quote = await storeDeliveryService.quote(slug, cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({ productId, ...(setId ? { setId } : {}), quantity, selectedOptions, ...(selectedSetItems ? { selectedSetItems } : {}) })), { formattedAddress: deliveryAddressForQuote, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions: deliveryRemarks }, deliveryDate, deliverySession, deliveryMode);
       if (requestId === deliveryQuoteRequestRef.current) {
         setDeliveryQuote(quote);
-        setLastResolvedDeliveryFee(quote.quote.customerDeliveryFee);
+        return quote;
       }
-    } catch (error) { if (requestId === deliveryQuoteRequestRef.current) { setDeliveryQuote(null); setCheckoutError(error instanceof Error ? error.message : 'Unable to calculate delivery.'); } } finally { if (requestId === deliveryQuoteRequestRef.current) { setIsCalculatingDelivery(false); setIsRefreshingDeliveryQuote(false); } }
+      return null;
+    } catch (error) { if (requestId === deliveryQuoteRequestRef.current) { if (!refresh) setDeliveryQuote(null); setCheckoutError(error instanceof Error ? error.message : 'Unable to calculate delivery.'); } return null; } finally { if (requestId === deliveryQuoteRequestRef.current) { setIsCalculatingDelivery(false); setIsRefreshingDeliveryQuote(false); } }
+  };
+
+  const refreshDeliveryQuoteForPayment = async (): Promise<DeliveryQuote | null> => {
+    const previousQuote = deliveryQuote;
+    const refreshedQuote = await requestDeliveryQuote({ refresh: true });
+    if (!refreshedQuote || !quoteHasSufficientLifetime({ expiresAt: refreshedQuote.quote.expiresAt, minimumValidityMs: Math.max(0, Number(refreshedQuote.quote.minimumValidityMs || 5_000)) })) {
+      if (previousQuote) setDeliveryQuote(previousQuote);
+      setCheckoutError('Delivery fee could not be refreshed. Please try again.');
+      return null;
+    }
+    if (previousQuote && customerDeliveryFeeChanged(previousQuote.quote.customerDeliveryFee, refreshedQuote.quote.customerDeliveryFee)) {
+      setDeliveryPriceConfirmation({ previousFee: previousQuote.quote.customerDeliveryFee, currentFee: refreshedQuote.quote.customerDeliveryFee });
+      return null;
+    }
+    setDeliveryPriceConfirmation(null);
+    return refreshedQuote;
   };
 
   useEffect(() => {
     if (fulfilmentMethod !== 'delivery' || !deliveryAddress || !deliveryLatitude || !deliveryLongitude || (deliveryMode === 'preorder' && (!deliveryDate || !deliverySession))) return;
-    deliveryQuoteRefreshAttemptsRef.current = 0;
     setDeliveryQuote(null);
-    setLastResolvedDeliveryFee(null);
+    setDeliveryPriceConfirmation(null);
     void requestDeliveryQuote();
   // Provider quotations do not include the preorder slot. Unit and instructions are intentionally excluded.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fulfilmentMethod, deliveryMode, deliveryAddress, deliveryLatitude, deliveryLongitude, cart]);
-
-  useEffect(() => {
-    const timeout = scheduleDeliveryQuoteRefresh({
-      expiresAt: deliveryQuote?.quote.expiresAt || '',
-      minimumValidityMs: deliveryQuoteMinimumValidityMs,
-      schedule: window.setTimeout,
-      onRefresh: () => {
-      // A valid payment session has already been server-created from an
-      // immutable delivery snapshot. Do not let this browser-only timer
-      // overwrite that payment stage with a stale quote error.
-      if (checkoutTransitionRef.current) return;
-      // Preserve the selected destination and refresh once automatically. A
-      // bounded retry prevents a provider returning immediately-expired quotes
-      // from creating a request loop.
-      if (deliveryQuoteRefreshAttemptsRef.current >= 2) {
-        setDeliveryQuote(null);
-        setCheckoutError('Delivery quote expired. Please try again shortly.');
-        return;
-      }
-      deliveryQuoteRefreshAttemptsRef.current += 1;
-      setDeliveryQuote(null);
-      setIsCalculatingDelivery(true);
-      setCheckoutError('');
-      setIsRefreshingDeliveryQuote(true);
-      void requestDeliveryQuote({ refresh: true });
-      }
-    });
-    return () => { if (timeout !== null) window.clearTimeout(timeout); };
-  }, [deliveryQuote?.quote.expiresAt, deliveryQuoteMinimumValidityMs]);
 
   const selectDeliveryAddress = async (suggestion: PlaceSuggestion) => {
     deliveryQuoteRequestRef.current += 1;
@@ -831,7 +826,6 @@ const deliveryAddressForQuote = deliveryAddress;
       setDeliveryLongitude(selected.longitude);
       setDeliverySuggestions([]);
       setDeliveryQuote(null);
-      setLastResolvedDeliveryFee(null);
       deliveryPlacesSessionRef.current = crypto.randomUUID();
     } catch (error) {
       setDeliveryAddressError(error instanceof Error ? error.message : 'Unable to select this address.');
@@ -1217,7 +1211,7 @@ const deliveryAddressForQuote = deliveryAddress;
               <div className="mt-4 border-t border-surface-container-high pt-4">
                 <dl className="space-y-2 font-sans text-sm font-bold text-on-surface-variant">
                 <div className="flex justify-between gap-3"><dt>Items subtotal</dt><dd className="text-primary">{formatRegionCurrency(checkoutMerchandiseSubtotal, store.currency)}</dd></div>
-                {fulfilmentMethod === 'delivery' && <div className="flex justify-between gap-3"><dt>Delivery Fee</dt><dd className="text-primary">{deliveryQuoteHasSufficientLifetime ? formatRegionCurrency(customerDeliveryFee, store.currency) : lastResolvedDeliveryFee !== null ? `${formatRegionCurrency(lastResolvedDeliveryFee, store.currency)} · refreshing` : 'Calculating…'}</dd></div>}
+                {fulfilmentMethod === 'delivery' && <div className="flex justify-between gap-3"><dt>Delivery Fee</dt><dd className="text-primary">{hasDisplayableDeliveryQuote ? formatRegionCurrency(customerDeliveryFee, store.currency) : 'Calculating…'}</dd></div>}
                 <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold text-primary"><dt>Total</dt><dd>{fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Pending delivery fee' : formatRegionCurrency(checkoutTotal, store.currency)}</dd></div>
                 </dl>
               </div>
@@ -1272,21 +1266,21 @@ const deliveryAddressForQuote = deliveryAddress;
                 <section aria-labelledby="fulfilment-heading" className="order-1">
                   <h3 id="fulfilment-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Fulfilment</h3>
                   <div className="mt-2 flex gap-2">
-                    <button type="button" onClick={() => { setFulfilmentMethod('pickup'); setDeliveryQuote(null); }} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${fulfilmentMethod === 'pickup' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Pickup</button>
-                    {store.delivery?.enabled && (store.delivery.fulfilment.preOrder.enabled || store.delivery.fulfilment.instant.enabled) && !groupOrder && <button type="button" onClick={() => { setFulfilmentMethod('delivery'); setDeliveryMode(store.delivery?.fulfilment.instant.enabled && !store.delivery?.fulfilment.preOrder.enabled ? 'instant' : 'preorder'); }} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${fulfilmentMethod === 'delivery' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Delivery</button>}
+                    <button type="button" onClick={() => { setFulfilmentMethod('pickup'); setDeliveryQuote(null); setDeliveryPriceConfirmation(null); }} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${fulfilmentMethod === 'pickup' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Pickup</button>
+                    {store.delivery?.enabled && (store.delivery.fulfilment.preOrder.enabled || store.delivery.fulfilment.instant.enabled) && !groupOrder && <button type="button" onClick={() => { setFulfilmentMethod('delivery'); setDeliveryMode(store.delivery?.fulfilment.instant.enabled && !store.delivery?.fulfilment.preOrder.enabled ? 'instant' : 'preorder'); setDeliveryPriceConfirmation(null); }} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${fulfilmentMethod === 'delivery' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Delivery</button>}
                   </div>
                 </section>
 
                 {fulfilmentMethod === 'delivery' && <section aria-labelledby="delivery-details-heading" className="order-2">
                   <h3 id="delivery-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Delivery Details</h3>
                   <div className="mt-2 space-y-2">
-                    {store.delivery.fulfilment.preOrder.enabled && store.delivery.fulfilment.instant.enabled && <div className="flex gap-2"><button type="button" onClick={() => { setDeliveryMode('instant'); setDeliveryQuote(null); }} className={`rounded-xl px-4 py-2 text-sm font-bold ${deliveryMode === 'instant' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Deliver now</button><button type="button" onClick={() => { setDeliveryMode('preorder'); setDeliveryQuote(null); }} className={`rounded-xl px-4 py-2 text-sm font-bold ${deliveryMode === 'preorder' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Pre-order</button></div>}
+                    {store.delivery.fulfilment.preOrder.enabled && store.delivery.fulfilment.instant.enabled && <div className="flex gap-2"><button type="button" onClick={() => { setDeliveryMode('instant'); setDeliveryQuote(null); setDeliveryPriceConfirmation(null); }} className={`rounded-xl px-4 py-2 text-sm font-bold ${deliveryMode === 'instant' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Deliver now</button><button type="button" onClick={() => { setDeliveryMode('preorder'); setDeliveryQuote(null); setDeliveryPriceConfirmation(null); }} className={`rounded-xl px-4 py-2 text-sm font-bold ${deliveryMode === 'preorder' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Pre-order</button></div>}
                     {deliveryMode === 'preorder' && <><label className="block"><span className="font-sans text-xs font-extrabold text-primary">Delivery date</span><select aria-label="Delivery date" value={deliveryDate} onChange={event => setDeliveryDate(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">{getValidPickupDates({ ...store, orderDays: store.delivery.fulfilment.preOrder.orderDays, earliestPickupDays: store.delivery.fulfilment.preOrder.earliestDays, maximumAdvanceDays: store.delivery.fulfilment.preOrder.maximumAdvanceDays, unavailableDates: store.delivery.fulfilment.preOrder.unavailableDates }).map(date => <option key={date} value={date}>{formatPickupDateLabel(date, store.country)}</option>)}</select></label><label className="block"><span className="font-sans text-xs font-extrabold text-primary">Delivery session</span><select aria-label="Delivery session" value={deliverySession} onChange={event => setDeliverySession(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">{store.delivery.fulfilment.preOrder.sessions.map(session => <option key={session} value={session}>{session}</option>)}</select></label></>}
                     {store.delivery.subsidy.enabled && <p className="text-xs font-bold text-on-surface-variant">Spend {formatRegionCurrency(store.delivery.subsidy.minimumMerchandiseSpend, store.currency)} to enjoy delivery capped at {formatRegionCurrency(store.delivery.subsidy.maximumCustomerDeliveryCharge, store.currency)}.</p>}
                     <div className="relative">
                       <label className="block">
                         <span className="font-sans text-xs font-extrabold text-primary">Search delivery address</span>
-                        <input aria-label="Search delivery address" required autoComplete="off" placeholder="Search Malaysia addresses and places" value={deliveryAddressQuery} onChange={event => { deliveryQuoteRequestRef.current += 1; setDeliveryAddressQuery(event.target.value); setDeliveryAddress(''); setDeliveryLatitude(''); setDeliveryLongitude(''); setDeliveryQuote(null); }} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
+                        <input aria-label="Search delivery address" required autoComplete="off" placeholder="Search Malaysia addresses and places" value={deliveryAddressQuery} onChange={event => { deliveryQuoteRequestRef.current += 1; setDeliveryAddressQuery(event.target.value); setDeliveryAddress(''); setDeliveryLatitude(''); setDeliveryLongitude(''); setDeliveryQuote(null); setDeliveryPriceConfirmation(null); }} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
                       </label>
                       {(isSearchingDeliveryAddress || isSelectingDeliveryAddress) && <p className="mt-2 text-xs font-bold text-on-surface-variant">Searching addresses…</p>}
                       {deliverySuggestions.length > 0 && <div role="listbox" aria-label="Delivery address results" className="absolute z-10 mt-1 w-full overflow-hidden rounded-2xl border border-surface-container-high bg-white shadow-lg">
@@ -1301,8 +1295,9 @@ const deliveryAddressForQuote = deliveryAddress;
                     </div>
                     <input aria-label="Unit or floor" placeholder="Unit / Floor (optional)" value={deliveryUnit} onChange={event => setDeliveryUnit(event.target.value)} className="min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
                     <textarea aria-label="Delivery instructions" rows={2} placeholder="Delivery instructions (optional)" value={deliveryInstructions} onChange={event => setDeliveryInstructions(event.target.value)} className="w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
-                    {isCalculatingDelivery && <p className="text-sm font-bold text-on-surface-variant">{isRefreshingDeliveryQuote ? 'Refreshing delivery fee…' : 'Calculating delivery fee…'}</p>}
-                    {deliveryQuoteHasSufficientLifetime && <p className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-900">Delivery {formatRegionCurrency(customerDeliveryFee, store.currency)}</p>}
+                    {isCalculatingDelivery && <p className="text-sm font-bold text-on-surface-variant">{isRefreshingDeliveryQuote ? 'Checking delivery fee…' : 'Calculating delivery fee…'}</p>}
+                    {deliveryPriceConfirmation && <p className="rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-900">Delivery fee updated from {formatRegionCurrency(deliveryPriceConfirmation.previousFee, store.currency)} to {formatRegionCurrency(deliveryPriceConfirmation.currentFee, store.currency)}. Review the new total, then confirm payment.</p>}
+                    {hasDisplayableDeliveryQuote && <p className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-900">Delivery {formatRegionCurrency(customerDeliveryFee, store.currency)}</p>}
                   </div>
                 </section>}
 
@@ -1369,7 +1364,7 @@ const deliveryAddressForQuote = deliveryAddress;
               </form>
               <div className="sticky bottom-3 z-30 -mx-2 rounded-2xl bg-white/95 p-2 shadow-xl shadow-primary/10 backdrop-blur lg:bottom-4 lg:mx-0 lg:shadow-lg">
                 <button form="store-checkout-form" type="submit" disabled={isPlacingOrder || !deliveryQuoteReady} className="min-h-12 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary shadow-lg shadow-primary/20 disabled:opacity-50">
-                  {isPlacingOrder ? 'Placing Order…' : fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Calculating delivery fee…' : `${getPaymentActionLabel(paymentMethodId)} · ${formatRegionCurrency(checkoutTotal, store.currency)}`}
+                  {isPlacingOrder ? 'Placing Order…' : fulfilmentMethod === 'delivery' && isRefreshingDeliveryQuote ? 'Checking delivery fee…' : fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Calculating delivery fee…' : fulfilmentMethod === 'delivery' && deliveryPriceConfirmation ? `Confirm updated total · ${formatRegionCurrency(checkoutTotal, store.currency)}` : `${getPaymentActionLabel(paymentMethodId)} · ${formatRegionCurrency(checkoutTotal, store.currency)}`}
                 </button>
               </div>
             </>

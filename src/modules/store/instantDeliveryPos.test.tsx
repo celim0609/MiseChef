@@ -17,11 +17,11 @@ test('instant delivery POS keeps kitchen and delivery controls independent', () 
   assert.match(panel, /Merchant review required\. A replacement is never created automatically\./);
 });
 
-test('delivery quote expiry automatically re-quotes a retained address with a bounded retry', () => {
-  assert.match(checkout, /deliveryQuoteRefreshAttemptsRef/);
-  assert.match(checkout, /void requestDeliveryQuote\(\)/);
-  assert.match(checkout, /deliveryQuoteRefreshAttemptsRef\.current >= 2/);
-  assert.match(checkout, /setIsCalculatingDelivery\(true\)/);
+test('delivery quote expiry is refreshed only when the customer starts payment', () => {
+  assert.match(checkout, /const refreshDeliveryQuoteForPayment/);
+  assert.match(checkout, /if \(!deliveryQuoteHasSufficientLifetime\)/);
+  assert.match(checkout, /await refreshDeliveryQuoteForPayment\(\)/);
+  assert.doesNotMatch(checkout, /deliveryQuoteRefreshAttemptsRef|scheduleDeliveryQuoteRefresh/);
   assert.match(checkout, /disabled=\{isPlacingOrder \|\| !deliveryQuoteReady\}/);
 });
 
