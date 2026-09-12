@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { listCustomerOrders } from './customerOrders.js';
-import { buildPendingOrder, toPublicOrderResult } from './storePaymentsCore.js';
+import { buildPendingOrder, toPublicOrderResult, toPublicPaymentOrderSummary } from './storePaymentsCore.js';
 
 const functionsIndex = readFileSync(new URL('./index.js', import.meta.url), 'utf8');
+const paymentService = readFileSync(new URL('./storePayments.js', import.meta.url), 'utf8');
 
 const buildOrder = ({ customerUid = '', groupOrder = null, spoofedUid = '' } = {}) => buildPendingOrder({
   id: 'order-1',
@@ -104,6 +105,31 @@ test('public payment result carries only the exact persisted Group context for c
   assert.equal('groupOrder' in normal, false);
   assert.equal(JSON.stringify(grouped).includes('private-host-uid'), false);
   assert.equal(JSON.stringify(grouped).includes('private-share-code'), false);
+});
+
+test('intermediate payment summary projects only immutable order pricing and customer-facing item detail', () => {
+  const order = {
+    fulfilmentMethod: 'delivery',
+    items: [{
+      productId: 'private-product-id', productName: 'Testing', quantity: 1, lineTotal: 0.1,
+      selectedOptions: [{ groupId: 'private-option-id', groupName: 'Size', optionId: 'private-choice-id', optionName: 'Regular', priceAdjustment: 0 }],
+      setSnapshot: { setId: 'private-set-id', setName: 'Testing Set', selectedGroups: [{ groupId: 'private-group-id', groupName: 'Drink', productId: 'private-drink-id', productName: 'Tea', priceAdjustment: 0 }] }
+    }],
+    totals: { merchandiseSubtotal: 0.1, discountTotal: 0, discountedMerchandiseTotal: 0.1, deliveryFee: 4, grandTotal: 4.1, currency: 'MYR' }
+  };
+  const summary = toPublicPaymentOrderSummary(order);
+  assert.deepEqual(summary, {
+    fulfilmentMethod: 'delivery',
+    items: [{ productName: 'Testing', quantity: 1, lineTotal: 0.1, selectedOptions: [{ groupName: 'Size', optionName: 'Regular', priceAdjustment: 0 }], setSnapshot: { setName: 'Testing Set', selectedGroups: [{ groupName: 'Drink', productName: 'Tea', priceAdjustment: 0 }] } }],
+    totals: order.totals
+  });
+  assert.equal(JSON.stringify(summary).includes('private-'), false);
+  assert.equal(toPublicPaymentOrderSummary({ fulfilmentMethod: 'pickup', items: order.items }), null);
+});
+
+test('payment-session response includes the immutable order summary only when its snapshot is complete', () => {
+  assert.match(paymentService, /const orderSummary = toPublicPaymentOrderSummary\(order\)/);
+  assert.match(paymentService, /\.\.\.\(orderSummary \? \{ orderSummary \} : \{\}\)/);
 });
 
 test('customer listing is authenticated, owner-scoped, newest-first and sanitized', async () => {

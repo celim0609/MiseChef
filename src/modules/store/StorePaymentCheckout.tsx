@@ -1,5 +1,6 @@
 import { getPaymentProviderClientAdapter } from './paymentProviders';
 import type { PaymentProviderCheckoutProps } from './paymentProviders/types';
+import PaymentOrderSummary from './PaymentOrderSummary';
 
 export default function StorePaymentCheckout({
   session,
@@ -36,6 +37,7 @@ export default function StorePaymentCheckout({
           <dd className="mt-1 font-display text-2xl font-bold tracking-[0.16em] text-primary">{session.pickupCode}</dd>
         </div>
       </dl>
+      {session.orderSummary && <PaymentOrderSummary summary={session.orderSummary} />}
       <ProviderCheckout
         session={session}
         customerName={customerName}

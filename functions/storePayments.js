@@ -9,6 +9,7 @@ import {
   PAYMENT_STATUS,
   readString,
   toPublicGroupOrderContext,
+  toPublicPaymentOrderSummary,
   toPublicOrderResult
 } from './storePaymentsCore.js';
 import {
@@ -440,6 +441,7 @@ export const createStorePayment = async ({
       'payment.updatedAt': new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
+    const orderSummary = toPublicPaymentOrderSummary(order);
     return {
       orderNumber: order.orderNumber,
       pickupCode: order.pickupCode,
@@ -447,6 +449,7 @@ export const createStorePayment = async ({
       paymentSessionId: providerPaymentId,
       checkout: payment.checkout,
       checkoutAccessToken,
+      ...(orderSummary ? { orderSummary } : {}),
       ...toPublicGroupOrderContext(order)
     };
   } catch (error) {

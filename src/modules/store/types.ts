@@ -561,6 +561,18 @@ export interface PublicOrderGroupContext {
   pickupLocationName: string;
 }
 
+export interface StorePaymentOrderSummary {
+  fulfilmentMethod: 'pickup' | 'delivery';
+  items: Array<{
+    productName: string;
+    quantity: number;
+    lineTotal: number;
+    selectedOptions: Array<{ groupName: string; optionName: string; priceAdjustment: number }>;
+    setSnapshot?: { setName: string; selectedGroups: Array<{ groupName: string; productName: string; priceAdjustment: number }> };
+  }>;
+  totals: NonNullable<StoreOrder['totals']>;
+}
+
 export interface StorePaymentSession {
   orderNumber: string;
   pickupCode: string;
@@ -568,6 +580,7 @@ export interface StorePaymentSession {
   paymentSessionId: string;
   checkout: StorePaymentCheckout;
   checkoutAccessToken: string;
+  orderSummary?: StorePaymentOrderSummary;
   groupOrder?: PublicOrderGroupContext;
 }
 
