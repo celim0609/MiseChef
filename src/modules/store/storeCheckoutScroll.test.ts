@@ -36,6 +36,9 @@ test('delivery quote expiry cannot overwrite an accepted payment session and ser
   assert.match(publicStorePage, /requestDeliveryQuote\(\{ refresh: true \}\)/);
   assert.match(publicStorePage, /Refreshing delivery fee…/);
   assert.match(publicStorePage, /deliveryQuoteId: deliveryQuote\.quote\.quotationId/);
+  assert.match(publicStorePage, /formattedAddress: deliveryQuote\.destination\.address/);
+  assert.match(publicStorePage, /latitude: deliveryQuote\.destination\.latitude/);
+  assert.match(publicStorePage, /Delivery quote no longer matches the selected address/);
   assert.match(publicStorePage, /setLastResolvedDeliveryFee\(quote\.quote\.customerDeliveryFee\)/);
   assert.match(publicStorePage, /Pending delivery fee/);
 });

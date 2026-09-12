@@ -8,7 +8,7 @@ const getFunctions = () => {
 };
 
 export type DeliveryDestination = { formattedAddress: string; latitude: string; longitude: string; deliveryInstructions?: string };
-export type DeliveryQuote = { quote: { quotationId: string; expiresAt: string; customerDeliveryFee: number; currency: 'MYR'; minimumValidityMs: number }; merchandiseSubtotal: number; destination: DeliveryDestination };
+export type DeliveryQuote = { quote: { quotationId: string; expiresAt: string; customerDeliveryFee: number; currency: 'MYR'; minimumValidityMs: number }; merchandiseSubtotal: number; destination: { address: string; latitude: string; longitude: string; instructions: string } };
 
 export const storeDeliveryService = {
   async quote(slug: string, selections: CartSelection[], destination: DeliveryDestination, deliveryDate: string, deliverySession: string, fulfilmentMode: 'preorder' | 'instant' = 'preorder'): Promise<DeliveryQuote> {

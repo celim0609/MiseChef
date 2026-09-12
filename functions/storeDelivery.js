@@ -8,7 +8,11 @@ const money = value => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 // a quote so the browser never presents a quote as payable when the server
 // would reject it as too close to expiry.
 export const DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS = 5_000;
-const coord = value => typeof value === 'string' && /^-?\d{1,3}(\.\d{1,15})?$/.test(value) && Math.abs(Number(value)) <= 180 ? value : '';
+const coord = value => {
+  const raw = typeof value === 'string' ? value.trim() : typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
+  return /^-?\d{1,3}(\.\d{1,15})?$/.test(raw) && Math.abs(Number(raw)) <= 180 ? String(Number(raw)) : '';
+};
+export const sameDeliveryCoordinates = (left, right) => coord(left) !== '' && coord(left) === coord(right);
 const deliveryError = message => new HttpsError('failed-precondition', message);
 const deliveryConfig = store => store?.delivery && typeof store.delivery === 'object' ? store.delivery : {};
 const validateDestination = destination => {
@@ -136,7 +140,10 @@ export const revalidateDeliveryForPayment = async ({ provider, store, draft, now
   const quote = quoteSnapshot(await provider.retrieveQuote({ market: 'MY', quotationId: readString(draft?.deliveryQuoteId) }));
   if (!quote.quotationId || quote.currency !== 'MYR' || Date.parse(quote.expiresAt) <= Number(now) + Number(minimumValidityMs) || quote.serviceType !== config.serviceType || quote.stops.length !== 2) throw deliveryError('Refresh your delivery quote before checkout.');
   const dropoff = quote.stops[1] || {};
-  if (readString(dropoff.address) !== destination.address || readString(dropoff.coordinates?.lat) !== destination.latitude || readString(dropoff.coordinates?.lng) !== destination.longitude) throw deliveryError('Delivery quote no longer matches the selected address.');
+  // Lalamove returns coordinates as either JSON numbers or strings. Coordinates
+  // are the provider routing identity; display-address differences must not
+  // turn an otherwise identical selected place into a false mismatch.
+  if (!sameDeliveryCoordinates(dropoff.coordinates?.lat, destination.latitude) || !sameDeliveryCoordinates(dropoff.coordinates?.lng, destination.longitude)) throw deliveryError('Delivery quote no longer matches the selected address.');
   return { fulfilmentMethod: 'delivery', fulfilmentMode: schedule.mode, ...(schedule.mode === 'preorder' ? { schedule } : {}), quote, pickup: { name: readString(pickup.name), address: readString(pickup.address), latitude: pickup.latitude, longitude: pickup.longitude, contactName: pickup.contactName, contactPhoneE164: pickup.contactPhoneE164 }, recipient: { name: readString(draft.customerName), phoneE164: readString(draft.phone), address: destination.address, latitude: destination.latitude, longitude: destination.longitude, instructions: destination.instructions }, dispatch: { status: 'not_requested' }, lifecycle: { state: 'not_started' } };
 };
 
