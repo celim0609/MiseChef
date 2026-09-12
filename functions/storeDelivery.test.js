@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { sameDeliveryCoordinates } from './storeDelivery.js';
+import { providerRoutingDestination, quoteMatchesDestination, sameDeliveryCoordinates } from './storeDelivery.js';
 
 const source = readFileSync(new URL('./storeDelivery.js', import.meta.url), 'utf8');
 const payments = readFileSync(new URL('./storePayments.js', import.meta.url), 'utf8');
@@ -16,7 +16,7 @@ test('delivery checkout revalidates the provider quote, expiry, route, cart, and
   assert.match(source, /DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS = 5_000/);
   assert.match(payments, /minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS/);
   assert.match(source, /minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS/);
-  assert.match(source, /sameDeliveryCoordinates\(dropoff\.coordinates\?\.lat, destination\.latitude\)/);
+  assert.match(source, /quoteMatchesDestination\(\{ quote, destination \}\)/);
   assert.match(source, /typeof value === 'number'/);
 });
 test('provider numeric coordinates and equivalent customer strings do not create a false destination mismatch', () => {
@@ -25,6 +25,36 @@ test('provider numeric coordinates and equivalent customer strings do not create
   assert.equal(sameDeliveryCoordinates(4.6569255, '4.65692550'), true);
   assert.equal(sameDeliveryCoordinates(101.1172608, '101.1172608'), true);
   assert.equal(sameDeliveryCoordinates(4.6569255, '4.6569256'), false);
+});
+test('a quote returns Lalamove canonical routing coordinates while retaining the Google Places address', () => {
+  const googleDestination = {
+    address: 'Google Places formatted address', latitude: '4.6569255', longitude: '101.1172608', instructions: 'Unit / Floor: 3'
+  };
+  const providerQuote = {
+    stops: [
+      { coordinates: { lat: '4.641333', lng: '101.1420132' } },
+      { coordinates: { lat: 4.65693, lng: 101.11726 } }
+    ]
+  };
+  const routingDestination = providerRoutingDestination({ quote: providerQuote, destination: googleDestination });
+  assert.deepEqual(routingDestination, {
+    ...googleDestination, latitude: '4.65693', longitude: '101.11726'
+  });
+  assert.equal(quoteMatchesDestination({ quote: providerQuote, destination: routingDestination }), true);
+});
+test('a genuine destination change still fails provider route validation', () => {
+  const providerQuote = { stops: [
+    { coordinates: { lat: '4.641333', lng: '101.1420132' } },
+    { coordinates: { lat: '4.65693', lng: '101.11726' } }
+  ] };
+  assert.equal(quoteMatchesDestination({ quote: providerQuote, destination: {
+    address: 'Different selected place', latitude: '4.65694', longitude: '101.11726', instructions: ''
+  } }), false);
+});
+test('a quotation without a canonical provider drop-off is rejected before payment can use it', () => {
+  assert.throws(() => providerRoutingDestination({ quote: { stops: [] }, destination: {
+    address: 'Google Places formatted address', latitude: '4.6569255', longitude: '101.1172608', instructions: ''
+  } }), /invalid quotation/);
 });
 test('delivery payment cannot be created without a quote snapshot while pickup remains independent', () => {
   assert.match(payments, /A valid delivery quote is required before payment/);
