@@ -58,6 +58,21 @@ const customerPricing = ({ providerFee, config, merchandiseSubtotal }) => {
   return { providerDeliveryFee: providerFee, customerDeliveryFee, storeAbsorbedDeliveryFee: money(Math.max(providerFee - customerDeliveryFee, 0)), subsidyEnabled: subsidy.enabled === true, subsidyApplied: eligible, minimumMerchandiseSpend: money(Math.max(0, Number(subsidy.minimumMerchandiseSpend || 0))), deliveryFeeCap: money(Math.max(0, Number(subsidy.maximumCustomerDeliveryCharge || 0))), currency: 'MYR' };
 };
 const quoteSnapshot = quote => ({ quotationId: readString(quote.quotationId), expiresAt: readString(quote.expiresAt), serviceType: readString(quote.serviceType), fee: money(quote.priceBreakdown?.total), currency: readString(quote.priceBreakdown?.currency), priceBreakdown: quote.priceBreakdown || {}, stops: quote.stops || [] });
+// The provider may canonicalize a Google Places pin (for example, by snapping
+// it to the routable point). Keep the Google address for the recipient, but
+// bind payment revalidation to the coordinates Lalamove attached to its quote.
+export const providerRoutingDestination = ({ quote, destination }) => {
+  const dropoff = quote?.stops?.[1] || {};
+  const latitude = coord(dropoff.coordinates?.lat);
+  const longitude = coord(dropoff.coordinates?.lng);
+  if (!latitude || !longitude) throw new Error('Lalamove returned an invalid quotation.');
+  return { ...destination, latitude, longitude };
+};
+export const quoteMatchesDestination = ({ quote, destination }) => {
+  const dropoff = quote?.stops?.[1] || {};
+  return sameDeliveryCoordinates(dropoff.coordinates?.lat, destination?.latitude)
+    && sameDeliveryCoordinates(dropoff.coordinates?.lng, destination?.longitude);
+};
 const ACTIVE_OPERATOR_ROLES = new Set(['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef']);
 const assertWorkspaceOperator = async ({ db, uid, order }) => {
   const workspaceId = readString(order.workspaceId);
@@ -116,9 +131,10 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
   ] } });
   const quote = quoteSnapshot(quotation);
   if (!quote.quotationId || quote.currency !== 'MYR' || quote.fee < 0 || !quote.expiresAt) throw new Error('Lalamove returned an invalid quotation.');
+  const routingDestination = providerRoutingDestination({ quote, destination });
   const merchandiseSubtotal = money(items.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0));
   const pricing = customerPricing({ providerFee: quote.fee, config, merchandiseSubtotal });
-  return { quote: { quotationId: quote.quotationId, expiresAt: quote.expiresAt, customerDeliveryFee: pricing.customerDeliveryFee, currency: 'MYR', minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS }, merchandiseSubtotal, destination, schedule };
+  return { quote: { quotationId: quote.quotationId, expiresAt: quote.expiresAt, customerDeliveryFee: pricing.customerDeliveryFee, currency: 'MYR', minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS }, merchandiseSubtotal, destination: routingDestination, schedule };
 };
 
 export const getLalamoveSandboxCityInfo = async ({ db, uid, workspaceId, provider }) => {
@@ -139,11 +155,10 @@ export const revalidateDeliveryForPayment = async ({ provider, store, draft, now
   const schedule = validateDeliverySchedule(store, config, draft);
   const quote = quoteSnapshot(await provider.retrieveQuote({ market: 'MY', quotationId: readString(draft?.deliveryQuoteId) }));
   if (!quote.quotationId || quote.currency !== 'MYR' || Date.parse(quote.expiresAt) <= Number(now) + Number(minimumValidityMs) || quote.serviceType !== config.serviceType || quote.stops.length !== 2) throw deliveryError('Refresh your delivery quote before checkout.');
-  const dropoff = quote.stops[1] || {};
   // Lalamove returns coordinates as either JSON numbers or strings. Coordinates
   // are the provider routing identity; display-address differences must not
   // turn an otherwise identical selected place into a false mismatch.
-  if (!sameDeliveryCoordinates(dropoff.coordinates?.lat, destination.latitude) || !sameDeliveryCoordinates(dropoff.coordinates?.lng, destination.longitude)) throw deliveryError('Delivery quote no longer matches the selected address.');
+  if (!quoteMatchesDestination({ quote, destination })) throw deliveryError('Delivery quote no longer matches the selected address.');
   return { fulfilmentMethod: 'delivery', fulfilmentMode: schedule.mode, ...(schedule.mode === 'preorder' ? { schedule } : {}), quote, pickup: { name: readString(pickup.name), address: readString(pickup.address), latitude: pickup.latitude, longitude: pickup.longitude, contactName: pickup.contactName, contactPhoneE164: pickup.contactPhoneE164 }, recipient: { name: readString(draft.customerName), phoneE164: readString(draft.phone), address: destination.address, latitude: destination.latitude, longitude: destination.longitude, instructions: destination.instructions }, dispatch: { status: 'not_requested' }, lifecycle: { state: 'not_started' } };
 };
 
