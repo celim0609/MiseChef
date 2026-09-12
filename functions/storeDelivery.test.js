@@ -12,7 +12,7 @@ test('delivery checkout revalidates the provider quote, expiry, route, cart, and
   assert.match(source, /Delivery quote no longer matches/);
   assert.doesNotMatch(source, /draft\?\.total/);
   assert.match(payments, /revalidateDeliveryForPayment/);
-  assert.match(source, /DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS = 30_000/);
+  assert.match(source, /DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS = 5_000/);
   assert.match(payments, /minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS/);
   assert.match(source, /minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS/);
 });

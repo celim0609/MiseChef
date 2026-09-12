@@ -27,13 +27,15 @@ test('delivery quote expiry cannot overwrite an accepted payment session and ser
   assert.match(publicStorePage, /checkoutTransitionRef\.current = true/);
   assert.match(publicStorePage, /if \(checkoutTransitionRef\.current\) return;/);
   assert.match(publicStorePage, /Refresh your delivery quote before checkout\./);
-  assert.match(publicStorePage, /setDeliveryQuote\(null\);\s*void requestDeliveryQuote\(\);/);
+  assert.match(publicStorePage, /setDeliveryQuote\(null\);\s*setLastResolvedDeliveryFee\(null\);\s*void requestDeliveryQuote\(\);/);
   assert.match(publicStorePage, /const checkoutAttemptIdRef = useRef\(crypto\.randomUUID\(\)\)/);
   assert.match(publicStorePage, /checkoutAttemptId: checkoutAttemptIdRef\.current/);
   assert.match(publicStorePage, /disabled=\{isPlacingOrder \|\| !deliveryQuoteReady\}/);
   assert.match(publicStorePage, /deliveryQuoteHasSufficientLifetime/);
-  assert.match(publicStorePage, /expiresAt - Date\.now\(\) - deliveryQuoteMinimumValidityMs/);
+  assert.match(publicStorePage, /scheduleDeliveryQuoteRefresh/);
   assert.match(publicStorePage, /requestDeliveryQuote\(\{ refresh: true \}\)/);
   assert.match(publicStorePage, /Refreshing delivery fee…/);
   assert.match(publicStorePage, /deliveryQuoteId: deliveryQuote\.quote\.quotationId/);
+  assert.match(publicStorePage, /setLastResolvedDeliveryFee\(quote\.quote\.customerDeliveryFee\)/);
+  assert.match(publicStorePage, /Pending delivery fee/);
 });
