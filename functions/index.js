@@ -54,7 +54,7 @@ import {
   updateStoreGroupOrderFulfilment,
   updateStoreOrderFulfilment
 } from './storeFulfilment.js';
-import { createLalamoveSandboxProvider } from './lalamoveSandbox.js';
+import { createLalamoveProvider, resolveLalamoveEnvironment } from './lalamoveSandbox.js';
 import { createStoreDeliveryQuote, dispatchStoreDelivery, refreshStoreDelivery, cancelStoreDelivery, reconcileActiveDeliveries, getLalamoveSandboxCityInfo } from './storeDelivery.js';
 import { listCustomerOrders } from './customerOrders.js';
 import {
@@ -92,8 +92,8 @@ const db = getFirestore();
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
 const stripeSecretKey = defineSecret('STRIPE_SECRET_KEY');
 const stripeWebhookSecret = defineSecret('STRIPE_WEBHOOK_SECRET');
-const lalamoveSandboxApiKey = defineSecret('LALAMOVE_API_KEY');
-const lalamoveSandboxApiSecret = defineSecret('LALAMOVE_API_SECRET');
+const lalamoveApiKey = defineSecret('LALAMOVE_API_KEY');
+const lalamoveApiSecret = defineSecret('LALAMOVE_API_SECRET');
 const curlecKeyId = defineSecret('CURLEC_KEY_ID');
 const curlecKeySecret = defineSecret('CURLEC_KEY_SECRET');
 const curlecWebhookSecret = defineSecret('CURLEC_WEBHOOK_SECRET');
@@ -111,6 +111,12 @@ const ALLOWED_INVOICE_OCR_MIME_TYPES = new Set([
   'image/png',
   'image/webp'
 ]);
+
+const createRuntimeLalamoveProvider = () => createLalamoveProvider({
+  environment: resolveLalamoveEnvironment(process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || ''),
+  apiKey: lalamoveApiKey.value(),
+  apiSecret: lalamoveApiSecret.value()
+});
 
 const publicStoreAppShell = readFileSync(
   new URL('./generated/publicStoreAppShell.html', import.meta.url),
@@ -342,7 +348,7 @@ const toStorePaymentError = error => {
 export const createPublicStorePayment = onCall({
   region: REGION,
   invoker: 'public',
-  secrets: [stripeSecretKey, curlecKeyId, curlecKeySecret, lalamoveSandboxApiKey, lalamoveSandboxApiSecret],
+  secrets: [stripeSecretKey, curlecKeyId, curlecKeySecret, lalamoveApiKey, lalamoveApiSecret],
   timeoutSeconds: 30,
   memory: '256MiB'
 }, async request => {
@@ -357,7 +363,7 @@ export const createPublicStorePayment = onCall({
       }),
       sellingWorkspaceId: sellingWorkspaceId.value(),
       ...(request.data?.order?.fulfilmentMethod === 'delivery' ? {
-        deliveryProvider: createLalamoveSandboxProvider({ apiKey: lalamoveSandboxApiKey.value(), apiSecret: lalamoveSandboxApiSecret.value() })
+        deliveryProvider: createRuntimeLalamoveProvider()
       } : {}),
       customerUid: request.auth?.uid || '',
       slug: request.data?.slug,
@@ -375,43 +381,43 @@ export const createPublicStorePayment = onCall({
 export const createPublicStoreDeliveryQuote = onCall({
   region: REGION,
   invoker: 'public',
-  secrets: [lalamoveSandboxApiKey, lalamoveSandboxApiSecret],
+  secrets: [lalamoveApiKey, lalamoveApiSecret],
   timeoutSeconds: 30,
   memory: '256MiB'
 }, async request => {
-  const provider = createLalamoveSandboxProvider({ apiKey: lalamoveSandboxApiKey.value(), apiSecret: lalamoveSandboxApiSecret.value() });
+  const provider = createRuntimeLalamoveProvider();
   return createStoreDeliveryQuote({ db, provider, slug: request.data?.slug, draft: request.data?.delivery });
 });
 
-export const getStoreLalamoveSandboxCityInfo = onCall({ region: REGION, secrets: [lalamoveSandboxApiKey, lalamoveSandboxApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => {
-  const provider = createLalamoveSandboxProvider({ apiKey: lalamoveSandboxApiKey.value(), apiSecret: lalamoveSandboxApiSecret.value() });
+export const getStoreLalamoveSandboxCityInfo = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => {
+  const provider = createRuntimeLalamoveProvider();
   return getLalamoveSandboxCityInfo({ db, uid: request.auth?.uid, workspaceId: request.data?.workspaceId, provider });
 });
 
 export const dispatchStoreLalamoveDelivery = onCall({
   region: REGION,
-  secrets: [lalamoveSandboxApiKey, lalamoveSandboxApiSecret],
+  secrets: [lalamoveApiKey, lalamoveApiSecret],
   timeoutSeconds: 60,
   memory: '256MiB'
 }, async request => {
-  const provider = createLalamoveSandboxProvider({ apiKey: lalamoveSandboxApiKey.value(), apiSecret: lalamoveSandboxApiSecret.value() });
+  const provider = createRuntimeLalamoveProvider();
   return dispatchStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId });
 });
 
-export const refreshStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveSandboxApiKey, lalamoveSandboxApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => {
-  const provider = createLalamoveSandboxProvider({ apiKey: lalamoveSandboxApiKey.value(), apiSecret: lalamoveSandboxApiSecret.value() });
+export const refreshStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => {
+  const provider = createRuntimeLalamoveProvider();
   return refreshStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId });
 });
 
-export const cancelStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveSandboxApiKey, lalamoveSandboxApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => {
-  const provider = createLalamoveSandboxProvider({ apiKey: lalamoveSandboxApiKey.value(), apiSecret: lalamoveSandboxApiSecret.value() });
+export const cancelStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => {
+  const provider = createRuntimeLalamoveProvider();
   return cancelStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId });
 });
 
 // No webhook endpoint is enabled yet. Scheduled order-detail reconciliation is
 // authoritative until a dedicated, replay-safe v3 signature verifier is shipped.
-export const reconcileLalamoveSandboxDeliveries = onSchedule({ region: REGION, schedule: 'every 5 minutes', secrets: [lalamoveSandboxApiKey, lalamoveSandboxApiSecret] }, async () => {
-  const provider = createLalamoveSandboxProvider({ apiKey: lalamoveSandboxApiKey.value(), apiSecret: lalamoveSandboxApiSecret.value() });
+export const reconcileLalamoveSandboxDeliveries = onSchedule({ region: REGION, schedule: 'every 5 minutes', secrets: [lalamoveApiKey, lalamoveApiSecret] }, async () => {
+  const provider = createRuntimeLalamoveProvider();
   await reconcileActiveDeliveries({ db, provider });
 });
 

@@ -39,8 +39,13 @@ export const createDefaultStoreContact = (): StoreContact => ({
   tiktok: '',
   website: ''
 });
-export const createDefaultStoreDelivery = (): import('./types').StoreDeliveryConfig => ({
-  enabled: false, provider: 'lalamove', environment: 'sandbox', market: 'MY', pickupLocationId: '', serviceType: '',
+const currentFirebaseProjectId = () => (import.meta as { env?: Record<string, string | undefined> }).env?.VITE_FIREBASE_PROJECT_ID;
+export const resolveStoreDeliveryEnvironment = (projectId = currentFirebaseProjectId()): 'sandbox' | 'production' => (
+  projectId === 'misechef-fa4bf' ? 'production' : 'sandbox'
+);
+
+export const createDefaultStoreDelivery = (environment = resolveStoreDeliveryEnvironment()): import('./types').StoreDeliveryConfig => ({
+  enabled: false, provider: 'lalamove', environment, market: 'MY', pickupLocationId: '', serviceType: '',
   pickup: { name: '', address: '', latitude: '', longitude: '', contactName: '', contactPhoneE164: '' },
   subsidy: { enabled: false, minimumMerchandiseSpend: 0, maximumCustomerDeliveryCharge: 0 },
   fulfilment: { preOrder: { enabled: true, orderDays: [...DEFAULT_STORE_ORDER_DAYS], earliestDays: 0, maximumAdvanceDays: 14, unavailableDates: [], sessions: [] }, instant: { enabled: false, operatingHours: { start: '09:00', end: '21:00' }, preparationMinutes: 20 } }
@@ -360,7 +365,7 @@ export const validateStoreSettings = (
   const delivery = draft.delivery;
   if (delivery?.enabled) {
     const latitude = Number(delivery.pickup.latitude); const longitude = Number(delivery.pickup.longitude);
-    if (delivery.provider !== 'lalamove' || delivery.environment !== 'sandbox' || delivery.market !== 'MY') return 'Delivery must use Lalamove Sandbox for Malaysia.';
+    if (delivery.provider !== 'lalamove' || delivery.environment !== resolveStoreDeliveryEnvironment() || delivery.market !== 'MY') return 'Delivery environment does not match this MiseChef project.';
     if (!delivery.pickupLocationId || !delivery.serviceType.trim() || !delivery.pickup.address.trim() || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180 || !delivery.pickup.contactName.trim() || !/^\+[1-9]\d{1,14}$/.test(delivery.pickup.contactPhoneE164.trim())) return 'Complete the delivery pickup, coordinates, sender contact, and service type.';
     if (!delivery.fulfilment.preOrder.enabled || delivery.fulfilment.preOrder.sessions.length === 0) return 'Enable pre-order delivery and add at least one delivery session.';
     if (delivery.subsidy.minimumMerchandiseSpend < 0 || delivery.subsidy.maximumCustomerDeliveryCharge < 0) return 'Delivery subsidy values cannot be negative.';

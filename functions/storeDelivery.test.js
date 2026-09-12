@@ -18,6 +18,15 @@ test('delivery checkout revalidates the provider quote, expiry, route, cart, and
   assert.match(source, /minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS/);
   assert.match(source, /quoteMatchesDestination\(\{ quote, destination \}\)/);
   assert.match(source, /typeof value === 'number'/);
+  assert.match(source, /config\.environment\) !== readString\(provider\?\.environment\)/);
+  assert.match(source, /environment: provider\.environment/);
+});
+test('delivery operational calls cannot cross the persisted provider environment boundary', () => {
+  assert.match(source, /assertDeliveryEnvironment/);
+  assert.match(source, /Delivery environment does not match this Firebase project/);
+  assert.match(source, /Legacy Sandbox orders pre-date the environment snapshot/);
+  assert.match(source, /assertDeliveryEnvironment\(\{ delivery, provider \}\)/);
+  assert.match(source, /assertDeliveryEnvironment\(\{ delivery: order\.delivery \|\| \{\}, provider \}\)/);
 });
 test('provider numeric coordinates and equivalent customer strings do not create a false destination mismatch', () => {
   assert.match(source, /String\(Number\(raw\)\)/);

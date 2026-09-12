@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { createLalamoveSandboxProvider } from './lalamoveSandbox.js';
+import { createLalamoveProvider, createLalamoveSandboxProvider, resolveLalamoveEnvironment } from './lalamoveSandbox.js';
 
 test('Lalamove client is sandbox-host-only and signs the exact serialized quotation body', async () => {
   const originalFetch = globalThis.fetch; let call;
@@ -18,5 +18,27 @@ test('Lalamove client is sandbox-host-only and signs the exact serialized quotat
 });
 
 test('Lalamove provider rejects missing sandbox credentials before any request', () => {
-  assert.throws(() => createLalamoveSandboxProvider({ apiKey: '', apiSecret: '' }), /Sandbox is not configured/);
+  assert.throws(() => createLalamoveSandboxProvider({ apiKey: '', apiSecret: '' }), /sandbox is not configured/);
+});
+
+test('Firebase project selects a fixed Lalamove host and unknown projects fail closed', async () => {
+  assert.equal(resolveLalamoveEnvironment('misechef-beta-fa4bf'), 'sandbox');
+  assert.equal(resolveLalamoveEnvironment('misechef-fa4bf'), 'production');
+  assert.throws(() => resolveLalamoveEnvironment('unexpected-project'), /not configured/);
+
+  const originalFetch = globalThis.fetch; const urls = [];
+  globalThis.fetch = async url => { urls.push(url); return new Response(JSON.stringify({ data: {} }), { status: 200 }); };
+  try {
+    await createLalamoveProvider({ environment: resolveLalamoveEnvironment('misechef-beta-fa4bf'), apiKey: 'key', apiSecret: 'secret' }).getCityInfo('MY');
+    await createLalamoveProvider({ environment: resolveLalamoveEnvironment('misechef-fa4bf'), apiKey: 'key', apiSecret: 'secret' }).getCityInfo('MY');
+    assert.deepEqual(urls, [
+      'https://rest.sandbox.lalamove.com/v3/cities',
+      'https://rest.lalamove.com/v3/cities'
+    ]);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('provider rejects caller-selected hosts and unknown environments', () => {
+  assert.throws(() => createLalamoveProvider({ environment: 'https://rest.lalamove.com', apiKey: 'key', apiSecret: 'secret' }), /environment is not configured/);
+  assert.throws(() => createLalamoveProvider({ environment: 'unknown', apiKey: 'key', apiSecret: 'secret' }), /environment is not configured/);
 });
