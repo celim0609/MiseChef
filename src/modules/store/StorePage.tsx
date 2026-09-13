@@ -89,6 +89,7 @@ interface StorePageProps {
 }
 
 type StoreView = 'products' | 'sets' | 'orders' | 'pickup' | 'settings';
+type StoreSettingsTab = 'general' | 'payments' | 'pickup-delivery' | 'contact' | 'host-program';
 
 interface ProductOptionEditor {
   id: string;
@@ -167,6 +168,14 @@ const viewItems: Array<{ id: StoreView; label: string; question: string; icon: t
   { id: 'settings', label: 'Store Settings', question: 'How does my store look?', icon: Settings }
 ];
 
+const storeSettingsTabs: Array<{ id: StoreSettingsTab; label: string }> = [
+  { id: 'general', label: 'General' },
+  { id: 'payments', label: 'Payments' },
+  { id: 'pickup-delivery', label: 'Pickup & Delivery' },
+  { id: 'contact', label: 'Contact' },
+  { id: 'host-program', label: 'Host Program' }
+];
+
 export default function StorePage({
   currentUser,
   workspace,
@@ -186,6 +195,7 @@ export default function StorePage({
     || ((item.id === 'pickup' || item.id === 'settings') && permissions.manageStoreSettings)
   ));
   const [activeView, setActiveView] = useState<StoreView>('products');
+  const [settingsTab, setSettingsTab] = useState<StoreSettingsTab>('general');
   const [store, setStore] = useState<WorkspaceStore | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<StoreSettingsDraft | null>(null);
   const [deliveryServiceKeys, setDeliveryServiceKeys] = useState<string[]>([]);
@@ -863,11 +873,19 @@ export default function StorePage({
           const Icon = item.icon;
           return (
             <button key={item.id} type="button" onClick={() => {
-              setActiveView(item.id);
+              if (item.id === 'pickup') {
+                setActiveView('settings');
+                setSettingsTab('pickup-delivery');
+              } else {
+                setActiveView(item.id);
+                if (item.id === 'settings') setSettingsTab('general');
+              }
               setIsProductFormOpen(false);
               clearMessages();
             }} className={`inline-flex shrink-0 items-center gap-2 rounded-full px-4 py-2.5 font-sans text-xs font-extrabold transition ${
-              activeView === item.id
+              ((item.id === 'pickup' && activeView === 'settings' && settingsTab === 'pickup-delivery')
+                || (item.id === 'settings' && activeView === 'settings' && settingsTab !== 'pickup-delivery')
+                || (item.id !== 'pickup' && item.id !== 'settings' && activeView === item.id))
                 ? 'bg-primary text-on-primary'
                 : 'bg-white text-primary shadow-sm'
             }`}>
@@ -1220,8 +1238,27 @@ export default function StorePage({
         />
       )}
 
-      {activeView === 'pickup' && (
-        <form onSubmit={handlePickupSave} className="space-y-8">
+      {activeView === 'settings' && (
+        <nav aria-label="Store Settings sections" role="tablist" className="flex gap-2 overflow-x-auto rounded-3xl bg-surface-container-low p-2">
+          {storeSettingsTabs.map(tab => (
+            <button
+              key={tab.id}
+              id={`store-settings-tab-${tab.id}`}
+              type="button"
+              role="tab"
+              aria-selected={settingsTab === tab.id}
+              aria-controls={`store-settings-panel-${tab.id}`}
+              onClick={() => setSettingsTab(tab.id)}
+              className={`shrink-0 rounded-2xl px-4 py-2.5 font-sans text-xs font-extrabold transition ${settingsTab === tab.id ? 'bg-white text-primary shadow-sm' : 'text-on-surface-variant'}`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+      )}
+
+      {activeView === 'settings' && (
+        <form onSubmit={handlePickupSave} role="tabpanel" id="store-settings-panel-pickup-delivery" aria-labelledby="store-settings-tab-pickup-delivery" hidden={settingsTab !== 'pickup-delivery'} className="space-y-8">
           <section>
             <div className="flex items-end justify-between gap-4">
               <div>
@@ -1347,7 +1384,7 @@ export default function StorePage({
 
       {activeView === 'settings' && (
         <form onSubmit={handleSettingsSave} className="rounded-3xl bg-white p-5 shadow-sm sm:p-7">
-          <div className="grid gap-5 md:grid-cols-2">
+          <div role="tabpanel" id="store-settings-panel-general" aria-labelledby="store-settings-tab-general" hidden={settingsTab !== 'general'} className="grid gap-5 md:grid-cols-2">
             <label className="block">
               <span className="font-sans text-xs font-extrabold text-primary">Store Name</span>
               <input value={settingsDraft.name} onChange={event => updateSettings('name', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
@@ -1378,7 +1415,8 @@ export default function StorePage({
               <span className="font-sans text-xs font-extrabold text-primary">Description</span>
               <textarea rows={4} value={settingsDraft.description} onChange={event => updateSettings('description', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
             </label>
-            <fieldset className="md:col-span-2 rounded-3xl border border-surface-container-high p-5">
+          </div>
+          <fieldset role="tabpanel" id="store-settings-panel-host-program" aria-labelledby="store-settings-tab-host-program" hidden={settingsTab !== 'host-program'} className="rounded-3xl border border-surface-container-high p-5">
               <legend className="font-display text-2xl font-bold text-primary">Host Program</legend>
               <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Let account holders host Group Orders. Rewards are tracked estimates only in Phase 1.</p>
               <label className="mt-5 flex items-center justify-between gap-4 rounded-2xl bg-surface-container-low p-4">
@@ -1399,7 +1437,7 @@ export default function StorePage({
                 </label>
               </div>
             </fieldset>
-            <fieldset className="md:col-span-2">
+          <fieldset role="tabpanel" id="store-settings-panel-contact" aria-labelledby="store-settings-tab-contact" hidden={settingsTab !== 'contact'}>
               <legend className="font-display text-2xl font-bold text-primary">Store Contact</legend>
               <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Customers can contact the Store using the details you choose to provide.</p>
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -1424,7 +1462,7 @@ export default function StorePage({
                 ))}
               </div>
             </fieldset>
-            <fieldset className="md:col-span-2">
+          <fieldset role="tabpanel" id="store-settings-panel-payments" aria-labelledby="store-settings-tab-payments" hidden={settingsTab !== 'payments'}>
               <legend className="font-display text-2xl font-bold text-primary">Payment Methods</legend>
               <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Customers see only the methods you enable.</p>
               <div className="mt-4 space-y-3">
@@ -1482,9 +1520,8 @@ export default function StorePage({
                   );
                 })}
               </div>
-            </fieldset>
-          </div>
-          <section className="mt-8 rounded-3xl bg-surface-container-low p-5">
+          </fieldset>
+          <section aria-label="Delivery settings" hidden={settingsTab !== 'pickup-delivery'} className="mt-8 rounded-3xl bg-surface-container-low p-5">
             <h2 className="font-display text-2xl font-bold text-primary">Delivery</h2>
             <p className="mt-1 text-sm font-bold text-on-surface-variant">Lalamove configuration for this MiseChef environment. Credentials remain on the server.</p>
             {(() => { const environment = resolveStoreDeliveryEnvironment(); const delivery = { ...(settingsDraft.delivery || createDefaultStoreDelivery(environment)), environment }; const environmentLabel = environment === 'production' ? 'Production only' : 'Sandbox only'; const update = (next: typeof delivery) => updateSettings('delivery', { ...next, environment }); return <div className="mt-4 grid gap-3 md:grid-cols-2">
