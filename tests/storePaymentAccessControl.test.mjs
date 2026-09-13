@@ -275,6 +275,17 @@ test('strict delivery configuration accepts configured subsidy, preorder, instan
   await assertSucceeds(ref.update({ delivery: { ...validDelivery(), fulfilment: { ...validDelivery().fulfilment, instant: { ...validDelivery().fulfilment.instant, enabled: false } } }, updatedAt: '2026-09-11T00:01:00.000Z' }));
 });
 
+test('delivery-only Store Settings payload is allowed and remains unavailable to an unrelated user', async () => {
+  const payload = {
+    delivery: { ...validDelivery(), environment: 'production' },
+    deliveryEnabled: true,
+    updatedAt: '2026-09-13T14:21:00.000Z'
+  };
+  assert.deepEqual(Object.keys(payload).sort(), ['delivery', 'deliveryEnabled', 'updatedAt']);
+  await assertSucceeds(ownerA.firestore().doc(`stores/${WORKSPACE_A}`).set(payload, { merge: true }));
+  await assertFails(ownerB.firestore().doc(`stores/${WORKSPACE_A}`).set(payload, { merge: true }));
+});
+
 test('strict delivery configuration rejects unknown nested keys and malformed instant settings', async () => {
   const ref = ownerA.firestore().doc(`stores/${WORKSPACE_A}`);
   for (const delivery of [

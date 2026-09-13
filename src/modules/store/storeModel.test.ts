@@ -23,6 +23,43 @@ import {
 import { resolvePublicRoute } from '../public/publicRoutes';
 import { canAccessRootTab } from '../team/permissions';
 import type { StoreOrderDay } from './types';
+import { buildStoreSettingsUpdate } from './services/storeSettingsUpdate';
+
+test('Store Settings writes only user-changed fields and never backfills normalized legacy defaults', () => {
+  const baseline = createDefaultWorkspaceStore(
+    { id: 'legacy-store', name: 'Legacy Store', country: 'MY' },
+    'owner-legacy',
+    '2026-09-13T00:00:00.000Z'
+  );
+  const persisted = {
+    ...baseline,
+    paymentMethods: baseline.paymentMethods.filter(method => method.id !== 'curlec'),
+    storeContact: { phone: '', email: '', whatsapp: '', facebook: '' }
+  } as Record<string, unknown>;
+  delete persisted.delivery;
+
+  const deliveryUpdate = {
+    ...baseline,
+    delivery: { ...baseline.delivery, enabled: true, serviceType: 'MOTORCYCLE' },
+    updatedAt: '2026-09-13T01:00:00.000Z'
+  };
+  assert.deepEqual(
+    buildStoreSettingsUpdate(persisted, baseline, deliveryUpdate),
+    { delivery: deliveryUpdate.delivery, updatedAt: deliveryUpdate.updatedAt }
+  );
+
+  const paymentUpdate = {
+    ...baseline,
+    paymentMethods: baseline.paymentMethods.map(method => method.id === 'stripe'
+      ? { ...method, enabled: false }
+      : method),
+    updatedAt: '2026-09-13T02:00:00.000Z'
+  };
+  assert.deepEqual(
+    buildStoreSettingsUpdate(persisted, baseline, paymentUpdate),
+    { paymentMethods: paymentUpdate.paymentMethods, updatedAt: paymentUpdate.updatedAt }
+  );
+});
 
 test('every workspace receives exactly one region-aware Store identity', () => {
   const malaysiaStore = createDefaultWorkspaceStore(
