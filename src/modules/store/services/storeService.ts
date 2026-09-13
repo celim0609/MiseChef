@@ -43,6 +43,7 @@ import {
   buildUpdatedStoreProduct,
   filterPublicAvailableProducts
 } from '../storeProductVisibility';
+import { buildStoreSettingsUpdate } from './storeSettingsUpdate';
 
 const removeUndefinedFields = <T,>(value: T): T => {
   if (Array.isArray(value)) return value.map(item => removeUndefinedFields(item)) as T;
@@ -205,7 +206,18 @@ export const storeService = {
       updatedAt: new Date().toISOString()
     };
 
-    await setDoc(doc(db, 'stores', store.id), removeUndefinedFields(updatedStore), { merge: true });
+    const storeRef = doc(db, 'stores', store.id);
+    const persistedSnapshot = await getDoc(storeRef);
+    if (!persistedSnapshot.exists()) throw new Error("We couldn't find this Store. Please refresh and try again.");
+
+    const changedFields = buildStoreSettingsUpdate(
+      persistedSnapshot.data() as Record<string, unknown>,
+      store,
+      updatedStore
+    );
+    if (Object.keys(changedFields).length > 0) {
+      await setDoc(storeRef, removeUndefinedFields(changedFields), { merge: true });
+    }
     return updatedStore;
   },
 
