@@ -271,6 +271,7 @@ test('matching Owner and Manager can update validated Store Contact settings', a
 test('strict delivery configuration accepts configured subsidy, preorder, instant, and both modes', async () => {
   const ref = ownerA.firestore().doc(`stores/${WORKSPACE_A}`);
   await assertSucceeds(ref.update({ delivery: validDelivery(), deliveryEnabled: true, updatedAt: '2026-09-11T00:00:00.000Z' }));
+  await assertSucceeds(ref.update({ delivery: { ...validDelivery(), environment: 'production' }, updatedAt: '2026-09-11T00:00:30.000Z' }));
   await assertSucceeds(ref.update({ delivery: { ...validDelivery(), fulfilment: { ...validDelivery().fulfilment, instant: { ...validDelivery().fulfilment.instant, enabled: false } } }, updatedAt: '2026-09-11T00:01:00.000Z' }));
 });
 

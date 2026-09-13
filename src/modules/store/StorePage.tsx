@@ -51,6 +51,7 @@ import {
   STORE_ORDER_DAYS,
   validateStoreOptionGroup,
   validateStoreProduct,
+  resolveStoreDeliveryEnvironment,
   validateStoreSettings
 } from './storeModel';
 import type {
@@ -461,7 +462,8 @@ export default function StorePage({
 
   const saveStoreDraft = async (draft: StoreSettingsDraft, successMessage: string) => {
     if (!store || isSaving) return;
-    const validationError = validateStoreSettings(draft, store.country);
+    const normalizedDraft = draft.delivery ? { ...draft, delivery: { ...draft.delivery, environment: resolveStoreDeliveryEnvironment() } } : draft;
+    const validationError = validateStoreSettings(normalizedDraft, store.country);
     if (validationError) {
       setErrorMessage(validationError);
       return;
@@ -470,7 +472,7 @@ export default function StorePage({
     setIsSaving(true);
     clearMessages();
     try {
-      const updatedStore = await storeService.updateStore(store, draft);
+      const updatedStore = await storeService.updateStore(store, normalizedDraft);
       setStore(updatedStore);
       setSettingsDraft(toSettingsDraft(updatedStore));
       setMessage(successMessage);
@@ -511,7 +513,7 @@ export default function StorePage({
           qrCodeUrl: await uploadStorePaymentQr({ workspaceId: workspace.id, methodId: method.id, file })
         };
       }));
-      const nextDraft = { ...settingsDraft, logoUrl, coverImageUrl, paymentMethods };
+      const nextDraft = { ...settingsDraft, logoUrl, coverImageUrl, paymentMethods, ...(settingsDraft.delivery ? { delivery: { ...settingsDraft.delivery, environment: resolveStoreDeliveryEnvironment() } } : {}) };
       const validationError = validateStoreSettings(nextDraft, store.country);
       if (validationError) throw new Error(validationError);
       const updatedStore = await storeService.updateStore(store, nextDraft);
@@ -1484,11 +1486,11 @@ export default function StorePage({
           </div>
           <section className="mt-8 rounded-3xl bg-surface-container-low p-5">
             <h2 className="font-display text-2xl font-bold text-primary">Delivery</h2>
-            <p className="mt-1 text-sm font-bold text-on-surface-variant">Sandbox-only Lalamove configuration. Credentials remain on the server.</p>
-            {(() => { const delivery = settingsDraft.delivery || createDefaultStoreDelivery(); const update = (next: typeof delivery) => updateSettings('delivery', next); return <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <p className="mt-1 text-sm font-bold text-on-surface-variant">Lalamove configuration for this MiseChef environment. Credentials remain on the server.</p>
+            {(() => { const environment = resolveStoreDeliveryEnvironment(); const delivery = { ...(settingsDraft.delivery || createDefaultStoreDelivery(environment)), environment }; const environmentLabel = environment === 'production' ? 'Production only' : 'Sandbox only'; const update = (next: typeof delivery) => updateSettings('delivery', { ...next, environment }); return <div className="mt-4 grid gap-3 md:grid-cols-2">
               <label className="flex items-center gap-2 md:col-span-2"><input type="checkbox" checked={delivery.enabled} onChange={event => update({ ...delivery, enabled: event.target.checked })} /><span className="font-bold">Enable delivery</span></label>
               <label><span className="text-xs font-bold">Provider</span><input disabled value="Lalamove" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
-              <label><span className="text-xs font-bold">Environment</span><input disabled value="Sandbox only" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <label><span className="text-xs font-bold">Environment</span><input disabled value={environmentLabel} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
               <label><span className="text-xs font-bold">Pickup location</span><select value={delivery.pickupLocationId} onChange={event => { const location = settingsDraft.pickupLocations.find(item => item.id === event.target.value); update({ ...delivery, pickupLocationId: event.target.value, pickup: { ...delivery.pickup, name: location?.name || delivery.pickup.name, address: location?.address || delivery.pickup.address } }); }} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold"><option value="">Choose existing location</option>{settingsDraft.pickupLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
               <label><span className="text-xs font-bold">Lalamove service type</span><input value={delivery.serviceType} onChange={event => update({ ...delivery, serviceType: event.target.value })} placeholder="Select after City Info" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
               <label className="md:col-span-2"><span className="text-xs font-bold">Pickup address</span><input value={delivery.pickup.address} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, address: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
@@ -1500,7 +1502,7 @@ export default function StorePage({
               <label className="md:col-span-2"><span className="text-xs font-bold">Delivery sessions / time slots</span><input value={delivery.fulfilment.preOrder.sessions.join(', ')} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, sessions: event.target.value.split(',').map(value => value.trim()).filter(Boolean) } } })} placeholder="Lunch, Dinner" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
               <label><span className="text-xs font-bold">Earliest delivery</span><select value={delivery.fulfilment.preOrder.earliestDays} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, earliestDays: Number(event.target.value) as 0 | 1 } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold"><option value={0}>Same day allowed</option><option value={1}>From tomorrow</option></select></label><label><span className="text-xs font-bold">Maximum advance booking</span><select value={delivery.fulfilment.preOrder.maximumAdvanceDays} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, maximumAdvanceDays: Number(event.target.value) as 7 | 14 | 30 } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold"><option value={7}>7 days</option><option value={14}>14 days</option><option value={30}>30 days</option></select></label>
               <label className="md:col-span-2"><span className="text-xs font-bold">Unavailable delivery dates</span><input value={delivery.fulfilment.preOrder.unavailableDates.join(', ')} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, unavailableDates: event.target.value.split(',').map(value => value.trim()).filter(Boolean) } } })} placeholder="YYYY-MM-DD, YYYY-MM-DD" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
-              <button type="button" onClick={() => storeDeliveryService.cityInfo(workspace.id).then(data => setDeliveryServiceKeys(data)).catch(error => setErrorMessage(error instanceof Error ? error.message : 'Unable to load City Info.'))} className="rounded-full bg-white px-4 py-2 text-xs font-bold text-primary">Load Sandbox City Info</button>{deliveryServiceKeys.length > 0 && <p className="self-center text-xs font-bold">Available keys: {deliveryServiceKeys.join(', ')}</p>}
+              <button type="button" onClick={() => storeDeliveryService.cityInfo(workspace.id).then(data => setDeliveryServiceKeys(data)).catch(error => setErrorMessage(error instanceof Error ? error.message : 'Unable to load City Info.'))} className="rounded-full bg-white px-4 py-2 text-xs font-bold text-primary">Load {environment === 'production' ? 'Production' : 'Sandbox'} City Info</button>{deliveryServiceKeys.length > 0 && <p className="self-center text-xs font-bold">Available keys: {deliveryServiceKeys.join(', ')}</p>}
             </div>; })()}
           </section>
           <div className="mt-7 flex justify-end">

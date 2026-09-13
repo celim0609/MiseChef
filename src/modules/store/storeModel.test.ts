@@ -13,6 +13,7 @@ import {
   normalizeStoreContact,
   normalizeStorePaymentMethods,
   normalizeWorkspaceStore,
+  resolveStoreDeliveryEnvironment,
   toStoreSlug,
   validateStoreOptionGroup,
   validateStoreOrder,
@@ -48,6 +49,11 @@ test('every workspace receives exactly one region-aware Store identity', () => {
   assert.equal(malaysiaStore.pickupEnabled, false);
   assert.deepEqual(malaysiaStore.pickupSessions, []);
   assert.deepEqual(malaysiaStore.pickupLocations, []);
+});
+
+test('Store delivery configuration follows the fixed Firebase project environment', () => {
+  assert.equal(resolveStoreDeliveryEnvironment('misechef-beta-fa4bf'), 'sandbox');
+  assert.equal(resolveStoreDeliveryEnvironment('misechef-fa4bf'), 'production');
 });
 
 test('Touch ’n Go configuration is accepted for MY and cleared or rejected for SG', () => {

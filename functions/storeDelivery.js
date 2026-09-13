@@ -22,12 +22,18 @@ const validateDestination = destination => {
   if (!address || address.length > 500 || !latitude || !longitude) throw deliveryError('Choose a delivery address with valid coordinates.');
   return { address, latitude, longitude, instructions: readString(destination?.deliveryInstructions).slice(0, 1500) };
 };
-const validateStoreDelivery = store => {
+const validateStoreDelivery = (store, provider) => {
   const config = deliveryConfig(store);
   const pickup = config.pickup && typeof config.pickup === 'object' ? config.pickup : {};
-  if (config.enabled !== true || config.provider !== 'lalamove' || config.environment !== 'sandbox' || readString(config.market) !== 'MY') throw deliveryError('Delivery is not configured for this Store.');
+  if (config.enabled !== true || config.provider !== 'lalamove' || readString(config.environment) !== readString(provider?.environment) || readString(config.market) !== 'MY') throw deliveryError('Delivery is not configured for this Store.');
   if (!readString(config.serviceType) || !readString(pickup.address) || !coord(pickup.latitude) || !coord(pickup.longitude) || !readString(pickup.contactName) || !/^\+[1-9]\d{1,14}$/.test(readString(pickup.contactPhoneE164))) throw deliveryError('This Store delivery pickup is incomplete.');
   return { config, pickup };
+};
+const assertDeliveryEnvironment = ({ delivery, provider }) => {
+  // Legacy Sandbox orders pre-date the environment snapshot. They remain
+  // operable only in Beta; a missing snapshot never defaults to Production.
+  const environment = readString(delivery?.environment) || (readString(provider?.environment) === 'sandbox' ? 'sandbox' : '');
+  if (!environment || environment !== readString(provider?.environment)) throw deliveryError('Delivery environment does not match this Firebase project.');
 };
 const validatePreOrderSchedule = (store, config, draft) => {
   const preOrder = config.fulfilment?.preOrder || { enabled: true, orderDays: store.orderDays, earliestDays: store.earliestPickupDays, maximumAdvanceDays: store.maximumAdvanceDays, unavailableDates: store.unavailableDates, sessions: store.pickupSessions };
@@ -119,7 +125,7 @@ const canReplaceProviderState = ({ existingState, nextState }) => {
 
 export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) => {
   const checkout = await loadStoreCheckoutData(db, slug);
-  const { config, pickup } = validateStoreDelivery(checkout.store);
+  const { config, pickup } = validateStoreDelivery(checkout.store, provider);
   const destination = validateDestination(draft?.destination);
   const schedule = validateDeliverySchedule(checkout.store, config, draft);
   // Rebuild cart on the server. The browser does not send prices or service type.
@@ -150,7 +156,7 @@ export const getLalamoveSandboxCityInfo = async ({ db, uid, workspaceId, provide
 // the order/payment boundary so no payment session is opened on a quote that
 // is likely to expire while that boundary is crossed.
 export const revalidateDeliveryForPayment = async ({ provider, store, draft, now = Date.now(), minimumValidityMs = 0 }) => {
-  const { config, pickup } = validateStoreDelivery(store);
+  const { config, pickup } = validateStoreDelivery(store, provider);
   const destination = validateDestination(draft?.destination);
   const schedule = validateDeliverySchedule(store, config, draft);
   const quote = quoteSnapshot(await provider.retrieveQuote({ market: 'MY', quotationId: readString(draft?.deliveryQuoteId) }));
@@ -159,7 +165,7 @@ export const revalidateDeliveryForPayment = async ({ provider, store, draft, now
   // are the provider routing identity; display-address differences must not
   // turn an otherwise identical selected place into a false mismatch.
   if (!quoteMatchesDestination({ quote, destination })) throw deliveryError('Delivery quote no longer matches the selected address.');
-  return { fulfilmentMethod: 'delivery', fulfilmentMode: schedule.mode, ...(schedule.mode === 'preorder' ? { schedule } : {}), quote, pickup: { name: readString(pickup.name), address: readString(pickup.address), latitude: pickup.latitude, longitude: pickup.longitude, contactName: pickup.contactName, contactPhoneE164: pickup.contactPhoneE164 }, recipient: { name: readString(draft.customerName), phoneE164: readString(draft.phone), address: destination.address, latitude: destination.latitude, longitude: destination.longitude, instructions: destination.instructions }, dispatch: { status: 'not_requested' }, lifecycle: { state: 'not_started' } };
+  return { fulfilmentMethod: 'delivery', fulfilmentMode: schedule.mode, environment: provider.environment, ...(schedule.mode === 'preorder' ? { schedule } : {}), quote, pickup: { name: readString(pickup.name), address: readString(pickup.address), latitude: pickup.latitude, longitude: pickup.longitude, contactName: pickup.contactName, contactPhoneE164: pickup.contactPhoneE164 }, recipient: { name: readString(draft.customerName), phoneE164: readString(draft.phone), address: destination.address, latitude: destination.latitude, longitude: destination.longitude, instructions: destination.instructions }, dispatch: { status: 'not_requested' }, lifecycle: { state: 'not_started' } };
 };
 
 export const dispatchStoreDelivery = async ({ db, provider, uid, orderId }) => {
@@ -194,6 +200,7 @@ export const dispatchStoreDelivery = async ({ db, provider, uid, orderId }) => {
   if (result.alreadyCreated) return { status: 'created' };
   if (result.alreadyCreating) return { status: 'creating' };
   const delivery = result.order.delivery;
+  assertDeliveryEnvironment({ delivery, provider });
   // Always quote again at dispatch; GG may absorb at most RM5.
   try {
   const fresh = await provider.createQuote({ market: 'MY', data: { serviceType: delivery.quote.serviceType, language: 'en_MY', stops: delivery.quote.stops.map(stop => ({ coordinates: stop.coordinates, address: stop.address })) } });
@@ -277,6 +284,7 @@ export const refreshStoreDelivery = async ({ db, provider, uid, orderId }) => {
   if (!snapshot.exists) throw new HttpsError('not-found', 'This order could not be found.');
   const order = snapshot.data() || {}; const delivery = order.delivery || {}; const providerOrderId = readString(delivery.providerOrder?.orderId);
   await assertWorkspaceOperator({ db, uid, order });
+  assertDeliveryEnvironment({ delivery, provider });
   if (!providerOrderId) throw deliveryError('This delivery has not been dispatched.');
   const detail = await provider.retrieveOrder({ market: 'MY', orderId: providerOrderId });
   const { update, nextState } = await buildProviderDetailUpdate({ provider, order, detail: { ...detail, orderId: providerOrderId }, source: 'manual_refresh' });
@@ -289,6 +297,7 @@ export const cancelStoreDelivery = async ({ db, provider, uid, orderId }) => {
   const ref = db.collection('storeOrders').doc(readString(orderId)); const snap = await ref.get();
   if (!snap.exists) throw new HttpsError('not-found', 'This order could not be found.');
   const order = snap.data() || {}; await assertWorkspaceOperator({ db, uid, order });
+  assertDeliveryEnvironment({ delivery: order.delivery || {}, provider });
   const providerOrderId = readString(order.delivery?.providerOrder?.orderId);
   if (!providerOrderId) throw deliveryError('This delivery has not been dispatched.');
   if (order.delivery?.dispatch?.status === 'cancelled') return { status: 'cancelled' };
@@ -304,6 +313,7 @@ export const reconcileActiveDeliveries = async ({ db, provider, limit = 50 }) =>
   return Promise.all(active.docs.map(async doc => {
     const order = doc.data(); const providerOrderId = readString(order.delivery?.providerOrder?.orderId); if (!providerOrderId) return null;
     try {
+      assertDeliveryEnvironment({ delivery: order.delivery || {}, provider });
       const detail = await provider.retrieveOrder({ market: 'MY', orderId: providerOrderId });
       const { update } = await buildProviderDetailUpdate({ provider, order, detail: { ...detail, orderId: providerOrderId }, source: 'scheduled_reconciliation' });
       await doc.ref.update(update);

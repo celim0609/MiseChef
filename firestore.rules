@@ -319,7 +319,7 @@ service cloud.firestore {
         && delivery.keys().hasOnly(['enabled', 'provider', 'environment', 'market', 'pickupLocationId', 'serviceType', 'pickup', 'subsidy', 'fulfilment'])
         && delivery.enabled is bool
         && delivery.provider == 'lalamove'
-        && delivery.environment == 'sandbox'
+        && (delivery.environment == 'sandbox' || delivery.environment == 'production')
         && delivery.market == 'MY'
         && delivery.pickupLocationId is string
         && delivery.serviceType is string && delivery.serviceType.size() <= 80

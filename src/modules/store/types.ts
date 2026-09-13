@@ -30,7 +30,7 @@ export interface StoreContact {
 export interface StoreDeliveryConfig {
   enabled: boolean;
   provider: 'lalamove';
-  environment: 'sandbox';
+  environment: 'sandbox' | 'production';
   market: 'MY';
   pickupLocationId: string;
   serviceType: string;
