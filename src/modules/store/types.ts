@@ -241,6 +241,51 @@ export interface StoreProductDraft {
   optionGroupIds: string[];
 }
 
+// Promotion V1 is intentionally not included in PublicStoreData yet.  The
+// checkout function alone reads these records until the customer UI phase.
+export type StorePromotionType = 'percentage' | 'fixed_amount' | 'buy_x_get_y';
+export interface StorePromotion {
+  id: string;
+  storeId: string;
+  workspaceId: string;
+  name: string;
+  active: boolean;
+  type: StorePromotionType;
+  eligibleProductIds: string[];
+  percentageOff?: number;
+  fixedAmountOff?: number;
+  buyQuantity?: number;
+  getQuantity?: number;
+  minimumQuantity: number;
+  minimumOrderAmount: number;
+  startsAt: unknown;
+  endsAt: unknown | null;
+  priority: number;
+  createdBy: string;
+  createdAt: unknown;
+  updatedAt: unknown;
+}
+
+export interface StoreOrderPromotionSnapshot {
+  version: 1;
+  appliedPromotions: Array<{
+    promotionId: string;
+    name: string;
+    type: StorePromotionType;
+    terms: Record<string, number>;
+    savings: number;
+  }>;
+  lineAdjustments: Array<{
+    productId: string;
+    productName: string;
+    quantity: number;
+    originalLineTotal: number;
+    discountAmount: number;
+    finalLineTotal: number;
+    promotionId?: string;
+  }>;
+}
+
 export interface StoreSetOption {
   productId: string;
   priceAdjustment: number;
@@ -397,6 +442,7 @@ export interface StoreOrder {
   orderSource: StoreOrderSource;
   fulfilmentMethod?: 'pickup' | 'delivery';
   totals?: { merchandiseSubtotal: number; discountTotal: number; discountedMerchandiseTotal: number; deliveryFee: number; grandTotal: number; currency: RegionCurrency };
+  promotionSnapshot?: StoreOrderPromotionSnapshot;
   delivery?: {
     fulfilmentMethod: 'delivery';
     fulfilmentMode?: 'preorder' | 'instant';
@@ -487,6 +533,8 @@ export interface CustomerStoreOrderSummary {
   items: Array<{
     productName: string;
     quantity: number;
+    lineTotal?: number;
+    promotionAdjustment?: { discountAmount: number; finalLineTotal: number };
     setSelections: Array<{ groupName: string; productName: string }>;
     selectedOptions: Array<{ groupName: string; optionName: string }>;
   }>;
@@ -497,6 +545,7 @@ export interface CustomerStoreOrderSummary {
   orderStatus: StoreOrder['status'];
   fulfilmentStatus: StoreFulfilmentStatus;
   groupName?: string;
+  promotionSnapshot?: { appliedPromotions: Array<{ name: string; type: StorePromotionType; savings: number; terms: Record<string, unknown> }> };
 }
 
 export interface StoreOrderDraft {
@@ -514,6 +563,8 @@ export interface StoreOrderDraft {
   selections: CartSelection[];
   groupShareCode?: string;
   deliveryQuoteId?: string;
+  /** Opaque server record binding the displayed delivery/promotion price. */
+  deliveryPricingSnapshotId?: string;
   fulfilmentMode?: 'preorder' | 'instant';
   destination?: {
     formattedAddress: string;

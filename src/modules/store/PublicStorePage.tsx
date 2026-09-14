@@ -22,6 +22,7 @@ import {
 import { formatRegionCurrency, getRegionConfiguration } from '../../regions';
 import StorePaymentCheckout from './StorePaymentCheckout';
 import { customerContactService, storePaymentService, storeService } from './services';
+import { publicPromotionService, type PublicPromotion } from './services/publicPromotionService';
 import { storeDeliveryService, type DeliveryQuote } from './services/deliveryService';
 import { getSelectedPlace, searchMalaysiaPlaces, type PlaceSuggestion } from './services/googlePlaces';
 import { customerDeliveryFeeChanged, quoteHasSufficientLifetime } from './deliveryQuoteFreshness';
@@ -172,7 +173,8 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const [placedOrder, setPlacedOrder] = useState<PublicStoreOrderResult | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isCatalogueCartVisible, setIsCatalogueCartVisible] = useState(true);
-  const [activeCatalogueSection, setActiveCatalogueSection] = useState<'all' | 'main' | 'sets' | 'drinks'>('all');
+  const [activeCatalogueSection, setActiveCatalogueSection] = useState<'all' | 'main' | 'sets' | 'drinks' | 'promotions'>('all');
+  const [publicPromotions, setPublicPromotions] = useState<PublicPromotion[]>([]);
   const [isHostInfoOpen, setIsHostInfoOpen] = useState(false);
   const [isAccountSuggestionDismissed, setIsAccountSuggestionDismissed] = useState(false);
   const paymentStageKey = paymentSession?.paymentSessionId || '';
@@ -573,6 +575,12 @@ const deliveryAddressForQuote = deliveryAddress;
   );
 
   const cartTotal = cartDetails.reduce((sum, item) => sum + item.lineTotal, 0);
+  const cartPromotionEstimate = cartDetails.reduce((sum, item) => {
+    if (!item.product) return sum;
+    const promotion = publicPromotions.find(candidate => candidate.productId === item.product!.id);
+    return sum + (promotion && promotion.type !== 'buy_x_get_y' ? promotion.savings * item.line.quantity : 0);
+  }, 0);
+  const estimatedMerchandiseTotal = Math.max(0, cartTotal - cartPromotionEstimate);
   const deliveryQuoteMinimumValidityMs = Math.max(0, Number(deliveryQuote?.quote.minimumValidityMs || 5_000));
   const hasDisplayableDeliveryQuote = Boolean(
     deliveryQuote?.quote.quotationId
@@ -599,6 +607,9 @@ const deliveryAddressForQuote = deliveryAddress;
   ), [data?.sets]);
   const drinkProducts = useMemo(() => (data?.products || []).filter(product => drinkProductIds.has(product.id)), [data?.products, drinkProductIds]);
   const mainProducts = useMemo(() => (data?.products || []).filter(product => !drinkProductIds.has(product.id)), [data?.products, drinkProductIds]);
+  const promotionByProduct = useMemo(() => new Map(publicPromotions.map(item => [item.productId, item])), [publicPromotions]);
+  const promotionProducts = useMemo(() => (data?.products || []).filter(product => promotionByProduct.has(product.id)), [data?.products, promotionByProduct]);
+  useEffect(() => { void publicPromotionService.list(slug).then(setPublicPromotions).catch(() => setPublicPromotions([])); }, [slug]);
   const validPickupDates = useMemo(
     () => data ? getValidPickupDates(data.store) : [],
     [data]
@@ -710,7 +721,7 @@ const deliveryAddressForQuote = deliveryAddress;
         pickupDate,
         pickupSession,
         pickupLocationId,
-        ...(fulfilmentMethod === 'delivery' && quoteForPayment ? { deliveryQuoteId: quoteForPayment.quote.quotationId, fulfilmentMode: deliveryMode, ...(deliveryMode === 'preorder' ? { deliveryDate, deliverySession } : {}), destination: { formattedAddress: quoteForPayment.destination.address, latitude: quoteForPayment.destination.latitude, longitude: quoteForPayment.destination.longitude, deliveryInstructions: deliveryRemarks } } : {}),
+        ...(fulfilmentMethod === 'delivery' && quoteForPayment ? { deliveryQuoteId: quoteForPayment.quote.quotationId, deliveryPricingSnapshotId: quoteForPayment.pricingSnapshotId, fulfilmentMode: deliveryMode, ...(deliveryMode === 'preorder' ? { deliveryDate, deliverySession } : {}), destination: { formattedAddress: quoteForPayment.destination.address, latitude: quoteForPayment.destination.latitude, longitude: quoteForPayment.destination.longitude, deliveryInstructions: deliveryRemarks } } : {}),
         notes,
         selections: cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({
           productId,
@@ -724,7 +735,7 @@ const deliveryAddressForQuote = deliveryAddress;
           break;
         } catch (error) {
           const message = error instanceof Error ? error.message : '';
-          if (fulfilmentMethod !== 'delivery' || refreshedForPayment || !message.includes('Refresh your delivery quote before checkout.')) throw error;
+          if (fulfilmentMethod !== 'delivery' || refreshedForPayment || !(message.includes('Refresh your delivery quote before checkout.') || message.includes('Promotion or delivery pricing changed.'))) throw error;
           const refreshed = await refreshDeliveryQuoteForPayment();
           if (!refreshed) return;
           quoteForPayment = refreshed;
@@ -979,14 +990,16 @@ const deliveryAddressForQuote = deliveryAddress;
                     ['all', 'All', catalogueTopRef],
                     ['main', 'Main', mainSectionRef],
                     ['sets', 'Sets', setsSectionRef],
-                    ['drinks', 'Drinks', drinksSectionRef]
+                    ['drinks', 'Drinks', drinksSectionRef],
+                    ...(promotionProducts.length ? [['promotions', '🔥 Promotions', catalogueTopRef] as const] : [])
                   ] as const).map(([id, label, ref]) => {
-                    const unavailable = (id === 'sets' && sets.length === 0) || (id === 'main' && mainProducts.length === 0) || (id === 'drinks' && drinkProducts.length === 0);
+                    const unavailable = (id === 'sets' && sets.length === 0) || (id === 'main' && mainProducts.length === 0) || (id === 'drinks' && drinkProducts.length === 0) || (id === 'promotions' && promotionProducts.length === 0);
                     return <button key={id} type="button" disabled={unavailable} onClick={() => { setActiveCatalogueSection(id); ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} className={`rounded-full px-4 py-2 font-sans text-xs font-extrabold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${activeCatalogueSection === id ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary hover:bg-surface-container-high'}`}>{label}</button>;
                   })}
                 </div>
               </nav>
               <div className="mt-6 space-y-10">
+                {activeCatalogueSection === 'promotions' && <section className="scroll-mt-20"><h3 className="font-display text-2xl font-bold text-primary">🔥 Promotions</h3><div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">{promotionProducts.map(product => { const promotion = promotionByProduct.get(product.id)!; const offer = promotion.type === 'percentage' ? `${promotion.terms.percentageOff}% OFF` : promotion.type === 'fixed_amount' ? `RM${promotion.terms.fixedAmountOff} OFF` : `BUY ${promotion.terms.buyQuantity} GET ${promotion.terms.getQuantity} FREE`; return <article key={`promo-${product.id}`} className="rounded-3xl border border-secondary/30 bg-white p-4 shadow-sm"><span className="rounded-full bg-secondary/10 px-3 py-1 text-xs font-extrabold text-secondary">{offer}</span><h4 className="mt-3 font-display text-xl font-bold text-primary">{product.name}</h4><p className="mt-1 font-bold text-secondary">{formatRegionCurrency(product.price, store.currency)}</p>{promotion.estimatedPrice !== null && <p className="mt-1 text-sm font-bold text-on-surface-variant">Est. {formatRegionCurrency(promotion.estimatedPrice, store.currency)}</p>}<p className="mt-2 text-xs font-bold text-on-surface-variant">Offer preview — final savings confirmed at checkout.</p>{canOrderPickup && <button type="button" onClick={() => startAddingProduct(product)} className="mt-4 w-full rounded-full bg-primary px-5 py-3 text-xs font-extrabold text-on-primary">Add to Cart</button>}</article>; })}</div></section>}
                 {mainProducts.length > 0 && <section ref={mainSectionRef} id="catalogue-main" className="scroll-mt-20">
                   <h3 className="font-display text-2xl font-bold text-primary">Main</h3>
                   <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -995,7 +1008,7 @@ const deliveryAddressForQuote = deliveryAddress;
                         {product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-48 w-full object-cover" referrerPolicy="no-referrer" />}
                         <div className="p-4">
                           <h4 className="font-display text-xl font-bold text-primary">{product.name}</h4>
-                          <p className="mt-1 font-sans text-base font-extrabold text-secondary">{formatRegionCurrency(product.price, store.currency)}</p>
+                          <p className="mt-1 font-sans text-base font-extrabold text-secondary">{formatRegionCurrency(product.price, store.currency)}</p>{promotionByProduct.has(product.id) && <p className="mt-1 text-xs font-extrabold text-secondary">🔥 {promotionByProduct.get(product.id)!.type === 'percentage' ? `${promotionByProduct.get(product.id)!.terms.percentageOff}% OFF` : promotionByProduct.get(product.id)!.type === 'fixed_amount' ? `RM${promotionByProduct.get(product.id)!.terms.fixedAmountOff} OFF` : `BUY ${promotionByProduct.get(product.id)!.terms.buyQuantity} GET ${promotionByProduct.get(product.id)!.terms.getQuantity} FREE`}</p>}
                           {product.description && <p className="mt-2 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{product.description}</p>}
                           {canOrderPickup && <button type="button" disabled={!hasAvailableProductOptions(product)} onClick={() => startAddingProduct(product)} className="mt-4 w-full rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
                             {!hasAvailableProductOptions(product) ? 'Options unavailable' : product.optionGroupIds.length > 0 ? 'Choose Options' : 'Add to Cart'}
@@ -1210,7 +1223,8 @@ const deliveryAddressForQuote = deliveryAddress;
               </div>
               <div className="mt-4 border-t border-surface-container-high pt-4">
                 <dl className="space-y-2 font-sans text-sm font-bold text-on-surface-variant">
-                <div className="flex justify-between gap-3"><dt>Items subtotal</dt><dd className="text-primary">{formatRegionCurrency(checkoutMerchandiseSubtotal, store.currency)}</dd></div>
+                <div className="flex justify-between gap-3"><dt>Items subtotal</dt><dd className="text-primary">{formatRegionCurrency(cartTotal, store.currency)}</dd></div>
+                {cartPromotionEstimate > 0 && <><div className="flex justify-between gap-3"><dt>Promotion savings estimate</dt><dd className="text-primary">−{formatRegionCurrency(cartPromotionEstimate, store.currency)}</dd></div><div className="flex justify-between gap-3"><dt>Estimated merchandise total</dt><dd className="text-primary">{formatRegionCurrency(estimatedMerchandiseTotal, store.currency)}</dd></div><p className="text-[11px] font-bold text-outline">Promotion savings are confirmed securely at checkout.</p></>}
                 {fulfilmentMethod === 'delivery' && <div className="flex justify-between gap-3"><dt>Delivery Fee</dt><dd className="text-primary">{hasDisplayableDeliveryQuote ? formatRegionCurrency(customerDeliveryFee, store.currency) : 'Calculating…'}</dd></div>}
                 <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold text-primary"><dt>Total</dt><dd>{fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Pending delivery fee' : formatRegionCurrency(checkoutTotal, store.currency)}</dd></div>
                 </dl>

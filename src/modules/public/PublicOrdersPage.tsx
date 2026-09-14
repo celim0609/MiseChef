@@ -85,6 +85,7 @@ export default function PublicOrdersPage({ currentUser }: { currentUser: User | 
                         <p className="font-sans text-sm font-extrabold text-primary">{item.quantity} × {item.productName}</p>
                         {typeof item.lineTotal === 'number' && <p className="shrink-0 font-sans text-sm font-extrabold text-primary">{formatRegionCurrency(item.lineTotal, order.currency)}</p>}
                       </div>
+                      {item.promotionAdjustment && item.promotionAdjustment.discountAmount > 0 && <p className="mt-1 font-sans text-xs font-bold text-secondary">Promotion saving −{formatRegionCurrency(item.promotionAdjustment.discountAmount, order.currency)} · final {formatRegionCurrency(item.promotionAdjustment.finalLineTotal, order.currency)}</p>}
                       {item.setSelections.map((selection, selectionIndex) => (
                         <p key={`${order.orderNumber}-set-${itemIndex}-${selectionIndex}`} className="mt-1 font-sans text-xs font-bold text-on-surface-variant">{selection.groupName && `${selection.groupName}: `}{selection.productName}</p>
                       ))}
@@ -105,6 +106,7 @@ export default function PublicOrdersPage({ currentUser }: { currentUser: User | 
                 <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold text-primary"><dt>Total</dt><dd>{formatRegionCurrency(order.totals.grandTotal, order.currency)}</dd></div>
               </dl>
               : <dl className="mt-5"><div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Total</dt><dd className="font-sans text-sm font-extrabold text-primary">{formatRegionCurrency(order.total, order.currency)}</dd></div></dl>}
+              {order.promotionSnapshot?.appliedPromotions.map((promotion, index) => <p key={`${order.orderNumber}-promotion-${index}`} className="mt-3 rounded-xl bg-secondary/10 px-3 py-2 font-sans text-xs font-bold text-primary">Promotion · {promotion.name} · saved {formatRegionCurrency(promotion.savings, order.currency)}</p>)}
               <dl className="mt-4"><div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Status</dt><dd className="font-sans text-sm font-extrabold text-primary">{getCustomerOrderStatus(order)}</dd></div></dl>
             </article>
           ))}

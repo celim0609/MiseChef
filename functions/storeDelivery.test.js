@@ -77,6 +77,15 @@ test('delivery payment checkout reserves one opaque attempt before creating an o
   assert.match(payments, /const payment = await activeAdapter\.createPayment/);
   assert.ok(payments.indexOf('deliverySnapshot: await revalidateDeliveryForPayment') < payments.indexOf('const checkoutAttemptReference'));
 });
+test('promotion delivery pricing is bound to an opaque server snapshot and must be refreshed when totals change', () => {
+  assert.match(source, /storeDeliveryQuoteSnapshots/);
+  assert.match(source, /pricingSnapshotId/);
+  assert.match(payments, /freshPromotionSnapshot = await transaction\.get/);
+  assert.match(payments, /Promotion or delivery pricing changed\. Refresh your delivery quote before checkout\./);
+  assert.match(payments, /displayed\.discountedMerchandiseTotal/);
+  assert.match(payments, /displayed\.deliveryFee/);
+  assert.match(payments, /displayed\.grandTotal/);
+});
 test('dispatch is tenant guarded, idempotent, recovers provider failures, and applies exact RM5 limit', () => {
   assert.match(source, /assertWorkspaceOperator/);
   assert.match(source, /delivery\.dispatch\?\.status === 'created'/);

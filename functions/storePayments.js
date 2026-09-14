@@ -33,7 +33,7 @@ export const loadStoreCheckoutData = async (db, slug) => {
   if (!storeDocument) throw new Error('This Store is no longer available.');
 
   const store = { id: storeDocument.id, ...storeDocument.data() };
-  const [productSnapshot, optionGroupSnapshot, setSnapshot] = await Promise.all([
+  const [productSnapshot, optionGroupSnapshot, setSnapshot, promotionSnapshot] = await Promise.all([
     db.collection('storeProducts')
       .where('storeId', '==', storeDocument.id)
       .where('available', '==', true)
@@ -44,15 +44,23 @@ export const loadStoreCheckoutData = async (db, slug) => {
     db.collection('storeSets')
       .where('storeId', '==', storeDocument.id)
       .where('available', '==', true)
+      .get(),
+    db.collection('storePromotions')
+      .where('storeId', '==', storeDocument.id)
+      .where('active', '==', true)
       .get()
   ]);
   return {
     store,
     products: productSnapshot.docs.map(document => ({ id: document.id, ...document.data() })),
     optionGroups: optionGroupSnapshot.docs.map(document => ({ id: document.id, ...document.data() })),
-    sets: setSnapshot.docs.map(document => ({ id: document.id, ...document.data() }))
+    sets: setSnapshot.docs.map(document => ({ id: document.id, ...document.data() })),
+    promotions: promotionSnapshot.docs.map(document => ({ id: document.id, ...document.data() }))
   };
 };
+
+const activePromotionsQuery = (db, storeId) => db.collection('storePromotions')
+  .where('storeId', '==', storeId).where('active', '==', true);
 
 export const assertSellingWorkspace = (store, sellingWorkspaceId) => {
   if (!readString(sellingWorkspaceId)) throw new Error('Online payments are not configured yet.');
@@ -313,7 +321,7 @@ export const createStorePayment = async ({
   const checkoutData = await loadStoreCheckoutData(db, slug);
   if (readString(draft?.fulfilmentMethod) === 'delivery') {
     if (!deliveryProvider) throw new Error('Delivery is not configured.');
-    if (!readString(draft?.deliveryQuoteId) || !draft?.destination || typeof draft.destination !== 'object') {
+    if (!readString(draft?.deliveryQuoteId) || !readString(draft?.deliveryPricingSnapshotId) || !draft?.destination || typeof draft.destination !== 'object') {
       throw new HttpsError('failed-precondition', 'A valid delivery quote is required before payment.');
     }
     draft = {
@@ -362,6 +370,14 @@ export const createStorePayment = async ({
     if (existingAttempt.exists) {
       throw new HttpsError('already-exists', 'This checkout is already being created. Please wait.');
     }
+    // The initial read supports validation before this transaction, but only
+    // this transaction read is allowed to determine the persisted promotion
+    // snapshot. Firestore retries the transaction if these documents change.
+    const freshPromotionSnapshot = await transaction.get(activePromotionsQuery(db, storeId));
+    const freshPromotions = freshPromotionSnapshot.docs.map(document => ({ id: document.id, ...document.data() }));
+    const deliveryPricingSnapshot = draft.deliverySnapshot
+      ? await transaction.get(db.collection('storeDeliveryQuoteSnapshots').doc(readString(draft.deliveryPricingSnapshotId)))
+      : null;
     const reference = await createAvailableOrderReference({
       date: now,
       exists: async ({ orderNumber, pickupCode, businessDateKey }) => {
@@ -389,10 +405,21 @@ export const createStorePayment = async ({
       paymentProviderMode: activeAdapter.mode,
       paymentMethod,
       groupOrder: currentGroupOrder,
+      promotions: freshPromotions,
       customerUid,
       draft,
       now
     });
+    if (draft.deliverySnapshot) {
+      const displayed = deliveryPricingSnapshot?.exists ? deliveryPricingSnapshot.data() : null;
+      if (!displayed || readString(displayed.storeId) !== storeId
+        || readString(displayed.quotationId) !== readString(draft.deliveryQuoteId)
+        || Number(displayed.discountedMerchandiseTotal) !== Number(pendingOrder.totals.discountedMerchandiseTotal)
+        || Number(displayed.deliveryFee) !== Number(pendingOrder.totals.deliveryFee)
+        || Number(displayed.grandTotal) !== Number(pendingOrder.totals.grandTotal)) {
+        throw new HttpsError('failed-precondition', 'Promotion or delivery pricing changed. Refresh your delivery quote before checkout.');
+      }
+    }
     pendingOrder.payment.checkoutAccessTokenHash = hashCheckoutAccessToken(checkoutAccessToken);
     // Store Order History performs Firestore Timestamp range queries. Keep the
     // nested payment clock as its existing provider-facing ISO value, but write

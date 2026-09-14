@@ -587,6 +587,39 @@ service cloud.firestore {
         && data.updatedAt is string;
     }
 
+    function isValidStorePromotion(data, promotionId) {
+      return data.keys().hasOnly([
+          'id', 'storeId', 'workspaceId', 'name', 'active', 'type',
+          'eligibleProductIds', 'percentageOff', 'fixedAmountOff',
+          'buyQuantity', 'getQuantity', 'minimumQuantity',
+          'minimumOrderAmount', 'startsAt', 'endsAt', 'priority',
+          'createdBy', 'createdAt', 'updatedAt'
+        ])
+        && data.id == promotionId
+        && data.storeId == data.workspaceId
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 160
+        && data.active is bool
+        && data.type in ['percentage', 'fixed_amount', 'buy_x_get_y']
+        && data.eligibleProductIds is list && data.eligibleProductIds.size() > 0 && data.eligibleProductIds.size() <= 100
+        && data.eligibleProductIds.toSet().size() == data.eligibleProductIds.size()
+        && data.minimumQuantity is int && data.minimumQuantity >= 0
+        && data.minimumOrderAmount is number && data.minimumOrderAmount >= 0
+        && data.startsAt is timestamp
+        && (!('endsAt' in data) || data.endsAt == null || (data.endsAt is timestamp && data.endsAt > data.startsAt))
+        && data.priority is int && data.priority >= 0 && data.priority <= 1000000
+        && data.createdBy is string && data.createdAt is timestamp && data.updatedAt is timestamp
+        && ((data.type == 'percentage'
+          && data.percentageOff is number && data.percentageOff > 0 && data.percentageOff <= 100
+          && !('fixedAmountOff' in data) && !('buyQuantity' in data) && !('getQuantity' in data))
+          || (data.type == 'fixed_amount'
+            && data.fixedAmountOff is number && data.fixedAmountOff > 0
+            && !('percentageOff' in data) && !('buyQuantity' in data) && !('getQuantity' in data))
+          || (data.type == 'buy_x_get_y'
+            && data.buyQuantity is int && data.buyQuantity > 0 && data.buyQuantity <= 100
+            && data.getQuantity is int && data.getQuantity > 0 && data.getQuantity <= 100
+            && !('percentageOff' in data) && !('fixedAmountOff' in data)));
+    }
+
     function isValidStoreOptionGroup(data, groupId) {
       return data.keys().hasOnly([
           'id',
@@ -1338,6 +1371,23 @@ service cloud.firestore {
           'updatedAt'
         ]);
       allow delete: if canManageStoreProducts(resource.data.workspaceId);
+    }
+
+    // Promotion V1 records are merchant-only. Public presentation is a later
+    // phase; checkout reads these via Admin SDK and remains authoritative.
+    match /storePromotions/{promotionId} {
+      allow read: if isWorkspaceOwnerOrManager(resource.data.workspaceId);
+      allow create: if isWorkspaceOwnerOrManager(request.resource.data.workspaceId)
+        && isValidStorePromotion(request.resource.data, promotionId)
+        && request.resource.data.createdBy == request.auth.uid
+        && exists(/databases/$(database)/documents/stores/$(request.resource.data.workspaceId));
+      allow update: if isWorkspaceOwnerOrManager(resource.data.workspaceId)
+        && isValidStorePromotion(request.resource.data, promotionId)
+        && request.resource.data.workspaceId == resource.data.workspaceId
+        && request.resource.data.storeId == resource.data.storeId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isWorkspaceOwnerOrManager(resource.data.workspaceId);
     }
 
     match /storeOptionGroups/{groupId} {
