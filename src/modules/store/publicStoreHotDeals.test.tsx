@@ -12,3 +12,9 @@ test('Hot Deals is conditional, uses the public projection, and excludes Store S
   assert.match(publicStorePage, /\(data\?\.products \|\| \[\]\)\.filter\(product => promotionByProduct\.has\(product\.id\)\)/);
   assert.doesNotMatch(publicStorePage, /\(data\?\.sets \|\| \[\]\)\.filter\(set => promotionByProduct/);
 });
+
+test('Hot Deals cards reuse the existing product image and retain the offer badge', () => {
+  assert.match(publicStorePage, /product\.photoUrl && <img src=\{product\.photoUrl\} alt=\{product\.name\} className="h-48 w-full object-cover"/);
+  assert.match(publicStorePage, /BUY \$\{promotion\.terms\.buyQuantity\} GET \$\{promotion\.terms\.getQuantity\} FREE/);
+  assert.match(publicStorePage, /overflow-hidden rounded-3xl/);
+});
