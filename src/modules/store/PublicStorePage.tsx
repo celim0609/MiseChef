@@ -23,6 +23,7 @@ import { formatRegionCurrency, getRegionConfiguration } from '../../regions';
 import StorePaymentCheckout from './StorePaymentCheckout';
 import { customerContactService, storePaymentService, storeService } from './services';
 import { publicPromotionService, type PublicPromotion } from './services/publicPromotionService';
+import { getPromotionOfferLabel, getPromotionSavingsEstimate } from './promotionCheckoutPreview';
 import { storeDeliveryService, type DeliveryQuote } from './services/deliveryService';
 import { getSelectedPlace, searchMalaysiaPlaces, type PlaceSuggestion } from './services/googlePlaces';
 import { customerDeliveryFeeChanged, quoteHasSufficientLifetime } from './deliveryQuoteFreshness';
@@ -576,11 +577,19 @@ const deliveryAddressForQuote = deliveryAddress;
   );
 
   const cartTotal = cartDetails.reduce((sum, item) => sum + item.lineTotal, 0);
-  const cartPromotionEstimate = cartDetails.reduce((sum, item) => {
-    if (!item.product) return sum;
+  const cartPromotionEstimates = cartDetails.reduce<Array<{ label: string; savings: number }>>((estimates, item) => {
+    if (!item.product) return estimates;
     const promotion = publicPromotions.find(candidate => candidate.productId === item.product!.id);
-    return sum + (promotion && promotion.type !== 'buy_x_get_y' ? promotion.savings * item.line.quantity : 0);
-  }, 0);
+    if (!promotion) return estimates;
+    const savings = getPromotionSavingsEstimate({ promotion, quantity: item.line.quantity, baseProductPrice: item.product.price, merchandiseSubtotal: cartTotal });
+    if (savings <= 0) return estimates;
+    const label = getPromotionOfferLabel(promotion);
+    const existing = estimates.find(estimate => estimate.label === label);
+    if (existing) existing.savings += savings;
+    else estimates.push({ label, savings });
+    return estimates;
+  }, []);
+  const cartPromotionEstimate = cartPromotionEstimates.reduce((sum, estimate) => sum + estimate.savings, 0);
   const estimatedMerchandiseTotal = Math.max(0, cartTotal - cartPromotionEstimate);
   const deliveryQuoteMinimumValidityMs = Math.max(0, Number(deliveryQuote?.quote.minimumValidityMs || 5_000));
   const hasDisplayableDeliveryQuote = Boolean(
@@ -594,7 +603,7 @@ const deliveryAddressForQuote = deliveryAddress;
   const customerDeliveryFee = hasDisplayableDeliveryQuote ? deliveryQuote!.quote.customerDeliveryFee : 0;
   const checkoutMerchandiseSubtotal = hasDisplayableDeliveryQuote
     ? deliveryQuote!.merchandiseSubtotal
-    : cartTotal;
+    : estimatedMerchandiseTotal;
   const checkoutTotal = checkoutMerchandiseSubtotal + customerDeliveryFee;
   const deliveryQuoteReady = fulfilmentMethod !== 'delivery' || (hasDisplayableDeliveryQuote && !isRefreshingDeliveryQuote);
   const cartCount = cart.reduce((sum, line) => sum + line.quantity, 0);
@@ -1225,7 +1234,8 @@ const deliveryAddressForQuote = deliveryAddress;
               <div className="mt-4 border-t border-surface-container-high pt-4">
                 <dl className="space-y-2 font-sans text-sm font-bold text-on-surface-variant">
                 <div className="flex justify-between gap-3"><dt>Items subtotal</dt><dd className="text-primary">{formatRegionCurrency(cartTotal, store.currency)}</dd></div>
-                {cartPromotionEstimate > 0 && <><div className="flex justify-between gap-3"><dt>Promotion savings estimate</dt><dd className="text-primary">−{formatRegionCurrency(cartPromotionEstimate, store.currency)}</dd></div><div className="flex justify-between gap-3"><dt>Estimated merchandise total</dt><dd className="text-primary">{formatRegionCurrency(estimatedMerchandiseTotal, store.currency)}</dd></div><p className="text-[11px] font-bold text-outline">Promotion savings are confirmed securely at checkout.</p></>}
+                {cartPromotionEstimates.map(estimate => <div key={estimate.label} className="flex justify-between gap-3"><dt>🔥 {estimate.label}</dt><dd className="text-primary">−{formatRegionCurrency(estimate.savings, store.currency)}</dd></div>)}
+                {cartPromotionEstimate > 0 && <p className="text-[11px] font-bold text-outline">Promotion savings are confirmed securely at checkout.</p>}
                 {fulfilmentMethod === 'delivery' && <div className="flex justify-between gap-3"><dt>Delivery Fee</dt><dd className="text-primary">{hasDisplayableDeliveryQuote ? formatRegionCurrency(customerDeliveryFee, store.currency) : 'Calculating…'}</dd></div>}
                 <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold text-primary"><dt>Total</dt><dd>{fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Pending delivery fee' : formatRegionCurrency(checkoutTotal, store.currency)}</dd></div>
                 </dl>

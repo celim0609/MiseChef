@@ -18,3 +18,10 @@ test('Hot Deals cards reuse the existing product image and retain the offer badg
   assert.match(publicStorePage, /BUY \$\{promotion\.terms\.buyQuantity\} GET \$\{promotion\.terms\.getQuantity\} FREE/);
   assert.match(publicStorePage, /overflow-hidden rounded-3xl/);
 });
+
+test('checkout shows each promotion saving before the estimated pickup total and CTA', () => {
+  assert.match(publicStorePage, /cartPromotionEstimates\.map\(estimate => <div key=\{estimate\.label\}/);
+  assert.match(publicStorePage, /🔥 \{estimate\.label\}/);
+  assert.match(publicStorePage, /checkoutMerchandiseSubtotal = hasDisplayableDeliveryQuote[\s\S]*: estimatedMerchandiseTotal/);
+  assert.match(publicStorePage, /Continue to Secure Payment/);
+});
