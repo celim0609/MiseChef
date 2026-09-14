@@ -77,6 +77,7 @@ import { recordPersonalExpenseSettlement as recordPersonalExpenseSettlementCore 
 import { sanitizeExtractedPersonalExpenseMerchant } from './personalExpenseReceipt.js';
 import { loadPublicDiscoverStores } from './publicDiscover.js';
 import { loadPublicHomepagePromotions } from './homepagePromotions.js';
+import { projectPublicStorePromotions } from './publicStorePromotions.js';
 import {
   authorizePersonalResumeImportJob,
   claimPersonalResumeImportJob,
@@ -185,6 +186,18 @@ export const getPublicDiscoverContent = onCall({
     }
   })
 }));
+
+export const getPublicStorePromotions = onCall({ region: REGION }, async request => {
+  const slug = readString(request.data?.slug).toLowerCase();
+  const storeSnapshot = await db.collection('stores').where('slug', '==', slug).limit(1).get();
+  if (storeSnapshot.empty) return { promotions: [] };
+  const storeId = storeSnapshot.docs[0].id;
+  const [products, promotions] = await Promise.all([
+    db.collection('storeProducts').where('storeId', '==', storeId).where('available', '==', true).get(),
+    db.collection('storePromotions').where('storeId', '==', storeId).where('active', '==', true).get()
+  ]);
+  return projectPublicStorePromotions({ products: products.docs.map(doc => ({ id: doc.id, ...doc.data() })), promotions: promotions.docs.map(doc => ({ id: doc.id, ...doc.data() })) });
+});
 
 export const provisionNewUserWorkspace = onCall({ region: REGION }, async request => provisionNewUser({
   db,

@@ -6,6 +6,7 @@ import {
   assertSucceeds,
   initializeTestEnvironment
 } from '@firebase/rules-unit-testing';
+import { Timestamp } from 'firebase/firestore';
 
 const PROJECT_ID = 'demo-misechef-store-payment-rules';
 const BUCKET_URL = `gs://${PROJECT_ID}.appspot.com`;
@@ -36,6 +37,24 @@ const createProductRecord = (id, createdBy = 'owner-a') => ({
   createdBy,
   createdAt: '2026-08-16T00:00:00.000Z',
   updatedAt: '2026-08-16T00:00:00.000Z'
+});
+const createPromotionRecord = (id, createdBy = 'owner-a') => ({
+  id,
+  storeId: WORKSPACE_A,
+  workspaceId: WORKSPACE_A,
+  name: 'Promotion access test',
+  active: true,
+  type: 'percentage',
+  eligibleProductIds: ['product-a'],
+  percentageOff: 10,
+  minimumQuantity: 0,
+  minimumOrderAmount: 0,
+  startsAt: Timestamp.fromDate(new Date('2026-09-01T00:00:00Z')),
+  endsAt: null,
+  priority: 0,
+  createdBy,
+  createdAt: Timestamp.fromDate(new Date('2026-09-01T00:00:00Z')),
+  updatedAt: Timestamp.fromDate(new Date('2026-09-01T00:00:00Z'))
 });
 const createOptionalGroupRecord = (id, createdBy = 'owner-a') => ({
   id,
@@ -275,6 +294,17 @@ test('strict delivery configuration accepts configured subsidy, preorder, instan
   await assertSucceeds(ref.update({ delivery: { ...validDelivery(), fulfilment: { ...validDelivery().fulfilment, instant: { ...validDelivery().fulfilment.instant, enabled: false } } }, updatedAt: '2026-09-11T00:01:00.000Z' }));
 });
 
+test('delivery-only Store Settings payload is allowed and remains unavailable to an unrelated user', async () => {
+  const payload = {
+    delivery: { ...validDelivery(), environment: 'production' },
+    deliveryEnabled: true,
+    updatedAt: '2026-09-13T14:21:00.000Z'
+  };
+  assert.deepEqual(Object.keys(payload).sort(), ['delivery', 'deliveryEnabled', 'updatedAt']);
+  await assertSucceeds(ownerA.firestore().doc(`stores/${WORKSPACE_A}`).set(payload, { merge: true }));
+  await assertFails(ownerB.firestore().doc(`stores/${WORKSPACE_A}`).set(payload, { merge: true }));
+});
+
 test('strict delivery configuration rejects unknown nested keys and malformed instant settings', async () => {
   const ref = ownerA.firestore().doc(`stores/${WORKSPACE_A}`);
   for (const delivery of [
@@ -417,5 +447,26 @@ test('Owner can persist an optional option group while Workspace isolation remai
   await assertFails(managerB.firestore().doc('storeOptionGroups/optional-addons').update({
     maximumSelections: 1,
     updatedAt: '2026-08-16T02:00:00.000Z'
+  }));
+});
+
+test('only Store owner or manager can manage a valid promotion document', async () => {
+  const promotionRef = ownerA.firestore().doc('storePromotions/promo-access');
+  await assertSucceeds(promotionRef.set(createPromotionRecord('promo-access')));
+  await assertSucceeds(managerA.firestore().doc('storePromotions/promo-access').update({
+    name: 'Manager update', updatedAt: Timestamp.fromDate(new Date('2026-09-02T00:00:00Z'))
+  }));
+  await assertFails(memberA.firestore().doc('storePromotions/promo-member').set(
+    createPromotionRecord('promo-member', 'member-a')
+  ));
+  await assertFails(anonymous.firestore().doc('storePromotions/promo-access').get());
+});
+
+test('promotion rules reject invalid type terms and cross-workspace records', async () => {
+  await assertFails(ownerA.firestore().doc('storePromotions/promo-invalid').set({
+    ...createPromotionRecord('promo-invalid'), type: 'buy_x_get_y', percentageOff: 10
+  }));
+  await assertFails(ownerA.firestore().doc('storePromotions/promo-cross').set({
+    ...createPromotionRecord('promo-cross'), workspaceId: WORKSPACE_B, storeId: WORKSPACE_B
   }));
 });

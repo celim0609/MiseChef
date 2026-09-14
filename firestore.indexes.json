@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "storePromotions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "active", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "portfolio",
       "queryScope": "COLLECTION_GROUP",
       "fields": [

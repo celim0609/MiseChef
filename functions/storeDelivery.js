@@ -1,7 +1,9 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
+import { randomBytes } from 'node:crypto';
 import { buildOrderItems, getValidPickupDates, readString } from './storePaymentsCore.js';
 import { loadStoreCheckoutData } from './storePayments.js';
+import { calculatePromotionPricing } from './storePromotionPricing.js';
 
 const money = value => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 // This buffer applies at the checkout-to-payment boundary. It is returned with
@@ -138,9 +140,21 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
   const quote = quoteSnapshot(quotation);
   if (!quote.quotationId || quote.currency !== 'MYR' || quote.fee < 0 || !quote.expiresAt) throw new Error('Lalamove returned an invalid quotation.');
   const routingDestination = providerRoutingDestination({ quote, destination });
-  const merchandiseSubtotal = money(items.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0));
-  const pricing = customerPricing({ providerFee: quote.fee, config, merchandiseSubtotal });
-  return { quote: { quotationId: quote.quotationId, expiresAt: quote.expiresAt, customerDeliveryFee: pricing.customerDeliveryFee, currency: 'MYR', minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS }, merchandiseSubtotal, destination: routingDestination, schedule };
+  const promotionPricing = calculatePromotionPricing({ items, promotions: checkout.promotions });
+  const pricing = customerPricing({ providerFee: quote.fee, config, merchandiseSubtotal: promotionPricing.discountedMerchandiseTotal });
+  // Bind the displayed promotion/delivery price to a server record. The
+  // browser receives only an opaque id and cannot author a price baseline.
+  const pricingSnapshotId = randomBytes(24).toString('hex');
+  await db.collection('storeDeliveryQuoteSnapshots').doc(pricingSnapshotId).create({
+    storeId: checkout.store.id,
+    quotationId: quote.quotationId,
+    discountedMerchandiseTotal: promotionPricing.discountedMerchandiseTotal,
+    deliveryFee: pricing.customerDeliveryFee,
+    grandTotal: money(promotionPricing.discountedMerchandiseTotal + pricing.customerDeliveryFee),
+    expiresAt: quote.expiresAt,
+    createdAt: new Date().toISOString()
+  });
+  return { quote: { quotationId: quote.quotationId, expiresAt: quote.expiresAt, customerDeliveryFee: pricing.customerDeliveryFee, currency: 'MYR', minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS }, pricingSnapshotId, merchandiseSubtotal: promotionPricing.discountedMerchandiseTotal, destination: routingDestination, schedule };
 };
 
 export const getLalamoveSandboxCityInfo = async ({ db, uid, workspaceId, provider }) => {

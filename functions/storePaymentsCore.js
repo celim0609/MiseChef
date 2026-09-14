@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { calculatePromotionPricing } from './storePromotionPricing.js';
 
 export const PAYMENT_STATUS = Object.freeze({
   pending: 'pending',
@@ -351,6 +352,7 @@ export const buildPendingOrder = ({
   products,
   optionGroups,
   sets = [],
+  promotions = [],
   paymentProvider,
   paymentProviderMode,
   paymentMethod,
@@ -375,14 +377,17 @@ export const buildPendingOrder = ({
   const pickupLocation = store.pickupLocations.find(
     location => readString(location.id) === readString(draft.pickupLocationId)
   );
-  const merchandiseSubtotal = roundMoney(items.reduce((sum, item) => sum + item.lineTotal, 0));
+  // Group Orders and Sets are deliberately outside Promotion V1.  Pricing is
+  // recomputed exclusively from current server catalogue data.
+  const promotionPricing = calculatePromotionPricing({ items, promotions, now, excluded: Boolean(groupOrder) });
+  const { merchandiseSubtotal, discountTotal, discountedMerchandiseTotal, promotionSnapshot } = promotionPricing;
   const providerDeliveryFee = draft.deliverySnapshot ? roundMoney(Math.max(0, readNumber(draft.deliverySnapshot.quote?.fee))) : 0;
   const subsidy = store.delivery?.subsidy || {};
-  const subsidyApplied = Boolean(draft.deliverySnapshot && subsidy.enabled === true && merchandiseSubtotal >= Math.max(0, readNumber(subsidy.minimumMerchandiseSpend)));
+  const subsidyApplied = Boolean(draft.deliverySnapshot && subsidy.enabled === true && discountedMerchandiseTotal >= Math.max(0, readNumber(subsidy.minimumMerchandiseSpend)));
   const deliveryFeeCap = roundMoney(Math.max(0, readNumber(subsidy.maximumCustomerDeliveryCharge)));
   const deliveryFee = draft.deliverySnapshot ? (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee) : 0;
   const storeAbsorbedDeliveryFee = roundMoney(Math.max(providerDeliveryFee - deliveryFee, 0));
-  const total = roundMoney(merchandiseSubtotal + deliveryFee);
+  const total = roundMoney(discountedMerchandiseTotal + deliveryFee);
   const amountMinor = Math.round(total * 100);
   if (amountMinor < 1) throw new Error('Order total must be greater than zero.');
   const createdAt = now.toISOString();
@@ -422,7 +427,8 @@ export const buildPendingOrder = ({
     notes: readString(draft.notes),
     items,
     itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
-    totals: { merchandiseSubtotal, discountTotal: 0, discountedMerchandiseTotal: merchandiseSubtotal, deliveryFee, grandTotal: total, currency: region.currency },
+    totals: { merchandiseSubtotal, discountTotal, discountedMerchandiseTotal, deliveryFee, grandTotal: total, currency: region.currency },
+    ...(promotionSnapshot.appliedPromotions.length ? { promotionSnapshot } : {}),
     ...(draft.deliverySnapshot ? { delivery: { ...draft.deliverySnapshot, pricing: { providerDeliveryFee, customerDeliveryFee: deliveryFee, storeAbsorbedDeliveryFee, subsidyEnabled: subsidy.enabled === true, subsidyApplied, minimumMerchandiseSpend: roundMoney(Math.max(0, readNumber(subsidy.minimumMerchandiseSpend))), deliveryFeeCap, currency: region.currency } } } : {}),
     total,
     status: 'Awaiting Payment',

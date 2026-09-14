@@ -12,10 +12,15 @@ const customerOrderItem = value => {
   const productName = readString(item.setSnapshot?.setName) || readString(item.productName);
   const quantity = Math.max(0, readNumber(item.quantity));
   if (!productName || quantity < 1) return null;
+  const adjustment = value?.promotionAdjustment && typeof value.promotionAdjustment === 'object' ? value.promotionAdjustment : null;
   return {
     productName,
     quantity,
     ...(hasNumber(item.lineTotal) ? { lineTotal: Math.max(0, readNumber(item.lineTotal)) } : {}),
+    ...(adjustment && hasNumber(adjustment.discountAmount) ? { promotionAdjustment: {
+      discountAmount: Math.max(0, readNumber(adjustment.discountAmount)),
+      finalLineTotal: Math.max(0, readNumber(adjustment.finalLineTotal))
+    } } : {}),
     setSelections: (Array.isArray(item.setSnapshot?.selectedGroups) ? item.setSnapshot.selectedGroups : [])
       .map(selection => ({
         groupName: readString(selection?.groupName),
@@ -34,12 +39,18 @@ const customerOrderItem = value => {
 const customerOrder = document => {
   const data = document.data() || {};
   const totals = data.totals && typeof data.totals === 'object' ? data.totals : {};
+  const promotionSnapshot = data.promotionSnapshot && typeof data.promotionSnapshot === 'object' ? data.promotionSnapshot : null;
+  const adjustments = Array.isArray(promotionSnapshot?.lineAdjustments) ? promotionSnapshot.lineAdjustments : [];
+  const items = (Array.isArray(data.items) ? data.items : []).map((item, index) => customerOrderItem({
+    ...item,
+    promotionAdjustment: adjustments[index]
+  })).filter(Boolean);
   return {
     orderNumber: readString(data.orderNumber),
     orderDate: toIso(data.createdAt),
     storeName: readString(data.storeName) || 'Store',
     itemCount: Math.max(0, readNumber(data.itemCount)),
-    items: (Array.isArray(data.items) ? data.items : []).map(customerOrderItem).filter(Boolean),
+    items,
     remarks: readString(data.notes),
     total: Math.max(0, readNumber(data.total)),
     fulfilmentMethod: data.fulfilmentMethod === 'delivery' ? 'delivery' : 'pickup',
@@ -50,6 +61,13 @@ const customerOrder = document => {
       deliveryFee: Math.max(0, readNumber(totals.deliveryFee)),
       grandTotal: Math.max(0, readNumber(totals.grandTotal)),
       currency: data.currency === 'SGD' ? 'SGD' : 'MYR'
+    } } : {}),
+    ...(promotionSnapshot && Array.isArray(promotionSnapshot.appliedPromotions) ? { promotionSnapshot: {
+      appliedPromotions: promotionSnapshot.appliedPromotions.flatMap(promotion => (
+        readString(promotion?.name) && ['percentage', 'fixed_amount', 'buy_x_get_y'].includes(readString(promotion?.type)) && hasNumber(promotion?.savings)
+          ? [{ name: readString(promotion.name), type: readString(promotion.type), savings: Math.max(0, readNumber(promotion.savings)), terms: promotion.terms && typeof promotion.terms === 'object' ? promotion.terms : {} }]
+          : []
+      ))
     } } : {}),
     currency: data.currency === 'SGD' ? 'SGD' : 'MYR',
     paymentStatus: readString(data.payment?.status) || 'pending',

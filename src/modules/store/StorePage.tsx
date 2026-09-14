@@ -17,6 +17,7 @@ import {
   Search,
   Share2,
   Settings,
+  Tag,
   Store as StoreIcon,
   Trash2,
   X
@@ -35,6 +36,7 @@ import { storeService } from './services';
 import { storeDeliveryService } from './services/deliveryService';
 import StoreOrdersPanel from './StoreOrdersPanel';
 import StoreSetsPanel from './StoreSetsPanel';
+import StorePromotionsPanel from './StorePromotionsPanel';
 import {
   createStoreQrBlob,
   createStoreQrDataUrl,
@@ -88,7 +90,7 @@ interface StorePageProps {
   onOpenPos?: () => void;
 }
 
-type StoreView = 'products' | 'sets' | 'orders' | 'pickup' | 'settings';
+type StoreView = 'products' | 'sets' | 'promotions' | 'orders' | 'pickup' | 'settings';
 
 interface ProductOptionEditor {
   id: string;
@@ -162,6 +164,7 @@ const moveItem = <T,>(items: T[], fromIndex: number, toIndex: number) => {
 const viewItems: Array<{ id: StoreView; label: string; question: string; icon: typeof Package }> = [
   { id: 'products', label: 'Products', question: 'What am I selling?', icon: Package },
   { id: 'sets', label: 'Sets & Combos', question: 'Which products can customers enjoy together?', icon: Layers3 },
+  { id: 'promotions', label: 'Promotions', question: 'Which offers are active?', icon: Tag },
   { id: 'orders', label: 'Orders', question: 'What have customers ordered?', icon: ClipboardList },
   { id: 'pickup', label: 'Pickup', question: 'Where and when do customers collect?', icon: MapPin },
   { id: 'settings', label: 'Store Settings', question: 'How does my store look?', icon: Settings }
@@ -182,6 +185,7 @@ export default function StorePage({
   const visibleViewItems = viewItems.filter(item => (
     item.id === 'products'
     || (item.id === 'sets' && permissions.manageProducts)
+    || (item.id === 'promotions' && permissions.manageStoreSettings)
     || (item.id === 'orders' && permissions.viewOrders)
     || ((item.id === 'pickup' || item.id === 'settings') && permissions.manageStoreSettings)
   ));
@@ -1183,6 +1187,8 @@ export default function StorePage({
           </div>
         </section>
       )}
+
+      {activeView === 'promotions' && <StorePromotionsPanel workspaceId={workspace.id} userId={currentUser.uid} products={products} canManage={permissions.manageStoreSettings} />}
 
       {activeView === 'sets' && (
         <StoreSetsPanel

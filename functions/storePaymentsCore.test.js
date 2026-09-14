@@ -97,6 +97,25 @@ test('single-merchant order is priced from server products and stores provider-n
   assert.equal(order.items[0].unitPrice, 4.9);
 });
 
+test('checkout ignores malicious client promotion prices and persists only the server promotion snapshot', () => {
+  const order = buildPendingOrder({
+    id: 'order-promotion', orderNumber: 'MC-260726-PROMO1', store,
+    products, optionGroups, paymentProvider: STRIPE_PROVIDER_ID,
+    paymentProviderMode: STRIPE_PROVIDER_MODE,
+    promotions: [{ id: 'server-only', storeId: store.id, workspaceId: store.id, name: 'Server 10%', active: true, type: 'percentage', eligibleProductIds: ['breakfast'], percentageOff: 10, minimumQuantity: 0, minimumOrderAmount: 0, startsAt: new Date('2026-01-01T00:00:00Z'), endsAt: null, priority: 0 }],
+    draft: { ...draft, selections: [{ ...draft.selections[0], quantity: 2, clientPrice: 0, discountTotal: 999, promotionId: 'attacker-controlled' }] },
+    now: new Date('2026-07-26T00:00:00Z')
+  });
+  // 2 x RM5.90 with RM1 option reduction each = RM9.80 cart value; the base
+  // product discount is RM1.18 and add-on pricing remains undiscounted.
+  assert.equal(order.totals.merchandiseSubtotal, 9.8);
+  assert.equal(order.totals.discountTotal, 1.18);
+  assert.equal(order.totals.discountedMerchandiseTotal, 8.62);
+  assert.equal(order.payment.amountMinor, 862);
+  assert.equal(order.promotionSnapshot.appliedPromotions[0].promotionId, 'server-only');
+  assert.equal(order.promotionSnapshot.lineAdjustments[0].promotionId, 'server-only');
+});
+
 test('authenticated contact email is optional, normalized, and never used as order ownership', () => {
   const order = buildPendingOrder({
     id: 'order-contact',

@@ -211,3 +211,15 @@ test('customer listing is authenticated, owner-scoped, newest-first and sanitize
     assert.equal(serialized.includes(privateValue), false);
   }
 });
+
+test('customer history exposes only the persisted immutable promotion snapshot', async () => {
+  const result = await listCustomerOrders({ db: createListDb([{ id: 'promo-order', data: {
+    customerUid: 'customer-a', orderNumber: 'MC-PROMO', createdAt: '2026-09-14T00:00:00Z', storeName: 'Store', currency: 'MYR', total: 9,
+    items: [{ productName: 'Meal', quantity: 1, lineTotal: 10, selectedOptions: [] }],
+    promotionSnapshot: { appliedPromotions: [{ promotionId: 'private-id', name: 'Historic 10%', type: 'percentage', savings: 1, terms: { percentageOff: 10 } }], lineAdjustments: [{ productId: 'private-product', discountAmount: 1, finalLineTotal: 9 }] }
+  } }]), uid: 'customer-a' });
+  assert.deepEqual(result.orders[0].promotionSnapshot, { appliedPromotions: [{ name: 'Historic 10%', type: 'percentage', savings: 1, terms: { percentageOff: 10 } }] });
+  assert.deepEqual(result.orders[0].items[0].promotionAdjustment, { discountAmount: 1, finalLineTotal: 9 });
+  assert.equal(JSON.stringify(result).includes('private-id'), false);
+  assert.equal(JSON.stringify(result).includes('private-product'), false);
+});
