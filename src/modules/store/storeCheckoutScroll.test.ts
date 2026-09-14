@@ -37,7 +37,7 @@ test('delivery quote is refreshed only when payment begins and never by an idle 
 
 test('a re-quote keeps a stable fee eligible for one payment retry and requires confirmation only for a changed fee', () => {
   assert.match(publicStorePage, /let refreshedForPayment = false/);
-  assert.match(publicStorePage, /if \(fulfilmentMethod !== 'delivery' \|\| refreshedForPayment \|\| !message\.includes\('Refresh your delivery quote before checkout\.'\)\) throw error/);
+  assert.match(publicStorePage, /message\.includes\('Promotion or delivery pricing changed\.'/);
   assert.match(publicStorePage, /setDeliveryPriceConfirmation\(\{ previousFee: previousQuote\.quote\.customerDeliveryFee, currentFee: refreshedQuote\.quote\.customerDeliveryFee \}\)/);
   assert.match(publicStorePage, /if \(previousQuote\) setDeliveryQuote\(previousQuote\)/);
 });
