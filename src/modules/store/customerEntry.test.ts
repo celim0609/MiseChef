@@ -7,6 +7,9 @@ import {
   createStoreQrDataUrl,
   getPublicOrderingPath,
   getPublicOrderingUrl,
+  getPublicProductPath,
+  getPublicProductUrl,
+  getStoreProductShareData,
   getStoreShareData,
   getStoreQrFileName,
   STORE_QR_OPTIONS,
@@ -42,6 +45,29 @@ test('Web Share uses the Store name, description, and the same canonical orderin
   });
   assert.match(storePageSource, /navigator\.share\(getStoreShareData\(window\.location\.origin, store\)\)/);
   assert.match(storePageSource, /Share Store/);
+});
+
+test('Product sharing uses the existing immutable product slug and never the admin route', () => {
+  const path = getPublicProductPath('misechef-s-grab-go-store', 'banana-muffin-abc123');
+  assert.equal(path, '/store/misechef-s-grab-go-store/product/banana-muffin-abc123');
+  assert.doesNotMatch(path, /^\/app(?:\/|$)/);
+  assert.equal(
+    getPublicProductUrl('https://misechef-beta-fa4bf.web.app', 'misechef-s-grab-go-store', 'banana-muffin-abc123'),
+    'https://misechef-beta-fa4bf.web.app/store/misechef-s-grab-go-store/product/banana-muffin-abc123'
+  );
+  assert.deepEqual(getStoreProductShareData('https://misechef.ai', {
+    slug: 'misechef-s-grab-go-store', name: 'Grab & Go'
+  }, {
+    productSlug: 'banana-muffin-abc123', name: 'Banana Muffin', description: ''
+  }), {
+    title: 'Banana Muffin | Grab & Go',
+    text: 'Order Banana Muffin from Grab & Go.',
+    url: 'https://misechef.ai/store/misechef-s-grab-go-store/product/banana-muffin-abc123'
+  });
+  assert.match(storePageSource, /product\.productSlug && <button/);
+  assert.match(storePageSource, /navigator\.share\(shareData\)/);
+  assert.match(storePageSource, /navigator\.clipboard\.writeText\(shareData\.url\)/);
+  assert.match(storePageSource, /openProductEditor\(product\)/);
 });
 
 test('QR downloads use a stable Store-specific file name', () => {
