@@ -47,11 +47,17 @@ test('direct Product lookup resolves only the matching public product and legacy
   assert.deepEqual(visible.map(item => item.id), ['abc123', 'legacy']);
 });
 
-test('direct Product page retains the existing cart action and has a safe invalid-product state', () => {
+test('direct Product page renders standalone content with the existing cart action and safe invalid-product state', () => {
   const source = readFileSync(new URL('./PublicStorePage.tsx', import.meta.url), 'utf8');
+  assert.match(source, /className=\{productSlug \? 'hidden' : 'min-w-0'\}/);
+  assert.match(source, /catalogue-main/);
   assert.match(source, /startAddingProduct\(product\)/);
-  assert.match(source, /This product is not available/);
-  assert.match(source, /scrollIntoView/);
+  assert.match(source, /startAddingProduct\(requestedProduct\)/);
+  assert.match(source, /standalone-product-title/);
+  assert.match(source, /Back to Store/);
+  assert.match(source, /Product unavailable/);
+  assert.match(source, /getPromotionOfferLabel\(promotionByProduct\.get\(requestedProduct\.id\)!\)/);
+  assert.doesNotMatch(source, /productCard\?\.scrollIntoView/);
 });
 
 test('rules require a slug on new products and preserve it on later edits without exposing private products', () => {
