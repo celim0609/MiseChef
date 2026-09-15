@@ -35,6 +35,24 @@ export const getPublicOrderingUrl = (origin: string, slug: string) => (
   new URL(getPublicOrderingPath(slug), origin).toString()
 );
 
+export const getPublicProductPath = (storeSlug: string, productSlug: string) => (
+  `${getPublicOrderingPath(storeSlug)}/product/${encodeURIComponent(productSlug.trim())}`
+);
+
+export const getPublicProductUrl = (origin: string, storeSlug: string, productSlug: string) => (
+  new URL(getPublicProductPath(storeSlug, productSlug), origin).toString()
+);
+
+export const getStoreProductShareData = (
+  origin: string,
+  store: { slug: string; name: string },
+  product: { productSlug: string; name: string; description: string }
+) => ({
+  title: `${product.name.trim() || 'Product'} | ${store.name.trim() || 'MiseChef Store'}`,
+  text: product.description.trim() || `Order ${product.name.trim() || 'this product'} from ${store.name.trim() || 'this MiseChef Store'}.`,
+  url: getPublicProductUrl(origin, store.slug, product.productSlug)
+});
+
 export const getStoreShareData = (
   origin: string,
   store: { slug: string; name: string; description: string }

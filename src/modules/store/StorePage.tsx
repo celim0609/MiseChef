@@ -42,6 +42,7 @@ import {
   createStoreQrDataUrl,
   getPublicOrderingPath,
   getPublicOrderingUrl,
+  getStoreProductShareData,
   getStoreShareData,
   getStoreQrFileName
 } from './customerEntry';
@@ -235,6 +236,8 @@ export default function StorePage({
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [qrDownloadUrl, setQrDownloadUrl] = useState('');
   const [shareMessage, setShareMessage] = useState('');
+  const [productShareMessage, setProductShareMessage] = useState('');
+  const [sharedProductId, setSharedProductId] = useState('');
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
   const [unavailableDateDraft, setUnavailableDateDraft] = useState('');
   const [storeName, setStoreName] = useState(() => {
@@ -460,6 +463,28 @@ export default function StorePage({
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
       setShareMessage('Unable to open sharing. Copy the ordering link instead.');
+    }
+  };
+
+  const shareProductLink = async (product: StoreProduct) => {
+    const productSlug = product.productSlug;
+    if (!store || !productSlug) return;
+
+    const shareData = getStoreProductShareData(window.location.origin, store, { ...product, productSlug });
+    setSharedProductId(product.id);
+    try {
+      if (typeof navigator.share === 'function') {
+        await navigator.share(shareData);
+        setProductShareMessage('Product shared.');
+        return;
+      }
+      await navigator.clipboard.writeText(shareData.url);
+      setProductShareMessage('Product link copied.');
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      setProductShareMessage(typeof navigator.share === 'function'
+        ? 'Unable to open sharing. Please try again.'
+        : 'Copy failed. Please try again.');
     }
   };
 
@@ -1182,9 +1207,15 @@ export default function StorePage({
                     return <p className="mt-3 font-sans text-[11px] font-bold text-outline">Recipe cost: {cost === null ? 'Cost unavailable' : formatRegionCurrency(cost, region.currency)} · {recipe?.title || 'Missing recipe'}</p>;
                   })()}
                   {product.optionGroupIds.length > 0 && <p className="mt-3 font-sans text-[11px] font-bold text-outline">{product.optionGroupIds.length} option {product.optionGroupIds.length === 1 ? 'group' : 'groups'}</p>}
-                  {permissions.manageProducts && <button type="button" onClick={() => openProductEditor(product)} className="mt-4 inline-flex items-center gap-2 font-sans text-xs font-extrabold text-primary">
-                    <Pencil className="h-3.5 w-3.5" /> Edit
-                  </button>}
+                  {permissions.manageProducts && <div className="mt-4 flex flex-wrap items-center gap-4">
+                    <button type="button" onClick={() => openProductEditor(product)} className="inline-flex items-center gap-2 font-sans text-xs font-extrabold text-primary">
+                      <Pencil className="h-3.5 w-3.5" /> Edit
+                    </button>
+                    {product.productSlug && <button type="button" onClick={() => void shareProductLink(product)} className="inline-flex items-center gap-2 font-sans text-xs font-extrabold text-primary">
+                      <Share2 className="h-3.5 w-3.5" /> Share
+                    </button>}
+                    {sharedProductId === product.id && productShareMessage && <p role="status" className="font-sans text-xs font-bold text-on-surface-variant">{productShareMessage}</p>}
+                  </div>}
                 </div>
               </article>
             ))}
