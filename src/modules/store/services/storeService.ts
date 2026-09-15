@@ -375,6 +375,7 @@ export const storeService = {
       storeId: workspaceId,
       workspaceId,
       photoUrl: draft.photoUrl.trim(),
+      ...(draft.socialImageUrl ? { socialImageUrl: draft.socialImageUrl.trim() } : {}),
       name: draft.name.trim(),
       description: draft.description.trim(),
       price: draft.price,

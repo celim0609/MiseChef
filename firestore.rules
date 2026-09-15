@@ -447,6 +447,7 @@ service cloud.firestore {
           'storeId',
           'workspaceId',
           'photoUrl',
+          'socialImageUrl',
           'name',
           'description',
           'price',
@@ -467,6 +468,7 @@ service cloud.firestore {
         && data.storeId == data.workspaceId
         && data.photoUrl is string
         && data.photoUrl.size() > 0
+        && (!('socialImageUrl' in data) || (data.socialImageUrl is string && data.socialImageUrl.size() > 0))
         && data.name is string
         && data.name.size() > 0
         && data.name.size() <= 160
@@ -1358,6 +1360,7 @@ service cloud.firestore {
         && isValidStoreProduct(request.resource.data, productId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'photoUrl',
+          'socialImageUrl',
           'productSlug',
           'name',
           'description',

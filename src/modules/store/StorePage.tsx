@@ -30,7 +30,8 @@ import {
   deleteStoreProductPhoto,
   uploadStoreBrandImage,
   uploadStorePaymentQr,
-  uploadStoreProductPhoto
+  uploadStoreProductPhoto,
+  uploadStoreProductSocialImage
 } from '../../services/storage';
 import { storeService } from './services';
 import { storeDeliveryService } from './services/deliveryService';
@@ -713,16 +714,17 @@ export default function StorePage({
       }));
       const productId = editingProduct?.id || storeService.createProductId();
       saveStage = 'photo-upload';
-      const photoUrl = productPhotoFile
-        ? await uploadStoreProductPhoto({
-          workspaceId: workspace.id,
-          productId,
-          file: productPhotoFile
-        })
-        : productDraft.photoUrl;
+      const uploadedImages = productPhotoFile
+        ? await Promise.all([
+          uploadStoreProductPhoto({ workspaceId: workspace.id, productId, file: productPhotoFile }),
+          uploadStoreProductSocialImage({ workspaceId: workspace.id, productId, file: productPhotoFile })
+        ])
+        : null;
+      const photoUrl = uploadedImages?.[0] || productDraft.photoUrl;
       const nextDraft: StoreProductDraft = {
         ...productDraft,
         photoUrl,
+        ...(uploadedImages ? { socialImageUrl: uploadedImages[1] } : {}),
         optionGroupIds: savedGroups.map(group => group.id)
       };
       saveStage = 'product-write';

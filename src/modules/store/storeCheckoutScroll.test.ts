@@ -14,11 +14,12 @@ test('new payment and confirmation stages scroll their actual sections into view
   assert.match(publicStorePage, /id="order-confirmation-heading"[\s\S]*confirmationCopy\?\.heading/);
 });
 
-test('checkout scrolling is keyed only to intentional stage transitions and direct Product focus', () => {
+test('checkout scrolling is keyed only to intentional stage transitions while direct Products render standalone', () => {
   assert.match(publicStorePage, /useEffect\(\(\) => \{\s*if \(!paymentStageKey\) return;[\s\S]*\}, \[paymentStageKey\]\)/);
   assert.match(publicStorePage, /useEffect\(\(\) => \{\s*if \(!confirmationKey\) return;[\s\S]*\}, \[confirmationKey\]\)/);
-  assert.match(publicStorePage, /requestedProduct[\s\S]*productCard\?\.scrollIntoView/);
-  assert.equal((publicStorePage.match(/scrollIntoView/g) || []).length, 4);
+  assert.match(publicStorePage, /standalone-product-title/);
+  assert.doesNotMatch(publicStorePage, /productCard\?\.scrollIntoView/);
+  assert.equal((publicStorePage.match(/scrollIntoView/g) || []).length, 3);
   assert.equal((publicStorePage.match(/window\.requestAnimationFrame/g) || []).length, 2);
   assert.equal((publicStorePage.match(/window\.cancelAnimationFrame/g) || []).length, 2);
 });

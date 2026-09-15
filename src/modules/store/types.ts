@@ -220,6 +220,8 @@ export interface StoreProduct {
   storeId: string;
   workspaceId: string;
   photoUrl: string;
+  /** Public JPEG derivative used only by crawler-facing Product share metadata. */
+  socialImageUrl?: string;
   name: string;
   description: string;
   price: number;
@@ -235,6 +237,8 @@ export interface StoreProduct {
 
 export interface StoreProductDraft {
   photoUrl: string;
+  /** Set by the Product photo upload path; never entered directly by a merchant. */
+  socialImageUrl?: string;
   name: string;
   description: string;
   price: number;

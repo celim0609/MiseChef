@@ -94,7 +94,7 @@ export const buildProductSocialMetadata = ({ store, product, origin, slug, produ
     ? new Intl.NumberFormat('en', { style: 'currency', currency }).format(price)
     : '';
   const description = readPublicText(product?.description, [productName, priceText, `from ${storeName}`].filter(Boolean).join(' · '));
-  const productImage = toHttpsImageUrl(product?.photoUrl);
+  const productImage = toHttpsImageUrl(product?.socialImageUrl) || toHttpsImageUrl(product?.photoUrl);
   const storeImage = toHttpsImageUrl(store?.coverImageUrl) || toHttpsImageUrl(store?.logoUrl);
   const image = productImage
     ? withStoreImageVersion(productImage, product?.updatedAt)

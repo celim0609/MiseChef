@@ -198,13 +198,6 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
   ].filter(Boolean).join('\n');
 
   useEffect(() => {
-    if (!requestedProduct) return;
-    const productCard = document.getElementById(`store-product-${requestedProduct.id}`);
-    productCard?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    productCard?.focus({ preventScroll: true });
-  }, [requestedProduct]);
-
-  useEffect(() => {
     if (!paymentStageKey) return;
     const frame = window.requestAnimationFrame(() => {
       paymentStageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1000,7 +993,35 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
       )}
 
       <div>
-        <section ref={catalogueTopRef} className="min-w-0">
+        {productSlug && (requestedProduct ? (
+          <section aria-labelledby="standalone-product-title" className="overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
+            <div className="border-b border-surface-container-high px-5 py-4 sm:px-6">
+              <a href={`/store/${encodeURIComponent(store.slug)}`} className="inline-flex items-center gap-2 font-sans text-xs font-extrabold text-primary"><ArrowRight className="h-4 w-4 rotate-180" /> Back to Store</a>
+            </div>
+            <div className="grid md:grid-cols-2">
+              <div className="aspect-[4/3] bg-surface-container-low">
+                {requestedProduct.photoUrl && <img src={requestedProduct.photoUrl} alt={requestedProduct.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />}
+              </div>
+              <div className="p-5 sm:p-7">
+                {promotionByProduct.has(requestedProduct.id) && <p className="font-sans text-xs font-extrabold text-secondary">🔥 {getPromotionOfferLabel(promotionByProduct.get(requestedProduct.id)!)}</p>}
+                <h2 id="standalone-product-title" className="mt-2 font-display text-3xl font-bold text-primary">{requestedProduct.name}</h2>
+                <p className="mt-3 font-sans text-xl font-extrabold text-secondary">{formatRegionCurrency(requestedProduct.price, store.currency)}</p>
+                {requestedProduct.description && <p className="mt-4 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{requestedProduct.description}</p>}
+                {canOrderPickup && <button type="button" disabled={!hasAvailableProductOptions(requestedProduct)} onClick={() => startAddingProduct(requestedProduct)} className="mt-6 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
+                  {!hasAvailableProductOptions(requestedProduct) ? 'Options unavailable' : requestedProduct.optionGroupIds.length > 0 ? 'Choose Options' : 'Add to Cart'}
+                </button>}
+              </div>
+            </div>
+          </section>
+        ) : (
+          <section aria-labelledby="product-unavailable-title" className="rounded-3xl border border-dashed border-outline-variant bg-surface-container-low px-6 py-14 text-center">
+            <PackageOpen className="mx-auto h-8 w-8 text-primary" />
+            <h2 id="product-unavailable-title" className="mt-4 font-display text-2xl font-bold text-primary">Product unavailable</h2>
+            <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">This product is not currently available from this Store.</p>
+            <a href={`/store/${encodeURIComponent(store.slug)}`} className="mt-6 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary"><ArrowRight className="h-4 w-4 rotate-180" /> Back to Store</a>
+          </section>
+        ))}
+        <section ref={catalogueTopRef} className={productSlug ? 'hidden' : 'min-w-0'}>
           <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Products &amp; Sets</p>
           <h2 className="mt-2 font-display text-3xl font-bold text-primary">Available now</h2>
           {productSlug && data && !requestedProduct && (

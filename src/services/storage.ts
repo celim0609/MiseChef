@@ -7,6 +7,7 @@ import { FirebaseError } from 'firebase/app';
 import { deleteObject, getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
 import { storage } from '../firebase';
 import { getStorageUploadErrorMessage } from './storageError';
+import { getProductSocialImageCrop, PRODUCT_SOCIAL_IMAGE } from '../modules/store/productSocialImage';
 
 export { getStorageUploadErrorMessage } from './storageError';
 
@@ -73,6 +74,41 @@ const getSupportedImageExtension = (file: File) => {
   }
 };
 
+const canvasToJpeg = (canvas: HTMLCanvasElement, quality: number) => new Promise<Blob>((resolve, reject) => {
+  canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Could not create the Product social image.')), 'image/jpeg', quality);
+});
+
+export const createStoreProductSocialImage = async (file: File): Promise<Blob> => {
+  const sourceUrl = URL.createObjectURL(file);
+  try {
+    const source = new Image();
+    source.decoding = 'async';
+    await new Promise<void>((resolve, reject) => {
+      source.onload = () => resolve();
+      source.onerror = () => reject(new Error('Could not read the Product photo.'));
+      source.src = sourceUrl;
+    });
+    if (!source.naturalWidth || !source.naturalHeight) throw new Error('Could not read the Product photo.');
+    const crop = getProductSocialImageCrop(source.naturalWidth, source.naturalHeight);
+    const canvas = document.createElement('canvas');
+    canvas.width = PRODUCT_SOCIAL_IMAGE.width;
+    canvas.height = PRODUCT_SOCIAL_IMAGE.height;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Could not prepare the Product social image.');
+    context.drawImage(source, crop.x, crop.y, crop.width, crop.height, 0, 0, canvas.width, canvas.height);
+    let derivative = await canvasToJpeg(canvas, 0.9);
+    for (let quality = 0.82; derivative.size > PRODUCT_SOCIAL_IMAGE.targetBytes && quality >= 0.45; quality -= 0.08) {
+      derivative = await canvasToJpeg(canvas, quality);
+    }
+    if (derivative.size > PRODUCT_SOCIAL_IMAGE.maxBytes) {
+      throw new Error('The Product social image could not be compressed below 600 KB. Please choose a simpler photo.');
+    }
+    return derivative;
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
+};
+
 const uploadFile = async ({
   path,
   file,
@@ -80,7 +116,7 @@ const uploadFile = async ({
   onProgress,
 }: {
   path: string;
-  file: File;
+  file: Blob;
   cacheControl: string;
   onProgress?: (progress: number) => void;
 }) => {
@@ -165,6 +201,31 @@ export const uploadStoreProductPhoto = async ({
     });
   } catch (error) {
     throw new Error(getStorageUploadErrorMessage(error, 'Product photo'));
+  }
+};
+
+export const uploadStoreProductSocialImage = async ({
+  workspaceId,
+  productId,
+  file,
+  onProgress
+}: {
+  workspaceId: string;
+  productId: string;
+  file: File;
+  onProgress?: (progress: number) => void;
+}) => {
+  requireSupportedImageExtension(file);
+  try {
+    const derivative = await createStoreProductSocialImage(file);
+    return await uploadFile({
+      path: `stores/${workspaceId}/products/${productId}/social.jpg`,
+      file: derivative,
+      cacheControl: 'public,max-age=31536000',
+      onProgress
+    });
+  } catch (error) {
+    throw new Error(getStorageUploadErrorMessage(error, 'Product social image'));
   }
 };
 

@@ -82,23 +82,23 @@ test('public absolute HTTPS default image is used when Store images are missing 
   assert.equal(metadata.description, STORE_SOCIAL_DEFAULTS.description);
 });
 
-test('Product metadata uses the direct canonical URL, own HTTPS image, and safe price fallback', () => {
+test('Product metadata prefers the Product social image, then the own HTTPS photo, and uses the direct canonical URL', () => {
   const metadata = buildProductSocialMetadata({
     origin: betaOrigin,
     slug: 'breakfast-store',
     productSlug: 'banana-muffin-AbC123',
     store: { slug: 'breakfast-store', name: 'Breakfast Store', currency: 'MYR', coverImageUrl: 'https://cdn.example/store.jpg' },
-    product: { productSlug: 'banana-muffin-AbC123', name: 'Banana Muffin', description: '', price: 8.5, photoUrl: 'https://cdn.example/muffin.jpg' }
+    product: { productSlug: 'banana-muffin-AbC123', name: 'Banana Muffin', description: '', price: 8.5, photoUrl: 'https://cdn.example/muffin.jpg', socialImageUrl: 'https://cdn.example/muffin-social.jpg' }
   });
   const html = injectStoreSocialMetadata(appShell, metadata);
   assert.equal(metadata.title, 'Banana Muffin | Breakfast Store');
-  assert.equal(metadata.image, 'https://cdn.example/muffin.jpg');
+  assert.equal(metadata.image, 'https://cdn.example/muffin-social.jpg');
   assert.match(metadata.image, /^https:\/\//);
   assert.match(metadata.description, /Banana Muffin.*MYR/);
   assert.match(html, /property="og:url" content="https:\/\/misechef-beta-fa4bf\.web\.app\/store\/breakfast-store\/product\/banana-muffin-AbC123"/);
   assert.match(html, /property="og:type" content="product"/);
   assert.match(html, /name="twitter:card" content="summary_large_image"/);
-  assert.match(html, /name="twitter:image" content="https:\/\/cdn\.example\/muffin\.jpg"/);
+  assert.match(html, /name="twitter:image" content="https:\/\/cdn\.example\/muffin-social\.jpg"/);
   assert.ok(html.indexOf('og:title') < html.indexOf('</head>'));
 });
 
@@ -107,6 +107,14 @@ test('Product image falls back to Store cover and then the MiseChef social image
   const defaulted = buildProductSocialMetadata({ origin: betaOrigin, slug: 's', productSlug: 'p', store: { slug: 's', coverImageUrl: '' }, product: { productSlug: 'p', name: 'Product', photoUrl: '' } });
   assert.equal(covered.image, 'https://cdn.example/cover.jpg');
   assert.equal(defaulted.image, `${betaOrigin}${STORE_SOCIAL_DEFAULTS.imagePath}`);
+});
+
+test('different Products retain their own crawler image URLs without Product-specific handling', () => {
+  const first = buildProductSocialMetadata({ origin: betaOrigin, slug: 's', productSlug: 'first', store: { slug: 's' }, product: { productSlug: 'first', name: 'First', socialImageUrl: 'https://cdn.example/first-social.jpg', photoUrl: 'https://cdn.example/first.jpg' } });
+  const second = buildProductSocialMetadata({ origin: betaOrigin, slug: 's', productSlug: 'second', store: { slug: 's' }, product: { productSlug: 'second', name: 'Second', socialImageUrl: 'https://cdn.example/second-social.jpg', photoUrl: 'https://cdn.example/second.jpg' } });
+  assert.equal(first.image, 'https://cdn.example/first-social.jpg');
+  assert.equal(second.image, 'https://cdn.example/second-social.jpg');
+  assert.notEqual(first.image, second.image);
 });
 
 test('long and hostile Store text stays escaped without breaking the application shell', () => {
