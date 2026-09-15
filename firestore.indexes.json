@@ -34,6 +34,15 @@
       ]
     },
     {
+      "collectionGroup": "storeProducts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "storeId", "order": "ASCENDING" },
+        { "fieldPath": "productSlug", "order": "ASCENDING" },
+        { "fieldPath": "available", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "storeOrders",
       "queryScope": "COLLECTION",
       "fields": [

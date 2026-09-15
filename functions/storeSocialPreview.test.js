@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   buildStoreSocialMetadata,
+  buildProductSocialMetadata,
   createStoreSocialPreviewHandler,
   injectStoreSocialMetadata,
   resolveStoreRequestOrigin,
@@ -81,6 +82,33 @@ test('public absolute HTTPS default image is used when Store images are missing 
   assert.equal(metadata.description, STORE_SOCIAL_DEFAULTS.description);
 });
 
+test('Product metadata uses the direct canonical URL, own HTTPS image, and safe price fallback', () => {
+  const metadata = buildProductSocialMetadata({
+    origin: betaOrigin,
+    slug: 'breakfast-store',
+    productSlug: 'banana-muffin-AbC123',
+    store: { slug: 'breakfast-store', name: 'Breakfast Store', currency: 'MYR', coverImageUrl: 'https://cdn.example/store.jpg' },
+    product: { productSlug: 'banana-muffin-AbC123', name: 'Banana Muffin', description: '', price: 8.5, photoUrl: 'https://cdn.example/muffin.jpg' }
+  });
+  const html = injectStoreSocialMetadata(appShell, metadata);
+  assert.equal(metadata.title, 'Banana Muffin | Breakfast Store');
+  assert.equal(metadata.image, 'https://cdn.example/muffin.jpg');
+  assert.match(metadata.image, /^https:\/\//);
+  assert.match(metadata.description, /Banana Muffin.*MYR/);
+  assert.match(html, /property="og:url" content="https:\/\/misechef-beta-fa4bf\.web\.app\/store\/breakfast-store\/product\/banana-muffin-AbC123"/);
+  assert.match(html, /property="og:type" content="product"/);
+  assert.match(html, /name="twitter:card" content="summary_large_image"/);
+  assert.match(html, /name="twitter:image" content="https:\/\/cdn\.example\/muffin\.jpg"/);
+  assert.ok(html.indexOf('og:title') < html.indexOf('</head>'));
+});
+
+test('Product image falls back to Store cover and then the MiseChef social image', () => {
+  const covered = buildProductSocialMetadata({ origin: betaOrigin, slug: 's', productSlug: 'p', store: { slug: 's', coverImageUrl: 'https://cdn.example/cover.jpg' }, product: { productSlug: 'p', name: 'Product', photoUrl: 'http://unsafe.test/photo.jpg' } });
+  const defaulted = buildProductSocialMetadata({ origin: betaOrigin, slug: 's', productSlug: 'p', store: { slug: 's', coverImageUrl: '' }, product: { productSlug: 'p', name: 'Product', photoUrl: '' } });
+  assert.equal(covered.image, 'https://cdn.example/cover.jpg');
+  assert.equal(defaulted.image, `${betaOrigin}${STORE_SOCIAL_DEFAULTS.imagePath}`);
+});
+
 test('long and hostile Store text stays escaped without breaking the application shell', () => {
   const longDescription = `${'Fresh breakfast & pickup. '.repeat(40)}\"><script>alert(1)</script>`;
   const metadata = buildStoreSocialMetadata({
@@ -136,6 +164,32 @@ test('HTTP handler returns raw Store-specific HTML for GET and headers-only for 
   assert.equal(headResponse.statusCode, 200);
   assert.equal(headResponse.body, '');
   assert.equal(headResponse.ended, true);
+});
+
+test('HTTP handler returns Product metadata only for an available Product and falls back safely for missing Products', async () => {
+  const requested = [];
+  const handler = createStoreSocialPreviewHandler({
+    projectId: 'misechef-beta-fa4bf',
+    loadStore: async slug => ({ id: 'store-id', slug, name: 'Breakfast Store', currency: 'MYR', coverImageUrl: 'https://cdn.example/cover.jpg' }),
+    loadProduct: async (storeId, productSlug) => {
+      requested.push([storeId, productSlug]);
+      return productSlug === 'banana-muffin-AbC123'
+        ? { productSlug, name: 'Banana Muffin', description: 'Fresh', price: 8.5, photoUrl: 'https://cdn.example/muffin.jpg' }
+        : null;
+    },
+    loadAppShell: async () => appShell
+  });
+  const valid = createResponse();
+  await handler({ method: 'GET', path: '/store/breakfast-store/product/banana-muffin-AbC123', get: name => name === 'host' ? 'misechef-beta-fa4bf.web.app' : '' }, valid);
+  assert.equal(valid.statusCode, 200);
+  assert.match(valid.body, /Banana Muffin \| Breakfast Store/);
+  assert.match(valid.body, /property="og:type" content="product"/);
+  const unavailable = createResponse();
+  await handler({ method: 'GET', path: '/store/breakfast-store/product/hidden-product', get: name => name === 'host' ? 'misechef-beta-fa4bf.web.app' : '' }, unavailable);
+  assert.equal(unavailable.statusCode, 200);
+  assert.doesNotMatch(unavailable.body, /hidden-product/);
+  assert.doesNotMatch(unavailable.body, /property="og:type" content="product"/);
+  assert.deepEqual(requested, [['store-id', 'banana-muffin-AbC123'], ['store-id', 'hidden-product']]);
 });
 
 test('HTTP handler rejects unsafe methods and non-Store paths without a Firestore read', async () => {

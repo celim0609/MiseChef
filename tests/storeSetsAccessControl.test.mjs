@@ -16,7 +16,7 @@ const setRecord = (available = true, overrides = {}) => ({
   createdBy: 'owner', createdAt: now, updatedAt: now, ...overrides
 });
 const productRecord = (id, overrides = {}) => ({
-  id, storeId: 'workspace', workspaceId: 'workspace', photoUrl: 'https://example.test/product.jpg',
+  id, productSlug: `store-product-${id}`, storeId: 'workspace', workspaceId: 'workspace', photoUrl: 'https://example.test/product.jpg',
   name: 'Store Product', description: '', price: 8, available: true, optionGroupIds: [],
   createdBy: 'owner', createdAt: now, updatedAt: now, ...overrides
 });

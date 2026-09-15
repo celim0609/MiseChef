@@ -55,7 +55,7 @@ export default function PublicLayout({ pathname, currentUser, onSignOut }: { pat
   const [isNightMode, setIsNightMode] = useState(() => typeof document !== 'undefined' && document.documentElement.dataset.appearance === 'dark');
 
   const isHostIndex = route.page === 'host' && route.slug === 'groups';
-  const routeStoreSlug = route.page === 'store' || (route.page === 'host' && !isHostIndex) ? route.slug : '';
+  const routeStoreSlug = route.page === 'store' || route.page === 'store-product' || (route.page === 'host' && !isHostIndex) ? (route.page === 'store-product' ? route.storeSlug : route.slug) : '';
   const hostStoreCandidate = resolvePublicHostStoreCandidate(
     routeStoreSlug,
     route.page === 'group' ? groupStoreSlug : '',
@@ -224,6 +224,10 @@ export default function PublicLayout({ pathname, currentUser, onSignOut }: { pat
 
     if (route.page === 'store') {
       return <PublicStorePage slug={route.slug} currentUser={currentUser} />;
+    }
+
+    if (route.page === 'store-product') {
+      return <PublicStorePage slug={route.storeSlug} productSlug={route.productSlug} currentUser={currentUser} />;
     }
 
     if (route.page === 'orders') {

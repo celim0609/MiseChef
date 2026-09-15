@@ -37,6 +37,7 @@ import {
   storePaymentMethodRequiresReceipt,
   validateStoreProductOptionSelections
 } from './storeModel';
+import { resolvePublicStoreProduct } from './storeProductVisibility';
 import {
   calculateStoreSetAnalysis,
   getDefaultStoreSetSelections,
@@ -124,7 +125,7 @@ function PaymentMethodIcon({ methodId }: { methodId: StorePaymentMethodId }) {
   return <QrCode className={iconClassName} aria-hidden="true" />;
 }
 
-export default function PublicStorePage({ slug, groupOrder, currentUser }: { slug: string; groupOrder?: PublicGroupOrder; currentUser?: User | null }) {
+export default function PublicStorePage({ slug, productSlug, groupOrder, currentUser }: { slug: string; productSlug?: string; groupOrder?: PublicGroupOrder; currentUser?: User | null }) {
   const catalogueTopRef = useRef<HTMLElement | null>(null);
   const hotDealsSectionRef = useRef<HTMLElement | null>(null);
   const catalogueEndRef = useRef<HTMLDivElement | null>(null);
@@ -187,11 +188,21 @@ export default function PublicStorePage({ slug, groupOrder, currentUser }: { slu
   const deliveryQuoteRequestRef = useRef(0);
   const checkoutAttemptIdRef = useRef(crypto.randomUUID());
 
-const deliveryAddressForQuote = deliveryAddress;
+  const deliveryAddressForQuote = deliveryAddress;
+  const requestedProduct = useMemo(() => (
+    resolvePublicStoreProduct(data?.products || [], productSlug)
+  ), [data?.products, productSlug]);
   const deliveryRemarks = [
     deliveryUnit.trim() ? `Unit / Floor: ${deliveryUnit.trim()}` : '',
     deliveryInstructions.trim() ? `Instructions: ${deliveryInstructions.trim()}` : ''
   ].filter(Boolean).join('\n');
+
+  useEffect(() => {
+    if (!requestedProduct) return;
+    const productCard = document.getElementById(`store-product-${requestedProduct.id}`);
+    productCard?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    productCard?.focus({ preventScroll: true });
+  }, [requestedProduct]);
 
   useEffect(() => {
     if (!paymentStageKey) return;
@@ -992,6 +1003,11 @@ const deliveryAddressForQuote = deliveryAddress;
         <section ref={catalogueTopRef} className="min-w-0">
           <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Products &amp; Sets</p>
           <h2 className="mt-2 font-display text-3xl font-bold text-primary">Available now</h2>
+          {productSlug && data && !requestedProduct && (
+            <div role="status" className="mt-4 rounded-2xl border border-outline-variant bg-surface-container-low p-4 font-sans text-sm font-bold text-on-surface-variant">
+              This product is not available. You can still browse this Store's current products below.
+            </div>
+          )}
           {products.length > 0 || sets.length > 0 ? (
             <>
               <nav aria-label="Catalogue sections" className="sticky top-0 z-20 -mx-1 mt-5 overflow-x-auto border-y border-surface-container-high bg-surface/95 px-1 py-2 backdrop-blur lg:top-3">
@@ -1014,7 +1030,7 @@ const deliveryAddressForQuote = deliveryAddress;
                   <h3 className="font-display text-2xl font-bold text-primary">Main</h3>
                   <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {mainProducts.map(product => (
-                      <article key={product.id} className="overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
+                      <article id={`store-product-${product.id}`} key={product.id} tabIndex={-1} className="scroll-mt-24 overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
                         {product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-48 w-full object-cover" referrerPolicy="no-referrer" />}
                         <div className="p-4">
                           <h4 className="font-display text-xl font-bold text-primary">{product.name}</h4>
@@ -1051,7 +1067,7 @@ const deliveryAddressForQuote = deliveryAddress;
                   <h3 className="font-display text-2xl font-bold text-primary">Drinks</h3>
                   <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {drinkProducts.map(product => (
-                <article key={product.id} className="overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
+                <article id={`store-product-${product.id}`} key={product.id} tabIndex={-1} className="scroll-mt-24 overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
                   {product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-48 w-full object-cover" referrerPolicy="no-referrer" />}
                   <div className="p-4">
                     <h4 className="font-display text-xl font-bold text-primary">{product.name}</h4>

@@ -215,6 +215,14 @@ export const toStoreSlug = (value: string) => value
   .replace(/^-+|-+$/g, '')
   .slice(0, 80) || 'store';
 
+export const createStoreProductSlug = (name: string, productId: string) => {
+  const nameSlug = toStoreSlug(name).slice(0, 60) || 'product';
+  // Firestore-generated document IDs are URL-safe and make this immutable slug
+  // collision-free without introducing a mutable name lookup contract.
+  const idSlug = productId.trim();
+  return idSlug ? `${nameSlug}-${idSlug}`.slice(0, 100) : nameSlug;
+};
+
 export const createDefaultWorkspaceStore = (
   workspace: Pick<Workspace, 'id' | 'name' | 'country'>,
   createdBy: string,
@@ -339,6 +347,7 @@ export const normalizeStoreProduct = (
   data: Record<string, unknown>
 ): StoreProduct => ({
   id,
+  productSlug: readString(data.productSlug) || undefined,
   storeId: readString(data.storeId),
   workspaceId: readString(data.workspaceId),
   photoUrl: readString(data.photoUrl),

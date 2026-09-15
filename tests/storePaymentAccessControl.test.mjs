@@ -26,6 +26,7 @@ const STORE_CONTACT = {
 };
 const createProductRecord = (id, createdBy = 'owner-a') => ({
   id,
+  productSlug: `beta-product-${id}`,
   storeId: WORKSPACE_A,
   workspaceId: WORKSPACE_A,
   photoUrl: `https://example.test/${id}.jpg`,
