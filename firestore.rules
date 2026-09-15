@@ -12,13 +12,7 @@ service cloud.firestore {
 
     function isSuperAdmin() {
       return signedIn()
-        && (
-          request.auth.token.email == 'celim0609@gmail.com'
-          || (
-            exists(/databases/$(database)/documents/users/$(request.auth.uid))
-            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'super_admin'
-          )
-        );
+        && request.auth.token.email == 'celim0609@gmail.com';
     }
 
     function currentCompanyId() {

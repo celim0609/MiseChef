@@ -12,13 +12,7 @@ service firebase.storage {
 
     function isSuperAdmin() {
       return signedIn()
-        && (
-          request.auth.token.email == 'celim0609@gmail.com'
-          || (
-            firestore.exists(/databases/(default)/documents/users/$(request.auth.uid))
-            && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'super_admin'
-          )
-        );
+        && request.auth.token.email == 'celim0609@gmail.com';
     }
 
     function canManageWorkspace(workspaceId) {
