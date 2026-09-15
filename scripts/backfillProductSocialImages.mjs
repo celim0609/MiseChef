@@ -2,9 +2,25 @@ import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
+import {
+  BETA_FIRESTORE_PROJECT_ID,
+  PRODUCTION_FIRESTORE_READ_LIMIT_CEILINGS,
+  createAuthenticatedBetaFirestoreRestClient,
+  runBetaFirestoreRead
+} from './productionFirestoreReadSafety.mjs';
 
 export const BETA_PROJECT_ID = 'misechef-beta-fa4bf';
 export const PRODUCT_SOCIAL_IMAGE = { width: 1200, height: 630, targetBytes: 300 * 1024, maxBytes: 600 * 1024 };
+
+const BETA_FIRESTORE_READ_LIMITS = Object.freeze({
+  ...PRODUCTION_FIRESTORE_READ_LIMIT_CEILINGS,
+  maxDocumentsPerCollection: 10_000,
+  maxDocuments: 10_000,
+  maxRequests: 20,
+  maxPages: 20,
+  maxPagesPerCollection: 20,
+  maxCollectionIds: 1
+});
 
 export const getStorageObjectPath = (value, bucketName) => {
   if (typeof value !== 'string' || !value.trim()) return '';
@@ -86,6 +102,47 @@ const assertBetaOnly = () => {
   return requestedProject;
 };
 
+const firestoreString = (fields, name) => typeof fields?.[name]?.stringValue === 'string'
+  ? fields[name].stringValue
+  : '';
+
+const productIdFromDocument = document => {
+  const name = typeof document?.name === 'string' ? document.name : '';
+  const match = new RegExp(`/documents/storeProducts/([^/]+)$`).exec(name);
+  if (!match) throw new Error('Beta Firestore returned a Product outside storeProducts.');
+  return decodeURIComponent(match[1]);
+};
+
+const readProducts = async db => {
+  const runId = `product-social-${randomUUID()}`;
+  const require = createRequire(import.meta.url);
+  const { GoogleAuth } = require('../functions/node_modules/google-auth-library');
+  const auth = new GoogleAuth({
+    projectId: BETA_FIRESTORE_PROJECT_ID,
+    scopes: ['https://www.googleapis.com/auth/cloud-platform']
+  });
+  const firestore = createAuthenticatedBetaFirestoreRestClient(options => auth.request(options));
+  const documents = await runBetaFirestoreRead({
+    projectId: BETA_PROJECT_ID,
+    confirmation: `READ BETA FIRESTORE ${BETA_PROJECT_ID} FOR ${runId}`,
+    firestore,
+    limits: BETA_FIRESTORE_READ_LIMITS,
+    runId
+  }, reader => reader.listCollection('storeProducts'));
+  return documents.map(document => {
+    const id = productIdFromDocument(document);
+    const fields = document.fields || {};
+    return {
+      id,
+      ref: db.doc(`storeProducts/${id}`),
+      name: firestoreString(fields, 'name'),
+      photoUrl: firestoreString(fields, 'photoUrl'),
+      socialImageUrl: firestoreString(fields, 'socialImageUrl'),
+      workspaceId: firestoreString(fields, 'workspaceId')
+    };
+  });
+};
+
 const main = async () => {
   const projectId = assertBetaOnly();
   const execute = process.argv.includes('--execute');
@@ -97,8 +154,7 @@ const main = async () => {
   const db = getFirestore(app);
   const bucket = getStorage(app).bucket(`${projectId}.firebasestorage.app`);
   try {
-    const snapshot = await db.collection('storeProducts').get();
-    const products = snapshot.docs.map(document => ({ id: document.id, ref: document.ref, ...document.data() }));
+    const products = await readProducts(db);
     const missing = products.filter(isMissingProductSocialImage);
     const candidates = missing.map(product => ({
       ...product,
@@ -138,7 +194,7 @@ const main = async () => {
       });
     }
     for (const result of updated) {
-      const verified = await db.collection('storeProducts').doc(result.id).get();
+      const verified = await db.doc(`storeProducts/${result.id}`).get();
       if (verified.data()?.socialImageUrl !== result.socialImageUrl) throw new Error(`Post-write verification failed for ${result.id}.`);
     }
     console.log(JSON.stringify({ updated: updated.length, verified: updated.length }, null, 2));

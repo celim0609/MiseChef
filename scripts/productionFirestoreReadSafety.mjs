@@ -112,6 +112,20 @@ export const createProductionFirestoreRestClient = Client => {
 
 export const createBetaFirestoreRestClient = createProductionFirestoreRestClient;
 
+export const createAuthenticatedBetaFirestoreRestClient = request => {
+  if (typeof request !== 'function') throw new Error('An authenticated Google API request function is required.');
+  class FirestoreRestClient {
+    async get(path, options = {}) {
+      return request({
+        method: 'GET',
+        url: `https://firestore.googleapis.com/v1${path}`,
+        params: options.queryParams
+      });
+    }
+  }
+  return createBetaFirestoreRestClient(FirestoreRestClient);
+};
+
 const unsafeReadPatterns = Object.freeze([
   ['raw Firestore REST endpoint', /https:\/\/firestore\.googleapis\.com/i],
   ['raw Firestore REST read', /\b(?:firestore|db)\s*\.\s*(?:get|request)\s*\(/i],

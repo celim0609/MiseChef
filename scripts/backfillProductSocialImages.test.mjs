@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import sharp from 'sharp';
 import { BETA_PROJECT_ID, buildPublicStorageUrl, getStorageObjectPath, isMissingProductSocialImage, isSafeExternalImageUrl, optimizeProductSocialImage, PRODUCT_SOCIAL_IMAGE } from './backfillProductSocialImages.mjs';
@@ -23,4 +24,12 @@ test('Product social-image optimization emits an appropriately sized 1200 by 630
   assert.equal(metadata.width, PRODUCT_SOCIAL_IMAGE.width);
   assert.equal(metadata.height, PRODUCT_SOCIAL_IMAGE.height);
   assert.ok(result.length <= PRODUCT_SOCIAL_IMAGE.maxBytes);
+});
+
+test('Product social-image backfill uses the guarded Beta collection reader', () => {
+  const source = readFileSync(new URL('./backfillProductSocialImages.mjs', import.meta.url), 'utf8');
+  assert.match(source, /runBetaFirestoreRead/);
+  assert.match(source, /createAuthenticatedBetaFirestoreRestClient/);
+  assert.match(source, /reader => reader\.listCollection\('storeProducts'\)/);
+  assert.doesNotMatch(source, /db\.collection\('storeProducts'\)/);
 });
