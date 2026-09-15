@@ -351,6 +351,7 @@ export const normalizeStoreProduct = (
   storeId: readString(data.storeId),
   workspaceId: readString(data.workspaceId),
   photoUrl: readString(data.photoUrl),
+  socialImageUrl: readString(data.socialImageUrl) || undefined,
   name: readString(data.name, 'Product'),
   description: readString(data.description),
   price: readPrice(data.price),

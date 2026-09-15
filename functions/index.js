@@ -158,6 +158,7 @@ const publicStorePreviewHandler = createStoreSocialPreviewHandler({
       description: typeof data.description === 'string' ? data.description : '',
       price: typeof data.price === 'number' ? data.price : null,
       photoUrl: typeof data.photoUrl === 'string' ? data.photoUrl : '',
+      socialImageUrl: typeof data.socialImageUrl === 'string' ? data.socialImageUrl : '',
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : ''
     };
   },

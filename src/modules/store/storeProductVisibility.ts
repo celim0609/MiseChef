@@ -30,6 +30,7 @@ export const resolvePublicStoreProduct = (
 
 export const getStoreProductEditorDraft = (product: StoreProduct): StoreProductDraft => ({
   photoUrl: product.photoUrl,
+  ...(product.socialImageUrl ? { socialImageUrl: product.socialImageUrl } : {}),
   name: product.name,
   description: product.description,
   price: product.price,
@@ -72,6 +73,7 @@ export const buildUpdatedStoreProduct = (
 ): StoreProduct => ({
   ...product,
   photoUrl: draft.photoUrl.trim(),
+  ...(draft.socialImageUrl ? { socialImageUrl: draft.socialImageUrl.trim() } : {}),
   name: draft.name.trim(),
   description: draft.description.trim(),
   price: draft.price,
