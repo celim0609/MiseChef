@@ -35,6 +35,21 @@ import {
   type OrderHistoryFilter
 } from './posOrderModel';
 import type { StoreFulfilmentStatus, StoreOrder } from './types';
+import type { StoreOptionGroup, StoreProduct, StoreSet } from './types';
+import { getPosSourceLabel, isWalkInOrder, printWalkInReceipt } from './posWalkIn';
+import { getDefaultStoreSetSelections, getStoreSetUnavailableReason } from './storeSetModel';
+
+type ExternalCartItem = {
+  key: string;
+  label: string;
+  quantity: number;
+  selection: {
+    productId?: string;
+    setId?: string;
+    selectedOptions: Array<{ groupId: string; optionId: string }>;
+    selectedSetItems?: Array<{ groupId: string; productId: string }>;
+  };
+};
 
 const ACTIVE_COLUMNS: Array<{
   status: ActivePosStatus;
@@ -184,6 +199,17 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const [cancelOrder, setCancelOrder] = useState<StoreOrder | null>(null);
   const [cancellationChoice, setCancellationChoice] = useState('');
   const [otherCancellationReason, setOtherCancellationReason] = useState('');
+  const [externalOpen, setExternalOpen] = useState(false);
+  const [externalProducts, setExternalProducts] = useState<StoreProduct[]>([]);
+  const [externalSets, setExternalSets] = useState<StoreSet[]>([]);
+  const [externalOptionGroups, setExternalOptionGroups] = useState<StoreOptionGroup[]>([]);
+  const [externalCart, setExternalCart] = useState<ExternalCartItem[]>([]);
+  const [externalSource, setExternalSource] = useState('shopeefood');
+  const [externalNumber, setExternalNumber] = useState('');
+  const [externalName, setExternalName] = useState('');
+  const [externalPhone, setExternalPhone] = useState('');
+  const [externalNotes, setExternalNotes] = useState('');
+  const [creatingExternal, setCreatingExternal] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hasHydratedRef = useRef(false);
   const soundEnabledRef = useRef(soundEnabled);
@@ -345,6 +371,69 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     }
   };
 
+  const openExternalOrder = async () => {
+    setErrorMessage('');
+    setExternalOpen(true);
+    try {
+      const [products, optionGroups, sets] = await Promise.all([
+        storeService.listAdminProducts(workspaceId),
+        storeService.listOptionGroups(workspaceId),
+        storeService.listSets(workspaceId)
+      ]);
+      setExternalProducts(products.filter(product => product.available));
+      setExternalOptionGroups(optionGroups);
+      setExternalSets(sets.filter(set => set.available && !getStoreSetUnavailableReason(set, products)));
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to load Store products.');
+    }
+  };
+
+  const createExternalOrder = async () => {
+    if (!externalCart.length || creatingExternal) return;
+    setCreatingExternal(true);
+    setErrorMessage('');
+    try {
+      const paymentLabel = externalSource === 'shopeefood' ? 'shopeefood_platform_paid' : externalSource === 'walk_in' ? 'walk_in_paid' : 'other_paid';
+      const result = await storeOrderService.createExternalPosOrder({ workspaceId, storeId, slug: (await storeService.getWorkspaceStore(workspaceId))?.slug || '', source: externalSource, externalOrderNumber: externalNumber, paymentLabel, customerName: externalName, phone: externalPhone, notes: externalNotes, selections: externalCart.map(item => ({ ...item.selection, quantity: item.quantity })) });
+      if (externalSource === 'walk_in') {
+        try {
+          const createdOrder = await storeOrderService.getOrder(result.orderId);
+          if (createdOrder && isWalkInOrder(createdOrder) && createdOrder.payment.status === 'paid') printWalkInReceipt(createdOrder);
+        } catch {
+          // The persisted order remains available for POS-card reprint.
+        }
+      }
+      setExternalOpen(false); setExternalNumber(''); setExternalName(''); setExternalPhone(''); setExternalNotes(''); setExternalCart([]);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Unable to create external order.');
+    } finally {
+      setCreatingExternal(false);
+    }
+  };
+  const addExternalProduct = (product: StoreProduct) => setExternalCart(current => {
+    const existing = current.find(item => item.key === `product:${product.id}`);
+    return existing ? current.map(item => item === existing ? { ...item, quantity: Math.min(20, item.quantity + 1) } : item) : [...current, { key: `product:${product.id}`, label: product.name, quantity: 1, selection: { productId: product.id, selectedOptions: [] } }];
+  });
+  const addExternalSet = (set: StoreSet) => setExternalCart(current => {
+    const existing = current.find(item => item.key === `set:${set.id}`);
+    return existing ? current.map(item => item === existing ? { ...item, quantity: Math.min(20, item.quantity + 1) } : item) : [...current, { key: `set:${set.id}`, label: set.name, quantity: 1, selection: { setId: set.id, selectedOptions: [], selectedSetItems: getDefaultStoreSetSelections(set, externalProducts) } }];
+  });
+  const updateExternalCartQuantity = (key: string, change: number) => setExternalCart(current => current.flatMap(item => item.key !== key ? [item] : item.quantity + change < 1 ? [] : [{ ...item, quantity: Math.min(20, item.quantity + change) }]));
+  const toggleExternalOption = (key: string, group: StoreOptionGroup, optionId: string) => setExternalCart(current => current.map(item => {
+    if (item.key !== key) return item;
+    const otherGroups = item.selection.selectedOptions.filter(choice => choice.groupId !== group.id);
+    const selected = item.selection.selectedOptions.filter(choice => choice.groupId === group.id);
+    const next = selected.some(choice => choice.optionId === optionId) ? selected.filter(choice => choice.optionId !== optionId) : group.selectionType === 'single' ? [{ groupId: group.id, optionId }] : [...selected, { groupId: group.id, optionId }];
+    return { ...item, selection: { ...item.selection, selectedOptions: [...otherGroups, ...next] } };
+  }));
+  const hasRequiredExternalOptions = externalCart.every(item => {
+    const product = externalProducts.find(candidate => candidate.id === item.selection.productId);
+    return !product || product.optionGroupIds.every(groupId => {
+      const group = externalOptionGroups.find(candidate => candidate.id === groupId);
+      return !group?.required || item.selection.selectedOptions.filter(choice => choice.groupId === groupId).length >= Math.max(1, group.minimumSelections || 1);
+    });
+  });
+
   const advanceGroup = async (entry: Extract<GroupKitchenEntry, { kind: 'group' }>) => {
     if (!entry.batchAction || updatingGroupId || updatingOrderId) return;
     setUpdatingGroupId(entry.groupId);
@@ -435,6 +524,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
 
         <div className="flex flex-wrap items-center gap-2">
           {audioBlocked && <p className="text-sm font-bold text-amber-300">Tap Sound to enable alerts.</p>}
+          <button type="button" onClick={openExternalOrder} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-black text-white">+ Add Order</button>
           <button type="button" onClick={() => activeView === 'live' ? openHistory() : setActiveView('live')} className={`inline-flex min-h-12 items-center gap-2 rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-white/15 bg-white/5 text-white' : 'border-slate-300 bg-slate-100 text-slate-900'}`}>{activeView === 'live' ? <History className="h-5 w-5" /> : <BellRing className="h-5 w-5" />}{activeView === 'live' ? 'View Orders' : 'Live Queue'}</button>
           <button type="button" onClick={() => setIsNightMode(current => !current)} aria-pressed={isNightMode} className={`inline-flex min-h-12 items-center gap-2 rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-blue-400/60 bg-blue-500/10 text-white' : 'border-slate-300 bg-slate-100 text-slate-900'}`}><Moon className="h-5 w-5" /><span>Night Mode</span><span className={`relative h-6 w-11 rounded-full transition-colors ${isNightMode ? 'bg-blue-500' : 'bg-slate-300'}`} aria-hidden="true"><span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-transform ${isNightMode ? 'translate-x-6' : 'translate-x-1'}`} /></span></button>
           <button type="button" onClick={toggleSound} aria-pressed={soundEnabled} className={`inline-flex min-h-12 items-center gap-2 rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-blue-500/40 bg-blue-500/10 text-blue-200' : 'border-blue-300 bg-blue-50 text-blue-800'}`}>{soundEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}Sound {soundEnabled ? 'On' : 'Off'}</button>
@@ -472,7 +562,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                         </article>
                       ) : (() => {
                         const order = entry.order;
-                        return <article key={entry.key} className={`pos-light-surface rounded-2xl border-2 p-4 shadow-md ${isNightMode ? 'border-slate-700 bg-[#081321]' : 'border-slate-300 bg-white'}`}><div className="flex items-start justify-between gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${column.badge}`}>{column.label}</span><time className={`shrink-0 text-sm font-black ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`} dateTime={order.createdAt}>{formatRelativeTime(order.createdAt, now)}</time></div><h3 className={`pos-card-title mt-4 text-2xl font-black leading-none ${isNightMode ? 'text-white' : 'text-slate-950'}`}>{order.orderNumber}</h3>{order.pickupCode && <p className={`mt-2 inline-flex rounded-lg px-3 py-1.5 text-xl font-black tracking-[0.18em] ${isNightMode ? 'bg-blue-400 text-slate-950' : 'bg-blue-100 text-blue-950'}`}><span className="sr-only">Pickup Code </span>{order.pickupCode}</p>}<p className={`mt-3 text-sm font-extrabold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}><span className="capitalize">{order.orderSource || 'online'}</span><span className="px-1.5">·</span><span className={paymentClass(order)}>{paymentStatusLabel(order.payment.status)}</span></p><ul className={`mt-4 space-y-3 border-t pt-4 ${isNightMode ? 'border-slate-700' : 'border-slate-200'}`}>{order.items.map((item, index) => <li key={`${order.id}-${item.productId}-${index}`} className={`flex gap-2 text-lg font-black leading-tight ${isNightMode ? 'text-white' : 'text-slate-950'}`}><span className={`min-w-8 text-right ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.quantity}×</span><span>{item.productName}{item.setSnapshot ? <span className={`mt-1 block text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.setSnapshot.selectedGroups.map(selection => formatStoreOrderSetSelection(selection, storeCountry === 'SG' ? 'SGD' : 'MYR')).join(' · ')}</span> : item.selectedOptions.length > 0 && <span className={`mt-1 block text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.selectedOptions.map(option => option.optionName).join(', ')}</span>}</span></li>)}</ul>{order.notes && <p className="mt-4 rounded-xl bg-amber-100 px-3 py-2 text-sm font-extrabold text-amber-950">Note: {order.notes}</p>}<button type="button" disabled={Boolean(updatingOrderId)} onClick={() => void advanceOrder(order)} className={`mt-5 min-h-14 w-full rounded-xl px-4 text-lg font-black shadow-md active:scale-[0.98] disabled:opacity-50 ${column.action}`}>{updatingOrderId === order.id ? 'Updating…' : column.actionLabel}</button>{storeCountry && <WhatsAppCustomerButton order={order} country={storeCountry} storeName={storeNameForMessages} className="mt-2 w-full" />}<button type="button" disabled={Boolean(updatingOrderId)} onClick={() => openCancellation(order)} className={`mt-2 min-h-12 w-full rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-rose-400/50 text-rose-200' : 'border-rose-300 bg-rose-50 text-rose-800'}`}>Cancel Order</button></article>;
+                        return <article key={entry.key} className={`pos-light-surface rounded-2xl border-2 p-4 shadow-md ${isNightMode ? 'border-slate-700 bg-[#081321]' : 'border-slate-300 bg-white'}`}><div className="flex items-start justify-between gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${column.badge}`}>{column.label}</span><time className={`shrink-0 text-sm font-black ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`} dateTime={order.createdAt}>{formatRelativeTime(order.createdAt, now)}</time></div><h3 className={`pos-card-title mt-4 text-2xl font-black leading-none ${isNightMode ? 'text-white' : 'text-slate-950'}`}>{order.orderNumber}</h3>{order.pickupCode && <p className={`mt-2 inline-flex rounded-lg px-3 py-1.5 text-xl font-black tracking-[0.18em] ${isNightMode ? 'bg-blue-400 text-slate-950' : 'bg-blue-100 text-blue-950'}`}><span className="sr-only">Pickup Code </span>{order.pickupCode}</p>}<p className={`mt-3 text-sm font-extrabold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}><span className="capitalize">{getPosSourceLabel(order)}</span><span className="px-1.5">·</span><span className={paymentClass(order)}>{paymentStatusLabel(order.payment.status)}</span></p><ul className={`mt-4 space-y-3 border-t pt-4 ${isNightMode ? 'border-slate-700' : 'border-slate-200'}`}>{order.items.map((item, index) => <li key={`${order.id}-${item.productId}-${index}`} className={`flex gap-2 text-lg font-black leading-tight ${isNightMode ? 'text-white' : 'text-slate-950'}`}><span className={`min-w-8 text-right ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.quantity}×</span><span>{item.productName}{item.setSnapshot ? <span className={`mt-1 block text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.setSnapshot.selectedGroups.map(selection => formatStoreOrderSetSelection(selection, storeCountry === 'SG' ? 'SGD' : 'MYR')).join(' · ')}</span> : item.selectedOptions.length > 0 && <span className={`mt-1 block text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.selectedOptions.map(option => option.optionName).join(', ')}</span>}</span></li>)}</ul>{order.notes && <p className="mt-4 rounded-xl bg-amber-100 px-3 py-2 text-sm font-extrabold text-amber-950">Note: {order.notes}</p>}<button type="button" disabled={Boolean(updatingOrderId)} onClick={() => void advanceOrder(order)} className={`mt-5 min-h-14 w-full rounded-xl px-4 text-lg font-black shadow-md active:scale-[0.98] disabled:opacity-50 ${column.action}`}>{updatingOrderId === order.id ? 'Updating…' : column.actionLabel}</button>{isWalkInOrder(order) && order.payment.status === "paid" && <button type="button" onClick={() => printWalkInReceipt(order)} className="mt-2 min-h-12 w-full rounded-xl border px-4 text-sm font-black">Print Receipt</button>}{storeCountry && <WhatsAppCustomerButton order={order} country={storeCountry} storeName={storeNameForMessages} className="mt-2 w-full" />}<button type="button" disabled={Boolean(updatingOrderId)} onClick={() => openCancellation(order)} className={`mt-2 min-h-12 w-full rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-rose-400/50 text-rose-200' : 'border-rose-300 bg-rose-50 text-rose-800'}`}>Cancel Order</button></article>;
                       })())}
                       {!isLoading && columnOrders.length === 0 && <p className={`px-4 py-4 text-center text-sm font-extrabold ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>No orders</p>}
                       {isLoading && <p className={`px-4 py-4 text-center text-sm font-extrabold ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>Loading live orders…</p>}
@@ -505,6 +595,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       <footer className={`pos-light-surface mx-3 mb-3 grid gap-2 rounded-xl border px-4 py-2 sm:grid-cols-3 lg:mx-4 ${isNightMode ? 'border-slate-700 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}><div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /><span><span className="block text-[10px] font-bold text-slate-400">Last Updated</span><span className="text-xs font-black">{lastUpdated ? lastUpdated.toLocaleTimeString() : 'Connecting…'}</span></span></div><div className="flex items-center gap-2"><Store className="h-5 w-5 text-slate-400" /><span><span className="block text-[10px] font-bold text-slate-400">Store</span><span className="text-xs font-black">{storeDisplayName}</span></span></div><div className="flex items-center gap-2"><BellRing className="h-5 w-5 text-emerald-500" /><span><span className="block text-[10px] font-bold text-slate-400">Active Online Orders</span><span className="text-xs font-black">{activeOnlineOrderCount}</span></span></div></footer>
 
       {cancelOrder && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/65 p-4" role="presentation"><section role="dialog" aria-modal="true" aria-labelledby="cancel-order-title" className={`pos-light-surface w-full max-w-lg rounded-2xl border p-5 shadow-2xl ${isNightMode ? 'border-slate-600 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-rose-500">Preserves order record</p><h2 id="cancel-order-title" className="pos-readable-heading mt-1 text-2xl font-black">Cancel Order</h2><p className="mt-1 text-lg font-black">{cancelOrder.orderNumber}</p></div><button type="button" onClick={closeCancellation} aria-label="Close cancellation dialog" className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-400"><X className="h-5 w-5" /></button></div><p className={`mt-4 rounded-xl px-4 py-3 text-sm font-bold ${isNightMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>This removes the order from the active kitchen queue but preserves it in Order History.</p>{cancelOrder.payment.status === 'paid' && <p className="mt-3 flex gap-2 rounded-xl border border-amber-400 bg-amber-100 px-4 py-3 text-sm font-black text-amber-950"><AlertTriangle className="h-5 w-5 shrink-0" />Canceling this order does not refund the payment.</p>}<fieldset className="mt-5"><legend className="text-sm font-black">Cancellation reason</legend><div className="mt-2 grid gap-2 sm:grid-cols-2">{CANCELLATION_REASONS.map(reason => <label key={reason} className={`pos-control flex min-h-12 cursor-pointer items-center gap-2 rounded-xl border px-3 text-sm font-bold ${cancellationChoice === reason ? 'border-rose-500 bg-rose-50 text-rose-900' : isNightMode ? 'border-slate-600 bg-slate-900' : 'border-slate-300 bg-white'}`}><input type="radio" name="cancellation-reason" value={reason} checked={cancellationChoice === reason} onChange={() => setCancellationChoice(reason)} />{reason}</label>)}</div></fieldset>{cancellationChoice === 'Other' && <label className="mt-3 block text-sm font-black">Explain the reason<textarea autoFocus maxLength={233} value={otherCancellationReason} onChange={event => setOtherCancellationReason(event.target.value)} className="pos-control mt-2 min-h-24 w-full rounded-xl border border-slate-400 bg-white p-3 text-sm font-bold text-slate-950" placeholder="Required" /></label>}<div className="mt-5 grid grid-cols-2 gap-3"><button type="button" onClick={closeCancellation} disabled={Boolean(updatingOrderId)} className={`min-h-12 rounded-xl border px-4 font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-800'}`}>Keep Order</button><button type="button" onClick={() => void confirmCancellation()} disabled={!canConfirmCancellation || Boolean(updatingOrderId)} className="min-h-12 rounded-xl bg-rose-600 px-4 font-black text-white disabled:opacity-40">{updatingOrderId ? 'Cancelling…' : 'Confirm Cancellation'}</button></div></section></div>}
+      {externalOpen && <div className="fixed inset-0 z-[101] flex items-center justify-center bg-black/65 p-4"><section role="dialog" aria-modal="true" aria-label="Add external order" className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 text-slate-950"><div className="flex justify-between"><h2 className="text-2xl font-black">Add Order</h2><button onClick={() => setExternalOpen(false)} aria-label="Close"><X /></button></div><div className="mt-4 grid gap-3"><label>Source <select value={externalSource} onChange={event => setExternalSource(event.target.value)}><option value="shopeefood">ShopeeFood</option><option value="walk_in">Walk-in</option><option value="other">Other</option></select></label><input value={externalNumber} onChange={event => setExternalNumber(event.target.value)} placeholder="External order number (optional)" /><div>{externalProducts.map(product => <button key={product.id} type="button" onClick={() => addExternalProduct(product)}>{product.name}</button>)}{externalSets.map(set => <button key={set.id} type="button" onClick={() => addExternalSet(set)}>Set · {set.name}</button>)}</div><div><p>Cart</p>{externalCart.map(item => <div key={item.key}><span>{item.label}</span><button type="button" onClick={() => updateExternalCartQuantity(item.key, -1)}>−</button>{item.quantity}<button type="button" onClick={() => updateExternalCartQuantity(item.key, 1)}>+</button>{item.selection.productId && externalProducts.find(product => product.id === item.selection.productId)?.optionGroupIds.map(groupId => { const group = externalOptionGroups.find(candidate => candidate.id === groupId); return group && <fieldset key={group.id}><legend>{group.name}{group.required ? ' (required)' : ''}</legend>{group.options.filter(option => option.available).map(option => <label key={option.id}><input type={group.selectionType === 'single' ? 'radio' : 'checkbox'} name={`${item.key}-${group.id}`} checked={item.selection.selectedOptions.some(choice => choice.groupId === group.id && choice.optionId === option.id)} onChange={() => toggleExternalOption(item.key, group, option.id)} /> {option.name}</label>)}</fieldset>; })}</div>)}</div><input value={externalName} onChange={event => setExternalName(event.target.value)} placeholder="Customer name (optional for Walk-in)" /><input value={externalPhone} onChange={event => setExternalPhone(event.target.value)} placeholder="Phone (optional for Walk-in)" /><textarea value={externalNotes} onChange={event => setExternalNotes(event.target.value)} placeholder="Notes (optional)" /><button type="button" onClick={() => void createExternalOrder()} disabled={creatingExternal || !externalCart.length || !hasRequiredExternalOptions || (externalSource !== 'walk_in' && (!externalName || !externalPhone))}>{creatingExternal ? 'Creating…' : 'Confirm Order'}</button></div></section></div>}
     </section>
   );
 }

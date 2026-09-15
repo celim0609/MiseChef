@@ -41,6 +41,7 @@ import {
   getStorePaymentResult,
   handleStorePaymentWebhook
 } from './storePayments.js';
+import { createExternalPosOrder } from './externalPosOrders.js';
 import {
   createCurlecWebhookRejectionLog,
   getCurlecWebhookSignatureDiagnostics
@@ -391,6 +392,17 @@ export const createPublicStorePayment = onCall({
 
 // A quote is public only in the same sense as Store checkout: it resolves the
 // Store from its slug and re-prices the cart server-side. It never creates an order.
+// Authenticated POS-only order ingestion. Store items and pricing are rebuilt server-side.
+export const createStoreExternalPosOrder = onCall({
+  region: REGION,
+  timeoutSeconds: 30,
+  memory: '256MiB'
+}, async request => createExternalPosOrder({
+  db,
+  uid: request.auth?.uid,
+  input: request.data?.order
+}));
+
 export const createPublicStoreDeliveryQuote = onCall({
   region: REGION,
   invoker: 'public',

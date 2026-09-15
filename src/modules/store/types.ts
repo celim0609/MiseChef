@@ -393,6 +393,11 @@ export interface StoreOrderItem {
 
 export type StoreOrderSource = 'online' | 'pos';
 
+export interface StoreExternalOrder {
+  source: 'shopeefood' | 'walk_in' | 'other';
+  externalOrderNumber?: string;
+}
+
 export type StoreFulfilmentStatus =
   | 'New'
   | 'Confirmed'
@@ -440,6 +445,7 @@ export interface StoreOrder {
   storeId: string;
   workspaceId: string;
   orderSource: StoreOrderSource;
+  externalOrder?: StoreExternalOrder;
   fulfilmentMethod?: 'pickup' | 'delivery';
   totals?: { merchandiseSubtotal: number; discountTotal: number; discountedMerchandiseTotal: number; deliveryFee: number; grandTotal: number; currency: RegionCurrency };
   promotionSnapshot?: StoreOrderPromotionSnapshot;

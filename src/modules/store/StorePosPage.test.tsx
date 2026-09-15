@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const pageSource = readFileSync(new URL('./StorePosPage.tsx', import.meta.url), 'utf8');
+const walkInSource = readFileSync(new URL('./posWalkIn.ts', import.meta.url), 'utf8');
 const serviceSource = readFileSync(new URL('./services/storeOrderService.ts', import.meta.url), 'utf8');
 const ordersPanelSource = readFileSync(new URL('./StoreOrdersPanel.tsx', import.meta.url), 'utf8');
 const appSource = readFileSync(new URL('../../App.tsx', import.meta.url), 'utf8');
@@ -20,6 +21,18 @@ test('POS prioritizes three active kitchen columns and moves Completed to a comp
   assert.match(pageSource, /View Completed/);
   assert.match(pageSource, /<audio ref=\{audioRef\}/);
   assert.match(pageSource, /grid-cols-\[1\.1fr_1\.1fr_0\.9fr\]/);
+});
+
+test('Walk-in POS uses canonical external-order metadata, option selections, and paid-only receipt actions', () => {
+  assert.match(walkInSource, /externalOrder\?\.source === 'walk_in'/);
+  assert.match(walkInSource, /isWalkInOrder\(order\) \? 'Walk-in'/);
+  assert.match(pageSource, /createExternalPosOrder/);
+  assert.match(pageSource, /selectedOptions/);
+  assert.match(pageSource, /hasRequiredExternalOptions/);
+  assert.match(pageSource, /externalSource !== 'walk_in' && \(!externalName \|\| !externalPhone\)/);
+  assert.match(pageSource, /isWalkInOrder\(order\) && order\.payment\.status === "paid"/);
+  assert.match(pageSource, /printWalkInReceipt\(createdOrder\)/);
+  assert.match(pageSource, /catch \{\s*\/\/ The persisted order remains available for POS-card reprint/s);
 });
 
 test('POS extends the shared realtime service with a tenant-safe ordered Store query', () => {

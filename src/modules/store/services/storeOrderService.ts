@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   limit,
   onSnapshot,
@@ -79,6 +80,9 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
   const groupOrder = data.groupOrder && typeof data.groupOrder === 'object'
     ? data.groupOrder as Record<string, unknown>
     : null;
+  const externalOrder = data.externalOrder && typeof data.externalOrder === 'object'
+    ? data.externalOrder as Record<string, unknown>
+    : null;
   return {
     id: snapshot.id,
     orderNumber: readString(data.orderNumber),
@@ -89,6 +93,10 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     storeId: readString(data.storeId),
     workspaceId: readString(data.workspaceId),
     orderSource: data.orderSource === 'pos' ? 'pos' : 'online',
+    ...(externalOrder && ['shopeefood', 'walk_in', 'other'].includes(readString(externalOrder.source)) ? { externalOrder: {
+      source: readString(externalOrder.source) as NonNullable<StoreOrder['externalOrder']>['source'],
+      ...(readString(externalOrder.externalOrderNumber) ? { externalOrderNumber: readString(externalOrder.externalOrderNumber) } : {})
+    } } : {}),
     ...(groupOrder && readExactString(groupOrder.id) ? { groupOrder: {
       id: readExactString(groupOrder.id),
       shareCode: readString(groupOrder.shareCode),
@@ -156,6 +164,16 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
 };
 
 export const storeOrderService = {
+  async createExternalPosOrder(order: Record<string, unknown>) {
+    if (!functions) throw new Error('Store ordering is unavailable.');
+    const create = httpsCallable<{ order: Record<string, unknown> }, { orderId: string; orderNumber: string; duplicate: boolean }>(functions, 'createStoreExternalPosOrder');
+    return (await create({ order })).data;
+  },
+  async getOrder(orderId: string): Promise<StoreOrder | null> {
+    if (!db || !orderId) return null;
+    const snapshot = await getDoc(doc(db, 'storeOrders', orderId));
+    return snapshot.exists() ? normalizeOrder(snapshot as QueryDocumentSnapshot<DocumentData>) : null;
+  },
   subscribePosOrders(
     storeId: string,
     workspaceId: string,
