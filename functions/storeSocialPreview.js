@@ -81,6 +81,29 @@ export const buildStoreSocialMetadata = ({ store, origin, slug }) => {
   return { title, description, image, canonicalUrl, siteName: SITE_NAME };
 };
 
+export const buildProductSocialMetadata = ({ store, product, origin, slug, productSlug }) => {
+  const safeOrigin = normalizeOrigin(origin) || 'https://misechef.ai';
+  const canonicalStoreSlug = readPublicText(store?.slug) || readPublicText(slug);
+  const canonicalProductSlug = readPublicText(product?.productSlug) || readPublicText(productSlug);
+  const canonicalUrl = new URL(`/store/${encodeURIComponent(canonicalStoreSlug)}/product/${encodeURIComponent(canonicalProductSlug)}`, safeOrigin).toString();
+  const productName = readPublicText(product?.name, 'Product');
+  const storeName = readPublicText(store?.name, 'MiseChef Store');
+  const price = Number(product?.price);
+  const currency = ['MYR', 'SGD'].includes(readPublicText(store?.currency)) ? readPublicText(store?.currency) : 'MYR';
+  const priceText = Number.isFinite(price) && price >= 0
+    ? new Intl.NumberFormat('en', { style: 'currency', currency }).format(price)
+    : '';
+  const description = readPublicText(product?.description, [productName, priceText, `from ${storeName}`].filter(Boolean).join(' · '));
+  const productImage = toHttpsImageUrl(product?.photoUrl);
+  const storeImage = toHttpsImageUrl(store?.coverImageUrl) || toHttpsImageUrl(store?.logoUrl);
+  const image = productImage
+    ? withStoreImageVersion(productImage, product?.updatedAt)
+    : storeImage
+      ? withStoreImageVersion(storeImage, store?.updatedAt)
+      : new URL(DEFAULT_STORE_IMAGE_PATH, safeOrigin).toString();
+  return { title: `${productName} | ${storeName}`, description, image, canonicalUrl, siteName: SITE_NAME, type: 'product' };
+};
+
 export const renderStoreSocialTags = metadata => {
   const title = escapeHtmlAttribute(metadata.title);
   const description = escapeHtmlAttribute(metadata.description);
@@ -95,7 +118,7 @@ export const renderStoreSocialTags = metadata => {
     `<meta property="og:image" content="${image}" />`,
     `<meta property="og:image:secure_url" content="${image}" />`,
     `<meta property="og:url" content="${canonicalUrl}" />`,
-    '<meta property="og:type" content="website" />',
+    `<meta property="og:type" content="${escapeHtmlAttribute(metadata.type || 'website')}" />`,
     `<meta property="og:site_name" content="${siteName}" />`,
     '<meta name="twitter:card" content="summary_large_image" />',
     `<meta name="twitter:title" content="${title}" />`,
@@ -116,18 +139,21 @@ export const injectStoreSocialMetadata = (appShell, metadata) => {
   return withTitle.replace(/<\/head>/i, `    ${renderStoreSocialTags(metadata)}\n  </head>`);
 };
 
-const readStoreSlug = path => {
-  const match = /^\/store\/([^/?#]+)\/?$/.exec(readPublicText(path));
+const readStoreRequest = path => {
+  const match = /^\/store\/([^/?#]+)(?:\/product\/([^/?#]+))?\/?$/.exec(readPublicText(path));
   if (!match) return '';
   try {
-    return decodeURIComponent(match[1]).trim().slice(0, 240);
+    const slug = decodeURIComponent(match[1]).trim().slice(0, 240);
+    const productSlug = match[2] ? decodeURIComponent(match[2]).trim().slice(0, 240) : '';
+    return slug ? { slug, productSlug } : null;
   } catch {
-    return '';
+    return null;
   }
 };
 
 export const createStoreSocialPreviewHandler = ({
   loadStore,
+  loadProduct = async () => null,
   loadAppShell,
   projectId = '',
   configuredOrigin = '',
@@ -138,8 +164,8 @@ export const createStoreSocialPreviewHandler = ({
     return;
   }
 
-  const slug = readStoreSlug(request.path || request.url || '');
-  if (!slug) {
+  const route = readStoreRequest(request.path || request.url || '');
+  if (!route) {
     response.status(404).send('Store not found');
     return;
   }
@@ -151,8 +177,13 @@ export const createStoreSocialPreviewHandler = ({
       projectId,
       configuredOrigin
     });
-    const [store, appShell] = await Promise.all([loadStore(slug), loadAppShell()]);
-    const metadata = buildStoreSocialMetadata({ store, origin, slug });
+    const [store, appShell] = await Promise.all([loadStore(route.slug), loadAppShell()]);
+    const product = route.productSlug && store
+      ? await loadProduct(store.id, route.productSlug)
+      : null;
+    const metadata = product
+      ? buildProductSocialMetadata({ store, product, origin, slug: route.slug, productSlug: route.productSlug })
+      : buildStoreSocialMetadata({ store, origin, slug: route.slug });
     const html = injectStoreSocialMetadata(appShell, metadata);
 
     response.status(200);
@@ -163,7 +194,7 @@ export const createStoreSocialPreviewHandler = ({
     if (request.method === 'HEAD') response.end();
     else response.send(html);
   } catch (error) {
-    logError(error, { slug });
+    logError(error, { slug: route.slug, productSlug: route.productSlug });
     response.status(500).send('This Store is temporarily unavailable.');
   }
 };

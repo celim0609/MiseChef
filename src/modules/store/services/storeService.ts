@@ -18,6 +18,7 @@ import {
   normalizeStoreOptionGroup,
   normalizeStoreProduct,
   normalizeWorkspaceStore,
+  createStoreProductSlug,
   toStoreSlug,
   validateStoreOptionGroup,
   validateStoreProduct,
@@ -370,6 +371,7 @@ export const storeService = {
     const now = new Date().toISOString();
     const product: StoreProduct = {
       id,
+      productSlug: createStoreProductSlug(draft.name, id),
       storeId: workspaceId,
       workspaceId,
       photoUrl: draft.photoUrl.trim(),

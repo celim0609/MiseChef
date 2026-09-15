@@ -443,6 +443,7 @@ service cloud.firestore {
     function isValidStoreProduct(data, productId) {
       return data.keys().hasOnly([
           'id',
+          'productSlug',
           'storeId',
           'workspaceId',
           'photoUrl',
@@ -460,6 +461,9 @@ service cloud.firestore {
           'updatedAt'
         ])
         && data.id == productId
+        && (!('productSlug' in data) || (data.productSlug is string
+          && data.productSlug.matches('^[a-z0-9]+(?:-[a-z0-9]+)*-' + productId + '$')
+          && data.productSlug.size() <= 100))
         && data.storeId == data.workspaceId
         && data.photoUrl is string
         && data.photoUrl.size() > 0
@@ -1347,12 +1351,14 @@ service cloud.firestore {
         || canViewStore(resource.data.workspaceId);
       allow create: if canManageStoreProducts(request.resource.data.workspaceId)
         && isValidStoreProduct(request.resource.data, productId)
+        && ('productSlug' in request.resource.data)
         && request.resource.data.createdBy == request.auth.uid
         && exists(/databases/$(database)/documents/stores/$(request.resource.data.workspaceId));
       allow update: if canManageStoreProducts(resource.data.workspaceId)
         && isValidStoreProduct(request.resource.data, productId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'photoUrl',
+          'productSlug',
           'name',
           'description',
           'price',
@@ -1363,7 +1369,12 @@ service cloud.firestore {
           'available',
           'optionGroupIds',
           'updatedAt'
-        ]);
+        ])
+        && (
+          (!('productSlug' in resource.data) && !('productSlug' in request.resource.data))
+          || (('productSlug' in resource.data) && ('productSlug' in request.resource.data)
+            && request.resource.data.productSlug == resource.data.productSlug)
+        );
       allow delete: if canManageStoreProducts(resource.data.workspaceId);
     }
 

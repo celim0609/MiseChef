@@ -133,11 +133,31 @@ const publicStorePreviewHandler = createStoreSocialPreviewHandler({
     if (snapshot.empty) return null;
     const data = snapshot.docs[0].data();
     return {
+      id: snapshot.docs[0].id,
       slug: typeof data.slug === 'string' ? data.slug : slug,
       name: typeof data.name === 'string' ? data.name : '',
       description: typeof data.description === 'string' ? data.description : '',
       coverImageUrl: typeof data.coverImageUrl === 'string' ? data.coverImageUrl : '',
       logoUrl: typeof data.logoUrl === 'string' ? data.logoUrl : '',
+      currency: typeof data.currency === 'string' ? data.currency : 'MYR',
+      updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : ''
+    };
+  },
+  loadProduct: async (storeId, productSlug) => {
+    const snapshot = await db.collection('storeProducts')
+      .where('storeId', '==', storeId)
+      .where('productSlug', '==', productSlug)
+      .where('available', '==', true)
+      .limit(1)
+      .get();
+    if (snapshot.empty) return null;
+    const data = snapshot.docs[0].data();
+    return {
+      productSlug: typeof data.productSlug === 'string' ? data.productSlug : '',
+      name: typeof data.name === 'string' ? data.name : '',
+      description: typeof data.description === 'string' ? data.description : '',
+      price: typeof data.price === 'number' ? data.price : null,
+      photoUrl: typeof data.photoUrl === 'string' ? data.photoUrl : '',
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : ''
     };
   },

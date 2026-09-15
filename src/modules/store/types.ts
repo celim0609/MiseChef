@@ -215,6 +215,8 @@ export interface StoreOptionGroupDraft {
 
 export interface StoreProduct {
   id: string;
+  /** Immutable, Store-scoped public URL segment. Legacy products may not have one yet. */
+  productSlug?: string;
   storeId: string;
   workspaceId: string;
   photoUrl: string;

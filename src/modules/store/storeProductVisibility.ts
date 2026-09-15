@@ -21,6 +21,13 @@ export const filterPublicAvailableProducts = (
   storeId: string
 ) => products.filter(product => product.storeId === storeId && product.available);
 
+export const resolvePublicStoreProduct = (
+  products: StoreProduct[],
+  productSlug: string | undefined
+) => productSlug
+  ? products.find(product => product.productSlug === productSlug) || null
+  : null;
+
 export const getStoreProductEditorDraft = (product: StoreProduct): StoreProductDraft => ({
   photoUrl: product.photoUrl,
   name: product.name,
