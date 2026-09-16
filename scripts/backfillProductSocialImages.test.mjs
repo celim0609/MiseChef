@@ -28,6 +28,8 @@ test('Product social-image optimization emits an appropriately sized 1200 by 630
 
 test('Product social-image backfill uses the guarded Beta collection reader', () => {
   const source = readFileSync(new URL('./backfillProductSocialImages.mjs', import.meta.url), 'utf8');
+  assert.match(source, /This maintenance script is Beta-only/);
+  assert.match(source, /FIREBASE_DEPLOY_TARGET !== 'beta'/);
   assert.match(source, /runBetaFirestoreRead/);
   assert.match(source, /createAuthenticatedBetaFirestoreRestClient/);
   assert.match(source, /reader => reader\.listCollection\('storeProducts'\)/);
