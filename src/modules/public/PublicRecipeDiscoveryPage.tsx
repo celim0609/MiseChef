@@ -6,8 +6,13 @@ import { PublicChefCard, PublicRecipeCard, type PublicChefSummary } from './Publ
 
 type RecipeWithChefUsername = Recipe & { chefUsername?: string };
 
+const LEGACY_GENERIC_STORY = 'A homemade culinary masterpiece baked with fresh herbs and careful attention.';
 const readChefUsername = (recipe: Recipe) =>
   (recipe as RecipeWithChefUsername).chefUsername || '';
+const readPublicRecipeStory = (recipe: Recipe) => {
+  const story = recipe.story?.trim() || '';
+  return story === LEGACY_GENERIC_STORY ? '' : story;
+};
 
 export const RecommendedProductsSection = ({ recipeId, products }: { recipeId: string; products: RecommendedProduct[] }) => {
   if (products.length === 0) return null;
@@ -38,6 +43,7 @@ export default function PublicRecipeDiscoveryPage({ recipe, publicRecipes, publi
   const recommendedProducts = recipe.recommendedProducts || [];
   const instructions = (recipe.method || []).filter(step => step.description?.trim() || step.image);
   const cuisines = getRecipeCategories(recipe);
+  const publicStory = readPublicRecipeStory(recipe);
   const overview = [
     cuisines.length ? { label: 'Cuisine', value: cuisines.join(', ') } : null,
     recipe.prepTime > 0 ? { label: 'Prep Time', value: `${recipe.prepTime} minutes` } : null,
@@ -47,7 +53,7 @@ export default function PublicRecipeDiscoveryPage({ recipe, publicRecipes, publi
 
   const shareRecipe = async () => {
     const url = window.location.href;
-    const data = { title: recipe.title, text: recipe.story?.trim() || `View ${recipe.title} on MiseChef.`, url };
+    const data = { title: recipe.title, text: publicStory || 'Discover this chef-made recipe on MiseChef.', url };
     try {
       if (typeof navigator.share === 'function') {
         await navigator.share(data);
@@ -79,7 +85,7 @@ export default function PublicRecipeDiscoveryPage({ recipe, publicRecipes, publi
           </button>
         </div>
         {shareMessage && <p role="status" className="mt-3 font-sans text-xs font-bold text-on-surface-variant">{shareMessage}</p>}
-        {recipe.story?.trim() && <p className="mt-6 font-sans text-base font-bold leading-relaxed text-on-surface-variant">{recipe.story}</p>}
+        {publicStory && <p className="mt-6 font-sans text-base font-bold leading-relaxed text-on-surface-variant">{publicStory}</p>}
       </div>
     </article>
 
