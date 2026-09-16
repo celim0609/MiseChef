@@ -82,6 +82,9 @@ jobs:
       - name: Install candidate Functions dependencies
         run: npm --prefix "$GITHUB_WORKSPACE/candidate/functions" ci
 
+      - name: Install controller Functions dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/controller/functions" ci
+
       - name: Install pinned Firebase CLI
         run: npm install --global firebase-tools@14.22.0
 
@@ -158,6 +161,9 @@ jobs:
 
       - name: Install candidate Functions dependencies
         run: npm --prefix "$GITHUB_WORKSPACE/candidate/functions" ci
+
+      - name: Install controller Functions dependencies
+        run: npm --prefix "$GITHUB_WORKSPACE/controller/functions" ci
 
       - name: Install pinned Firebase CLI
         run: npm install --global firebase-tools@14.22.0
