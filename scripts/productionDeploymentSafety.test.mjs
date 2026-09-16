@@ -261,6 +261,8 @@ test('Production live verification uses authenticated Google APIs without Fireba
 
   const source = readFileSync(new URL('./productionLiveRelease.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /firebase-tools[/\\]lib[/\\]apiv2/);
+  assert.doesNotMatch(source, /npm', \['root', '--global'\]/);
+  assert.match(source, /functions\/node_modules\/google-auth-library/);
   assert.doesNotMatch(source, /FIREBASE_TOKEN/);
   assert.match(source, /GOOGLE_APPLICATION_CREDENTIALS/);
   assert.match(source, /google-auth-library/);
