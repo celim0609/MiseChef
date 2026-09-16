@@ -43,6 +43,7 @@ const documentId = document => {
   if (!match) throw new Error('Production Firestore returned a document outside storeProducts.');
   return decodeURIComponent(match[1]);
 };
+const scopedWorkspaceDocuments = documents => documents.filter(document => fieldString(document?.fields, 'workspaceId') === PRODUCTION_WORKSPACE_ID);
 const canonical = value => JSON.stringify(value, (_, nested) => {
   if (!nested || Array.isArray(nested) || typeof nested !== 'object') return nested;
   return Object.fromEntries(Object.entries(nested).sort(([left], [right]) => left.localeCompare(right)));
@@ -57,8 +58,9 @@ export const assertProductionMigrationAuthority = ({ projectId, databaseId, work
 };
 
 export const buildMigrationPlan = documents => {
-  if (documents.length !== EXPECTED_PRODUCT_IDS.length) throw new Error(`Expected exactly ${EXPECTED_PRODUCT_IDS.length} storeProducts documents, received ${documents.length}.`);
-  const products = documents.map(document => ({
+  const scopedDocuments = scopedWorkspaceDocuments(documents);
+  if (scopedDocuments.length !== EXPECTED_PRODUCT_IDS.length) throw new Error(`Expected exactly ${EXPECTED_PRODUCT_IDS.length} storeProducts documents in workspace ${PRODUCTION_WORKSPACE_ID}, received ${scopedDocuments.length}.`);
+  const products = scopedDocuments.map(document => ({
     id: documentId(document), fields: document.fields || {},
     name: fieldString(document.fields, 'name'), photoUrl: fieldString(document.fields, 'photoUrl'),
     workspaceId: fieldString(document.fields, 'workspaceId'),
@@ -83,8 +85,9 @@ export const buildMigrationPlan = documents => {
 };
 
 export const verifyPostWrite = (documents, originalProtected) => {
-  if (documents.length !== EXPECTED_PRODUCT_IDS.length) throw new Error('Post-write Product count mismatch.');
-  const products = documents.map(document => ({ id: documentId(document), fields: document.fields || {} }));
+  const scopedDocuments = scopedWorkspaceDocuments(documents);
+  if (scopedDocuments.length !== EXPECTED_PRODUCT_IDS.length) throw new Error('Post-write Product count mismatch.');
+  const products = scopedDocuments.map(document => ({ id: documentId(document), fields: document.fields || {} }));
   const actual = new Set(products.map(product => product.id));
   if (actual.size !== EXPECTED_PRODUCT_IDS.length || EXPECTED_PRODUCT_IDS.some(id => !actual.has(id))) throw new Error('Post-write Product scope mismatch.');
   for (const product of products) {
