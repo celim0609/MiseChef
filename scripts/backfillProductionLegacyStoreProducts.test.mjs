@@ -18,17 +18,30 @@ test('Production legacy Product migration pins its authority and write fields', 
   assert.deepEqual(WRITE_FIELD_ALLOWLIST, ['productSlug', 'socialImageUrl']);
 });
 
-test('Production migration rejects scope drift, existing values, and slug collisions', () => {
+test('Production migration scopes the collection to the approved workspace before validating 18 Products', () => {
+  const targetDocuments = EXPECTED_PRODUCT_IDS.map(id => document(id));
+  const otherWorkspaceDocuments = ['other-1', 'other-2', 'other-3'].map(id => document(id, { workspaceId: { stringValue: 'other-workspace' } }));
+  const documents = [...targetDocuments, ...otherWorkspaceDocuments];
+  const plan = buildMigrationPlan(documents);
+  assert.equal(documents.length, 21);
+  assert.equal(plan.length, 18);
+  assert.deepEqual(new Set(plan.map(item => item.id)), new Set(EXPECTED_PRODUCT_IDS));
+  assert.equal(plan.some(item => item.workspaceId !== PRODUCTION_WORKSPACE_ID), false);
+});
+
+test('Production migration rejects scoped drift, existing values, and slug collisions', () => {
   const documents = EXPECTED_PRODUCT_IDS.map(id => document(id));
   const plan = buildMigrationPlan(documents);
   assert.equal(plan.length, 18);
   assert.equal(new Set(plan.map(item => item.proposedSlug)).size, 18);
   assert.throws(() => buildMigrationPlan(documents.slice(1)), /exactly 18/);
+  assert.throws(() => buildMigrationPlan([...documents, document('unexpected-target-product')]), /exactly 18/);
   assert.throws(() => buildMigrationPlan(documents.map((item, index) => index ? item : document(EXPECTED_PRODUCT_IDS[0], { productSlug: { stringValue: 'existing' } }))), /overwrite/);
-  assert.throws(() => buildMigrationPlan(documents.map((item, index) => index ? item : document(EXPECTED_PRODUCT_IDS[0], { workspaceId: { stringValue: 'other' } }))), /workspace/);
+  assert.throws(() => buildMigrationPlan(documents.map((item, index) => index ? item : document(EXPECTED_PRODUCT_IDS[0], { workspaceId: { stringValue: 'other' } }))), /exactly 18/);
   const originals = new Map(plan.map(product => [product.id, JSON.stringify({ name: product.protectedFields.name, photoUrl: product.protectedFields.photoUrl, workspaceId: product.protectedFields.workspaceId })]));
   const verified = documents.map(item => ({ ...item, fields: { ...item.fields, productSlug: { stringValue: 'slug' }, socialImageUrl: { stringValue: 'https://example.test/social.jpg' } } }));
-  assert.doesNotThrow(() => verifyPostWrite(verified, originals));
+  const verifiedWithOtherWorkspace = [...verified, document('other-1', { workspaceId: { stringValue: 'other-workspace' } })];
+  assert.doesNotThrow(() => verifyPostWrite(verifiedWithOtherWorkspace, originals));
 });
 
 test('Production migration uses the guarded reader and explicit execute gate', () => {
