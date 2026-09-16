@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   EXPECTED_PRODUCT_IDS, PRODUCTION_DATABASE_ID, PRODUCTION_PROJECT_ID, PRODUCTION_WORKSPACE_ID,
-  WRITE_FIELD_ALLOWLIST, assertProductionMigrationAuthority, buildMigrationPlan, verifyPostWrite
+  WRITE_FIELD_ALLOWLIST, assertProductionMigrationAuthority, buildMigrationPlan, inspectMigrationScope, verifyPostWrite
 } from './backfillProductionLegacyStoreProducts.mjs';
 
 const document = (id, fields = {}) => ({ name: `projects/${PRODUCTION_PROJECT_ID}/databases/(default)/documents/storeProducts/${id}`, fields: {
@@ -29,6 +29,21 @@ test('Production migration scopes the collection to the approved workspace befor
   assert.equal(plan.some(item => item.workspaceId !== PRODUCTION_WORKSPACE_ID), false);
 });
 
+test('Production migration diagnostics identify unexpected target-workspace Products without widening the allowlist', () => {
+  const expected = EXPECTED_PRODUCT_IDS.map(id => document(id));
+  const extra = document('new-target-product', { name: { stringValue: 'New Product' } });
+  const unrelated = document('other-workspace-product', { workspaceId: { stringValue: 'other-workspace' } });
+  const diagnostic = inspectMigrationScope([...expected, extra, unrelated]);
+  assert.equal(diagnostic.collectionCount, 20);
+  assert.equal(diagnostic.workspaceCount, 19);
+  assert.equal(diagnostic.expectedCount, 18);
+  assert.deepEqual(diagnostic.unexpected, [{ id: 'new-target-product', name: 'New Product', expected: false, hasProductSlug: false, hasSocialImageUrl: false }]);
+  assert.deepEqual(diagnostic.missingExpectedIds, []);
+  assert.equal(diagnostic.workspaceProducts.length, 19);
+  assert.equal(EXPECTED_PRODUCT_IDS.includes('new-target-product'), false);
+  assert.throws(() => buildMigrationPlan([...expected, extra, unrelated]), /exactly 18/);
+});
+
 test('Production migration rejects scoped drift, existing values, and slug collisions', () => {
   const documents = EXPECTED_PRODUCT_IDS.map(id => document(id));
   const plan = buildMigrationPlan(documents);
@@ -50,6 +65,7 @@ test('Production migration uses the guarded reader and explicit execute gate', (
   assert.match(source, /requestProductionGoogleApi/);
   assert.doesNotMatch(source, /new GoogleAuth/);
   assert.match(source, /reader => reader\.listCollection\('storeProducts'\)/);
+  assert.match(source, /production_product_migration_scope_diagnostic/);
   assert.match(source, /if \(!execute\) return/);
   assert.match(source, /transaction\.update\(ref, \{ productSlug: product\.proposedSlug, socialImageUrl \}\)/);
   assert.doesNotMatch(source, /db\.collection\('storeProducts'\)/);
