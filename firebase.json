@@ -1,26 +1,18 @@
 {
   "functions": {
     "source": "functions",
-    "predeploy": [
-      "node scripts/validateBetaPredeploy.mjs"
-    ]
+    "predeploy": ["node scripts/validateBetaPredeploy.mjs"]
   },
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json",
-    "predeploy": [
-      "node scripts/validateBetaPredeploy.mjs"
-    ]
+    "predeploy": ["node scripts/validateBetaPredeploy.mjs"]
   },
-  "storage": [
-    {
-      "target": "beta-default",
-      "rules": "storage.rules",
-      "predeploy": [
-        "node scripts/validateBetaPredeploy.mjs"
-      ]
-    }
-  ],
+  "storage": [{
+    "target": "beta-default",
+    "rules": "storage.rules",
+    "predeploy": ["node scripts/validateBetaPredeploy.mjs"]
+  }],
   "emulators": {
     "auth": { "host": "127.0.0.1", "port": 9099 },
     "firestore": { "host": "127.0.0.1", "port": 8080 },
@@ -36,14 +28,11 @@
     "headers": [
       { "source": "/app", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
       { "source": "/app/**", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
-      {
-        "regex": "^/(?:|features/?|pricing/?|book-demo/?|contact/?|login/?|recipes(?:/.*)?|chefs/?|chef(?:/.*)?|@.*|orders/?|host(?:/.*)?|group(?:/.*)?)$",
-        "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }]
-      }
+      { "regex": "^/(?:|features/?|pricing/?|book-demo/?|contact/?|login/?|recipes(?:/.*)?|chefs/?|chef(?:/.*)?|@.*|orders/?|host(?:/.*)?|group(?:/.*)?)$", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] }
     ],
     "rewrites": [
       { "source": "/store/**", "function": { "functionId": "renderPublicStore", "region": "us-central1" } },
-      { "source": "/recipes/**", "function": { "functionId": "renderPublicRecipe", "region": "us-central1" } },
+      { "regex": "^/recipes/[^/]+/?$", "function": { "functionId": "renderPublicRecipe", "region": "us-central1" } },
       { "source": "/go/recipes/**", "function": { "functionId": "trackPublicProductClick", "region": "us-central1" } },
       { "source": "**", "destination": "/index.html" }
     ]
