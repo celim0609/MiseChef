@@ -2,12 +2,12 @@
   "name": "misechef-functions",
   "private": true,
   "type": "module",
-  "main": "index.js",
+  "main": "entry.js",
   "engines": {
     "node": "22"
   },
   "scripts": {
-    "lint": "node --check index.js",
+    "lint": "node --check index.js && node --check entry.js && node --check recipeSocialPreview.js",
     "test": "node --test *.test.js"
   },
   "dependencies": {
