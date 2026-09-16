@@ -1,0 +1,67 @@
+name: Production Legacy Product Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Dry run is the default; EXECUTE requires the confirmation below and Production Environment approval.
+        required: true
+        default: DRY_RUN
+        type: choice
+        options:
+          - DRY_RUN
+          - EXECUTE
+      execute_confirmation:
+        description: Required only for EXECUTE. Type EXECUTE PRODUCTION PRODUCT MIGRATION exactly.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: misechef-production-legacy-product-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate-legacy-products:
+    if: >-
+      github.ref == 'refs/heads/main'
+      && (inputs.mode == 'DRY_RUN'
+          || (inputs.mode == 'EXECUTE'
+              && inputs.execute_confirmation == 'EXECUTE PRODUCTION PRODUCT MIGRATION'))
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 30
+    env:
+      FIREBASE_DEPLOY_TARGET: production
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install application dependencies
+        run: npm ci
+
+      - name: Install Functions dependencies
+        run: npm --prefix functions ci
+
+      - name: Authenticate to Production only
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MISECHEF_PRODUCTION }}
+
+      - name: Run guarded Production Product migration
+        run: |
+          if [ "${{ inputs.mode }}" = "EXECUTE" ]; then
+            npm run backfill:legacy-store-products:production -- --execute
+          else
+            npm run backfill:legacy-store-products:production
+          fi
