@@ -50,6 +50,26 @@ const canonical = value => JSON.stringify(value, (_, nested) => {
 });
 const protectedFields = fields => Object.fromEntries(Object.entries(fields || {}).filter(([field]) => !WRITE_FIELD_ALLOWLIST.includes(field)));
 
+export const inspectMigrationScope = documents => {
+  const expected = new Set(EXPECTED_PRODUCT_IDS);
+  const scoped = scopedWorkspaceDocuments(documents).map(document => ({
+    id: documentId(document),
+    name: fieldString(document.fields, 'name'),
+    expected: expected.has(documentId(document)),
+    hasProductSlug: Boolean(fieldString(document.fields, 'productSlug')),
+    hasSocialImageUrl: Boolean(fieldString(document.fields, 'socialImageUrl'))
+  })).sort((left, right) => left.id.localeCompare(right.id));
+  const actual = new Set(scoped.map(product => product.id));
+  return {
+    collectionCount: documents.length,
+    workspaceCount: scoped.length,
+    expectedCount: EXPECTED_PRODUCT_IDS.length,
+    unexpected: scoped.filter(product => !product.expected),
+    missingExpectedIds: EXPECTED_PRODUCT_IDS.filter(id => !actual.has(id)),
+    workspaceProducts: scoped
+  };
+};
+
 export const assertProductionMigrationAuthority = ({ projectId, databaseId, workspaceId, deploymentTarget }) => {
   if (deploymentTarget !== 'production') throw new Error('Set FIREBASE_DEPLOY_TARGET=production for this Production-only migration.');
   if (projectId !== PRODUCTION_PROJECT_ID) throw new Error(`Production migration is pinned to ${PRODUCTION_PROJECT_ID}.`);
@@ -73,7 +93,7 @@ export const buildMigrationPlan = documents => {
   if (products.some(product => product.productSlug || product.socialImageUrl)) throw new Error('Refusing to overwrite an existing productSlug or socialImageUrl.');
   const proposedSlugs = new Set(products.map(product => createStoreProductSlug(product.name, product.id)));
   if (proposedSlugs.size !== products.length) throw new Error('Proposed Product slug collision.');
-  const candidates = products.map(product => ({
+  return products.map(product => ({
     ...product,
     proposedSlug: createStoreProductSlug(product.name, product.id),
     sourcePath: getStorageObjectPath(product.photoUrl, `${PRODUCTION_PROJECT_ID}.firebasestorage.app`),
@@ -81,7 +101,6 @@ export const buildMigrationPlan = documents => {
     socialPath: `stores/${PRODUCTION_WORKSPACE_ID}/products/${product.id}/social.jpg`,
     protectedFields: protectedFields(product.fields)
   }));
-  return candidates;
 };
 
 export const verifyPostWrite = (documents, originalProtected) => {
@@ -135,6 +154,7 @@ const main = async () => {
   const bucket = getStorage(app).bucket(`${projectId}.firebasestorage.app`);
   try {
     const documents = await readProducts();
+    console.log(JSON.stringify({ event: 'production_product_migration_scope_diagnostic', ...inspectMigrationScope(documents) }, null, 2));
     const plan = buildMigrationPlan(documents);
     await assertSources(plan, bucket);
     console.log(JSON.stringify({ mode: execute ? 'EXECUTE' : 'DRY_RUN', projectId, databaseId, workspaceId,
