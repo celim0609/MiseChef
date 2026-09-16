@@ -70,7 +70,11 @@ export const createProductionGoogleApiReader = request => {
   return { readHostingVersion, readProductionFunctions };
 };
 
-const productionGoogleApi = createProductionGoogleApiReader(options => getAdcAuth().request(options));
+// Production API consumers must share the deployment workflow's service-account
+// authentication gate rather than falling back to a developer's local ADC.
+export const requestProductionGoogleApi = options => getAdcAuth().request(options);
+
+const productionGoogleApi = createProductionGoogleApiReader(requestProductionGoogleApi);
 const readHostingVersion = productionGoogleApi.readHostingVersion;
 export const readProductionFunctions = productionGoogleApi.readProductionFunctions;
 

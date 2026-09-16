@@ -34,8 +34,22 @@ test('Production migration rejects scope drift, existing values, and slug collis
 test('Production migration uses the guarded reader and explicit execute gate', () => {
   const source = readFileSync(new URL('./backfillProductionLegacyStoreProducts.mjs', import.meta.url), 'utf8');
   assert.match(source, /runProductionFirestoreRead/);
+  assert.match(source, /requestProductionGoogleApi/);
+  assert.doesNotMatch(source, /new GoogleAuth/);
   assert.match(source, /reader => reader\.listCollection\('storeProducts'\)/);
   assert.match(source, /if \(!execute\) return/);
   assert.match(source, /transaction\.update\(ref, \{ productSlug: product\.proposedSlug, socialImageUrl \}\)/);
   assert.doesNotMatch(source, /db\.collection\('storeProducts'\)/);
+});
+
+test('Production migration workflow is main-only, environment-gated, and defaults to dry run', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/production-legacy-product-migration.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /^on:\n  workflow_dispatch:/m);
+  assert.match(workflow, /default: DRY_RUN/);
+  assert.match(workflow, /github\.ref == 'refs\/heads\/main'/);
+  assert.match(workflow, /environment: production/);
+  assert.match(workflow, /FIREBASE_SERVICE_ACCOUNT_MISECHEF_PRODUCTION/);
+  assert.match(workflow, /EXECUTE PRODUCTION PRODUCT MIGRATION/);
+  assert.match(workflow, /backfill:legacy-store-products:production -- --execute/);
+  assert.doesNotMatch(workflow, /firebase deploy/);
 });
