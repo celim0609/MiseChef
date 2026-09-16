@@ -1,6 +1,4 @@
 import { createRequire } from 'node:module';
-import { execFileSync } from 'node:child_process';
-import path from 'node:path';
 import {
   PRODUCTION_DEFAULT_ORIGIN,
   PRODUCTION_ORIGIN,
@@ -25,9 +23,8 @@ const getAdcAuth = () => {
     throw new Error('Production verification requires GOOGLE_APPLICATION_CREDENTIALS from the service-account authentication step.');
   }
   if (adcAuth) return adcAuth;
-  const globalRoot = execFileSync('npm', ['root', '--global'], { encoding: 'utf8' }).trim();
-  const firebaseRequire = createRequire(path.join(globalRoot, 'firebase-tools', 'package.json'));
-  const { GoogleAuth } = firebaseRequire('google-auth-library');
+  const require = createRequire(import.meta.url);
+  const { GoogleAuth } = require('../functions/node_modules/google-auth-library');
   adcAuth = new GoogleAuth({
     projectId: PRODUCTION_PROJECT_ID,
     scopes: ['https://www.googleapis.com/auth/cloud-platform']
