@@ -15,6 +15,7 @@ import {
   createAuthenticatedProductionFirestoreRestClient,
   runProductionFirestoreRead
 } from './productionFirestoreReadSafety.mjs';
+import { requestProductionGoogleApi } from './productionLiveRelease.mjs';
 import { createStoreProductSlug } from '../src/modules/store/storeProductSlug.mjs';
 
 export const PRODUCTION_PROJECT_ID = 'misechef-fa4bf';
@@ -108,10 +109,7 @@ const assertSources = async (candidates, bucket) => {
 
 const readProducts = async () => {
   const runId = `production-product-migration-${randomUUID()}`;
-  const require = createRequire(import.meta.url);
-  const { GoogleAuth } = require('../functions/node_modules/google-auth-library');
-  const auth = new GoogleAuth({ projectId: PRODUCTION_PROJECT_ID, scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
-  const firestore = createAuthenticatedProductionFirestoreRestClient(options => auth.request(options));
+  const firestore = createAuthenticatedProductionFirestoreRestClient(requestProductionGoogleApi);
   return runProductionFirestoreRead({
     projectId: PRODUCTION_PROJECT_ID,
     confirmation: `READ PRODUCTION FIRESTORE ${PRODUCTION_PROJECT_ID} FOR ${runId}`,

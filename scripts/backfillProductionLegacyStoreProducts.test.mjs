@@ -34,6 +34,8 @@ test('Production migration rejects scope drift, existing values, and slug collis
 test('Production migration uses the guarded reader and explicit execute gate', () => {
   const source = readFileSync(new URL('./backfillProductionLegacyStoreProducts.mjs', import.meta.url), 'utf8');
   assert.match(source, /runProductionFirestoreRead/);
+  assert.match(source, /requestProductionGoogleApi/);
+  assert.doesNotMatch(source, /new GoogleAuth/);
   assert.match(source, /reader => reader\.listCollection\('storeProducts'\)/);
   assert.match(source, /if \(!execute\) return/);
   assert.match(source, /transaction\.update\(ref, \{ productSlug: product\.proposedSlug, socialImageUrl \}\)/);
