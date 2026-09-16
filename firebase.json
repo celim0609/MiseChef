@@ -22,85 +22,30 @@
     }
   ],
   "emulators": {
-    "auth": {
-      "host": "127.0.0.1",
-      "port": 9099
-    },
-    "firestore": {
-      "host": "127.0.0.1",
-      "port": 8080
-    },
-    "functions": {
-      "host": "127.0.0.1",
-      "port": 5001
-    },
-    "storage": {
-      "host": "127.0.0.1",
-      "port": 9199
-    },
-    "ui": {
-      "enabled": false
-    },
+    "auth": { "host": "127.0.0.1", "port": 9099 },
+    "firestore": { "host": "127.0.0.1", "port": 8080 },
+    "functions": { "host": "127.0.0.1", "port": 5001 },
+    "storage": { "host": "127.0.0.1", "port": 9199 },
+    "ui": { "enabled": false },
     "singleProjectMode": true
   },
   "hosting": {
-    "predeploy": [
-      "node scripts/validateBetaPredeploy.mjs"
-    ],
+    "predeploy": ["node scripts/validateBetaPredeploy.mjs"],
     "public": "dist",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ],
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "headers": [
-      {
-        "source": "/app",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache, no-store, must-revalidate"
-          }
-        ]
-      },
-      {
-        "source": "/app/**",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache, no-store, must-revalidate"
-          }
-        ]
-      },
+      { "source": "/app", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
+      { "source": "/app/**", "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }] },
       {
         "regex": "^/(?:|features/?|pricing/?|book-demo/?|contact/?|login/?|recipes(?:/.*)?|chefs/?|chef(?:/.*)?|@.*|orders/?|host(?:/.*)?|group(?:/.*)?)$",
-        "headers": [
-          {
-            "key": "Cache-Control",
-            "value": "no-cache, no-store, must-revalidate"
-          }
-        ]
+        "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }]
       }
     ],
     "rewrites": [
-      {
-        "source": "/store/**",
-        "function": {
-          "functionId": "renderPublicStore",
-          "region": "us-central1"
-        }
-      },
-      {
-        "source": "/go/recipes/**",
-        "function": {
-          "functionId": "trackPublicProductClick",
-          "region": "us-central1"
-        }
-      },
-      {
-        "source": "**",
-        "destination": "/index.html"
-      }
+      { "source": "/store/**", "function": { "functionId": "renderPublicStore", "region": "us-central1" } },
+      { "source": "/recipes/**", "function": { "functionId": "renderPublicRecipe", "region": "us-central1" } },
+      { "source": "/go/recipes/**", "function": { "functionId": "trackPublicProductClick", "region": "us-central1" } },
+      { "source": "**", "destination": "/index.html" }
     ]
   }
 }
