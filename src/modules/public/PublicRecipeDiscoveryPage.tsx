@@ -1,4 +1,5 @@
-import { MapPin, UserRound, UsersRound } from 'lucide-react';
+import { useState } from 'react';
+import { MapPin, Share2, UserRound, UsersRound } from 'lucide-react';
 import type { Recipe, RecommendedProduct } from '../../types';
 import { getRecipeCategories } from '../../utils/categoryUtils';
 import { PublicChefCard, PublicRecipeCard, type PublicChefSummary } from './PublicContent';
@@ -23,6 +24,7 @@ export const RecommendedProductsSection = ({ recipeId, products }: { recipeId: s
 };
 
 export default function PublicRecipeDiscoveryPage({ recipe, publicRecipes, publicChefs }: { recipe: Recipe; publicRecipes: Recipe[]; publicChefs: PublicChefSummary[] }) {
+  const [shareMessage, setShareMessage] = useState('');
   const chefUsername = readChefUsername(recipe);
   const chef = chefUsername ? publicChefs.find(profile => profile.username === chefUsername) : undefined;
   const moreRecipes = chefUsername
@@ -43,10 +45,42 @@ export default function PublicRecipeDiscoveryPage({ recipe, publicRecipes, publi
     recipe.servings > 0 ? { label: 'Servings', value: String(recipe.servings) } : null
   ].filter((item): item is { label: string; value: string } => Boolean(item));
 
+  const shareRecipe = async () => {
+    const url = window.location.href;
+    const data = { title: recipe.title, text: recipe.story?.trim() || `View ${recipe.title} on MiseChef.`, url };
+    try {
+      if (typeof navigator.share === 'function') {
+        await navigator.share(data);
+        setShareMessage('Recipe shared.');
+        return;
+      }
+      await navigator.clipboard.writeText(url);
+      setShareMessage('Recipe link copied.');
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      try {
+        await navigator.clipboard.writeText(url);
+        setShareMessage('Recipe link copied.');
+      } catch {
+        setShareMessage('Unable to share. Please copy the page URL.');
+      }
+    }
+  };
+
   return <div className="mx-auto max-w-6xl space-y-16 pb-8">
     <article className="mx-auto max-w-4xl overflow-hidden rounded-3xl border border-surface-container-high bg-background shadow-sm">
       {recipe.coverImage && <img src={recipe.coverImage} alt={recipe.title} className="max-h-[32rem] w-full object-cover" referrerPolicy="no-referrer" />}
-      <div className="p-6 sm:p-10"><p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Public recipe</p><h1 className="mt-3 font-display text-4xl font-bold text-primary sm:text-5xl">{recipe.title}</h1>{recipe.story?.trim() && <p className="mt-6 font-sans text-base font-bold leading-relaxed text-on-surface-variant">{recipe.story}</p>}</div>
+      <div className="p-6 sm:p-10">
+        <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Public recipe</p>
+        <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <h1 className="font-display text-4xl font-bold text-primary sm:text-5xl">{recipe.title}</h1>
+          <button type="button" onClick={shareRecipe} className="inline-flex w-fit shrink-0 items-center gap-2 rounded-full border border-surface-container-high bg-background px-4 py-2.5 font-sans text-sm font-extrabold text-primary shadow-sm transition hover:bg-surface-container-low" aria-label={`Share ${recipe.title}`}>
+            <Share2 className="h-4 w-4" />Share
+          </button>
+        </div>
+        {shareMessage && <p role="status" className="mt-3 font-sans text-xs font-bold text-on-surface-variant">{shareMessage}</p>}
+        {recipe.story?.trim() && <p className="mt-6 font-sans text-base font-bold leading-relaxed text-on-surface-variant">{recipe.story}</p>}
+      </div>
     </article>
 
     {chef && <section><p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">About the Chef</p><div className="mt-4 flex flex-col gap-5 rounded-3xl border border-surface-container-high bg-surface-container-low p-6 shadow-sm sm:flex-row sm:items-center"><div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary text-on-primary">{chef.avatar ? <img src={chef.avatar} alt={chef.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" /> : <UserRound className="h-8 w-8" />}</div><div className="flex-1"><h2 className="font-display text-3xl font-bold text-primary">{chef.name}</h2>{chef.professionalTitle && <p className="mt-1 font-sans text-sm font-extrabold text-on-surface-variant">{chef.professionalTitle}</p>}{chef.country && <p className="mt-2 flex items-center gap-2 font-sans text-xs font-bold text-outline"><MapPin className="h-4 w-4" />{chef.country}</p>}</div><a href={`/chef/${chef.username}`} className="rounded-full bg-primary px-5 py-3 text-center font-sans text-sm font-extrabold text-on-primary">View Chef</a></div></section>}
