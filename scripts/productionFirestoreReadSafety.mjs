@@ -74,7 +74,21 @@ const firestoreDatabasePath = projectId => `/projects/${projectId}/databases/(de
 const firestorePath = (projectId, resourcePath) =>
   `${firestoreDatabasePath(projectId)}/documents/${encodeResourcePath(resourcePath)}`;
 
-const responseBody = response => response?.body ?? response?.data ?? response ?? {};
+const responseBody = response => {
+  const payload = response?.data ?? response?.body ?? response;
+  if (payload === undefined || payload === null) return {};
+  if (typeof payload === 'string') {
+    try {
+      return JSON.parse(payload);
+    } catch {
+      throw failClosed('malformed_response', 'Firestore returned a non-JSON response payload.');
+    }
+  }
+  if (typeof payload !== 'object' || Array.isArray(payload)) {
+    throw failClosed('malformed_response', 'Firestore returned a malformed response payload.');
+  }
+  return payload;
+};
 const errorStatus = error => error?.status ?? error?.response?.status;
 const guardedFirestoreRestClients = new WeakMap();
 
@@ -119,7 +133,8 @@ export const createAuthenticatedBetaFirestoreRestClient = request => {
       return request({
         method: 'GET',
         url: `https://firestore.googleapis.com/v1${path}`,
-        params: options.queryParams
+        params: options.queryParams,
+        responseType: 'json'
       });
     }
   }

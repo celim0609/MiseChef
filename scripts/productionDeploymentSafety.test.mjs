@@ -8,6 +8,7 @@ import { createProductionGoogleApiReader } from './productionLiveRelease.mjs';
 import {
   BETA_FIRESTORE_PROJECT_ID,
   PRODUCTION_FIRESTORE_READ_LIMIT_CEILINGS,
+  createAuthenticatedProductionFirestoreRestClient,
   createProductionFirestoreRestClient,
   findUnguardedProductionFirestoreReads,
   runBetaFirestoreRead,
@@ -382,6 +383,36 @@ test('Production Firestore collection reads advance cursors and emit count-only 
     requestCount: 2,
     pageCount: 2,
     returnedDocumentCount: 3
+  }]);
+});
+
+test('Production Firestore REST transport parses a serialized authenticated collection response', async () => {
+  const calls = [];
+  const firestore = createAuthenticatedProductionFirestoreRestClient(async options => {
+    calls.push(options);
+    return {
+      data: JSON.stringify({
+        documents: [{ name: 'projects/misechef-fa4bf/databases/(default)/documents/storeProducts/product-1' }]
+      })
+    };
+  });
+
+  const documents = await runProductionFirestoreRead({
+    projectId: 'misechef-fa4bf',
+    confirmation: 'READ PRODUCTION FIRESTORE misechef-fa4bf FOR authenticated-rest-response',
+    firestore,
+    limits: productionFirestoreLimits,
+    runId: 'authenticated-rest-response',
+    logger: () => {}
+  }, reader => reader.listCollection('storeProducts'));
+
+  assert.equal(documents.length, 1);
+  assert.equal(documents[0].name, 'projects/misechef-fa4bf/databases/(default)/documents/storeProducts/product-1');
+  assert.deepEqual(calls, [{
+    method: 'GET',
+    url: 'https://firestore.googleapis.com/v1/projects/misechef-fa4bf/databases/(default)/documents/storeProducts',
+    params: { pageSize: '2' },
+    responseType: 'json'
   }]);
 });
 
