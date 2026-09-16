@@ -2,6 +2,7 @@ import { injectStoreSocialMetadata } from './storeSocialPreview.js';
 
 const SITE_NAME = 'MiseChef';
 const DEFAULT_DESCRIPTION = 'Discover this chef-made recipe on MiseChef.';
+const LEGACY_GENERIC_STORY = 'A homemade culinary masterpiece baked with fresh herbs and careful attention.';
 const DEFAULT_IMAGE_PATH = '/assets/store-share-default.png';
 const MAX_TEXT_LENGTH = 5000;
 
@@ -41,7 +42,8 @@ export const buildRecipeSocialMetadata = ({ recipe, origin, recipeId }) => {
   const title = readText(recipe?.title, 'MiseChef Recipe');
   const story = readText(recipe?.story);
   const chefName = readText(recipe?.chefName);
-  const description = story || (chefName ? `A recipe by ${chefName} on MiseChef.` : DEFAULT_DESCRIPTION);
+  const usableStory = story && story !== LEGACY_GENERIC_STORY ? story : '';
+  const description = usableStory || (chefName ? `A recipe by ${chefName} on MiseChef.` : DEFAULT_DESCRIPTION);
   const image = safeImageUrl(recipe?.coverImage) || new URL(DEFAULT_IMAGE_PATH, originValue).toString();
   const canonicalUrl = new URL(`/recipes/${encodeURIComponent(recipeId)}`, originValue).toString();
   return { title, description, image, canonicalUrl, siteName: SITE_NAME, type: 'article' };
