@@ -126,6 +126,10 @@ export const createAuthenticatedBetaFirestoreRestClient = request => {
   return createBetaFirestoreRestClient(FirestoreRestClient);
 };
 
+// The authenticated transport is deliberately generic; authority is still
+// pinned by runProductionFirestoreRead/runBetaFirestoreRead above it.
+export const createAuthenticatedProductionFirestoreRestClient = createAuthenticatedBetaFirestoreRestClient;
+
 const unsafeReadPatterns = Object.freeze([
   ['raw Firestore REST endpoint', /https:\/\/firestore\.googleapis\.com/i],
   ['raw Firestore REST read', /\b(?:firestore|db)\s*\.\s*(?:get|request)\s*\(/i],

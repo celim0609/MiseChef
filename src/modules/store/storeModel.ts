@@ -18,6 +18,8 @@ import type {
   WorkspaceStore
 } from './types';
 import { buildStoreSetOrderItem } from './storeSetModel';
+import { createStoreProductSlug, toStoreSlug } from './storeProductSlug.mjs';
+export { createStoreProductSlug, toStoreSlug };
 
 export const DEFAULT_STORE_BUSINESS_HOURS = 'Monday–Sunday, 9:00 AM–9:00 PM';
 export const STORE_ORDER_DAYS: Array<{ id: StoreOrderDay; label: string; dayIndex: number }> = [
@@ -206,21 +208,6 @@ export const formatPickupDateLabel = (
     month: 'short'
   }).format(date);
   return prefix ? `${prefix} · ${formatted}` : formatted;
-};
-
-export const toStoreSlug = (value: string) => value
-  .trim()
-  .toLowerCase()
-  .replace(/[^a-z0-9]+/g, '-')
-  .replace(/^-+|-+$/g, '')
-  .slice(0, 80) || 'store';
-
-export const createStoreProductSlug = (name: string, productId: string) => {
-  const nameSlug = toStoreSlug(name).slice(0, 60) || 'product';
-  // Firestore-generated document IDs are URL-safe and make this immutable slug
-  // collision-free without introducing a mutable name lookup contract.
-  const idSlug = productId.trim();
-  return idSlug ? `${nameSlug}-${idSlug}`.slice(0, 100) : nameSlug;
 };
 
 export const createDefaultWorkspaceStore = (

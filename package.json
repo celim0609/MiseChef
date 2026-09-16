@@ -17,6 +17,7 @@
     "prepare:store-social-template": "node scripts/prepareStoreSocialTemplate.mjs",
     "deploy:beta": "node scripts/deployBeta.mjs",
     "backfill:product-social-images:beta": "FIREBASE_DEPLOY_TARGET=beta node scripts/backfillProductSocialImages.mjs --project=misechef-beta-fa4bf",
+    "backfill:legacy-store-products:production": "FIREBASE_DEPLOY_TARGET=production node scripts/backfillProductionLegacyStoreProducts.mjs --project=misechef-fa4bf --database='(default)' --workspace-id=stShXwdbIzOh14ItTtQ4hRB5oBz1",
     "verify:beta-release": "node scripts/deployBeta.mjs --verify-only",
     "test:beta-deployment-safety": "node --test scripts/betaDeploymentSafety.test.mjs",
     "test:beta-capabilities": "node --test scripts/betaCapabilities.test.mjs",
