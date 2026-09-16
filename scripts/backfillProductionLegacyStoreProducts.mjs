@@ -21,13 +21,17 @@ import { createStoreProductSlug } from '../src/modules/store/storeProductSlug.mj
 export const PRODUCTION_PROJECT_ID = 'misechef-fa4bf';
 export const PRODUCTION_DATABASE_ID = '(default)';
 export const PRODUCTION_WORKSPACE_ID = 'stShXwdbIzOh14ItTtQ4hRB5oBz1';
+// Exact snapshot confirmed by the 2026-09-16 guarded Production DRY_RUN.
+// Two deleted legacy IDs were removed; the three current Products discovered by
+// diagnostics were added. This remains an exact fail-closed workspace allowlist.
 export const EXPECTED_PRODUCT_IDS = Object.freeze([
-  '8E9sgz6vMEZ8pqUow1y4', 'A4I6ndOfjPT3HC5Tie4M', 'BjdAGwE8Z6g5nxv21gNH',
-  'DMBw9VRrnRgW3nomSSQx', 'Ib7P7RqPQDolgxsYtsIR', 'J4TXNwqBm4WwfXSVkTEQ',
-  'NE43JgofeVpd2uQOwdqm', 'NEFCNFyhdw7TrNm4GsXd', 'NjTZyXDbZlbi3CJbiean',
-  'Nw7BAfW4X9zRWay2MNIN', 'QwgQUPjfz3NOWZCPUKt9', 'XR6BLMU2re862p3kSpT8',
-  'YO4tnhuw5Rtt7WrWtGjy', 'ZpiIICHaS7XNnItSJlEP', 'bXuaMOUxbVvj7oT6XHNd',
-  'fDMoLhOpROihFPLsLtZR', 'jDVAb1n6AsHKr5Keiq5O', 'sRwaeRC5OCYxxNdtkvRd'
+  '3I9ULaUuMLz4Xc1YAYfx', '4UgQ7qHDHAaKGz88fGgT', '8E9sgz6vMEZ8pqUow1y4',
+  'A4I6ndOfjPT3HC5Tie4M', 'BjdAGwE8Z6g5nxv21gNH', 'DMBw9VRrnRgW3nomSSQx',
+  'Ib7P7RqPQDolgxsYtsIR', 'J4TXNwqBm4WwfXSVkTEQ', 'NEFCNFyhdw7TrNm4GsXd',
+  'NjTZyXDbZlbi3CJbiean', 'Nw7BAfW4X9zRWay2MNIN', 'QwgQUPjfz3NOWZCPUKt9',
+  'XR6BLMU2re862p3kSpT8', 'YO4tnhuw5Rtt7WrWtGjy', 'ZpiIICHaS7XNnItSJlEP',
+  'bXuaMOUxbVvj7oT6XHNd', 'fDMoLhOpROihFPLsLtZR', 'jDVAb1n6AsHKr5Keiq5O',
+  'rjxOE4E8vCVBUeNXYko2'
 ]);
 export const WRITE_FIELD_ALLOWLIST = Object.freeze(['productSlug', 'socialImageUrl']);
 
@@ -66,6 +70,8 @@ export const inspectMigrationScope = documents => {
     expectedCount: EXPECTED_PRODUCT_IDS.length,
     unexpected: scoped.filter(product => !product.expected),
     missingExpectedIds: EXPECTED_PRODUCT_IDS.filter(id => !actual.has(id)),
+    alreadyComplete: scoped.filter(product => product.hasProductSlug && product.hasSocialImageUrl),
+    migrationCandidates: scoped.filter(product => !product.hasProductSlug && !product.hasSocialImageUrl),
     workspaceProducts: scoped
   };
 };
@@ -88,12 +94,15 @@ export const buildMigrationPlan = documents => {
   }));
   const expected = new Set(EXPECTED_PRODUCT_IDS);
   const actual = new Set(products.map(product => product.id));
-  if (actual.size !== expected.size || [...expected].some(id => !actual.has(id))) throw new Error('Production Product IDs do not exactly match the approved 18-Product migration scope.');
+  if (actual.size !== expected.size || [...expected].some(id => !actual.has(id))) throw new Error('Production Product IDs do not exactly match the approved current Product migration scope.');
   if (products.some(product => product.workspaceId !== PRODUCTION_WORKSPACE_ID)) throw new Error('Production Product workspace scope mismatch.');
-  if (products.some(product => product.productSlug || product.socialImageUrl)) throw new Error('Refusing to overwrite an existing productSlug or socialImageUrl.');
-  const proposedSlugs = new Set(products.map(product => createStoreProductSlug(product.name, product.id)));
-  if (proposedSlugs.size !== products.length) throw new Error('Proposed Product slug collision.');
-  return products.map(product => ({
+  const partial = products.filter(product => Boolean(product.productSlug) !== Boolean(product.socialImageUrl));
+  if (partial.length) throw new Error(`Refusing partial Product Share state for: ${partial.map(product => product.id).join(', ')}.`);
+  const candidates = products.filter(product => !product.productSlug && !product.socialImageUrl);
+  if (!candidates.length) throw new Error('No legacy Product Share records require migration.');
+  const proposedSlugs = new Set(candidates.map(product => createStoreProductSlug(product.name, product.id)));
+  if (proposedSlugs.size !== candidates.length) throw new Error('Proposed Product slug collision.');
+  return candidates.map(product => ({
     ...product,
     proposedSlug: createStoreProductSlug(product.name, product.id),
     sourcePath: getStorageObjectPath(product.photoUrl, `${PRODUCTION_PROJECT_ID}.firebasestorage.app`),
@@ -111,7 +120,7 @@ export const verifyPostWrite = (documents, originalProtected) => {
   if (actual.size !== EXPECTED_PRODUCT_IDS.length || EXPECTED_PRODUCT_IDS.some(id => !actual.has(id))) throw new Error('Post-write Product scope mismatch.');
   for (const product of products) {
     if (!fieldString(product.fields, 'productSlug') || !fieldString(product.fields, 'socialImageUrl')) throw new Error(`Post-write Product fields missing for ${product.id}.`);
-    if (canonical(protectedFields(product.fields)) !== originalProtected.get(product.id)) throw new Error(`Post-write unrelated fields changed for ${product.id}.`);
+    if (originalProtected.has(product.id) && canonical(protectedFields(product.fields)) !== originalProtected.get(product.id)) throw new Error(`Post-write unrelated fields changed for ${product.id}.`);
   }
 };
 
@@ -158,7 +167,7 @@ const main = async () => {
     const plan = buildMigrationPlan(documents);
     await assertSources(plan, bucket);
     console.log(JSON.stringify({ mode: execute ? 'EXECUTE' : 'DRY_RUN', projectId, databaseId, workspaceId,
-      scanned: plan.length, missingProductSlug: plan.length, missingSocialImageUrl: plan.length, wouldUpdate: plan.length,
+      scanned: scopedWorkspaceDocuments(documents).length, missingProductSlug: plan.length, missingSocialImageUrl: plan.length, wouldUpdate: plan.length,
       writeFieldAllowlist: WRITE_FIELD_ALLOWLIST, socialImage: PRODUCT_SOCIAL_IMAGE }, null, 2));
     if (!execute) return;
     const originalProtected = new Map(plan.map(product => [product.id, canonical(product.protectedFields)]));
