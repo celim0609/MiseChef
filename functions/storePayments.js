@@ -341,7 +341,7 @@ export const createStorePayment = async ({
   if (activeAdapter.requiresSellingWorkspace) {
     assertSellingWorkspace(checkoutData.store, sellingWorkspaceId);
   }
-  const checkoutReturnUrl = activeAdapter.provider === 'stripe'
+  const checkoutReturnUrl = activeAdapter.provider === 'stripe' || activeAdapter.mode === 'payment_link'
     ? validateStoreCheckoutReturnUrl(returnUrl)
     : '';
   // Current clients always provide a UUID. Keep older deployed clients

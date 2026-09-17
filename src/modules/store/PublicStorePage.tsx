@@ -467,9 +467,10 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
     const returnedProvider = query.get('payment_provider')
-      || (query.has('payment_intent') ? 'stripe' : '');
+      || (query.has('payment_intent') ? 'stripe' : query.has('razorpay_payment_link_id') ? 'curlec' : '');
     const returnedPaymentSessionId = query.get('payment_session_id')
-      || query.get('payment_intent');
+      || query.get('payment_intent')
+      || query.get('razorpay_payment_link_id');
     const returnedCheckoutAccessToken = query.get('payment_access_token');
     if (!returnedProvider || !returnedPaymentSessionId || !returnedCheckoutAccessToken) return;
     const wasCancelled = query.get('payment_cancelled') === '1';

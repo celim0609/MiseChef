@@ -5,12 +5,20 @@ export const CURLEC_PAYMENT_LINK_MODE = 'payment_link';
 const API_URL = 'https://api.razorpay.com/v1/payment_links';
 const authorizationHeader = (keyId, keySecret) => `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString('base64')}`;
 const paymentLinkReferenceId = order => `mc_${readString(order.id)}`;
+const paymentLinkCallbackUrl = ({ returnUrl, checkoutAccessToken }) => {
+  const url = new URL(returnUrl);
+  // Curlec appends razorpay_payment_link_id and its signature. MiseChef uses
+  // that Link ID only to read its order; the signed webhook remains payment truth.
+  url.searchParams.set('payment_provider', 'curlec');
+  url.searchParams.set('payment_access_token', checkoutAccessToken);
+  return url.toString();
+};
 
 export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = fetch } = {}) => {
   if (!readString(keyId) || !readString(keySecret)) throw new Error('Curlec is not configured.');
   return {
     provider: 'curlec', mode: CURLEC_PAYMENT_LINK_MODE, requiresSellingWorkspace: true,
-    async createPayment({ order }) {
+    async createPayment({ order, returnUrl, checkoutAccessToken }) {
       let response;
       try {
         response = await fetchImpl(API_URL, {
@@ -21,6 +29,7 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
             amount: order.payment.amountMinor, currency: order.currency, accept_partial: false,
             reference_id: paymentLinkReferenceId(order), description: `Order ${order.orderNumber}`,
             notify: { sms: false, email: false }, reminder_enable: false,
+            callback_url: paymentLinkCallbackUrl({ returnUrl, checkoutAccessToken }), callback_method: 'get',
             notes: { misechefOrderId: order.id, misechefOrderNumber: order.orderNumber },
             // Explicitly disable Card while retaining FPX and Wallets (including TNG).
             options: { checkout: { method: { fpx: true, card: false, wallet: true } } }
