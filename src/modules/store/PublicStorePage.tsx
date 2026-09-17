@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { formatRegionCurrency, getRegionConfiguration } from '../../regions';
 import StorePaymentCheckout from './StorePaymentCheckout';
+import PaymentOrderSummary from './PaymentOrderSummary';
 import { isCurlecPaymentLinkRolloutEnabled, shouldUseCurlecPaymentLink } from './paymentProviders/curlecPaymentLinkRollout';
 import { customerContactService, storePaymentService, storeService } from './services';
 import { publicPromotionService, type PublicPromotion } from './services/publicPromotionService';
@@ -76,9 +77,18 @@ type CheckoutRecovery = {
   session?: StorePaymentSession;
 };
 
+type PaymentReturnReconciliation = {
+  provider: StorePaymentProviderId;
+  paymentSessionId: string;
+  checkoutAccessToken: string;
+  timedOut: boolean;
+};
+
 const CHECKOUT_RECOVERY_KEY_PREFIX = 'misechef_checkout_recovery_v1:';
 const GROUP_DRAFT_KEY_PREFIX = 'misechef_group_checkout_draft_v1:';
 const STORE_DRAFT_KEY_PREFIX = 'misechef_store_checkout_draft_v1:';
+const CURLEC_RETURN_POLL_INTERVAL_MS = 2_000;
+const CURLEC_RETURN_MAX_POLLS = 30;
 
 const readCheckoutRecovery = (key: string, slug: string): CheckoutRecovery | null => {
   try {
@@ -179,6 +189,7 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [paymentSession, setPaymentSession] = useState<StorePaymentSession | null>(null);
   const [placedOrder, setPlacedOrder] = useState<PublicStoreOrderResult | null>(null);
+  const [paymentReturnReconciliation, setPaymentReturnReconciliation] = useState<PaymentReturnReconciliation | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isCatalogueCartVisible, setIsCatalogueCartVisible] = useState(true);
   const [activeCatalogueSection, setActiveCatalogueSection] = useState<'all' | 'main' | 'sets' | 'drinks' | 'promotions'>('all');
@@ -447,7 +458,7 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
 
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
-    if (query.has('payment_session_id') || query.has('payment_intent')) return;
+    if (query.has('payment_session_id') || query.has('payment_intent') || query.has('razorpay_payment_link_id')) return;
     const recovery = readCheckoutRecovery(checkoutRecoveryKey, slug);
     if (!recovery) return;
     let cancelled = false;
@@ -479,6 +490,7 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
       || query.get('razorpay_payment_link_id');
     const returnedCheckoutAccessToken = query.get('payment_access_token');
     if (!returnedProvider || !returnedPaymentSessionId || !returnedCheckoutAccessToken) return;
+    const isCurlecPaymentLinkReturn = returnedProvider === 'curlec' && query.has('razorpay_payment_link_id');
     const wasCancelled = query.get('payment_cancelled') === '1';
     sessionStorage.setItem(checkoutRecoveryKey, JSON.stringify({
       slug,
@@ -486,6 +498,61 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
       paymentSessionId: returnedPaymentSessionId,
       checkoutAccessToken: returnedCheckoutAccessToken
     } satisfies CheckoutRecovery));
+    if (isCurlecPaymentLinkReturn) {
+      // A Payment Link opens a full-page provider flow, so its return is a fresh
+      // Store page. Re-open the existing checkout context before reading state.
+      // The payment session is intentionally not restored: it must never offer
+      // another payment CTA while the signed webhook result is being reconciled.
+      setIsCheckoutOpen(true);
+      setPaymentSession(null);
+      setCheckoutError('');
+      setPaymentReturnReconciliation({
+        provider: returnedProvider,
+        paymentSessionId: returnedPaymentSessionId,
+        checkoutAccessToken: returnedCheckoutAccessToken,
+        timedOut: false
+      });
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.search = '';
+      window.history.replaceState({}, '', `${cleanUrl.pathname}${cleanUrl.hash}`);
+
+      let cancelled = false;
+      const reconcileReturn = async () => {
+        for (let poll = 0; poll < CURLEC_RETURN_MAX_POLLS; poll += 1) {
+          const result = await storePaymentService.getResult(
+            slug,
+            returnedProvider,
+            returnedPaymentSessionId,
+            returnedCheckoutAccessToken
+          );
+          if (cancelled) return;
+          if (['paid', 'pending_verification'].includes(result.paymentStatus)) {
+            setPlacedOrder(result);
+            setPaymentReturnReconciliation(null);
+            setCart([]);
+            setNotes('');
+            sessionStorage.removeItem(storeDraftKey);
+            return;
+          }
+          if (!['pending', 'processing'].includes(result.paymentStatus)) {
+            throw new Error('Payment was not completed. Please choose a payment method and try again.');
+          }
+          if (poll + 1 < CURLEC_RETURN_MAX_POLLS) {
+            await new Promise<void>(resolve => window.setTimeout(resolve, CURLEC_RETURN_POLL_INTERVAL_MS));
+          }
+        }
+        if (!cancelled) {
+          setPaymentReturnReconciliation(current => current ? { ...current, timedOut: true } : current);
+          setCheckoutError('Your payment is still processing. Please check again in a moment.');
+        }
+      };
+      void reconcileReturn().catch(error => {
+        if (cancelled) return;
+        setPaymentReturnReconciliation(current => current ? { ...current, timedOut: true } : current);
+        setCheckoutError(error instanceof Error ? error.message : 'We could not verify this payment yet.');
+      });
+      return () => { cancelled = true; };
+    }
     setIsPlacingOrder(true);
     const cancelReturnedPayment = returnedProvider === 'curlec'
       ? Promise.resolve()
@@ -1152,11 +1219,26 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
             </p>
           )}
 
+          {paymentReturnReconciliation && !placedOrder && (
+            <section aria-live="polite" aria-labelledby="payment-return-confirming-heading" className="mt-5 rounded-2xl bg-primary/5 p-4 text-primary">
+              <Clock3 className="h-6 w-6" />
+              <h3 id="payment-return-confirming-heading" className="mt-2 font-display text-xl font-bold">
+                {paymentReturnReconciliation.timedOut ? 'Payment confirmation is taking longer.' : 'Confirming your payment...'}
+              </h3>
+              <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">
+                {paymentReturnReconciliation.timedOut
+                  ? 'Please do not pay again. We are still waiting for secure payment confirmation.'
+                  : 'Please do not pay again. We are securely checking the payment you just made.'}
+              </p>
+              {checkoutError && <p role="alert" className="mt-3 rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
+            </section>
+          )}
+
           {placedOrder && (
             <section ref={confirmationRef} aria-labelledby="order-confirmation-heading" className="mt-5 scroll-mt-24 rounded-2xl bg-green-50 p-4 text-green-800">
               <CheckCircle2 className="h-6 w-6" />
               <h3 id="order-confirmation-heading" className="mt-2 font-display text-xl font-bold">
-                {confirmationCopy?.heading}
+                {placedOrder.paymentStatus === 'paid' ? 'Payment Successful' : confirmationCopy?.heading}
               </h3>
               <p className="mt-1 font-sans text-sm font-bold">{confirmationCopy?.message}</p>
               {placedOrder.paymentStatus === 'pending_verification' && (
@@ -1178,8 +1260,10 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Location</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupLocationName}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Time</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupSession}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Order Status</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{confirmationCopy?.statusLabel}</dd></div>
+                {placedOrder.paymentStatus === 'paid' && <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Amount Paid</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{formatRegionCurrency(placedOrder.total, placedOrder.currency)}</dd></div>}
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Payment Method</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.paymentMethodName}</dd></div>
               </dl>
+              {placedOrder.orderSummary && <div className="mt-4"><PaymentOrderSummary summary={placedOrder.orderSummary} /></div>}
               <div className="mt-4 flex flex-col gap-2">
                 {currentUser ? (
                   <>
@@ -1194,7 +1278,7 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
                     <a href={groupLoginReturnTo} className="mt-3 inline-flex items-center justify-center rounded-full bg-green-800 px-4 py-2.5 font-sans text-xs font-extrabold text-white">Sign In / Create Account</a>
                   </div>
                 ) : null}
-                <a href="/" className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 font-sans text-xs font-extrabold text-green-800">Explore MiseChef <ArrowRight className="h-3.5 w-3.5" /></a>
+                <a href={`/store/${encodeURIComponent(store.slug)}`} className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 font-sans text-xs font-extrabold text-green-800">Back to Store <ArrowRight className="h-3.5 w-3.5" /></a>
               </div>
             </section>
           )}

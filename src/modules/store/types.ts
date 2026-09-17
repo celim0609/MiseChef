@@ -665,5 +665,7 @@ export interface PublicStoreOrderResult {
   total: number;
   status: StoreOrder['status'];
   paymentStatus: StoreOrder['payment']['status'];
+  /** A server-built snapshot, returned only after checkout-token authorization. */
+  orderSummary?: StorePaymentOrderSummary;
   groupOrder?: PublicOrderGroupContext;
 }

@@ -132,6 +132,18 @@ test('payment-session response includes the immutable order summary only when it
   assert.match(paymentService, /\.\.\.\(orderSummary \? \{ orderSummary \} : \{\}\)/);
 });
 
+test('authorized payment-result response includes the same immutable order summary without private ids', () => {
+  const order = {
+    orderNumber: 'MC-RESULT', pickupDate: '2026-08-30', pickupSession: '9:00 AM', pickupLocationName: 'Counter',
+    payment: { status: 'paid' }, fulfilmentMethod: 'pickup',
+    items: [{ productId: 'private-product-id', productName: 'Noodles', quantity: 1, lineTotal: 12, selectedOptions: [] }],
+    totals: { merchandiseSubtotal: 12, discountTotal: 0, discountedMerchandiseTotal: 12, deliveryFee: 0, grandTotal: 12, currency: 'MYR' }
+  };
+  const result = toPublicOrderResult(order);
+  assert.deepEqual(result.orderSummary, toPublicPaymentOrderSummary(order));
+  assert.equal(JSON.stringify(result.orderSummary).includes('private-product-id'), false);
+});
+
 test('customer listing is authenticated, owner-scoped, newest-first and sanitized', async () => {
   const db = createListDb([
     { id: 'order-a-old', data: {

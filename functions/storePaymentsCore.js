@@ -537,5 +537,6 @@ export const toPublicOrderResult = order => ({
   total: readNumber(order.total),
   status: readString(order.status),
   paymentStatus: readString(order.payment?.status),
+  ...(toPublicPaymentOrderSummary(order) ? { orderSummary: toPublicPaymentOrderSummary(order) } : {}),
   ...toPublicGroupOrderContext(order)
 });
