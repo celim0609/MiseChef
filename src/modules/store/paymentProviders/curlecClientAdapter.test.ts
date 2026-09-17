@@ -38,6 +38,6 @@ test('shows the external-browser handoff only in Instagram and Facebook in-app b
 test('keeps the handoff ahead of Curlec checkout without introducing an unconfigured redirect callback', () => {
   const adapter = readFileSync(new URL('./curlecClientAdapter.tsx', import.meta.url), 'utf8');
   assert.match(adapter, /Open in your browser to pay with Touch ’n Go eWallet/);
-  assert.match(adapter, /tap •••, then choose Open in Browser/);
+  assert.match(adapter, /tap •••, then choose Open in Browser\. Start checkout in Safari or Chrome/);
   assert.doesNotMatch(adapter, /callback_url|redirect:\s*true/);
 });

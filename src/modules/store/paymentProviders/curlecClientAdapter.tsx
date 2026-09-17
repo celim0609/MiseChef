@@ -56,7 +56,7 @@ function CurlecCheckout({ session, customerName, phone, customerEmail, onComplet
   if (checkout.type !== 'curlec_standard_checkout') return null;
 
   if (requiresExternalBrowserForEwallet) {
-    return <div className="space-y-3 rounded-2xl border border-primary/20 bg-primary/5 p-4"><p className="font-sans text-sm font-extrabold text-primary">Open in your browser to pay with Touch ’n Go eWallet.</p><p className="font-sans text-xs font-bold leading-relaxed text-on-surface-variant">In Instagram or Facebook, tap •••, then choose Open in Browser. Return here in Safari or Chrome to continue securely.</p><button type="button" onClick={() => void onBack()} className="w-full font-sans text-xs font-extrabold text-primary">Back to checkout</button></div>;
+    return <div className="space-y-3 rounded-2xl border border-primary/20 bg-primary/5 p-4"><p className="font-sans text-sm font-extrabold text-primary">Open in your browser to pay with Touch ’n Go eWallet.</p><p className="font-sans text-xs font-bold leading-relaxed text-on-surface-variant">In Instagram or Facebook, tap •••, then choose Open in Browser. Start checkout in Safari or Chrome so eWallet is available.</p><button type="button" onClick={() => void onBack()} className="w-full font-sans text-xs font-extrabold text-primary">Back to checkout</button></div>;
   }
 
   const releaseCheckoutLock = () => {
