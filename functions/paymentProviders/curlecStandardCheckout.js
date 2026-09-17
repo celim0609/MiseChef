@@ -51,6 +51,15 @@ export const getCurlecWebhookDedupeId = event => {
 
 export const createCurlecStandardCheckoutAdapter = (keyId, keySecret, { fetchImpl = fetch } = {}) => {
   if (!readString(keyId) || !readString(keySecret)) throw new Error('Curlec is not configured.');
+  const buildCheckout = (order, providerPaymentId) => ({
+    type: 'curlec_standard_checkout',
+    keyId,
+    orderId: providerPaymentId,
+    amountMinor: order.payment.amountMinor,
+    currency: order.currency,
+    name: order.storeName,
+    description: `Order ${order.orderNumber}`
+  });
   return {
     provider: CURLEC_PROVIDER_ID,
     mode: CURLEC_PROVIDER_MODE,
@@ -88,16 +97,16 @@ export const createCurlecStandardCheckoutAdapter = (keyId, keySecret, { fetchImp
       }
       return {
         providerPaymentId: gatewayOrder.id,
-        checkout: {
-          type: 'curlec_standard_checkout',
-          keyId,
-          orderId: gatewayOrder.id,
-          amountMinor: order.payment.amountMinor,
-          currency: order.currency,
-          name: order.storeName,
-          description: `Order ${order.orderNumber}`
-        }
+        checkout: buildCheckout(order, gatewayOrder.id)
       };
+    },
+    // Standard Checkout is launched by the browser with Curlec's order id.
+    // Rebuilding this public configuration does not contact Curlec or create a
+    // second gateway order, which lets old incomplete attempt records recover.
+    async recoverPayment({ order }) {
+      const providerPaymentId = readString(order?.payment?.providerPaymentId);
+      if (!providerPaymentId) throw new Error('The persisted Curlec order id is missing.');
+      return { providerPaymentId, checkout: buildCheckout(order, providerPaymentId) };
     },
     async retrievePayment(providerPaymentId, { db } = {}) {
       const snapshot = await db.collection('storeOrders')

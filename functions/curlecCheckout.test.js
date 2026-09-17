@@ -27,6 +27,19 @@ test('Curlec creates an order using only the authoritative minor amount and curr
   assert.doesNotMatch(requests[0].options.body, /total|client/i);
 });
 
+test('Curlec Standard Checkout reconstructs a persisted order without a gateway request', async () => {
+  let requests = 0;
+  const adapter = createCurlecStandardCheckoutAdapter('key_id', 'key_secret', {
+    fetchImpl: async () => { requests += 1; throw new Error('must not call Curlec'); }
+  });
+  const result = await adapter.recoverPayment({
+    order: { ...order, payment: { amountMinor: 1590, providerPaymentId: 'order_existing' } }
+  });
+  assert.equal(requests, 0);
+  assert.equal(result.providerPaymentId, 'order_existing');
+  assert.equal(result.checkout.orderId, 'order_existing');
+});
+
 test('Curlec order failures retain only sanitized gateway diagnostics', async () => {
   const adapter = createCurlecStandardCheckoutAdapter('key_id', 'key_secret', {
     fetchImpl: async () => ({
