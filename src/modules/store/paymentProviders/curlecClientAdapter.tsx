@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { formatRegionCurrency } from '../../../regions';
 import type { PaymentProviderCheckoutProps, PaymentProviderClientAdapter } from './types';
 
@@ -37,10 +37,20 @@ export function getCurlecPrefill(customerName: string, phone: string, customerEm
 function CurlecCheckout({ session, customerName, phone, customerEmail, onComplete, onBack }: PaymentProviderCheckoutProps) {
   const [error, setError] = useState('');
   const [opening, setOpening] = useState(false);
+  const checkoutOpenRef = useRef(false);
   const checkout = session.checkout;
   if (checkout.type !== 'curlec_standard_checkout') return null;
+
+  const releaseCheckoutLock = () => {
+    checkoutOpenRef.current = false;
+    setOpening(false);
+  };
+
   const open = async () => {
-    setOpening(true); setError('');
+    if (checkoutOpenRef.current) return;
+    checkoutOpenRef.current = true;
+    setOpening(true);
+    setError('');
     try {
       await loadCurlecCheckout();
       const razorpay = new window.Razorpay!({
@@ -56,16 +66,24 @@ function CurlecCheckout({ session, customerName, phone, customerEmail, onComplet
             hide: [{ method: 'fpx' }, { method: 'card' }]
           }
         },
-        handler: () => { void onComplete(session.paymentSessionId); },
-        modal: { ondismiss: () => { setOpening(false); } }
+        handler: () => {
+          releaseCheckoutLock();
+          void onComplete(session.paymentSessionId);
+        },
+        modal: { ondismiss: releaseCheckoutLock }
       });
-      razorpay.on('payment.failed', () => setError('Payment was not completed. You can try again.'));
+      razorpay.on('payment.failed', () => {
+        setError('Payment was not completed. You can try again.');
+        releaseCheckoutLock();
+      });
       razorpay.open();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Payment checkout could not open.'); }
-    finally { setOpening(false); }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Payment checkout could not open.');
+      releaseCheckoutLock();
+    }
   };
   const paymentLabel = session.orderSummary ? `Continue to Payment · ${formatRegionCurrency(session.orderSummary.totals.grandTotal, session.orderSummary.totals.currency)}` : 'Continue to Payment';
-  return <div className="space-y-3"><p className="font-sans text-sm font-bold text-on-surface-variant">Choose your preferred payment method on the next step.</p>{error && <p role="alert" className="rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{error}</p>}<button type="button" onClick={() => void open()} disabled={opening} className="inline-flex min-h-12 w-full items-center justify-center rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">{opening ? 'Opening payment…' : paymentLabel}</button><button type="button" onClick={() => void onBack()} className="w-full font-sans text-xs font-extrabold text-primary">Back to checkout</button></div>;
+  return <div className="space-y-3"><p className="font-sans text-sm font-bold text-on-surface-variant">Choose your preferred payment method on the next step.</p>{error && <p role="alert" className="rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{error}</p>}<button type="button" onClick={() => void open()} disabled={opening} className="inline-flex min-h-12 w-full items-center justify-center rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">{opening ? 'Payment open…' : paymentLabel}</button><button type="button" onClick={() => void onBack()} disabled={opening} className="w-full font-sans text-xs font-extrabold text-primary disabled:opacity-50">Back to checkout</button></div>;
 }
 
 export const curlecClientPaymentAdapter: PaymentProviderClientAdapter = { provider: 'curlec', Checkout: CurlecCheckout };
