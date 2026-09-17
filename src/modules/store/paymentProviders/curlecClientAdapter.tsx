@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { formatRegionCurrency } from '../../../regions';
 import type { PaymentProviderCheckoutProps, PaymentProviderClientAdapter } from './types';
 
@@ -43,7 +43,11 @@ function CurlecCheckout({ session, customerName, phone, customerEmail, onComplet
   const [confirmationSlow, setConfirmationSlow] = useState(false);
   const checkoutOpenRef = useRef(false);
   const confirmationRunRef = useRef(false);
+  const mountedRef = useRef(true);
   const checkout = session.checkout;
+
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
   if (checkout.type !== 'curlec_standard_checkout') return null;
 
   const releaseCheckoutLock = () => {
@@ -65,10 +69,14 @@ function CurlecCheckout({ session, customerName, phone, customerEmail, onComplet
       // short window and never offer a second payment while confirmation is in flight.
       for (let attempt = 0; attempt < 8; attempt += 1) {
         await onComplete(session.paymentSessionId);
+        // A successful verification removes this checkout from the page.
+        if (!mountedRef.current) return;
         if (attempt < 7) await wait(1500);
+        if (!mountedRef.current) return;
       }
       setConfirmationSlow(true);
     } catch (reason) {
+      if (!mountedRef.current) return;
       setError(reason instanceof Error ? reason.message : 'We could not confirm this payment yet.');
       setConfirmationSlow(true);
     } finally {
@@ -97,7 +105,7 @@ function CurlecCheckout({ session, customerName, phone, customerEmail, onComplet
           }
         },
         handler: () => { void confirmPayment(); },
-        modal: { ondismiss: () => { if (!confirming) releaseCheckoutLock(); } }
+        modal: { ondismiss: () => { if (!confirmationRunRef.current) releaseCheckoutLock(); } }
       });
       razorpay.on('payment.failed', () => {
         setError('Payment was not completed. You can try again.');
