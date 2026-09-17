@@ -66,6 +66,12 @@ import {
   resolveBetaRun33586497538ContinuationMode,
   targetedRepairFirebaseArgs
 } from './betaRun33530702897Recovery.mjs';
+import {
+  CURLEC_PAYMENT_LINK_BETA_RECOVERY,
+  assertCurlecPaymentLinkBetaPartialState,
+  assertCurlecPaymentLinkRecoveryArtifact,
+  assertCurlecPaymentLinkRecoveryConverged
+} from './betaCurlecPaymentLinkRecovery.mjs';
 
 const betaRunFunctionGenerations = Object.freeze({
   activateMiseChefHost: '1788279675848143',
@@ -1501,6 +1507,56 @@ test('protected CI supplies external authority and an authoritative concurrency 
   assert.doesNotMatch(continuationWorkflow, /FIREBASE_SERVICE_ACCOUNT_MISECHEF_PROD|misechef-fa4bf/);
   assert.doesNotMatch(continuationWorkflow, new RegExp(BETA_RUN_33586497538_CONTINUATION_AUTHORIZATION));
   assert.doesNotMatch(continuationWorkflow, /--force|id-token:|token_format|access_token/);
+});
+
+test('Curlec Payment Link recovery accepts only its recorded Hosting/public Store split', () => {
+  const incident = CURLEC_PAYMENT_LINK_BETA_RECOVERY;
+  const live = {
+    releaseCommit: incident.priorCommit,
+    releaseSourceTree: incident.priorSourceTree,
+    releaseProtectedBaseline: incident.protectedBaseline,
+    rootAsset: incident.rootAsset,
+    storeAsset: incident.storeAsset
+  };
+  assert.match(assertCurlecPaymentLinkBetaPartialState({
+    head: incident.candidateCommit, sourceTree: incident.candidateSourceTree, liveFingerprint: live
+  }).fingerprint, /^[0-9a-f]{64}$/);
+  for (const field of ['releaseCommit', 'releaseSourceTree', 'releaseProtectedBaseline', 'rootAsset', 'storeAsset']) {
+    assert.throws(() => assertCurlecPaymentLinkBetaPartialState({
+      head: incident.candidateCommit,
+      sourceTree: incident.candidateSourceTree,
+      liveFingerprint: { ...live, [field]: 'unexpected' }
+    }), /exact authorized Curlec Payment Link partial release/);
+  }
+  assert.throws(() => assertCurlecPaymentLinkBetaPartialState({
+    head: '0'.repeat(40), sourceTree: incident.candidateSourceTree, liveFingerprint: live
+  }), /exact authorized SHA and tree/);
+});
+
+test('Curlec Payment Link recovery requires the exact artifact and JavaScript convergence', () => {
+  const incident = CURLEC_PAYMENT_LINK_BETA_RECOVERY;
+  const manifest = {
+    sourceCommit: incident.candidateCommit,
+    sourceTree: incident.candidateSourceTree,
+    protectedBaseline: incident.protectedBaseline,
+    entryAsset: incident.candidateAsset,
+    storeShellAsset: incident.candidateAsset,
+    entryAssetSha256: 'a'.repeat(64)
+  };
+  const live = {
+    releaseCommit: incident.candidateCommit,
+    releaseSourceTree: incident.candidateSourceTree,
+    releaseProtectedBaseline: incident.protectedBaseline,
+    rootAsset: incident.candidateAsset,
+    storeAsset: incident.candidateAsset
+  };
+  assert.doesNotThrow(() => assertCurlecPaymentLinkRecoveryConverged({
+    liveFingerprint: live, manifest, assetProof: { status: 200, contentType: 'text/javascript; charset=utf-8', sha256: manifest.entryAssetSha256 }
+  }));
+  assert.throws(() => assertCurlecPaymentLinkRecoveryConverged({
+    liveFingerprint: live, manifest, assetProof: { status: 200, contentType: 'text/html', sha256: manifest.entryAssetSha256 }
+  }), /JavaScript bytes/);
+  assert.throws(() => assertCurlecPaymentLinkRecoveryArtifact({ ...manifest, entryAsset: '/assets/other.js' }), /exact authorized build/);
 });
 
 test('repository baseline and documentation contain no stale protected-baseline references', () => {
