@@ -5,6 +5,13 @@ export const CURLEC_PAYMENT_LINK_MODE = 'payment_link';
 const API_URL = 'https://api.razorpay.com/v1/payment_links';
 const authorizationHeader = (keyId, keySecret) => `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString('base64')}`;
 const paymentLinkReferenceId = order => `mc_${readString(order.id)}`;
+const normalizeCurlecContact = phone => {
+  const contact = readString(phone);
+  if (/^\+60\d+$/.test(contact)) return contact;
+  if (/^60\d+$/.test(contact)) return `+${contact}`;
+  if (/^0\d+$/.test(contact)) return `+60${contact.slice(1)}`;
+  return contact;
+};
 const paymentLinkCallbackUrl = ({ returnUrl, checkoutAccessToken }) => {
   const url = new URL(returnUrl);
   // Curlec appends razorpay_payment_link_id and its signature. MiseChef uses
@@ -28,6 +35,10 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
             // Derived exclusively from the server-built order.
             amount: order.payment.amountMinor, currency: order.currency, accept_partial: false,
             reference_id: paymentLinkReferenceId(order), description: `Order ${order.orderNumber}`,
+            customer: {
+              name: readString(order.customerName), contact: normalizeCurlecContact(order.phone),
+              ...(readString(order.customerEmail) ? { email: readString(order.customerEmail) } : {})
+            },
             notify: { sms: false, email: false }, reminder_enable: false,
             callback_url: paymentLinkCallbackUrl({ returnUrl, checkoutAccessToken }), callback_method: 'get',
             notes: { misechefOrderId: order.id, misechefOrderNumber: order.orderNumber },

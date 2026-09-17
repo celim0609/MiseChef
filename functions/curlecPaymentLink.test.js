@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createCurlecPaymentLinkAdapter } from './paymentProviders/curlecPaymentLink.js';
 
 const order = {
-  id: 'mise-order-link-1', orderNumber: 'MC-0917-ABCD', storeName: 'MiseChef Kitchen', currency: 'MYR',
+  id: 'mise-order-link-1', orderNumber: 'MC-0917-ABCD', storeName: 'MiseChef Kitchen', customerName: 'Test Customer', phone: '0123456789', customerEmail: 'test@example.com', currency: 'MYR',
   payment: { amountMinor: 1590 }
 };
 
@@ -18,7 +18,7 @@ test('Curlec Payment Link uses the immutable server amount, unique MiseChef refe
   assert.equal(requests[0].url, 'https://api.razorpay.com/v1/payment_links');
   assert.deepEqual(JSON.parse(requests[0].options.body), {
     amount: 1590, currency: 'MYR', accept_partial: false, reference_id: 'mc_mise-order-link-1',
-    description: 'Order MC-0917-ABCD', notify: { sms: false, email: false }, reminder_enable: false,
+    description: 'Order MC-0917-ABCD', customer: { name: 'Test Customer', contact: '+60123456789', email: 'test@example.com' }, notify: { sms: false, email: false }, reminder_enable: false,
     callback_url: 'https://misechef-beta-fa4bf.web.app/store/test?payment_provider=curlec&payment_access_token=opaque-token', callback_method: 'get',
     notes: { misechefOrderId: 'mise-order-link-1', misechefOrderNumber: 'MC-0917-ABCD' },
     options: { checkout: { method: { fpx: true, card: false, wallet: true } } }
