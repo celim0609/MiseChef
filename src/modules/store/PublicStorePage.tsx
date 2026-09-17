@@ -237,6 +237,22 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
   }, [confirmationKey]);
 
   useEffect(() => {
+    const restorePaymentCtaAfterProviderBack = (event: PageTransitionEvent) => {
+      // Safari can restore this Store page from its back/forward cache after
+      // location.assign() has left for Curlec. React state is restored too, so
+      // the outbound redirect lock would otherwise remain set indefinitely.
+      // A normal reload starts with an unlocked CTA, and a recognized provider
+      // return owns paymentReturnReconciliation, so only clear a persisted
+      // page when no authoritative payment reconciliation is in progress.
+      if (!event.persisted || paymentReturnReconciliation) return;
+      paymentStartRef.current = false;
+      setIsPlacingOrder(false);
+    };
+    window.addEventListener('pageshow', restorePaymentCtaAfterProviderBack);
+    return () => window.removeEventListener('pageshow', restorePaymentCtaAfterProviderBack);
+  }, [paymentReturnReconciliation]);
+
+  useEffect(() => {
     if (deliveryAddressQuery.trim().length < 3 || (deliveryAddress && deliveryAddressQuery === deliveryAddress)) {
       setDeliverySuggestions([]);
       setIsSearchingDeliveryAddress(false);

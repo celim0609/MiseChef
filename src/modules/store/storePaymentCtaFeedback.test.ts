@@ -17,6 +17,18 @@ test('a successful Payment Link navigation keeps the processing CTA locked until
   assert.match(page, /only a thrown navigation[\s\S]*should restore the retry state/);
 });
 
+test('a Safari back/forward-cache restore clears only the stale outbound payment lock', () => {
+  assert.match(page, /window\.addEventListener\('pageshow', restorePaymentCtaAfterProviderBack\)/);
+  assert.match(page, /if \(!event\.persisted \|\| paymentReturnReconciliation\) return;/);
+  assert.match(page, /paymentStartRef\.current = false;\s*setIsPlacingOrder\(false\);/);
+});
+
+test('an active payment return reconciliation remains locked after lifecycle restoration', () => {
+  assert.match(page, /if \(!event\.persisted \|\| paymentReturnReconciliation\) return;/);
+  assert.match(page, /paymentReturnReconciliation && !placedOrder/);
+  assert.match(page, /Checking payment status…/);
+});
+
 test('the checkout CTA immediately shows a spinner and processing state while disabled', () => {
   assert.match(page, /disabled=\{isPlacingOrder \|\| !deliveryQuoteReady\}/);
   assert.match(page, /<Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" \/> Processing payment…/);
