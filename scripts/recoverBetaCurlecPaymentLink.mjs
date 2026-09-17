@@ -19,7 +19,7 @@ const controllerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const candidateIndex = process.argv.indexOf('--candidate-root');
 const candidateRoot = candidateIndex >= 0 ? path.resolve(process.argv[candidateIndex + 1] || '') : '';
 if (!candidateRoot || !existsSync(path.join(candidateRoot, '.git'))) throw new Error('Recovery requires --candidate-root for the exact immutable candidate checkout.');
-const git = args => execFileSync('git', args, { cwd: candidateRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+const git = args => execFileSync('git', args, { cwd: candidateRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trimEnd();
 const run = (command, args, env = {}) => execFileSync(command, args, { cwd: candidateRoot, env: { ...process.env, ...env }, stdio: 'inherit' });
 const dirty = () => git(['status', '--porcelain=v1', '--untracked-files=all']).split('\n').filter(Boolean).map(line => line.slice(3));
 const head = git(['rev-parse', 'HEAD']);
