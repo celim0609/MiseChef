@@ -28,3 +28,9 @@ test('keeps FPX and card out of Curlec checkout', () => {
   assert.match(adapter, /hide:\s*\[\s*\{\s*method:\s*['\"]fpx['\"]\s*\}\s*,\s*\{\s*method:\s*['\"]card['\"]\s*\}\s*\]/);
   assert.doesNotMatch(adapter, /Open in your browser to pay with Touch ’n Go eWallet|callback_url|redirect:\s*true/);
 });
+
+test('keeps the Payment Link POC redirect-only so it cannot expose client-side card configuration', () => {
+  const page = readFileSync(new URL('../PublicStorePage.tsx', import.meta.url), 'utf8');
+  assert.match(page, /Instagram\|FBAN\|FBAV\|FBIOS\|FB_IAB/);
+  assert.match(page, /curlecPaymentLink:\s*true/);
+});

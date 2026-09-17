@@ -99,6 +99,9 @@ const lalamoveApiSecret = defineSecret('LALAMOVE_API_SECRET');
 const curlecKeyId = defineSecret('CURLEC_KEY_ID');
 const curlecKeySecret = defineSecret('CURLEC_KEY_SECRET');
 const curlecWebhookSecret = defineSecret('CURLEC_WEBHOOK_SECRET');
+// This POC is physically gated to the Firebase Beta project. A client hint
+// cannot enable Payment Links in Production.
+const CURLEC_PAYMENT_LINK_BETA_PROJECT = 'misechef-beta-fa4bf';
 const sellingWorkspaceId = defineString('SELLING_WORKSPACE_ID', { default: '' });
 const publicSiteOrigin = defineString('PUBLIC_SITE_ORIGIN', { default: '' });
 const MODEL = 'gemini-2.5-flash';
@@ -394,7 +397,10 @@ export const createPublicStorePayment = onCall({
         stripeSecretKey: stripeSecretKey.value(),
         curlecKeyId: curlecKeyId.value(),
         curlecKeySecret: curlecKeySecret.value(),
-        method: paymentMethod
+        method: paymentMethod,
+        curlecPaymentLink: paymentMethod.provider === 'curlec'
+          && request.data?.order?.curlecPaymentLink === true
+          && (process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT) === CURLEC_PAYMENT_LINK_BETA_PROJECT
       }),
       sellingWorkspaceId: sellingWorkspaceId.value(),
       ...(request.data?.order?.fulfilmentMethod === 'delivery' ? {
@@ -651,7 +657,8 @@ export async function curlecStorePaymentWebhookHandler(request, response) {
   try {
     const adapter = createPaymentAdapter('curlec', {
       curlecKeyId: curlecKeyId.value(),
-      curlecKeySecret: curlecKeySecret.value()
+      curlecKeySecret: curlecKeySecret.value(),
+      curlecPaymentLink: request.body?.event === 'payment_link.paid'
     });
     const signature = request.get('X-Razorpay-Signature');
     signatureDiagnostics = getCurlecWebhookSignatureDiagnostics({

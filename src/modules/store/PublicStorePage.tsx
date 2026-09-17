@@ -59,6 +59,10 @@ import type {
   StoreSet
 } from './types';
 
+// Payment Links are used only when Meta's embedded browser is the actual
+// checkout surface. Safari/Chrome keep the existing Curlec Standard Checkout.
+const isMetaInAppBrowser = () => /Instagram|FBAN|FBAV|FBIOS|FB_IAB/i.test(navigator.userAgent || '');
+
 interface CartLine extends CartSelection {
   key: string;
 }
@@ -728,6 +732,7 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
           session = await storePaymentService.createPayment(slug, {
         fulfilmentMethod,
         paymentMethodId,
+        ...(paymentMethodId === 'curlec' && isMetaInAppBrowser() ? { curlecPaymentLink: true } : {}),
         customerName,
         phone,
         checkoutAttemptId: checkoutAttemptIdRef.current,
@@ -784,7 +789,7 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
           setPaymentSession(session);
           throw manualPaymentError;
         }
-      } else if (session.checkout.type === 'provider_redirect') {
+      } else if (session.checkout.type === 'provider_redirect' || session.checkout.type === 'curlec_payment_link') {
         window.location.assign(session.checkout.redirectUrl);
       } else {
         // The online provider's secure element must confirm the payment after the

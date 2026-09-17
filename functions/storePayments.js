@@ -357,6 +357,29 @@ export const createStorePayment = async ({
   // as the order so retries cannot produce a second order/payment session.
   const checkoutAttemptReference = db.collection('storeCheckoutAttempts')
     .doc(hashCheckoutAccessToken(`${storeId}:${checkoutAttemptId}`));
+  // A completed provider-session write is replayable using the same opaque
+  // checkout attempt. This avoids a second Curlec Payment Link if the browser
+  // loses the callable response after the gateway link was created.
+  const priorAttempt = await checkoutAttemptReference.get();
+  if (priorAttempt.exists) {
+    const prior = priorAttempt.data();
+    if (!readString(prior?.providerPaymentId) || !prior?.checkout || !readString(prior?.checkoutAccessToken)) {
+      throw new HttpsError('already-exists', 'This checkout is already being created. Please wait.');
+    }
+    const priorOrderSnapshot = await db.collection('storeOrders').doc(readString(prior.orderId)).get();
+    if (!priorOrderSnapshot.exists) throw new Error('The matching MiseChef order could not be found.');
+    const priorOrder = priorOrderSnapshot.data();
+    return {
+      orderNumber: priorOrder.orderNumber,
+      pickupCode: priorOrder.pickupCode,
+      provider: readString(prior.provider),
+      paymentSessionId: readString(prior.providerPaymentId),
+      checkout: prior.checkout,
+      checkoutAccessToken: readString(prior.checkoutAccessToken),
+      ...(toPublicPaymentOrderSummary(priorOrder) ? { orderSummary: toPublicPaymentOrderSummary(priorOrder) } : {}),
+      ...toPublicGroupOrderContext(priorOrder)
+    };
+  }
   const { order } = await db.runTransaction(async transaction => {
     const currentGroupOrder = await revalidateCheckoutGroupInTransaction({
       db,
@@ -467,6 +490,14 @@ export const createStorePayment = async ({
       'payment.providerPaymentId': providerPaymentId,
       'payment.updatedAt': new Date().toISOString(),
       updatedAt: new Date().toISOString()
+    });
+    await checkoutAttemptReference.update({
+      provider: activeAdapter.provider,
+      providerPaymentId,
+      checkout: payment.checkout,
+      // This is an opaque browser capability in a server-only collection. It
+      // allows the original idempotency key to resume after response loss.
+      checkoutAccessToken
     });
     const orderSummary = toPublicPaymentOrderSummary(order);
     return {
