@@ -8,7 +8,13 @@ test('the first valid payment tap synchronously locks the CTA before provider cr
   assert.match(page, /const paymentStartRef = useRef\(false\)/);
   assert.match(page, /if \(!data \|\| isPlacingOrder \|\| paymentStartRef\.current\) return;/);
   assert.match(page, /paymentStartRef\.current = true;[\s\S]*setIsPlacingOrder\(true\);[\s\S]*storePaymentService\.createPayment/);
-  assert.match(page, /finally \{\s*paymentStartRef\.current = false;\s*setIsPlacingOrder\(false\);/);
+  assert.match(page, /if \(!navigatingToProvider\) \{\s*paymentStartRef\.current = false;\s*setIsPlacingOrder\(false\);/);
+});
+
+test('a successful Payment Link navigation keeps the processing CTA locked until leaving MiseChef', () => {
+  assert.match(page, /let navigatingToProvider = false;/);
+  assert.match(page, /window\.location\.assign\(session\.checkout\.redirectUrl\);[\s\S]*navigatingToProvider = true;/);
+  assert.match(page, /only a thrown navigation[\s\S]*should restore the retry state/);
 });
 
 test('the checkout CTA immediately shows a spinner and processing state while disabled', () => {

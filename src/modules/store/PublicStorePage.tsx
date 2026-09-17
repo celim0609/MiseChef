@@ -793,6 +793,7 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
     paymentStartRef.current = true;
     setCheckoutError('');
     setIsPlacingOrder(true);
+    let navigatingToProvider = false;
     try {
       let quoteForPayment = deliveryQuote;
       let refreshedForPayment = false;
@@ -871,6 +872,10 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
         }
       } else if (session.checkout.type === 'provider_redirect' || session.checkout.type === 'curlec_payment_link') {
         window.location.assign(session.checkout.redirectUrl);
+        // location.assign schedules navigation asynchronously. Keep the CTA
+        // locked until the browser leaves this page; only a thrown navigation
+        // attempt should restore the retry state below.
+        navigatingToProvider = true;
       } else {
         // The online provider's secure element must confirm the payment after the
         // server creates its session. This is the only required continuation step.
@@ -879,8 +884,10 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : 'Unable to start secure payment. Please try again.');
     } finally {
-      paymentStartRef.current = false;
-      setIsPlacingOrder(false);
+      if (!navigatingToProvider) {
+        paymentStartRef.current = false;
+        setIsPlacingOrder(false);
+      }
     }
   };
 
