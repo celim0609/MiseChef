@@ -87,6 +87,18 @@ export const assertProductionEnvironment = environment => {
   }
 };
 
+// The browser build and Functions parameter are a single release switch. Missing
+// values remain default-deny; a mixed release is never permitted.
+export const assertProductionCurlecPaymentLinkRolloutAlignment = environment => {
+  const normalize = value => String(value || 'false').trim().toLowerCase();
+  const frontend = normalize(environment.VITE_CURLEC_PAYMENT_LINK_ROLLOUT_ENABLED);
+  const functions = normalize(environment.CURLEC_PAYMENT_LINK_ROLLOUT_ENABLED);
+  if (!['true', 'false'].includes(frontend) || !['true', 'false'].includes(functions) || frontend !== functions) {
+    throw new Error('Production Curlec Payment Link frontend and Functions rollout gates must be identical true/false values.');
+  }
+  return frontend === 'true';
+};
+
 export const assertCleanCandidate = (dirtyPaths, allowed = []) => {
   const allowedSet = new Set(allowed);
   const unsafe = dirtyPaths.filter(filePath => !allowedSet.has(filePath));

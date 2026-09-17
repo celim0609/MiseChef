@@ -23,6 +23,7 @@ import {
   assertLiveUnchanged,
   assertPostDeploy,
   assertProductionAuthority,
+  assertProductionCurlecPaymentLinkRolloutAlignment,
   assertProductionEnvironment,
   assertProductionFirebaseConfig,
   assertSession,
@@ -94,6 +95,16 @@ test('Production environment rejects Beta, test Stripe, and non-canonical contex
   assert.throws(() => assertProductionEnvironment({ ...environment, VITE_FIREBASE_PROJECT_ID: 'misechef-beta-fa4bf' }), /VITE_FIREBASE_PROJECT_ID/);
   assert.throws(() => assertProductionEnvironment({ ...environment, VITE_STRIPE_PUBLISHABLE_KEY: 'pk_test_example' }), /Stripe live/);
   assert.throws(() => assertProductionEnvironment({ ...environment, PUBLIC_SITE_ORIGIN: 'https://example.com' }), /PUBLIC_SITE_ORIGIN/);
+});
+
+test('Production Curlec Payment Link rollout is default-deny and cannot split client from Functions', () => {
+  assert.equal(assertProductionCurlecPaymentLinkRolloutAlignment({}), false);
+  assert.equal(assertProductionCurlecPaymentLinkRolloutAlignment({
+    VITE_CURLEC_PAYMENT_LINK_ROLLOUT_ENABLED: 'true', CURLEC_PAYMENT_LINK_ROLLOUT_ENABLED: 'true'
+  }), true);
+  assert.throws(() => assertProductionCurlecPaymentLinkRolloutAlignment({
+    VITE_CURLEC_PAYMENT_LINK_ROLLOUT_ENABLED: 'true', CURLEC_PAYMENT_LINK_ROLLOUT_ENABLED: 'false'
+  }), /must be identical/);
 });
 
 test('Production Firebase config names one exact site and bucket without changing candidate config', () => {

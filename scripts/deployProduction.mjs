@@ -22,6 +22,7 @@ import {
   assertLiveUnchanged,
   assertPostDeploy,
   assertProductionAuthority,
+  assertProductionCurlecPaymentLinkRolloutAlignment,
   assertProductionEnvironment,
   assertProductionFirebaseConfig,
   buildProductionFirebaseConfig,
@@ -51,6 +52,7 @@ const isAncestor = (ancestor, descendant) => spawnSync(
 ).status === 0;
 
 assertProductionEnvironment(process.env);
+assertProductionCurlecPaymentLinkRolloutAlignment(process.env);
 const head = git(['rev-parse', 'HEAD']);
 const sourceTree = git(['rev-parse', 'HEAD^{tree}']);
 const expectedSha = process.env.MISECHEF_PRODUCTION_EXPECTED_SHA || '';
@@ -130,12 +132,13 @@ try {
   const productionConfig = buildProductionFirebaseConfig({ candidateConfig, predeployCommand });
   assertProductionFirebaseConfig(productionConfig);
   writeFileSync(productionConfigPath, `${JSON.stringify(productionConfig, null, 2)}\n`, { mode: 0o600 });
-  for (const name of ['SELLING_WORKSPACE_ID', 'PUBLIC_SITE_ORIGIN']) {
+  for (const name of ['SELLING_WORKSPACE_ID', 'PUBLIC_SITE_ORIGIN', 'CURLEC_PAYMENT_LINK_ROLLOUT_ENABLED']) {
     if (/[\r\n]/.test(process.env[name] || '')) throw new Error(`${name} contains an invalid newline.`);
   }
   writeFileSync(productionFunctionsEnvPath, [
     `SELLING_WORKSPACE_ID=${process.env.SELLING_WORKSPACE_ID}`,
     `PUBLIC_SITE_ORIGIN=${process.env.PUBLIC_SITE_ORIGIN}`,
+    `CURLEC_PAYMENT_LINK_ROLLOUT_ENABLED=${process.env.CURLEC_PAYMENT_LINK_ROLLOUT_ENABLED || 'false'}`,
     ''
   ].join('\n'), { mode: 0o600 });
   assertCleanCandidate(dirtyPaths(), ALLOWED_RELEASE_DIRTY_PATHS);
