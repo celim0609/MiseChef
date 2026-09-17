@@ -24,6 +24,7 @@ import {
   assertProductionAuthority,
   assertProductionCurlecPaymentLinkRolloutAlignment,
   assertProductionEnvironment,
+  assertProductionStripeConfiguration,
   assertProductionFirebaseConfig,
   buildProductionFirebaseConfig,
   createProductionManifest,
@@ -52,6 +53,7 @@ const isAncestor = (ancestor, descendant) => spawnSync(
 ).status === 0;
 
 assertProductionEnvironment(process.env);
+assertProductionStripeConfiguration(process.env);
 assertProductionCurlecPaymentLinkRolloutAlignment(process.env);
 const head = git(['rev-parse', 'HEAD']);
 const sourceTree = git(['rev-parse', 'HEAD^{tree}']);

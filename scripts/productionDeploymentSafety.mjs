@@ -79,12 +79,21 @@ export const assertProductionEnvironment = environment => {
   ]) {
     if (!String(environment[name] || '').trim()) throw new Error(`${name} is required.`);
   }
-  if (!/^pk_live_[A-Za-z0-9]+$/.test(environment.VITE_STRIPE_PUBLISHABLE_KEY || '')) {
-    throw new Error('Production requires a Stripe live publishable key.');
-  }
   if (environment.GITHUB_ACTIONS !== 'true' || environment.MISECHEF_PRODUCTION_CI_LOCK_ID !== 'misechef-production-deployment') {
     throw new Error('Canonical GitHub Actions Production deployment context is missing.');
   }
+};
+
+// This is a release declaration, not a browser feature flag. It prevents a
+// Curlec-only release from requiring unused Stripe credentials while making a
+// future Stripe release fail closed before deployment.
+export const assertProductionStripeConfiguration = environment => {
+  const enabled = String(environment.MISECHEF_PRODUCTION_STRIPE_ENABLED || 'false').trim().toLowerCase();
+  if (!['true', 'false'].includes(enabled)) throw new Error('MISECHEF_PRODUCTION_STRIPE_ENABLED must be true or false.');
+  if (enabled === 'true' && !/^pk_live_[A-Za-z0-9]+$/.test(environment.VITE_STRIPE_PUBLISHABLE_KEY || '')) {
+    throw new Error('Production Stripe requires a live publishable key.');
+  }
+  return enabled === 'true';
 };
 
 // The browser build and Functions parameter are a single release switch. Missing

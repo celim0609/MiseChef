@@ -25,6 +25,7 @@ import {
   assertProductionAuthority,
   assertProductionCurlecPaymentLinkRolloutAlignment,
   assertProductionEnvironment,
+  assertProductionStripeConfiguration,
   assertProductionFirebaseConfig,
   assertSession,
   buildProductionFirebaseConfig,
@@ -90,11 +91,24 @@ test('Production authority requires manual main dispatch and one exact approved 
   }), /main/);
 });
 
-test('Production environment rejects Beta, test Stripe, and non-canonical contexts', () => {
+test('Production environment rejects Beta and non-canonical contexts', () => {
   assert.doesNotThrow(() => assertProductionEnvironment(environment));
   assert.throws(() => assertProductionEnvironment({ ...environment, VITE_FIREBASE_PROJECT_ID: 'misechef-beta-fa4bf' }), /VITE_FIREBASE_PROJECT_ID/);
-  assert.throws(() => assertProductionEnvironment({ ...environment, VITE_STRIPE_PUBLISHABLE_KEY: 'pk_test_example' }), /Stripe live/);
   assert.throws(() => assertProductionEnvironment({ ...environment, PUBLIC_SITE_ORIGIN: 'https://example.com' }), /PUBLIC_SITE_ORIGIN/);
+});
+
+test('Production Stripe safety is conditional on the explicit release declaration', () => {
+  assert.doesNotThrow(() => assertProductionStripeConfiguration({ MISECHEF_PRODUCTION_STRIPE_ENABLED: 'false' }));
+  assert.doesNotThrow(() => assertProductionStripeConfiguration({
+    MISECHEF_PRODUCTION_STRIPE_ENABLED: 'false', VITE_STRIPE_PUBLISHABLE_KEY: 'pk_test_unused'
+  }));
+  assert.throws(() => assertProductionStripeConfiguration({ MISECHEF_PRODUCTION_STRIPE_ENABLED: 'true' }), /live publishable key/);
+  assert.throws(() => assertProductionStripeConfiguration({
+    MISECHEF_PRODUCTION_STRIPE_ENABLED: 'true', VITE_STRIPE_PUBLISHABLE_KEY: 'pk_test_example'
+  }), /live publishable key/);
+  assert.doesNotThrow(() => assertProductionStripeConfiguration({
+    MISECHEF_PRODUCTION_STRIPE_ENABLED: 'true', VITE_STRIPE_PUBLISHABLE_KEY: 'pk_live_example'
+  }));
 });
 
 test('Production Curlec Payment Link rollout is default-deny and cannot split client from Functions', () => {
