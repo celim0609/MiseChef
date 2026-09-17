@@ -26,6 +26,8 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
   return {
     provider: 'curlec', mode: CURLEC_PAYMENT_LINK_MODE, requiresSellingWorkspace: true,
     async createPayment({ order, returnUrl, checkoutAccessToken }) {
+      const customerEmail = readString(order.customerEmail);
+      if (!customerEmail) throw new Error('A valid customer email is required for a Curlec Payment Link.');
       let response;
       try {
         response = await fetchImpl(API_URL, {
@@ -37,7 +39,7 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
             reference_id: paymentLinkReferenceId(order), description: `Order ${order.orderNumber}`,
             customer: {
               name: readString(order.customerName), contact: normalizeCurlecContact(order.phone),
-              ...(readString(order.customerEmail) ? { email: readString(order.customerEmail) } : {})
+              email: customerEmail
             },
             notify: { sms: false, email: false }, reminder_enable: false,
             callback_url: paymentLinkCallbackUrl({ returnUrl, checkoutAccessToken }), callback_method: 'get',

@@ -372,6 +372,7 @@ const toStorePaymentError = error => {
     'Each product quantity must be between 1 and 20.',
     'A product in your cart is no longer available.',
     'Order total must be greater than zero.',
+    'Email is required for secure payment.',
     'Choose a valid payment method.',
     'This payment method is no longer available.',
     'This QR payment method is not configured correctly.',

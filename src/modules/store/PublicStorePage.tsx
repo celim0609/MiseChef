@@ -737,7 +737,7 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
         customerName,
         phone,
         checkoutAttemptId: checkoutAttemptIdRef.current,
-        ...(currentUser && customerEmail.trim() ? { customerEmail: customerEmail.trim() } : {}),
+        ...(customerEmail.trim() ? { customerEmail: customerEmail.trim() } : {}),
         pickupDate,
         pickupSession,
         pickupLocationId,
@@ -1318,10 +1318,10 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
                       <span className="font-sans text-xs font-extrabold text-primary">Phone</span>
                       <input aria-label="Phone" required autoComplete="tel" inputMode="tel" placeholder="Your phone number" value={phone} onChange={event => setPhone(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                     </label>
-                    {currentUser && (
+                    {(currentUser || (paymentMethodId === 'curlec' && isMetaInAppBrowser())) && (
                       <label className="block">
-                        <span className="font-sans text-xs font-extrabold text-primary">Email <span className="text-outline">(optional)</span></span>
-                        <input aria-label="Email" type="email" autoComplete="email" placeholder="Your email" value={customerEmail} onChange={event => setCustomerEmail(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                        <span className="font-sans text-xs font-extrabold text-primary">Email {(paymentMethodId === 'curlec' && isMetaInAppBrowser()) ? <span className="text-error">(required for secure payment)</span> : <span className="text-outline">(optional)</span>}</span>
+                        <input aria-label="Email" type="email" required={paymentMethodId === 'curlec' && isMetaInAppBrowser()} autoComplete="email" placeholder="Your email" value={customerEmail} onChange={event => setCustomerEmail(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                       </label>
                     )}
                     <label className="block">

@@ -431,6 +431,7 @@ export const createStorePayment = async ({
       promotions: freshPromotions,
       customerUid,
       draft,
+      requireCustomerEmail: activeAdapter.mode === 'payment_link',
       now
     });
     if (draft.deliverySnapshot) {

@@ -33,6 +33,13 @@ test('Curlec Payment Link rejects a gateway amount mismatch before returning a p
   await assert.rejects(adapter.createPayment({ order, returnUrl: 'https://misechef-beta-fa4bf.web.app/store/test', checkoutAccessToken: 'opaque-token' }), /Curlec payment link amount validation failed/);
 });
 
+test('Curlec Payment Link refuses to create a payable link without the server-snapshotted customer email', async () => {
+  let called = false;
+  const adapter = createCurlecPaymentLinkAdapter('key_id', 'key_secret', { fetchImpl: async () => { called = true; } });
+  await assert.rejects(adapter.createPayment({ order: { ...order, customerEmail: '' }, returnUrl: 'https://misechef-beta-fa4bf.web.app/store/test', checkoutAccessToken: 'opaque-token' }), /valid customer email/);
+  assert.equal(called, false);
+});
+
 test('Curlec payment_link.paid maps only its persisted Payment Link ID and captured payment to the MiseChef order', () => {
   const adapter = createCurlecPaymentLinkAdapter('key_id', 'key_secret');
   const update = adapter.readWebhookUpdate({

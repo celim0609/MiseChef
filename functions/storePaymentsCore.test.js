@@ -116,7 +116,7 @@ test('checkout ignores malicious client promotion prices and persists only the s
   assert.equal(order.promotionSnapshot.lineAdjustments[0].promotionId, 'server-only');
 });
 
-test('authenticated contact email is optional, normalized, and never used as order ownership', () => {
+test('contact email is optional outside Payment Links, normalized, and never used as order ownership', () => {
   const order = buildPendingOrder({
     id: 'order-contact',
     orderNumber: 'MC-260726-CONTACT',
@@ -143,6 +143,23 @@ test('authenticated contact email is optional, normalized, and never used as ord
     draft: { ...draft, customerEmail: 'not-an-email' },
     now: new Date('2026-07-26T04:00:00.000Z')
   }), /Enter a valid email address/);
+
+  assert.throws(() => buildPendingOrder({
+    id: 'order-link-email-missing', orderNumber: 'MC-260726-LINKMAIL', store, products, optionGroups,
+    paymentProvider: 'curlec', paymentProviderMode: 'payment_link', draft,
+    requireCustomerEmail: true, now: new Date('2026-07-26T04:00:00.000Z')
+  }), /Email is required for secure payment/);
+  assert.throws(() => buildPendingOrder({
+    id: 'order-link-email-invalid', orderNumber: 'MC-260726-LINKBAD', store, products, optionGroups,
+    paymentProvider: 'curlec', paymentProviderMode: 'payment_link', draft: { ...draft, customerEmail: 'not-an-email' },
+    requireCustomerEmail: true, now: new Date('2026-07-26T04:00:00.000Z')
+  }), /Enter a valid email address/);
+  const paymentLinkOrder = buildPendingOrder({
+    id: 'order-link-email-valid', orderNumber: 'MC-260726-LINKOK', store, products, optionGroups,
+    paymentProvider: 'curlec', paymentProviderMode: 'payment_link', draft: { ...draft, customerEmail: ' Customer@Example.Test ' },
+    requireCustomerEmail: true, now: new Date('2026-07-26T04:00:00.000Z')
+  });
+  assert.equal(paymentLinkOrder.customerEmail, 'customer@example.test');
 });
 
 test('server pricing adds available option adjustments and preserves them in the order snapshot', () => {

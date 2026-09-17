@@ -168,7 +168,7 @@ export const getValidPickupDates = (store, currentDate = new Date()) => {
   return dates;
 };
 
-const validateDraft = (store, draft, currentDate) => {
+const validateDraft = (store, draft, currentDate, { requireCustomerEmail = false } = {}) => {
   const isDelivery = readString(draft.fulfilmentMethod) === 'delivery';
   if (!isDelivery && store.pickupEnabled !== true) throw new Error('Pickup ordering is not available.');
   if (!readString(draft.customerName)) throw new Error('Name is required.');
@@ -176,6 +176,7 @@ const validateDraft = (store, draft, currentDate) => {
   const phone = readString(draft.phone);
   if (phone.replace(/\D/g, '').length < 6 || phone.length > 40) throw new Error('Enter a valid phone number.');
   const customerEmail = readString(draft.customerEmail).toLowerCase();
+  if (requireCustomerEmail && !customerEmail) throw new Error('Email is required for secure payment.');
   if (customerEmail && (customerEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail))) {
     throw new Error('Enter a valid email address.');
   }
@@ -359,9 +360,10 @@ export const buildPendingOrder = ({
   groupOrder = null,
   customerUid = '',
   draft,
+  requireCustomerEmail = false,
   now = new Date()
 }) => {
-  validateDraft(store, draft, now);
+  validateDraft(store, draft, now, { requireCustomerEmail });
   const region = REGIONS[readString(store.country)];
   if (!region || readString(store.currency) !== region.currency) {
     throw new Error('This Store currency is not supported.');
