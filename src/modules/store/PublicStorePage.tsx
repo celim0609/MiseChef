@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { formatRegionCurrency, getRegionConfiguration } from '../../regions';
 import StorePaymentCheckout from './StorePaymentCheckout';
+import { isCurlecPaymentLinkRolloutEnabled, shouldUseCurlecPaymentLink } from './paymentProviders/curlecPaymentLinkRollout';
 import { customerContactService, storePaymentService, storeService } from './services';
 import { publicPromotionService, type PublicPromotion } from './services/publicPromotionService';
 import { getPromotionOfferLabel, getPromotionSavingsEstimate } from './promotionCheckoutPreview';
@@ -185,6 +186,11 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
   const [isHostInfoOpen, setIsHostInfoOpen] = useState(false);
   const [isAccountSuggestionDismissed, setIsAccountSuggestionDismissed] = useState(false);
   const paymentStageKey = paymentSession?.paymentSessionId || '';
+  const usesCurlecPaymentLink = shouldUseCurlecPaymentLink({
+    paymentMethodId,
+    isMetaInAppBrowser: isMetaInAppBrowser(),
+    rolloutEnabled: isCurlecPaymentLinkRolloutEnabled()
+  });
   const confirmationKey = placedOrder ? `${placedOrder.orderNumber}:${placedOrder.paymentStatus}` : '';
   const checkoutRecoveryKey = `${CHECKOUT_RECOVERY_KEY_PREFIX}${window.location.pathname}`;
   const storeDraftKey = `${STORE_DRAFT_KEY_PREFIX}${slug}`;
@@ -733,7 +739,7 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
           session = await storePaymentService.createPayment(slug, {
         fulfilmentMethod,
         paymentMethodId,
-        ...(paymentMethodId === 'curlec' && isMetaInAppBrowser() ? { curlecPaymentLink: true } : {}),
+        ...(usesCurlecPaymentLink ? { curlecPaymentLink: true } : {}),
         customerName,
         phone,
         checkoutAttemptId: checkoutAttemptIdRef.current,
@@ -1318,10 +1324,10 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
                       <span className="font-sans text-xs font-extrabold text-primary">Phone</span>
                       <input aria-label="Phone" required autoComplete="tel" inputMode="tel" placeholder="Your phone number" value={phone} onChange={event => setPhone(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                     </label>
-                    {(currentUser || (paymentMethodId === 'curlec' && isMetaInAppBrowser())) && (
+                    {(currentUser || usesCurlecPaymentLink) && (
                       <label className="block">
-                        <span className="font-sans text-xs font-extrabold text-primary">Email {(paymentMethodId === 'curlec' && isMetaInAppBrowser()) ? <span className="text-error">(required for secure payment)</span> : <span className="text-outline">(optional)</span>}</span>
-                        <input aria-label="Email" type="email" required={paymentMethodId === 'curlec' && isMetaInAppBrowser()} autoComplete="email" placeholder="Your email" value={customerEmail} onChange={event => setCustomerEmail(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                        <span className="font-sans text-xs font-extrabold text-primary">Email {usesCurlecPaymentLink ? <span className="text-error">(required for secure payment)</span> : <span className="text-outline">(optional)</span>}</span>
+                        <input aria-label="Email" type="email" required={usesCurlecPaymentLink} autoComplete="email" placeholder="Your email" value={customerEmail} onChange={event => setCustomerEmail(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                       </label>
                     )}
                     <label className="block">

@@ -34,6 +34,7 @@ import { startBusinessTrial } from './businessTrial.js';
 import {
   createPaymentAdapter
 } from './paymentProviders/index.js';
+import { isCurlecPaymentLinkRolloutEnabled } from './paymentProviders/curlecPaymentLinkRollout.js';
 import { CurlecOrderCreationError } from './paymentProviders/curlecStandardCheckout.js';
 import {
   cancelStorePayment,
@@ -99,9 +100,8 @@ const lalamoveApiSecret = defineSecret('LALAMOVE_API_SECRET');
 const curlecKeyId = defineSecret('CURLEC_KEY_ID');
 const curlecKeySecret = defineSecret('CURLEC_KEY_SECRET');
 const curlecWebhookSecret = defineSecret('CURLEC_WEBHOOK_SECRET');
-// This POC is physically gated to the Firebase Beta project. A client hint
-// cannot enable Payment Links in Production.
-const CURLEC_PAYMENT_LINK_BETA_PROJECT = 'misechef-beta-fa4bf';
+// Payment Links are default-deny. Each Firebase environment must opt in.
+const curlecPaymentLinkRolloutEnabled = defineString('CURLEC_PAYMENT_LINK_ROLLOUT_ENABLED', { default: 'false' });
 const sellingWorkspaceId = defineString('SELLING_WORKSPACE_ID', { default: '' });
 const publicSiteOrigin = defineString('PUBLIC_SITE_ORIGIN', { default: '' });
 const MODEL = 'gemini-2.5-flash';
@@ -401,7 +401,7 @@ export const createPublicStorePayment = onCall({
         method: paymentMethod,
         curlecPaymentLink: paymentMethod.provider === 'curlec'
           && request.data?.order?.curlecPaymentLink === true
-          && (process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT) === CURLEC_PAYMENT_LINK_BETA_PROJECT
+          && isCurlecPaymentLinkRolloutEnabled(curlecPaymentLinkRolloutEnabled.value())
       }),
       sellingWorkspaceId: sellingWorkspaceId.value(),
       ...(request.data?.order?.fulfilmentMethod === 'delivery' ? {
