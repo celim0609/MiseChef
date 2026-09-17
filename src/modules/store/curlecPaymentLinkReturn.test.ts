@@ -12,7 +12,7 @@ test('a recognized Curlec Payment Link return opens the checkout confirmation co
 });
 
 test('a pending Payment Link return visibly reconciles until the signed webhook result is paid', () => {
-  assert.match(page, /Confirming your payment\.\.\./);
+  assert.match(page, /Checking payment status…/);
   assert.match(page, /CURLEC_RETURN_POLL_INTERVAL_MS = 2_000/);
   assert.match(page, /CURLEC_RETURN_MAX_POLLS = 30/);
   assert.match(page, /await storePaymentService\.getResult\([\s\S]*returnedPaymentSessionId/);

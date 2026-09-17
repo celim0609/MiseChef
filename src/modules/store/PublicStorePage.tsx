@@ -8,6 +8,7 @@ import {
   Compass,
   CreditCard,
   Landmark,
+  Loader2,
   MapPin,
   MessageCircle,
   Minus,
@@ -208,6 +209,7 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
   const deliveryPlacesSessionRef = useRef(crypto.randomUUID());
   const deliveryQuoteRequestRef = useRef(0);
   const checkoutAttemptIdRef = useRef(crypto.randomUUID());
+  const paymentStartRef = useRef(false);
 
   const deliveryAddressForQuote = deliveryAddress;
   const requestedProduct = useMemo(() => (
@@ -784,7 +786,11 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
 
   const startPayment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!data || isPlacingOrder) return;
+    if (!data || isPlacingOrder || paymentStartRef.current) return;
+    // This synchronous guard closes the interval before React can render the
+    // disabled button, while the server-side checkout attempt remains the
+    // authoritative idempotency boundary.
+    paymentStartRef.current = true;
     setCheckoutError('');
     setIsPlacingOrder(true);
     try {
@@ -873,6 +879,7 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : 'Unable to start secure payment. Please try again.');
     } finally {
+      paymentStartRef.current = false;
       setIsPlacingOrder(false);
     }
   };
@@ -1223,7 +1230,7 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
             <section aria-live="polite" aria-labelledby="payment-return-confirming-heading" className="mt-5 rounded-2xl bg-primary/5 p-4 text-primary">
               <Clock3 className="h-6 w-6" />
               <h3 id="payment-return-confirming-heading" className="mt-2 font-display text-xl font-bold">
-                {paymentReturnReconciliation.timedOut ? 'Payment confirmation is taking longer.' : 'Confirming your payment...'}
+                {paymentReturnReconciliation.timedOut ? 'Payment confirmation is taking longer.' : 'Checking payment status…'}
               </h3>
               <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">
                 {paymentReturnReconciliation.timedOut
@@ -1521,8 +1528,8 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
                 {checkoutError && <p role="alert" className="order-7 rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
               </form>
               <div className="sticky bottom-3 z-30 -mx-2 rounded-2xl bg-white/95 p-2 shadow-xl shadow-primary/10 backdrop-blur lg:bottom-4 lg:mx-0 lg:shadow-lg">
-                <button form="store-checkout-form" type="submit" disabled={isPlacingOrder || !deliveryQuoteReady} className="min-h-12 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary shadow-lg shadow-primary/20 disabled:opacity-50">
-                  {isPlacingOrder ? 'Placing Order…' : fulfilmentMethod === 'delivery' && isRefreshingDeliveryQuote ? 'Checking delivery fee…' : fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Calculating delivery fee…' : fulfilmentMethod === 'delivery' && deliveryPriceConfirmation ? `Confirm updated total · ${formatRegionCurrency(checkoutTotal, store.currency)}` : `${getPaymentActionLabel(paymentMethodId)} · ${formatRegionCurrency(checkoutTotal, store.currency)}`}
+                <button form="store-checkout-form" type="submit" disabled={isPlacingOrder || !deliveryQuoteReady} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary shadow-lg shadow-primary/20 disabled:opacity-50">
+                  {isPlacingOrder ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Processing payment…</> : fulfilmentMethod === 'delivery' && isRefreshingDeliveryQuote ? 'Checking delivery fee…' : fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Calculating delivery fee…' : fulfilmentMethod === 'delivery' && deliveryPriceConfirmation ? `Confirm updated total · ${formatRegionCurrency(checkoutTotal, store.currency)}` : `${getPaymentActionLabel(paymentMethodId)} · ${formatRegionCurrency(checkoutTotal, store.currency)}`}
                 </button>
               </div>
             </>
