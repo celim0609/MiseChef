@@ -50,7 +50,7 @@ export const assertProductionAuthority = ({
     ['Production protected baseline', protectedBaseline],
     ['Resolved candidate SHA', resolvedSha]
   ]) assertExactSha(value, label);
-  if (githubEvent !== 'workflow_dispatch') throw new Error('Production releases must be manually dispatched.');
+  if (!['workflow_dispatch', 'workflow_run'].includes(githubEvent)) throw new Error('Production releases must come from manual dispatch or a successful protected Beta promotion.');
   if (githubRef !== 'refs/heads/main') throw new Error('Production release controller must run from main.');
   if (expectedSha !== approvedSha || expectedSha !== resolvedSha) {
     throw new Error('Production candidate does not match the exact Environment-approved SHA.');
