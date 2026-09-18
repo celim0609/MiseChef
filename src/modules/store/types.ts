@@ -563,6 +563,8 @@ export interface CustomerStoreOrderSummary {
 export interface StoreOrderDraft {
   /** Opaque client-generated idempotency key for one checkout submission. */
   checkoutAttemptId?: string;
+  /** Meta in-app-browser hint; the server permits this POC only on Beta. */
+  curlecPaymentLink?: boolean;
   fulfilmentMethod?: 'pickup' | 'delivery';
   paymentMethodId?: StorePaymentMethodId;
   customerName: string;
@@ -593,6 +595,10 @@ export type StorePaymentCheckout =
   }
   | {
     type: 'provider_redirect';
+    redirectUrl: string;
+  }
+  | {
+    type: 'curlec_payment_link';
     redirectUrl: string;
   }
   | {
@@ -659,5 +665,7 @@ export interface PublicStoreOrderResult {
   total: number;
   status: StoreOrder['status'];
   paymentStatus: StoreOrder['payment']['status'];
+  /** A server-built snapshot, returned only after checkout-token authorization. */
+  orderSummary?: StorePaymentOrderSummary;
   groupOrder?: PublicOrderGroupContext;
 }
