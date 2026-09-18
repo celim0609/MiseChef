@@ -8,6 +8,7 @@ import {
   Compass,
   CreditCard,
   Landmark,
+  Loader2,
   MapPin,
   MessageCircle,
   Minus,
@@ -21,6 +22,8 @@ import {
 } from 'lucide-react';
 import { formatRegionCurrency, getRegionConfiguration } from '../../regions';
 import StorePaymentCheckout from './StorePaymentCheckout';
+import PaymentOrderSummary from './PaymentOrderSummary';
+import { isCurlecPaymentLinkRolloutEnabled, shouldUseCurlecPaymentLink } from './paymentProviders/curlecPaymentLinkRollout';
 import { customerContactService, storePaymentService, storeService } from './services';
 import { publicPromotionService, type PublicPromotion } from './services/publicPromotionService';
 import { getPromotionOfferLabel, getPromotionSavingsEstimate } from './promotionCheckoutPreview';
@@ -59,6 +62,10 @@ import type {
   StoreSet
 } from './types';
 
+// Payment Links are used only when Meta's embedded browser is the actual
+// checkout surface. Safari/Chrome keep the existing Curlec Standard Checkout.
+const isMetaInAppBrowser = () => /Instagram|FBAN|FBAV|FBIOS|FB_IAB/i.test(navigator.userAgent || '');
+
 interface CartLine extends CartSelection {
   key: string;
 }
@@ -71,9 +78,18 @@ type CheckoutRecovery = {
   session?: StorePaymentSession;
 };
 
+type PaymentReturnReconciliation = {
+  provider: StorePaymentProviderId;
+  paymentSessionId: string;
+  checkoutAccessToken: string;
+  timedOut: boolean;
+};
+
 const CHECKOUT_RECOVERY_KEY_PREFIX = 'misechef_checkout_recovery_v1:';
 const GROUP_DRAFT_KEY_PREFIX = 'misechef_group_checkout_draft_v1:';
 const STORE_DRAFT_KEY_PREFIX = 'misechef_store_checkout_draft_v1:';
+const CURLEC_RETURN_POLL_INTERVAL_MS = 2_000;
+const CURLEC_RETURN_MAX_POLLS = 30;
 
 const readCheckoutRecovery = (key: string, slug: string): CheckoutRecovery | null => {
   try {
@@ -174,6 +190,7 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [paymentSession, setPaymentSession] = useState<StorePaymentSession | null>(null);
   const [placedOrder, setPlacedOrder] = useState<PublicStoreOrderResult | null>(null);
+  const [paymentReturnReconciliation, setPaymentReturnReconciliation] = useState<PaymentReturnReconciliation | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isCatalogueCartVisible, setIsCatalogueCartVisible] = useState(true);
   const [activeCatalogueSection, setActiveCatalogueSection] = useState<'all' | 'main' | 'sets' | 'drinks' | 'promotions'>('all');
@@ -181,12 +198,18 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
   const [isHostInfoOpen, setIsHostInfoOpen] = useState(false);
   const [isAccountSuggestionDismissed, setIsAccountSuggestionDismissed] = useState(false);
   const paymentStageKey = paymentSession?.paymentSessionId || '';
+  const usesCurlecPaymentLink = shouldUseCurlecPaymentLink({
+    paymentMethodId,
+    isMetaInAppBrowser: isMetaInAppBrowser(),
+    rolloutEnabled: isCurlecPaymentLinkRolloutEnabled()
+  });
   const confirmationKey = placedOrder ? `${placedOrder.orderNumber}:${placedOrder.paymentStatus}` : '';
   const checkoutRecoveryKey = `${CHECKOUT_RECOVERY_KEY_PREFIX}${window.location.pathname}`;
   const storeDraftKey = `${STORE_DRAFT_KEY_PREFIX}${slug}`;
   const deliveryPlacesSessionRef = useRef(crypto.randomUUID());
   const deliveryQuoteRequestRef = useRef(0);
   const checkoutAttemptIdRef = useRef(crypto.randomUUID());
+  const paymentStartRef = useRef(false);
 
   const deliveryAddressForQuote = deliveryAddress;
   const requestedProduct = useMemo(() => (
@@ -212,6 +235,22 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
     });
     return () => window.cancelAnimationFrame(frame);
   }, [confirmationKey]);
+
+  useEffect(() => {
+    const restorePaymentCtaAfterProviderBack = (event: PageTransitionEvent) => {
+      // Safari can restore this Store page from its back/forward cache after
+      // location.assign() has left for Curlec. React state is restored too, so
+      // the outbound redirect lock would otherwise remain set indefinitely.
+      // A normal reload starts with an unlocked CTA, and a recognized provider
+      // return owns paymentReturnReconciliation, so only clear a persisted
+      // page when no authoritative payment reconciliation is in progress.
+      if (!event.persisted || paymentReturnReconciliation) return;
+      paymentStartRef.current = false;
+      setIsPlacingOrder(false);
+    };
+    window.addEventListener('pageshow', restorePaymentCtaAfterProviderBack);
+    return () => window.removeEventListener('pageshow', restorePaymentCtaAfterProviderBack);
+  }, [paymentReturnReconciliation]);
 
   useEffect(() => {
     if (deliveryAddressQuery.trim().length < 3 || (deliveryAddress && deliveryAddressQuery === deliveryAddress)) {
@@ -437,7 +476,7 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
 
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
-    if (query.has('payment_session_id') || query.has('payment_intent')) return;
+    if (query.has('payment_session_id') || query.has('payment_intent') || query.has('razorpay_payment_link_id')) return;
     const recovery = readCheckoutRecovery(checkoutRecoveryKey, slug);
     if (!recovery) return;
     let cancelled = false;
@@ -463,11 +502,13 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
     const returnedProvider = query.get('payment_provider')
-      || (query.has('payment_intent') ? 'stripe' : '');
+      || (query.has('payment_intent') ? 'stripe' : query.has('razorpay_payment_link_id') ? 'curlec' : '');
     const returnedPaymentSessionId = query.get('payment_session_id')
-      || query.get('payment_intent');
+      || query.get('payment_intent')
+      || query.get('razorpay_payment_link_id');
     const returnedCheckoutAccessToken = query.get('payment_access_token');
     if (!returnedProvider || !returnedPaymentSessionId || !returnedCheckoutAccessToken) return;
+    const isCurlecPaymentLinkReturn = returnedProvider === 'curlec' && query.has('razorpay_payment_link_id');
     const wasCancelled = query.get('payment_cancelled') === '1';
     sessionStorage.setItem(checkoutRecoveryKey, JSON.stringify({
       slug,
@@ -475,6 +516,61 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
       paymentSessionId: returnedPaymentSessionId,
       checkoutAccessToken: returnedCheckoutAccessToken
     } satisfies CheckoutRecovery));
+    if (isCurlecPaymentLinkReturn) {
+      // A Payment Link opens a full-page provider flow, so its return is a fresh
+      // Store page. Re-open the existing checkout context before reading state.
+      // The payment session is intentionally not restored: it must never offer
+      // another payment CTA while the signed webhook result is being reconciled.
+      setIsCheckoutOpen(true);
+      setPaymentSession(null);
+      setCheckoutError('');
+      setPaymentReturnReconciliation({
+        provider: returnedProvider,
+        paymentSessionId: returnedPaymentSessionId,
+        checkoutAccessToken: returnedCheckoutAccessToken,
+        timedOut: false
+      });
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.search = '';
+      window.history.replaceState({}, '', `${cleanUrl.pathname}${cleanUrl.hash}`);
+
+      let cancelled = false;
+      const reconcileReturn = async () => {
+        for (let poll = 0; poll < CURLEC_RETURN_MAX_POLLS; poll += 1) {
+          const result = await storePaymentService.getResult(
+            slug,
+            returnedProvider,
+            returnedPaymentSessionId,
+            returnedCheckoutAccessToken
+          );
+          if (cancelled) return;
+          if (['paid', 'pending_verification'].includes(result.paymentStatus)) {
+            setPlacedOrder(result);
+            setPaymentReturnReconciliation(null);
+            setCart([]);
+            setNotes('');
+            sessionStorage.removeItem(storeDraftKey);
+            return;
+          }
+          if (!['pending', 'processing'].includes(result.paymentStatus)) {
+            throw new Error('Payment was not completed. Please choose a payment method and try again.');
+          }
+          if (poll + 1 < CURLEC_RETURN_MAX_POLLS) {
+            await new Promise<void>(resolve => window.setTimeout(resolve, CURLEC_RETURN_POLL_INTERVAL_MS));
+          }
+        }
+        if (!cancelled) {
+          setPaymentReturnReconciliation(current => current ? { ...current, timedOut: true } : current);
+          setCheckoutError('Your payment is still processing. Please check again in a moment.');
+        }
+      };
+      void reconcileReturn().catch(error => {
+        if (cancelled) return;
+        setPaymentReturnReconciliation(current => current ? { ...current, timedOut: true } : current);
+        setCheckoutError(error instanceof Error ? error.message : 'We could not verify this payment yet.');
+      });
+      return () => { cancelled = true; };
+    }
     setIsPlacingOrder(true);
     const cancelReturnedPayment = returnedProvider === 'curlec'
       ? Promise.resolve()
@@ -706,9 +802,14 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
 
   const startPayment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!data || isPlacingOrder) return;
+    if (!data || isPlacingOrder || paymentStartRef.current) return;
+    // This synchronous guard closes the interval before React can render the
+    // disabled button, while the server-side checkout attempt remains the
+    // authoritative idempotency boundary.
+    paymentStartRef.current = true;
     setCheckoutError('');
     setIsPlacingOrder(true);
+    let navigatingToProvider = false;
     try {
       let quoteForPayment = deliveryQuote;
       let refreshedForPayment = false;
@@ -728,10 +829,11 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
           session = await storePaymentService.createPayment(slug, {
         fulfilmentMethod,
         paymentMethodId,
+        ...(usesCurlecPaymentLink ? { curlecPaymentLink: true } : {}),
         customerName,
         phone,
         checkoutAttemptId: checkoutAttemptIdRef.current,
-        ...(currentUser && customerEmail.trim() ? { customerEmail: customerEmail.trim() } : {}),
+        ...(customerEmail.trim() ? { customerEmail: customerEmail.trim() } : {}),
         pickupDate,
         pickupSession,
         pickupLocationId,
@@ -784,8 +886,12 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
           setPaymentSession(session);
           throw manualPaymentError;
         }
-      } else if (session.checkout.type === 'provider_redirect') {
+      } else if (session.checkout.type === 'provider_redirect' || session.checkout.type === 'curlec_payment_link') {
         window.location.assign(session.checkout.redirectUrl);
+        // location.assign schedules navigation asynchronously. Keep the CTA
+        // locked until the browser leaves this page; only a thrown navigation
+        // attempt should restore the retry state below.
+        navigatingToProvider = true;
       } else {
         // The online provider's secure element must confirm the payment after the
         // server creates its session. This is the only required continuation step.
@@ -794,7 +900,10 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : 'Unable to start secure payment. Please try again.');
     } finally {
-      setIsPlacingOrder(false);
+      if (!navigatingToProvider) {
+        paymentStartRef.current = false;
+        setIsPlacingOrder(false);
+      }
     }
   };
 
@@ -1140,11 +1249,26 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
             </p>
           )}
 
+          {paymentReturnReconciliation && !placedOrder && (
+            <section aria-live="polite" aria-labelledby="payment-return-confirming-heading" className="mt-5 rounded-2xl bg-primary/5 p-4 text-primary">
+              <Clock3 className="h-6 w-6" />
+              <h3 id="payment-return-confirming-heading" className="mt-2 font-display text-xl font-bold">
+                {paymentReturnReconciliation.timedOut ? 'Payment confirmation is taking longer.' : 'Checking payment status…'}
+              </h3>
+              <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">
+                {paymentReturnReconciliation.timedOut
+                  ? 'Please do not pay again. We are still waiting for secure payment confirmation.'
+                  : 'Please do not pay again. We are securely checking the payment you just made.'}
+              </p>
+              {checkoutError && <p role="alert" className="mt-3 rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
+            </section>
+          )}
+
           {placedOrder && (
             <section ref={confirmationRef} aria-labelledby="order-confirmation-heading" className="mt-5 scroll-mt-24 rounded-2xl bg-green-50 p-4 text-green-800">
               <CheckCircle2 className="h-6 w-6" />
               <h3 id="order-confirmation-heading" className="mt-2 font-display text-xl font-bold">
-                {confirmationCopy?.heading}
+                {placedOrder.paymentStatus === 'paid' ? 'Payment Successful' : confirmationCopy?.heading}
               </h3>
               <p className="mt-1 font-sans text-sm font-bold">{confirmationCopy?.message}</p>
               {placedOrder.paymentStatus === 'pending_verification' && (
@@ -1166,8 +1290,10 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Location</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupLocationName}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Time</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupSession}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Order Status</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{confirmationCopy?.statusLabel}</dd></div>
+                {placedOrder.paymentStatus === 'paid' && <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Amount Paid</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{formatRegionCurrency(placedOrder.total, placedOrder.currency)}</dd></div>}
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Payment Method</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.paymentMethodName}</dd></div>
               </dl>
+              {placedOrder.orderSummary && <div className="mt-4"><PaymentOrderSummary summary={placedOrder.orderSummary} /></div>}
               <div className="mt-4 flex flex-col gap-2">
                 {currentUser ? (
                   <>
@@ -1182,7 +1308,7 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
                     <a href={groupLoginReturnTo} className="mt-3 inline-flex items-center justify-center rounded-full bg-green-800 px-4 py-2.5 font-sans text-xs font-extrabold text-white">Sign In / Create Account</a>
                   </div>
                 ) : null}
-                <a href="/" className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 font-sans text-xs font-extrabold text-green-800">Explore MiseChef <ArrowRight className="h-3.5 w-3.5" /></a>
+                <a href={`/store/${encodeURIComponent(store.slug)}`} className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2.5 font-sans text-xs font-extrabold text-green-800">Back to Store <ArrowRight className="h-3.5 w-3.5" /></a>
               </div>
             </section>
           )}
@@ -1312,10 +1438,10 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
                       <span className="font-sans text-xs font-extrabold text-primary">Phone</span>
                       <input aria-label="Phone" required autoComplete="tel" inputMode="tel" placeholder="Your phone number" value={phone} onChange={event => setPhone(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                     </label>
-                    {currentUser && (
+                    {(currentUser || usesCurlecPaymentLink) && (
                       <label className="block">
-                        <span className="font-sans text-xs font-extrabold text-primary">Email <span className="text-outline">(optional)</span></span>
-                        <input aria-label="Email" type="email" autoComplete="email" placeholder="Your email" value={customerEmail} onChange={event => setCustomerEmail(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                        <span className="font-sans text-xs font-extrabold text-primary">Email {usesCurlecPaymentLink ? <span className="text-error">(required for secure payment)</span> : <span className="text-outline">(optional)</span>}</span>
+                        <input aria-label="Email" type="email" required={usesCurlecPaymentLink} autoComplete="email" placeholder="Your email" value={customerEmail} onChange={event => setCustomerEmail(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                       </label>
                     )}
                     <label className="block">
@@ -1425,8 +1551,8 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
                 {checkoutError && <p role="alert" className="order-7 rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
               </form>
               <div className="sticky bottom-3 z-30 -mx-2 rounded-2xl bg-white/95 p-2 shadow-xl shadow-primary/10 backdrop-blur lg:bottom-4 lg:mx-0 lg:shadow-lg">
-                <button form="store-checkout-form" type="submit" disabled={isPlacingOrder || !deliveryQuoteReady} className="min-h-12 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary shadow-lg shadow-primary/20 disabled:opacity-50">
-                  {isPlacingOrder ? 'Placing Order…' : fulfilmentMethod === 'delivery' && isRefreshingDeliveryQuote ? 'Checking delivery fee…' : fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Calculating delivery fee…' : fulfilmentMethod === 'delivery' && deliveryPriceConfirmation ? `Confirm updated total · ${formatRegionCurrency(checkoutTotal, store.currency)}` : `${getPaymentActionLabel(paymentMethodId)} · ${formatRegionCurrency(checkoutTotal, store.currency)}`}
+                <button form="store-checkout-form" type="submit" disabled={isPlacingOrder || !deliveryQuoteReady} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary shadow-lg shadow-primary/20 disabled:opacity-50">
+                  {isPlacingOrder ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Processing payment…</> : fulfilmentMethod === 'delivery' && isRefreshingDeliveryQuote ? 'Checking delivery fee…' : fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Calculating delivery fee…' : fulfilmentMethod === 'delivery' && deliveryPriceConfirmation ? `Confirm updated total · ${formatRegionCurrency(checkoutTotal, store.currency)}` : `${getPaymentActionLabel(paymentMethodId)} · ${formatRegionCurrency(checkoutTotal, store.currency)}`}
                 </button>
               </div>
             </>
