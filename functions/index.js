@@ -34,6 +34,7 @@ import { startBusinessTrial } from './businessTrial.js';
 import {
   createPaymentAdapter
 } from './paymentProviders/index.js';
+import { isCurlecPaymentLinkRolloutEnabled } from './paymentProviders/curlecPaymentLinkRollout.js';
 import { CurlecOrderCreationError } from './paymentProviders/curlecStandardCheckout.js';
 import {
   cancelStorePayment,
@@ -99,6 +100,8 @@ const lalamoveApiSecret = defineSecret('LALAMOVE_API_SECRET');
 const curlecKeyId = defineSecret('CURLEC_KEY_ID');
 const curlecKeySecret = defineSecret('CURLEC_KEY_SECRET');
 const curlecWebhookSecret = defineSecret('CURLEC_WEBHOOK_SECRET');
+// Payment Links are default-deny. Each Firebase environment must opt in.
+const curlecPaymentLinkRolloutEnabled = defineString('CURLEC_PAYMENT_LINK_ROLLOUT_ENABLED', { default: 'false' });
 const sellingWorkspaceId = defineString('SELLING_WORKSPACE_ID', { default: '' });
 const publicSiteOrigin = defineString('PUBLIC_SITE_ORIGIN', { default: '' });
 const MODEL = 'gemini-2.5-flash';
@@ -369,6 +372,7 @@ const toStorePaymentError = error => {
     'Each product quantity must be between 1 and 20.',
     'A product in your cart is no longer available.',
     'Order total must be greater than zero.',
+    'Email is required for secure payment.',
     'Choose a valid payment method.',
     'This payment method is no longer available.',
     'This QR payment method is not configured correctly.',
@@ -394,7 +398,10 @@ export const createPublicStorePayment = onCall({
         stripeSecretKey: stripeSecretKey.value(),
         curlecKeyId: curlecKeyId.value(),
         curlecKeySecret: curlecKeySecret.value(),
-        method: paymentMethod
+        method: paymentMethod,
+        curlecPaymentLink: paymentMethod.provider === 'curlec'
+          && request.data?.order?.curlecPaymentLink === true
+          && isCurlecPaymentLinkRolloutEnabled(curlecPaymentLinkRolloutEnabled.value())
       }),
       sellingWorkspaceId: sellingWorkspaceId.value(),
       ...(request.data?.order?.fulfilmentMethod === 'delivery' ? {
@@ -651,7 +658,8 @@ export async function curlecStorePaymentWebhookHandler(request, response) {
   try {
     const adapter = createPaymentAdapter('curlec', {
       curlecKeyId: curlecKeyId.value(),
-      curlecKeySecret: curlecKeySecret.value()
+      curlecKeySecret: curlecKeySecret.value(),
+      curlecPaymentLink: request.body?.event === 'payment_link.paid'
     });
     const signature = request.get('X-Razorpay-Signature');
     signatureDiagnostics = getCurlecWebhookSignatureDiagnostics({

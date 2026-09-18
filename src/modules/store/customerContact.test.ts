@@ -23,7 +23,8 @@ test('authenticated checkout prefills and saves contact without changing guest f
   assert.match(publicStorePage, /currentUser\.email/);
   assert.match(publicStorePage, /customerContactService\.load\(currentUser\.uid\)/);
   assert.match(publicStorePage, /customerContactService\.save\(currentUser\.uid/);
-  assert.match(publicStorePage, /\{currentUser && \([\s\S]*aria-label="Email"/);
+  assert.match(publicStorePage, /currentUser \|\| usesCurlecPaymentLink/);
+  assert.match(publicStorePage, /required=\{usesCurlecPaymentLink\}/);
   assert.match(publicStorePage, /STORE_DRAFT_KEY_PREFIX/);
   assert.match(publicStorePage, /sessionStorage\.setItem\(storeDraftKey/);
 });
