@@ -60,7 +60,7 @@ const productionFirestoreLimits = Object.freeze({
 const productionFirestoreRunId = 'incident-test-run';
 const productionFirestoreConfirmation = `READ PRODUCTION FIRESTORE misechef-fa4bf FOR ${productionFirestoreRunId}`;
 
-test('Production authority requires manual main dispatch and one exact approved SHA', () => {
+test('Production authority accepts manual dispatch or protected Beta promotion with one exact approved SHA', () => {
   assert.doesNotThrow(() => assertProductionAuthority({
     expectedSha: sha,
     approvedSha: sha,
@@ -68,6 +68,15 @@ test('Production authority requires manual main dispatch and one exact approved 
     resolvedSha: sha,
     githubRef: 'refs/heads/main',
     githubEvent: 'workflow_dispatch',
+    isAncestor: () => true
+  }));
+  assert.doesNotThrow(() => assertProductionAuthority({
+    expectedSha: sha,
+    approvedSha: sha,
+    protectedBaseline: sha,
+    resolvedSha: sha,
+    githubRef: 'refs/heads/main',
+    githubEvent: 'workflow_run',
     isAncestor: () => true
   }));
   assert.throws(() => assertProductionAuthority({

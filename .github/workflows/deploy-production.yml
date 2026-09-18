@@ -1,6 +1,11 @@
 name: Production Release
 
 on:
+  workflow_run:
+    workflows:
+      - Beta Release
+    types:
+      - completed
   workflow_dispatch:
     inputs:
       release_confirmation:
@@ -21,7 +26,7 @@ concurrency:
 
 jobs:
   validate-production-candidate:
-    if: ${{ github.ref == 'refs/heads/main' && inputs.release_confirmation == 'RELEASE PRODUCTION' }}
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_confirmation == 'RELEASE PRODUCTION') }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -47,14 +52,14 @@ jobs:
       - name: Check out exact approved candidate SHA
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.expected_candidate_sha }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.expected_candidate_sha }}
           path: candidate
           fetch-depth: 0
           persist-credentials: false
 
       - name: Verify exact candidate checkout
         env:
-          EXPECTED_SHA: ${{ inputs.expected_candidate_sha }}
+          EXPECTED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.expected_candidate_sha }}
         run: |
           if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
             echo "Expected candidate SHA must be an exact lowercase 40-character Git SHA." >&2
@@ -108,15 +113,15 @@ jobs:
 
   deploy-production:
     needs: validate-production-candidate
-    if: ${{ github.ref == 'refs/heads/main' && inputs.release_confirmation == 'RELEASE PRODUCTION' }}
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_confirmation == 'RELEASE PRODUCTION') }}
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 75
     env:
       FIREBASE_DEPLOY_TARGET: production
       MISECHEF_PRODUCTION_CI_LOCK_ID: misechef-production-deployment
-      MISECHEF_PRODUCTION_EXPECTED_SHA: ${{ inputs.expected_candidate_sha }}
-      MISECHEF_PRODUCTION_APPROVED_SHA: ${{ vars.MISECHEF_PRODUCTION_APPROVED_SHA }}
+      MISECHEF_PRODUCTION_EXPECTED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.expected_candidate_sha }}
+      MISECHEF_PRODUCTION_APPROVED_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || vars.MISECHEF_PRODUCTION_APPROVED_SHA }}
       MISECHEF_PRODUCTION_PROTECTED_BASELINE: ${{ vars.MISECHEF_PRODUCTION_PROTECTED_BASELINE }}
       MISECHEF_PRODUCTION_BOOTSTRAP_HOSTING_VERSION: ${{ vars.MISECHEF_PRODUCTION_BOOTSTRAP_HOSTING_VERSION }}
       MISECHEF_PRODUCTION_BOOTSTRAP_LIVE_ASSET: ${{ vars.MISECHEF_PRODUCTION_BOOTSTRAP_LIVE_ASSET }}
@@ -143,7 +148,7 @@ jobs:
       - name: Check out exact Environment-approved candidate SHA
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.expected_candidate_sha }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.expected_candidate_sha }}
           path: candidate
           fetch-depth: 0
           persist-credentials: false
