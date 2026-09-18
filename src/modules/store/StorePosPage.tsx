@@ -29,6 +29,7 @@ import {
   getOrderCompletionTimestamp,
   isOrderCompletedOnMalaysiaDate,
   shiftDateKey,
+  sortOrdersByDeliverySchedule,
   toActivePosStatus,
   toMalaysiaDateKey,
   type ActivePosStatus,
@@ -273,7 +274,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       storeId,
       workspaceId,
       (nextOrders, addedNewOrderIds) => {
-        setOrders(nextOrders);
+        setOrders(sortOrdersByDeliverySchedule(nextOrders));
         setLastUpdated(new Date());
         setNow(Date.now());
         setIsLoading(false);

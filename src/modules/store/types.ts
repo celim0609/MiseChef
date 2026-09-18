@@ -37,7 +37,7 @@ export interface StoreDeliveryConfig {
   pickup: { name: string; address: string; latitude: string; longitude: string; contactName: string; contactPhoneE164: string };
   subsidy: { enabled: boolean; minimumMerchandiseSpend: number; maximumCustomerDeliveryCharge: number };
   fulfilment: {
-    preOrder: { enabled: boolean; orderDays: StoreOrderDay[]; earliestDays: StoreEarliestPickupDays; maximumAdvanceDays: StoreMaximumAdvanceDays; unavailableDates: string[]; sessions: string[] };
+    preOrder: { enabled: boolean; orderDays: StoreOrderDay[]; earliestDays: StoreEarliestPickupDays; maximumAdvanceDays: StoreMaximumAdvanceDays; unavailableDates: string[]; deliveryHours: { from: string; to: string }; maximumDistanceKm: number; sessions?: string[] };
     instant: { enabled: boolean; operatingHours: { start: string; end: string }; preparationMinutes: number };
   };
 }
@@ -581,6 +581,8 @@ export interface StoreOrderDraft {
   /** Opaque server record binding the displayed delivery/promotion price. */
   deliveryPricingSnapshotId?: string;
   fulfilmentMode?: 'preorder' | 'instant';
+  deliveryDate?: string;
+  deliveryTime?: string;
   destination?: {
     formattedAddress: string;
     latitude: string;
