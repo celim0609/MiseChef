@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { getCurlecPrefill, normalizeCurlecContact } from './curlecClientAdapter';
 
@@ -20,4 +21,10 @@ test('passes an existing email to Curlec prefill without making it required', ()
   assert.deepEqual(getCurlecPrefill('Celim', '0123456789', '  '), {
     name: 'Celim', contact: '+60123456789'
   });
+});
+
+test('keeps FPX and card out of Curlec checkout', () => {
+  const adapter = readFileSync(new URL('./curlecClientAdapter.tsx', import.meta.url), 'utf8');
+  assert.match(adapter, /hide:\s*\[\s*\{\s*method:\s*['\"]fpx['\"]\s*\}\s*,\s*\{\s*method:\s*['\"]card['\"]\s*\}\s*\]/);
+  assert.doesNotMatch(adapter, /Open in your browser to pay with Touch ’n Go eWallet|callback_url|redirect:\s*true/);
 });
