@@ -141,7 +141,7 @@ function PaymentMethodIcon({ methodId }: { methodId: StorePaymentMethodId }) {
   return <QrCode className={iconClassName} aria-hidden="true" />;
 }
 
-export default function PublicStorePage({ slug, productSlug, groupOrder, currentUser }: { slug: string; productSlug?: string; groupOrder?: PublicGroupOrder; currentUser?: User | null }) {
+export default function PublicStorePage({ slug, productSlug, promotionId, groupOrder, currentUser }: { slug: string; productSlug?: string; promotionId?: string; groupOrder?: PublicGroupOrder; currentUser?: User | null }) {
   const catalogueTopRef = useRef<HTMLElement | null>(null);
   const hotDealsSectionRef = useRef<HTMLElement | null>(null);
   const catalogueEndRef = useRef<HTMLDivElement | null>(null);
@@ -195,6 +195,7 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
   const [isCatalogueCartVisible, setIsCatalogueCartVisible] = useState(true);
   const [activeCatalogueSection, setActiveCatalogueSection] = useState<'all' | 'main' | 'sets' | 'drinks' | 'promotions'>('all');
   const [publicPromotions, setPublicPromotions] = useState<PublicPromotion[]>([]);
+  const [arePromotionsLoaded, setArePromotionsLoaded] = useState(false);
   const [isHostInfoOpen, setIsHostInfoOpen] = useState(false);
   const [isAccountSuggestionDismissed, setIsAccountSuggestionDismissed] = useState(false);
   const paymentStageKey = paymentSession?.paymentSessionId || '';
@@ -718,8 +719,9 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
   const drinkProducts = useMemo(() => (data?.products || []).filter(product => drinkProductIds.has(product.id)), [data?.products, drinkProductIds]);
   const mainProducts = useMemo(() => (data?.products || []).filter(product => !drinkProductIds.has(product.id)), [data?.products, drinkProductIds]);
   const promotionByProduct = useMemo(() => new Map(publicPromotions.map(item => [item.productId, item])), [publicPromotions]);
+  const requestedPromotion = useMemo(() => promotionId ? publicPromotions.find(item => item.id === promotionId) || null : null, [promotionId, publicPromotions]);
   const promotionProducts = useMemo(() => (data?.products || []).filter(product => promotionByProduct.has(product.id)), [data?.products, promotionByProduct]);
-  useEffect(() => { void publicPromotionService.list(slug).then(setPublicPromotions).catch(() => setPublicPromotions([])); }, [slug]);
+  useEffect(() => { setArePromotionsLoaded(false); void publicPromotionService.list(slug).then(setPublicPromotions).catch(() => setPublicPromotions([])).finally(() => setArePromotionsLoaded(true)); }, [slug]);
   const validPickupDates = useMemo(
     () => data ? getValidPickupDates(data.store) : [],
     [data]
@@ -1068,6 +1070,19 @@ export default function PublicStorePage({ slug, productSlug, groupOrder, current
           </div>
         </div>
       </section>
+
+      {promotionId && arePromotionsLoaded && (requestedPromotion ? (
+        <section aria-label="Featured promotion" className="rounded-3xl border border-secondary/30 bg-secondary/5 p-5 shadow-sm sm:p-6">
+          <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">Featured offer</p>
+          <h2 className="mt-2 font-display text-2xl font-bold text-primary">{requestedPromotion.name}</h2>
+          <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">🔥 {getPromotionOfferLabel(requestedPromotion)} · Available on eligible products below.</p>
+          <a href="#catalogue-hot-deals" className="mt-4 inline-flex rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">View offer</a>
+        </section>
+      ) : (
+        <section aria-label="Promotion unavailable" className="rounded-3xl border border-outline-variant bg-surface-container-low p-5 text-sm font-bold text-on-surface-variant">
+          This Promotion is not currently available. You can still browse this Store's current offers below.
+        </section>
+      ))}
 
       {!groupOrder && store.hostProgram.enabled && (
         <section aria-labelledby="host-opportunity-title" className="overflow-hidden rounded-3xl border border-surface-container-high bg-surface-container-low shadow-sm">

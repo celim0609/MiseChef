@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   buildStoreSocialMetadata,
   buildProductSocialMetadata,
+  buildPromotionSocialMetadata,
   createStoreSocialPreviewHandler,
   injectStoreSocialMetadata,
   resolveStoreRequestOrigin,
@@ -109,6 +110,22 @@ test('Product image falls back to Store cover and then the MiseChef social image
   assert.equal(defaulted.image, `${betaOrigin}${STORE_SOCIAL_DEFAULTS.imagePath}`);
 });
 
+test('Promotion metadata uses its canonical public URL, offer information, and eligible Product image', () => {
+  const metadata = buildPromotionSocialMetadata({
+    origin: 'https://misechef.ai',
+    slug: 'breakfast-store',
+    promotionId: 'morning-offer',
+    store: { slug: 'breakfast-store', name: 'Breakfast Store', coverImageUrl: 'https://cdn.example/store.jpg' },
+    promotion: { id: 'morning-offer', name: 'Morning 20%', type: 'percentage', percentageOff: 20, imageUrl: 'https://cdn.example/muffin-social.jpg' }
+  });
+  const html = injectStoreSocialMetadata(appShell, metadata);
+  assert.equal(metadata.canonicalUrl, 'https://misechef.ai/store/breakfast-store/promotion/morning-offer');
+  assert.equal(metadata.title, 'Morning 20% | Breakfast Store');
+  assert.match(metadata.description, /20% off/);
+  assert.equal(metadata.image, 'https://cdn.example/muffin-social.jpg');
+  assert.match(html, /property="og:url" content="https:\/\/misechef\.ai\/store\/breakfast-store\/promotion\/morning-offer"/);
+});
+
 test('different Products retain their own crawler image URLs without Product-specific handling', () => {
   const first = buildProductSocialMetadata({ origin: betaOrigin, slug: 's', productSlug: 'first', store: { slug: 's' }, product: { productSlug: 'first', name: 'First', socialImageUrl: 'https://cdn.example/first-social.jpg', photoUrl: 'https://cdn.example/first.jpg' } });
   const second = buildProductSocialMetadata({ origin: betaOrigin, slug: 's', productSlug: 'second', store: { slug: 's' }, product: { productSlug: 'second', name: 'Second', socialImageUrl: 'https://cdn.example/second-social.jpg', photoUrl: 'https://cdn.example/second.jpg' } });
@@ -198,6 +215,31 @@ test('HTTP handler returns Product metadata only for an available Product and fa
   assert.doesNotMatch(unavailable.body, /hidden-product/);
   assert.doesNotMatch(unavailable.body, /property="og:type" content="product"/);
   assert.deepEqual(requested, [['store-id', 'banana-muffin-AbC123'], ['store-id', 'hidden-product']]);
+});
+
+test('HTTP handler returns Promotion metadata only for a publicly available Promotion', async () => {
+  const requested = [];
+  const handler = createStoreSocialPreviewHandler({
+    projectId: 'misechef-beta-fa4bf',
+    loadStore: async slug => ({ id: 'store-id', slug, name: 'Breakfast Store', coverImageUrl: 'https://cdn.example/cover.jpg' }),
+    loadPromotion: async (storeId, promotionId) => {
+      requested.push([storeId, promotionId]);
+      return promotionId === 'morning-offer'
+        ? { id: promotionId, name: 'Morning deal', type: 'percentage', percentageOff: 20, imageUrl: 'https://cdn.example/muffin.jpg' }
+        : null;
+    },
+    loadAppShell: async () => appShell
+  });
+  const valid = createResponse();
+  await handler({ method: 'GET', path: '/store/breakfast-store/promotion/morning-offer', get: name => name === 'host' ? 'misechef-beta-fa4bf.web.app' : '' }, valid);
+  assert.equal(valid.statusCode, 200);
+  assert.match(valid.body, /Morning deal \| Breakfast Store/);
+  assert.match(valid.body, /property="og:url" content="https:\/\/misechef-beta-fa4bf\.web\.app\/store\/breakfast-store\/promotion\/morning-offer"/);
+  const unavailable = createResponse();
+  await handler({ method: 'GET', path: '/store/breakfast-store/promotion/expired-offer', get: name => name === 'host' ? 'misechef-beta-fa4bf.web.app' : '' }, unavailable);
+  assert.equal(unavailable.statusCode, 200);
+  assert.doesNotMatch(unavailable.body, /expired-offer/);
+  assert.deepEqual(requested, [['store-id', 'morning-offer'], ['store-id', 'expired-offer']]);
 });
 
 test('HTTP handler rejects unsafe methods and non-Store paths without a Firestore read', async () => {

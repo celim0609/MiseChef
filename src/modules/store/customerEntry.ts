@@ -43,6 +43,16 @@ export const getPublicProductUrl = (origin: string, storeSlug: string, productSl
   new URL(getPublicProductPath(storeSlug, productSlug), origin).toString()
 );
 
+export const PUBLIC_PRODUCTION_ORIGIN = 'https://misechef.ai';
+
+export const getPublicPromotionPath = (storeSlug: string, promotionId: string) => (
+  `${getPublicOrderingPath(storeSlug)}/promotion/${encodeURIComponent(promotionId.trim())}`
+);
+
+export const getPublicPromotionUrl = (storeSlug: string, promotionId: string) => (
+  new URL(getPublicPromotionPath(storeSlug, promotionId), PUBLIC_PRODUCTION_ORIGIN).toString()
+);
+
 export const getStoreProductShareData = (
   origin: string,
   store: { slug: string; name: string },
@@ -60,6 +70,15 @@ export const getStoreShareData = (
   title: store.name.trim() || 'MiseChef Store',
   text: store.description.trim() || 'Browse this MiseChef Store and order ahead for pickup.',
   url: getPublicOrderingUrl(origin, store.slug)
+});
+
+export const getStorePromotionShareData = (
+  store: { slug: string; name: string },
+  promotion: { id: string; name: string; offer: string }
+) => ({
+  title: `${promotion.name.trim() || 'Store offer'} | ${store.name.trim() || 'MiseChef Store'}`,
+  text: [promotion.offer.trim(), `from ${store.name.trim() || 'this MiseChef Store'}`].filter(Boolean).join(' · '),
+  url: getPublicPromotionUrl(store.slug, promotion.id)
 });
 
 export const getStoreQrFileName = (slug: string) => (

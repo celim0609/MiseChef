@@ -80,6 +80,7 @@ import { sanitizeExtractedPersonalExpenseMerchant } from './personalExpenseRecei
 import { loadPublicDiscoverStores } from './publicDiscover.js';
 import { loadPublicHomepagePromotions } from './homepagePromotions.js';
 import { projectPublicStorePromotions } from './publicStorePromotions.js';
+import { isValidPromotion, normalizePromotion } from './storePromotionPricing.js';
 import {
   authorizePersonalResumeImportJob,
   claimPersonalResumeImportJob,
@@ -162,6 +163,28 @@ const publicStorePreviewHandler = createStoreSocialPreviewHandler({
       price: typeof data.price === 'number' ? data.price : null,
       photoUrl: typeof data.photoUrl === 'string' ? data.photoUrl : '',
       socialImageUrl: typeof data.socialImageUrl === 'string' ? data.socialImageUrl : '',
+      updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : ''
+    };
+  },
+  loadPromotion: async (storeId, promotionId) => {
+    const snapshot = await db.collection('storePromotions').doc(promotionId).get();
+    if (!snapshot.exists) return null;
+    const data = snapshot.data();
+    const promotion = normalizePromotion(snapshot.id, data);
+    const now = new Date();
+    if (promotion.storeId !== storeId || !isValidPromotion(promotion) || promotion.startsAt > now || (promotion.endsAt && promotion.endsAt <= now)) return null;
+    const productId = promotion.eligibleProductIds[0];
+    const productSnapshot = productId ? await db.collection('storeProducts').doc(productId).get() : null;
+    const product = productSnapshot?.exists && productSnapshot.data().storeId === storeId && productSnapshot.data().available === true ? productSnapshot.data() : {};
+    return {
+      id: promotion.id,
+      name: promotion.name,
+      type: promotion.type,
+      percentageOff: promotion.percentageOff,
+      fixedAmountOff: promotion.fixedAmountOff,
+      buyQuantity: promotion.buyQuantity,
+      getQuantity: promotion.getQuantity,
+      imageUrl: typeof product.socialImageUrl === 'string' ? product.socialImageUrl : (typeof product.photoUrl === 'string' ? product.photoUrl : ''),
       updatedAt: typeof data.updatedAt === 'string' ? data.updatedAt : ''
     };
   },

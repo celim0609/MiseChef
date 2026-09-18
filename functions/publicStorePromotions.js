@@ -4,6 +4,7 @@ const projectAppliedPromotion = ({ product, result }) => {
   const applied = result.promotionSnapshot.appliedPromotions[0];
   if (!applied) return null;
   return {
+    id: applied.promotionId,
     productId: product.id,
     name: applied.name,
     type: applied.type,
