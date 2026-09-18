@@ -24,6 +24,12 @@ const validateDestination = destination => {
   if (!address || address.length > 500 || !latitude || !longitude) throw deliveryError('Choose a delivery address with valid coordinates.');
   return { address, latitude, longitude, instructions: readString(destination?.deliveryInstructions).slice(0, 1500) };
 };
+const distanceKm = (from, to) => {
+  const radians = value => Number(value) * Math.PI / 180;
+  const dLat = radians(Number(to.latitude) - Number(from.latitude)); const dLng = radians(Number(to.longitude) - Number(from.longitude));
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(from.latitude)) * Math.cos(radians(to.latitude)) * Math.sin(dLng / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
 const validateStoreDelivery = (store, provider) => {
   const config = deliveryConfig(store);
   const pickup = config.pickup && typeof config.pickup === 'object' ? config.pickup : {};
@@ -41,11 +47,12 @@ const validatePreOrderSchedule = (store, config, draft) => {
   const preOrder = config.fulfilment?.preOrder || { enabled: true, orderDays: store.orderDays, earliestDays: store.earliestPickupDays, maximumAdvanceDays: store.maximumAdvanceDays, unavailableDates: store.unavailableDates, sessions: store.pickupSessions };
   if (preOrder.enabled !== true) throw deliveryError('Pre-order delivery is unavailable for this Store.');
   const deliveryDate = readString(draft?.deliveryDate);
-  const deliverySession = readString(draft?.deliverySession);
+  const deliveryTime = readString(draft?.deliveryTime);
   const dates = getValidPickupDates({ country: store.country, orderDays: preOrder.orderDays, earliestPickupDays: preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates });
   if (!dates.includes(deliveryDate)) throw deliveryError('Choose an available delivery date.');
-  if (!Array.isArray(preOrder.sessions) || !preOrder.sessions.includes(deliverySession)) throw deliveryError('Choose a valid delivery session.');
-  return { mode: 'preorder', date: deliveryDate, session: deliverySession, timeZone: 'Asia/Kuala_Lumpur' };
+  const hours = preOrder.deliveryHours || { from: '00:00', to: '23:59' };
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(deliveryTime) || deliveryTime < readString(hours.from) || deliveryTime > readString(hours.to)) throw deliveryError('Choose a delivery time within the configured delivery hours.');
+  return { mode: 'preorder', date: deliveryDate, time: deliveryTime, timeZone: 'Asia/Kuala_Lumpur' };
 };
 const validateInstantSchedule = (store, config) => {
   const instant = config.fulfilment?.instant || {};
@@ -129,6 +136,7 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
   const checkout = await loadStoreCheckoutData(db, slug);
   const { config, pickup } = validateStoreDelivery(checkout.store, provider);
   const destination = validateDestination(draft?.destination);
+  if (distanceKm(pickup, destination) > Number(config.fulfilment?.preOrder?.maximumDistanceKm || Infinity)) throw deliveryError('This delivery address is outside the Store’s maximum delivery distance.');
   const schedule = validateDeliverySchedule(checkout.store, config, draft);
   // Rebuild cart on the server. The browser does not send prices or service type.
   const items = buildOrderItems(draft?.selections || [], checkout.products, checkout.optionGroups, checkout.sets);
@@ -172,6 +180,7 @@ export const getLalamoveSandboxCityInfo = async ({ db, uid, workspaceId, provide
 export const revalidateDeliveryForPayment = async ({ provider, store, draft, now = Date.now(), minimumValidityMs = 0 }) => {
   const { config, pickup } = validateStoreDelivery(store, provider);
   const destination = validateDestination(draft?.destination);
+  if (distanceKm(pickup, destination) > Number(config.fulfilment?.preOrder?.maximumDistanceKm || Infinity)) throw deliveryError('This delivery address is outside the Store’s maximum delivery distance.');
   const schedule = validateDeliverySchedule(store, config, draft);
   const quote = quoteSnapshot(await provider.retrieveQuote({ market: 'MY', quotationId: readString(draft?.deliveryQuoteId) }));
   if (!quote.quotationId || quote.currency !== 'MYR' || Date.parse(quote.expiresAt) <= Number(now) + Number(minimumValidityMs) || quote.serviceType !== config.serviceType || quote.stops.length !== 2) throw deliveryError('Refresh your delivery quote before checkout.');
