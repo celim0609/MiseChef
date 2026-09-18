@@ -1,5 +1,6 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
+import { logger } from 'firebase-functions';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   PAYMENT_REFUND_STATUS,
@@ -83,6 +84,110 @@ const hashCheckoutAccessToken = token => createHash('sha256')
   .digest('hex');
 
 const isCheckoutAttemptId = value => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(readString(value));
+
+const checkoutAttemptLog = (event, { provider = '', mode = '', checkoutType = '' } = {}) => {
+  // Deliberately excludes order ids, browser tokens, URLs, and customer data.
+  logger.info(event, { provider: readString(provider), mode: readString(mode), checkoutType: readString(checkoutType) });
+};
+
+const toCheckoutAttemptResult = (attempt, order) => ({
+  orderNumber: order.orderNumber,
+  pickupCode: order.pickupCode,
+  provider: readString(attempt.provider),
+  paymentSessionId: readString(attempt.providerPaymentId),
+  checkout: attempt.checkout,
+  checkoutAccessToken: readString(attempt.checkoutAccessToken),
+  ...(toPublicPaymentOrderSummary(order) ? { orderSummary: toPublicPaymentOrderSummary(order) } : {}),
+  ...toPublicGroupOrderContext(order)
+});
+
+export const replayStoreCheckoutAttempt = async ({ db, priorAttempt, mode = '' }) => {
+  const orderSnapshot = await db.collection('storeOrders').doc(readString(priorAttempt.orderId)).get();
+  if (!orderSnapshot.exists) throw new Error('The matching MiseChef order could not be found.');
+  checkoutAttemptLog('Store checkout attempt replayed', {
+    provider: priorAttempt.provider, mode, checkoutType: priorAttempt.checkout?.type
+  });
+  return toCheckoutAttemptResult(priorAttempt, orderSnapshot.data());
+};
+
+export const recoverIncompleteStoreCheckoutAttempt = async ({
+  db, checkoutAttemptReference, priorAttempt, activeAdapter
+}) => {
+  const orderId = readString(priorAttempt?.orderId);
+  if (!orderId || activeAdapter.mode !== 'standard_checkout' || typeof activeAdapter.recoverPayment !== 'function') return null;
+  const orderReference = db.collection('storeOrders').doc(orderId);
+  const orderSnapshot = await orderReference.get();
+  if (!orderSnapshot.exists) throw new Error('The matching MiseChef order could not be found.');
+  const order = orderSnapshot.data();
+  if (readString(order?.payment?.provider) !== readString(activeAdapter.provider)
+    || readString(order?.payment?.providerMode) !== readString(activeAdapter.mode)
+    || !readString(order?.payment?.providerPaymentId)) return null;
+  const recovered = await activeAdapter.recoverPayment({ order });
+  if (readString(recovered?.providerPaymentId) !== readString(order.payment.providerPaymentId)
+    || !readString(recovered?.checkout?.type)) return null;
+  // Old attempts did not store the browser capability. Rotate it while writing
+  // both documents together; the existing Curlec order remains the only one.
+  const checkoutAccessToken = randomBytes(32).toString('hex');
+  const recovery = await db.runTransaction(async transaction => {
+    const currentAttempt = await transaction.get(checkoutAttemptReference);
+    const currentOrder = await transaction.get(orderReference);
+    if (!currentAttempt.exists || !currentOrder.exists) throw new Error('The checkout attempt changed during recovery.');
+    const current = currentAttempt.data();
+    const currentOrderData = currentOrder.data();
+    if (readString(current?.providerPaymentId) && current?.checkout && readString(current?.checkoutAccessToken)) {
+      return { replay: true, attempt: current, order: currentOrderData };
+    }
+    if (readString(current.orderId) !== orderId
+      || readString(currentOrderData?.payment?.providerPaymentId) !== readString(recovered.providerPaymentId)) {
+      throw new Error('The checkout attempt changed during recovery.');
+    }
+    transaction.update(orderReference, {
+      'payment.checkoutAccessTokenHash': hashCheckoutAccessToken(checkoutAccessToken),
+      'payment.updatedAt': new Date().toISOString(), updatedAt: new Date().toISOString()
+    });
+    transaction.update(checkoutAttemptReference, {
+      provider: activeAdapter.provider, providerPaymentId: recovered.providerPaymentId,
+      checkout: recovered.checkout, checkoutAccessToken
+    });
+    return { replay: false };
+  });
+  if (recovery.replay) {
+    checkoutAttemptLog('Store checkout attempt replayed during recovery', {
+      provider: recovery.attempt.provider, mode: activeAdapter.mode, checkoutType: recovery.attempt.checkout?.type
+    });
+    return toCheckoutAttemptResult(recovery.attempt, recovery.order);
+  }
+  checkoutAttemptLog('Store checkout attempt recovered', {
+    provider: activeAdapter.provider, mode: activeAdapter.mode, checkoutType: recovered.checkout.type
+  });
+  return toCheckoutAttemptResult({
+    ...priorAttempt, provider: activeAdapter.provider, providerPaymentId: recovered.providerPaymentId,
+    checkout: recovered.checkout, checkoutAccessToken
+  }, order);
+};
+
+export const completeStoreCheckoutAttempt = async ({
+  db, orderReference, checkoutAttemptReference, provider, mode, providerPaymentId, checkout, checkoutAccessToken
+}) => {
+  await db.runTransaction(async transaction => {
+    const [currentOrder, currentAttempt] = await Promise.all([
+      transaction.get(orderReference), transaction.get(checkoutAttemptReference)
+    ]);
+    if (!currentOrder.exists || !currentAttempt.exists
+      || readString(currentAttempt.data()?.orderId) !== orderReference.id) {
+      throw new Error('The checkout attempt could not be completed safely.');
+    }
+    const completedAt = new Date().toISOString();
+    transaction.update(orderReference, {
+      'payment.providerPaymentId': providerPaymentId,
+      'payment.updatedAt': completedAt, updatedAt: completedAt
+    });
+    transaction.update(checkoutAttemptReference, {
+      provider, providerPaymentId, checkout, checkoutAccessToken
+    });
+  });
+  checkoutAttemptLog('Store checkout attempt completed', { provider, mode, checkoutType: checkout.type });
+};
 
 const CHECKOUT_RETURN_HOSTS = new Set([
   'misechef.ai',
@@ -341,7 +446,7 @@ export const createStorePayment = async ({
   if (activeAdapter.requiresSellingWorkspace) {
     assertSellingWorkspace(checkoutData.store, sellingWorkspaceId);
   }
-  const checkoutReturnUrl = activeAdapter.provider === 'stripe'
+  const checkoutReturnUrl = activeAdapter.provider === 'stripe' || activeAdapter.mode === 'payment_link'
     ? validateStoreCheckoutReturnUrl(returnUrl)
     : '';
   // Current clients always provide a UUID. Keep older deployed clients
@@ -357,6 +462,24 @@ export const createStorePayment = async ({
   // as the order so retries cannot produce a second order/payment session.
   const checkoutAttemptReference = db.collection('storeCheckoutAttempts')
     .doc(hashCheckoutAccessToken(`${storeId}:${checkoutAttemptId}`));
+  // A completed provider-session write is replayable using the same opaque
+  // checkout attempt. This avoids a second Curlec Payment Link if the browser
+  // loses the callable response after the gateway link was created.
+  const priorAttempt = await checkoutAttemptReference.get();
+  if (priorAttempt.exists) {
+    const prior = priorAttempt.data();
+    if (!readString(prior?.providerPaymentId) || !prior?.checkout || !readString(prior?.checkoutAccessToken)) {
+      const recovered = await recoverIncompleteStoreCheckoutAttempt({
+        db, checkoutAttemptReference, priorAttempt: prior, activeAdapter
+      });
+      if (recovered) return recovered;
+      checkoutAttemptLog('Store checkout attempt remains incomplete', {
+        provider: activeAdapter.provider, mode: activeAdapter.mode
+      });
+      throw new HttpsError('already-exists', 'This checkout is already being created. Please wait.');
+    }
+    return replayStoreCheckoutAttempt({ db, priorAttempt: prior, mode: activeAdapter.mode });
+  }
   const { order } = await db.runTransaction(async transaction => {
     const currentGroupOrder = await revalidateCheckoutGroupInTransaction({
       db,
@@ -408,6 +531,7 @@ export const createStorePayment = async ({
       promotions: freshPromotions,
       customerUid,
       draft,
+      requireCustomerEmail: activeAdapter.mode === 'payment_link',
       now
     });
     if (draft.deliverySnapshot) {
@@ -463,10 +587,12 @@ export const createStorePayment = async ({
       throw new Error('The payment provider did not create a usable checkout session.');
     }
     providerPaymentId = payment.providerPaymentId;
-    await orderReference.update({
-      'payment.providerPaymentId': providerPaymentId,
-      'payment.updatedAt': new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+    await completeStoreCheckoutAttempt({
+      db, orderReference, checkoutAttemptReference, provider: activeAdapter.provider,
+      mode: activeAdapter.mode, providerPaymentId, checkout: payment.checkout,
+      // This is an opaque browser capability in a server-only collection. It
+      // allows the original idempotency key to resume after response loss.
+      checkoutAccessToken
     });
     const orderSummary = toPublicPaymentOrderSummary(order);
     return {
