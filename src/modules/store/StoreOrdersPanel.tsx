@@ -13,7 +13,7 @@ import { formatRegionCurrency } from '../../regions';
 import { storeOrderService, type StoreOrderHistoryCursor } from './services';
 import { storeDeliveryService } from './services/deliveryService';
 import { formatPickupDateLabel } from './storeModel';
-import { isOrderOperationallyEligible } from './posOrderModel';
+import { isOrderOperationallyEligible, sortOrdersByDeliverySchedule } from './posOrderModel';
 import WhatsAppCustomerButton from './WhatsAppCustomerButton';
 import type {
   StoreFulfilmentStatus,
@@ -143,7 +143,7 @@ export default function StoreOrdersPanel({
   const orders = useMemo(() => {
     const ordersById = new Map<string, StoreOrder>(historyOrders.map(order => [order.id, order]));
     for (const order of operationalOrders) ordersById.set(order.id, order);
-    return [...ordersById.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return sortOrdersByDeliverySchedule([...ordersById.values()]);
   }, [historyOrders, operationalOrders]);
 
   useEffect(() => {
