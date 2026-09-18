@@ -55,7 +55,7 @@ export default function PublicLayout({ pathname, currentUser, onSignOut }: { pat
   const [isNightMode, setIsNightMode] = useState(() => typeof document !== 'undefined' && document.documentElement.dataset.appearance === 'dark');
 
   const isHostIndex = route.page === 'host' && route.slug === 'groups';
-  const routeStoreSlug = route.page === 'store' || route.page === 'store-product' || (route.page === 'host' && !isHostIndex) ? (route.page === 'store-product' ? route.storeSlug : route.slug) : '';
+  const routeStoreSlug = route.page === 'store' || route.page === 'store-product' || route.page === 'store-promotion' || (route.page === 'host' && !isHostIndex) ? ((route.page === 'store-product' || route.page === 'store-promotion') ? route.storeSlug : route.slug) : '';
   const hostStoreCandidate = resolvePublicHostStoreCandidate(
     routeStoreSlug,
     route.page === 'group' ? groupStoreSlug : '',
@@ -64,6 +64,8 @@ export default function PublicLayout({ pathname, currentUser, onSignOut }: { pat
   const hostAction = resolvePublicHostMenuAction(hostLookup, hostStoreCandidate, currentUser?.uid || '');
   const accountReturnTo = route.page === 'store'
     ? `/store/${encodeURIComponent(route.slug)}`
+    : route.page === 'store-promotion'
+      ? `/store/${encodeURIComponent(route.storeSlug)}/promotion/${encodeURIComponent(route.promotionId)}`
     : route.page === 'host'
       ? `/host/${encodeURIComponent(route.slug)}`
       : route.page === 'group'
@@ -228,6 +230,10 @@ export default function PublicLayout({ pathname, currentUser, onSignOut }: { pat
 
     if (route.page === 'store-product') {
       return <PublicStorePage slug={route.storeSlug} productSlug={route.productSlug} currentUser={currentUser} />;
+    }
+
+    if (route.page === 'store-promotion') {
+      return <PublicStorePage slug={route.storeSlug} promotionId={route.promotionId} currentUser={currentUser} />;
     }
 
     if (route.page === 'orders') {

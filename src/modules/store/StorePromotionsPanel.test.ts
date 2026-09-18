@@ -33,3 +33,10 @@ test('editing an existing promotion preserves its intended local start time', ()
 
   assert.equal(toDateTimeLocalValue(existingPromotionStart), '2026-09-20T18:00');
 });
+
+test('each Promotion has a Share action with clipboard fallback', () => {
+  assert.match(panelSource, /getStorePromotionShareData/);
+  assert.match(panelSource, /navigator\.share\(shareData\)/);
+  assert.match(panelSource, /navigator\.clipboard\.writeText\(shareData\.url\)/);
+  assert.match(panelSource, /aria-label=\{`Share \$\{promotion\.name\}`\}/);
+});

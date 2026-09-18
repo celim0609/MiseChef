@@ -1239,7 +1239,7 @@ export default function StorePage({
         </section>
       )}
 
-      {activeView === 'promotions' && <StorePromotionsPanel workspaceId={workspace.id} userId={currentUser.uid} products={products} canManage={permissions.manageStoreSettings} />}
+      {activeView === 'promotions' && <StorePromotionsPanel workspaceId={workspace.id} userId={currentUser.uid} storeSlug={store?.slug || ''} storeName={store?.name || ''} products={products} canManage={permissions.manageStoreSettings} />}
 
       {activeView === 'sets' && (
         <StoreSetsPanel

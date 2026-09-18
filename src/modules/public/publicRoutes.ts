@@ -5,6 +5,7 @@ export type PublicRoute =
   | { page: 'stores' }
   | { page: 'store'; slug: string }
   | { page: 'store-product'; storeSlug: string; productSlug: string }
+  | { page: 'store-promotion'; storeSlug: string; promotionId: string }
   | { page: 'host'; slug: string }
   | { page: 'group'; shareCode: string }
   | { page: 'orders' }
@@ -49,6 +50,11 @@ export const resolvePublicRoute = (pathname: string): PublicRoute | null => {
   const storeProductMatch = pathname.match(/^\/store\/([^/]+)\/product\/([^/]+)\/?$/);
   if (storeProductMatch?.[1] && storeProductMatch[2]) {
     return { page: 'store-product', storeSlug: readSegment(storeProductMatch[1]), productSlug: readSegment(storeProductMatch[2]) };
+  }
+
+  const storePromotionMatch = pathname.match(/^\/store\/([^/]+)\/promotion\/([^/]+)\/?$/);
+  if (storePromotionMatch?.[1] && storePromotionMatch[2]) {
+    return { page: 'store-promotion', storeSlug: readSegment(storePromotionMatch[1]), promotionId: readSegment(storePromotionMatch[2]) };
   }
 
   const storeMatch = pathname.match(/^\/store\/([^/]+)\/?$/);

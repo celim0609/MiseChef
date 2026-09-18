@@ -7,9 +7,12 @@ import {
   createStoreQrDataUrl,
   getPublicOrderingPath,
   getPublicOrderingUrl,
+  getPublicPromotionPath,
+  getPublicPromotionUrl,
   getPublicProductPath,
   getPublicProductUrl,
   getStoreProductShareData,
+  getStorePromotionShareData,
   getStoreShareData,
   getStoreQrFileName,
   STORE_QR_OPTIONS,
@@ -68,6 +71,24 @@ test('Product sharing uses the existing immutable product slug and never the adm
   assert.match(storePageSource, /navigator\.share\(shareData\)/);
   assert.match(storePageSource, /navigator\.clipboard\.writeText\(shareData\.url\)/);
   assert.match(storePageSource, /openProductEditor\(product\)/);
+});
+
+test('Promotion sharing always uses the Production public URL and resolves to the Promotion context', () => {
+  const path = getPublicPromotionPath('misechef-s-grab-go-store', 'morning-offer-123');
+  assert.equal(path, '/store/misechef-s-grab-go-store/promotion/morning-offer-123');
+  assert.deepEqual(resolvePublicRoute(path), {
+    page: 'store-promotion', storeSlug: 'misechef-s-grab-go-store', promotionId: 'morning-offer-123'
+  });
+  assert.equal(
+    getPublicPromotionUrl('misechef-s-grab-go-store', 'morning-offer-123'),
+    'https://misechef.ai/store/misechef-s-grab-go-store/promotion/morning-offer-123'
+  );
+  const share = getStorePromotionShareData(
+    { slug: 'misechef-s-grab-go-store', name: 'Grab & Go' },
+    { id: 'morning-offer-123', name: 'Morning deal', offer: '20% off' }
+  );
+  assert.equal(share.url, 'https://misechef.ai/store/misechef-s-grab-go-store/promotion/morning-offer-123');
+  assert.doesNotMatch(share.url, /(?:web\.app|firebaseapp\.com)/);
 });
 
 test('QR downloads use a stable Store-specific file name', () => {
