@@ -31,6 +31,20 @@ export const getOrderCompletionTimestamp = (order: StoreOrder) => (
   order.completedAt || (order.fulfilmentStatus === 'Completed' ? order.fulfilmentUpdatedAt : '')
 );
 
+export const getDeliveryScheduleSortKey = (order: StoreOrder) => {
+  const schedule = order.delivery?.fulfilmentMode === 'preorder' ? order.delivery.schedule : undefined;
+  return schedule?.date && (schedule.time || schedule.session) ? `${schedule.date}T${schedule.time || schedule.session}` : '';
+};
+
+export const sortOrdersByDeliverySchedule = (orders: StoreOrder[]) => [...orders].sort((left, right) => {
+  const leftKey = getDeliveryScheduleSortKey(left);
+  const rightKey = getDeliveryScheduleSortKey(right);
+  if (leftKey && rightKey) return leftKey.localeCompare(rightKey) || left.createdAt.localeCompare(right.createdAt);
+  if (leftKey) return -1;
+  if (rightKey) return 1;
+  return right.createdAt.localeCompare(left.createdAt);
+});
+
 export const isOrderCompletedOnMalaysiaDate = (order: StoreOrder, dateKey: string) => (
   order.fulfilmentStatus === 'Completed'
   && toMalaysiaDateKey(getOrderCompletionTimestamp(order)) === dateKey

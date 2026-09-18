@@ -458,6 +458,7 @@ export interface StoreOrder {
   delivery?: {
     fulfilmentMethod: 'delivery';
     fulfilmentMode?: 'preorder' | 'instant';
+    schedule?: { mode?: 'preorder' | 'instant'; date?: string; time?: string; session?: string };
     // Checkout pricing/address snapshots are created server-side at payment time.
     // The fields below are server-controlled mutable delivery operations only.
     dispatch?: { status?: string; errorCode?: string; attempt?: number };
