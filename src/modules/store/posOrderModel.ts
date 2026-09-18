@@ -31,11 +31,14 @@ export const getOrderCompletionTimestamp = (order: StoreOrder) => (
   order.completedAt || (order.fulfilmentStatus === 'Completed' ? order.fulfilmentUpdatedAt : '')
 );
 
+export const getDeliveryScheduleSortKey = (order: StoreOrder) => {
+  const schedule = order.delivery?.fulfilmentMode === 'preorder' ? order.delivery.schedule : undefined;
+  return schedule?.date && (schedule.time || schedule.session) ? `${schedule.date}T${schedule.time || schedule.session}` : '';
+};
+
 export const sortOrdersByDeliverySchedule = (orders: StoreOrder[]) => [...orders].sort((left, right) => {
-  const leftSchedule = left.delivery?.fulfilmentMode === 'preorder' ? left.delivery.schedule : undefined;
-  const rightSchedule = right.delivery?.fulfilmentMode === 'preorder' ? right.delivery.schedule : undefined;
-  const leftKey = leftSchedule?.date && (leftSchedule.time || leftSchedule.session) ? `${leftSchedule.date}T${leftSchedule.time || leftSchedule.session}` : '';
-  const rightKey = rightSchedule?.date && (rightSchedule.time || rightSchedule.session) ? `${rightSchedule.date}T${rightSchedule.time || rightSchedule.session}` : '';
+  const leftKey = getDeliveryScheduleSortKey(left);
+  const rightKey = getDeliveryScheduleSortKey(right);
   if (leftKey && rightKey) return leftKey.localeCompare(rightKey) || left.createdAt.localeCompare(right.createdAt);
   if (leftKey) return -1;
   if (rightKey) return 1;
