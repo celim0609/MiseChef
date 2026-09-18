@@ -1,15 +1,19 @@
 name: Beta Release
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       release_confirmation:
         description: Type RELEASE BETA to confirm the protected full-resource release
-        required: true
+        required: false
+        default: RELEASE BETA
         type: string
       expected_candidate_sha:
         description: Exact approved 40-character candidate SHA
-        required: true
+        required: false
         type: string
 
 permissions:
@@ -31,7 +35,7 @@ jobs:
     steps:
       - name: Verify protected release confirmation
         env:
-          RELEASE_CONFIRMATION: ${{ inputs.release_confirmation }}
+          RELEASE_CONFIRMATION: ${{ github.event_name == 'push' && 'RELEASE BETA' || inputs.release_confirmation }}
         run: |
           normalized_confirmation="$(printf '%s' "$RELEASE_CONFIRMATION" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
           if [[ "$normalized_confirmation" != "RELEASE BETA" ]]; then
@@ -50,13 +54,13 @@ jobs:
       - name: Check out exact release candidate
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.expected_candidate_sha }}
+          ref: ${{ github.event_name == 'push' && github.sha || inputs.expected_candidate_sha }}
           path: candidate
           fetch-depth: 0
 
       - name: Verify exact approved candidate SHA
         env:
-          EXPECTED_SHA: ${{ inputs.expected_candidate_sha }}
+          EXPECTED_SHA: ${{ github.event_name == 'push' && github.sha || inputs.expected_candidate_sha }}
         run: |
           resolved_sha="$(git -C "$GITHUB_WORKSPACE/candidate" rev-parse HEAD)"
           if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
