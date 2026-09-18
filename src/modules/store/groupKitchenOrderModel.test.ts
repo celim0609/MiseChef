@@ -213,3 +213,16 @@ test('Group cards sort by pickup date and configured Store session order', () =>
     ['earlier-session', 'later-session', 'later-date']
   );
 });
+
+test('POS delivery cards sort by delivery date then exact delivery time', () => {
+  const deliveryOrder = (id: string, date: string, time: string, createdAt: string) => ({
+    ...order({ id, createdAt }),
+    delivery: { fulfilmentMethod: 'delivery' as const, fulfilmentMode: 'preorder' as const, schedule: { date, time } }
+  });
+  const entries = buildGroupKitchenEntries([
+    deliveryOrder('later-time', '2026-09-02', '12:00', '2026-08-01T01:00:00.000Z'),
+    deliveryOrder('earliest', '2026-09-01', '09:00', '2026-08-03T01:00:00.000Z'),
+    deliveryOrder('middle', '2026-09-01', '11:00', '2026-08-02T01:00:00.000Z')
+  ], 'New');
+  assert.deepEqual(entries.map(entry => entry.kind === 'order' ? entry.order.id : ''), ['earliest', 'middle', 'later-time']);
+});

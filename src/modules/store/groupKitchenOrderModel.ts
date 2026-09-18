@@ -1,4 +1,4 @@
-import { isOrderOperationallyEligible, toActivePosStatus, type ActivePosStatus } from './posOrderModel';
+import { getDeliveryScheduleSortKey, isOrderOperationallyEligible, toActivePosStatus, type ActivePosStatus } from './posOrderModel';
 import type { StoreOrder } from './types';
 
 export type GroupKitchenMember = {
@@ -165,6 +165,11 @@ export const buildGroupKitchenEntries = (
   }
 
   return entries.sort((left, right) => {
+    const leftSchedule = left.kind === 'order' ? getDeliveryScheduleSortKey(left.order) : '';
+    const rightSchedule = right.kind === 'order' ? getDeliveryScheduleSortKey(right.order) : '';
+    if (leftSchedule && rightSchedule) return leftSchedule.localeCompare(rightSchedule) || left.key.localeCompare(right.key);
+    if (leftSchedule) return -1;
+    if (rightSchedule) return 1;
     if (left.kind === 'group' && right.kind === 'group') {
       return compareGroupPickup(left, right, pickupSessions);
     }
