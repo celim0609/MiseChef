@@ -284,3 +284,12 @@ test('Group ownership, tenant values, reward configuration, and totals are serve
   assert.match(rules, /resource\.data\.hostId == request\.auth\.uid/);
   assert.match(rules, /allow create, update, delete: if false/);
 });
+
+
+test('Host Program settings have an isolated validated Firestore update path', () => {
+  assert.match(rules, /function isValidStoreHostProgram\(value\)/);
+  assert.match(rules, /affectedKeys\(\)\.hasOnly\(\['hostProgram', 'updatedAt'\]\)[\s\S]*isValidStoreHostProgram\(request\.resource\.data\.hostProgram\)/);
+  assert.match(rules, /value\.keys\(\)\.hasOnly\(\['enabled', 'rewardPercent', 'minimumQualifyingSales'\]\)/);
+  assert.match(rules, /value\.rewardPercent >= 0[\s\S]*value\.rewardPercent <= 100/);
+  assert.match(rules, /value\.minimumQualifyingSales >= 0/);
+});
