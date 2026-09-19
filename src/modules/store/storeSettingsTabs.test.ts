@@ -22,3 +22,12 @@ test('Pickup and Store Settings preserve their separate submit handlers', () => 
   assert.match(storePage, /<form onSubmit=\{handleSettingsSave\}/);
   assert.doesNotMatch(storePage, /onSubmit=\{handlePickupSave\}[\s\S]{0,120}handleSettingsSave/);
 });
+
+
+test('Store Settings remains usable when an ancillary catalog read is denied', () => {
+  assert.match(storePage, /Promise\.allSettled\(\[/);
+  assert.match(storePage, /productsResult\.status === 'fulfilled' \? productsResult\.value : \[\]/);
+  assert.match(storePage, /optionGroupsResult\.status === 'fulfilled' \? optionGroupsResult\.value : \[\]/);
+  assert.match(storePage, /setsResult\.status === 'fulfilled' \? setsResult\.value : \[\]/);
+  assert.match(storePage, /load failed without blocking Store Settings/);
+});

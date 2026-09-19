@@ -265,15 +265,24 @@ export default function StorePage({
         setStore(loadedStore);
         setSettingsDraft(loadedStore ? toSettingsDraft(loadedStore) : null);
         if (loadedStore) {
-          const [loadedProducts, loadedOptionGroups, loadedSets] = await Promise.all([
+          const [productsResult, optionGroupsResult, setsResult] = await Promise.allSettled([
             storeService.listAdminProducts(workspace.id),
             storeService.listOptionGroups(workspace.id),
             storeService.listSets(workspace.id)
           ]);
           if (isCancelled) return;
-          setProducts(loadedProducts);
-          setOptionGroups(loadedOptionGroups);
-          setSets(loadedSets);
+          setProducts(productsResult.status === 'fulfilled' ? productsResult.value : []);
+          setOptionGroups(optionGroupsResult.status === 'fulfilled' ? optionGroupsResult.value : []);
+          setSets(setsResult.status === 'fulfilled' ? setsResult.value : []);
+          for (const [label, result] of [
+            ['products', productsResult],
+            ['option groups', optionGroupsResult],
+            ['sets', setsResult]
+          ] as const) {
+            if (result.status === 'rejected') {
+              console.error(`Store ${label} load failed without blocking Store Settings.`, result.reason);
+            }
+          }
         } else {
           setProducts([]);
           setOptionGroups([]);
