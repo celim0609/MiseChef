@@ -264,6 +264,15 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
     } : match));
   };
 
+  const handleRemoveItem = (index: number) => {
+    setIngredientMatches(current => current.map((match, matchIndex) => matchIndex === index ? {
+      ...match,
+      matchedIngredientId: undefined,
+      decision: 'Remove',
+      status: 'Remove'
+    } : match));
+  };
+
   const handleApproveImport = async () => {
     if (!invoice || !userId || isImporting) return;
 
@@ -653,7 +662,9 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
                   ? 'bg-green-100 text-green-800'
                   : status === 'Possible Match'
                     ? 'bg-blue-100 text-blue-800'
-                    : 'bg-yellow-100 text-yellow-800';
+                    : status === 'Remove'
+                      ? 'bg-surface-container-high text-on-surface-variant'
+                      : 'bg-yellow-100 text-yellow-800';
 
                 return (
                   <tr key={`${match.item.sourceItemIndex}-${index}`} className="border-t border-surface-container-high align-top hover:bg-surface-container-low/50">
@@ -679,9 +690,14 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
                           <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>
                         ))}
                       </select>
-                      <button type="button" onClick={() => handleCreateNew(index)} disabled={!canManageInvoices || isImported || isImporting} className="w-full rounded-xl border border-surface-container-high px-3 py-2 font-sans text-xs font-extrabold text-primary disabled:opacity-50">
-                        Create New
-                      </button>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button type="button" onClick={() => handleCreateNew(index)} disabled={!canManageInvoices || isImported || isImporting} className="w-full rounded-xl border border-surface-container-high px-3 py-2 font-sans text-xs font-extrabold text-primary disabled:opacity-50">
+                          Create
+                        </button>
+                        <button type="button" onClick={() => handleRemoveItem(index)} disabled={!canManageInvoices || isImported || isImporting} className="w-full rounded-xl border border-error/30 px-3 py-2 font-sans text-xs font-extrabold text-error disabled:opacity-50">
+                          Remove
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
