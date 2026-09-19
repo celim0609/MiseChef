@@ -76,6 +76,8 @@ export const invoiceImportService = {
     if (matches.length === 0) {
       throw new Error('No invoice items are available to import. Please process the invoice again.');
     }
+    const importMatches = matches.filter(match => match.decision !== 'Remove');
+    if (importMatches.length === 0) throw new Error('Keep at least one invoice item to import.');
     const validationError = validateInvoiceImportMatches(matches);
     if (validationError) throw new Error(validationError);
 
@@ -111,7 +113,7 @@ export const invoiceImportService = {
         .filter(ingredient => ingredient.status === 'Active')
         .map(ingredient => [normalizeIngredientName(ingredient.name), ingredient])
     );
-    const plannedImports = matches.reduce<PlannedInvoiceImport[]>((acc, match) => {
+    const plannedImports = importMatches.reduce<PlannedInvoiceImport[]>((acc, match) => {
       const normalizedName = normalizeIngredientName(match.item.ingredientName);
       const exactExistingIngredient = activeIngredientByName.get(normalizedName) || null;
       const matchedIngredient = match.decision === 'Use Existing' && match.matchedIngredientId
@@ -221,12 +223,15 @@ export const invoiceImportService = {
       approvedAt: now,
       approvedBy: userId,
       importReview: {
-        items: plannedImports.map(({ match, ingredientId }) => ({
-          ...match.item,
-          supplierDescription: sourceItems[match.item.sourceItemIndex].name,
-          decision: match.decision,
-          ingredientId
-        })),
+        items: matches.map(match => {
+          const plannedImport = plannedImports.find(item => item.match.item.sourceItemIndex === match.item.sourceItemIndex);
+          return {
+            ...match.item,
+            supplierDescription: sourceItems[match.item.sourceItemIndex].name,
+            decision: match.decision,
+            ...(plannedImport ? { ingredientId: plannedImport.ingredientId } : {})
+          };
+        }),
         approvedAt: now,
         approvedBy: userId
       }
