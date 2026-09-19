@@ -4,8 +4,8 @@ export type InvoiceImportMatch = {
   item: CostingInvoiceReviewedItem;
   suggestedIngredientId?: string;
   matchedIngredientId?: string;
-  decision?: 'Use Existing' | 'Create New';
-  status: 'Possible Match' | 'Use Existing' | 'Create New';
+  decision?: 'Use Existing' | 'Create New' | 'Remove';
+  status: 'Possible Match' | 'Use Existing' | 'Create New' | 'Remove';
 };
 
 export const normalizeIngredientName = (value: string) => value
@@ -60,6 +60,7 @@ export const validateInvoiceImportMatches = (matches: InvoiceImportMatch[]) => {
   const newIngredientNames = new Set<string>();
   for (const [index, match] of matches.entries()) {
     const itemLabel = `Line item ${index + 1}`;
+    if (match.decision === 'Remove') continue;
     if (!match.item.ingredientName.trim()) return `${itemLabel}: Ingredient Name is required.`;
     if (!Number.isFinite(match.item.quantity) || match.item.quantity <= 0) return `${itemLabel}: Quantity must be greater than zero.`;
     if (!match.item.unit.trim()) return `${itemLabel}: Unit is required.`;

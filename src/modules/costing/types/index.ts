@@ -33,7 +33,7 @@ export interface CostingInvoiceExtractedItem {
   total: number;
 }
 
-export type CostingInvoiceImportDecision = 'Use Existing' | 'Create New';
+export type CostingInvoiceImportDecision = 'Use Existing' | 'Create New' | 'Remove';
 
 export interface CostingInvoiceReviewedItem {
   sourceItemIndex: number;
