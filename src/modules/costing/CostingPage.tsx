@@ -1,4 +1,4 @@
-import type { RootTab, UserRole } from '../../types';
+import type { RootTab, WorkspaceMemberRole } from '../../types';
 import CostingIngredientsPage from './pages/Ingredients';
 import InvoiceDetailPage from './pages/InvoiceDetail';
 import CostingInvoicesPage from './pages/Invoices';
@@ -10,15 +10,15 @@ interface CostingPageProps {
   userId?: string;
   workspaceId?: string;
   invoiceId?: string | null;
-  userRole?: UserRole;
+  workspaceRole?: WorkspaceMemberRole | null;
   onOpenInvoice: (invoiceId: string) => void;
   onBackToInvoices: () => void;
   quickAddRequest?: QuickAddRequest | null;
   onQuickAddHandled?: (requestId: number) => void;
 }
 
-export default function CostingPage({ activeTab, userId, workspaceId, invoiceId, userRole = 'user', quickAddRequest, onQuickAddHandled, onOpenInvoice, onBackToInvoices }: CostingPageProps) {
-  const canManageInvoices = userRole === 'admin';
+export default function CostingPage({ activeTab, userId, workspaceId, invoiceId, workspaceRole = null, quickAddRequest, onQuickAddHandled, onOpenInvoice, onBackToInvoices }: CostingPageProps) {
+  const canManageInvoices = workspaceRole === 'Owner' || workspaceRole === 'Manager' || workspaceRole === 'Head Chef' || workspaceRole === 'Purchasing';
 
   switch (activeTab) {
     case 'costingIngredients':

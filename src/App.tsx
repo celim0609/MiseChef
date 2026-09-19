@@ -2041,7 +2041,7 @@ export default function App() {
       case 'costingInvoiceDetail':
       case 'costingReports':
         if (!currentWorkspace || !hasBusinessEntitlement) return null;
-        return <CostingPage activeTab={activeTab} userId={currentUser?.uid} workspaceId={activeWorkspaceId} userRole={currentUserRole === 'super_admin' || currentWorkspaceRole === 'Owner' || currentWorkspaceRole === 'Manager' || currentWorkspaceRole === 'Head Chef' ? 'admin' : 'user'} invoiceId={selectedCostingInvoiceId} quickAddRequest={quickAddRequest} onQuickAddHandled={handleQuickAddHandled} onOpenInvoice={handleOpenCostingInvoice} onBackToInvoices={() => handleRootNavigate('costingInvoices')} />;
+        return <CostingPage activeTab={activeTab} userId={currentUser?.uid} workspaceId={activeWorkspaceId} workspaceRole={currentUserRole === 'super_admin' ? 'Owner' : currentWorkspaceRole} invoiceId={selectedCostingInvoiceId} quickAddRequest={quickAddRequest} onQuickAddHandled={handleQuickAddHandled} onOpenInvoice={handleOpenCostingInvoice} onBackToInvoices={() => handleRootNavigate('costingInvoices')} />;
       case 'business':
       case 'businessSales':
       case 'businessSuppliers':
