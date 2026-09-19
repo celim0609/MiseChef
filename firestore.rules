@@ -382,6 +382,17 @@ service cloud.firestore {
         ]);
     }
 
+    function isValidStoreHostProgram(value) {
+      return value is map
+        && value.keys().hasOnly(['enabled', 'rewardPercent', 'minimumQualifyingSales'])
+        && value.enabled is bool
+        && value.rewardPercent is number
+        && value.rewardPercent >= 0
+        && value.rewardPercent <= 100
+        && value.minimumQualifyingSales is number
+        && value.minimumQualifyingSales >= 0;
+    }
+
     function isValidStoreSettings(data, workspaceId, validatePaymentMethods) {
       return data.id == workspaceId
         && data.workspaceId == workspaceId
@@ -1304,7 +1315,8 @@ service cloud.firestore {
         && isWorkspaceOwnerOrManager(workspaceId)
         && ((request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentMethods', 'updatedAt'])
           && hasValidStorePaymentMethods(request.resource.data)) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['delivery', 'deliveryEnabled', 'updatedAt'])
-          && isValidStoreDelivery(request.resource.data.delivery)) || (isValidStoreSettings(
+          && isValidStoreDelivery(request.resource.data.delivery)) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hostProgram', 'updatedAt'])
+          && isValidStoreHostProgram(request.resource.data.hostProgram)) || (isValidStoreSettings(
           request.resource.data,
           workspaceId,
           request.resource.data.diff(resource.data).affectedKeys().hasAny(['paymentMethods'])
