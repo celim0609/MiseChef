@@ -763,6 +763,16 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     sessionStorage.removeItem(checkoutRecoveryKey);
   };
 
+  const closeCheckout = () => {
+    setIsCheckoutOpen(false);
+    setPaymentSession(null);
+    setPlacedOrder(null);
+    setPaymentReturnReconciliation(null);
+    setCheckoutError('');
+    paymentStartRef.current = false;
+    sessionStorage.removeItem(checkoutRecoveryKey);
+  };
+
   const startAddingSet = (set: StoreSet) => {
     if (!data || getStoreSetUnavailableReason(set, data.products)) return;
     const defaults = getDefaultStoreSetSelections(set, data.products);
@@ -1256,7 +1266,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
         <aside ref={checkoutSectionRef} id="customer-order" className={`${isCheckoutOpen ? 'fixed inset-0 z-50 block overflow-y-auto bg-surface p-4 pb-8 lg:mx-auto lg:max-w-[60rem] lg:p-8' : 'hidden'} scroll-mt-24 rounded-3xl border border-surface-container-high bg-white shadow-2xl`}>
           <div className="mb-4 flex items-center justify-between">
             <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Checkout</p>
-            <button type="button" onClick={() => setIsCheckoutOpen(false)} className="rounded-full bg-surface-container p-2 text-primary" aria-label="Close checkout"><X className="h-5 w-5" /></button>
+            <button type="button" onClick={closeCheckout} className="rounded-full bg-surface-container p-2 text-primary" aria-label="Close checkout"><X className="h-5 w-5" /></button>
           </div>
           <div className="flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 font-display text-xl font-bold text-primary"><ShoppingCart className="h-5 w-5" /> Order Summary</h2>

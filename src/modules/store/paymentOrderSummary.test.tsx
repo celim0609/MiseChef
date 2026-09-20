@@ -30,6 +30,16 @@ test('pre-payment pickup summary uses the same selected fulfilment values as che
   assert.match(page, /fulfilmentMethod === 'delivery'.*Delivery Fee/s);
 });
 
+test('closing checkout clears payment progression but retains the cart and checkout selections', () => {
+  const page = readFileSync(new URL('./PublicStorePage.tsx', import.meta.url), 'utf8');
+  assert.match(page, /const closeCheckout = \(\) => \{[\s\S]*setPaymentSession\(null\);[\s\S]*setPlacedOrder\(null\);[\s\S]*setPaymentReturnReconciliation\(null\);/);
+  assert.match(page, /onClick=\{closeCheckout\}[^>]*aria-label="Close checkout"/);
+  assert.match(page, /onBack=\{async \(\) => \{[\s\S]*setPaymentSession\(null\);[\s\S]*setCheckoutError\(''\);/);
+  const closeHandler = page.match(/const closeCheckout = \(\) => \{([\s\S]*?)\n  \};/);
+  assert.ok(closeHandler);
+  assert.doesNotMatch(closeHandler[1], /setCart\(/);
+});
+
 test('Curlec payment CTA uses the immutable summary total and retains its legacy fallback', () => {
   const curlec = readFileSync(new URL('./paymentProviders/curlecClientAdapter.tsx', import.meta.url), 'utf8');
   assert.match(curlec, /session\.orderSummary\.totals\.grandTotal/);
