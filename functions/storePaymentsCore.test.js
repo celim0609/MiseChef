@@ -277,6 +277,15 @@ test('server pricing validates multiple-select limits and snapshots every adjust
   }), /Choose no more than 2 Add-ons options/);
 });
 
+test('server checkout preserves quantity-based multiple selections', () => {
+  const flavorGroup = [{ id: 'flavor', name: 'Flavor', selectionType: 'multiple', required: true, minimumSelections: 4, maximumSelections: 4, available: true, options: [{ id: 'sesame', name: 'Black Sesame Walnut', priceAdjustment: 1, available: true }, { id: 'dubai', name: 'Dubai Chocolate', priceAdjustment: 2, available: true }] }];
+  const flavorProducts = [{ ...products[0], optionGroupIds: ['flavor'] }];
+  const order = buildPendingOrder({ id: 'order-flavor-quantity', orderNumber: 'MC-260726-FLAVOR', store, products: flavorProducts, optionGroups: flavorGroup, paymentProvider: STRIPE_PROVIDER_ID, paymentProviderMode: STRIPE_PROVIDER_MODE, draft: { ...draft, selections: [{ productId: 'breakfast', quantity: 1, selectedOptions: [{ groupId: 'flavor', optionId: 'sesame', quantity: 2 }, { groupId: 'flavor', optionId: 'dubai', quantity: 2 }] }] }, now: new Date('2026-07-26T04:00:00.000Z') });
+  assert.deepEqual(order.items[0].selectedOptions.map(option => [option.optionName, option.quantity]), [['Black Sesame Walnut', 2], ['Dubai Chocolate', 2]]);
+  assert.equal(order.items[0].unitPrice, 11.9);
+  assert.throws(() => buildPendingOrder({ id: 'order-flavor-over', orderNumber: 'MC-260726-FLAVOR2', store, products: flavorProducts, optionGroups: flavorGroup, paymentProvider: STRIPE_PROVIDER_ID, paymentProviderMode: STRIPE_PROVIDER_MODE, draft: { ...draft, selections: [{ productId: 'breakfast', quantity: 1, selectedOptions: [{ groupId: 'flavor', optionId: 'sesame', quantity: 5 }] }] }, now: new Date('2026-07-26T04:00:00.000Z') }), /Choose no more than 4 Flavor options/);
+});
+
 test('server checkout accepts optional add-ons with zero or bounded selections and snapshots authoritative prices', () => {
   const optionalAddons = [{
     id: 'drink',

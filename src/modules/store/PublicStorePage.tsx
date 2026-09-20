@@ -124,7 +124,7 @@ const GroupPickupContext = ({ group, country }: {
 );
 
 const selectionKey = (productId: string, selectedOptions: CartSelection['selectedOptions']) => (
-  `${productId}:${selectedOptions.map(option => `${option.groupId}=${option.optionId}`).sort().join('|')}`
+  `${productId}:${selectedOptions.map(option => `${option.groupId}=${option.optionId}x${option.quantity || 1}`).sort().join('|')}`
 );
 
 const getPaymentActionLabel = (methodId: StorePaymentMethodId) => {
@@ -613,12 +613,12 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     const options = line.selectedOptions.map(selection => {
       const group = optionGroupsById.get(selection.groupId);
       const option = group?.options.find(candidate => candidate.id === selection.optionId);
-      return { group, option };
+      return { group, option, selection };
     });
     const setSelections = line.selectedSetItems || [];
     const setAnalysis = set ? calculateStoreSetAnalysis(set, data?.products || [], setSelections) : null;
     const unitPrice = setAnalysis?.sellingPrice ?? calculateStoreOptionAdjustedPrice(
-      product?.price || 0, options.map(item => item.option?.priceAdjustment || 0)
+      product?.price || 0, options.flatMap(item => Array(item.selection.quantity || 1).fill(item.option?.priceAdjustment || 0))
     );
     const setItems = setSelections.map(selection => ({
       group: set?.groups.find(group => group.id === selection.groupId),
@@ -642,9 +642,11 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   }, [configuredOptions, configuringProduct, optionGroupsById]);
 
   const configuredSelections = useMemo<CartSelection['selectedOptions']>(() => (
-    Object.keys(configuredOptions).flatMap(groupId => (
-      configuredOptions[groupId].map(optionId => ({ groupId, optionId }))
-    ))
+    Object.keys(configuredOptions).flatMap(groupId => Object.entries(
+      configuredOptions[groupId].reduce<Record<string, number>>((counts, optionId) => ({
+        ...counts, [optionId]: (counts[optionId] || 0) + 1
+      }), {})
+    ).map(([optionId, quantity]) => ({ groupId, optionId, ...(Number(quantity) > 1 ? { quantity: Number(quantity) } : {}) })))
   ), [configuredOptions]);
 
   const configuredSelectionError = useMemo(() => {
@@ -672,8 +674,8 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
       const group = optionGroupsById.get(groupId);
       if (!group) return false;
       if (!group.available) return true;
-      const { minimum } = getStoreOptionSelectionLimits(group);
-      return group.options.filter(option => option.available).length >= minimum;
+      const { minimum, maximum } = getStoreOptionSelectionLimits(group);
+      return group.options.some(option => option.available) && minimum <= maximum;
     })
   );
 
@@ -1392,9 +1394,9 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                             {adjustment > 0 && ` (+${formatRegionCurrency(adjustment, store.currency)})`}
                           </p>
                         ))}
-                        {options.map(({ group, option }) => group && option && (
-                          <p key={group.id} className="mt-0.5 font-sans text-[11px] font-bold text-on-surface-variant">
-                            {group.name}: {option.name}
+                        {options.map(({ group, option, selection }) => group && option && (
+                          <p key={`${group.id}-${option.id}`} className="mt-0.5 font-sans text-[11px] font-bold text-on-surface-variant">
+                            {group.name}: {option.name}{(selection.quantity || 1) > 1 && ` x${selection.quantity}`}
                             {option.priceAdjustment !== 0 && ` (${option.priceAdjustment > 0 ? '+' : '−'}${formatRegionCurrency(Math.abs(option.priceAdjustment), store.currency)})`}
                           </p>
                         ))}
@@ -1677,33 +1679,23 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                         </label>
                       )}
                       {availableOptions.map(option => (
-                        <label key={option.id} className="flex cursor-pointer items-center justify-between gap-4 rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3">
+                        <div key={option.id} className="flex items-center justify-between gap-4 rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3">
                           <span className="flex items-center gap-3">
                             {group.selectionType === 'single' ? (
                               <input type="radio" name={group.id} checked={selectedOptionIds.includes(option.id)} onChange={() => setConfiguredOptions(current => ({ ...current, [group.id]: [option.id] }))} className="h-4 w-4 text-primary" />
                             ) : (
-                              <input
-                                type="checkbox"
-                                name={group.id}
-                                checked={selectedOptionIds.includes(option.id)}
-                                disabled={!selectedOptionIds.includes(option.id) && selectedOptionIds.length >= maximum}
-                                onChange={() => setConfiguredOptions(current => {
-                                  const selected = current[group.id] || [];
-                                  return {
-                                    ...current,
-                                    [group.id]: selected.includes(option.id)
-                                      ? selected.filter(id => id !== option.id)
-                                      : [...selected, option.id]
-                                  };
-                                })}
-                                className="h-4 w-4 text-primary disabled:opacity-40"
-                              />
+                              <span className="inline-flex items-center gap-2" aria-label={`${option.name} quantity`}>
+                                <button type="button" aria-label={`Decrease ${option.name}`} disabled={!selectedOptionIds.includes(option.id)} onClick={() => setConfiguredOptions(current => ({ ...current, [group.id]: (current[group.id] || []).filter((id, index, values) => id !== option.id || index !== values.lastIndexOf(option.id)) }))} className="rounded-full bg-white px-2 py-1 font-bold disabled:opacity-30">−</button>
+                                <span className="min-w-4 text-center font-sans text-sm font-extrabold">{selectedOptionIds.filter(id => id === option.id).length}</span>
+                                <button type="button" aria-label={`Increase ${option.name}`} disabled={selectedOptionIds.length >= maximum} onClick={() => setConfiguredOptions(current => ({ ...current, [group.id]: [...(current[group.id] || []), option.id] }))} className="rounded-full bg-white px-2 py-1 font-bold disabled:opacity-30">+</button>
+                              </span>
                             )}
                             <span className="font-sans text-sm font-extrabold text-primary">{option.name}</span>
                           </span>
                           {option.priceAdjustment !== 0 && <span className="font-sans text-xs font-bold text-on-surface-variant">{option.priceAdjustment > 0 ? '+' : '−'}{formatRegionCurrency(Math.abs(option.priceAdjustment), store.currency)}</span>}
-                        </label>
+                        </div>
                       ))}
+                      {group.selectionType === 'multiple' && <p className="font-sans text-xs font-bold text-on-surface-variant">Selected {selectedOptionIds.length} / {maximum}</p>}
                     </div>
                   </fieldset>
                 );

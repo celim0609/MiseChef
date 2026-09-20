@@ -1072,7 +1072,7 @@ export default function StorePage({
                               selectionType: event.target.value === 'multiple' ? 'multiple' : 'single',
                               minimumSelections: Math.min(item.minimumSelections, 1),
                               maximumSelections: event.target.value === 'multiple'
-                                ? Math.max(1, Math.min(item.maximumSelections, Math.max(1, item.options.length)))
+                                ? Math.max(1, item.maximumSelections)
                                 : 1
                             }))} className="mt-1 w-full rounded-xl border border-surface-container-high bg-white px-3 py-2.5 font-sans text-xs font-bold text-primary">
                               <option value="single">Single Select</option>
@@ -1103,7 +1103,7 @@ export default function StorePage({
                           {group.selectionType === 'multiple' && (
                             <label className="block">
                               <span className="font-sans text-[11px] font-extrabold text-primary">Customer can choose up to</span>
-                              <input aria-label={`${group.name || 'Option'} maximum selection`} type="number" min={1} max={Math.max(1, group.options.length)} value={group.maximumSelections} onChange={event => setProductOptions(current => current.map(item => item.id === group.id ? { ...item, maximumSelections: Number(event.target.value) } : item))} className="mt-1 w-full rounded-xl border border-surface-container-high bg-white px-3 py-2.5 font-sans text-xs font-bold text-primary" />
+                              <input aria-label={`${group.name || 'Option'} maximum selection`} type="number" min={1} value={group.maximumSelections} onChange={event => setProductOptions(current => current.map(item => item.id === group.id ? { ...item, maximumSelections: Number(event.target.value) } : item))} className="mt-1 w-full rounded-xl border border-surface-container-high bg-white px-3 py-2.5 font-sans text-xs font-bold text-primary" />
                             </label>
                           )}
                           <div className="flex items-end">

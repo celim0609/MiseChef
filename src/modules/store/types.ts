@@ -349,6 +349,8 @@ export interface CartSelection {
   selectedOptions: Array<{
     groupId: string;
     optionId: string;
+    /** Omitted for legacy single-quantity selections. */
+    quantity?: number;
   }>;
   selectedSetItems?: Array<{
     groupId: string;
@@ -382,6 +384,8 @@ export interface StoreOrderItemOption {
   optionId: string;
   optionName: string;
   priceAdjustment: number;
+  /** Omitted when one, so existing order snapshots remain unchanged. */
+  quantity?: number;
 }
 
 export interface StoreOrderItem {
@@ -639,7 +643,7 @@ export interface StorePaymentOrderSummary {
     productName: string;
     quantity: number;
     lineTotal: number;
-    selectedOptions: Array<{ groupName: string; optionName: string; priceAdjustment: number }>;
+    selectedOptions: Array<{ groupName: string; optionName: string; priceAdjustment: number; quantity?: number }>;
     setSnapshot?: { setName: string; selectedGroups: Array<{ groupName: string; productName: string; priceAdjustment: number }> };
   }>;
   totals: NonNullable<StoreOrder['totals']>;

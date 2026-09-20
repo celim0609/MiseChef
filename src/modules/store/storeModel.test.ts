@@ -407,6 +407,20 @@ test('multiple-select groups enforce required minimum and maximum selections', (
   }], [product], [group]), /Choose no more than 2 Add-ons options/);
 });
 
+test('multiple-select groups support quantities beyond their number of choices', () => {
+  const product = { id: 'box', storeId: 'workspace-my', workspaceId: 'workspace-my', photoUrl: 'https://example.test/box.jpg', name: '4 pcs box', description: '', price: 10, available: true, optionGroupIds: ['flavor'], createdBy: 'owner', createdAt: '2026-07-25T00:00:00.000Z', updatedAt: '2026-07-25T00:00:00.000Z' };
+  const group = normalizeStoreOptionGroup('flavor', { name: 'Flavor', selectionType: 'multiple', required: true, minimumSelections: 4, maximumSelections: 4, available: true, options: [{ id: 'sesame', name: 'Black Sesame Walnut', priceAdjustment: 1, available: true }, { id: 'dubai', name: 'Dubai Chocolate', priceAdjustment: 2, available: true }] });
+  assert.equal(validateStoreOptionGroup({ ...group, sortOrder: 0 }), '');
+  const sameFlavor = buildStoreOrderItems([{ productId: product.id, quantity: 1, selectedOptions: [{ groupId: group.id, optionId: 'sesame', quantity: 4 }] }], [product], [group]);
+  assert.equal(sameFlavor[0].unitPrice, 14);
+  assert.equal(sameFlavor[0].selectedOptions[0].quantity, 4);
+  const mixed = buildStoreOrderItems([{ productId: product.id, quantity: 1, selectedOptions: [{ groupId: group.id, optionId: 'sesame', quantity: 1 }, { groupId: group.id, optionId: 'dubai', quantity: 3 }] }], [product], [group]);
+  assert.equal(mixed[0].unitPrice, 17);
+  assert.equal(mixed[0].selectedOptions[1].quantity, 3);
+  assert.throws(() => buildStoreOrderItems([{ productId: product.id, quantity: 1, selectedOptions: [{ groupId: group.id, optionId: 'sesame', quantity: 3 }] }], [product], [group]), /Choose at least 4 Flavor options/);
+  assert.throws(() => buildStoreOrderItems([{ productId: product.id, quantity: 1, selectedOptions: [{ groupId: group.id, optionId: 'sesame', quantity: 4 }, { groupId: group.id, optionId: 'dubai', quantity: 1 }] }], [product], [group]), /Choose no more than 4 Flavor options/);
+});
+
 test('optional and unavailable option groups do not require a customer selection', () => {
   const product = {
     id: 'coffee',

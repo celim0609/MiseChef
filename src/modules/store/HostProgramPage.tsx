@@ -272,7 +272,7 @@ export default function HostProgramPage({ slug, currentUser }: { slug: string; c
                     <div key={`${order.id}-${itemIndex}`} className="rounded-xl bg-surface-container-low p-3">
                       <p className="font-sans text-sm font-extrabold text-primary">{item.quantity} × {item.productName}</p>
                       {item.setSelections.map((selection, selectionIndex) => <p key={`${order.id}-set-${itemIndex}-${selectionIndex}`} className="mt-1 font-sans text-xs font-bold text-on-surface-variant">{selection.groupName}: {selection.productName}</p>)}
-                      {item.selectedOptions.map((option, optionIndex) => <p key={`${order.id}-option-${itemIndex}-${optionIndex}`} className="mt-1 font-sans text-xs font-bold text-on-surface-variant">{option.groupName}: {option.optionName}</p>)}
+                      {item.selectedOptions.map((option, optionIndex) => <p key={`${order.id}-option-${itemIndex}-${optionIndex}`} className="mt-1 font-sans text-xs font-bold text-on-surface-variant">{option.groupName}: {option.optionName}{option.quantity && option.quantity > 1 ? ` x${option.quantity}` : ''}</p>)}
                     </div>
                   ))}</div>
                   {order.remarks && <p className="mt-3 rounded-xl border border-surface-container-high px-3 py-2 font-sans text-xs font-bold text-on-surface-variant"><span className="font-extrabold text-primary">Remark:</span> {order.remarks}</p>}

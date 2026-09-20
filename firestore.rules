@@ -670,7 +670,6 @@ service cloud.firestore {
         && data.options is list
         && data.options.size() > 0
         && data.options.size() <= 20
-        && data.maximumSelections <= data.options.size()
         && hasValidStoreOptions(data.options)
         && data.createdBy is string
         && data.createdAt is string

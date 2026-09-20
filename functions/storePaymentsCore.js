@@ -297,14 +297,16 @@ export const buildOrderItems = (selections, products, optionGroups, sets = []) =
       ? group.maximumSelections
       : Math.max(1, Array.isArray(group.options) ? group.options.length : 1);
     const maximumSelections = selectionType === 'single' ? 1 : configuredMaximum;
-    if (groupChoices.length < minimumSelections) {
+    const quantities = groupChoices.map(choice => Number.isInteger(choice.quantity) ? choice.quantity : 1);
+    if (quantities.some(quantity => quantity < 1)) {
+      throw new Error(`Choose a valid quantity for each ${readString(group.name) || 'option'} option.`);
+    }
+    const totalQuantity = quantities.reduce((sum, quantity) => sum + quantity, 0);
+    if (totalQuantity < minimumSelections) {
       throw new Error(`Choose at least ${minimumSelections} ${readString(group.name) || 'option'} option${minimumSelections === 1 ? '' : 's'} for ${readString(product.name) || 'this product'}.`);
     }
-    if (groupChoices.length > maximumSelections) {
+    if (totalQuantity > maximumSelections) {
       throw new Error(`Choose no more than ${maximumSelections} ${readString(group.name) || 'option'} option${maximumSelections === 1 ? '' : 's'} for ${readString(product.name) || 'this product'}.`);
-    }
-    if (new Set(groupChoices.map(choice => readString(choice.optionId))).size !== groupChoices.length) {
-      throw new Error(`Choose each ${readString(group.name) || 'option'} option only once.`);
     }
     return groupChoices.map(choice => {
       const option = (Array.isArray(group.options) ? group.options : [])
@@ -317,7 +319,8 @@ export const buildOrderItems = (selections, products, optionGroups, sets = []) =
         groupName: readString(group.name),
         optionId: option.id,
         optionName: readString(option.name),
-        priceAdjustment: readNumber(option.priceAdjustment)
+        priceAdjustment: readNumber(option.priceAdjustment),
+        ...(Number.isInteger(choice.quantity) && choice.quantity > 1 ? { quantity: choice.quantity } : {})
       };
     });
   });
@@ -329,7 +332,7 @@ export const buildOrderItems = (selections, products, optionGroups, sets = []) =
   const basePrice = roundMoney(Math.max(0, readNumber(product.price)));
   const unitPrice = roundMoney(Math.max(
     0,
-    basePrice + selectedOptions.reduce((sum, option) => sum + option.priceAdjustment, 0)
+    basePrice + selectedOptions.reduce((sum, option) => sum + option.priceAdjustment * (option.quantity || 1), 0)
   ));
   return {
     itemType: 'product',
@@ -493,7 +496,7 @@ export const toPublicPaymentOrderSummary = order => {
     if (!readString(item?.productName) || !Number.isInteger(quantity) || quantity < 1 || !Number.isFinite(lineTotal) || lineTotal < 0) return null;
     const selectedOptions = Array.isArray(item.selectedOptions) ? item.selectedOptions.flatMap(option => (
       readString(option?.groupName) && readString(option?.optionName) && Number.isFinite(option?.priceAdjustment)
-        ? [{ groupName: readString(option.groupName), optionName: readString(option.optionName), priceAdjustment: option.priceAdjustment }]
+        ? [{ groupName: readString(option.groupName), optionName: readString(option.optionName), priceAdjustment: option.priceAdjustment, ...(Number.isInteger(option.quantity) && option.quantity > 1 ? { quantity: option.quantity } : {}) }]
         : []
     )) : [];
     const selectedGroups = Array.isArray(item?.setSnapshot?.selectedGroups) ? item.setSnapshot.selectedGroups.flatMap(selection => (
