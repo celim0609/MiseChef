@@ -1428,6 +1428,12 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                 {fulfilmentMethod === 'delivery' && <div className="flex justify-between gap-3"><dt>Delivery Fee</dt><dd className="text-primary">{hasDisplayableDeliveryQuote ? formatRegionCurrency(customerDeliveryFee, store.currency) : 'Calculating…'}</dd></div>}
                 <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold text-primary"><dt>Total</dt><dd>{fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Pending delivery fee' : formatRegionCurrency(checkoutTotal, store.currency)}</dd></div>
                 </dl>
+                {fulfilmentMethod === 'pickup' && selectedPickupLocation && <dl aria-label="Pickup Details" className="mt-4 space-y-1 rounded-xl bg-surface-container-low p-3 font-sans text-sm font-bold text-primary">
+                  <dt className="text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup Details</dt>
+                  <div><dt className="inline text-on-surface-variant">Location: </dt><dd className="inline">{selectedPickupLocation.name}</dd></div>
+                  <div><dt className="inline text-on-surface-variant">Date: </dt><dd className="inline">{formatPickupDateLabel(pickupDate, store.country)}</dd></div>
+                  <div><dt className="inline text-on-surface-variant">Time: </dt><dd className="inline">{formatPickupTimeLabel(pickupTime, store.country)}</dd></div>
+                </dl>}
               </div>
               </section>
 

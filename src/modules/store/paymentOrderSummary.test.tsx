@@ -20,6 +20,16 @@ test('pickup order summary omits the delivery fee row', () => {
   assert.doesNotMatch(html, /Delivery fee|Discount/);
 });
 
+test('pre-payment pickup summary uses the same selected fulfilment values as checkout payload', () => {
+  const page = readFileSync(new URL('./PublicStorePage.tsx', import.meta.url), 'utf8');
+  assert.match(page, /aria-label="Pickup Details"/);
+  assert.match(page, /Location:.*selectedPickupLocation\.name/s);
+  assert.match(page, /Date:.*formatPickupDateLabel\(pickupDate, store\.country\)/s);
+  assert.match(page, /Time:.*formatPickupTimeLabel\(pickupTime, store\.country\)/s);
+  assert.match(page, /pickupDate,\s*pickupTime,\s*pickupSession,\s*pickupLocationId/s);
+  assert.match(page, /fulfilmentMethod === 'delivery'.*Delivery Fee/s);
+});
+
 test('Curlec payment CTA uses the immutable summary total and retains its legacy fallback', () => {
   const curlec = readFileSync(new URL('./paymentProviders/curlecClientAdapter.tsx', import.meta.url), 'utf8');
   assert.match(curlec, /session\.orderSummary\.totals\.grandTotal/);
