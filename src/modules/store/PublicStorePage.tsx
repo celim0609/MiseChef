@@ -764,11 +764,35 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   };
 
   const closeCheckout = () => {
+    const initialPickupDate = groupOrder?.pickupDate || (data ? getValidPickupDates(data.store).find(date => getPickupTimeSlots(data.store, date).length > 0) || '' : '');
+    const store = data?.store;
     setIsCheckoutOpen(false);
     setPaymentSession(null);
     setPlacedOrder(null);
     setPaymentReturnReconciliation(null);
+    setFulfilmentMethod('pickup');
+    setPickupDate(initialPickupDate);
+    setPickupTime(groupOrder ? '' : (store ? getPickupTimeSlots(store, initialPickupDate)[0] || '' : ''));
+    setPickupSession(groupOrder?.pickupSession || store?.pickupSessions[0] || '');
+    setPickupLocationId(groupOrder?.pickupLocationId || store?.pickupLocations[0]?.id || '');
+    setDeliveryMode('preorder');
+    setDeliveryDate(store?.delivery?.fulfilment.preOrder.enabled ? getValidPickupDates({ ...store, orderDays: store.delivery.fulfilment.preOrder.orderDays, earliestPickupDays: store.delivery.fulfilment.preOrder.earliestDays, maximumAdvanceDays: store.delivery.fulfilment.preOrder.maximumAdvanceDays, unavailableDates: store.delivery.fulfilment.preOrder.unavailableDates })[0] || '' : '');
+    setDeliveryTime(store?.delivery?.fulfilment.preOrder.deliveryHours.from || '');
+    deliveryQuoteRequestRef.current += 1;
+    setDeliveryAddressQuery('');
+    setDeliveryAddress('');
+    setDeliveryLatitude('');
+    setDeliveryLongitude('');
+    setDeliveryUnit('');
+    setDeliveryInstructions('');
+    setDeliverySuggestions([]);
+    setDeliveryAddressError('');
+    setDeliveryQuote(null);
+    setDeliveryPriceConfirmation(null);
+    setNotes('');
+    setPaymentMethodId(store?.paymentMethods.find(method => method.enabled && method.id !== 'cash_on_pickup')?.id || 'stripe');
     setCheckoutError('');
+    checkoutAttemptIdRef.current = crypto.randomUUID();
     paymentStartRef.current = false;
     sessionStorage.removeItem(checkoutRecoveryKey);
   };
@@ -1370,6 +1394,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                 storeSlug={store.slug}
                 storeName={store.name}
                 storeWhatsApp={storeWhatsApp}
+                country={store.country}
                 returnUrl={(() => {
                   const url = new URL(paymentReturnUrl);
                   url.searchParams.set('payment_provider', paymentSession.provider);

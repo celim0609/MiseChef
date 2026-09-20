@@ -127,6 +127,18 @@ test('intermediate payment summary projects only immutable order pricing and cus
   assert.equal(toPublicPaymentOrderSummary({ fulfilmentMethod: 'pickup', items: order.items }), null);
 });
 
+test('pickup payment summary includes fulfilment details from the pending order snapshot', () => {
+  const summary = toPublicPaymentOrderSummary({
+    fulfilmentMethod: 'pickup',
+    pickupLocationName: 'Bercham',
+    pickupDate: '2026-09-21',
+    pickupTime: '14:30',
+    items: [{ productName: 'Testing', quantity: 1, lineTotal: 10, selectedOptions: [] }],
+    totals: { merchandiseSubtotal: 10, discountTotal: 0, discountedMerchandiseTotal: 10, deliveryFee: 0, grandTotal: 10, currency: 'MYR' }
+  });
+  assert.deepEqual(summary?.pickupDetails, { locationName: 'Bercham', date: '2026-09-21', time: '14:30' });
+});
+
 test('payment-session response includes the immutable order summary only when its snapshot is complete', () => {
   assert.match(paymentService, /const orderSummary = toPublicPaymentOrderSummary\(order\)/);
   assert.match(paymentService, /\.\.\.\(orderSummary \? \{ orderSummary \} : \{\}\)/);

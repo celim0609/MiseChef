@@ -547,6 +547,13 @@ export const toPublicPaymentOrderSummary = order => {
   if (items.some(item => item === null)) return null;
   return {
     fulfilmentMethod,
+    ...(fulfilmentMethod === 'pickup' ? {
+      pickupDetails: {
+        locationName: readString(order.pickupLocationName),
+        date: readString(order.pickupDate),
+        time: readString(order.pickupTime)
+      }
+    } : {}),
     items,
     totals: {
       merchandiseSubtotal: totals.merchandiseSubtotal,

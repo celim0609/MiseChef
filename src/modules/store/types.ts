@@ -643,6 +643,12 @@ export interface PublicOrderGroupContext {
 
 export interface StorePaymentOrderSummary {
   fulfilmentMethod: 'pickup' | 'delivery';
+  /** Fulfilment values from the server-created pending-order snapshot. */
+  pickupDetails?: {
+    locationName: string;
+    date: string;
+    time: string;
+  };
   items: Array<{
     productName: string;
     quantity: number;
