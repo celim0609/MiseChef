@@ -366,6 +366,7 @@ service cloud.firestore {
           'pickupEnabled',
           'deliveryEnabled',
           'delivery',
+          'pickupOperatingHours',
           'pickupSessions',
           'pickupLocations',
           'orderDays',
@@ -393,6 +394,16 @@ service cloud.firestore {
         && value.minimumQualifyingSales >= 0;
     }
 
+    function isValidPickupOperatingHours(value) {
+      return value is map
+        && value.keys().hasOnly(['start', 'end'])
+        && value.start is string
+        && value.start.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && value.end is string
+        && value.end.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+        && value.start < value.end;
+    }
+
     function isValidStoreSettings(data, workspaceId, validatePaymentMethods) {
       return data.id == workspaceId
         && data.workspaceId == workspaceId
@@ -416,6 +427,7 @@ service cloud.firestore {
         && data.pickupEnabled is bool
         && data.deliveryEnabled is bool
         && (!('delivery' in data) || isValidStoreDelivery(data.delivery))
+        && (!('pickupOperatingHours' in data) || isValidPickupOperatingHours(data.pickupOperatingHours))
         && data.pickupSessions is list
         && data.pickupSessions.size() <= 20
         && data.pickupLocations is list
@@ -1317,7 +1329,8 @@ service cloud.firestore {
           && isValidStoreDelivery(request.resource.data.delivery)) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hostProgram', 'updatedAt'])
           && isValidStoreHostProgram(request.resource.data.hostProgram)) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unavailableDates', 'updatedAt'])
           && request.resource.data.unavailableDates is list
-          && request.resource.data.unavailableDates.size() <= 60) || (isValidStoreSettings(
+          && request.resource.data.unavailableDates.size() <= 60) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pickupOperatingHours', 'updatedAt'])
+          && isValidPickupOperatingHours(request.resource.data.pickupOperatingHours)) || (isValidStoreSettings(
           request.resource.data,
           workspaceId,
           request.resource.data.diff(resource.data).affectedKeys().hasAny(['paymentMethods'])

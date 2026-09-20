@@ -23,7 +23,7 @@ const buildOrder = ({ customerUid = '', groupOrder = null, spoofedUid = '' } = {
   customerUid,
   groupOrder,
   draft: {
-    customerName: 'Customer', phone: '+60123456789', pickupDate: '2026-08-29', pickupSession: '9:00 AM',
+    customerName: 'Customer', phone: '+60123456789', pickupDate: '2026-08-29', pickupTime: '09:30', pickupSession: '9:00 AM',
     pickupLocationId: 'counter', notes: '', selections: [{ productId: 'meal', quantity: 1, selectedOptions: [] }],
     customerUid: spoofedUid
   },

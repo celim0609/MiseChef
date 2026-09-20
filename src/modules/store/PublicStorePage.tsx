@@ -34,8 +34,10 @@ import {
   calculateStoreOptionAdjustedPrice,
   formatStoreOptionSelectionRequirement,
   formatPickupDateLabel,
+  formatPickupTimeLabel,
   getStoreOptionSelectionLimits,
   getStorePaymentMethodLabel,
+  getPickupTimeSlots,
   getValidPickupDates,
   storePaymentMethodRequiresReceipt,
   validateStoreProductOptionSelections
@@ -164,6 +166,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const [phone, setPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [pickupDate, setPickupDate] = useState('');
+  const [pickupTime, setPickupTime] = useState('');
   const [pickupSession, setPickupSession] = useState('');
   const [pickupLocationId, setPickupLocationId] = useState('');
   const [fulfilmentMethod, setFulfilmentMethod] = useState<'pickup' | 'delivery'>('pickup');
@@ -284,7 +287,9 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
       .then(storeData => {
         if (isCancelled) return;
         setData(storeData);
-        setPickupDate(groupOrder?.pickupDate || (storeData ? getValidPickupDates(storeData.store)[0] || '' : ''));
+        const initialPickupDate = groupOrder?.pickupDate || (storeData ? getValidPickupDates(storeData.store).find(date => getPickupTimeSlots(storeData.store, date).length > 0) || '' : '');
+        setPickupDate(initialPickupDate);
+        setPickupTime(groupOrder ? '' : (storeData ? getPickupTimeSlots(storeData.store, initialPickupDate)[0] || '' : ''));
         setPickupSession(groupOrder?.pickupSession || storeData?.store.pickupSessions[0] || '');
         setPickupLocationId(groupOrder?.pickupLocationId || storeData?.store.pickupLocations[0]?.id || '');
         const preOrder = storeData?.store.delivery?.fulfilment.preOrder;
@@ -728,6 +733,10 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     () => data ? getValidPickupDates(data.store) : [],
     [data]
   );
+  const pickupDatesWithTimes = useMemo(
+    () => data ? validPickupDates.filter(date => getPickupTimeSlots(data.store, date).length > 0) : [],
+    [data, validPickupDates]
+  );
   const selectedPickupLocation = data?.store.pickupLocations.find(
     location => location.id === pickupLocationId
   );
@@ -839,6 +848,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
         checkoutAttemptId: checkoutAttemptIdRef.current,
         ...(customerEmail.trim() ? { customerEmail: customerEmail.trim() } : {}),
         pickupDate,
+        pickupTime,
         pickupSession,
         pickupLocationId,
         ...(fulfilmentMethod === 'delivery' && quoteForPayment ? { deliveryQuoteId: quoteForPayment.quote.quotationId, deliveryPricingSnapshotId: quoteForPayment.pricingSnapshotId, fulfilmentMode: deliveryMode, ...(deliveryMode === 'preorder' ? { deliveryDate, deliveryTime } : {}), destination: { formattedAddress: quoteForPayment.destination.address, latitude: quoteForPayment.destination.latitude, longitude: quoteForPayment.destination.longitude, deliveryInstructions: deliveryRemarks } } : {}),
@@ -1012,8 +1022,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     : '/login';
   const canOrderPickup = store.pickupEnabled
     && store.pickupLocations.length > 0
-    && store.pickupSessions.length > 0
-    && validPickupDates.length > 0
+    && (groupOrder ? validPickupDates.length > 0 : pickupDatesWithTimes.length > 0)
     && (!groupOrder || groupOrder.status === 'open');
   const hostPath = `/host/${encodeURIComponent(store.slug)}`;
   const hostEntryHref = currentUser ? hostPath : `/login?returnTo=${encodeURIComponent(hostPath)}`;
@@ -1260,7 +1269,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
 
           {!canOrderPickup && (
             <p className="mt-5 rounded-2xl bg-surface-container-low p-4 font-sans text-sm font-bold text-on-surface-variant">
-              {store.pickupEnabled && store.pickupLocations.length > 0 && store.pickupSessions.length > 0
+              {store.pickupEnabled && store.pickupLocations.length > 0
                 ? 'No pickup dates are currently available.'
                 : 'This Store is currently browse-only. Pickup ordering is not available.'}
             </p>
@@ -1305,7 +1314,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                 {placedOrder.pickupCode && <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Code</dt><dd className="mt-0.5 font-display text-2xl font-bold tracking-[0.18em]">{placedOrder.pickupCode}</dd></div>}
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Date</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{formatPickupDateLabel(placedOrder.pickupDate, store.country)}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Location</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupLocationName}</dd></div>
-                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Time</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupSession}</dd></div>
+                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Time</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupTime ? formatPickupTimeLabel(placedOrder.pickupTime, store.country) : placedOrder.pickupSession}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Order Status</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{confirmationCopy?.statusLabel}</dd></div>
                 {placedOrder.paymentStatus === 'paid' && <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Amount Paid</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{formatRegionCurrency(placedOrder.total, placedOrder.currency)}</dd></div>}
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Payment Method</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.paymentMethodName}</dd></div>
@@ -1511,10 +1520,17 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                   <div className="mt-2 space-y-2">
                     <label className="block">
                       <span className="font-sans text-xs font-extrabold text-primary">Date</span>
-                      <select aria-label="Pickup date" required disabled={Boolean(groupOrder)} value={pickupDate} onChange={event => setPickupDate(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary disabled:opacity-70">
-                        {validPickupDates.map(date => <option key={date} value={date}>{formatPickupDateLabel(date, store.country)}</option>)}
+                      <select aria-label="Pickup date" required disabled={Boolean(groupOrder)} value={pickupDate} onChange={event => { const date = event.target.value; setPickupDate(date); setPickupTime(getPickupTimeSlots(store, date)[0] || ''); }} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary disabled:opacity-70">
+                        {(groupOrder ? validPickupDates : pickupDatesWithTimes).map(date => <option key={date} value={date}>{formatPickupDateLabel(date, store.country)}</option>)}
                       </select>
                     </label>
+                    {!groupOrder && <label className="block">
+                      <span className="font-sans text-xs font-extrabold text-primary">Time</span>
+                      <select aria-label="Pickup time" required value={pickupTime} onChange={event => setPickupTime(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                        <option value="">Choose a pickup time</option>
+                        {getPickupTimeSlots(store, pickupDate).map(time => <option key={time} value={time}>{formatPickupTimeLabel(time, store.country)}</option>)}
+                      </select>
+                    </label>}
                     <label className="block">
                       <span className="font-sans text-xs font-extrabold text-primary">Location</span>
                       <select aria-label="Pickup location" required disabled={Boolean(groupOrder)} value={pickupLocationId} onChange={event => setPickupLocationId(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary disabled:opacity-70">
@@ -1527,12 +1543,12 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                         <div><p>{selectedPickupLocation.address}</p>{selectedPickupLocation.notes && <p className="mt-1">{selectedPickupLocation.notes}</p>}</div>
                       </div>
                     )}
-                    <label className="block">
+                    {groupOrder && <label className="block">
                       <span className="font-sans text-xs font-extrabold text-primary">Session</span>
                       <select aria-label="Pickup session" required disabled={Boolean(groupOrder)} value={pickupSession} onChange={event => setPickupSession(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary disabled:opacity-70">
                         {store.pickupSessions.map(session => <option key={session} value={session}>{session}</option>)}
                       </select>
-                    </label>
+                    </label>}
                   </div>
                 </section>}
 

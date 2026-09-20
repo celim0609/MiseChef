@@ -134,6 +134,54 @@ const readMaximumAdvanceDays = (value: unknown): 7 | 14 | 30 => (
   value === 7 || value === 30 ? value : 14
 );
 
+const validTime = (value: unknown, fallback: string) => (
+  /^([01]\d|2[0-3]):[0-5]\d$/.test(readString(value)) ? readString(value) : fallback
+);
+
+export const getPickupOperatingHours = (store: Partial<Pick<WorkspaceStore, 'pickupOperatingHours'>>) => ({
+  start: validTime(store.pickupOperatingHours?.start, '09:00'),
+  end: validTime(store.pickupOperatingHours?.end, '21:00')
+});
+
+const pickupMinutes = (time: string) => {
+  const [hour, minute] = time.split(':').map(Number);
+  return hour * 60 + minute;
+};
+
+const regionalTime = (date: Date, country?: unknown) => {
+  const region = getWorkspaceRegionConfiguration({ country });
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en', {
+    timeZone: region.timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(date).map(part => [part.type, part.value]));
+  return `${parts.hour}:${parts.minute}`;
+};
+
+export const getPickupTimeSlots = (
+  store: Partial<Pick<WorkspaceStore, 'pickupOperatingHours' | 'country'>>,
+  pickupDate: string,
+  currentDate = new Date()
+) => {
+  const hours = getPickupOperatingHours(store);
+  const start = pickupMinutes(hours.start);
+  const end = pickupMinutes(hours.end);
+  if (start > end) return [];
+  const today = toDateKey(toRegionDateCursor(currentDate, getWorkspaceRegionConfiguration(store).timeZone));
+  const currentMinutes = pickupMinutes(regionalTime(currentDate, store.country));
+  const slots: string[] = [];
+  for (let value = start; value <= end; value += 30) {
+    if (pickupDate !== today || value > currentMinutes) {
+      slots.push(`${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`);
+    }
+  }
+  return slots;
+};
+
+export const formatPickupTimeLabel = (time: string, country?: unknown) => {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return 'Pickup time unavailable';
+  return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', hour: 'numeric', minute: '2-digit' })
+    .format(new Date(`2000-01-01T${time}:00Z`));
+};
+
 const toRegionDateCursor = (date: Date, timeZone: string) => {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat('en', {
@@ -232,6 +280,7 @@ export const createDefaultWorkspaceStore = (
     pickupEnabled: false,
     deliveryEnabled: false,
     delivery: createDefaultStoreDelivery(),
+    pickupOperatingHours: { start: '09:00', end: '21:00' },
     pickupSessions: [],
     pickupLocations: [],
     orderDays: [...DEFAULT_STORE_ORDER_DAYS],
@@ -270,6 +319,7 @@ export const normalizeWorkspaceStore = (
     businessHours: readString(data.businessHours, DEFAULT_STORE_BUSINESS_HOURS),
     pickupEnabled: readBoolean(data.pickupEnabled),
     deliveryEnabled: readBoolean(data.deliveryEnabled),
+    pickupOperatingHours: getPickupOperatingHours({ pickupOperatingHours: data.pickupOperatingHours as WorkspaceStore['pickupOperatingHours'] }),
     delivery: (() => {
       const raw = data.delivery && typeof data.delivery === 'object' ? data.delivery as Record<string, unknown> : {};
       const pickup = raw.pickup && typeof raw.pickup === 'object' ? raw.pickup as Record<string, unknown> : {};
@@ -369,6 +419,7 @@ export const validateStoreSettings = (
     if (delivery.subsidy.minimumMerchandiseSpend < 0 || delivery.subsidy.maximumCustomerDeliveryCharge < 0) return 'Delivery subsidy values cannot be negative.';
   }
   const pickupSessions = draft.pickupSessions.map(session => session.trim()).filter(Boolean);
+  const pickupOperatingHours = getPickupOperatingHours(draft);
   if (!draft.name.trim()) return 'Store name is required.';
   if (draft.name.trim().length > 120) return 'Store name must be 120 characters or fewer.';
   if (draft.description.trim().length > 1200) return 'Description must be 1,200 characters or fewer.';
@@ -397,6 +448,7 @@ export const validateStoreSettings = (
     }
   })) return 'Enter complete http:// or https:// links for Store social profiles and website.';
   if (draft.businessHours.trim().length > 300) return 'Business hours must be 300 characters or fewer.';
+  if (pickupOperatingHours.start >= pickupOperatingHours.end) return 'Set valid pickup operating hours.';
   if (pickupSessions.length > 20) return 'Use 20 pickup sessions or fewer.';
   if (pickupSessions.some(session => session.length > 80)) {
     return 'Each pickup session must be between 1 and 80 characters.';
@@ -533,7 +585,7 @@ export const validateStoreOptionGroup = (draft: StoreOptionGroupDraft) => {
 
 export const validateStoreOrder = (
   draft: StoreOrderDraft,
-  store: Pick<WorkspaceStore, 'pickupEnabled' | 'pickupSessions' | 'pickupLocations' | 'orderDays' | 'earliestPickupDays' | 'maximumAdvanceDays' | 'unavailableDates' | 'country'>,
+  store: Pick<WorkspaceStore, 'pickupEnabled' | 'pickupSessions' | 'pickupLocations' | 'pickupOperatingHours' | 'orderDays' | 'earliestPickupDays' | 'maximumAdvanceDays' | 'unavailableDates' | 'country'>,
   currentDate = new Date()
 ) => {
   if (!store.pickupEnabled) return 'Pickup ordering is not available.';
@@ -545,7 +597,8 @@ export const validateStoreOrder = (
   if (!draft.pickupDate) return 'Pickup date is required.';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.pickupDate)) return 'Choose a valid pickup date.';
   if (!getValidPickupDates(store, currentDate).includes(draft.pickupDate)) return 'Choose an available pickup date.';
-  if (!store.pickupSessions.includes(draft.pickupSession)) return 'Choose a valid pickup session.';
+  if (!draft.pickupTime) return 'Pickup time is required.';
+  if (!getPickupTimeSlots(store, draft.pickupDate, currentDate).includes(draft.pickupTime)) return 'Choose a valid pickup time.';
   if (!store.pickupLocations.some(location => location.id === draft.pickupLocationId)) return 'Choose a valid pickup location.';
   if (draft.notes.trim().length > 500) return 'Notes must be 500 characters or fewer.';
   if (draft.selections.length === 0) return 'Your cart is empty.';

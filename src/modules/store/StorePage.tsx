@@ -128,6 +128,7 @@ const toSettingsDraft = (store: WorkspaceStore): StoreSettingsDraft => ({
   pickupEnabled: store.pickupEnabled,
   deliveryEnabled: store.deliveryEnabled,
   ...(store.delivery ? { delivery: { ...store.delivery, pickup: { ...store.delivery.pickup } } } : {}),
+  pickupOperatingHours: { ...(store.pickupOperatingHours || { start: '09:00', end: '21:00' }) },
   pickupSessions: [...store.pickupSessions],
   pickupLocations: store.pickupLocations.map(location => ({ ...location })),
   orderDays: [...store.orderDays],
@@ -1307,6 +1308,17 @@ export default function StorePage({
 
       {activeView === 'settings' && (
         <form onSubmit={handlePickupSave} role="tabpanel" id="store-settings-panel-pickup-delivery" aria-labelledby="store-settings-tab-pickup-delivery" hidden={settingsTab !== 'pickup-delivery'} className="space-y-8">
+          <section>
+            <div>
+              <h2 className="font-display text-2xl font-bold text-primary">Pickup operating hours</h2>
+              <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Customers choose a pickup time in 30-minute intervals.</p>
+            </div>
+            <div className="mt-5 grid gap-3 rounded-3xl bg-white p-5 shadow-sm sm:grid-cols-2 sm:p-6">
+              <label><span className="font-sans text-xs font-extrabold text-primary">Pickup Start Time</span><input aria-label="Pickup Start Time" type="time" step="1800" value={settingsDraft.pickupOperatingHours?.start || '09:00'} onChange={event => updateSettings('pickupOperatingHours', { ...(settingsDraft.pickupOperatingHours || { start: '09:00', end: '21:00' }), start: event.target.value })} className="mt-2 min-h-12 w-full rounded-2xl bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none" /></label>
+              <label><span className="font-sans text-xs font-extrabold text-primary">Pickup End Time</span><input aria-label="Pickup End Time" type="time" step="1800" value={settingsDraft.pickupOperatingHours?.end || '21:00'} onChange={event => updateSettings('pickupOperatingHours', { ...(settingsDraft.pickupOperatingHours || { start: '09:00', end: '21:00' }), end: event.target.value })} className="mt-2 min-h-12 w-full rounded-2xl bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none" /></label>
+            </div>
+          </section>
+
           <section>
             <div className="flex items-end justify-between gap-4">
               <div>

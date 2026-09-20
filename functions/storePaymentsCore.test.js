@@ -7,7 +7,9 @@ import {
   getEnabledStorePaymentMethod,
   getMalaysiaBusinessDateKey,
   getPickupCodeFromOrderNumber,
-  PAYMENT_STATUS
+  getPickupTimeSlots,
+  PAYMENT_STATUS,
+  toPublicOrderResult
 } from './storePaymentsCore.js';
 import {
   mapStripePaymentStatus,
@@ -26,6 +28,7 @@ const store = {
   country: 'MY',
   currency: 'MYR',
   pickupEnabled: true,
+  pickupOperatingHours: { start: '10:00', end: '18:00' },
   pickupSessions: ['Breakfast'],
   pickupLocations: [{
     id: 'counter',
@@ -58,6 +61,7 @@ const draft = {
   customerName: 'Guest',
   phone: '+60123456789',
   pickupDate: '2026-07-27',
+  pickupTime: '10:00',
   pickupSession: 'Breakfast',
   pickupLocationId: 'counter',
   notes: '',
@@ -89,6 +93,7 @@ test('single-merchant order is priced from server products and stores provider-n
   assert.equal(order.payment.status, PAYMENT_STATUS.pending);
   assert.equal(order.status, 'Awaiting Payment');
   assert.equal(order.fulfilmentStatus, 'New');
+  assert.equal(order.pickupTime, '10:00');
   assert.equal(order.orderSource, 'online');
   assert.equal(order.items[0].productName, 'Breakfast Set');
   assert.equal(order.items[0].selectedOptions[0].optionName, 'No Drink');
@@ -417,8 +422,33 @@ test('payment providers are selected outside the order and cart UX data', () => 
     'pickupDate',
     'pickupLocationId',
     'pickupSession',
+    'pickupTime',
     'selections'
   ]);
+});
+
+test('pickup time slots use 30-minute operating-hour intervals and reject invalid or past times', () => {
+  const current = new Date('2026-07-27T05:15:00.000Z'); // 1:15 PM Malaysia
+  assert.deepEqual(getPickupTimeSlots(store, '2026-07-28', current), [
+    '10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00', '17:30', '18:00'
+  ]);
+  assert.deepEqual(getPickupTimeSlots(store, '2026-07-27', current).slice(0, 2), ['13:30', '14:00']);
+  assert.throws(() => buildPendingOrder({
+    id: 'outside-hours', orderNumber: 'MC-260727-TIME1', store, products, optionGroups,
+    paymentProvider: STRIPE_PROVIDER_ID, paymentProviderMode: STRIPE_PROVIDER_MODE,
+    draft: { ...draft, pickupTime: '18:30' }, now: new Date('2026-07-26T04:00:00.000Z')
+  }), /pickup time/);
+  assert.throws(() => buildPendingOrder({
+    id: 'missing-time', orderNumber: 'MC-260727-TIME2', store, products, optionGroups,
+    paymentProvider: STRIPE_PROVIDER_ID, paymentProviderMode: STRIPE_PROVIDER_MODE,
+    draft: { ...draft, pickupTime: '' }, now: new Date('2026-07-26T04:00:00.000Z')
+  }), /pickup time/);
+});
+
+test('historical pickup orders without a pickup time remain serializable', () => {
+  const result = toPublicOrderResult({ orderNumber: 'MC-0901-ABCD', pickupCode: 'ABCD', storeName: 'Store', currency: 'MYR', paymentMethodName: 'Stripe', pickupDate: '2026-09-01', pickupSession: 'Lunch', pickupLocationName: 'Counter', total: 10, status: 'Paid', payment: { status: 'paid' } });
+  assert.equal(result.pickupTime, '');
+  assert.equal(result.pickupSession, 'Lunch');
 });
 
 test('Phase 1 accepts only the configured Ce Lim Kitchen workspace id, never its display name', () => {
