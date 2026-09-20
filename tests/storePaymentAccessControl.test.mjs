@@ -439,6 +439,14 @@ test('Owner can persist an optional option group while Workspace isolation remai
   assert.equal(persisted.minimumSelections, 0);
   assert.equal(persisted.maximumSelections, 3);
 
+  await assertSucceeds(ownerA.firestore().doc('storeOptionGroups/quantity-flavors').set({
+    ...createOptionalGroupRecord('quantity-flavors'),
+    required: true,
+    minimumSelections: 4,
+    maximumSelections: 4,
+    options: createOptionalGroupRecord('quantity-flavors').options.slice(0, 2)
+  }));
+
   await assertFails(memberA.firestore().doc('storeOptionGroups/member-addons').set(
     createOptionalGroupRecord('member-addons', 'member-a')
   ));

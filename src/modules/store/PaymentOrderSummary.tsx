@@ -10,7 +10,7 @@ export default function PaymentOrderSummary({ summary }: { summary: StorePayment
           <div key={`${item.productName}_${index}`} className="border-b border-surface-container-high pb-3 last:border-0 last:pb-0">
             <div className="flex justify-between gap-3 font-sans text-sm font-extrabold text-primary"><span>{item.quantity} × {item.productName}</span><span>{formatRegionCurrency(item.lineTotal, summary.totals.currency)}</span></div>
             {item.setSnapshot?.selectedGroups.map((selection, selectionIndex) => <p key={`${selection.groupName}_${selectionIndex}`} className="mt-1 font-sans text-xs font-bold text-on-surface-variant">{selection.groupName}: {selection.productName}{selection.priceAdjustment > 0 ? ` (+${formatRegionCurrency(selection.priceAdjustment, summary.totals.currency)})` : ''}</p>)}
-            {item.selectedOptions.map((option, optionIndex) => <p key={`${option.groupName}_${optionIndex}`} className="mt-1 font-sans text-xs font-bold text-on-surface-variant">{option.groupName}: {option.optionName}{option.priceAdjustment !== 0 ? ` (${option.priceAdjustment > 0 ? '+' : '−'}${formatRegionCurrency(Math.abs(option.priceAdjustment), summary.totals.currency)})` : ''}</p>)}
+            {item.selectedOptions.map((option, optionIndex) => <p key={`${option.groupName}_${optionIndex}`} className="mt-1 font-sans text-xs font-bold text-on-surface-variant">{option.groupName}: {option.optionName}{option.quantity && option.quantity > 1 ? ` x${option.quantity}` : ''}{option.priceAdjustment !== 0 ? ` (${option.priceAdjustment > 0 ? '+' : '−'}${formatRegionCurrency(Math.abs(option.priceAdjustment) * (option.quantity || 1), summary.totals.currency)})` : ''}</p>)}
           </div>
         ))}
       </div>

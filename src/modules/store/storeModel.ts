@@ -522,7 +522,6 @@ export const validateStoreOptionGroup = (draft: StoreOptionGroupDraft) => {
   if (draft.minimumSelections > draft.maximumSelections) return 'Minimum selection cannot exceed maximum selection.';
   if (draft.options.length === 0) return 'Add at least one option.';
   if (draft.options.length > 20) return 'Use 20 options or fewer in one group.';
-  if (draft.maximumSelections > draft.options.length) return 'Maximum selection cannot exceed the number of options.';
   if (draft.options.some(option => !option.name.trim())) return 'Every option needs a name.';
   if (draft.options.some(option => option.name.trim().length > 100)) return 'Option names must be 100 characters or fewer.';
   if (draft.options.some(option => !Number.isFinite(option.priceAdjustment))) return 'Every price adjustment must be valid.';
@@ -602,14 +601,15 @@ export const validateStoreProductOptionSelections = (
       continue;
     }
     const { minimum, maximum } = getStoreOptionSelectionLimits(group);
-    if (choices.length < minimum) {
+    const totalQuantity = choices.reduce((sum, choice) => sum + (choice.quantity ?? 1), 0);
+    if (choices.some(choice => !Number.isInteger(choice.quantity ?? 1) || (choice.quantity ?? 1) < 1)) {
+      return `Choose a valid quantity for each ${group.name} option.`;
+    }
+    if (totalQuantity < minimum) {
       return `Choose at least ${minimum} ${group.name} option${minimum === 1 ? '' : 's'} for ${product.name}.`;
     }
-    if (choices.length > maximum) {
+    if (totalQuantity > maximum) {
       return `Choose no more than ${maximum} ${group.name} option${maximum === 1 ? '' : 's'} for ${product.name}.`;
-    }
-    if (new Set(choices.map(choice => choice.optionId)).size !== choices.length) {
-      return `Choose each ${group.name} option only once.`;
     }
     if (choices.some(choice => !group.options.some(option => (
       option.id === choice.optionId && option.available
@@ -651,14 +651,15 @@ export const buildStoreOrderItems = (
         groupName: group.name,
         optionId: option.id,
         optionName: option.name,
-        priceAdjustment: option.priceAdjustment
+        priceAdjustment: option.priceAdjustment,
+        ...(choice.quantity && choice.quantity > 1 ? { quantity: choice.quantity } : {})
       };
     });
   });
 
   const unitPrice = calculateStoreOptionAdjustedPrice(
     product.price,
-    selectedOptions.map(option => option.priceAdjustment)
+    selectedOptions.flatMap(option => Array(option.quantity || 1).fill(option.priceAdjustment))
   );
 
   return {

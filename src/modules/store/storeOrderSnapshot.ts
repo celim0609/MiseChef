@@ -20,7 +20,8 @@ const normalizeSelectedOption = (value: unknown): StoreOrderItemOption => {
     groupName: readString(option.groupName, 'Options'),
     optionId: readString(option.optionId),
     optionName: readString(option.optionName, 'Option'),
-    priceAdjustment: readNumber(option.priceAdjustment)
+    priceAdjustment: readNumber(option.priceAdjustment),
+    ...(Number.isInteger(option.quantity) && Number(option.quantity) > 1 ? { quantity: Number(option.quantity) } : {})
   };
 };
 

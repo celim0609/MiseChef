@@ -401,7 +401,7 @@ export default function StoreOrdersPanel({
                     <ul className="mt-3 space-y-1.5">
                       {item.selectedOptions.map(option => (
                         <li key={`${option.groupId}_${option.optionId}`} className="flex justify-between gap-3 font-sans text-xs font-bold text-on-surface-variant">
-                          <span>{option.groupName}: {option.optionName}</span>
+                          <span>{option.groupName}: {option.optionName}{option.quantity && option.quantity > 1 ? ` x${option.quantity}` : ''}</span>
                           <span>{option.priceAdjustment >= 0 ? '+' : '−'}{formatRegionCurrency(Math.abs(option.priceAdjustment), currency)}</span>
                         </li>
                       ))}
