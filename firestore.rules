@@ -1315,7 +1315,9 @@ service cloud.firestore {
         && ((request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentMethods', 'updatedAt'])
           && hasValidStorePaymentMethods(request.resource.data)) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['delivery', 'deliveryEnabled', 'updatedAt'])
           && isValidStoreDelivery(request.resource.data.delivery)) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hostProgram', 'updatedAt'])
-          && isValidStoreHostProgram(request.resource.data.hostProgram)) || (isValidStoreSettings(
+          && isValidStoreHostProgram(request.resource.data.hostProgram)) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unavailableDates', 'updatedAt'])
+          && request.resource.data.unavailableDates is list
+          && request.resource.data.unavailableDates.size() <= 60) || (isValidStoreSettings(
           request.resource.data,
           workspaceId,
           request.resource.data.diff(resource.data).affectedKeys().hasAny(['paymentMethods'])
