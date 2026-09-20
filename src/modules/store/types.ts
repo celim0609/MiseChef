@@ -75,6 +75,7 @@ export interface WorkspaceStore {
   pickupEnabled: boolean;
   deliveryEnabled: boolean;
   delivery?: StoreDeliveryConfig;
+  pickupOperatingHours?: { start: string; end: string };
   pickupSessions: string[];
   pickupLocations: StorePickupLocation[];
   orderDays: StoreOrderDay[];
@@ -102,6 +103,7 @@ export interface StoreSettingsDraft {
   pickupEnabled: boolean;
   deliveryEnabled: boolean;
   delivery?: StoreDeliveryConfig;
+  pickupOperatingHours?: { start: string; end: string };
   pickupSessions: string[];
   pickupLocations: StorePickupLocation[];
   orderDays: StoreOrderDay[];
@@ -488,6 +490,7 @@ export interface StoreOrder {
   phone: string;
   customerEmail?: string;
   pickupDate: string;
+  pickupTime?: string;
   pickupSession: string;
   pickupLocationId: string;
   pickupLocationName: string;
@@ -576,6 +579,7 @@ export interface StoreOrderDraft {
   phone: string;
   customerEmail?: string;
   pickupDate: string;
+  pickupTime?: string;
   pickupSession: string;
   pickupLocationId: string;
   notes: string;
@@ -639,6 +643,12 @@ export interface PublicOrderGroupContext {
 
 export interface StorePaymentOrderSummary {
   fulfilmentMethod: 'pickup' | 'delivery';
+  /** Fulfilment values from the server-created pending-order snapshot. */
+  pickupDetails?: {
+    locationName: string;
+    date: string;
+    time: string;
+  };
   items: Array<{
     productName: string;
     quantity: number;
@@ -667,6 +677,7 @@ export interface PublicStoreOrderResult {
   currency: RegionCurrency;
   paymentMethodName: string;
   pickupDate: string;
+  pickupTime?: string;
   pickupSession: string;
   pickupLocationName: string;
   total: number;

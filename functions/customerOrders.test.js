@@ -23,7 +23,7 @@ const buildOrder = ({ customerUid = '', groupOrder = null, spoofedUid = '' } = {
   customerUid,
   groupOrder,
   draft: {
-    customerName: 'Customer', phone: '+60123456789', pickupDate: '2026-08-29', pickupSession: '9:00 AM',
+    customerName: 'Customer', phone: '+60123456789', pickupDate: '2026-08-29', pickupTime: '09:30', pickupSession: '9:00 AM',
     pickupLocationId: 'counter', notes: '', selections: [{ productId: 'meal', quantity: 1, selectedOptions: [] }],
     customerUid: spoofedUid
   },
@@ -125,6 +125,18 @@ test('intermediate payment summary projects only immutable order pricing and cus
   });
   assert.equal(JSON.stringify(summary).includes('private-'), false);
   assert.equal(toPublicPaymentOrderSummary({ fulfilmentMethod: 'pickup', items: order.items }), null);
+});
+
+test('pickup payment summary includes fulfilment details from the pending order snapshot', () => {
+  const summary = toPublicPaymentOrderSummary({
+    fulfilmentMethod: 'pickup',
+    pickupLocationName: 'Bercham',
+    pickupDate: '2026-09-21',
+    pickupTime: '14:30',
+    items: [{ productName: 'Testing', quantity: 1, lineTotal: 10, selectedOptions: [] }],
+    totals: { merchandiseSubtotal: 10, discountTotal: 0, discountedMerchandiseTotal: 10, deliveryFee: 0, grandTotal: 10, currency: 'MYR' }
+  });
+  assert.deepEqual(summary?.pickupDetails, { locationName: 'Bercham', date: '2026-09-21', time: '14:30' });
 });
 
 test('payment-session response includes the immutable order summary only when its snapshot is complete', () => {

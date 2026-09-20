@@ -91,6 +91,7 @@ const createStoreRecord = () => ({
   businessHours: '',
   pickupEnabled: false,
   deliveryEnabled: false,
+  pickupOperatingHours: { start: '09:00', end: '21:00' },
   pickupSessions: [],
   pickupLocations: [],
   orderDays: ['monday'],
@@ -286,6 +287,13 @@ test('matching Owner and Manager can update validated Store Contact settings', a
     businessWhatsApp: '+60111222333',
     updatedAt: '2026-08-03T02:00:00.000Z'
   }));
+});
+
+test('Store pickup operating hours require a bounded start and end time', async () => {
+  const ref = ownerA.firestore().doc(`stores/${WORKSPACE_A}`);
+  await assertSucceeds(ref.update({ pickupOperatingHours: { start: '10:00', end: '18:00' }, updatedAt: '2026-09-21T01:00:00.000Z' }));
+  await assertFails(ref.update({ pickupOperatingHours: { start: '18:00', end: '10:00' }, updatedAt: '2026-09-21T01:01:00.000Z' }));
+  await assertFails(ref.update({ pickupOperatingHours: { start: '10am', end: '18:00' }, updatedAt: '2026-09-21T01:02:00.000Z' }));
 });
 
 test('strict delivery configuration accepts configured subsidy, preorder, instant, and both modes', async () => {

@@ -34,8 +34,10 @@ import {
   calculateStoreOptionAdjustedPrice,
   formatStoreOptionSelectionRequirement,
   formatPickupDateLabel,
+  formatPickupTimeLabel,
   getStoreOptionSelectionLimits,
   getStorePaymentMethodLabel,
+  getPickupTimeSlots,
   getValidPickupDates,
   storePaymentMethodRequiresReceipt,
   validateStoreProductOptionSelections
@@ -164,6 +166,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const [phone, setPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [pickupDate, setPickupDate] = useState('');
+  const [pickupTime, setPickupTime] = useState('');
   const [pickupSession, setPickupSession] = useState('');
   const [pickupLocationId, setPickupLocationId] = useState('');
   const [fulfilmentMethod, setFulfilmentMethod] = useState<'pickup' | 'delivery'>('pickup');
@@ -284,7 +287,9 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
       .then(storeData => {
         if (isCancelled) return;
         setData(storeData);
-        setPickupDate(groupOrder?.pickupDate || (storeData ? getValidPickupDates(storeData.store)[0] || '' : ''));
+        const initialPickupDate = groupOrder?.pickupDate || (storeData ? getValidPickupDates(storeData.store).find(date => getPickupTimeSlots(storeData.store, date).length > 0) || '' : '');
+        setPickupDate(initialPickupDate);
+        setPickupTime(groupOrder ? '' : (storeData ? getPickupTimeSlots(storeData.store, initialPickupDate)[0] || '' : ''));
         setPickupSession(groupOrder?.pickupSession || storeData?.store.pickupSessions[0] || '');
         setPickupLocationId(groupOrder?.pickupLocationId || storeData?.store.pickupLocations[0]?.id || '');
         const preOrder = storeData?.store.delivery?.fulfilment.preOrder;
@@ -728,6 +733,10 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     () => data ? getValidPickupDates(data.store) : [],
     [data]
   );
+  const pickupDatesWithTimes = useMemo(
+    () => data ? validPickupDates.filter(date => getPickupTimeSlots(data.store, date).length > 0) : [],
+    [data, validPickupDates]
+  );
   const selectedPickupLocation = data?.store.pickupLocations.find(
     location => location.id === pickupLocationId
   );
@@ -751,6 +760,40 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     setPlacedOrder(null);
     setPaymentSession(null);
     setCheckoutError('');
+    sessionStorage.removeItem(checkoutRecoveryKey);
+  };
+
+  const closeCheckout = () => {
+    const initialPickupDate = groupOrder?.pickupDate || (data ? getValidPickupDates(data.store).find(date => getPickupTimeSlots(data.store, date).length > 0) || '' : '');
+    const store = data?.store;
+    setIsCheckoutOpen(false);
+    setPaymentSession(null);
+    setPlacedOrder(null);
+    setPaymentReturnReconciliation(null);
+    setFulfilmentMethod('pickup');
+    setPickupDate(initialPickupDate);
+    setPickupTime(groupOrder ? '' : (store ? getPickupTimeSlots(store, initialPickupDate)[0] || '' : ''));
+    setPickupSession(groupOrder?.pickupSession || store?.pickupSessions[0] || '');
+    setPickupLocationId(groupOrder?.pickupLocationId || store?.pickupLocations[0]?.id || '');
+    setDeliveryMode('preorder');
+    setDeliveryDate(store?.delivery?.fulfilment.preOrder.enabled ? getValidPickupDates({ ...store, orderDays: store.delivery.fulfilment.preOrder.orderDays, earliestPickupDays: store.delivery.fulfilment.preOrder.earliestDays, maximumAdvanceDays: store.delivery.fulfilment.preOrder.maximumAdvanceDays, unavailableDates: store.delivery.fulfilment.preOrder.unavailableDates })[0] || '' : '');
+    setDeliveryTime(store?.delivery?.fulfilment.preOrder.deliveryHours.from || '');
+    deliveryQuoteRequestRef.current += 1;
+    setDeliveryAddressQuery('');
+    setDeliveryAddress('');
+    setDeliveryLatitude('');
+    setDeliveryLongitude('');
+    setDeliveryUnit('');
+    setDeliveryInstructions('');
+    setDeliverySuggestions([]);
+    setDeliveryAddressError('');
+    setDeliveryQuote(null);
+    setDeliveryPriceConfirmation(null);
+    setNotes('');
+    setPaymentMethodId(store?.paymentMethods.find(method => method.enabled && method.id !== 'cash_on_pickup')?.id || 'stripe');
+    setCheckoutError('');
+    checkoutAttemptIdRef.current = crypto.randomUUID();
+    paymentStartRef.current = false;
     sessionStorage.removeItem(checkoutRecoveryKey);
   };
 
@@ -839,6 +882,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
         checkoutAttemptId: checkoutAttemptIdRef.current,
         ...(customerEmail.trim() ? { customerEmail: customerEmail.trim() } : {}),
         pickupDate,
+        pickupTime,
         pickupSession,
         pickupLocationId,
         ...(fulfilmentMethod === 'delivery' && quoteForPayment ? { deliveryQuoteId: quoteForPayment.quote.quotationId, deliveryPricingSnapshotId: quoteForPayment.pricingSnapshotId, fulfilmentMode: deliveryMode, ...(deliveryMode === 'preorder' ? { deliveryDate, deliveryTime } : {}), destination: { formattedAddress: quoteForPayment.destination.address, latitude: quoteForPayment.destination.latitude, longitude: quoteForPayment.destination.longitude, deliveryInstructions: deliveryRemarks } } : {}),
@@ -1012,8 +1056,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     : '/login';
   const canOrderPickup = store.pickupEnabled
     && store.pickupLocations.length > 0
-    && store.pickupSessions.length > 0
-    && validPickupDates.length > 0
+    && (groupOrder ? validPickupDates.length > 0 : pickupDatesWithTimes.length > 0)
     && (!groupOrder || groupOrder.status === 'open');
   const hostPath = `/host/${encodeURIComponent(store.slug)}`;
   const hostEntryHref = currentUser ? hostPath : `/login?returnTo=${encodeURIComponent(hostPath)}`;
@@ -1247,7 +1290,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
         <aside ref={checkoutSectionRef} id="customer-order" className={`${isCheckoutOpen ? 'fixed inset-0 z-50 block overflow-y-auto bg-surface p-4 pb-8 lg:mx-auto lg:max-w-[60rem] lg:p-8' : 'hidden'} scroll-mt-24 rounded-3xl border border-surface-container-high bg-white shadow-2xl`}>
           <div className="mb-4 flex items-center justify-between">
             <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Checkout</p>
-            <button type="button" onClick={() => setIsCheckoutOpen(false)} className="rounded-full bg-surface-container p-2 text-primary" aria-label="Close checkout"><X className="h-5 w-5" /></button>
+            <button type="button" onClick={closeCheckout} className="rounded-full bg-surface-container p-2 text-primary" aria-label="Close checkout"><X className="h-5 w-5" /></button>
           </div>
           <div className="flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 font-display text-xl font-bold text-primary"><ShoppingCart className="h-5 w-5" /> Order Summary</h2>
@@ -1260,7 +1303,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
 
           {!canOrderPickup && (
             <p className="mt-5 rounded-2xl bg-surface-container-low p-4 font-sans text-sm font-bold text-on-surface-variant">
-              {store.pickupEnabled && store.pickupLocations.length > 0 && store.pickupSessions.length > 0
+              {store.pickupEnabled && store.pickupLocations.length > 0
                 ? 'No pickup dates are currently available.'
                 : 'This Store is currently browse-only. Pickup ordering is not available.'}
             </p>
@@ -1305,7 +1348,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                 {placedOrder.pickupCode && <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Code</dt><dd className="mt-0.5 font-display text-2xl font-bold tracking-[0.18em]">{placedOrder.pickupCode}</dd></div>}
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Date</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{formatPickupDateLabel(placedOrder.pickupDate, store.country)}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Location</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupLocationName}</dd></div>
-                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Time</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupSession}</dd></div>
+                <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Time</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupTime ? formatPickupTimeLabel(placedOrder.pickupTime, store.country) : placedOrder.pickupSession}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Order Status</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{confirmationCopy?.statusLabel}</dd></div>
                 {placedOrder.paymentStatus === 'paid' && <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Amount Paid</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{formatRegionCurrency(placedOrder.total, placedOrder.currency)}</dd></div>}
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Payment Method</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.paymentMethodName}</dd></div>
@@ -1351,6 +1394,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                 storeSlug={store.slug}
                 storeName={store.name}
                 storeWhatsApp={storeWhatsApp}
+                country={store.country}
                 returnUrl={(() => {
                   const url = new URL(paymentReturnUrl);
                   url.searchParams.set('payment_provider', paymentSession.provider);
@@ -1419,6 +1463,12 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                 {fulfilmentMethod === 'delivery' && <div className="flex justify-between gap-3"><dt>Delivery Fee</dt><dd className="text-primary">{hasDisplayableDeliveryQuote ? formatRegionCurrency(customerDeliveryFee, store.currency) : 'Calculating…'}</dd></div>}
                 <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold text-primary"><dt>Total</dt><dd>{fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Pending delivery fee' : formatRegionCurrency(checkoutTotal, store.currency)}</dd></div>
                 </dl>
+                {fulfilmentMethod === 'pickup' && selectedPickupLocation && <dl aria-label="Pickup Details" className="mt-4 space-y-1 rounded-xl bg-surface-container-low p-3 font-sans text-sm font-bold text-primary">
+                  <dt className="text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup Details</dt>
+                  <div><dt className="inline text-on-surface-variant">Location: </dt><dd className="inline">{selectedPickupLocation.name}</dd></div>
+                  <div><dt className="inline text-on-surface-variant">Date: </dt><dd className="inline">{formatPickupDateLabel(pickupDate, store.country)}</dd></div>
+                  <div><dt className="inline text-on-surface-variant">Time: </dt><dd className="inline">{formatPickupTimeLabel(pickupTime, store.country)}</dd></div>
+                </dl>}
               </div>
               </section>
 
@@ -1511,10 +1561,17 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                   <div className="mt-2 space-y-2">
                     <label className="block">
                       <span className="font-sans text-xs font-extrabold text-primary">Date</span>
-                      <select aria-label="Pickup date" required disabled={Boolean(groupOrder)} value={pickupDate} onChange={event => setPickupDate(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary disabled:opacity-70">
-                        {validPickupDates.map(date => <option key={date} value={date}>{formatPickupDateLabel(date, store.country)}</option>)}
+                      <select aria-label="Pickup date" required disabled={Boolean(groupOrder)} value={pickupDate} onChange={event => { const date = event.target.value; setPickupDate(date); setPickupTime(getPickupTimeSlots(store, date)[0] || ''); }} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary disabled:opacity-70">
+                        {(groupOrder ? validPickupDates : pickupDatesWithTimes).map(date => <option key={date} value={date}>{formatPickupDateLabel(date, store.country)}</option>)}
                       </select>
                     </label>
+                    {!groupOrder && <label className="block">
+                      <span className="font-sans text-xs font-extrabold text-primary">Time</span>
+                      <select aria-label="Pickup time" required value={pickupTime} onChange={event => setPickupTime(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                        <option value="">Choose a pickup time</option>
+                        {getPickupTimeSlots(store, pickupDate).map(time => <option key={time} value={time}>{formatPickupTimeLabel(time, store.country)}</option>)}
+                      </select>
+                    </label>}
                     <label className="block">
                       <span className="font-sans text-xs font-extrabold text-primary">Location</span>
                       <select aria-label="Pickup location" required disabled={Boolean(groupOrder)} value={pickupLocationId} onChange={event => setPickupLocationId(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary disabled:opacity-70">
@@ -1527,12 +1584,12 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                         <div><p>{selectedPickupLocation.address}</p>{selectedPickupLocation.notes && <p className="mt-1">{selectedPickupLocation.notes}</p>}</div>
                       </div>
                     )}
-                    <label className="block">
+                    {groupOrder && <label className="block">
                       <span className="font-sans text-xs font-extrabold text-primary">Session</span>
                       <select aria-label="Pickup session" required disabled={Boolean(groupOrder)} value={pickupSession} onChange={event => setPickupSession(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary disabled:opacity-70">
                         {store.pickupSessions.map(session => <option key={session} value={session}>{session}</option>)}
                       </select>
-                    </label>
+                    </label>}
                   </div>
                 </section>}
 

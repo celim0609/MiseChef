@@ -115,6 +115,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     totals: data.totals && typeof data.totals === 'object' ? data.totals as StoreOrder['totals'] : undefined,
     delivery: data.delivery && typeof data.delivery === 'object' ? data.delivery as StoreOrder['delivery'] : undefined,
     pickupDate: readString(data.pickupDate),
+    pickupTime: readString(data.pickupTime),
     pickupSession: readString(data.pickupSession),
     pickupLocationId: readString(data.pickupLocationId),
     pickupLocationName: readString(data.pickupLocationName),

@@ -26,7 +26,7 @@ test('actual new-order writes remain queryable after Completed and Cancelled tra
   };
   const store = {
     workspaceId, slug, name: 'Order History Integration Store', country: 'MY', currency: 'MYR',
-    pickupEnabled: true, pickupSessions: ['Breakfast'],
+    pickupEnabled: true, pickupOperatingHours: { start: '09:00', end: '18:00' }, pickupSessions: ['Breakfast'],
     pickupLocations: [{ id: 'counter', name: 'Main Counter', address: '', notes: '' }],
     orderDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'],
     earliestPickupDays: 0, maximumAdvanceDays: 14, unavailableDates: [],
@@ -69,7 +69,7 @@ test('actual new-order writes remain queryable after Completed and Cancelled tra
   ]);
   const adapter = createManualPaymentAdapter(paymentMethod);
   const draft = suffix => ({
-    customerName: `Customer ${suffix}`, phone: '+60123456789', pickupDate: '2026-08-22',
+    customerName: `Customer ${suffix}`, phone: '+60123456789', pickupDate: '2026-08-22', pickupTime: '10:00',
     pickupSession: 'Breakfast', pickupLocationId: 'counter', notes: '',
     paymentMethodId: paymentMethod.id,
     selections: [{ productId: `${workspaceId}-product`, quantity: 1, selectedOptions: [] }]
@@ -93,6 +93,7 @@ test('actual new-order writes remain queryable after Completed and Cancelled tra
     assert.ok(cancelledDocument.data().createdAt instanceof Timestamp);
     assert.equal(completedDocument.data().fulfilmentStatus, 'New');
     assert.equal(cancelledDocument.data().fulfilmentStatus, 'New');
+    assert.equal(cancelledDocument.data().pickupTime, '10:00');
 
     await completedDocument.ref.update({
       'payment.receiptPath': `store-payment-receipts/${workspaceId}/${completedDocument.id}/receipt-test.png`,

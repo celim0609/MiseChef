@@ -12,7 +12,7 @@ import {
 import { formatRegionCurrency } from '../../regions';
 import { storeOrderService, type StoreOrderHistoryCursor } from './services';
 import { storeDeliveryService } from './services/deliveryService';
-import { formatPickupDateLabel } from './storeModel';
+import { formatPickupDateLabel, formatPickupTimeLabel } from './storeModel';
 import { isOrderOperationallyEligible, sortOrdersByDeliverySchedule } from './posOrderModel';
 import WhatsAppCustomerButton from './WhatsAppCustomerButton';
 import type {
@@ -324,7 +324,7 @@ export default function StoreOrdersPanel({
               </span>
               <span className="mt-4 grid gap-2 font-sans text-xs font-bold text-on-surface-variant sm:grid-cols-2">
                 <span>{formatPickupDateLabel(order.pickupDate, country)}</span>
-                <span>{order.pickupSession}</span>
+                <span>{order.pickupTime ? formatPickupTimeLabel(order.pickupTime, country) : order.pickupSession}</span>
                 <span>{order.pickupLocationName}</span>
                 <span>{formatRegionCurrency(order.total, currency)}</span>
                 <span className="inline-flex items-center gap-1.5"><Phone className="h-3 w-3" /> {order.phone}</span>
@@ -370,7 +370,7 @@ export default function StoreOrdersPanel({
               <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Customer</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{selectedOrder.customerName}</dd></div>
               <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Phone</dt><dd className="mt-1"><a href={`tel:${selectedOrder.phone}`} className="inline-flex items-center gap-1.5 font-sans text-sm font-extrabold text-primary"><Phone className="h-3.5 w-3.5" /> {selectedOrder.phone}</a></dd></div>
               <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Pickup Date</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{formatPickupDateLabel(selectedOrder.pickupDate, country)}</dd></div>
-              <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Pickup Session</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{selectedOrder.pickupSession}</dd></div>
+              <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Pickup Time</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{selectedOrder.pickupTime ? formatPickupTimeLabel(selectedOrder.pickupTime, country) : selectedOrder.pickupSession}</dd></div>
               <div className="sm:col-span-2"><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Pickup Location</dt><dd className="mt-1 inline-flex items-start gap-1.5 font-sans text-sm font-extrabold text-primary"><MapPin className="mt-0.5 h-3.5 w-3.5" /> {selectedOrder.pickupLocationName}</dd></div>
               <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Payment</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{paymentStatusLabel(selectedOrder.payment.status)}</dd></div>
               <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Payment Method</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{selectedOrder.paymentMethodName}</dd></div>

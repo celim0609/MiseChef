@@ -7,8 +7,10 @@ import {
   DEFAULT_STORE_ORDER_DAYS,
   createDefaultStorePaymentMethods,
   formatPickupDateLabel,
+  formatPickupTimeLabel,
   formatStoreOptionSelectionRequirement,
   getValidPickupDates,
+  getPickupTimeSlots,
   normalizeStoreOptionGroup,
   normalizeStoreContact,
   normalizeStorePaymentMethods,
@@ -510,6 +512,7 @@ test('guest checkout requires pickup availability, valid sessions, and no accoun
     customerName: 'Customer',
     phone: '+60123456789',
     pickupDate: '2026-07-28',
+    pickupTime: '10:00',
     pickupSession: '12:00–12:30',
     pickupLocationId: 'front-counter',
     notes: '',
@@ -527,12 +530,12 @@ test('guest checkout requires pickup availability, valid sessions, and no accoun
     pickupLocations: [{ id: 'front-counter', name: 'Front Counter', address: '1 Main Street', notes: '' }],
     ...preorderRules
   }, currentDate), 'Pickup ordering is not available.');
-  assert.equal(validateStoreOrder({ ...validDraft, pickupSession: '13:00–13:30' }, {
+  assert.equal(validateStoreOrder({ ...validDraft, pickupTime: '22:00' }, {
     pickupEnabled: true,
     pickupSessions: ['12:00–12:30'],
     pickupLocations: [{ id: 'front-counter', name: 'Front Counter', address: '1 Main Street', notes: '' }],
     ...preorderRules
-  }, currentDate), 'Choose a valid pickup session.');
+  }, currentDate), 'Choose a valid pickup time.');
   assert.equal(validateStoreOrder({ ...validDraft, pickupLocationId: 'unknown' }, {
     pickupEnabled: true,
     pickupSessions: ['12:00–12:30'],
@@ -576,6 +579,16 @@ test('pickup windows follow the Store region instead of the customer device or U
   assert.equal(dates.at(-1), '2026-08-02');
 });
 
+test('pickup operating hours generate inclusive 30-minute slots and exclude past same-day times', () => {
+  const store = { country: 'MY' as const, pickupOperatingHours: { start: '10:00', end: '18:00' } };
+  const slots = getPickupTimeSlots(store, '2026-09-22', new Date('2026-09-21T00:00:00.000Z'));
+  assert.equal(slots[0], '10:00');
+  assert.ok(slots.includes('14:30'));
+  assert.equal(slots.at(-1), '18:00');
+  assert.equal(formatPickupTimeLabel('14:30', 'MY'), '2:30 PM');
+  assert.deepEqual(getPickupTimeSlots(store, '2026-09-21', new Date('2026-09-21T06:45:00.000Z')).slice(0, 2), ['15:00', '15:30']);
+});
+
 test('legacy orders without a pickup date do not crash the Store Owner inbox', () => {
   assert.equal(formatPickupDateLabel('', 'MY'), 'Pickup date unavailable');
   assert.equal(formatPickupDateLabel('not-a-date', 'SG'), 'Pickup date unavailable');
@@ -597,6 +610,7 @@ test('checkout rejects disabled, blocked, too-early, and out-of-window pickup da
     customerName: 'Customer',
     phone: '+60123456789',
     pickupDate: '2026-07-28',
+    pickupTime: '10:00',
     pickupSession: 'Lunch',
     pickupLocationId: 'counter',
     notes: '',
@@ -610,6 +624,7 @@ test('checkout rejects disabled, blocked, too-early, and out-of-window pickup da
     );
   }
   assert.equal(validateStoreOrder(draft, store, currentDate), '');
+  assert.equal(validateStoreOrder({ ...draft, pickupTime: '' }, store, currentDate), 'Pickup time is required.');
   const singaporeStore = { ...store, country: 'SG' as const };
   assert.equal(validateStoreOrder(draft, singaporeStore, currentDate), '');
 });

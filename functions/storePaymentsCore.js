@@ -100,6 +100,35 @@ const addDays = (date, days) => {
   return next;
 };
 
+const readTime = (value, fallback) => /^([01]\d|2[0-3]):[0-5]\d$/.test(readString(value)) ? readString(value) : fallback;
+const timeMinutes = value => {
+  const [hour, minute] = value.split(':').map(Number);
+  return hour * 60 + minute;
+};
+const regionalClock = (date, timeZone) => {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en', {
+    timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(date).map(part => [part.type, part.value]));
+  return `${parts.hour}:${parts.minute}`;
+};
+
+export const getPickupTimeSlots = (store, pickupDate, currentDate = new Date()) => {
+  const region = REGIONS[readString(store.country)] || REGIONS.MY;
+  const hours = store.pickupOperatingHours || {};
+  const start = timeMinutes(readTime(hours.start, '09:00'));
+  const end = timeMinutes(readTime(hours.end, '21:00'));
+  if (start > end) return [];
+  const today = toDateKey(toRegionDateCursor(currentDate, region.timeZone));
+  const currentMinutes = timeMinutes(regionalClock(currentDate, region.timeZone));
+  const slots = [];
+  for (let value = start; value <= end; value += 30) {
+    if (pickupDate !== today || value > currentMinutes) {
+      slots.push(`${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`);
+    }
+  }
+  return slots;
+};
+
 export const getMalaysiaBusinessDateKey = (date = new Date()) => {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat('en', {
@@ -168,7 +197,7 @@ export const getValidPickupDates = (store, currentDate = new Date()) => {
   return dates;
 };
 
-const validateDraft = (store, draft, currentDate) => {
+const validateDraft = (store, draft, currentDate, isLegacyGroupOrder = false) => {
   const isDelivery = readString(draft.fulfilmentMethod) === 'delivery';
   if (!isDelivery && store.pickupEnabled !== true) throw new Error('Pickup ordering is not available.');
   if (!readString(draft.customerName)) throw new Error('Name is required.');
@@ -182,7 +211,10 @@ const validateDraft = (store, draft, currentDate) => {
   if (!isDelivery && !getValidPickupDates(store, currentDate).includes(readString(draft.pickupDate))) {
     throw new Error('Choose an available pickup date.');
   }
-  if (!isDelivery && (!Array.isArray(store.pickupSessions) || !store.pickupSessions.includes(readString(draft.pickupSession)))) {
+  if (!isDelivery && !isLegacyGroupOrder && !getPickupTimeSlots(store, readString(draft.pickupDate), currentDate).includes(readString(draft.pickupTime))) {
+    throw new Error('Choose a valid pickup time.');
+  }
+  if (!isDelivery && isLegacyGroupOrder && (!Array.isArray(store.pickupSessions) || !store.pickupSessions.includes(readString(draft.pickupSession)))) {
     throw new Error('Choose a valid pickup session.');
   }
   if (!isDelivery && (!Array.isArray(store.pickupLocations)
@@ -364,7 +396,7 @@ export const buildPendingOrder = ({
   draft,
   now = new Date()
 }) => {
-  validateDraft(store, draft, now);
+  validateDraft(store, draft, now, Boolean(groupOrder));
   const region = REGIONS[readString(store.country)];
   if (!region || readString(store.currency) !== region.currency) {
     throw new Error('This Store currency is not supported.');
@@ -422,6 +454,7 @@ export const buildPendingOrder = ({
     fulfilmentMethod: draft.deliverySnapshot ? 'delivery' : 'pickup',
     ...(readString(draft.customerEmail) ? { customerEmail: readString(draft.customerEmail).toLowerCase() } : {}),
     pickupDate: readString(draft.pickupDate),
+    pickupTime: readString(draft.pickupTime),
     pickupSession: readString(draft.pickupSession),
     pickupLocationId: readString(pickupLocation?.id),
     pickupLocationName: readString(pickupLocation?.name),
@@ -514,6 +547,13 @@ export const toPublicPaymentOrderSummary = order => {
   if (items.some(item => item === null)) return null;
   return {
     fulfilmentMethod,
+    ...(fulfilmentMethod === 'pickup' ? {
+      pickupDetails: {
+        locationName: readString(order.pickupLocationName),
+        date: readString(order.pickupDate),
+        time: readString(order.pickupTime)
+      }
+    } : {}),
     items,
     totals: {
       merchandiseSubtotal: totals.merchandiseSubtotal,
@@ -533,6 +573,7 @@ export const toPublicOrderResult = order => ({
   currency: readString(order.currency),
   paymentMethodName: readString(order.paymentMethodName) || 'Secure online payment',
   pickupDate: readString(order.pickupDate),
+  pickupTime: readString(order.pickupTime),
   pickupSession: readString(order.pickupSession),
   pickupLocationName: readString(order.pickupLocationName),
   total: readNumber(order.total),

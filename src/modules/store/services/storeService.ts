@@ -191,6 +191,7 @@ export const storeService = {
         website: draft.storeContact.website.trim()
       },
       businessHours: draft.businessHours.trim(),
+      pickupOperatingHours: { start: draft.pickupOperatingHours?.start || '09:00', end: draft.pickupOperatingHours?.end || '21:00' },
       pickupSessions: [...new Set(draft.pickupSessions.map(session => session.trim()).filter(Boolean))],
       pickupLocations: draft.pickupLocations.map(location => ({
         id: location.id,
@@ -202,8 +203,7 @@ export const storeService = {
       earliestPickupDays: draft.earliestPickupDays,
       maximumAdvanceDays: draft.maximumAdvanceDays,
       unavailableDates: [...new Set(draft.unavailableDates)].sort(),
-      pickupEnabled: draft.pickupLocations.length > 0
-        && draft.pickupSessions.some(session => Boolean(session.trim())),
+      pickupEnabled: draft.pickupLocations.length > 0,
       updatedAt: new Date().toISOString()
     };
 

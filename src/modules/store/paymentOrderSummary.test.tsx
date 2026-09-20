@@ -20,6 +20,38 @@ test('pickup order summary omits the delivery fee row', () => {
   assert.doesNotMatch(html, /Delivery fee|Discount/);
 });
 
+test('pre-payment pickup summary uses the same selected fulfilment values as checkout payload', () => {
+  const page = readFileSync(new URL('./PublicStorePage.tsx', import.meta.url), 'utf8');
+  assert.match(page, /aria-label="Pickup Details"/);
+  assert.match(page, /Location:.*selectedPickupLocation\.name/s);
+  assert.match(page, /Date:.*formatPickupDateLabel\(pickupDate, store\.country\)/s);
+  assert.match(page, /Time:.*formatPickupTimeLabel\(pickupTime, store\.country\)/s);
+  assert.match(page, /pickupDate,\s*pickupTime,\s*pickupSession,\s*pickupLocationId/s);
+  assert.match(page, /fulfilmentMethod === 'delivery'.*Delivery Fee/s);
+});
+
+test('final payment confirmation renders pickup details from its pending-order snapshot', () => {
+  const paymentCheckout = readFileSync(new URL('./StorePaymentCheckout.tsx', import.meta.url), 'utf8');
+  assert.match(paymentCheckout, /session\.orderSummary\?\.fulfilmentMethod === 'pickup' && session\.orderSummary\.pickupDetails/);
+  assert.match(paymentCheckout, /session\.orderSummary\.pickupDetails\.locationName/);
+  assert.match(paymentCheckout, /formatPickupDateLabel\(session\.orderSummary\.pickupDetails\.date, country\)/);
+  assert.match(paymentCheckout, /formatPickupTimeLabel\(session\.orderSummary\.pickupDetails\.time, country\)/);
+  assert.doesNotMatch(paymentCheckout, /pickupDate|pickupTime|selectedPickupLocation/);
+});
+
+test('closing checkout abandons the current checkout but back preserves it for editing', () => {
+  const page = readFileSync(new URL('./PublicStorePage.tsx', import.meta.url), 'utf8');
+  assert.match(page, /const closeCheckout = \(\) => \{[\s\S]*setPaymentSession\(null\);[\s\S]*setPlacedOrder\(null\);[\s\S]*setPaymentReturnReconciliation\(null\);/);
+  assert.match(page, /onClick=\{closeCheckout\}[^>]*aria-label="Close checkout"/);
+  assert.match(page, /onBack=\{async \(\) => \{[\s\S]*setPaymentSession\(null\);[\s\S]*setCheckoutError\(''\);/);
+  const closeHandler = page.match(/const closeCheckout = \(\) => \{([\s\S]*?)\n  \};/);
+  assert.ok(closeHandler);
+  assert.doesNotMatch(closeHandler[1], /setCart\(/);
+  for (const reset of ['setFulfilmentMethod', 'setPickupDate', 'setPickupTime', 'setPickupLocationId', 'setDeliveryAddress', 'setDeliveryQuote', 'checkoutAttemptIdRef.current = crypto.randomUUID\(\)']) {
+    assert.match(closeHandler[1], new RegExp(reset));
+  }
+});
+
 test('Curlec payment CTA uses the immutable summary total and retains its legacy fallback', () => {
   const curlec = readFileSync(new URL('./paymentProviders/curlecClientAdapter.tsx', import.meta.url), 'utf8');
   assert.match(curlec, /session\.orderSummary\.totals\.grandTotal/);
