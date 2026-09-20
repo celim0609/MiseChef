@@ -459,6 +459,35 @@ test('Owner can persist an optional option group while Workspace isolation remai
   }));
 });
 
+test('only active Store Owners and Managers can make an isolated blocked-date update', async () => {
+  const storePath = `stores/${WORKSPACE_A}`;
+  await assertSucceeds(ownerA.firestore().doc(storePath).update({
+    unavailableDates: ['2026-10-01'], updatedAt: '2026-09-20T00:00:00.000Z'
+  }));
+  await assertSucceeds(managerA.firestore().doc(storePath).update({
+    unavailableDates: ['2026-10-01', '2026-10-02'], updatedAt: '2026-09-20T00:01:00.000Z'
+  }));
+  await assertFails(headChefA.firestore().doc(storePath).update({
+    unavailableDates: ['2026-10-03'], updatedAt: '2026-09-20T00:02:00.000Z'
+  }));
+  await assertFails(memberA.firestore().doc(storePath).update({
+    unavailableDates: ['2026-10-03'], updatedAt: '2026-09-20T00:02:00.000Z'
+  }));
+  await assertFails(ownerA.firestore().doc(storePath).update({
+    unavailableDates: ['2026-10-03'], createdBy: 'other-user', updatedAt: '2026-09-20T00:03:00.000Z'
+  }));
+
+  await environment.withSecurityRulesDisabled(async context => {
+    await context.firestore().doc(`workspaces/${WORKSPACE_A}`).update({ subscriptionStatus: 'inactive' });
+  });
+  await assertFails(ownerA.firestore().doc(storePath).update({
+    unavailableDates: ['2026-10-03'], updatedAt: '2026-09-20T00:04:00.000Z'
+  }));
+  await environment.withSecurityRulesDisabled(async context => {
+    await context.firestore().doc(`workspaces/${WORKSPACE_A}`).update({ subscriptionStatus: 'active' });
+  });
+});
+
 test('only Store owner or manager can manage a valid promotion document', async () => {
   const promotionRef = ownerA.firestore().doc('storePromotions/promo-access');
   await assertSucceeds(promotionRef.set(createPromotionRecord('promo-access')));
