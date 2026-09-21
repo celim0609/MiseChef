@@ -23,6 +23,26 @@ export const ALLOWED_RELEASE_DIRTY_PATHS = Object.freeze([
 export const sha256 = value => createHash('sha256').update(value).digest('hex');
 export const sha256File = filePath => sha256(readFileSync(filePath));
 
+export const createFirestoreParityProof = ({ repositoryRoot, candidateConfig }) => {
+  if (candidateConfig?.firestore?.rules !== 'firestore.rules'
+    || candidateConfig?.firestore?.indexes !== 'firestore.indexes.json') {
+    throw new Error('Candidate must deploy the canonical firestore.rules and firestore.indexes.json files.');
+  }
+  return {
+    rulesPath: 'firestore.rules',
+    rulesSha256: sha256File(path.join(repositoryRoot, 'firestore.rules')),
+    indexesPath: 'firestore.indexes.json',
+    indexesSha256: sha256File(path.join(repositoryRoot, 'firestore.indexes.json')),
+    firestoreConfigSha256: sha256(JSON.stringify(candidateConfig.firestore))
+  };
+};
+
+export const assertFirestoreParityProof = ({ expected, actual }) => {
+  if (!expected || !actual || JSON.stringify(expected) !== JSON.stringify(actual)) {
+    throw new Error('Production Firestore rules/config parity cannot be proven for the exact candidate.');
+  }
+};
+
 export const assertExactSha = (value, label = 'SHA') => {
   if (!/^[0-9a-f]{40}$/.test(value || '')) {
     throw new Error(`${label} must be an exact lowercase 40-character Git SHA.`);
@@ -110,6 +130,10 @@ export const buildProductionFirebaseConfig = ({ candidateConfig, predeployComman
     throw new Error('Candidate Firebase configuration is incomplete.');
   }
   const candidateStorage = Array.isArray(candidateConfig.storage) ? candidateConfig.storage : [candidateConfig.storage];
+  if (candidateConfig.firestore.rules !== 'firestore.rules'
+    || candidateConfig.firestore.indexes !== 'firestore.indexes.json') {
+    throw new Error('Candidate Firestore deployment must use the canonical rules and indexes files.');
+  }
   if (candidateStorage.length !== 1 || candidateStorage[0]?.rules !== 'storage.rules') {
     throw new Error('Candidate Storage Rules configuration is not the protected single-rules layout.');
   }
@@ -193,7 +217,7 @@ export const assertLiveUnchanged = (before, current) => {
   }
 };
 
-export const assertSession = ({ session, nonce, head, sourceTree, baseline, liveFingerprint, now = Date.now() }) => {
+export const assertSession = ({ session, nonce, head, sourceTree, baseline, liveFingerprint, firestoreParity, now = Date.now() }) => {
   if (session?.version !== 1 || session.nonce !== nonce || session.sourceCommit !== head
     || session.sourceTree !== sourceTree || session.protectedBaseline !== baseline) {
     throw new Error('Canonical Production deployment session is invalid.');
@@ -204,6 +228,15 @@ export const assertSession = ({ session, nonce, head, sourceTree, baseline, live
   }
   if (JSON.stringify(session.liveFingerprint) !== JSON.stringify(liveFingerprint)) {
     throw new Error('Canonical Production session live fingerprint mismatch.');
+  }
+  assertFirestoreParityProof({ expected: firestoreParity, actual: session.firestoreParity });
+};
+
+export const assertLiveFirestoreRules = ({ liveRules, firestoreParity }) => {
+  if (!Array.isArray(liveRules) || liveRules.length !== 1
+    || liveRules[0]?.name !== firestoreParity?.rulesPath
+    || liveRules[0]?.sha256 !== firestoreParity?.rulesSha256) {
+    throw new Error('Live Production Firestore rules do not match the exact validated candidate.');
   }
 };
 
