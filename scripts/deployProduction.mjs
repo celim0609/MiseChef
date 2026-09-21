@@ -19,6 +19,7 @@ import {
   assertArtifactCompatibility,
   assertBootstrapLive,
   assertCleanCandidate,
+  assertLiveFirestoreRules,
   assertLiveUnchanged,
   assertPostDeploy,
   assertProductionAuthority,
@@ -26,10 +27,11 @@ import {
   assertProductionEnvironment,
   assertProductionFirebaseConfig,
   buildProductionFirebaseConfig,
+  createFirestoreParityProof,
   createProductionManifest,
   discoverCandidateFunctions
 } from './productionDeploymentSafety.mjs';
-import { readLiveProductionFingerprint, readProductionFunctions } from './productionLiveRelease.mjs';
+import { readLiveProductionFingerprint, readLiveProductionFirestoreRules, readProductionFunctions } from './productionLiveRelease.mjs';
 
 const controllerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const candidateFlag = process.argv.indexOf('--candidate-root');
@@ -129,6 +131,7 @@ try {
 
   const predeployCommand = 'node "$MISECHEF_PRODUCTION_CONTROLLER_ROOT/scripts/validateProductionPredeploy.mjs" --candidate-root "$PROJECT_DIR"';
   const candidateConfig = JSON.parse(readFileSync(path.join(candidateRoot, 'firebase.json'), 'utf8'));
+  const firestoreParity = createFirestoreParityProof({ repositoryRoot: candidateRoot, candidateConfig });
   const productionConfig = buildProductionFirebaseConfig({ candidateConfig, predeployCommand });
   assertProductionFirebaseConfig(productionConfig);
   writeFileSync(productionConfigPath, `${JSON.stringify(productionConfig, null, 2)}\n`, { mode: 0o600 });
@@ -155,6 +158,7 @@ try {
     sourceTree,
     protectedBaseline,
     resources: FULL_PRODUCTION_RESOURCE_PLAN,
+    firestoreParity,
     liveFingerprint: liveBeforeDeploy,
     buildId: manifest.buildId,
     createdAt: Date.now(),
@@ -186,11 +190,13 @@ try {
   let verificationError;
   for (let attempt = 0; attempt < 20; attempt += 1) {
     try {
-      const [fingerprint, deployedFunctions] = await Promise.all([
+      const [fingerprint, deployedFunctions, liveFirestoreRules] = await Promise.all([
         readLiveProductionFingerprint(),
-        readProductionFunctions()
+        readProductionFunctions(),
+        readLiveProductionFirestoreRules()
       ]);
       assertPostDeploy({ fingerprint, expectedCommit: head, expectedTree: sourceTree, expectedFunctions, deployedFunctions });
+      assertLiveFirestoreRules({ liveRules: liveFirestoreRules, firestoreParity });
       console.log(`Production release verified for exact SHA ${head}.`);
       verificationError = null;
       break;

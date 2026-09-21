@@ -64,7 +64,25 @@ export const createProductionGoogleApiReader = request => {
     }));
   };
 
-  return { readHostingVersion, readProductionFunctions };
+  const readLiveFirestoreRules = async () => {
+    const releases = await request({
+      method: 'GET',
+      url: `https://firebaserules.googleapis.com/v1/projects/${PRODUCTION_PROJECT_ID}/releases`
+    });
+    const release = (releases.data?.releases || [])
+      .find(item => item.name === `projects/${PRODUCTION_PROJECT_ID}/releases/cloud.firestore`);
+    if (!release?.rulesetName) throw new Error('Live Production Firestore release is unreadable.');
+    const ruleset = await request({
+      method: 'GET',
+      url: `https://firebaserules.googleapis.com/v1/${release.rulesetName}`
+    });
+    return [...(ruleset.data?.source?.files || [])].map(file => ({
+      name: file.name,
+      sha256: sha256(String(file.content || ''))
+    })).sort((left, right) => left.name.localeCompare(right.name));
+  };
+
+  return { readHostingVersion, readProductionFunctions, readLiveFirestoreRules };
 };
 
 // Production API consumers must share the deployment workflow's service-account
@@ -74,6 +92,7 @@ export const requestProductionGoogleApi = options => getAdcAuth().request(option
 const productionGoogleApi = createProductionGoogleApiReader(requestProductionGoogleApi);
 const readHostingVersion = productionGoogleApi.readHostingVersion;
 export const readProductionFunctions = productionGoogleApi.readProductionFunctions;
+export const readLiveProductionFirestoreRules = productionGoogleApi.readLiveFirestoreRules;
 
 export const readLiveProductionFingerprint = async () => {
   const nonce = `${Date.now()}-${Math.random().toString(16).slice(2)}`;

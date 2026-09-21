@@ -20,6 +20,8 @@ import {
   assertArtifactCompatibility,
   assertBootstrapLive,
   assertCleanCandidate,
+  assertFirestoreParityProof,
+  assertLiveFirestoreRules,
   assertLiveUnchanged,
   assertPostDeploy,
   assertProductionAuthority,
@@ -28,6 +30,7 @@ import {
   assertProductionFirebaseConfig,
   assertSession,
   buildProductionFirebaseConfig,
+  createFirestoreParityProof,
   createProductionManifest,
   discoverCandidateFunctions
 } from './productionDeploymentSafety.mjs';
@@ -134,6 +137,23 @@ test('Production Firebase config names one exact site and bucket without changin
   assert.equal(production.hosting.predeploy[0], 'guard');
 });
 
+test('Production fails closed unless its Firestore deployment proof binds canonical candidate files', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'misechef-production-rules-parity-'));
+  try {
+    writeFileSync(path.join(root, 'firestore.rules'), 'rules_version = \'2\';');
+    writeFileSync(path.join(root, 'firestore.indexes.json'), '{"indexes":[]}');
+    const candidateConfig = { firestore: { rules: 'firestore.rules', indexes: 'firestore.indexes.json' } };
+    const proof = createFirestoreParityProof({ repositoryRoot: root, candidateConfig });
+    assert.doesNotThrow(() => assertFirestoreParityProof({ expected: proof, actual: { ...proof } }));
+    assert.throws(() => assertFirestoreParityProof({ expected: proof, actual: { ...proof, rulesSha256: 'a'.repeat(64) } }), /parity/);
+    assert.doesNotThrow(() => assertLiveFirestoreRules({ liveRules: [{ name: 'firestore.rules', sha256: proof.rulesSha256 }], firestoreParity: proof }));
+    assert.throws(() => assertLiveFirestoreRules({ liveRules: [{ name: 'firestore.rules', sha256: 'b'.repeat(64) }], firestoreParity: proof }), /do not match/);
+    assert.throws(() => createFirestoreParityProof({ repositoryRoot: root, candidateConfig: { firestore: { rules: 'alternate.rules', indexes: 'firestore.indexes.json' } } }), /canonical/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Production manifest binds exact SHA/tree and coherent Hosting/Store assets', () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'misechef-production-artifact-'));
   try {
@@ -183,6 +203,7 @@ test('bootstrap, concurrency, and canonical full-resource session fail closed', 
     sourceTree: 'b'.repeat(40),
     protectedBaseline: sha,
     resources: FULL_PRODUCTION_RESOURCE_PLAN,
+    firestoreParity: { rulesPath: 'firestore.rules', rulesSha256: 'a'.repeat(64), indexesPath: 'firestore.indexes.json', indexesSha256: 'b'.repeat(64), firestoreConfigSha256: 'c'.repeat(64) },
     liveFingerprint: live,
     expiresAt: Date.now() + 60_000
   };
@@ -192,7 +213,8 @@ test('bootstrap, concurrency, and canonical full-resource session fail closed', 
     head: sha,
     sourceTree: 'b'.repeat(40),
     baseline: sha,
-    liveFingerprint: live
+    liveFingerprint: live,
+    firestoreParity: session.firestoreParity
   }));
   assert.throws(() => assertSession({
     session: { ...session, resources: ['hosting'] },

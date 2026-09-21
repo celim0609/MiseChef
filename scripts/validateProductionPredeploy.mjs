@@ -6,6 +6,7 @@ import {
   PRODUCTION_PROJECT_ID,
   assertArtifactCompatibility,
   assertCleanCandidate,
+  createFirestoreParityProof,
   assertLiveUnchanged,
   assertProductionEnvironment,
   assertProductionFirebaseConfig,
@@ -42,6 +43,8 @@ execFileSync('node', ['scripts/validateFirebaseEnv.mjs'], {
 
 const config = JSON.parse(readFileSync(path.join(candidateRoot, 'firebase.production.json'), 'utf8'));
 assertProductionFirebaseConfig(config);
+const candidateConfig = JSON.parse(readFileSync(path.join(candidateRoot, 'firebase.json'), 'utf8'));
+const firestoreParity = createFirestoreParityProof({ repositoryRoot: candidateRoot, candidateConfig });
 const manifest = JSON.parse(readFileSync(
   path.join(candidateRoot, 'dist', '.well-known', 'misechef-production-release.json'),
   'utf8'
@@ -56,7 +59,8 @@ assertSession({
   head,
   sourceTree,
   baseline,
-  liveFingerprint: currentLive
+  liveFingerprint: currentLive,
+  firestoreParity
 });
 assertLiveUnchanged(session.liveFingerprint, currentLive);
 console.log(`Canonical Production predeploy session verified for exact SHA ${head}.`);

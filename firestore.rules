@@ -1347,6 +1347,7 @@ service cloud.firestore {
           'pickupEnabled',
           'deliveryEnabled',
           'delivery',
+          'pickupOperatingHours',
           'pickupSessions',
           'pickupLocations',
           'orderDays',
