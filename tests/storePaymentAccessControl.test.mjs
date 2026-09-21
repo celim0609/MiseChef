@@ -224,6 +224,32 @@ test('Store owner can save the combined Pickup & Delivery form update', async ()
   }));
 });
 
+test('Store owner can remove pickup locations and sessions without revalidating unrelated legacy Store fields', async () => {
+  // setDoc(..., { merge: true }) in Store Settings is evaluated as an update of
+  // /stores/{workspaceId}. A legacy Store can contain unrelated data that no
+  // longer meets today's whole-document settings schema. Removing a pickup
+  // item must remain limited to the existing Owner/Manager authorization and
+  // pickup fields, rather than being blocked by that unrelated legacy data.
+  await environment.withSecurityRulesDisabled(async context => {
+    await context.firestore().doc(`stores/${WORKSPACE_A}`).update({
+      storeContact: { phone: STORE_CONTACT.phone, whatsapp: STORE_CONTACT.whatsapp },
+      pickupLocations: [{ id: 'counter', name: 'Front Counter', address: '1 Test Street', notes: '' }],
+      pickupSessions: ['Lunch'],
+      pickupEnabled: true
+    });
+  });
+
+  await assertSucceeds(ownerA.firestore().doc(`stores/${WORKSPACE_A}`).update({
+    pickupLocations: [],
+    pickupEnabled: false,
+    updatedAt: '2026-09-21T02:10:00.000Z'
+  }));
+  await assertSucceeds(ownerA.firestore().doc(`stores/${WORKSPACE_A}`).update({
+    pickupSessions: [],
+    updatedAt: '2026-09-21T02:11:00.000Z'
+  }));
+});
+
 test('server-controlled receipt exists and matching Owner and Manager can read it', async () => {
   assert.equal((await assertSucceeds(ownerA.storage(BUCKET_URL).ref(RECEIPT_PATH).getDownloadURL())).includes('receipt.png'), true);
   assert.equal((await assertSucceeds(managerA.storage(BUCKET_URL).ref(RECEIPT_PATH).getDownloadURL())).includes('receipt.png'), true);
