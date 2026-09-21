@@ -211,6 +211,19 @@ after(async () => {
   await environment?.cleanup();
 });
 
+test('Store owner can save the combined Pickup & Delivery form update', async () => {
+  // This is the precise merge update emitted by Store Settings: changing pickup
+  // hours together with locations/sessions must use the normal settings path,
+  // rather than relying on the isolated-hours rule exception.
+  await assertSucceeds(ownerA.firestore().doc(`stores/${WORKSPACE_A}`).update({
+    pickupOperatingHours: { start: '10:00', end: '20:00' },
+    pickupLocations: [{ id: 'counter', name: 'Front Counter', address: '1 Test Street', notes: '' }],
+    pickupSessions: ['Lunch'],
+    pickupEnabled: true,
+    updatedAt: '2026-09-21T02:00:00.000Z'
+  }));
+});
+
 test('server-controlled receipt exists and matching Owner and Manager can read it', async () => {
   assert.equal((await assertSucceeds(ownerA.storage(BUCKET_URL).ref(RECEIPT_PATH).getDownloadURL())).includes('receipt.png'), true);
   assert.equal((await assertSucceeds(managerA.storage(BUCKET_URL).ref(RECEIPT_PATH).getDownloadURL())).includes('receipt.png'), true);
