@@ -1330,7 +1330,13 @@ service cloud.firestore {
           && isValidStoreHostProgram(request.resource.data.hostProgram)) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unavailableDates', 'updatedAt'])
           && request.resource.data.unavailableDates is list
           && request.resource.data.unavailableDates.size() <= 60) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pickupOperatingHours', 'updatedAt'])
-          && isValidPickupOperatingHours(request.resource.data.pickupOperatingHours)) || (isValidStoreSettings(
+          && isValidPickupOperatingHours(request.resource.data.pickupOperatingHours)) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pickupLocations', 'pickupSessions', 'pickupEnabled', 'updatedAt'])
+          && request.resource.data.pickupEnabled is bool
+          && request.resource.data.pickupSessions is list
+          && request.resource.data.pickupSessions.size() <= 20
+          && request.resource.data.pickupLocations is list
+          && request.resource.data.pickupLocations.size() <= 20
+          && request.resource.data.updatedAt is string) || (isValidStoreSettings(
           request.resource.data,
           workspaceId,
           request.resource.data.diff(resource.data).affectedKeys().hasAny(['paymentMethods'])
