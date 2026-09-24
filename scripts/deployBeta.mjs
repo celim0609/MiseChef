@@ -130,6 +130,16 @@ try {
     throw new Error('MISECHEF_BETA_TRUSTED_GATE_ROOT must identify the separate trusted gate checkout.');
   }
   const liveBefore = await readLiveBetaFingerprint();
+  console.log('Live Beta release fingerprint before validation:', JSON.stringify({
+    rootAsset: liveBefore.rootAsset,
+    storeAsset: liveBefore.storeAsset,
+    releaseCommit: liveBefore.releaseCommit,
+    releaseSourceTree: liveBefore.releaseSourceTree,
+    releaseProtectedBaseline: liveBefore.releaseProtectedBaseline,
+    releaseBuildId: liveBefore.releaseBuildId,
+    rootEtag: liveBefore.rootEtag,
+    storeEtag: liveBefore.storeEtag
+  }, null, 2));
   assertLiveBaseline({
     liveFingerprint: liveBefore,
     resolveSourceTree: commit => git(['rev-parse', `${commit}^{tree}`]),
