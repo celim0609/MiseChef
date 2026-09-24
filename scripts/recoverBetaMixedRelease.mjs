@@ -26,6 +26,7 @@ import {
   assertExactCandidate,
   assertExpectedMixedLiveState,
   assertIncidentAvailable,
+  isMissingConsumptionMarkerError,
   assertRecoveredRelease,
   assertRecoveryMode,
   createConsumptionMarker
@@ -88,7 +89,7 @@ const readMarker = () => {
     return JSON.parse(execFileSync('gcloud', ['storage', 'cat', markerPath], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }));
   } catch (error) {
     const message = `${error?.stdout || ''}${error?.stderr || ''}`;
-    if (/404|No URLs matched/i.test(message)) return null;
+    if (isMissingConsumptionMarkerError(error)) return null;
     throw new Error(`Unable to read the protected incident-consumption marker: ${message || error.message}`);
   }
 };

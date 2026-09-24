@@ -7,6 +7,7 @@ import {
   assertExactCandidate,
   assertExpectedMixedLiveState,
   assertIncidentAvailable,
+  isMissingConsumptionMarkerError,
   assertRecoveredRelease,
   assertRecoveryMode,
   createConsumptionMarker
@@ -36,6 +37,18 @@ test('mixed-release recovery fails closed on candidate, alias, live-state, and p
   assert.throws(() => assertExpectedMixedLiveState({ ...incident.live, rootAsset: '/assets/unapproved.js' }), /recovery refused/);
   assert.doesNotThrow(() => assertIncidentAvailable(null));
   assert.throws(() => assertIncidentAvailable({ incident: incident.id }), /already consumed/);
+});
+
+test('a first-run missing marker is unused while consumed and real read errors fail closed', () => {
+  const missing = { stderr: 'ERROR: (gcloud.storage.cat) The following URLs matched no objects or files:\ngs://bucket/misechef-release-guards/incident.json' };
+  assert.equal(isMissingConsumptionMarkerError(missing), true);
+  assert.doesNotThrow(() => assertIncidentAvailable(null));
+  assert.throws(() => assertIncidentAvailable({ incident: incident.id }), /already consumed/);
+  for (const error of [
+    { stderr: 'ERROR: (gcloud.storage.cat) 403 Permission denied.' },
+    { stderr: 'ERROR: (gcloud.storage.cat) 401 Unauthenticated.' },
+    { stderr: 'ERROR: (gcloud.storage.cat) The specified bucket does not exist.' }
+  ]) assert.equal(isMissingConsumptionMarkerError(error), false);
 });
 
 test('consumption marker is created only after Firebase reports a started process', () => {
