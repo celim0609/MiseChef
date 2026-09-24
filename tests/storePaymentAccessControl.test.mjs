@@ -15,6 +15,7 @@ const WORKSPACE_B = 'workspace-payment-b';
 const WORKSPACE_SG = 'workspace-payment-sg';
 const ORDER_A = 'order-payment-a';
 const RECEIPT_PATH = `store-payment-receipts/${WORKSPACE_A}/${ORDER_A}/receipt.png`;
+const RELEASE_GUARD_PATH = 'misechef-release-guards/probe-test';
 const STORE_CONTACT = {
   phone: '+60123456789',
   email: 'hello@example.test',
@@ -212,6 +213,10 @@ before(async () => {
       Uint8Array.from([137, 80, 78, 71]),
       { contentType: 'image/png' }
     );
+    await context.storage(BUCKET_URL).ref(RELEASE_GUARD_PATH).put(
+      Uint8Array.from([123, 125]),
+      { contentType: 'application/json' }
+    );
   });
 });
 
@@ -276,6 +281,15 @@ test('no client, including the matching Owner or Manager, can write or delete pr
   await assertFails(ownerA.storage(BUCKET_URL).ref(RECEIPT_PATH).put(replacement, { contentType: 'image/png' }));
   await assertFails(managerA.storage(BUCKET_URL).ref(RECEIPT_PATH).put(replacement, { contentType: 'image/png' }));
   await assertFails(ownerB.storage(BUCKET_URL).ref(RECEIPT_PATH).delete());
+});
+
+test('release-guard objects deny every client read, list, and write operation', async () => {
+  await assertFails(anonymous.storage(BUCKET_URL).ref(RELEASE_GUARD_PATH).getDownloadURL());
+  await assertFails(ownerA.storage(BUCKET_URL).ref('misechef-release-guards').listAll());
+  await assertFails(ownerA.storage(BUCKET_URL).ref(RELEASE_GUARD_PATH).put(
+    Uint8Array.from([123, 125]), { contentType: 'application/json' }
+  ));
+  await assertFails(ownerA.storage(BUCKET_URL).ref(RELEASE_GUARD_PATH).delete());
 });
 
 test('clients cannot create orders or directly mutate payment and approval fields', async () => {
