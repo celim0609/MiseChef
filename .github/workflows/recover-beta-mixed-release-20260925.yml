@@ -1,0 +1,68 @@
+name: Beta Mixed Release 20260925 Recovery
+on:
+  workflow_dispatch:
+    inputs:
+      recovery_confirmation:
+        required: true
+        type: string
+      expected_candidate_sha:
+        required: true
+        type: string
+concurrency:
+  group: misechef-beta-deployment
+  cancel-in-progress: false
+jobs:
+  recover-beta-mixed-release:
+    if: ${{ inputs.recovery_confirmation == 'RECOVER BETA MIXED RELEASE 20260925' && inputs.expected_candidate_sha == '41b331b95e5354e14bf28a70c4f28e1578ab8d32' }}
+    runs-on: ubuntu-latest
+    environment: beta
+    timeout-minutes: 60
+    env:
+      FIREBASE_DEPLOY_TARGET: beta
+      MISECHEF_BETA_PROTECTED_BASELINE: ${{ vars.MISECHEF_BETA_PROTECTED_BASELINE }}
+      MISECHEF_BETA_CI_LOCK_ID: misechef-beta-deployment
+      VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+      VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+      VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
+      VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+      VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+      VITE_STRIPE_PUBLISHABLE_KEY: ${{ vars.VITE_STRIPE_PUBLISHABLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: ${{ vars.MISECHEF_BETA_MIXED_RELEASE_20260925_GATE_SHA }}, path: recovery-gate, fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with: { ref: 9c2173b9f9ae42b1fc09826c57cef46697759452, path: trusted-gate, fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with: { ref: 41b331b95e5354e14bf28a70c4f28e1578ab8d32, path: candidate, fetch-depth: 0 }
+      - name: Verify immutable controller and candidate
+        env: { EXPECTED_GATE_SHA: ${{ vars.MISECHEF_BETA_MIXED_RELEASE_20260925_GATE_SHA }} }
+        run: |
+          test "$(git -C "$GITHUB_WORKSPACE/recovery-gate" rev-parse HEAD)" = "$EXPECTED_GATE_SHA"
+          test "$(git -C "$GITHUB_WORKSPACE/candidate" rev-parse HEAD)" = "${{ inputs.expected_candidate_sha }}"
+          test "$(git -C "$GITHUB_WORKSPACE/candidate" rev-parse HEAD^{tree})" = "d298e5b1eee4a60ade64e10e27fd5da1965481c1"
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - run: npm --prefix "$GITHUB_WORKSPACE/recovery-gate" ci
+      - run: npm --prefix "$GITHUB_WORKSPACE/trusted-gate" ci
+      - run: npm --prefix "$GITHUB_WORKSPACE/candidate" ci
+      - run: npm --prefix "$GITHUB_WORKSPACE/candidate/functions" ci
+      - run: npm install --global firebase-tools@14.22.0
+      - run: |
+          npm --prefix "$GITHUB_WORKSPACE/recovery-gate" run test:beta-deployment-safety
+          node --test "$GITHUB_WORKSPACE/recovery-gate/scripts/betaMixedRelease20260925Recovery.test.mjs"
+      - run: node "$GITHUB_WORKSPACE/trusted-gate/scripts/validateBetaReleaseBaseline.mjs" --trusted-root "$GITHUB_WORKSPACE/trusted-gate" --candidate-root "$GITHUB_WORKSPACE/candidate"
+      - run: node "$GITHUB_WORKSPACE/trusted-gate/scripts/runBetaProtectedTests.mjs" --trusted-root "$GITHUB_WORKSPACE/trusted-gate" --candidate-root "$GITHUB_WORKSPACE/candidate"
+      - run: npm --prefix "$GITHUB_WORKSPACE/candidate" run test:store-sets:rules
+      - uses: google-github-actions/auth@v2
+        with: { credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA }} }
+      - name: Run protected durable mixed-release convergence
+        working-directory: recovery-gate
+        env:
+          MISECHEF_BETA_MIXED_RELEASE_20260925_GATE_SHA: ${{ vars.MISECHEF_BETA_MIXED_RELEASE_20260925_GATE_SHA }}
+          MISECHEF_BETA_MIXED_RELEASE_20260925_CONFIRMATION: ${{ inputs.recovery_confirmation }}
+          MISECHEF_BETA_MIXED_RELEASE_20260925_AUTHORIZATION: ${{ secrets.MISECHEF_BETA_MIXED_RELEASE_20260925_AUTHORIZATION }}
+          VITE_GOOGLE_PLACES_API_KEY: ${{ secrets.VITE_GOOGLE_PLACES_API_KEY }}
+        run: node scripts/recoverBetaMixedRelease20260925.mjs --candidate-root "$GITHUB_WORKSPACE/candidate"
