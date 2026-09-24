@@ -50,6 +50,11 @@ export const assertIncidentAvailable = marker => {
   if (marker) fail('incident is already consumed by a Firebase deploy start and cannot be retried.');
 };
 
+export const isMissingConsumptionMarkerError = error => {
+  const output = `${error?.stdout || ''}${error?.stderr || ''}${error?.message || ''}`;
+  return /the following urls matched no objects or files|no urls matched|the specified key does not exist/i.test(output);
+};
+
 export const createConsumptionMarker = ({ runId, startedAt = new Date().toISOString() }) => ({
   incident: BETA_MIXED_RELEASE_INCIDENT.id,
   candidateCommit: BETA_MIXED_RELEASE_INCIDENT.candidateCommit,
