@@ -4,9 +4,11 @@ import type { PublicHostMenuAction } from './hostReturnNavigation';
 
 export default function PublicAccountMenu({
   hostAction,
+  orderIntent,
   onSignOut
 }: {
   hostAction: PublicHostMenuAction | null;
+  orderIntent: boolean;
   onSignOut: () => Promise<void>;
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -39,6 +41,12 @@ export default function PublicAccountMenu({
   }, [isOpen]);
 
   const closeMenu = () => setIsOpen(false);
+  const ordersItem = (
+    <a ref={orderIntent ? firstItemRef : undefined} role="menuitem" href="/orders" onClick={closeMenu} className="flex items-center gap-3 rounded-2xl px-3 py-3 text-primary transition-colors hover:bg-surface-container-low focus:bg-surface-container-low focus:outline-none focus:ring-2 focus:ring-primary/20">
+      <ReceiptText className="h-5 w-5" aria-hidden="true" />
+      <span className="font-sans text-sm font-extrabold">My Orders</span>
+    </a>
+  );
 
   return (
     <div ref={containerRef} className="relative">
@@ -63,7 +71,9 @@ export default function PublicAccountMenu({
           aria-label="Account"
           className="fixed inset-x-3 top-16 z-[90] max-h-[calc(100dvh-5rem)] overflow-y-auto rounded-3xl border border-surface-container-high bg-white p-2 shadow-2xl shadow-primary/15 sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80"
         >
-          <a ref={firstItemRef} role="menuitem" href="/app" onClick={closeMenu} className="flex items-center gap-3 rounded-2xl px-3 py-3 text-primary transition-colors hover:bg-surface-container-low focus:bg-surface-container-low focus:outline-none focus:ring-2 focus:ring-primary/20">
+          {orderIntent && ordersItem}
+
+          <a ref={orderIntent ? undefined : firstItemRef} role="menuitem" href="/app" onClick={closeMenu} className="flex items-center gap-3 rounded-2xl px-3 py-3 text-primary transition-colors hover:bg-surface-container-low focus:bg-surface-container-low focus:outline-none focus:ring-2 focus:ring-primary/20">
             <LayoutDashboard className="h-5 w-5" aria-hidden="true" />
             <span className="font-sans text-sm font-extrabold">My MiseChef</span>
           </a>
@@ -73,10 +83,7 @@ export default function PublicAccountMenu({
             <span className="font-sans text-sm font-extrabold">My Recipes</span>
           </a>
 
-          <a role="menuitem" href="/orders" onClick={closeMenu} className="flex items-center gap-3 rounded-2xl px-3 py-3 text-primary transition-colors hover:bg-surface-container-low focus:bg-surface-container-low focus:outline-none focus:ring-2 focus:ring-primary/20">
-            <ReceiptText className="h-5 w-5" aria-hidden="true" />
-            <span className="font-sans text-sm font-extrabold">My Orders</span>
-          </a>
+          {!orderIntent && ordersItem}
 
           {hostAction && (
             <a role="menuitem" href={hostAction.href} onClick={closeMenu} className="flex items-center gap-3 rounded-2xl px-3 py-3 text-primary transition-colors hover:bg-surface-container-low focus:bg-surface-container-low focus:outline-none focus:ring-2 focus:ring-primary/20">

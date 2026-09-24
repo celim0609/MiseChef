@@ -2,6 +2,9 @@ const HOST_RETURN_TO_PATTERN = /^\/host\/[a-z0-9-]+\/?$/i;
 const CUSTOMER_ORDERS_RETURN_TO_PATTERN = /^\/orders\/?$/;
 const GROUP_ORDER_RETURN_TO_PATTERN = /^\/group\/[a-z0-9_-]+\/?$/i;
 const STORE_RETURN_TO_PATTERN = /^\/store\/[a-z0-9-]+\/?$/i;
+const POST_REGISTRATION_DESTINATION_KEY = 'misechef_post_registration_destination';
+
+export type RegistrationIntent = 'chef' | 'ordering';
 
 const isValidPublicAccountReturnTo = (returnTo: string) => (
   HOST_RETURN_TO_PATTERN.test(returnTo)
@@ -41,6 +44,41 @@ export const replaceWithValidatedPublicAccountReturnTo = (
   if (!returnTo) return false;
   replace(returnTo);
   return true;
+};
+
+export const resolveRegistrationIntent = (search: string): RegistrationIntent => (
+  getValidatedPublicAccountReturnTo(search) ? 'ordering' : 'chef'
+);
+
+export const resolvePostRegistrationDestination = (
+  search: string,
+  intent: RegistrationIntent
+) => {
+  if (intent === 'chef') return '/app';
+  return getValidatedPublicAccountReturnTo(search) || '/orders';
+};
+
+export const rememberPostRegistrationDestination = (
+  search: string,
+  intent: RegistrationIntent
+) => {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.setItem(
+    POST_REGISTRATION_DESTINATION_KEY,
+    resolvePostRegistrationDestination(search, intent)
+  );
+};
+
+export const forgetPostRegistrationDestination = () => {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.removeItem(POST_REGISTRATION_DESTINATION_KEY);
+};
+
+export const consumePostRegistrationDestination = () => {
+  if (typeof window === 'undefined') return '';
+  const destination = window.sessionStorage.getItem(POST_REGISTRATION_DESTINATION_KEY) || '';
+  window.sessionStorage.removeItem(POST_REGISTRATION_DESTINATION_KEY);
+  return destination === '/app' || isValidPublicAccountReturnTo(destination) ? destination : '';
 };
 
 export const resolvePublicHostStoreCandidate = (

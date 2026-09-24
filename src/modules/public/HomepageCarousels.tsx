@@ -3,7 +3,7 @@ import { ArrowRight, ChevronLeft, ChevronRight, Pause, Play, Sparkles } from 'lu
 import { createLoopingHomepagePromotionItems, type HomepagePromotion } from './homepagePromotions';
 
 const announcements = [
-  { id: 'launch', message: 'A more beautiful MiseChef is arriving for every kitchen.', href: '/login', cta: 'Open MiseChef' },
+  { id: 'launch', message: 'A more beautiful MiseChef is arriving for every kitchen.', href: '/login?intent=chef', cta: 'Open MiseChef' },
   { id: 'discover', message: 'Discover original recipes and the chefs behind them.', href: '/recipes', cta: 'Explore recipes' },
   { id: 'stores', message: 'From chef-made Sets to group orders — food is better shared.', href: '/chefs', cta: 'Meet the makers' }
 ];

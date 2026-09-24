@@ -62,8 +62,15 @@ export default function PublicLayout({ pathname, currentUser, onSignOut }: { pat
     route.page === 'group' ? [] : publicDiscoverStores.map(store => store.slug)
   );
   const hostAction = resolvePublicHostMenuAction(hostLookup, hostStoreCandidate, currentUser?.uid || '');
+  const orderIntent = route.page === 'store'
+    || route.page === 'store-product'
+    || route.page === 'store-promotion'
+    || route.page === 'group'
+    || route.page === 'orders';
   const accountReturnTo = route.page === 'store'
     ? `/store/${encodeURIComponent(route.slug)}`
+    : route.page === 'store-product'
+      ? `/store/${encodeURIComponent(route.storeSlug)}/product/${encodeURIComponent(route.productSlug)}`
     : route.page === 'store-promotion'
       ? `/store/${encodeURIComponent(route.storeSlug)}/promotion/${encodeURIComponent(route.promotionId)}`
     : route.page === 'host'
@@ -318,7 +325,7 @@ export default function PublicLayout({ pathname, currentUser, onSignOut }: { pat
               <a key={item.href} href={item.href} className="hidden rounded-full px-3 py-2 font-sans text-xs font-extrabold text-primary transition hover:bg-surface-container active:scale-95 sm:inline-flex sm:px-4">{item.label}</a>
             ))}
             {currentUser
-              ? <PublicAccountMenu hostAction={hostAction} onSignOut={onSignOut} />
+              ? <PublicAccountMenu hostAction={hostAction} orderIntent={orderIntent} onSignOut={onSignOut} />
               : <a href={loggedOutAccountLink.href} className="inline-flex items-center gap-2 rounded-full bg-primary px-3 py-2 font-sans text-xs font-extrabold text-on-primary transition hover:bg-primary-container active:scale-95 sm:px-4">{loggedOutAccountLink.label}</a>}
             <button type="button" onClick={toggleAppearance} aria-label={isNightMode ? 'Switch to Light Mode' : 'Switch to Night Mode'} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-surface-container-high text-primary transition hover:bg-surface-container active:scale-95">{isNightMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</button>
           </nav>

@@ -114,7 +114,7 @@ test('non-Host and logged-out public account navigation remains unchanged', () =
     label: 'Login',
     href: '/login?returnTo=%2Fhost%2Fmisechef-s-grab-go-store'
   });
-  assert.match(publicLayout, /currentUser\s*\? <PublicAccountMenu hostAction=\{hostAction\} onSignOut=\{onSignOut\}/);
+  assert.match(publicLayout, /currentUser\s*\? <PublicAccountMenu hostAction=\{hostAction\} orderIntent=\{orderIntent\} onSignOut=\{onSignOut\}/);
 });
 
 test('Host authentication return takes precedence and replaces Login history', () => {
