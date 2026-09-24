@@ -106,15 +106,6 @@ service cloud.firestore {
               && get(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId))).data.status == 'Active')));
     }
 
-    // Some workspace-scoped data is stored below the workspace document. Keep
-    // that shape compatible with the canonical membership record while also
-    // allowing the nested membership record used by older clients.
-    function canAccessWorkspaceData(workspaceId) {
-      return isWorkspaceMember(workspaceId)
-        || (signedIn()
-          && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid)));
-    }
-
     function isWorkspaceDocumentOwner(workspaceId) {
       return signedIn()
         && exists(/databases/$(database)/documents/workspaces/$(workspaceId))
@@ -1315,26 +1306,6 @@ service cloud.firestore {
         allow delete: if false;
       }
 
-      // Owners are included by isWorkspaceMember even when their legacy
-      // workspaceMembers document is absent, so workspace data never blocks
-      // Store Settings solely because a membership mirror is missing.
-      match /{document=**} {
-        allow read, write: if canAccessWorkspaceData(workspaceId);
-      }
-
-      // Guest checkout and order-status pages use this nested legacy path.
-      // Customers may create and read their order, while mutations remain
-      // restricted to the workspace.
-            match /orders/{orderId} {
-        allow get: if canAccessWorkspaceData(workspaceId)
-          || request.auth != null
-          || (resource != null && resource.data.trackingToken is string && request.query.trackingToken == resource.data.trackingToken);
-        allow list: if canAccessWorkspaceData(workspaceId);
-        allow create: if request.resource.data.workspaceId == workspaceId
-          && request.resource.data.trackingToken is string
-          && request.resource.data.trackingToken.size() > 10;
-        allow update, delete: if canAccessWorkspaceData(workspaceId);
-      }
     }
 
     match /publicChefProfiles/{username} {

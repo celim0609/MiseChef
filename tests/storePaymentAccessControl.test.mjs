@@ -181,6 +181,14 @@ before(async () => {
         currency: 'SGD',
         createdBy: 'owner-sg'
       }),
+      db.doc(`workspaces/${WORKSPACE_A}/portfolio/profile`).set({
+        title: 'Payment Kitchen portfolio'
+      }),
+      db.doc(`workspaces/${WORKSPACE_A}/orders/${ORDER_A}`).set({
+        id: ORDER_A,
+        workspaceId: WORKSPACE_A,
+        trackingToken: 'not-a-client-read-capability'
+      }),
       db.doc(`storeOrders/${ORDER_A}`).set({
         id: ORDER_A,
         customerUid: 'customer-a',
@@ -285,6 +293,27 @@ test('clients cannot create orders or directly mutate payment and approval field
   }));
   await assertFails(ownerB.firestore().doc(`storeOrders/${ORDER_A}`).update({
     'payment.status': 'paid'
+  }));
+});
+
+test('workspace subcollections retain membership checks without a recursive wildcard', async () => {
+  const portfolioRef = memberA.firestore().doc(`workspaces/${WORKSPACE_A}/portfolio/profile`);
+  await assertSucceeds(portfolioRef.get());
+  await assertSucceeds(portfolioRef.update({ title: 'Member portfolio update' }));
+
+  const foreignPortfolioRef = ownerB.firestore().doc(`workspaces/${WORKSPACE_A}/portfolio/profile`);
+  await assertFails(foreignPortfolioRef.get());
+  await assertFails(foreignPortfolioRef.update({ title: 'Cross-workspace write' }));
+  await assertFails(ownerB.firestore().doc(`workspaces/${WORKSPACE_A}/unrecognised/private`).set({ secret: true }));
+});
+
+test('nested workspace membership and legacy nested orders are client-denied', async () => {
+  await assertFails(memberA.firestore().doc(`workspaces/${WORKSPACE_A}/members/escalated-user`).set({
+    userId: 'escalated-user', role: 'Owner', status: 'Active'
+  }));
+  await assertFails(anonymous.firestore().doc(`workspaces/${WORKSPACE_A}/orders/${ORDER_A}`).get());
+  await assertFails(anonymous.firestore().doc(`workspaces/${WORKSPACE_A}/orders/customer-created`).set({
+    id: 'customer-created', workspaceId: WORKSPACE_A, trackingToken: 'attacker-controlled-token'
   }));
 });
 
