@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { ALLOWED_POST_BUILD_DIRTY_PATHS, BETA_PROJECT_ID, MANDATORY_BETA_BASELINE, assertArtifactCompatibility, assertAuthority, assertCleanSource, assertExplicitBetaStorageTarget, assertSession } from './betaDeploymentSafety.mjs';
@@ -13,12 +13,13 @@ if (!candidateRoot || !existsSync(path.join(candidateRoot, '.git'))) throw new E
 const git = args => execFileSync('git', args, { cwd: candidateRoot, encoding: 'utf8' }).trimEnd();
 const head = git(['rev-parse', 'HEAD']);
 const sourceTree = git(['rev-parse', 'HEAD^{tree}']);
-assert20260925Candidate({ head, sourceTree, isAncestor: (a, b) => execFileSync('git', ['merge-base', '--is-ancestor', a, b], { cwd: candidateRoot }).status === 0 });
+const isAncestor = (ancestor, descendant) => spawnSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], { cwd: candidateRoot, stdio: 'ignore' }).status === 0;
+assert20260925Candidate({ head, sourceTree, isAncestor });
 const config = JSON.parse(readFileSync(path.join(candidateRoot, 'firebase.json'), 'utf8'));
 const rc = JSON.parse(readFileSync(path.join(candidateRoot, '.firebaserc'), 'utf8'));
 assertExplicitBetaStorageTarget({ firebaseConfig: config, firebaseRc: rc });
 assert20260925BetaAlias(rc);
-assertAuthority({ authorityBaseline: process.env.MISECHEF_BETA_PROTECTED_BASELINE, documentedBaseline: MANDATORY_BETA_BASELINE, head, isAncestor: (a, b) => execFileSync('git', ['merge-base', '--is-ancestor', a, b], { cwd: candidateRoot }).status === 0 });
+assertAuthority({ authorityBaseline: process.env.MISECHEF_BETA_PROTECTED_BASELINE, documentedBaseline: MANDATORY_BETA_BASELINE, head, isAncestor });
 if (process.env.FIREBASE_DEPLOY_TARGET !== 'beta' || process.env.GCLOUD_PROJECT !== BETA_PROJECT_ID || process.env.MISECHEF_BETA_CI_LOCK_ID !== 'misechef-beta-deployment') throw new Error('Durable recovery predeploy is not in the protected Beta context.');
 const dirty = execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: candidateRoot, encoding: 'utf8' }).trimEnd().split('\n').filter(Boolean).map(line => line.slice(3));
 assertCleanSource(dirty, ALLOWED_POST_BUILD_DIRTY_PATHS);
@@ -26,8 +27,8 @@ const session = JSON.parse(readFileSync(process.env.MISECHEF_BETA_DEPLOY_SESSION
 assertSession({ session, nonce: process.env.MISECHEF_BETA_DEPLOY_SESSION_NONCE, head, baseline: MANDATORY_BETA_BASELINE });
 const manifest = JSON.parse(readFileSync(path.join(candidateRoot, 'dist/.well-known/misechef-beta-release.json'), 'utf8'));
 assertArtifactCompatibility({ repositoryRoot: candidateRoot, manifest: { ...manifest, currentSourceTree: sourceTree }, head, baseline: MANDATORY_BETA_BASELINE });
-const require = createRequire(import.meta.url);
-const { GoogleAuth } = require('../functions/node_modules/google-auth-library');
+const candidateRequire = createRequire(path.join(candidateRoot, 'functions', 'package.json'));
+const { GoogleAuth } = candidateRequire('google-auth-library');
 const auth = new GoogleAuth({ projectId: BETA_PROJECT_ID, scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
 const request = options => auth.request(options);
 const globalNpmRoot = execFileSync('npm', ['root', '--global'], { encoding: 'utf8' }).trim();
