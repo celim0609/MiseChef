@@ -1325,8 +1325,12 @@ service cloud.firestore {
       // Guest checkout and order-status pages use this nested legacy path.
       // Customers may create and read their order, while mutations remain
       // restricted to the workspace.
-      match /orders/{orderId} {
-        allow read, create: if true;
+            match /orders/{orderId} {
+        allow read: if canAccessWorkspaceData(workspaceId)
+          || (resource != null && resource.data.trackingToken is string && request.query.token == resource.data.trackingToken);
+        allow create: if request.resource.data.workspaceId == workspaceId
+          && request.resource.data.trackingToken is string
+          && request.resource.data.trackingToken.size() > 10;
         allow update, delete: if canAccessWorkspaceData(workspaceId);
       }
     }
