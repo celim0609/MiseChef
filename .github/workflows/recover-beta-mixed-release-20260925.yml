@@ -54,6 +54,12 @@ jobs:
       - run: npm --prefix "$GITHUB_WORKSPACE/candidate" ci
       - run: npm --prefix "$GITHUB_WORKSPACE/candidate/functions" ci
       - run: npm install --global firebase-tools@14.22.0
+      - name: Verify CI-equivalent recovery runtime imports before any cloud action
+        run: >-
+          node "$GITHUB_WORKSPACE/recovery-gate/scripts/verifyBetaMixedRelease20260925CiPreflight.mjs"
+          --recovery-root "$GITHUB_WORKSPACE/recovery-gate"
+          --trusted-root "$GITHUB_WORKSPACE/trusted-gate"
+          --candidate-root "$GITHUB_WORKSPACE/candidate"
       - run: |
           npm --prefix "$GITHUB_WORKSPACE/recovery-gate" run test:beta-deployment-safety
           node --test "$GITHUB_WORKSPACE/recovery-gate/scripts/betaMixedRelease20260925Recovery.test.mjs"
