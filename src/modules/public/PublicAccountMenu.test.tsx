@@ -25,6 +25,21 @@ test('menu uses exact existing account destinations and logout handler', () => {
   assert.match(menuSource, /Log out/);
 });
 
+test('order intent puts My Orders before chef links while chef intent keeps the current order', () => {
+  const orderIntentMenu = menuSource.slice(
+    menuSource.indexOf('{orderIntent && ordersItem}'),
+    menuSource.indexOf('{hostAction &&')
+  );
+  assert.ok(orderIntentMenu.indexOf('{orderIntent && ordersItem}') < orderIntentMenu.indexOf('href="/app"'));
+
+  const chefIntentMenu = menuSource.slice(
+    menuSource.indexOf('<a ref={orderIntent ? undefined : firstItemRef}'),
+    menuSource.indexOf('{hostAction &&')
+  );
+  assert.ok(chefIntentMenu.indexOf('href="/app"') < chefIntentMenu.indexOf('href="/app/recipes"'));
+  assert.ok(chefIntentMenu.indexOf('href="/app/recipes"') < chefIntentMenu.indexOf('{!orderIntent && ordersItem}'));
+});
+
 test('Host menu action is backend-result dependent and fails closed while loading or unknown', () => {
   const candidate = 'verified-store';
   const cases: PublicHostLookup[] = [

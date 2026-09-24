@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   createUserWithEmailAndPassword,
@@ -147,6 +147,11 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
   const [authError, setAuthError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  useEffect(() => {
+    forgetPostRegistrationDestination();
+    return forgetPostRegistrationDestination;
+  }, []);
+
   const clearAuthStatus = () => {
     setAuthMessage('');
     setAuthError('');
@@ -258,6 +263,9 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
   };
 
   const switchView = (nextView: AuthView) => {
+    if (view === 'create-account' && nextView !== 'create-account') {
+      forgetPostRegistrationDestination();
+    }
     clearAuthStatus();
     setView(nextView);
   };
