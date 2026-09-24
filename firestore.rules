@@ -1326,8 +1326,10 @@ service cloud.firestore {
       // Customers may create and read their order, while mutations remain
       // restricted to the workspace.
             match /orders/{orderId} {
-        allow read: if canAccessWorkspaceData(workspaceId)
-          || (resource != null && resource.data.trackingToken is string && request.query.token == resource.data.trackingToken);
+        allow get: if canAccessWorkspaceData(workspaceId)
+          || request.auth != null
+          || (resource != null && resource.data.trackingToken is string && request.query.trackingToken == resource.data.trackingToken);
+        allow list: if canAccessWorkspaceData(workspaceId);
         allow create: if request.resource.data.workspaceId == workspaceId
           && request.resource.data.trackingToken is string
           && request.resource.data.trackingToken.size() > 10;
