@@ -40,6 +40,7 @@ const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'ut
 const run = (command, args, cwd = candidateRoot, extraEnv = {}) => execFileSync(command, args, { cwd, env: { ...process.env, ...extraEnv }, stdio: 'inherit' });
 const dirtyPaths = root => git(root, ['status', '--porcelain=v1', '--untracked-files=all']).split('\n').filter(Boolean).map(line => line.slice(3));
 const markerPath = BETA_MIXED_RELEASE_INCIDENT.consumptionMarker;
+const markerPrefix = markerPath.slice(0, markerPath.lastIndexOf('/') + 1);
 
 const protectedGateSha = process.env.MISECHEF_BETA_MIXED_RELEASE_20260924_GATE_SHA || '';
 if (!/^[0-9a-f]{40}$/.test(protectedGateSha) || git(controllerRoot, ['rev-parse', 'HEAD']) !== protectedGateSha) {
@@ -101,6 +102,20 @@ const markConsumedAfterDeployStart = () => {
     rmSync(directory, { recursive: true, force: true });
   }
 };
+const probeMarkerAccess = () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'misechef-beta-mixed-release-probe-'));
+  const probeFile = path.join(directory, 'probe.json');
+  const probePath = `${markerPrefix}probe-${randomBytes(32).toString('hex')}`;
+  try {
+    writeFileSync(probeFile, `${JSON.stringify({ incident: BETA_MIXED_RELEASE_INCIDENT.id, probe: true })}\n`, { mode: 0o600 });
+    execFileSync('gcloud', ['storage', 'cp', '--if-generation-match=0', probeFile, probePath], { stdio: 'inherit' });
+    execFileSync('gcloud', ['storage', 'rm', probePath], { stdio: 'inherit' });
+  } catch (error) {
+    throw new Error(`Mixed-release recovery refused: pre-deploy marker write/delete probe failed; retry after restoring Beta service-account Storage access. ${error.message}`);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+};
 const readExpandedLive = async () => {
   const [fingerprint, metadata] = await Promise.all([readLiveBetaFingerprint(), readLiveReleaseMetadata()]);
   return { ...fingerprint, releaseStoreShellAsset: metadata?.storeShellAsset || '', releaseMetadata: metadata };
@@ -128,6 +143,7 @@ const liveBeforeDeploy = await readExpandedLive();
 assertLiveReleaseUnchanged(liveBefore, liveBeforeDeploy);
 assertExpectedMixedLiveState(liveBeforeDeploy);
 assertIncidentAvailable(readMarker());
+probeMarkerAccess();
 
 const nonce = randomBytes(32).toString('hex');
 const sessionPath = path.join(os.tmpdir(), `misechef-beta-mixed-release-${process.pid}-${nonce}.json`);
@@ -145,7 +161,14 @@ try {
     stdio: 'inherit'
   });
   await once(child, 'spawn');
-  markConsumedAfterDeployStart();
+  try {
+    markConsumedAfterDeployStart();
+  } catch (error) {
+    const message = `MARKER WRITE FAILED - DO NOT RE-DISPATCH. Firebase deploy started, but the one-time incident marker could not be created: ${error.message}`;
+    console.error(message);
+    await once(child, 'close');
+    throw new Error(message);
+  }
   const [exitCode] = await once(child, 'close');
   if (exitCode !== 0) throw new Error(`Protected mixed-release Firebase deploy failed with exit code ${exitCode}; the incident remains consumed.`);
   let lastError;

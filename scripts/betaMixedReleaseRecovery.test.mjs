@@ -13,17 +13,17 @@ import {
 } from './betaMixedReleaseRecovery.mjs';
 
 const incident = BETA_MIXED_RELEASE_INCIDENT;
-const validMode = { confirmation: incident.confirmation, authorization: incident.authorization, githubActions: true, ciLockId: 'misechef-beta-deployment' };
 const validCandidate = { head: incident.candidateCommit, sourceTree: incident.candidateSourceTree, isAncestor: () => true };
 const controllerSource = readFileSync(new URL('./recoverBetaMixedRelease.mjs', import.meta.url), 'utf8');
 
 test('mixed-release recovery fails closed on every authorization precondition', () => {
   for (const invalid of [
-    { ...validMode, confirmation: 'wrong' },
-    { ...validMode, authorization: 'wrong' },
-    { ...validMode, githubActions: false },
-    { ...validMode, ciLockId: 'other' }
+    { confirmation: 'wrong', authorization: 'wrong', githubActions: true, ciLockId: 'misechef-beta-deployment' },
+    { confirmation: incident.confirmation, authorization: 'wrong', githubActions: true, ciLockId: 'misechef-beta-deployment' },
+    { confirmation: incident.confirmation, authorization: 'wrong', githubActions: false, ciLockId: 'misechef-beta-deployment' },
+    { confirmation: incident.confirmation, authorization: 'wrong', githubActions: true, ciLockId: 'other' }
   ]) assert.throws(() => assertRecoveryMode(invalid), /recovery refused/);
+  assert.match(readFileSync(new URL('./betaMixedReleaseRecovery.mjs', import.meta.url), 'utf8'), /createHash\('sha256'\)/);
 });
 
 test('mixed-release recovery fails closed on candidate, alias, live-state, and prior-consumption drift', () => {
@@ -47,6 +47,9 @@ test('consumption marker is created only after Firebase reports a started proces
   });
   assert.ok(controllerSource.indexOf("await once(child, 'spawn');") < controllerSource.indexOf('markConsumedAfterDeployStart();'));
   assert.match(controllerSource, /gcloud', \['storage', 'cp', '--if-generation-match=0'/);
+  assert.match(controllerSource, /probe-\$\{randomBytes\(32\)\.toString\('hex'\)\}/);
+  assert.ok(controllerSource.indexOf('probeMarkerAccess();') < controllerSource.indexOf("spawn('firebase'"));
+  assert.match(controllerSource, /MARKER WRITE FAILED - DO NOT RE-DISPATCH/);
 });
 
 test('controller retains every fail-closed precondition before Firebase deploy', () => {

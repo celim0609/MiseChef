@@ -1,11 +1,12 @@
+import { createHash } from 'node:crypto';
 import { BETA_PROJECT_ID, MANDATORY_BETA_BASELINE } from './betaDeploymentSafety.mjs';
 
 export const BETA_MIXED_RELEASE_INCIDENT = Object.freeze({
   id: 'beta-mixed-release-2026-09-24',
   confirmation: 'RECOVER BETA MIXED RELEASE 20260924',
-  authorization: 'beta-mixed-release-2026-09-24:1c6b8680bb139ff0c011375ce8ff79d42aea0f99',
-  candidateCommit: '1c6b8680bb139ff0c011375ce8ff79d42aea0f99',
-  candidateSourceTree: '14d77de163371d27184f0e1cbc4cb7e1416fb3c3',
+  authorizationSha256: '48abfa041262bbf01c66fa075fdfddd3be1ccffd4c16f6288a3dc0214ea4c66c',
+  candidateCommit: '41b331b95e5354e14bf28a70c4f28e1578ab8d32',
+  candidateSourceTree: 'd298e5b1eee4a60ade64e10e27fd5da1965481c1',
   live: Object.freeze({
     rootAsset: '/assets/index-BKXk7Nzq.js',
     storeAsset: '/assets/index-Cm6I4Suu.js',
@@ -19,10 +20,11 @@ export const BETA_MIXED_RELEASE_INCIDENT = Object.freeze({
 });
 
 const fail = message => { throw new Error(`Beta mixed-release recovery refused: ${message}`); };
+const sha256 = value => createHash('sha256').update(value, 'utf8').digest('hex');
 
 export const assertRecoveryMode = ({ confirmation, authorization, githubActions, ciLockId }) => {
   if (confirmation !== BETA_MIXED_RELEASE_INCIDENT.confirmation) fail('the recovery confirmation is not exact.');
-  if (authorization !== BETA_MIXED_RELEASE_INCIDENT.authorization) fail('the Beta environment authorization is not exact.');
+  if (typeof authorization !== 'string' || sha256(authorization) !== BETA_MIXED_RELEASE_INCIDENT.authorizationSha256) fail('the Beta environment authorization secret hash is not exact.');
   if (githubActions !== true || ciLockId !== 'misechef-beta-deployment') fail('recovery is permitted only in the locked protected Beta workflow.');
 };
 

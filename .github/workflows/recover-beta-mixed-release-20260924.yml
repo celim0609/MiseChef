@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   recover-beta-mixed-release:
-    if: ${{ inputs.recovery_confirmation == 'RECOVER BETA MIXED RELEASE 20260924' && inputs.expected_candidate_sha == '1c6b8680bb139ff0c011375ce8ff79d42aea0f99' }}
+    if: ${{ inputs.recovery_confirmation == 'RECOVER BETA MIXED RELEASE 20260924' && inputs.expected_candidate_sha == '41b331b95e5354e14bf28a70c4f28e1578ab8d32' }}
     runs-on: ubuntu-latest
     environment: beta
     timeout-minutes: 60
@@ -48,7 +48,7 @@ jobs:
       - name: Check out exact immutable recovery candidate
         uses: actions/checkout@v4
         with:
-          ref: 1c6b8680bb139ff0c011375ce8ff79d42aea0f99
+          ref: 41b331b95e5354e14bf28a70c4f28e1578ab8d32
           path: candidate
           fetch-depth: 0
 
@@ -58,7 +58,7 @@ jobs:
         run: |
           test "$(git -C "$GITHUB_WORKSPACE/recovery-gate" rev-parse HEAD)" = "$EXPECTED_GATE_SHA"
           test "$(git -C "$GITHUB_WORKSPACE/candidate" rev-parse HEAD)" = "${{ inputs.expected_candidate_sha }}"
-          test "$(git -C "$GITHUB_WORKSPACE/candidate" rev-parse HEAD^{tree})" = "14d77de163371d27184f0e1cbc4cb7e1416fb3c3"
+          test "$(git -C "$GITHUB_WORKSPACE/candidate" rev-parse HEAD^{tree})" = "d298e5b1eee4a60ade64e10e27fd5da1965481c1"
 
       - name: Set up Node.js 22
         uses: actions/setup-node@v4
