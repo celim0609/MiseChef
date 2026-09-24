@@ -38,7 +38,8 @@ import { MarketingPage } from './modules/marketing';
 import { isPublicExperiencePath, PublicLayout } from './modules/public';
 import {
   replaceWithValidatedHostReturnTo,
-  replaceWithValidatedPublicAccountReturnTo
+  replaceWithValidatedPublicAccountReturnTo,
+  consumePostRegistrationDestination
 } from './modules/public/hostReturnNavigation';
 import { AnimatePresence, motion } from 'motion/react';
 import BrandLogo from './components/BrandLogo';
@@ -986,6 +987,10 @@ export default function App() {
             setIsGuestMode(false);
             const pathname = window.location.pathname;
 
+            if (pathname === '/login' && replaceWithPostRegistrationDestination()) {
+              return;
+            }
+
             if (
               pathname === '/login'
               && replaceWithValidatedPublicAccountReturnTo(
@@ -1046,6 +1051,7 @@ export default function App() {
 
   useEffect(() => {
     if (currentUser && activeTab === 'login') {
+      if (replaceWithPostRegistrationDestination()) return;
       if (replaceWithValidatedPublicAccountReturnTo(
         window.location.search,
         hostReturnTo => window.location.replace(hostReturnTo)
@@ -1772,9 +1778,17 @@ export default function App() {
     }
   };
 
+  const replaceWithPostRegistrationDestination = () => {
+    const destination = consumePostRegistrationDestination();
+    if (!destination) return false;
+    window.location.replace(destination);
+    return true;
+  };
+
   // Renders correct active screen body
   const handleAuthenticated = () => {
     setIsGuestMode(false);
+    if (replaceWithPostRegistrationDestination()) return;
     if (replaceWithValidatedPublicAccountReturnTo(
       window.location.search,
       hostReturnTo => window.location.replace(hostReturnTo)
