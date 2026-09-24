@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   createUserWithEmailAndPassword,
@@ -22,6 +22,12 @@ import {
   forgetPendingRegistrationName,
   rememberPendingRegistrationName
 } from '../services/newUserProvisioningService';
+import {
+  forgetPostRegistrationDestination,
+  rememberPostRegistrationDestination,
+  resolveRegistrationIntent,
+  type RegistrationIntent
+} from '../modules/public/hostReturnNavigation';
 
 type AuthView = 'welcome' | 'sign-in' | 'create-account' | 'forgot-password' | 'guest';
 
@@ -133,10 +139,18 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
   const [createEmail, setCreateEmail] = useState('');
   const [createPassword, setCreatePassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [registrationIntent, setRegistrationIntent] = useState<RegistrationIntent>(() => (
+    resolveRegistrationIntent(window.location.search)
+  ));
   const [resetEmail, setResetEmail] = useState('');
   const [authMessage, setAuthMessage] = useState('');
   const [authError, setAuthError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    forgetPostRegistrationDestination();
+    return forgetPostRegistrationDestination;
+  }, []);
 
   const clearAuthStatus = () => {
     setAuthMessage('');
@@ -214,6 +228,7 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
     const normalizedEmail = createEmail.trim();
     const normalizedName = fullName.trim();
     rememberPendingRegistrationName(normalizedEmail, normalizedName);
+    rememberPostRegistrationDestination(window.location.search, registrationIntent);
     try {
       const credential = await createUserWithEmailAndPassword(auth, normalizedEmail, createPassword);
       if (normalizedName) {
@@ -224,6 +239,7 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
       onAuthenticated();
     } catch (error) {
       forgetPendingRegistrationName(normalizedEmail);
+      forgetPostRegistrationDestination();
       setAuthError(getAuthErrorMessage(error));
     } finally {
       setIsSubmitting(false);
@@ -247,6 +263,9 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
   };
 
   const switchView = (nextView: AuthView) => {
+    if (view === 'create-account' && nextView !== 'create-account') {
+      forgetPostRegistrationDestination();
+    }
     clearAuthStatus();
     setView(nextView);
   };
@@ -359,9 +378,35 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
 
             {view === 'create-account' ? (
               <>
-                <AuthHeader title="Create Account" subtitle="Create your MiseChef workspace." />
+                <AuthHeader
+                  title="Create Account"
+                  subtitle={registrationIntent === 'ordering'
+                    ? 'Create an account to keep your orders in one place.'
+                    : 'Create your MiseChef workspace.'}
+                />
 
                 <form className="space-y-4" onSubmit={handleCreateAccount}>
+                  <fieldset className="space-y-2">
+                    <legend className={labelClass}>How will you use MiseChef?</legend>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        aria-pressed={registrationIntent === 'chef'}
+                        onClick={() => setRegistrationIntent('chef')}
+                        className={`rounded-xl border px-4 py-3 text-left font-sans text-sm font-extrabold transition ${registrationIntent === 'chef' ? 'border-primary bg-primary text-on-primary' : 'border-surface-container-high bg-white text-primary'}`}
+                      >
+                        I&apos;m a chef
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={registrationIntent === 'ordering'}
+                        onClick={() => setRegistrationIntent('ordering')}
+                        className={`rounded-xl border px-4 py-3 text-left font-sans text-sm font-extrabold transition ${registrationIntent === 'ordering' ? 'border-primary bg-primary text-on-primary' : 'border-surface-container-high bg-white text-primary'}`}
+                      >
+                        I&apos;m just ordering
+                      </button>
+                    </div>
+                  </fieldset>
                   <FormField
                     label="Full Name"
                     type="text"
