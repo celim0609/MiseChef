@@ -18,6 +18,27 @@ const incident = BETA_MIXED_RELEASE_INCIDENT;
 const validCandidate = { head: incident.candidateCommit, sourceTree: incident.candidateSourceTree, isAncestor: () => true };
 const controllerSource = readFileSync(new URL('./recoverBetaMixedRelease.mjs', import.meta.url), 'utf8');
 
+test('normal and mixed-release Beta workflows supply the required frontend variables from the Beta Environment', () => {
+  const workflows = [
+    new URL('../.github/workflows/deploy-beta.yml', import.meta.url),
+    new URL('../.github/workflows/recover-beta-mixed-release-20260924.yml', import.meta.url)
+  ].map(url => readFileSync(url, 'utf8'));
+  const variables = [
+    'VITE_FIREBASE_API_KEY',
+    'VITE_FIREBASE_AUTH_DOMAIN',
+    'VITE_FIREBASE_PROJECT_ID',
+    'VITE_FIREBASE_STORAGE_BUCKET',
+    'VITE_FIREBASE_MESSAGING_SENDER_ID',
+    'VITE_FIREBASE_APP_ID',
+    'VITE_STRIPE_PUBLISHABLE_KEY'
+  ];
+  for (const workflow of workflows) {
+    for (const variable of variables) {
+      assert.match(workflow, new RegExp(`${variable}: \\$\\{\\{ vars\\.${variable} \\}\\}`));
+    }
+  }
+});
+
 test('mixed-release recovery fails closed on every authorization precondition', () => {
   for (const invalid of [
     { confirmation: 'wrong', authorization: 'wrong', githubActions: true, ciLockId: 'misechef-beta-deployment' },
