@@ -256,7 +256,8 @@ export const storeService = {
     if (!db || !workspaceId) return [];
     const groupsQuery = query(
       collection(db, 'storeOptionGroups'),
-      where('workspaceId', '==', workspaceId)
+      where('workspaceId', '==', workspaceId),
+      limit(50)
     );
     const snapshot = await getDocs(groupsQuery);
     return snapshot.docs
@@ -345,7 +346,8 @@ export const storeService = {
     if (!db || !workspaceId) return [];
     const productsQuery = query(
       collection(db, 'storeProducts'),
-      where('workspaceId', '==', workspaceId)
+      where('workspaceId', '==', workspaceId),
+      limit(50)
     );
     const snapshot = await getDocs(productsQuery);
     return snapshot.docs
@@ -419,7 +421,11 @@ export const storeService = {
 
   async listSets(workspaceId: string): Promise<StoreSet[]> {
     if (!db || !workspaceId) return [];
-    const snapshot = await getDocs(query(collection(db, 'storeSets'), where('workspaceId', '==', workspaceId)));
+    const snapshot = await getDocs(query(
+      collection(db, 'storeSets'),
+      where('workspaceId', '==', workspaceId),
+      limit(50)
+    ));
     return snapshot.docs
       .map(setDocument => normalizeStoreSet(setDocument.id, setDocument.data() as Record<string, unknown>))
       .sort((a, b) => a.sortOrder - b.sortOrder || b.updatedAt.localeCompare(a.updatedAt));
@@ -509,16 +515,19 @@ export const storeService = {
     const productsQuery = query(
       collection(db, 'storeProducts'),
       where('storeId', '==', store.id),
-      where('available', '==', true)
+      where('available', '==', true),
+      limit(50)
     );
     const optionGroupsQuery = query(
       collection(db, 'storeOptionGroups'),
-      where('storeId', '==', store.id)
+      where('storeId', '==', store.id),
+      limit(50)
     );
     const setsQuery = query(
       collection(db, 'storeSets'),
       where('storeId', '==', store.id),
-      where('available', '==', true)
+      where('available', '==', true),
+      limit(50)
     );
     const [productSnapshot, optionGroupSnapshot, setSnapshot] = await Promise.all([
       getDocs(productsQuery),

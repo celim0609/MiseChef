@@ -106,6 +106,15 @@ service cloud.firestore {
               && get(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId))).data.status == 'Active')));
     }
 
+    // Some workspace-scoped data is stored below the workspace document. Keep
+    // that shape compatible with the canonical membership record while also
+    // allowing the nested membership record used by older clients.
+    function canAccessWorkspaceData(workspaceId) {
+      return isWorkspaceMember(workspaceId)
+        || (signedIn()
+          && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/members/$(request.auth.uid)));
+    }
+
     function isWorkspaceDocumentOwner(workspaceId) {
       return signedIn()
         && exists(/databases/$(database)/documents/workspaces/$(workspaceId))
@@ -1304,6 +1313,21 @@ service cloud.firestore {
       match /portfolio/{portfolioId} {
         allow read, create, update: if isWorkspaceMember(workspaceId);
         allow delete: if false;
+      }
+
+      // Owners are included by isWorkspaceMember even when their legacy
+      // workspaceMembers document is absent, so workspace data never blocks
+      // Store Settings solely because a membership mirror is missing.
+      match /{document=**} {
+        allow read, write: if canAccessWorkspaceData(workspaceId);
+      }
+
+      // Guest checkout and order-status pages use this nested legacy path.
+      // Customers may create and read their order, while mutations remain
+      // restricted to the workspace.
+      match /orders/{orderId} {
+        allow read, create: if true;
+        allow update, delete: if canAccessWorkspaceData(workspaceId);
       }
     }
 

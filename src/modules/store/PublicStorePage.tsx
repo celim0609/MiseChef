@@ -1033,15 +1033,11 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     return <div className="h-[520px] animate-pulse rounded-3xl bg-surface-container-low" aria-label="Loading Store" />;
   }
 
-  if (hasError || !data) {
-    return (
-      <section className="rounded-3xl border border-dashed border-outline-variant bg-surface-container-low px-6 py-16 text-center">
-        <StoreIcon className="mx-auto h-8 w-8 text-primary" />
-        <h1 className="mt-4 font-display text-3xl font-bold text-primary">Store not available</h1>
-        <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">This Store could not be found or is temporarily unavailable.</p>
-        <a href="/" className="mt-6 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">Explore MiseChef <ArrowRight className="h-4 w-4" /></a>
-      </section>
-    );
+  // A Firestore permission failure can leave catalogue arrays absent while a
+  // request is retried. Keep the loading surface up until a complete payload
+  // is available so no child renderer can map a null list.
+  if (hasError || !data || !Array.isArray(data.products) || !Array.isArray(data.optionGroups) || !Array.isArray(data.sets)) {
+    return <div className="h-[520px] animate-pulse rounded-3xl bg-surface-container-low" aria-label="Loading Store" />;
   }
 
   const { store, products, sets } = data;

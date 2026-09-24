@@ -8,7 +8,9 @@ coverage/
 *.log
 .env*
 !.env.example
-!.env.beta
+.env.beta
+.env
+.firebase/
 !functions/.env.misechef-beta-fa4bf
 functions/.secret.local
 gha-creds-*.json
