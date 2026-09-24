@@ -16,6 +16,10 @@ test('public registration returns only to same-origin allowlisted destinations',
   assert.equal(getValidatedPublicAccountReturnTo('?returnTo=%2Fstore%2Fchef-s-store'), '/store/chef-s-store');
   assert.equal(getValidatedPublicAccountReturnTo('?returnTo=https%3A%2F%2Fevil.example%2Fstore%2Fchef-s-store'), '');
   assert.equal(getValidatedPublicAccountReturnTo('?returnTo=%2F%2Fevil.example%2Fstore%2Fchef-s-store'), '');
+  assert.equal(getValidatedPublicAccountReturnTo('?returnTo=%2F%2Fevil.com'), '');
+  assert.equal(getValidatedPublicAccountReturnTo('?returnTo=%2F%5Cevil.com'), '');
+  assert.equal(getValidatedPublicAccountReturnTo('?returnTo=javascript%3Aalert%281%29'), '');
+  assert.equal(getValidatedPublicAccountReturnTo('?returnTo=https%3A%2F%2Fmisechef.ai.evil.com'), '');
   assert.equal(getValidatedPublicAccountReturnTo('?returnTo=%2Fstore%2Fchef-s-store%3Fnext%3Dhttps%3A%2F%2Fevil.example'), '');
 });
 
@@ -30,6 +34,12 @@ test('post-registration destinations follow entry intent without persisting an a
   assert.match(loginSource, /registrationIntent === 'ordering'[\s\S]*Create an account to keep your orders in one place/);
   assert.match(appSource, /consumePostRegistrationDestination/);
   assert.match(appSource, /replaceWithPostRegistrationDestination\(\)/);
+});
+
+test('a stale post-registration destination is cleared before a later plain sign-in', () => {
+  assert.match(loginSource, /useEffect\(\(\) => \{\s*forgetPostRegistrationDestination\(\);\s*return forgetPostRegistrationDestination;/);
+  assert.match(loginSource, /view === 'create-account' && nextView !== 'create-account'[\s\S]*forgetPostRegistrationDestination\(\)/);
+  assert.match(loginSource, /return forgetPostRegistrationDestination;/);
 });
 
 test('public order intent renders My Orders before chef destinations', () => {
