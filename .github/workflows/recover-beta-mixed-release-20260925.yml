@@ -30,13 +30,17 @@ jobs:
       VITE_STRIPE_PUBLISHABLE_KEY: ${{ vars.VITE_STRIPE_PUBLISHABLE_KEY }}
     steps:
       - uses: actions/checkout@v4
-        with: { ref: ${{ vars.MISECHEF_BETA_MIXED_RELEASE_20260925_GATE_SHA }}, path: recovery-gate, fetch-depth: 0 }
+        with:
+          ref: ${{ vars.MISECHEF_BETA_MIXED_RELEASE_20260925_GATE_SHA }}
+          path: recovery-gate
+          fetch-depth: 0
       - uses: actions/checkout@v4
         with: { ref: 9c2173b9f9ae42b1fc09826c57cef46697759452, path: trusted-gate, fetch-depth: 0 }
       - uses: actions/checkout@v4
         with: { ref: 41b331b95e5354e14bf28a70c4f28e1578ab8d32, path: candidate, fetch-depth: 0 }
       - name: Verify immutable controller and candidate
-        env: { EXPECTED_GATE_SHA: ${{ vars.MISECHEF_BETA_MIXED_RELEASE_20260925_GATE_SHA }} }
+        env:
+          EXPECTED_GATE_SHA: ${{ vars.MISECHEF_BETA_MIXED_RELEASE_20260925_GATE_SHA }}
         run: |
           test "$(git -C "$GITHUB_WORKSPACE/recovery-gate" rev-parse HEAD)" = "$EXPECTED_GATE_SHA"
           test "$(git -C "$GITHUB_WORKSPACE/candidate" rev-parse HEAD)" = "${{ inputs.expected_candidate_sha }}"
@@ -57,7 +61,8 @@ jobs:
       - run: node "$GITHUB_WORKSPACE/trusted-gate/scripts/runBetaProtectedTests.mjs" --trusted-root "$GITHUB_WORKSPACE/trusted-gate" --candidate-root "$GITHUB_WORKSPACE/candidate"
       - run: npm --prefix "$GITHUB_WORKSPACE/candidate" run test:store-sets:rules
       - uses: google-github-actions/auth@v2
-        with: { credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA }} }
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA }}
       - name: Run protected durable mixed-release convergence
         working-directory: recovery-gate
         env:
