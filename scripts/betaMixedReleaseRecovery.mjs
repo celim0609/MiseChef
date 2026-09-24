@@ -14,7 +14,7 @@ export const BETA_MIXED_RELEASE_INCIDENT = Object.freeze({
     releaseSourceTree: 'c0b291d26246b248e58d4d809392051247ce7b6e',
     releaseProtectedBaseline: MANDATORY_BETA_BASELINE,
     releaseBuildId: '3c9e6856-25ad-412c-be7e-6c4c6763206b',
-    releaseStoreShellAsset: '/assets/index-Bi5Pqjce.js'
+    releaseStoreShellAsset: '/assets/index-BKXk7Nzq.js'
   }),
   consumptionMarker: 'gs://misechef-beta-fa4bf.firebasestorage.app/misechef-release-guards/beta-mixed-release-2026-09-24.json'
 });

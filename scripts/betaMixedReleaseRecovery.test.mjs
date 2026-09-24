@@ -12,6 +12,7 @@ import {
   assertRecoveryMode,
   createConsumptionMarker
 } from './betaMixedReleaseRecovery.mjs';
+import { readLiveReleaseMetadata } from './betaRun33530702897Recovery.mjs';
 
 const incident = BETA_MIXED_RELEASE_INCIDENT;
 const validCandidate = { head: incident.candidateCommit, sourceTree: incident.candidateSourceTree, isAncestor: () => true };
@@ -37,6 +38,20 @@ test('mixed-release recovery fails closed on candidate, alias, live-state, and p
   assert.throws(() => assertExpectedMixedLiveState({ ...incident.live, rootAsset: '/assets/unapproved.js' }), /recovery refused/);
   assert.doesNotThrow(() => assertIncidentAvailable(null));
   assert.throws(() => assertIncidentAvailable({ incident: incident.id }), /already consumed/);
+});
+
+test('pinned Store-shell incident evidence comes from live manifest metadata', async () => {
+  const metadata = await readLiveReleaseMetadata({
+    origin: 'https://misechef-beta-fa4bf.web.app',
+    request: async url => {
+      assert.match(url, /\.well-known\/misechef-beta-release\.json\?beta-recovery-check=/);
+      return {
+        ok: true,
+        json: async () => ({ storeShellAsset: '/assets/index-BKXk7Nzq.js' })
+      };
+    }
+  });
+  assert.equal(metadata.storeShellAsset, incident.live.releaseStoreShellAsset);
 });
 
 test('a first-run missing marker is unused while consumed and real read errors fail closed', () => {
