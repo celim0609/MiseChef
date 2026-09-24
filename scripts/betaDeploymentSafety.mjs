@@ -107,6 +107,12 @@ export const assertCleanSource = (dirtyPaths, allowedPaths = []) => {
   }
 };
 
+export const parsePorcelainDirtyPaths = porcelain => String(porcelain)
+  .trimEnd()
+  .split('\n')
+  .filter(Boolean)
+  .map(line => line.slice(3));
+
 export const assertAuthority = ({ authorityBaseline, documentedBaseline, head, isAncestor }) => {
   if (!authorityBaseline) {
     throw new Error('MISECHEF_BETA_PROTECTED_BASELINE is required from authoritative release configuration.');

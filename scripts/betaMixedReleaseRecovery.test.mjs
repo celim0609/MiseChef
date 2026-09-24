@@ -13,6 +13,7 @@ import {
   createConsumptionMarker
 } from './betaMixedReleaseRecovery.mjs';
 import { readLiveReleaseMetadata } from './betaRun33530702897Recovery.mjs';
+import { ALLOWED_POST_BUILD_DIRTY_PATHS, assertCleanSource, parsePorcelainDirtyPaths } from './betaDeploymentSafety.mjs';
 
 const incident = BETA_MIXED_RELEASE_INCIDENT;
 const validCandidate = { head: incident.candidateCommit, sourceTree: incident.candidateSourceTree, isAncestor: () => true };
@@ -37,6 +38,16 @@ test('normal and mixed-release Beta workflows supply the required frontend varia
       assert.match(workflow, new RegExp(`${variable}: \\$\\{\\{ vars\\.${variable} \\}\\}`));
     }
   }
+});
+
+test('post-build Store-shell output remains the sole allowed dirty path when it is the first porcelain record', () => {
+  const dirtyPaths = parsePorcelainDirtyPaths(' M functions/generated/publicStoreAppShell.html\n');
+  assert.deepEqual(dirtyPaths, ['functions/generated/publicStoreAppShell.html']);
+  assert.doesNotThrow(() => assertCleanSource(dirtyPaths, ALLOWED_POST_BUILD_DIRTY_PATHS));
+  assert.throws(
+    () => assertCleanSource([...dirtyPaths, 'src/modules/store/StripePaymentForm.tsx'], ALLOWED_POST_BUILD_DIRTY_PATHS),
+    /StripePaymentForm/
+  );
 });
 
 test('mixed-release recovery fails closed on every authorization precondition', () => {
