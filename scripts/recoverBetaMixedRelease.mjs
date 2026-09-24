@@ -13,6 +13,7 @@ import {
   assertArtifactCompatibility,
   assertAuthority,
   assertCleanSource,
+  parsePorcelainDirtyPaths,
   assertExplicitBetaStorageTarget,
   assertExactResourcePlan,
   assertLiveReleaseUnchanged,
@@ -39,7 +40,9 @@ if (!candidateRoot || !existsSync(path.join(candidateRoot, '.git'))) throw new E
 
 const git = (root, args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const run = (command, args, cwd = candidateRoot, extraEnv = {}) => execFileSync(command, args, { cwd, env: { ...process.env, ...extraEnv }, stdio: 'inherit' });
-const dirtyPaths = root => git(root, ['status', '--porcelain=v1', '--untracked-files=all']).split('\n').filter(Boolean).map(line => line.slice(3));
+const dirtyPaths = root => parsePorcelainDirtyPaths(
+  execFileSync('git', ['status', '--porcelain=v1', '--untracked-files=all'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+);
 const markerPath = BETA_MIXED_RELEASE_INCIDENT.consumptionMarker;
 const markerPrefix = markerPath.slice(0, markerPath.lastIndexOf('/') + 1);
 
