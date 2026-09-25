@@ -38,6 +38,7 @@ import { isCurlecPaymentLinkRolloutEnabled } from './paymentProviders/curlecPaym
 import { CurlecOrderCreationError } from './paymentProviders/curlecStandardCheckout.js';
 import {
   cancelStorePayment,
+  claimPublicStoreGuestOrderOperation,
   createStorePayment,
   getStorePaymentResult,
   handleStorePaymentWebhook
@@ -505,6 +506,34 @@ export const listMyMiseChefStoreOrders = onCall({
   db,
   uid: request.auth?.uid
 }));
+
+export const claimPublicStoreGuestOrder = onCall({
+  region: REGION,
+  timeoutSeconds: 20,
+  memory: '256MiB',
+  secrets: [stripeSecretKey, curlecKeyId, curlecKeySecret]
+}, async request => {
+  if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Sign in to save this order.');
+  try {
+    const adapter = createPaymentAdapter(request.data?.provider, {
+      stripeSecretKey: stripeSecretKey.value(),
+      curlecKeyId: curlecKeyId.value(),
+      curlecKeySecret: curlecKeySecret.value()
+    });
+    return await claimPublicStoreGuestOrderOperation({
+      db,
+      adapter,
+      slug: request.data?.slug,
+      providerPaymentId: request.data?.paymentSessionId,
+      checkoutAccessToken: request.data?.checkoutAccessToken,
+      authUid: request.auth.uid
+    });
+  } catch (error) {
+    if (error instanceof HttpsError) throw error;
+    logger.warn('Store guest order claim failed', { message: error?.message || '' });
+    throw new HttpsError('failed-precondition', error?.message || 'This order could not be saved.');
+  }
+});
 
 export const uploadPublicStorePaymentReceipt = onCall({
   region: REGION,

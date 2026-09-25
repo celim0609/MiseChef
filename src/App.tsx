@@ -64,6 +64,12 @@ import {
   storeOrderService,
   type StoreNotification
 } from './modules/store';
+import { storePaymentService } from './modules/store/services';
+import {
+  clearStoreCustomerSession,
+  getClaimEnvelope,
+  hasStoreClaim
+} from './modules/store/storeCustomerSession';
 import { FINANCE_NAVIGATION, isFinancePath } from './navigation/financeNavigation';
 import GlobalQuickAdd from './components/GlobalQuickAdd';
 import { getAvailableQuickAddActions, getQuickAddAction, type QuickAddActionId, type QuickAddRequest } from './navigation/quickAdd';
@@ -1115,7 +1121,9 @@ export default function App() {
   }, [activeTab, currentUser, isAuthReady, isGuestMode]);
 
   useEffect(() => {
-    if (!currentUser || !db || isGuestMode) return;
+    // Store Customer auth is deliberately not a Professional entry point.
+    // Only an explicit /app route is allowed to provision a user/workspace.
+    if (!currentUser || !db || isGuestMode || hasStoreClaim() || !isAppPath(window.location.pathname)) return;
 
     let isCancelled = false;
 
@@ -1162,7 +1170,38 @@ export default function App() {
   }, [currentUser, isGuestMode]);
 
   useEffect(() => {
-    if (!currentUser || !db || isGuestMode) return;
+    if (!currentUser || !hasStoreClaim()) return;
+    const claimEnvelope = getClaimEnvelope();
+    if (!claimEnvelope) return;
+    let cancelled = false;
+    void storePaymentService.claimPublicStoreGuestOrder(claimEnvelope)
+      .then(result => {
+        if (cancelled) return;
+        clearStoreCustomerSession();
+        for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
+          const recoveryKey = window.sessionStorage.key(index);
+          if (!recoveryKey?.startsWith('misechef_checkout_recovery_v1:')) continue;
+          try {
+            const recovery = JSON.parse(window.sessionStorage.getItem(recoveryKey) || '{}') as Record<string, unknown>;
+            if (recovery.paymentSessionId === claimEnvelope.paymentSessionId
+              && recovery.checkoutAccessToken === claimEnvelope.checkoutAccessToken) {
+              window.sessionStorage.removeItem(recoveryKey);
+            }
+          } catch {
+            // A malformed recovery entry is not a claim credential and is left
+            // to the checkout recovery reader to discard.
+          }
+        }
+        window.location.replace(`/orders?claimed=${encodeURIComponent(result.orderNumber)}`);
+      })
+      .catch(() => {
+        if (!cancelled) triggerNotification('Your order was not saved yet. Please reload and try again.', 'error');
+      });
+    return () => { cancelled = true; };
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser || !db || isGuestMode || hasStoreClaim() || !isAppPath(window.location.pathname)) return;
 
     let isCancelled = false;
 

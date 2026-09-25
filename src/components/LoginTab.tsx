@@ -24,6 +24,7 @@ import {
 } from '../services/newUserProvisioningService';
 import {
   forgetPostRegistrationDestination,
+  isValidPublicAccountReturnTo,
   rememberPostRegistrationDestination,
   resolveRegistrationIntent,
   type RegistrationIntent
@@ -234,7 +235,12 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
       if (normalizedName) {
         await updateProfile(credential.user, { displayName: normalizedName });
       }
-      await ensureNewUserProvisioned(credential.user, normalizedName);
+      // Store/customer registration is an Auth identity only. Professional
+      // provisioning remains an explicit /app entry action.
+      const returnTo = new URLSearchParams(window.location.search).get('returnTo') || '';
+      if (!isValidPublicAccountReturnTo(returnTo)) {
+        await ensureNewUserProvisioned(credential.user, normalizedName);
+      }
       setAuthMessage('Account created successfully.');
       onAuthenticated();
     } catch (error) {

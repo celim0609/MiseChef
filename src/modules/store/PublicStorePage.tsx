@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import type { User } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, type User } from 'firebase/auth';
 import {
   ArrowRight,
   Banknote,
@@ -51,6 +51,8 @@ import {
 } from './storeSetModel';
 import { getBusinessWhatsAppUrl } from './selling';
 import { getCustomerOrderConfirmationCopy } from './customerOrderConfirmation';
+import { auth } from '../../firebase';
+import { beginStoreCustomerSession, setClaimEnvelope, type StoreClaimEnvelope } from './storeCustomerSession';
 import type {
   CartSelection,
   PublicStoreData,
@@ -193,6 +195,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
   const [paymentSession, setPaymentSession] = useState<StorePaymentSession | null>(null);
   const [placedOrder, setPlacedOrder] = useState<PublicStoreOrderResult | null>(null);
+  const [claimableGuestOrder, setClaimableGuestOrder] = useState<StoreClaimEnvelope | null>(null);
   const [paymentReturnReconciliation, setPaymentReturnReconciliation] = useState<PaymentReturnReconciliation | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isCatalogueCartVisible, setIsCatalogueCartVisible] = useState(true);
@@ -465,6 +468,9 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
       checkoutAccessToken
     );
     if (['paid', 'pending_verification'].includes(result.paymentStatus)) {
+      if (!currentUser && !result.groupOrder) {
+        setClaimableGuestOrder({ slug, provider, paymentSessionId, checkoutAccessToken });
+      }
       setPlacedOrder(result);
       setPaymentSession(null);
       setCart([]);
@@ -478,6 +484,36 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
       return;
     }
     throw new Error('Payment was not completed. Please choose a payment method and try again.');
+  };
+
+  const saveGuestOrder = async () => {
+    if (!claimableGuestOrder || !auth) {
+      setCheckoutError('Google sign-in is temporarily unavailable. Please try again.');
+      return;
+    }
+    const returnTo = `/store/${store.slug}`;
+    if (!beginStoreCustomerSession(returnTo) || !setClaimEnvelope(claimableGuestOrder)) {
+      setCheckoutError('This order could not be prepared to save. Please refresh and try again.');
+      return;
+    }
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      await signInWithPopup(auth, provider);
+    } catch (error) {
+      const code = typeof error === 'object' && error && 'code' in error ? String(error.code) : '';
+      if (code === 'auth/popup-blocked') {
+        try {
+          const provider = new GoogleAuthProvider();
+          provider.setCustomParameters({ prompt: 'select_account' });
+          await signInWithRedirect(auth, provider);
+          return;
+        } catch {
+          // The claim envelope intentionally remains available for a retry.
+        }
+      }
+      setCheckoutError('Google sign-in was not completed. Your order is still available to save.');
+    }
   };
 
   useEffect(() => {
@@ -494,6 +530,14 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     ).then(result => {
       if (cancelled) return;
       if (['paid', 'pending_verification'].includes(result.paymentStatus)) {
+        if (!currentUser && !result.groupOrder) {
+          setClaimableGuestOrder({
+            slug: recovery.slug,
+            provider: recovery.provider,
+            paymentSessionId: recovery.paymentSessionId,
+            checkoutAccessToken: recovery.checkoutAccessToken
+          });
+        }
         setPlacedOrder(result);
         setPaymentSession(null);
       } else if (['pending', 'processing'].includes(result.paymentStatus) && recovery.session) {
@@ -503,7 +547,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
       }
     }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [checkoutRecoveryKey, slug]);
+  }, [checkoutRecoveryKey, slug, currentUser]);
 
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
@@ -1360,6 +1404,14 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                     <a href="/orders" className="inline-flex items-center justify-center gap-2 rounded-full bg-green-800 px-4 py-2.5 font-sans text-xs font-extrabold text-white">View My Order <ArrowRight className="h-3.5 w-3.5" /></a>
                     <p className="text-center font-sans text-xs font-bold text-green-800">You can check your order anytime from Account → My Orders.</p>
                   </>
+                ) : claimableGuestOrder ? (
+                  <div className="rounded-2xl bg-white/70 p-4 text-center">
+                    <p className="font-sans text-xs font-extrabold text-green-900">Save this order to your MiseChef account.</p>
+                    <button type="button" onClick={() => void saveGuestOrder()} className="mt-3 inline-flex items-center justify-center rounded-full bg-green-800 px-4 py-2.5 font-sans text-xs font-extrabold text-white">
+                      Save my order
+                    </button>
+                    <p className="mt-2 font-sans text-xs font-bold text-green-800">Continue with Google to save your order.</p>
+                  </div>
                 ) : placedOrder.groupOrder ? (
                   <div className="rounded-2xl bg-white/70 p-4 text-center">
                     <p className="font-sans text-xs font-extrabold text-green-900">Please keep your Order Number for reference.</p>
