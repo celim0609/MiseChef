@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BETA_MIXED_RELEASE_20260926_INCIDENT as incident, BETA_APP_ENGINE_SERVICE_ACCOUNT, PINNED_FULL_DEPLOY_PROJECT_PERMISSIONS, assert20260926Available, assert20260926PermissionPreflight, assert20260926TemporaryConfig, create20260926TemporaryRc, write20260926TemporaryFirebaseFiles } from './betaMixedRelease20260926Recovery.mjs';
+import { BETA_MIXED_RELEASE_20260926_INCIDENT as incident, BETA_APP_ENGINE_SERVICE_ACCOUNT, assert20260926Available, assert20260926PermissionPreflight, assert20260926TemporaryConfig, create20260926TemporaryRc, write20260926TemporaryFirebaseFiles } from './betaMixedRelease20260926Recovery.mjs';
 import { BETA_PROJECT_ID } from './betaDeploymentSafety.mjs';
 
 const candidateConfig = { storage: [{ target: 'beta-default', rules: 'storage.rules' }] };
@@ -23,9 +23,11 @@ test('temporary recovery config preserves the Beta alias and Storage target', ()
   assert.throws(() => assert20260926TemporaryConfig({ firebaseConfig: candidateConfig, firebaseRc: temporaryRc, resolvedProject: 'beta' }), /never literal beta/);
 });
 test('ActAs and every pinned deploy permission fail before any marker may be created', () => {
-  assert.throws(() => assert20260926PermissionPreflight({ projectPermissions: PINNED_FULL_DEPLOY_PROJECT_PERMISSIONS, actAsPermissions: [] }), new RegExp(BETA_APP_ENGINE_SERVICE_ACCOUNT));
-  assert.throws(() => assert20260926PermissionPreflight({ projectPermissions: PINNED_FULL_DEPLOY_PROJECT_PERMISSIONS.slice(1), actAsPermissions: ['iam.serviceAccounts.actAs'] }), /pinned full deploy permission preflight failed/);
-  assert.doesNotThrow(() => assert20260926PermissionPreflight({ projectPermissions: PINNED_FULL_DEPLOY_PROJECT_PERMISSIONS, actAsPermissions: ['iam.serviceAccounts.actAs'] }));
+  const pinnedContract = ['firebase.projects.get', 'cloudfunctions.functions.update'];
+  assert.throws(() => assert20260926PermissionPreflight({ projectPermissions: pinnedContract, actAsPermissions: [], requiredProjectPermissions: pinnedContract }), new RegExp(BETA_APP_ENGINE_SERVICE_ACCOUNT));
+  assert.throws(() => assert20260926PermissionPreflight({ projectPermissions: pinnedContract.slice(1), actAsPermissions: ['iam.serviceAccounts.actAs'], requiredProjectPermissions: pinnedContract }), /pinned full deploy permission preflight failed/);
+  assert.throws(() => assert20260926PermissionPreflight({ projectPermissions: pinnedContract, actAsPermissions: ['iam.serviceAccounts.actAs'] }), /permission contract is missing/);
+  assert.doesNotThrow(() => assert20260926PermissionPreflight({ projectPermissions: pinnedContract, actAsPermissions: ['iam.serviceAccounts.actAs'], requiredProjectPermissions: pinnedContract }));
 });
 test('permission preflight is ordered before marker probe, marker write, and Firebase deploy', () => {
   const controller = readFileSync(fileURLToPath(new URL('./recoverBetaMixedRelease20260926.mjs', import.meta.url)), 'utf8');

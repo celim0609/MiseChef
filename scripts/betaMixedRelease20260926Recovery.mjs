@@ -26,14 +26,6 @@ export const BETA_DEPLOYER_SERVICE_ACCOUNT = 'github-beta-deployer@misechef-beta
 export const BETA_APP_ENGINE_SERVICE_ACCOUNT = 'misechef-beta-fa4bf@appspot.gserviceaccount.com';
 // Exact firebase-tools@14.22.0 deploy TARGET_PERMISSIONS for functions, hosting,
 // firestore and storage, plus the HTTPS-function IAM check run by that CLI.
-export const PINNED_FULL_DEPLOY_PROJECT_PERMISSIONS = Object.freeze([
-  'firebase.projects.get', 'firebasehosting.sites.update',
-  'cloudfunctions.functions.list', 'cloudfunctions.functions.create', 'cloudfunctions.functions.get',
-  'cloudfunctions.functions.update', 'cloudfunctions.functions.delete', 'cloudfunctions.operations.get',
-  'cloudfunctions.functions.setIamPolicy',
-  'datastore.indexes.list', 'datastore.indexes.create', 'datastore.indexes.update', 'datastore.indexes.delete',
-  'firebaserules.releases.create', 'firebaserules.rulesets.create', 'firebaserules.releases.update'
-]);
 
 const fail = message => { throw new Error(`Beta mixed-release 20260926 recovery refused: ${message}`); };
 const hash = value => createHash('sha256').update(value, 'utf8').digest('hex');
@@ -80,7 +72,8 @@ export const write20260926TemporaryFirebaseFiles = ({ directory, firebaseConfig,
   assert20260926TemporaryConfig({ firebaseConfig: JSON.parse(readFileSync(configPath, 'utf8')), firebaseRc: JSON.parse(readFileSync(rcPath, 'utf8')), resolvedProject: BETA_PROJECT_ID });
   return { configPath, rcPath, firebaseRc };
 };
-export const assert20260926PermissionPreflight = ({ projectPermissions = [], actAsPermissions = [], requiredProjectPermissions = PINNED_FULL_DEPLOY_PROJECT_PERMISSIONS }) => {
+export const assert20260926PermissionPreflight = ({ projectPermissions = [], actAsPermissions = [], requiredProjectPermissions = [] }) => {
+  if (!Array.isArray(requiredProjectPermissions) || requiredProjectPermissions.length === 0) fail('pinned Firebase CLI permission contract is missing.');
   const missingProject = requiredProjectPermissions.filter(permission => !projectPermissions.includes(permission));
   if (missingProject.length) fail(`pinned full deploy permission preflight failed: ${missingProject.join(', ')}.`);
   if (!actAsPermissions.includes('iam.serviceAccounts.actAs')) fail(`missing iam.serviceAccounts.actAs on ${BETA_APP_ENGINE_SERVICE_ACCOUNT} for ${BETA_DEPLOYER_SERVICE_ACCOUNT}.`);
