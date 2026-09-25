@@ -255,6 +255,65 @@ const loadAuthorizedPaymentOrder = async ({
   return order;
 };
 
+// A checkout access token is an order-specific bearer credential. This claim
+// operation intentionally uses the same payment/session and token checks as
+// the public payment-result read, then repeats them against the transaction
+// snapshot before assigning ownership.
+export const claimPublicStoreGuestOrderOperation = async ({
+  db,
+  adapter,
+  slug,
+  providerPaymentId,
+  checkoutAccessToken,
+  authUid
+}) => {
+  if (!readString(authUid)) throw new HttpsError('unauthenticated', 'Sign in to save this order.');
+  const payment = await adapter.retrievePayment(readString(providerPaymentId), { db });
+  if (readString(payment?.providerPaymentId) !== readString(providerPaymentId)) {
+    throw new HttpsError('failed-precondition', 'This payment does not match this MiseChef order.');
+  }
+  const initialOrder = await loadAuthorizedPaymentOrder({
+    db,
+    payment,
+    provider: adapter.provider,
+    slug,
+    checkoutAccessToken,
+    requiresSellingWorkspace: false,
+    sellingWorkspaceId: ''
+  });
+  const orderId = readString(payment?.orderId);
+  if (!orderId || readString(initialOrder.payment?.providerPaymentId) !== readString(payment.providerPaymentId)) {
+    throw new HttpsError('failed-precondition', 'This payment does not match this MiseChef order.');
+  }
+  const orderReference = db.collection('storeOrders').doc(orderId);
+  const result = await db.runTransaction(async transaction => {
+    const orderSnapshot = await transaction.get(orderReference);
+    if (!orderSnapshot.exists) throw new HttpsError('not-found', 'The matching MiseChef order could not be found.');
+    const order = orderSnapshot.data();
+    if (readString(order.payment?.provider) !== readString(adapter.provider)
+      || readString(order.payment?.providerPaymentId) !== readString(payment.providerPaymentId)
+      || !hasValidCheckoutAccessToken(order, checkoutAccessToken)) {
+      throw new HttpsError('permission-denied', 'This checkout credential cannot save this order.');
+    }
+    const storeSnapshot = await transaction.get(db.collection('stores').doc(readString(order.storeId)));
+    if (!storeSnapshot.exists || readString(storeSnapshot.data()?.slug) !== readString(slug).toLowerCase()) {
+      throw new HttpsError('permission-denied', 'This payment does not belong to this Store.');
+    }
+    const customerUid = readString(order.customerUid);
+    if (customerUid && customerUid !== authUid) {
+      throw new HttpsError('permission-denied', 'This order has already been saved by another account.');
+    }
+    if (!customerUid) {
+      transaction.update(orderReference, {
+        customerUid: authUid,
+        claimedAt: FieldValue.serverTimestamp()
+      });
+    }
+    return { orderNumber: readString(order.orderNumber), claimed: !customerUid };
+  });
+  return result;
+};
+
 export const reconcileStorePayment = async ({ db, payment }) => {
   const orderId = readString(payment?.orderId);
   if (!orderId) throw new Error('Payment is missing its MiseChef order reference.');
