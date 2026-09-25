@@ -16,7 +16,7 @@ export const readPinnedFullDeployPermissionContract = firebaseToolsRoot => {
   const grouped = Object.fromEntries(DEPLOY_TARGETS.map(target => [target, [...(TARGET_PERMISSIONS?.[target] || [])]]));
   const projectPermissions = ['firebase.projects.get', ...DEPLOY_TARGETS.flatMap(target => grouped[target])];
   if (DEPLOY_TARGETS.some(target => grouped[target].length === 0)
-    || !source.includes('checkServiceAccountIam(options.project)')
+    || !source.includes('checkIam_1.checkServiceAccountIam)(options.project)')
     || !iamSource.includes('`${projectId}@appspot.gserviceaccount.com`')
     || !iamSource.includes('iam.serviceAccounts.actAs')) {
     throw new Error(`firebase-tools ${PINNED_FIREBASE_CLI_VERSION} permission contract differs from the protected full deploy preflight.`);
