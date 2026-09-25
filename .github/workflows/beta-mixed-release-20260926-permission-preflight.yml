@@ -1,12 +1,5 @@
 name: Beta Mixed Release 20260926 Permission Preflight
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - '.github/workflows/beta-mixed-release-20260926-permission-preflight.yml'
-      - 'scripts/betaMixedRelease20260926PermissionPreflight.mjs'
-      - 'scripts/betaMixedRelease20260926Recovery.mjs'
-      - 'scripts/runBetaMixedRelease20260926AuthenticatedPreflight.mjs'
   workflow_dispatch:
     inputs:
       expected_candidate_sha:
@@ -14,9 +7,7 @@ on:
         type: string
 jobs:
   permission-preflight-only:
-    if: >-
-      ${{ (github.event_name == 'workflow_dispatch' && inputs.expected_candidate_sha == '41b331b95e5354e14bf28a70c4f28e1578ab8d32') ||
-          (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/beta-mixed-release-20260926') }}
+    if: ${{ inputs.expected_candidate_sha == '41b331b95e5354e14bf28a70c4f28e1578ab8d32' }}
     runs-on: ubuntu-latest
     environment: beta
     timeout-minutes: 20
