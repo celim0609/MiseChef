@@ -85,3 +85,83 @@ test('Curlec paid and failed webhooks normalize only valid gateway transitions',
   assert.equal(failed.payment.status, 'failed');
   assert.throws(() => adapter.readWebhookUpdate({ event: 'payment.captured', payload: { payment: { entity: { status: 'authorized' } } } }), /does not contain a captured payment/);
 });
+
+const providerOrder = (overrides = {}) => ({
+  id: 'order_curlec_1', status: 'paid', amount: 1590, amount_paid: 1590, amount_due: 0, currency: 'MYR', receipt: 'MC-0908-ABCD',
+  notes: { misechefOrderId: 'mise-order-1', misechefOrderNumber: 'MC-0908-ABCD' }, ...overrides
+});
+const providerPayment = (overrides = {}) => ({
+  id: 'pay_curlec_1', order_id: 'order_curlec_1', amount: 1590, currency: 'MYR',
+  status: 'captured', captured: true, method: 'fpx', ...overrides
+});
+
+const statusLookupAdapter = ({ gatewayOrder = providerOrder(), payments = [providerPayment()], failure } = {}) => {
+  const requests = [];
+  const adapter = createCurlecStandardCheckoutAdapter('key_id', 'key_secret', {
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options });
+      if (failure) throw failure;
+      return {
+        ok: true,
+        json: async () => url.endsWith('/payments') ? { entity: 'collection', items: payments } : gatewayOrder
+      };
+    }
+  });
+  return { adapter, requests };
+};
+
+test('manual Curlec lookup accepts exactly one fully verified captured payment', async () => {
+  const { adapter, requests } = statusLookupAdapter();
+  const result = await adapter.retrieveVerifiedCapturedPayment({
+    order: { ...order, payment: { providerPaymentId: 'order_curlec_1', amountMinor: 1590 } }
+  });
+  assert.deepEqual(result, {
+    providerPaymentId: 'order_curlec_1', providerTransactionId: 'pay_curlec_1', orderId: 'mise-order-1',
+    amountMinor: 1590, currency: 'MYR', status: 'paid', providerStatus: 'captured',
+    paymentMethod: 'fpx', failureCode: ''
+  });
+  assert.deepEqual(requests.map(request => request.url), [
+    'https://api.razorpay.com/v1/orders/order_curlec_1',
+    'https://api.razorpay.com/v1/orders/order_curlec_1/payments'
+  ]);
+  assert.ok(requests.every(request => /^Basic /.test(request.options.headers.authorization)));
+});
+
+test('manual Curlec lookup never promotes non-captured, ambiguous, or mismatched provider data', async t => {
+  const scenarios = [
+    ['provider order attempted despite captured payment', { status: 'attempted', amount_paid: 0, amount_due: 1590 }, [providerPayment()]],
+    ['provider order created despite captured payment', { status: 'created', amount_paid: 0, amount_due: 1590 }, [providerPayment()]],
+    ['provider order wrong amount paid', { amount_paid: 1589 }, [providerPayment()]],
+    ['provider order amount still due', { amount_due: 1 }, [providerPayment()]],
+    ['authorized', {}, [providerPayment({ status: 'authorized', captured: false })]],
+    ['created', {}, [providerPayment({ status: 'created', captured: false })]],
+    ['attempted', {}, [providerPayment({ status: 'attempted', captured: false })]],
+    ['failed', {}, [providerPayment({ status: 'failed', captured: false })]],
+    ['wrong provider order id', { id: 'order_other' }, [providerPayment()]],
+    ['wrong amount', { amount: 1600 }, [providerPayment()]],
+    ['wrong currency', { currency: 'SGD' }, [providerPayment()]],
+    ['payment belongs to another provider order', {}, [providerPayment({ order_id: 'order_other' })]],
+    ['multiple captured payments', {}, [providerPayment(), providerPayment({ id: 'pay_curlec_2' })]],
+    ['captured payment alongside a mismatched payment', {}, [providerPayment(), providerPayment({ id: 'pay_other', amount: 1600 })]],
+    ['payment amount mismatch', {}, [providerPayment({ amount: 1600 })]],
+    ['payment currency mismatch', {}, [providerPayment({ currency: 'SGD' })]],
+    ['missing MiseChef relationship', { notes: {} }, [providerPayment()]]
+  ];
+  for (const [name, orderOverrides, payments] of scenarios) {
+    await t.test(name, async () => {
+      const { adapter } = statusLookupAdapter({ gatewayOrder: providerOrder(orderOverrides), payments });
+      const result = await adapter.retrieveVerifiedCapturedPayment({
+        order: { ...order, payment: { providerPaymentId: 'order_curlec_1', amountMinor: 1590 } }
+      });
+      assert.equal(result, null);
+    });
+  }
+});
+
+test('manual Curlec lookup fails safely when the provider API is unavailable', async () => {
+  const { adapter } = statusLookupAdapter({ failure: new Error('network unavailable') });
+  await assert.rejects(
+    adapter.retrieveVerifiedCapturedPayment({ order: { ...order, payment: { providerPaymentId: 'order_curlec_1', amountMinor: 1590 } } }),
+    error => error.name === 'CurlecPaymentLookupError' && error.message === 'Curlec payment status could not be verified.'
+  );
+});

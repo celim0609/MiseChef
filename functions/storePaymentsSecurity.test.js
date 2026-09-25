@@ -147,13 +147,14 @@ test('Store checkout and order flow depend on provider-neutral payment sessions'
   assert.match(manualClientAdapter, /manual_payment/);
 });
 
-test('browser return reads webhook-owned status and cannot mark an online order Paid', () => {
+test('browser return requires the checkout credential before any provider-specific reconciliation', () => {
   const resultStart = paymentService.indexOf('export const getStorePaymentResult');
   const cancelStart = paymentService.indexOf('export const cancelStorePayment', resultStart);
   const resultFlow = paymentService.slice(resultStart, cancelStart);
   assert.match(resultFlow, /loadAuthorizedPaymentOrder/);
-  assert.match(resultFlow, /toPublicOrderResult\(authorizedOrder\)/);
-  assert.doesNotMatch(resultFlow, /reconcileStorePayment/);
+  assert.match(resultFlow, /retrieveVerifiedCapturedPayment/);
+  assert.match(resultFlow, /reconcileStorePayment/);
+  assert.ok(resultFlow.indexOf('loadAuthorizedPaymentOrder') < resultFlow.indexOf('retrieveVerifiedCapturedPayment'));
   assert.match(publicStorePage, /payment_cancelled/);
 });
 
