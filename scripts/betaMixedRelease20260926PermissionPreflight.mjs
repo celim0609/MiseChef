@@ -1,27 +1,48 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { BETA_APP_ENGINE_SERVICE_ACCOUNT, PINNED_FULL_DEPLOY_PROJECT_PERMISSIONS, assert20260926PermissionPreflight } from './betaMixedRelease20260926Recovery.mjs';
+import { createRequire } from 'node:module';
+import { BETA_APP_ENGINE_SERVICE_ACCOUNT, assert20260926PermissionPreflight } from './betaMixedRelease20260926Recovery.mjs';
 import { BETA_PROJECT_ID, PINNED_FIREBASE_CLI_VERSION } from './betaDeploymentSafety.mjs';
 
 const responseData = response => response?.data || response || {};
-const assertPinnedCliPermissionSource = firebaseToolsRoot => {
+const DEPLOY_TARGETS = Object.freeze(['functions', 'hosting', 'firestore', 'storage']);
+export const readPinnedFullDeployPermissionContract = firebaseToolsRoot => {
+  const packageJson = JSON.parse(readFileSync(path.join(firebaseToolsRoot, 'package.json'), 'utf8'));
+  if (packageJson.version !== PINNED_FIREBASE_CLI_VERSION) throw new Error(`Expected firebase-tools ${PINNED_FIREBASE_CLI_VERSION}; found ${packageJson.version || '(missing)'}.`);
+  const firebaseRequire = createRequire(path.join(firebaseToolsRoot, 'package.json'));
+  const { TARGET_PERMISSIONS } = firebaseRequire('./lib/commands/deploy.js');
   const source = readFileSync(path.join(firebaseToolsRoot, 'lib/commands/deploy.js'), 'utf8');
-  if (!PINNED_FULL_DEPLOY_PROJECT_PERMISSIONS.every(permission => source.includes(permission))
-    || !source.includes('checkServiceAccountIam(options.project)')) {
+  const iamSource = readFileSync(path.join(firebaseToolsRoot, 'lib/deploy/functions/checkIam.js'), 'utf8');
+  const grouped = Object.fromEntries(DEPLOY_TARGETS.map(target => [target, [...(TARGET_PERMISSIONS?.[target] || [])]]));
+  const projectPermissions = ['firebase.projects.get', ...DEPLOY_TARGETS.flatMap(target => grouped[target])];
+  if (DEPLOY_TARGETS.some(target => grouped[target].length === 0)
+    || !source.includes('checkServiceAccountIam(options.project)')
+    || !iamSource.includes('`${projectId}@appspot.gserviceaccount.com`')
+    || !iamSource.includes('iam.serviceAccounts.actAs')) {
     throw new Error(`firebase-tools ${PINNED_FIREBASE_CLI_VERSION} permission contract differs from the protected full deploy preflight.`);
   }
+  return { grouped, projectPermissions };
 };
 
 export const run20260926PermissionPreflight = async ({ request, firebaseToolsRoot }) => {
-  assertPinnedCliPermissionSource(firebaseToolsRoot);
+  const contract = readPinnedFullDeployPermissionContract(firebaseToolsRoot);
   const project = responseData(await request({
     url: `https://cloudresourcemanager.googleapis.com/v1/projects/${BETA_PROJECT_ID}:testIamPermissions`,
-    method: 'POST', data: { permissions: PINNED_FULL_DEPLOY_PROJECT_PERMISSIONS }
+    method: 'POST', data: { permissions: contract.projectPermissions }
   }));
   const serviceAccount = responseData(await request({
     url: `https://iam.googleapis.com/v1/projects/${BETA_PROJECT_ID}/serviceAccounts/${encodeURIComponent(BETA_APP_ENGINE_SERVICE_ACCOUNT)}:testIamPermissions`,
     method: 'POST', data: { permissions: ['iam.serviceAccounts.actAs'] }
   }));
-  assert20260926PermissionPreflight({ projectPermissions: project.permissions || [], actAsPermissions: serviceAccount.permissions || [] });
-  return { projectPermissions: project.permissions || [], actAsPermissions: serviceAccount.permissions || [] };
+  const projectPermissions = project.permissions || []; const actAsPermissions = serviceAccount.permissions || [];
+  assert20260926PermissionPreflight({ projectPermissions, actAsPermissions, requiredProjectPermissions: contract.projectPermissions });
+  return {
+    functions: contract.grouped.functions.every(permission => projectPermissions.includes(permission)),
+    hosting: contract.grouped.hosting.every(permission => projectPermissions.includes(permission)),
+    firestoreIndexes: contract.grouped.firestore.every(permission => projectPermissions.includes(permission)),
+    firestoreStorageRules: contract.grouped.storage.every(permission => projectPermissions.includes(permission)),
+    httpsFunctionIam: projectPermissions.includes('cloudfunctions.functions.setIamPolicy'),
+    actAs: actAsPermissions.includes('iam.serviceAccounts.actAs'),
+    projectPermissions, actAsPermissions, contract
+  };
 };

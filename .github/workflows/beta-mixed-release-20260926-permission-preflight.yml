@@ -1,0 +1,37 @@
+name: Beta Mixed Release 20260926 Permission Preflight
+on:
+  workflow_dispatch:
+    inputs:
+      expected_candidate_sha:
+        required: true
+        type: string
+jobs:
+  permission-preflight-only:
+    if: ${{ inputs.expected_candidate_sha == '41b331b95e5354e14bf28a70c4f28e1578ab8d32' }}
+    runs-on: ubuntu-latest
+    environment: beta
+    timeout-minutes: 20
+    env:
+      FIREBASE_DEPLOY_TARGET: beta
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: recovery-gate
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with: { ref: 41b331b95e5354e14bf28a70c4f28e1578ab8d32, path: candidate, fetch-depth: 0 }
+      - name: Verify immutable candidate
+        run: |
+          test "$(git -C "$GITHUB_WORKSPACE/candidate" rev-parse HEAD)" = "${{ inputs.expected_candidate_sha }}"
+          test "$(git -C "$GITHUB_WORKSPACE/candidate" rev-parse HEAD^{tree})" = "d298e5b1eee4a60ade64e10e27fd5da1965481c1"
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm --prefix "$GITHUB_WORKSPACE/recovery-gate" ci
+      - run: npm --prefix "$GITHUB_WORKSPACE/candidate/functions" ci
+      - run: npm install --global firebase-tools@14.22.0
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA }}
+      - name: Authenticated read-only pinned CLI permission preflight
+        working-directory: recovery-gate
+        run: node scripts/runBetaMixedRelease20260926AuthenticatedPreflight.mjs --candidate-root "$GITHUB_WORKSPACE/candidate"

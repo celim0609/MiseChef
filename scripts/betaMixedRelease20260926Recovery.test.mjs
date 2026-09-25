@@ -35,6 +35,14 @@ test('permission preflight is ordered before marker probe, marker write, and Fir
   const consume = controller.lastIndexOf('create20260926Marker');
   assert.ok(preflight >= 0 && preflight < probe && probe < deploy && deploy < consume);
 });
+test('authenticated permission preflight workflow is structurally read-only', () => {
+  const script = readFileSync(fileURLToPath(new URL('./runBetaMixedRelease20260926AuthenticatedPreflight.mjs', import.meta.url)), 'utf8');
+  const workflow = readFileSync(fileURLToPath(new URL('../.github/workflows/beta-mixed-release-20260926-permission-preflight.yml', import.meta.url)), 'utf8');
+  assert.doesNotMatch(script, /\['deploy'|gcloud\s+storage\s+(?:cp|rm)|create20260926Marker|probe\(\)/);
+  assert.doesNotMatch(workflow, /recoverBetaMixedRelease20260926|firebase\s+deploy|gcloud\s+storage/);
+  assert.match(workflow, /google-github-actions\/auth@v2/);
+  assert.match(workflow, /FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA/);
+});
 test('consumption of either old incident cannot authorize the new incident', () => {
   assert.throws(() => assert20260926Available({ incident: 'beta-mixed-release-2026-09-24' }), /already consumed/);
   assert.throws(() => assert20260926Available({ incident: 'beta-mixed-release-2026-09-25' }), /already consumed/);

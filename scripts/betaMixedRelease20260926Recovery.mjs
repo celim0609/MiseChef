@@ -80,8 +80,8 @@ export const write20260926TemporaryFirebaseFiles = ({ directory, firebaseConfig,
   assert20260926TemporaryConfig({ firebaseConfig: JSON.parse(readFileSync(configPath, 'utf8')), firebaseRc: JSON.parse(readFileSync(rcPath, 'utf8')), resolvedProject: BETA_PROJECT_ID });
   return { configPath, rcPath, firebaseRc };
 };
-export const assert20260926PermissionPreflight = ({ projectPermissions = [], actAsPermissions = [] }) => {
-  const missingProject = PINNED_FULL_DEPLOY_PROJECT_PERMISSIONS.filter(permission => !projectPermissions.includes(permission));
+export const assert20260926PermissionPreflight = ({ projectPermissions = [], actAsPermissions = [], requiredProjectPermissions = PINNED_FULL_DEPLOY_PROJECT_PERMISSIONS }) => {
+  const missingProject = requiredProjectPermissions.filter(permission => !projectPermissions.includes(permission));
   if (missingProject.length) fail(`pinned full deploy permission preflight failed: ${missingProject.join(', ')}.`);
   if (!actAsPermissions.includes('iam.serviceAccounts.actAs')) fail(`missing iam.serviceAccounts.actAs on ${BETA_APP_ENGINE_SERVICE_ACCOUNT} for ${BETA_DEPLOYER_SERVICE_ACCOUNT}.`);
 };
