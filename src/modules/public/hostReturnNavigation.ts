@@ -6,7 +6,7 @@ const POST_REGISTRATION_DESTINATION_KEY = 'misechef_post_registration_destinatio
 
 export type RegistrationIntent = 'chef' | 'ordering';
 
-const isValidPublicAccountReturnTo = (returnTo: string) => (
+export const isValidPublicAccountReturnTo = (returnTo: string) => (
   HOST_RETURN_TO_PATTERN.test(returnTo)
   || CUSTOMER_ORDERS_RETURN_TO_PATTERN.test(returnTo)
   || GROUP_ORDER_RETURN_TO_PATTERN.test(returnTo)

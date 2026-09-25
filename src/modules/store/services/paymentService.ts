@@ -6,6 +6,7 @@ import type {
   StorePaymentProviderId,
   StorePaymentSession
 } from '../types';
+import type { StoreClaimEnvelope } from '../storeCustomerSession';
 
 const requireFunctions = () => {
   if (!functions) {
@@ -15,6 +16,20 @@ const requireFunctions = () => {
 };
 
 export const storePaymentService = {
+  async claimPublicStoreGuestOrder(envelope: StoreClaimEnvelope): Promise<{ orderNumber: string; claimed: boolean }> {
+    const claim = httpsCallable<
+      Pick<StoreClaimEnvelope, 'slug' | 'provider' | 'paymentSessionId' | 'checkoutAccessToken'>,
+      { orderNumber: string; claimed: boolean }
+    >(requireFunctions(), 'claimPublicStoreGuestOrder');
+    const response = await claim({
+      slug: envelope.slug,
+      provider: envelope.provider,
+      paymentSessionId: envelope.paymentSessionId,
+      checkoutAccessToken: envelope.checkoutAccessToken
+    });
+    return response.data;
+  },
+
   async createPayment(slug: string, order: StoreOrderDraft, returnUrl: string): Promise<StorePaymentSession> {
     const createPayment = httpsCallable<
       { slug: string; order: StoreOrderDraft; returnUrl: string },
