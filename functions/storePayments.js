@@ -697,9 +697,20 @@ export const getStorePaymentResult = async ({
     slug,
     checkoutAccessToken
   });
-  // The signed webhook is authoritative for online payment state. A browser
-  // return may read the order but must never promote it to Paid.
-  return toPublicOrderResult(authorizedOrder);
+  // Most gateways remain webhook-owned. Curlec Standard Checkout additionally
+  // supports a strictly authorized, server-side captured-payment lookup for
+  // recovery when a signed webhook has not arrived.
+  if (typeof adapter.retrieveVerifiedCapturedPayment !== 'function') {
+    return toPublicOrderResult(authorizedOrder);
+  }
+  // This recovery path is intentionally promotion-only. A terminal or other
+  // non-pending local state remains webhook/review-owned and is returned as-is.
+  if (readString(authorizedOrder.payment?.status) !== PAYMENT_STATUS.pending) {
+    return toPublicOrderResult(authorizedOrder);
+  }
+  const verifiedPayment = await adapter.retrieveVerifiedCapturedPayment({ order: authorizedOrder });
+  if (!verifiedPayment) return toPublicOrderResult(authorizedOrder);
+  return toPublicOrderResult(await reconcileStorePayment({ db, payment: verifiedPayment }));
 };
 
 export const cancelStorePayment = async ({

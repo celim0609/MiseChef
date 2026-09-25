@@ -18,6 +18,15 @@ export class CurlecOrderCreationError extends Error {
   }
 }
 
+// This deliberately exposes no gateway response details: a manual result
+// lookup must be retryable, but its diagnostics must not disclose payment data.
+export class CurlecPaymentLookupError extends Error {
+  constructor() {
+    super('Curlec payment status could not be verified.');
+    this.name = 'CurlecPaymentLookupError';
+  }
+}
+
 const normalizePayment = payment => ({
   providerPaymentId: readString(payment?.order_id),
   providerTransactionId: readString(payment?.id),
@@ -30,6 +39,30 @@ const normalizePayment = payment => ({
   paymentMethod: readString(payment?.method),
   failureCode: readString(payment?.error_code || payment?.error_reason)
 });
+
+const sameCurrency = (left, right) => readString(left).toUpperCase() === readString(right).toUpperCase();
+
+const hasMatchingMiseChefOrderRelationship = (providerOrder, order) => (
+  readString(providerOrder?.receipt) === readString(order?.orderNumber)
+  && readString(providerOrder?.notes?.misechefOrderId) === readString(order?.id)
+  && readString(providerOrder?.notes?.misechefOrderNumber) === readString(order?.orderNumber)
+);
+
+const isExactProviderOrder = (providerOrder, order, providerPaymentId) => (
+  readString(providerOrder?.id) === readString(providerPaymentId)
+  && readString(providerOrder?.status) === 'paid'
+  && Number(providerOrder?.amount) === Number(order?.payment?.amountMinor)
+  && sameCurrency(providerOrder?.currency, order?.currency)
+  && Number(providerOrder?.amount_paid) === Number(order?.payment?.amountMinor)
+  && Number(providerOrder?.amount_due) === 0
+  && hasMatchingMiseChefOrderRelationship(providerOrder, order)
+);
+
+const isExactProviderPayment = (payment, order, providerPaymentId) => (
+  readString(payment?.order_id) === readString(providerPaymentId)
+  && Number(payment?.amount) === Number(order?.payment?.amountMinor)
+  && sameCurrency(payment?.currency, order?.currency)
+);
 
 export const verifyCurlecWebhookSignature = (rawBody, signature, webhookSecret) => {
   const expected = createHmac('sha256', webhookSecret).update(rawBody).digest('hex');
@@ -51,6 +84,18 @@ export const getCurlecWebhookDedupeId = event => {
 
 export const createCurlecStandardCheckoutAdapter = (keyId, keySecret, { fetchImpl = fetch } = {}) => {
   if (!readString(keyId) || !readString(keySecret)) throw new Error('Curlec is not configured.');
+  const lookupAuthorization = `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString('base64')}`;
+  const fetchJson = async url => {
+    let response;
+    try {
+      response = await fetchImpl(url, { headers: { authorization: lookupAuthorization } });
+    } catch {
+      throw new CurlecPaymentLookupError();
+    }
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new CurlecPaymentLookupError();
+    return body;
+  };
   return {
     provider: CURLEC_PROVIDER_ID,
     mode: CURLEC_PROVIDER_MODE,
@@ -111,6 +156,37 @@ export const createCurlecStandardCheckoutAdapter = (keyId, keySecret, { fetchImp
         status: readString(order.payment?.status) || PAYMENT_STATUS.pending,
         providerStatus: readString(order.payment?.status), paymentMethod: readString(order.payment?.providerPaymentMethod),
         providerTransactionId: readString(order.payment?.providerTransactionId), failureCode: readString(order.payment?.failureCode)
+      };
+    },
+    async retrieveVerifiedCapturedPayment({ order }) {
+      const providerPaymentId = readString(order?.payment?.providerPaymentId);
+      if (!providerPaymentId) throw new CurlecPaymentLookupError();
+      const providerOrderUrl = `${API_URL}/${encodeURIComponent(providerPaymentId)}`;
+      const providerOrder = await fetchJson(providerOrderUrl);
+      if (!isExactProviderOrder(providerOrder, order, providerPaymentId)) return null;
+
+      const paymentCollection = await fetchJson(`${providerOrderUrl}/payments`);
+      const payments = Array.isArray(paymentCollection?.items) ? paymentCollection.items : null;
+      if (!payments) return null;
+      // A provider order payment collection must not contain payments for a
+      // different provider order or mismatched money values. Treat an anomalous
+      // response as unverifiable rather than selecting a favorable entry.
+      if (payments.some(payment => !isExactProviderPayment(payment, order, providerPaymentId))) return null;
+      const capturedPayments = payments.filter(payment => (
+        isExactProviderPayment(payment, order, providerPaymentId)
+        && payment?.status === 'captured'
+        && payment?.captured === true
+        && readString(payment?.id)
+      ));
+      if (capturedPayments.length !== 1) return null;
+
+      const normalized = normalizePayment(capturedPayments[0]);
+      return {
+        ...normalized,
+        // The source is the authorized, persisted MiseChef order—not a
+        // relationship claimed by the browser or inferred from payment state.
+        orderId: readString(order.id),
+        status: PAYMENT_STATUS.paid
       };
     },
     async cancelPayment() { throw new Error('Curlec checkout cancellation is client-side only.'); },
