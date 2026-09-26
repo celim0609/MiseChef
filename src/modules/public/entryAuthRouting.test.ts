@@ -36,17 +36,18 @@ test('post-registration destinations follow entry intent without persisting an a
   assert.match(appSource, /replaceWithPostRegistrationDestination\(\)/);
 });
 
-test('Google sign-up preserves the shared homepage and Store registration destinations', () => {
+test('Google sign-up preserves the selected chef or ordering registration intent', () => {
   const googleHandlerSource = loginSource.slice(
     loginSource.indexOf('const handleGoogleSignIn'),
     loginSource.indexOf('const handleCreateAccount')
   );
-  const rememberIndex = googleHandlerSource.indexOf('rememberPostRegistrationDestination(window.location.search, resolveRegistrationIntent(window.location.search))');
+  const rememberIndex = googleHandlerSource.indexOf('rememberPostRegistrationDestination(window.location.search, registrationIntent || resolveRegistrationIntent(window.location.search))');
   const popupIndex = googleHandlerSource.indexOf('signInWithPopup(auth, provider)');
   assert.ok(rememberIndex >= 0 && rememberIndex < popupIndex);
-  assert.equal(resolvePostRegistrationDestination('', resolveRegistrationIntent('')), '/app');
+  assert.equal(resolvePostRegistrationDestination('', 'chef'), '/app');
+  assert.equal(resolvePostRegistrationDestination('', 'ordering'), '/orders');
   assert.equal(
-    resolvePostRegistrationDestination('?returnTo=%2Fstore%2Fchef-s-store', resolveRegistrationIntent('?returnTo=%2Fstore%2Fchef-s-store')),
+    resolvePostRegistrationDestination('?returnTo=%2Fstore%2Fchef-s-store', 'ordering'),
     '/store/chef-s-store'
   );
   assert.equal((googleHandlerSource.match(/onAuthenticated\(\)/g) || []).length, 1);
