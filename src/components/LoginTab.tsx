@@ -147,6 +147,9 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
   const [registrationIntent, setRegistrationIntent] = useState<RegistrationIntent>(() => (
     resolveRegistrationIntent(window.location.search)
   ));
+  const [isRegistrationChoiceFlow, setIsRegistrationChoiceFlow] = useState(() => (
+    ['chef', 'ordering'].includes(new URLSearchParams(window.location.search).get('intent') || '')
+  ));
   const [resetEmail, setResetEmail] = useState('');
   const [authMessage, setAuthMessage] = useState('');
   const [authError, setAuthError] = useState('');
@@ -375,7 +378,7 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
                     onClick={() => switchView('registration-intent')}
                     className={linkButtonClass}
                   >
-                    Create Account
+                    {isRegistrationChoiceFlow ? 'Back to account choice' : 'Create Account'}
                   </button>
                 </div>
               </>
@@ -394,6 +397,7 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
                     aria-pressed={registrationIntent === 'chef'}
                     onClick={() => {
                       setRegistrationIntent('chef');
+                      setIsRegistrationChoiceFlow(true);
                       switchView('create-account');
                     }}
                     className={`rounded-xl border px-4 py-3 text-left font-sans text-sm font-extrabold transition ${registrationIntent === 'chef' ? 'border-primary bg-primary text-on-primary' : 'border-surface-container-high bg-white text-primary'}`}
@@ -405,6 +409,7 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
                     aria-pressed={registrationIntent === 'ordering'}
                     onClick={() => {
                       setRegistrationIntent('ordering');
+                      setIsRegistrationChoiceFlow(true);
                       switchView('create-account');
                     }}
                     className={`rounded-xl border px-4 py-3 text-left font-sans text-sm font-extrabold transition ${registrationIntent === 'ordering' ? 'border-primary bg-primary text-on-primary' : 'border-surface-container-high bg-white text-primary'}`}

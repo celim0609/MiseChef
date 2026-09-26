@@ -75,6 +75,22 @@ test('Google sign-up preserves the selected chef or ordering registration intent
   assert.doesNotMatch(googleHandlerSource, /ensureNewUserProvisioned/);
 });
 
+test('the selected account choice remains available after returning to sign in', () => {
+  const signInViewSource = loginSource.slice(
+    loginSource.indexOf("{view === 'sign-in'"),
+    loginSource.indexOf("{view === 'registration-intent'")
+  );
+  const registrationChoiceSource = loginSource.slice(
+    loginSource.indexOf("{view === 'registration-intent'"),
+    loginSource.indexOf("{view === 'create-account'")
+  );
+
+  assert.match(signInViewSource, /isRegistrationChoiceFlow \? 'Back to account choice' : 'Create Account'/);
+  assert.match(signInViewSource, /onClick=\{\(\) => switchView\('registration-intent'\)\}/);
+  assert.match(registrationChoiceSource, /setRegistrationIntent\('chef'\);\s*setIsRegistrationChoiceFlow\(true\);\s*switchView\('create-account'\)/);
+  assert.match(registrationChoiceSource, /setRegistrationIntent\('ordering'\);\s*setIsRegistrationChoiceFlow\(true\);\s*switchView\('create-account'\)/);
+});
+
 test('a stale post-registration destination is cleared before a later plain sign-in', () => {
   assert.match(loginSource, /useEffect\(\(\) => \{\s*forgetPostRegistrationDestination\(\);\s*return forgetPostRegistrationDestination;/);
   assert.match(loginSource, /view === 'create-account' && nextView !== 'create-account'[\s\S]*forgetPostRegistrationDestination\(\)/);
