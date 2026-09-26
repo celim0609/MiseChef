@@ -1967,7 +1967,6 @@ export default function App() {
     if (!currentUser && !isGuestMode) {
       return (
         <LoginTab
-          currentUser={currentUser}
           onAuthenticated={handleAuthenticated}
           onContinueAsGuest={handleContinueAsGuest}
         />
@@ -2214,7 +2213,6 @@ export default function App() {
 
         return (
           <LoginTab
-            currentUser={currentUser}
             onAuthenticated={handleAuthenticated}
             onContinueAsGuest={handleContinueAsGuest}
           />
@@ -2330,7 +2328,6 @@ export default function App() {
   if (!isProtectedShellVisible && window.location.pathname === '/login') {
     return (
       <LoginTab
-        currentUser={currentUser}
         onAuthenticated={handleAuthenticated}
         onContinueAsGuest={handleContinueAsGuest}
       />

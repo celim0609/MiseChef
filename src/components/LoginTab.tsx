@@ -14,7 +14,6 @@ import {
   signInWithRedirect,
   updateProfile
 } from 'firebase/auth';
-import type { User } from 'firebase/auth';
 import BrandLogo from './BrandLogo';
 import { auth, isFirebaseConfigured } from '../firebase';
 import {
@@ -27,11 +26,10 @@ import {
   isValidPublicAccountReturnTo,
   rememberPostRegistrationDestination,
   resolveRegistrationIntent,
-  startsRegistrationChoiceFlow,
   type RegistrationIntent
 } from '../modules/public/hostReturnNavigation';
 
-type AuthView = 'welcome' | 'sign-in' | 'registration-intent' | 'create-account' | 'forgot-password' | 'guest';
+type AuthView = 'sign-in' | 'registration-intent' | 'auth-options' | 'create-account' | 'forgot-password';
 
 const fieldClass =
   'w-full bg-white border border-surface-container-high rounded-xl px-4 py-3.5 text-sm font-sans font-bold text-on-surface placeholder:text-outline-variant focus:ring-1 focus:ring-primary';
@@ -128,18 +126,12 @@ const getAuthErrorMessage = (error: unknown) => {
 };
 
 interface LoginTabProps {
-  currentUser: User | null;
   onAuthenticated: () => void;
   onContinueAsGuest: () => void | Promise<void>;
 }
 
-export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGuest }: LoginTabProps) {
-  const registrationChoiceFlow = startsRegistrationChoiceFlow(window.location.search);
-  const [view, setView] = useState<AuthView>(() => (
-    registrationChoiceFlow
-      ? 'registration-intent'
-      : 'welcome'
-  ));
+export default function LoginTab({ onAuthenticated, onContinueAsGuest }: LoginTabProps) {
+  const [view, setView] = useState<AuthView>('registration-intent');
   const [signInEmail, setSignInEmail] = useState('');
   const [signInPassword, setSignInPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -148,9 +140,6 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
   const [confirmPassword, setConfirmPassword] = useState('');
   const [registrationIntent, setRegistrationIntent] = useState<RegistrationIntent>(() => (
     resolveRegistrationIntent(window.location.search)
-  ));
-  const [isRegistrationChoiceFlow, setIsRegistrationChoiceFlow] = useState(() => (
-    registrationChoiceFlow
   ));
   const [resetEmail, setResetEmail] = useState('');
   const [authMessage, setAuthMessage] = useState('');
@@ -249,7 +238,7 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
       // Store/customer registration is an Auth identity only. Professional
       // provisioning remains an explicit /app entry action.
       const returnTo = new URLSearchParams(window.location.search).get('returnTo') || '';
-      if (!isValidPublicAccountReturnTo(returnTo)) {
+      if (registrationIntent === 'chef' && !isValidPublicAccountReturnTo(returnTo)) {
         await ensureNewUserProvisioned(credential.user, normalizedName);
       }
       setAuthMessage('Account created successfully.');
@@ -299,35 +288,14 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
             transition={{ duration: 0.22, ease: 'easeOut' }}
             className="space-y-6"
           >
-            {view === 'welcome' ? (
-              <>
-                <AuthHeader
-                  title="MiseChef"
-                  subtitle={currentUser?.email ? `Signed in as ${currentUser.email}` : 'Everything in its place.'}
-                />
-
-                <div className="space-y-3">
-                  <button
-                    type="button"
-                    onClick={() => switchView('sign-in')}
-                    className={primaryButtonClass}
-                  >
-                    Sign In
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => switchView('registration-intent')}
-                    className={secondaryButtonClass}
-                  >
-                    Create Account
-                  </button>
-                </div>
-              </>
-            ) : null}
-
             {view === 'sign-in' ? (
               <>
-                <AuthHeader title="Sign In" subtitle="Welcome back to your kitchen." />
+                <AuthHeader
+                  title="Sign In"
+                  subtitle={registrationIntent === 'ordering'
+                    ? 'Welcome back to your orders.'
+                    : 'Welcome back to your kitchen.'}
+                />
 
                 <form className="space-y-4" onSubmit={handleSignIn}>
                   <FormField
@@ -377,12 +345,20 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
                   </button>
                   <button
                     type="button"
-                    onClick={() => switchView('registration-intent')}
+                    onClick={() => switchView('auth-options')}
                     className={linkButtonClass}
                   >
-                    {isRegistrationChoiceFlow ? 'Back to account choice' : 'Create Account'}
+                    Create Account
                   </button>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => switchView('registration-intent')}
+                  className={`${secondaryButtonClass} !py-3`}
+                >
+                  Back to account choice
+                </button>
               </>
             ) : null}
 
@@ -399,8 +375,7 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
                     aria-pressed={registrationIntent === 'chef'}
                     onClick={() => {
                       setRegistrationIntent('chef');
-                      setIsRegistrationChoiceFlow(true);
-                      switchView('create-account');
+                      switchView('auth-options');
                     }}
                     className={`rounded-xl border px-4 py-3 text-left font-sans text-sm font-extrabold transition ${registrationIntent === 'chef' ? 'border-primary bg-primary text-on-primary' : 'border-surface-container-high bg-white text-primary'}`}
                   >
@@ -411,8 +386,7 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
                     aria-pressed={registrationIntent === 'ordering'}
                     onClick={() => {
                       setRegistrationIntent('ordering');
-                      setIsRegistrationChoiceFlow(true);
-                      switchView('create-account');
+                      switchView('auth-options');
                     }}
                     className={`rounded-xl border px-4 py-3 text-left font-sans text-sm font-extrabold transition ${registrationIntent === 'ordering' ? 'border-primary bg-primary text-on-primary' : 'border-surface-container-high bg-white text-primary'}`}
                   >
@@ -420,12 +394,50 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
                   </button>
                 </div>
 
+              </>
+            ) : null}
+
+            {view === 'auth-options' ? (
+              <>
+                <AuthHeader
+                  title={registrationIntent === 'ordering' ? 'Order with MiseChef' : 'Cook with MiseChef'}
+                  subtitle={registrationIntent === 'ordering'
+                    ? 'Sign in, create an account, or continue as a guest.'
+                    : 'Sign in or create your Chef account.'}
+                />
+
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    onClick={() => switchView('sign-in')}
+                    className={primaryButtonClass}
+                  >
+                    Sign In
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => switchView('create-account')}
+                    className={secondaryButtonClass}
+                  >
+                    Create Account
+                  </button>
+                  {registrationIntent === 'ordering' ? (
+                    <button
+                      type="button"
+                      onClick={() => void onContinueAsGuest()}
+                      className={secondaryButtonClass}
+                    >
+                      Continue as Guest
+                    </button>
+                  ) : null}
+                </div>
+
                 <button
                   type="button"
-                  onClick={() => switchView('sign-in')}
+                  onClick={() => switchView('registration-intent')}
                   className={`${secondaryButtonClass} !py-3`}
                 >
-                  Back to Sign In
+                  Choose a different path
                 </button>
               </>
             ) : null}
@@ -448,16 +460,6 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
                   >
                     {isSubmitting ? 'Opening Google...' : 'Continue with Google'}
                   </button>
-                  {registrationIntent === 'ordering' ? (
-                    <button
-                      type="button"
-                      onClick={() => void onContinueAsGuest()}
-                      className={secondaryButtonClass}
-                      disabled={isSubmitting}
-                    >
-                      Continue as Guest
-                    </button>
-                  ) : null}
                   <div className="flex items-center gap-3">
                     <div className="h-px flex-1 bg-surface-container-high" />
                     <span className="font-sans text-xs font-bold text-on-surface-variant">or use email</span>
@@ -540,36 +542,6 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
                 >
                   Back to Sign In
                 </button>
-              </>
-            ) : null}
-
-            {view === 'guest' ? (
-              <>
-                <AuthHeader
-                  title="Guest Mode"
-                  subtitle="Keep using your local cookbook on this device."
-                />
-
-                <p className="text-center font-sans text-xs font-extrabold text-secondary bg-secondary/10 border border-secondary/20 rounded-full px-4 py-2">
-                  Sign in to keep your work available across devices.
-                </p>
-
-                <div className="space-y-3">
-                  <button
-                    type="button"
-                    onClick={() => switchView('sign-in')}
-                    className={primaryButtonClass}
-                  >
-                    Sign In
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => switchView('welcome')}
-                    className={secondaryButtonClass}
-                  >
-                    Back to Welcome
-                  </button>
-                </div>
               </>
             ) : null}
 
