@@ -178,6 +178,7 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
 
     setIsSubmitting(true);
     try {
+      rememberPostRegistrationDestination(window.location.search, registrationIntent || resolveRegistrationIntent(window.location.search));
       await signInWithEmailAndPassword(auth, signInEmail.trim(), signInPassword);
       setAuthMessage('Signed in successfully.');
       onAuthenticated();

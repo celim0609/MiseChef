@@ -51,13 +51,20 @@ test('post-registration destinations follow entry intent without persisting an a
 });
 
 test('Google sign-up preserves the selected chef or ordering registration intent', () => {
+  const emailHandlerSource = loginSource.slice(
+    loginSource.indexOf('const handleSignIn'),
+    loginSource.indexOf('const handleGoogleSignIn')
+  );
   const googleHandlerSource = loginSource.slice(
     loginSource.indexOf('const handleGoogleSignIn'),
     loginSource.indexOf('const handleCreateAccount')
   );
   const rememberIndex = googleHandlerSource.indexOf('rememberPostRegistrationDestination(window.location.search, registrationIntent || resolveRegistrationIntent(window.location.search))');
   const popupIndex = googleHandlerSource.indexOf('signInWithPopup(auth, provider)');
+  const emailRememberIndex = emailHandlerSource.indexOf('rememberPostRegistrationDestination(window.location.search, registrationIntent || resolveRegistrationIntent(window.location.search))');
+  const emailSignInIndex = emailHandlerSource.indexOf('signInWithEmailAndPassword(auth, signInEmail.trim(), signInPassword)');
   assert.ok(rememberIndex >= 0 && rememberIndex < popupIndex);
+  assert.ok(emailRememberIndex >= 0 && emailRememberIndex < emailSignInIndex);
   assert.equal(resolvePostRegistrationDestination('', 'chef'), '/app');
   assert.equal(resolvePostRegistrationDestination('', 'ordering'), '/orders');
   assert.equal(
