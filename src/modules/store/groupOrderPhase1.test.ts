@@ -142,9 +142,11 @@ test('Host auth completion and guest continuation share replace-only public navi
     appSource.indexOf('const handleAuthenticated'),
     appSource.indexOf('const handleAvatarClick')
   );
-  assert.equal((hostCompletionSource.match(/replaceWithValidatedPublicAccountReturnTo/g) || []).length, 2);
+  assert.equal((hostCompletionSource.match(/replaceWithValidatedPublicAccountReturnTo/g) || []).length, 1);
+  assert.match(hostCompletionSource, /const handleAuthenticated[\s\S]*completePostAuthenticationNavigation\(\)/);
+  assert.match(appSource, /const replaceWithPostAuthenticationReturnTo[\s\S]*replaceWithValidatedPublicAccountReturnTo/);
   assert.equal((hostCompletionSource.match(/replaceWithValidatedHostReturnTo/g) || []).length, 0);
-  assert.equal((hostCompletionSource.match(/window\.location\.replace/g) || []).length, 3);
+  assert.equal((hostCompletionSource.match(/window\.location\.replace/g) || []).length, 2);
   assert.doesNotMatch(hostCompletionSource, /window\.location\.assign/);
   assert.match(hostCompletionSource, /const handleContinueAsGuest[\s\S]*signOut\(auth\)[\s\S]*setCurrentUser\(null\)[\s\S]*replaceWithValidatedPublicAccountReturnTo[\s\S]*window\.location\.replace\('\/'\)/);
 
@@ -152,7 +154,7 @@ test('Host auth completion and guest continuation share replace-only public navi
     appSource.indexOf("if (currentUser && activeTab === 'login')"),
     appSource.indexOf("if (currentUser && activeTab === 'login')") + 400
   );
-  assert.ok(loginRaceSource.indexOf('replaceWithValidatedPublicAccountReturnTo') < loginRaceSource.indexOf("handleRootNavigate('home')"));
+  assert.ok(loginRaceSource.indexOf('completePostAuthenticationNavigation') < loginRaceSource.indexOf("handleRootNavigate('home')"));
 });
 
 test('Google popup authentication completes exactly once', () => {

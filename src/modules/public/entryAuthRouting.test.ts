@@ -110,6 +110,28 @@ test('authenticated Store returns keep the Professional shell hidden while redir
   assert.doesNotMatch(redirectGuardSource, /HomeTab|Create Recipe/);
 });
 
+test('Store post-auth completion is idempotent when auth state wins the Google popup race', () => {
+  const authStateSource = appSource.slice(
+    appSource.indexOf('unsubscribeAuth = onAuthStateChanged'),
+    appSource.indexOf("setCurrentUserRole('user');")
+  );
+  const authenticatedEffectSource = appSource.slice(
+    appSource.indexOf('useEffect(() => {\n    if (currentUser && activeTab === \'login\')'),
+    appSource.indexOf('\n  useEffect(() => {', appSource.indexOf('useEffect(() => {\n    if (currentUser && activeTab === \'login\')') + 1)
+  );
+  const authenticatedHandlerSource = appSource.slice(
+    appSource.indexOf('const handleAuthenticated = () =>'),
+    appSource.indexOf('const handleContinueAsGuest')
+  );
+
+  assert.match(appSource, /const postAuthenticationNavigationInFlightRef = useRef\(false\);/);
+  assert.match(appSource, /if \(postAuthenticationNavigationInFlightRef\.current\) return true;[\s\S]*consumePostRegistrationDestination\(\)[\s\S]*postAuthenticationNavigationInFlightRef\.current = true;[\s\S]*window\.location\.replace\(destination\)/);
+  assert.match(appSource, /const completePostAuthenticationNavigation = \(\) => \([\s\S]*replaceWithPostRegistrationDestination\(\) \|\| replaceWithPostAuthenticationReturnTo\(\)/);
+  assert.match(authStateSource, /pathname === '\/login' && completePostAuthenticationNavigation\(\)/);
+  assert.match(authenticatedEffectSource, /if \(completePostAuthenticationNavigation\(\)\) return;[\s\S]*handleRootNavigate\('home'\)/);
+  assert.match(authenticatedHandlerSource, /if \(completePostAuthenticationNavigation\(\)\) return;[\s\S]*handleRootNavigate\('home'\)/);
+});
+
 test('a stale post-registration destination is cleared before a later plain sign-in', () => {
   assert.match(loginSource, /useEffect\(\(\) => \{\s*forgetPostRegistrationDestination\(\);\s*return forgetPostRegistrationDestination;/);
   assert.match(loginSource, /view === 'create-account' && nextView !== 'create-account'[\s\S]*forgetPostRegistrationDestination\(\)/);

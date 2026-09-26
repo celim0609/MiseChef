@@ -639,6 +639,7 @@ export default function App() {
   const [recipeSaveError, setRecipeSaveError] = useState('');
   const [hasUnsavedRecipeChanges, setHasUnsavedRecipeChanges] = useState(false);
   const recipeSaveInFlightRef = useRef(false);
+  const postAuthenticationNavigationInFlightRef = useRef(false);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [sharingRecipe, setSharingRecipe] = useState<Recipe | null>(null);
   const [isNavigationDrawerOpen, setIsNavigationDrawerOpen] = useState(false);
@@ -994,17 +995,7 @@ export default function App() {
             setIsGuestMode(false);
             const pathname = window.location.pathname;
 
-            if (pathname === '/login' && replaceWithPostRegistrationDestination()) {
-              return;
-            }
-
-            if (
-              pathname === '/login'
-              && replaceWithValidatedPublicAccountReturnTo(
-                window.location.search,
-                hostReturnTo => window.location.replace(hostReturnTo)
-              )
-            ) {
+            if (pathname === '/login' && completePostAuthenticationNavigation()) {
               return;
             }
 
@@ -1024,6 +1015,7 @@ export default function App() {
             return;
           }
 
+          postAuthenticationNavigationInFlightRef.current = false;
           setCurrentUserRole('user');
           setChefProfile(DEFAULT_CHEF_PROFILE);
           setCustomAvatarUrl('');
@@ -1058,11 +1050,7 @@ export default function App() {
 
   useEffect(() => {
     if (currentUser && activeTab === 'login') {
-      if (replaceWithPostRegistrationDestination()) return;
-      if (replaceWithValidatedPublicAccountReturnTo(
-        window.location.search,
-        hostReturnTo => window.location.replace(hostReturnTo)
-      )) return;
+      if (completePostAuthenticationNavigation()) return;
 
       handleRootNavigate('home');
     }
@@ -1819,20 +1807,33 @@ export default function App() {
   };
 
   const replaceWithPostRegistrationDestination = () => {
+    if (postAuthenticationNavigationInFlightRef.current) return true;
     const destination = consumePostRegistrationDestination();
     if (!destination) return false;
+    postAuthenticationNavigationInFlightRef.current = true;
     window.location.replace(destination);
     return true;
   };
 
+  const replaceWithPostAuthenticationReturnTo = () => {
+    if (postAuthenticationNavigationInFlightRef.current) return true;
+    return replaceWithValidatedPublicAccountReturnTo(
+      window.location.search,
+      hostReturnTo => {
+        postAuthenticationNavigationInFlightRef.current = true;
+        window.location.replace(hostReturnTo);
+      }
+    );
+  };
+
+  const completePostAuthenticationNavigation = () => (
+    replaceWithPostRegistrationDestination() || replaceWithPostAuthenticationReturnTo()
+  );
+
   // Renders correct active screen body
   const handleAuthenticated = () => {
     setIsGuestMode(false);
-    if (replaceWithPostRegistrationDestination()) return;
-    if (replaceWithValidatedPublicAccountReturnTo(
-      window.location.search,
-      hostReturnTo => window.location.replace(hostReturnTo)
-    )) return;
+    if (completePostAuthenticationNavigation()) return;
 
     handleRootNavigate('home');
   };
