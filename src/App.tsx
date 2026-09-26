@@ -39,7 +39,8 @@ import { isPublicExperiencePath, PublicLayout } from './modules/public';
 import {
   replaceWithValidatedHostReturnTo,
   replaceWithValidatedPublicAccountReturnTo,
-  consumePostRegistrationDestination
+  consumePostRegistrationDestination,
+  getValidatedPublicAccountReturnTo
 } from './modules/public/hostReturnNavigation';
 import { AnimatePresence, motion } from 'motion/react';
 import BrandLogo from './components/BrandLogo';
@@ -638,6 +639,7 @@ export default function App() {
   const [recipeSaveError, setRecipeSaveError] = useState('');
   const [hasUnsavedRecipeChanges, setHasUnsavedRecipeChanges] = useState(false);
   const recipeSaveInFlightRef = useRef(false);
+  const postAuthenticationNavigationInFlightRef = useRef(false);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [sharingRecipe, setSharingRecipe] = useState<Recipe | null>(null);
   const [isNavigationDrawerOpen, setIsNavigationDrawerOpen] = useState(false);
@@ -993,17 +995,7 @@ export default function App() {
             setIsGuestMode(false);
             const pathname = window.location.pathname;
 
-            if (pathname === '/login' && replaceWithPostRegistrationDestination()) {
-              return;
-            }
-
-            if (
-              pathname === '/login'
-              && replaceWithValidatedPublicAccountReturnTo(
-                window.location.search,
-                hostReturnTo => window.location.replace(hostReturnTo)
-              )
-            ) {
+            if (pathname === '/login' && completePostAuthenticationNavigation()) {
               return;
             }
 
@@ -1023,6 +1015,7 @@ export default function App() {
             return;
           }
 
+          postAuthenticationNavigationInFlightRef.current = false;
           setCurrentUserRole('user');
           setChefProfile(DEFAULT_CHEF_PROFILE);
           setCustomAvatarUrl('');
@@ -1057,11 +1050,7 @@ export default function App() {
 
   useEffect(() => {
     if (currentUser && activeTab === 'login') {
-      if (replaceWithPostRegistrationDestination()) return;
-      if (replaceWithValidatedPublicAccountReturnTo(
-        window.location.search,
-        hostReturnTo => window.location.replace(hostReturnTo)
-      )) return;
+      if (completePostAuthenticationNavigation()) return;
 
       handleRootNavigate('home');
     }
@@ -1818,20 +1807,33 @@ export default function App() {
   };
 
   const replaceWithPostRegistrationDestination = () => {
+    if (postAuthenticationNavigationInFlightRef.current) return true;
     const destination = consumePostRegistrationDestination();
     if (!destination) return false;
+    postAuthenticationNavigationInFlightRef.current = true;
     window.location.replace(destination);
     return true;
   };
 
+  const replaceWithPostAuthenticationReturnTo = () => {
+    if (postAuthenticationNavigationInFlightRef.current) return true;
+    return replaceWithValidatedPublicAccountReturnTo(
+      window.location.search,
+      hostReturnTo => {
+        postAuthenticationNavigationInFlightRef.current = true;
+        window.location.replace(hostReturnTo);
+      }
+    );
+  };
+
+  const completePostAuthenticationNavigation = () => (
+    replaceWithPostRegistrationDestination() || replaceWithPostAuthenticationReturnTo()
+  );
+
   // Renders correct active screen body
   const handleAuthenticated = () => {
     setIsGuestMode(false);
-    if (replaceWithPostRegistrationDestination()) return;
-    if (replaceWithValidatedPublicAccountReturnTo(
-      window.location.search,
-      hostReturnTo => window.location.replace(hostReturnTo)
-    )) return;
+    if (completePostAuthenticationNavigation()) return;
 
     handleRootNavigate('home');
   };
@@ -1867,7 +1869,7 @@ export default function App() {
       window.location.search,
       returnTo => window.location.replace(returnTo)
     )) return;
-    window.location.replace('/');
+    window.location.replace('/store');
   };
 
   const handleStartBusinessTrial = async () => {
@@ -1965,7 +1967,6 @@ export default function App() {
     if (!currentUser && !isGuestMode) {
       return (
         <LoginTab
-          currentUser={currentUser}
           onAuthenticated={handleAuthenticated}
           onContinueAsGuest={handleContinueAsGuest}
         />
@@ -2212,7 +2213,6 @@ export default function App() {
 
         return (
           <LoginTab
-            currentUser={currentUser}
             onAuthenticated={handleAuthenticated}
             onContinueAsGuest={handleContinueAsGuest}
           />
@@ -2285,8 +2285,15 @@ export default function App() {
   };
 
   const isProtectedShellVisible = Boolean(currentUser);
+  const pendingPublicStoreReturnTo = currentUser && window.location.pathname === '/login'
+    ? getValidatedPublicAccountReturnTo(window.location.search)
+    : '';
 
   if (!isAppReady || !isAuthReady) {
+    return <BrandLoadingScreen />;
+  }
+
+  if (pendingPublicStoreReturnTo.startsWith('/store/')) {
     return <BrandLoadingScreen />;
   }
 
@@ -2321,7 +2328,6 @@ export default function App() {
   if (!isProtectedShellVisible && window.location.pathname === '/login') {
     return (
       <LoginTab
-        currentUser={currentUser}
         onAuthenticated={handleAuthenticated}
         onContinueAsGuest={handleContinueAsGuest}
       />

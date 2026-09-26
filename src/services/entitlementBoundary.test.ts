@@ -29,7 +29,7 @@ test('Guest, Personal, and Business identity boundaries fail closed', () => {
   assert.doesNotMatch(app, /setIsGuestMode\(true\)/);
   assert.match(app, /const isProtectedShellVisible = Boolean\(currentUser\)/);
   assert.match(app, /if \(!currentUser && tab !== 'login'\)[\s\S]*window\.history\.replaceState\(null, '', '\/login'\)/);
-  assert.match(app, /handleContinueAsGuest[\s\S]*signOut\(auth\)[\s\S]*setBusinessEntitlement\(null\)[\s\S]*setChefProfile\(DEFAULT_CHEF_PROFILE\)[\s\S]*window\.location\.replace\('\/'\)/);
+  assert.match(app, /handleContinueAsGuest[\s\S]*signOut\(auth\)[\s\S]*setBusinessEntitlement\(null\)[\s\S]*setChefProfile\(DEFAULT_CHEF_PROFILE\)[\s\S]*window\.location\.replace\('\/store'\)/);
   assert.doesNotMatch(provisioning, /collection\('workspaces'\)|collection\('workspaceMembers'\)|allowTrialProvisioning/);
   assert.doesNotMatch(subscriptionFoundation, /allowTrialProvisioning|isProvisionedTrial/);
   assert.match(trial, /startBusinessTrial/);
