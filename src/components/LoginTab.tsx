@@ -414,6 +414,29 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
                       </button>
                     </div>
                   </fieldset>
+                  <button
+                    type="button"
+                    onClick={handleGoogleSignIn}
+                    className={secondaryButtonClass}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? 'Opening Google...' : 'Continue with Google'}
+                  </button>
+                  {registrationIntent === 'ordering' ? (
+                    <button
+                      type="button"
+                      onClick={() => void onContinueAsGuest()}
+                      className={secondaryButtonClass}
+                      disabled={isSubmitting}
+                    >
+                      Continue as Guest
+                    </button>
+                  ) : null}
+                  <div className="flex items-center gap-3">
+                    <div className="h-px flex-1 bg-surface-container-high" />
+                    <span className="font-sans text-xs font-bold text-on-surface-variant">or use email</span>
+                    <div className="h-px flex-1 bg-surface-container-high" />
+                  </div>
                   <FormField
                     label="Full Name"
                     type="text"
