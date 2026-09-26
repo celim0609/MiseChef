@@ -27,6 +27,7 @@ import {
   isValidPublicAccountReturnTo,
   rememberPostRegistrationDestination,
   resolveRegistrationIntent,
+  startsRegistrationChoiceFlow,
   type RegistrationIntent
 } from '../modules/public/hostReturnNavigation';
 
@@ -133,8 +134,9 @@ interface LoginTabProps {
 }
 
 export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGuest }: LoginTabProps) {
+  const registrationChoiceFlow = startsRegistrationChoiceFlow(window.location.search);
   const [view, setView] = useState<AuthView>(() => (
-    ['chef', 'ordering'].includes(new URLSearchParams(window.location.search).get('intent') || '')
+    registrationChoiceFlow
       ? 'registration-intent'
       : 'welcome'
   ));
@@ -148,7 +150,7 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
     resolveRegistrationIntent(window.location.search)
   ));
   const [isRegistrationChoiceFlow, setIsRegistrationChoiceFlow] = useState(() => (
-    ['chef', 'ordering'].includes(new URLSearchParams(window.location.search).get('intent') || '')
+    registrationChoiceFlow
   ));
   const [resetEmail, setResetEmail] = useState('');
   const [authMessage, setAuthMessage] = useState('');

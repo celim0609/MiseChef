@@ -4,7 +4,8 @@ import test from 'node:test';
 import {
   getValidatedPublicAccountReturnTo,
   resolvePostRegistrationDestination,
-  resolveRegistrationIntent
+  resolveRegistrationIntent,
+  startsRegistrationChoiceFlow
 } from './hostReturnNavigation';
 
 const loginSource = readFileSync(new URL('../../components/LoginTab.tsx', import.meta.url), 'utf8');
@@ -32,7 +33,11 @@ test('post-registration destinations follow entry intent without persisting an a
   assert.match(loginSource, /I&apos;m a chef/);
   assert.match(loginSource, /I&apos;m just ordering/);
   assert.match(loginSource, /registrationIntent === 'ordering'[\s\S]*Create an account to keep your orders in one place/);
-  assert.match(loginSource, /\['chef', 'ordering'\]\.includes\(new URLSearchParams\(window\.location\.search\)\.get\('intent'\)/);
+  assert.equal(
+    startsRegistrationChoiceFlow('?returnTo=%2Fstore%2Fmisechef-s-grab-go-store'),
+    true
+  );
+  assert.match(loginSource, /const registrationChoiceFlow = startsRegistrationChoiceFlow\(window\.location\.search\)/);
   const registrationChoiceSource = loginSource.slice(
     loginSource.indexOf("{view === 'registration-intent'"),
     loginSource.indexOf("{view === 'create-account'")

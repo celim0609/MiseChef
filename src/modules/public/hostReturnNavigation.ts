@@ -50,6 +50,11 @@ export const resolveRegistrationIntent = (search: string): RegistrationIntent =>
   getValidatedPublicAccountReturnTo(search) ? 'ordering' : 'chef'
 );
 
+export const startsRegistrationChoiceFlow = (search: string) => (
+  ['chef', 'ordering'].includes(new URLSearchParams(search).get('intent') || '')
+  || Boolean(getValidatedPublicAccountReturnTo(search))
+);
+
 export const resolvePostRegistrationDestination = (
   search: string,
   intent: RegistrationIntent
