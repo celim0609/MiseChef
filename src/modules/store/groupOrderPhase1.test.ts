@@ -148,7 +148,7 @@ test('Host auth completion and guest continuation share replace-only public navi
   assert.equal((hostCompletionSource.match(/replaceWithValidatedHostReturnTo/g) || []).length, 0);
   assert.equal((hostCompletionSource.match(/window\.location\.replace/g) || []).length, 2);
   assert.doesNotMatch(hostCompletionSource, /window\.location\.assign/);
-  assert.match(hostCompletionSource, /const handleContinueAsGuest[\s\S]*signOut\(auth\)[\s\S]*setCurrentUser\(null\)[\s\S]*replaceWithValidatedPublicAccountReturnTo[\s\S]*window\.location\.replace\('\/'\)/);
+  assert.match(hostCompletionSource, /const handleContinueAsGuest[\s\S]*signOut\(auth\)[\s\S]*setCurrentUser\(null\)[\s\S]*replaceWithValidatedPublicAccountReturnTo[\s\S]*window\.location\.replace\('\/store'\)/);
 
   const loginRaceSource = appSource.slice(
     appSource.indexOf("if (currentUser && activeTab === 'login')"),

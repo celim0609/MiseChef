@@ -93,6 +93,20 @@ test('Ordering path keeps Store returnTo and never provisions a Professional acc
   assert.doesNotMatch(createAccountViewSource, /Continue as Guest/);
 });
 
+test('Ordering guest continuation returns to its Store or the public Store index', () => {
+  const guestHandlerSource = appSource.slice(
+    appSource.indexOf('const handleContinueAsGuest = async () =>'),
+    appSource.indexOf('const handleStartBusinessTrial')
+  );
+
+  assert.equal(
+    getValidatedPublicAccountReturnTo('?returnTo=%2Fstore%2Fmisechef-s-grab-go-store'),
+    '/store/misechef-s-grab-go-store'
+  );
+  assert.match(guestHandlerSource, /replaceWithValidatedPublicAccountReturnTo\([\s\S]*returnTo => window\.location\.replace\(returnTo\)[\s\S]*window\.location\.replace\('\/store'\)/);
+  assert.doesNotMatch(guestHandlerSource, /window\.location\.replace\('\/'\)/);
+});
+
 test('authenticated Store returns keep the Professional shell hidden while redirecting', () => {
   const redirectGuardStart = appSource.indexOf('const pendingPublicStoreReturnTo');
   const redirectGuardSource = appSource.slice(

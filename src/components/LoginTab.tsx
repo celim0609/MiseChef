@@ -365,7 +365,7 @@ export default function LoginTab({ onAuthenticated, onContinueAsGuest }: LoginTa
             {view === 'registration-intent' ? (
               <>
                 <AuthHeader
-                  title="Create Account"
+                  title="Choose your MiseChef path"
                   subtitle="How will you use MiseChef?"
                 />
 
@@ -400,7 +400,7 @@ export default function LoginTab({ onAuthenticated, onContinueAsGuest }: LoginTa
             {view === 'auth-options' ? (
               <>
                 <AuthHeader
-                  title={registrationIntent === 'ordering' ? 'Order with MiseChef' : 'Cook with MiseChef'}
+                  title={registrationIntent === 'ordering' ? 'Order with MiseChef' : 'Chef with MiseChef'}
                   subtitle={registrationIntent === 'ordering'
                     ? 'Sign in, create an account, or continue as a guest.'
                     : 'Sign in or create your Chef account.'}

@@ -1869,7 +1869,7 @@ export default function App() {
       window.location.search,
       returnTo => window.location.replace(returnTo)
     )) return;
-    window.location.replace('/');
+    window.location.replace('/store');
   };
 
   const handleStartBusinessTrial = async () => {
