@@ -30,7 +30,7 @@ import {
   type RegistrationIntent
 } from '../modules/public/hostReturnNavigation';
 
-type AuthView = 'welcome' | 'sign-in' | 'create-account' | 'forgot-password' | 'guest';
+type AuthView = 'welcome' | 'sign-in' | 'registration-intent' | 'create-account' | 'forgot-password' | 'guest';
 
 const fieldClass =
   'w-full bg-white border border-surface-container-high rounded-xl px-4 py-3.5 text-sm font-sans font-bold text-on-surface placeholder:text-outline-variant focus:ring-1 focus:ring-primary';
@@ -133,7 +133,11 @@ interface LoginTabProps {
 }
 
 export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGuest }: LoginTabProps) {
-  const [view, setView] = useState<AuthView>('welcome');
+  const [view, setView] = useState<AuthView>(() => (
+    ['chef', 'ordering'].includes(new URLSearchParams(window.location.search).get('intent') || '')
+      ? 'registration-intent'
+      : 'welcome'
+  ));
   const [signInEmail, setSignInEmail] = useState('');
   const [signInPassword, setSignInPassword] = useState('');
   const [fullName, setFullName] = useState('');
@@ -306,17 +310,10 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
                   </button>
                   <button
                     type="button"
-                    onClick={() => switchView('create-account')}
+                    onClick={() => switchView('registration-intent')}
                     className={secondaryButtonClass}
                   >
                     Create Account
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void onContinueAsGuest()}
-                    className={secondaryButtonClass}
-                  >
-                    Continue as Guest
                   </button>
                 </div>
               </>
@@ -374,12 +371,54 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
                   </button>
                   <button
                     type="button"
-                    onClick={() => switchView('create-account')}
+                    onClick={() => switchView('registration-intent')}
                     className={linkButtonClass}
                   >
                     Create Account
                   </button>
                 </div>
+              </>
+            ) : null}
+
+            {view === 'registration-intent' ? (
+              <>
+                <AuthHeader
+                  title="Create Account"
+                  subtitle="How will you use MiseChef?"
+                />
+
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    aria-pressed={registrationIntent === 'chef'}
+                    onClick={() => {
+                      setRegistrationIntent('chef');
+                      switchView('create-account');
+                    }}
+                    className={`rounded-xl border px-4 py-3 text-left font-sans text-sm font-extrabold transition ${registrationIntent === 'chef' ? 'border-primary bg-primary text-on-primary' : 'border-surface-container-high bg-white text-primary'}`}
+                  >
+                    I&apos;m a chef
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={registrationIntent === 'ordering'}
+                    onClick={() => {
+                      setRegistrationIntent('ordering');
+                      switchView('create-account');
+                    }}
+                    className={`rounded-xl border px-4 py-3 text-left font-sans text-sm font-extrabold transition ${registrationIntent === 'ordering' ? 'border-primary bg-primary text-on-primary' : 'border-surface-container-high bg-white text-primary'}`}
+                  >
+                    I&apos;m just ordering
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => switchView('sign-in')}
+                  className={`${secondaryButtonClass} !py-3`}
+                >
+                  Back to Sign In
+                </button>
               </>
             ) : null}
 
@@ -393,27 +432,6 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
                 />
 
                 <form className="space-y-4" onSubmit={handleCreateAccount}>
-                  <fieldset className="space-y-2">
-                    <legend className={labelClass}>How will you use MiseChef?</legend>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      <button
-                        type="button"
-                        aria-pressed={registrationIntent === 'chef'}
-                        onClick={() => setRegistrationIntent('chef')}
-                        className={`rounded-xl border px-4 py-3 text-left font-sans text-sm font-extrabold transition ${registrationIntent === 'chef' ? 'border-primary bg-primary text-on-primary' : 'border-surface-container-high bg-white text-primary'}`}
-                      >
-                        I&apos;m a chef
-                      </button>
-                      <button
-                        type="button"
-                        aria-pressed={registrationIntent === 'ordering'}
-                        onClick={() => setRegistrationIntent('ordering')}
-                        className={`rounded-xl border px-4 py-3 text-left font-sans text-sm font-extrabold transition ${registrationIntent === 'ordering' ? 'border-primary bg-primary text-on-primary' : 'border-surface-container-high bg-white text-primary'}`}
-                      >
-                        I&apos;m just ordering
-                      </button>
-                    </div>
-                  </fieldset>
                   <button
                     type="button"
                     onClick={handleGoogleSignIn}
@@ -477,10 +495,10 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
 
                 <button
                   type="button"
-                  onClick={() => switchView('sign-in')}
+                  onClick={() => switchView('registration-intent')}
                   className={`${secondaryButtonClass} !py-3`}
                 >
-                  Back to Sign In
+                  Choose a different path
                 </button>
               </>
             ) : null}

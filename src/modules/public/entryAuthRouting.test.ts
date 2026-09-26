@@ -32,6 +32,14 @@ test('post-registration destinations follow entry intent without persisting an a
   assert.match(loginSource, /I&apos;m a chef/);
   assert.match(loginSource, /I&apos;m just ordering/);
   assert.match(loginSource, /registrationIntent === 'ordering'[\s\S]*Create an account to keep your orders in one place/);
+  assert.match(loginSource, /\['chef', 'ordering'\]\.includes\(new URLSearchParams\(window\.location\.search\)\.get\('intent'\)/);
+  const registrationChoiceSource = loginSource.slice(
+    loginSource.indexOf("{view === 'registration-intent'"),
+    loginSource.indexOf("{view === 'create-account'")
+  );
+  assert.match(registrationChoiceSource, /I&apos;m a chef/);
+  assert.match(registrationChoiceSource, /I&apos;m just ordering/);
+  assert.doesNotMatch(registrationChoiceSource, /Continue as Guest/);
   const createAccountSource = loginSource.slice(
     loginSource.indexOf("{view === 'create-account'"),
     loginSource.indexOf("{view === 'forgot-password'")
