@@ -36,6 +36,23 @@ test('post-registration destinations follow entry intent without persisting an a
   assert.match(appSource, /replaceWithPostRegistrationDestination\(\)/);
 });
 
+test('Google sign-up preserves the shared homepage and Store registration destinations', () => {
+  const googleHandlerSource = loginSource.slice(
+    loginSource.indexOf('const handleGoogleSignIn'),
+    loginSource.indexOf('const handleCreateAccount')
+  );
+  const rememberIndex = googleHandlerSource.indexOf('rememberPostRegistrationDestination(window.location.search, resolveRegistrationIntent(window.location.search))');
+  const popupIndex = googleHandlerSource.indexOf('signInWithPopup(auth, provider)');
+  assert.ok(rememberIndex >= 0 && rememberIndex < popupIndex);
+  assert.equal(resolvePostRegistrationDestination('', resolveRegistrationIntent('')), '/app');
+  assert.equal(
+    resolvePostRegistrationDestination('?returnTo=%2Fstore%2Fchef-s-store', resolveRegistrationIntent('?returnTo=%2Fstore%2Fchef-s-store')),
+    '/store/chef-s-store'
+  );
+  assert.equal((googleHandlerSource.match(/onAuthenticated\(\)/g) || []).length, 1);
+  assert.doesNotMatch(googleHandlerSource, /ensureNewUserProvisioned/);
+});
+
 test('a stale post-registration destination is cleared before a later plain sign-in', () => {
   assert.match(loginSource, /useEffect\(\(\) => \{\s*forgetPostRegistrationDestination\(\);\s*return forgetPostRegistrationDestination;/);
   assert.match(loginSource, /view === 'create-account' && nextView !== 'create-account'[\s\S]*forgetPostRegistrationDestination\(\)/);
