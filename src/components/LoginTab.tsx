@@ -192,7 +192,7 @@ export default function LoginTab({ currentUser, onAuthenticated, onContinueAsGue
     try {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
-      rememberPostRegistrationDestination(window.location.search, resolveRegistrationIntent(window.location.search));
+      rememberPostRegistrationDestination(window.location.search, registrationIntent || resolveRegistrationIntent(window.location.search));
       await signInWithPopup(auth, provider);
       setAuthMessage('Signed in with Google successfully.');
       onAuthenticated();
