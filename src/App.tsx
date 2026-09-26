@@ -39,7 +39,8 @@ import { isPublicExperiencePath, PublicLayout } from './modules/public';
 import {
   replaceWithValidatedHostReturnTo,
   replaceWithValidatedPublicAccountReturnTo,
-  consumePostRegistrationDestination
+  consumePostRegistrationDestination,
+  getValidatedPublicAccountReturnTo
 } from './modules/public/hostReturnNavigation';
 import { AnimatePresence, motion } from 'motion/react';
 import BrandLogo from './components/BrandLogo';
@@ -2285,8 +2286,15 @@ export default function App() {
   };
 
   const isProtectedShellVisible = Boolean(currentUser);
+  const pendingPublicStoreReturnTo = currentUser && window.location.pathname === '/login'
+    ? getValidatedPublicAccountReturnTo(window.location.search)
+    : '';
 
   if (!isAppReady || !isAuthReady) {
+    return <BrandLoadingScreen />;
+  }
+
+  if (pendingPublicStoreReturnTo.startsWith('/store/')) {
     return <BrandLoadingScreen />;
   }
 

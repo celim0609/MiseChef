@@ -96,6 +96,20 @@ test('the selected account choice remains available after returning to sign in',
   assert.match(registrationChoiceSource, /setRegistrationIntent\('ordering'\);\s*setIsRegistrationChoiceFlow\(true\);\s*switchView\('create-account'\)/);
 });
 
+test('authenticated Store returns keep the Professional shell hidden while redirecting', () => {
+  const redirectGuardStart = appSource.indexOf('const pendingPublicStoreReturnTo');
+  const redirectGuardSource = appSource.slice(
+    redirectGuardStart,
+    appSource.indexOf('if (isPublicExperiencePath', redirectGuardStart)
+  );
+
+  assert.match(redirectGuardSource, /window\.location\.pathname === '\/login'/);
+  assert.match(redirectGuardSource, /getValidatedPublicAccountReturnTo\(window\.location\.search\)/);
+  assert.match(redirectGuardSource, /pendingPublicStoreReturnTo\.startsWith\('\/store\/'\)/);
+  assert.match(redirectGuardSource, /return <BrandLoadingScreen \/>;/);
+  assert.doesNotMatch(redirectGuardSource, /HomeTab|Create Recipe/);
+});
+
 test('a stale post-registration destination is cleared before a later plain sign-in', () => {
   assert.match(loginSource, /useEffect\(\(\) => \{\s*forgetPostRegistrationDestination\(\);\s*return forgetPostRegistrationDestination;/);
   assert.match(loginSource, /view === 'create-account' && nextView !== 'create-account'[\s\S]*forgetPostRegistrationDestination\(\)/);
