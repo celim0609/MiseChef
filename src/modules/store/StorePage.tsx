@@ -76,6 +76,7 @@ import {
   filterAdminStoreProducts,
   getStoreProductEditorDraft,
   getStoreProductEditorPresentation,
+  getReadyToSellProductDraft,
   getStoreProductValidationTarget
 } from './storeProductVisibility';
 import { calculateStoreProductCostAnalysis, resolveStoreProductEstimatedCost } from './storeCostModel';
@@ -86,6 +87,8 @@ interface StorePageProps {
   workspace: Workspace;
   recipes: Recipe[];
   workspaceRole: WorkspaceMemberRole;
+  readyToSellRecipe?: Recipe | null;
+  onReadyToSellHandled?: () => void;
   focusOrderId?: string;
   notifications?: StoreNotification[];
   onNotificationClick?: (notification: StoreNotification) => void;
@@ -187,6 +190,8 @@ export default function StorePage({
   workspace,
   recipes,
   workspaceRole,
+  readyToSellRecipe = null,
+  onReadyToSellHandled = () => undefined,
   focusOrderId = '',
   notifications = [],
   onNotificationClick = () => undefined,
@@ -589,6 +594,23 @@ export default function StorePage({
     setIsProductFormOpen(true);
     clearMessages();
   };
+
+  const openReadyToSellProduct = (recipe: Recipe) => {
+    setActiveView('products');
+    setEditingProduct(null);
+    setProductDraft(getReadyToSellProductDraft(recipe));
+    setProductOptions([]);
+    setSavedOptionGroupId('');
+    setProductPhotoFile(null);
+    setIsProductFormOpen(true);
+    clearMessages();
+  };
+
+  useEffect(() => {
+    if (!readyToSellRecipe) return;
+    openReadyToSellProduct(readyToSellRecipe);
+    onReadyToSellHandled();
+  }, [readyToSellRecipe, onReadyToSellHandled]);
 
   const closeProductForm = () => {
     setEditingProduct(null);

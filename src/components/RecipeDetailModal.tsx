@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, Clock, Copy, Heart, MoreVertical, Pencil, Play, Scale, Share2, Trash2, Users, X } from 'lucide-react';
+import { Check, Clock, Copy, Heart, MoreVertical, Pencil, Play, Scale, Share2, ShoppingBag, Trash2, Users, X } from 'lucide-react';
 import { Recipe, WorkspaceMemberSummary } from '../types';
 import { formatRecipeCreatorLine } from '../services/recipeCreator';
 import { motion } from 'motion/react';
@@ -75,6 +75,7 @@ interface RecipeDetailModalProps {
   onClose: () => void;
   onEdit: (recipe: Recipe) => void;
   onDuplicate: (recipe: Recipe) => void;
+  onReadyToSell?: (recipe: Recipe) => void;
   onShare: (recipe: Recipe) => void;
   onDelete: (recipe: Recipe) => void;
   onToggleFavorite: (recipeId: string) => void;
@@ -86,6 +87,7 @@ export default function RecipeDetailModal({
   onClose,
   onEdit,
   onDuplicate,
+  onReadyToSell,
   onShare,
   onDelete,
   onToggleFavorite,
@@ -226,6 +228,19 @@ export default function RecipeDetailModal({
                     <Copy className="w-4 h-4 text-secondary" />
                     Duplicate Recipe
                   </button>
+                  {onReadyToSell && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsMoreMenuOpen(false);
+                        onReadyToSell(recipe);
+                      }}
+                      className="w-full px-4 py-3 text-left font-sans text-sm font-bold text-on-surface hover:bg-surface-container flex items-center gap-3"
+                    >
+                      <ShoppingBag className="w-4 h-4 text-secondary" />
+                      Ready to Sell
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {

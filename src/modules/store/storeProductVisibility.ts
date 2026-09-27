@@ -1,4 +1,22 @@
+import type { Recipe } from '../../types';
 import type { StoreProduct, StoreProductDraft } from './types';
+
+export const getReadyToSellProductDraft = (
+  recipe: Pick<Recipe, 'id' | 'title' | 'sellingPrice' | 'costing'>
+): StoreProductDraft => {
+  const requestedPrice = Number(recipe.sellingPrice ?? recipe.costing?.sellingPrice ?? 0);
+  const price = Number.isFinite(requestedPrice) && requestedPrice >= 0 ? requestedPrice : 0;
+
+  return {
+    photoUrl: '',
+    name: recipe.title.trim(),
+    description: '',
+    price,
+    recipeId: recipe.id,
+    available: true,
+    optionGroupIds: []
+  };
+};
 
 export const filterAdminStoreProducts = (
   products: StoreProduct[],
