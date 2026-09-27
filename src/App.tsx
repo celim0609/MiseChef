@@ -647,6 +647,7 @@ export default function App() {
   const [isBusinessTrialGateOpen, setIsBusinessTrialGateOpen] = useState(false);
   const [isStartingBusinessTrial, setIsStartingBusinessTrial] = useState(false);
   const [businessTrialError, setBusinessTrialError] = useState('');
+  const [pendingBusinessTrialDestination, setPendingBusinessTrialDestination] = useState<RootTab | null>(null);
   const [selectedHomeCategory, setSelectedHomeCategory] = useState<string | null>(null);
   const [isFavoritesFilterActive, setIsFavoritesFilterActive] = useState(false);
   const [isAppReady, setIsAppReady] = useState(false);
@@ -797,6 +798,7 @@ export default function App() {
       window.history.replaceState(null, '', ROOT_TAB_PATHS.home);
       if (currentUser) {
         setBusinessTrialError('');
+        setPendingBusinessTrialDestination(tab);
         setIsBusinessTrialGateOpen(true);
       } else {
         window.history.replaceState(null, '', '/login');
@@ -1697,6 +1699,7 @@ export default function App() {
       setBusinessEntitlement(null);
       setIsBusinessTrialGateOpen(false);
       setBusinessTrialError('');
+      setPendingBusinessTrialDestination(null);
       setOnboarding(normalizeOnboarding(null));
       setIsGuestMode(false);
       setRecipes(loadLocalRecipes());
@@ -1847,6 +1850,7 @@ export default function App() {
     setBusinessEntitlement(null);
     setIsBusinessTrialGateOpen(false);
     setBusinessTrialError('');
+    setPendingBusinessTrialDestination(null);
     setOnboarding(normalizeOnboarding(null));
     setIsGuestMode(false);
     setChefProfile(DEFAULT_CHEF_PROFILE);
@@ -1886,8 +1890,10 @@ export default function App() {
       workspaceService.setStoredWorkspaceId(currentUser.uid, trialWorkspace.id);
       setBusinessEntitlement({ workspaceId: trialWorkspace.id, allowed: true });
       setIsBusinessTrialGateOpen(false);
-      setActiveTab('business');
-      window.history.replaceState(null, '', ROOT_TAB_PATHS.business);
+      const destination = pendingBusinessTrialDestination || 'business';
+      setPendingBusinessTrialDestination(null);
+      setActiveTab(destination);
+      window.history.replaceState(null, '', ROOT_TAB_PATHS[destination]);
       triggerNotification('Your 14-Day Professional Trial is active.', 'success');
     } catch (error) {
       setBusinessTrialError(error instanceof Error ? error.message : 'Unable to start your Business trial. Please try again.');
