@@ -12,6 +12,14 @@ import {
   validateIngredientPack,
   type PackValidationInput
 } from '../../services/ingredientPackModel';
+import {
+  confirmUsdaIngredientNutrition,
+  loadIngredientNutritionProfiles,
+  saveChefNutritionProfile,
+  searchUsdaIngredientNutrition,
+  type UsdaNutritionCandidate
+} from '../../../nutrition/services/ingredientNutritionProfileService';
+import type { IngredientNutritionKind, IngredientNutritionProfile } from '../../../../types';
 
 interface CostingIngredientsPageProps {
   userId?: string;
@@ -98,6 +106,12 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [nutritionProfile, setNutritionProfile] = useState<IngredientNutritionProfile | null>(null);
+  const [nutritionKind, setNutritionKind] = useState<IngredientNutritionKind>('food');
+  const [kcalPer100g, setKcalPer100g] = useState('');
+  const [kcalPer100ml, setKcalPer100ml] = useState('');
+  const [usdaCandidates, setUsdaCandidates] = useState<UsdaNutritionCandidate[]>([]);
+  const [isNutritionSaving, setIsNutritionSaving] = useState(false);
 
   useEffect(() => {
     setSelectedIngredient(null);
@@ -176,6 +190,41 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
     setErrorMessage('');
     setMessage('');
     setIsDrawerOpen(true);
+    void loadIngredientNutritionProfiles([ingredient.id]).then(profiles => {
+      const profile = profiles[ingredient.id] || null;
+      setNutritionProfile(profile);
+      setNutritionKind(profile?.kind || 'food');
+      setKcalPer100g(profile?.kcalPer100g === undefined ? '' : String(profile.kcalPer100g));
+      setKcalPer100ml(profile?.kcalPer100ml === undefined ? '' : String(profile.kcalPer100ml));
+    });
+  };
+
+  const saveNutritionOverride = async () => {
+    if (!selectedIngredient || !userId) return;
+    setIsNutritionSaving(true); setErrorMessage('');
+    try {
+      const profile = await saveChefNutritionProfile(nutritionKind === 'non_food'
+        ? { id: selectedIngredient.id, ingredientId: selectedIngredient.id, workspaceId: workspaceId || userId, kind: 'non_food', status: 'approved', source: 'chef_non_food', confirmedBy: userId }
+        : { id: selectedIngredient.id, ingredientId: selectedIngredient.id, workspaceId: workspaceId || userId, kind: 'food', status: 'approved', source: 'chef_override', ...(kcalPer100g.trim() ? { kcalPer100g: Number(kcalPer100g) } : {}), ...(kcalPer100ml.trim() ? { kcalPer100ml: Number(kcalPer100ml) } : {}), confirmedBy: userId });
+      setNutritionProfile(profile); setMessage('Nutrition profile saved.');
+    } catch (error) { setErrorMessage(getCustomerFriendlyErrorMessage(error, 'Unable to save nutrition profile.')); }
+    finally { setIsNutritionSaving(false); }
+  };
+
+  const findUsdaNutrition = async () => {
+    if (!selectedIngredient || !userId) return;
+    setIsNutritionSaving(true); setErrorMessage('');
+    try { setUsdaCandidates(await searchUsdaIngredientNutrition(workspaceId || userId, selectedIngredient.id, selectedIngredient.name)); }
+    catch (error) { setErrorMessage(getCustomerFriendlyErrorMessage(error, 'Unable to search USDA nutrition.')); }
+    finally { setIsNutritionSaving(false); }
+  };
+
+  const useUsdaNutrition = async (candidate: UsdaNutritionCandidate) => {
+    if (!selectedIngredient || !userId) return;
+    setIsNutritionSaving(true); setErrorMessage('');
+    try { const profile = await confirmUsdaIngredientNutrition(workspaceId || userId, selectedIngredient.id, candidate.fdcId); setNutritionProfile(profile); setUsdaCandidates([]); setMessage('USDA nutrition profile confirmed.'); }
+    catch (error) { setErrorMessage(getCustomerFriendlyErrorMessage(error, 'Unable to confirm USDA nutrition.')); }
+    finally { setIsNutritionSaving(false); }
   };
 
   const updateField = (field: keyof IngredientFormState, event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -488,6 +537,31 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 font-sans text-xs font-bold text-amber-900">{packUnitCost.warning}</div>
                 ) : null}
               </section>
+
+              {selectedIngredient && (
+                <section className="space-y-3 rounded-2xl border border-secondary/30 bg-secondary/5 p-4">
+                  <div>
+                    <h4 className="font-display text-lg font-bold text-primary">Nutrition</h4>
+                    <p className="mt-1 font-sans text-xs font-semibold text-on-surface-variant">Separate from costing. Recipes use only approved profiles; no nutrition is guessed.</p>
+                  </div>
+                  <label className="block">
+                    <span className="font-sans text-xs font-extrabold uppercase tracking-[0.14em] text-primary">Ingredient type</span>
+                    <select value={nutritionKind} onChange={event => setNutritionKind(event.target.value as IngredientNutritionKind)} className="mt-2 w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-primary">
+                      <option value="food">Food</option><option value="non_food">Non-food</option>
+                    </select>
+                  </label>
+                  {nutritionKind === 'food' && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label><span className="font-sans text-xs font-extrabold text-primary">kcal per 100 g</span><input type="number" min="0" step="0.01" value={kcalPer100g} onChange={event => setKcalPer100g(event.target.value)} className="mt-2 w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-primary" /></label>
+                    <label><span className="font-sans text-xs font-extrabold text-primary">kcal per 100 ml</span><input type="number" min="0" step="0.01" value={kcalPer100ml} onChange={event => setKcalPer100ml(event.target.value)} className="mt-2 w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-primary" /></label>
+                  </div>}
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => void saveNutritionOverride()} disabled={isNutritionSaving} className="rounded-full border border-primary/30 px-4 py-2 font-sans text-xs font-extrabold text-primary disabled:opacity-50">Save chef-confirmed profile</button>
+                    {nutritionKind === 'food' && <button type="button" onClick={() => void findUsdaNutrition()} disabled={isNutritionSaving} className="rounded-full bg-primary px-4 py-2 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">Find USDA nutrition</button>}
+                  </div>
+                  {nutritionProfile && <p className="font-sans text-xs font-bold text-primary">Approved: {nutritionProfile.source.replace(/_/g, ' ')}</p>}
+                  {usdaCandidates.map(candidate => <button key={candidate.fdcId} type="button" onClick={() => void useUsdaNutrition(candidate)} disabled={isNutritionSaving} className="block w-full rounded-xl border border-surface-container-high bg-white px-3 py-2 text-left font-sans text-xs font-bold text-primary"><span>{candidate.description}</span><span className="ml-2 text-on-surface-variant">{candidate.kcalPer100g} kcal/100 g · Use</span></button>)}
+                </section>
+              )}
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 {[

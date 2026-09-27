@@ -24,6 +24,9 @@ import RecipeCostAnalysis from './RecipeCostAnalysis';
 import { calculateRecipeEditorCostPreview } from '../modules/costing/services/recipeEditorCostPreview';
 import IngredientLibraryPicker from './IngredientLibraryPicker';
 import { validateRecipeDependencies } from '../modules/costing/services/recipeDependencyModel';
+import { loadIngredientNutritionProfiles } from '../modules/nutrition/services/ingredientNutritionProfileService';
+import { calculateRecipeNutrition } from '../modules/nutrition/services/recipeNutritionCalculator';
+import type { IngredientNutritionProfile } from '../types';
 
 const MAX_COVER_IMAGE_SIDE = 1200;
 const MAX_COVER_IMAGE_BYTES = 500 * 1024;
@@ -657,7 +660,6 @@ export default function AddRecipeTab({
   const [recipeYield, setRecipeYield] = useState(initialRecipe?.yield || (initialRecipe ? `${initialRecipe.servings} servings` : ''));
   const [difficulty, setDifficulty] = useState<'Easy' | 'Medium' | 'Hard'>(initialRecipe?.difficulty || 'Easy');
   const [sellingPrice, setSellingPrice] = useState(String(initialRecipe?.sellingPrice ?? initialRecipe?.costing?.sellingPrice ?? ''));
-  const [calories, setCalories] = useState(initialRecipe?.calories === undefined ? '' : String(initialRecipe.calories));
   const [visibility, setVisibility] = useState<Extract<RecipeVisibility, 'private' | 'public'>>(
     initialRecipe?.visibility === 'public' ? 'public' : 'private'
   );
@@ -675,6 +677,7 @@ export default function AddRecipeTab({
   );
   const [linkedRecipes, setLinkedRecipes] = useState<LinkedRecipeComponent[]>(initialRecipe?.linkedRecipes || []);
   const [libraryIngredients, setLibraryIngredients] = useState<CostingIngredient[]>([]);
+  const [nutritionProfiles, setNutritionProfiles] = useState<Record<string, IngredientNutritionProfile | undefined>>({});
   const [importedIngredientIds, setImportedIngredientIds] = useState<string[]>([]);
 
   // Method steps state
@@ -705,7 +708,7 @@ export default function AddRecipeTab({
   const [selectedPdfRecipeIds, setSelectedPdfRecipeIds] = useState<string[]>([]);
   const [coverImageError, setCoverImageError] = useState('');
   const [validationErrors, setValidationErrors] = useState<Partial<Record<
-    'title' | 'ingredients' | 'linkedRecipes' | 'instructions' | 'servings' | 'prepTime' | 'cookTime' | 'sellingPrice' | 'calories',
+    'title' | 'ingredients' | 'linkedRecipes' | 'instructions' | 'servings' | 'prepTime' | 'cookTime' | 'sellingPrice',
     string
   >>>({});
 
@@ -716,7 +719,6 @@ export default function AddRecipeTab({
   const cookTimeInputRef = useRef<HTMLInputElement>(null);
   const servingsInputRef = useRef<HTMLInputElement>(null);
   const sellingPriceInputRef = useRef<HTMLInputElement>(null);
-  const caloriesInputRef = useRef<HTMLInputElement>(null);
   const ingredientNameRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const instructionRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
   const initialEditorSnapshotRef = useRef('');
@@ -731,7 +733,6 @@ export default function AddRecipeTab({
     recipeYield,
     difficulty,
     sellingPrice,
-    calories,
     visibility,
     story,
     chefNotes,
@@ -742,6 +743,19 @@ export default function AddRecipeTab({
     recommendedProductIds,
     videoLink
   });
+
+  useEffect(() => {
+    let active = true;
+    void loadIngredientNutritionProfiles(ingredients.map(ingredient => ingredient.ingredientId || ''))
+      .then(profiles => { if (active) setNutritionProfiles(profiles); })
+      .catch(error => console.warn('Ingredient nutrition profiles were unavailable.', error));
+    return () => { active = false; };
+  }, [ingredients]);
+
+  const recipeNutrition = useMemo(() => calculateRecipeNutrition({
+    ingredients,
+    servings: Number(servings)
+  }, nutritionProfiles), [ingredients, nutritionProfiles, servings]);
 
   if (!initialEditorSnapshotRef.current) {
     initialEditorSnapshotRef.current = editorSnapshot;
@@ -1287,7 +1301,6 @@ export default function AddRecipeTab({
     if (field === 'prepTime') target = prepTimeInputRef.current;
     if (field === 'cookTime') target = cookTimeInputRef.current;
     if (field === 'sellingPrice') target = sellingPriceInputRef.current;
-    if (field === 'calories') target = caloriesInputRef.current;
 
     window.requestAnimationFrame(() => {
       target?.focus();
@@ -1352,14 +1365,9 @@ export default function AddRecipeTab({
     if (!Number.isFinite(savedSellingPrice) || savedSellingPrice < 0) {
       nextErrors.sellingPrice = 'Selling Price must be zero or a positive number.';
     }
-    const savedCalories = calories.trim() ? Number(calories) : undefined;
-    if (savedCalories !== undefined && (!Number.isInteger(savedCalories) || savedCalories < 0)) {
-      nextErrors.calories = 'Calories must be a non-negative whole number.';
-    }
-
     setValidationErrors(nextErrors);
     const firstInvalidField = (
-      ['title', 'prepTime', 'cookTime', 'servings', 'sellingPrice', 'calories', 'ingredients', 'linkedRecipes', 'instructions'] as const
+      ['title', 'prepTime', 'cookTime', 'servings', 'sellingPrice', 'ingredients', 'linkedRecipes', 'instructions'] as const
     ).find(field => nextErrors[field]);
     if (firstInvalidField) {
       focusInvalidField(firstInvalidField);
@@ -1406,7 +1414,6 @@ export default function AddRecipeTab({
           : undefined,
       videoLink: videoLink.trim(),
       sellingPrice: savedSellingPrice,
-      calories: savedCalories,
       chefName: initialRecipe?.chefName || 'User Log',
       chefAvatar: initialRecipe?.chefAvatar,
       isSaved: initialRecipe?.isSaved || false,
@@ -1822,26 +1829,14 @@ export default function AddRecipeTab({
           />
         </div>
 
-        <div className="space-y-1.5">
-          <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Calories per serving (kcal)</label>
-          <input
-            ref={caloriesInputRef}
-            type="number"
-            min="0"
-            step="1"
-            value={calories}
-            onChange={event => {
-              setCalories(event.target.value);
-              clearValidationError('calories');
-            }}
-            aria-invalid={Boolean(validationErrors.calories)}
-            placeholder="Optional"
-            className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold"
-          />
-          {validationErrors.calories && (
-            <p role="alert" className="px-1 font-sans text-[11px] font-bold text-error">
-              {validationErrors.calories}
+        <div className="space-y-1.5 rounded-xl bg-surface-container-low p-4">
+          <p className="font-sans font-bold text-xs text-on-surface-variant/90">Nutrition (automatic)</p>
+          {recipeNutrition.status === 'COMPLETE' ? (
+            <p className="font-sans text-sm font-bold text-primary">
+              Total: {Math.round(recipeNutrition.totalKcal || 0)} kcal · {Math.round(recipeNutrition.kcalPerServing || 0)} kcal per serving
             </p>
+          ) : (
+            <p className="font-sans text-xs font-bold text-error">INCOMPLETE — {recipeNutrition.incompleteReasons[0] || 'Link approved Ingredient nutrition profiles.'}</p>
           )}
         </div>
 

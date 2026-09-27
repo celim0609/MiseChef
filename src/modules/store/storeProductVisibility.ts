@@ -1,8 +1,10 @@
-import type { Recipe } from '../../types';
+import type { Recipe, RecipeNutritionSummary } from '../../types';
+import { getSnapshotCalories } from '../nutrition/services/recipeNutritionCalculator';
 import type { StoreProduct, StoreProductDraft } from './types';
 
 export const getReadyToSellProductDraft = (
-  recipe: Pick<Recipe, 'id' | 'title' | 'sellingPrice' | 'calories' | 'costing'>
+  recipe: Pick<Recipe, 'id' | 'title' | 'sellingPrice' | 'costing'>,
+  nutrition?: RecipeNutritionSummary
 ): StoreProductDraft => {
   const requestedPrice = Number(recipe.sellingPrice ?? recipe.costing?.sellingPrice ?? 0);
   const price = Number.isFinite(requestedPrice) && requestedPrice >= 0 ? requestedPrice : 0;
@@ -12,7 +14,7 @@ export const getReadyToSellProductDraft = (
     name: recipe.title.trim(),
     description: '',
     price,
-    ...(Number.isInteger(recipe.calories) && recipe.calories >= 0 ? { calories: recipe.calories } : {}),
+    ...(getSnapshotCalories(nutrition) !== undefined ? { calories: getSnapshotCalories(nutrition) } : {}),
     recipeId: recipe.id,
     available: true,
     optionGroupIds: []

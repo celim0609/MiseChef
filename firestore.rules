@@ -184,6 +184,30 @@ service cloud.firestore {
         && hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Purchasing']);
     }
 
+    function isValidClientIngredientNutritionProfile(data, ingredientId) {
+      return data.id == ingredientId
+        && data.ingredientId == ingredientId
+        && data.keys().hasOnly([
+          'id', 'ingredientId', 'workspaceId', 'kind', 'status', 'source',
+          'catalogProfileId', 'kcalPer100g', 'kcalPer100ml',
+          'confirmedBy', 'confirmedAt', 'updatedAt'
+        ])
+        && data.kind in ['food', 'non_food']
+        && data.status == 'approved'
+        && data.source in ['chef_override', 'chef_non_food']
+        && data.confirmedBy == request.auth.uid
+        && ((data.kind == 'non_food'
+          && data.source == 'chef_non_food'
+          && !('kcalPer100g' in data)
+          && !('kcalPer100ml' in data)
+          && !('catalogProfileId' in data))
+          || (data.kind == 'food'
+            && data.source == 'chef_override'
+            && (!('kcalPer100g' in data) || (data.kcalPer100g is number && data.kcalPer100g >= 0))
+            && (!('kcalPer100ml' in data) || (data.kcalPer100ml is number && data.kcalPer100ml >= 0))
+            && ('kcalPer100g' in data || 'kcalPer100ml' in data)));
+    }
+
     function canAccessSuppliers(workspaceId) {
       return hasActiveBusinessEntitlement(workspaceId)
         && hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Purchasing']);
@@ -1159,6 +1183,24 @@ service cloud.firestore {
         && request.resource.data.workspaceId == resource.data.workspaceId
         && request.resource.data.id == resource.data.id;
       allow delete: if isWorkspaceOwnerOrManager(existingWorkspaceId());
+    }
+
+    // Nutrition is intentionally separate from ingredient costing. USDA catalog
+    // documents are Admin-SDK-only; workspace profiles are private to members.
+    match /nutritionCatalog/{catalogId} {
+      allow read, write: if false;
+    }
+
+    match /ingredientNutritionProfiles/{ingredientId} {
+      allow read: if canAccessRecipes(existingWorkspaceId());
+      allow create: if ownsIncomingDocument()
+        && canAccessInvoices(incomingWorkspaceId())
+        && isValidClientIngredientNutritionProfile(request.resource.data, ingredientId);
+      allow update: if canAccessInvoices(existingWorkspaceId())
+        && request.resource.data.workspaceId == resource.data.workspaceId
+        && request.resource.data.ingredientId == resource.data.ingredientId
+        && isValidClientIngredientNutritionProfile(request.resource.data, ingredientId);
+      allow delete: if canAccessInvoices(existingWorkspaceId());
     }
 
     match /ingredientPriceHistory/{historyId} {
