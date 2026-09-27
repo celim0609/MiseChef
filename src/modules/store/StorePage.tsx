@@ -80,6 +80,7 @@ import {
   getStoreProductValidationTarget
 } from './storeProductVisibility';
 import { calculateStoreProductCostAnalysis, resolveStoreProductEstimatedCost } from './storeCostModel';
+import { loadRecipePhotoForStoreProduct } from './recipeProductPhoto';
 import { recipeCostService } from '../costing/services';
 
 interface StorePageProps {
@@ -223,6 +224,9 @@ export default function StorePage({
   const [productOptions, setProductOptions] = useState<ProductOptionEditor[]>([]);
   const [savedOptionGroupId, setSavedOptionGroupId] = useState('');
   const [productPhotoFile, setProductPhotoFile] = useState<File | null>(null);
+  const [productPhotoPreviewUrl, setProductPhotoPreviewUrl] = useState('');
+  const [isRecipePhotoLoading, setIsRecipePhotoLoading] = useState(false);
+  const [recipePhotoError, setRecipePhotoError] = useState('');
   const [editingProduct, setEditingProduct] = useState<StoreProduct | null>(null);
   const [isProductFormOpen, setIsProductFormOpen] = useState(false);
   const [recentlySavedProductId, setRecentlySavedProductId] = useState('');
@@ -234,6 +238,7 @@ export default function StorePage({
   const productPhotoInputRef = useRef<HTMLInputElement | null>(null);
   const productOptionsRef = useRef<HTMLDivElement | null>(null);
   const productCardRefs = useRef(new Map<string, HTMLElement>());
+  const productPhotoTransferIdRef = useRef(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -372,6 +377,16 @@ export default function StorePage({
     setActiveView('orders');
     setIsProductFormOpen(false);
   }, [focusOrderId]);
+
+  useEffect(() => {
+    if (!productPhotoFile) {
+      setProductPhotoPreviewUrl('');
+      return;
+    }
+    const previewUrl = URL.createObjectURL(productPhotoFile);
+    setProductPhotoPreviewUrl(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [productPhotoFile]);
 
   useEffect(() => {
     if (!isShareOpen || !store) return;
@@ -586,24 +601,45 @@ export default function StorePage({
   };
 
   const openNewProduct = () => {
+    productPhotoTransferIdRef.current += 1;
     setEditingProduct(null);
     setProductDraft(emptyProductDraft());
     setProductOptions([]);
     setSavedOptionGroupId('');
     setProductPhotoFile(null);
+    setIsRecipePhotoLoading(false);
+    setRecipePhotoError('');
     setIsProductFormOpen(true);
     clearMessages();
   };
 
   const openReadyToSellProduct = (recipe: Recipe) => {
+    const photoUrl = recipe.imageUrl || recipe.coverImage;
+    const transferId = ++productPhotoTransferIdRef.current;
     setActiveView('products');
     setEditingProduct(null);
     setProductDraft(getReadyToSellProductDraft(recipe));
     setProductOptions([]);
     setSavedOptionGroupId('');
     setProductPhotoFile(null);
+    setRecipePhotoError('');
+    setIsRecipePhotoLoading(Boolean(photoUrl));
     setIsProductFormOpen(true);
     clearMessages();
+
+    if (!photoUrl) return;
+    void loadRecipePhotoForStoreProduct({ recipeId: recipe.id, photoUrl })
+      .then(photo => {
+        if (productPhotoTransferIdRef.current === transferId) setProductPhotoFile(photo);
+      })
+      .catch(error => {
+        if (productPhotoTransferIdRef.current === transferId) {
+          setRecipePhotoError(error instanceof Error ? error.message : 'Unable to load the Recipe photo. Please choose a Product photo.');
+        }
+      })
+      .finally(() => {
+        if (productPhotoTransferIdRef.current === transferId) setIsRecipePhotoLoading(false);
+      });
   };
 
   useEffect(() => {
@@ -613,16 +649,20 @@ export default function StorePage({
   }, [readyToSellRecipe, onReadyToSellHandled]);
 
   const closeProductForm = () => {
+    productPhotoTransferIdRef.current += 1;
     setEditingProduct(null);
     setProductDraft(emptyProductDraft());
     setProductOptions([]);
     setSavedOptionGroupId('');
     setProductPhotoFile(null);
+    setIsRecipePhotoLoading(false);
+    setRecipePhotoError('');
     setIsProductFormOpen(false);
     clearMessages();
   };
 
   const openProductEditor = (product: StoreProduct) => {
+    productPhotoTransferIdRef.current += 1;
     setEditingProduct(product);
     setProductDraft(getStoreProductEditorDraft(product));
     setProductOptions(product.optionGroupIds.flatMap(groupId => {
@@ -631,6 +671,8 @@ export default function StorePage({
     }));
     setSavedOptionGroupId('');
     setProductPhotoFile(null);
+    setIsRecipePhotoLoading(false);
+    setRecipePhotoError('');
     setIsProductFormOpen(true);
     clearMessages();
   };
@@ -858,6 +900,13 @@ export default function StorePage({
     setter: (file: File | null) => void
   ) => setter(event.target.files?.[0] || null);
 
+  const handleProductPhotoChange = (event: ChangeEvent<HTMLInputElement>) => {
+    productPhotoTransferIdRef.current += 1;
+    setIsRecipePhotoLoading(false);
+    setRecipePhotoError('');
+    readImageFile(event, setProductPhotoFile);
+  };
+
   const handleSetUpStore = async (event: FormEvent) => {
     event.preventDefault();
     const name = storeName.trim();
@@ -1057,8 +1106,12 @@ export default function StorePage({
                 })()}
                 <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Product Photo <span aria-hidden="true">*</span></span>
-                  <input ref={productPhotoInputRef} type="file" accept="image/jpeg,image/png,image/webp" aria-required={!editingProduct && !productDraft.photoUrl} onChange={event => readImageFile(event, setProductPhotoFile)} className="mt-2 block w-full font-sans text-xs font-bold text-on-surface-variant" />
-                  <span className="mt-1 block font-sans text-[11px] font-bold text-outline">{productPhotoFile?.name || (productDraft.photoUrl ? 'Existing photo retained' : 'Photo required')}</span>
+                  <input ref={productPhotoInputRef} type="file" accept="image/jpeg,image/png,image/webp" aria-required={!editingProduct && !productDraft.photoUrl} onChange={handleProductPhotoChange} className="mt-2 block w-full font-sans text-xs font-bold text-on-surface-variant" />
+                  {productPhotoPreviewUrl && <img src={productPhotoPreviewUrl} alt="Product photo preview" className="mt-3 h-32 w-32 rounded-xl border border-surface-container-high object-cover" />}
+                  <span className="mt-1 block font-sans text-[11px] font-bold text-outline">
+                    {isRecipePhotoLoading ? 'Loading Recipe photo…' : productPhotoFile?.name || (productDraft.photoUrl ? 'Existing photo retained' : 'Photo required')}
+                  </span>
+                  {recipePhotoError && <span role="alert" className="mt-1 block font-sans text-[11px] font-bold text-error">{recipePhotoError}</span>}
                 </label>
                 <label className="flex items-center justify-between gap-4 rounded-2xl bg-surface-container-low px-4 py-3">
                   <span className="font-sans text-sm font-extrabold text-primary">Available</span>

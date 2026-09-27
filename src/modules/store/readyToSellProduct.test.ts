@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import type { Recipe } from '../../types';
 import { getReadyToSellProductDraft } from './storeProductVisibility';
@@ -40,4 +41,13 @@ test('Ready to Sell snapshots Recipe selling price without copying costing data'
   assert.deepEqual(Object.keys(draft).sort(), [
     'available', 'description', 'name', 'optionGroupIds', 'photoUrl', 'price', 'recipeId'
   ]);
+});
+
+test('Ready to Sell sends a carried Recipe photo through the existing Store Product upload path', () => {
+  const source = readFileSync(new URL('./StorePage.tsx', import.meta.url), 'utf8');
+
+  assert.match(source, /loadRecipePhotoForStoreProduct\(\{ recipeId: recipe\.id, photoUrl \}\)/);
+  assert.match(source, /uploadStoreProductPhoto\(\{ workspaceId: workspace\.id, productId, file: productPhotoFile \}\)/);
+  assert.match(source, /uploadStoreProductSocialImage\(\{ workspaceId: workspace\.id, productId, file: productPhotoFile \}\)/);
+  assert.doesNotMatch(source, /photoUrl: recipe\.(?:imageUrl|coverImage)/);
 });
