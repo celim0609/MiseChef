@@ -189,7 +189,7 @@ service cloud.firestore {
         && data.ingredientId == ingredientId
         && data.keys().hasOnly([
           'id', 'ingredientId', 'workspaceId', 'kind', 'status', 'source',
-          'catalogProfileId', 'kcalPer100g', 'kcalPer100ml',
+          'catalogProfileId', 'kcalPer100g', 'kcalPer100ml', 'gramsPerPiece',
           'confirmedBy', 'confirmedAt', 'updatedAt'
         ])
         && data.kind in ['food', 'non_food']
@@ -200,11 +200,13 @@ service cloud.firestore {
           && data.source == 'chef_non_food'
           && !('kcalPer100g' in data)
           && !('kcalPer100ml' in data)
+          && !('gramsPerPiece' in data)
           && !('catalogProfileId' in data))
           || (data.kind == 'food'
             && data.source == 'chef_override'
             && (!('kcalPer100g' in data) || (data.kcalPer100g is number && data.kcalPer100g >= 0))
             && (!('kcalPer100ml' in data) || (data.kcalPer100ml is number && data.kcalPer100ml >= 0))
+            && (!('gramsPerPiece' in data) || (data.gramsPerPiece is number && data.gramsPerPiece > 0 && ('kcalPer100g' in data)))
             && ('kcalPer100g' in data || 'kcalPer100ml' in data)));
     }
 

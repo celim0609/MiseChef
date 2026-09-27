@@ -1286,11 +1286,8 @@ const getUsdaEnergy = (food) => {
 
 export const searchUsdaNutritionCatalog = onCall({ region: REGION, secrets: [usdaFdcApiKey] }, async request => {
   const { workspaceId } = await requireNutritionManager(request);
-  const ingredientId = readString(request.data?.ingredientId);
   const query = readString(request.data?.query).slice(0, 160);
-  if (!ingredientId || !query) throw new HttpsError('invalid-argument', 'Ingredient and USDA search terms are required.');
-  const ingredient = await db.collection('ingredients').doc(ingredientId).get();
-  if (!ingredient.exists || ingredient.data()?.workspaceId !== workspaceId) throw new HttpsError('not-found', 'Canonical Ingredient not found.');
+  if (!query) throw new HttpsError('invalid-argument', 'USDA search terms are required.');
   const response = await fetch(`https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${encodeURIComponent(usdaFdcApiKey.value())}`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query, pageSize: 10 })
   });
@@ -1309,7 +1306,11 @@ export const confirmUsdaIngredientNutrition = onCall({ region: REGION, secrets: 
   const { uid, workspaceId } = await requireNutritionManager(request);
   const ingredientId = readString(request.data?.ingredientId);
   const fdcId = readString(request.data?.fdcId);
+  const gramsPerPiece = request.data?.gramsPerPiece;
   if (!ingredientId || !fdcId) throw new HttpsError('invalid-argument', 'Ingredient and USDA food ID are required.');
+  if (gramsPerPiece !== undefined && (!Number.isFinite(gramsPerPiece) || gramsPerPiece <= 0)) {
+    throw new HttpsError('invalid-argument', 'Weight per piece must be greater than zero.');
+  }
   const ingredient = await db.collection('ingredients').doc(ingredientId).get();
   if (!ingredient.exists || ingredient.data()?.workspaceId !== workspaceId) throw new HttpsError('not-found', 'Canonical Ingredient not found.');
   const response = await fetch(`https://api.nal.usda.gov/fdc/v1/food/${encodeURIComponent(fdcId)}?api_key=${encodeURIComponent(usdaFdcApiKey.value())}`);
@@ -1319,7 +1320,7 @@ export const confirmUsdaIngredientNutrition = onCall({ region: REGION, secrets: 
   if (kcalPer100g === null) throw new HttpsError('failed-precondition', 'USDA did not provide usable kcal per 100 g for this food.');
   const now = new Date().toISOString();
   const catalog = { provider: 'usda_fdc', fdcId, description: readString(food.description), dataType: readString(food.dataType), brandName: readString(food.brandName), brandOwner: readString(food.brandOwner), gtinUpc: readString(food.gtinUpc), kcalPer100g, fetchedAt: now, sourceLicense: 'CC0-1.0' };
-  const profile = { id: ingredientId, ingredientId, workspaceId, kind: 'food', status: 'approved', source: 'usda_fdc', catalogProfileId: fdcId, kcalPer100g, confirmedBy: uid, confirmedAt: now, updatedAt: now };
+  const profile = { id: ingredientId, ingredientId, workspaceId, kind: 'food', status: 'approved', source: 'usda_fdc', catalogProfileId: fdcId, kcalPer100g, ...(gramsPerPiece === undefined ? {} : { gramsPerPiece }), confirmedBy: uid, confirmedAt: now, updatedAt: now };
   const batch = db.batch();
   batch.set(db.collection('nutritionCatalog').doc(fdcId), catalog, { merge: true });
   batch.set(db.collection('ingredientNutritionProfiles').doc(ingredientId), profile);

@@ -1,4 +1,4 @@
-export type NutritionUnitDimension = 'mass' | 'volume';
+export type NutritionUnitDimension = 'mass' | 'volume' | 'count';
 
 export type NutritionUnit = {
   dimension: NutritionUnitDimension;
@@ -37,7 +37,13 @@ const UNITS: Record<string, NutritionUnit> = {
   teaspoons: { dimension: 'volume', baseQuantity: 5 },
   tbsp: { dimension: 'volume', baseQuantity: 15 },
   tablespoon: { dimension: 'volume', baseQuantity: 15 },
-  tablespoons: { dimension: 'volume', baseQuantity: 15 }
+  tablespoons: { dimension: 'volume', baseQuantity: 15 },
+  pcs: { dimension: 'count', baseQuantity: 1 },
+  pc: { dimension: 'count', baseQuantity: 1 },
+  piece: { dimension: 'count', baseQuantity: 1 },
+  pieces: { dimension: 'count', baseQuantity: 1 },
+  no: { dimension: 'count', baseQuantity: 1 },
+  nos: { dimension: 'count', baseQuantity: 1 }
 };
 
 export const getNutritionUnit = (unit = '') => UNITS[unit.trim().toLocaleLowerCase().replace(/\./g, '').replace(/\s+/g, ' ')];

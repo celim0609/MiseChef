@@ -33,6 +33,15 @@ test('an authorized Ingredient manager can replace an USDA profile with a valid 
   await assertSucceeds(setDoc(profilePath(), chefOverride()));
 });
 
+test('an authorized Ingredient manager can save grams per piece only with kcal per 100 g', async () => {
+  await seed();
+  await assertSucceeds(setDoc(profilePath(), { ...chefOverride(), gramsPerPiece: 52 }));
+  const volumeOnly = { ...chefOverride(), kcalPer100ml: 60, gramsPerPiece: 52 };
+  delete volumeOnly.kcalPer100g;
+  await assertFails(setDoc(profilePath(), volumeOnly));
+  await assertFails(setDoc(profilePath(), { ...chefOverride(), gramsPerPiece: 0 }));
+});
+
 test('client profile updates reject forged USDA source, unknown fields, and immutable identity changes', async () => {
   await seed();
   await assertFails(updateDoc(profilePath(), { source: 'usda_fdc' }));
