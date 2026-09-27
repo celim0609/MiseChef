@@ -33,6 +33,18 @@ export const calculateRecipeNutrition = (
       reasons.push(`${label}: ${ingredient.unit || 'missing unit'} is not supported for nutrition.`);
       continue;
     }
+    if (unit.dimension === 'count') {
+      if (!Number.isFinite(profile.kcalPer100g) || (profile.kcalPer100g as number) < 0) {
+        reasons.push(`${label}: approved nutrition does not support piece units.`);
+        continue;
+      }
+      if (!Number.isFinite(profile.gramsPerPiece) || (profile.gramsPerPiece as number) <= 0) {
+        reasons.push(`${label}: approved nutrition needs Weight per piece (g) for ${ingredient.unit || 'piece'} units.`);
+        continue;
+      }
+      totalKcal += quantity * (profile.gramsPerPiece as number) * (profile.kcalPer100g as number) / 100;
+      continue;
+    }
     const per100 = unit.dimension === 'mass' ? profile.kcalPer100g : profile.kcalPer100ml;
     if (!Number.isFinite(per100) || (per100 as number) < 0) {
       reasons.push(`${label}: approved nutrition does not support ${unit.dimension} units.`);

@@ -5,6 +5,8 @@ import { getCustomerFriendlyErrorMessage } from '../../../../utils/customerError
 import type { InvoiceImportMatch } from '../../services';
 import type { CostingIngredient, CostingInvoice, CostingInvoiceReviewedItem, CostingInvoiceStatus } from '../../types';
 import { useWorkspaceRegion } from '../../../../regions';
+import IngredientNutritionSetup from '../../../nutrition/components/IngredientNutritionSetup';
+import type { IngredientNutritionSelection } from '../../../nutrition/services/ingredientNutritionProfileService';
 
 interface InvoiceDetailPageProps {
   invoiceId?: string | null;
@@ -250,7 +252,8 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
         ...match,
         matchedIngredientId: ingredientId,
         decision: 'Use Existing',
-        status: 'Use Existing'
+        status: 'Use Existing',
+        nutritionSelection: undefined
       };
     }));
   };
@@ -261,6 +264,13 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
       matchedIngredientId: undefined,
       decision: 'Create New',
       status: 'Create New'
+    } : match));
+  };
+
+  const handleNutritionSelection = (index: number, nutritionSelection: IngredientNutritionSelection) => {
+    setIngredientMatches(current => current.map((match, matchIndex) => matchIndex === index ? {
+      ...match,
+      nutritionSelection
     } : match));
   };
 
@@ -299,11 +309,12 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
       setIngredients(loadedIngredients);
       setInvoice(current => current ? { ...current, ...result.invoiceUpdates } : current);
       notifyInvoiceLifecycleChanged();
-      setReviewMessage(
-        result.packPricesPreserved > 0
+      const importMessage = result.packPricesPreserved > 0
           ? `Import approved. ${result.priceUpdatesApplied} ingredient price${result.priceUpdatesApplied === 1 ? '' : 's'} updated; ${result.packPricesPreserved} pack-priced ingredient${result.packPricesPreserved === 1 ? '' : 's'} preserved for manual pack-price confirmation.`
-          : 'Import approved. Ingredients and price history were updated.'
-      );
+          : 'Import approved. Ingredients and price history were updated.';
+      setReviewMessage(result.nutritionFailures.length
+        ? `${importMessage} Nutrition was not configured for ${result.nutritionFailures.join(', ')}; open the Ingredient later to retry.`
+        : importMessage);
     } catch (err) {
       setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to approve import.'));
     } finally {
@@ -698,6 +709,15 @@ export default function InvoiceDetailPage({ invoiceId, userId, workspaceId, canM
                           Remove
                         </button>
                       </div>
+                      {match.decision === 'Create New' && (
+                        <IngredientNutritionSetup
+                          ingredientName={reviewItems[index]?.ingredientName || match.item.ingredientName}
+                          workspaceId={workspaceId || userId}
+                          value={match.nutritionSelection || { source: 'none' }}
+                          disabled={!canManageInvoices || isImported || isImporting}
+                          onChange={selection => handleNutritionSelection(index, selection)}
+                        />
+                      )}
                     </td>
                   </tr>
                 );

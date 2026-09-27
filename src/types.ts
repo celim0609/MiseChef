@@ -65,6 +65,7 @@ export interface IngredientNutritionProfile {
   catalogProfileId?: string;
   kcalPer100g?: number;
   kcalPer100ml?: number;
+  gramsPerPiece?: number;
   confirmedBy: string;
   confirmedAt: string;
   updatedAt: string;

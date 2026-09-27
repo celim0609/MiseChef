@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import type { CostingIngredient, CostingInvoiceExtractedItem } from '../types';
 import {
   createInvoiceReviewItems,
+  getNutritionSelectionForInvoiceMatch,
   matchInvoiceItemsToIngredients,
   normalizeIngredientName,
   validateInvoiceImportMatches
@@ -111,5 +112,20 @@ describe('invoice ingredient review', () => {
     const matches = matchInvoiceItemsToIngredients(reviews, [], 'workspace-a');
 
     assert.match(validateInvoiceImportMatches(matches), /another new Ingredient uses this name/);
+  });
+
+  it('keeps an optional Nutrition selection only on a new Ingredient review row', () => {
+    const [review] = createInvoiceReviewItems([ocrItem]);
+    const [match] = matchInvoiceItemsToIngredients([review], [], 'workspace-a');
+    match.nutritionSelection = { source: 'usda_fdc', fdcId: '167800', description: 'Bananas, raw' };
+
+    assert.equal(match.decision, 'Create New');
+    assert.equal(validateInvoiceImportMatches([match]), '');
+    assert.deepEqual(match.nutritionSelection, { source: 'usda_fdc', fdcId: '167800', description: 'Bananas, raw' });
+    assert.deepEqual(getNutritionSelectionForInvoiceMatch(match), match.nutritionSelection);
+
+    match.decision = 'Use Existing';
+    match.matchedIngredientId = 'shortening';
+    assert.deepEqual(getNutritionSelectionForInvoiceMatch(match), { source: 'none' });
   });
 });

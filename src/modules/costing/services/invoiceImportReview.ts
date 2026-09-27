@@ -1,9 +1,11 @@
 import type { CostingIngredient, CostingInvoiceExtractedItem, CostingInvoiceReviewedItem } from '../types';
+import type { IngredientNutritionSelection } from '../../nutrition/services/ingredientNutritionProfileService';
 
 export type InvoiceImportMatch = {
   item: CostingInvoiceReviewedItem;
   suggestedIngredientId?: string;
   matchedIngredientId?: string;
+  nutritionSelection?: IngredientNutritionSelection;
   decision?: 'Use Existing' | 'Create New' | 'Remove';
   status: 'Possible Match' | 'Use Existing' | 'Create New' | 'Remove';
 };
@@ -76,3 +78,7 @@ export const validateInvoiceImportMatches = (matches: InvoiceImportMatch[]) => {
   }
   return '';
 };
+
+export const getNutritionSelectionForInvoiceMatch = (match: InvoiceImportMatch): IngredientNutritionSelection => (
+  match.decision === 'Create New' ? match.nutritionSelection || { source: 'none' } : { source: 'none' }
+);
