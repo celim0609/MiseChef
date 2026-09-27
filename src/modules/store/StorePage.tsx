@@ -82,6 +82,8 @@ import {
 import { calculateStoreProductCostAnalysis, resolveStoreProductEstimatedCost } from './storeCostModel';
 import { loadRecipePhotoForStoreProduct } from './recipeProductPhoto';
 import { recipeCostService } from '../costing/services';
+import { loadIngredientNutritionProfiles } from '../nutrition/services/ingredientNutritionProfileService';
+import { calculateRecipeNutrition } from '../nutrition/services/recipeNutritionCalculator';
 
 interface StorePageProps {
   currentUser: User;
@@ -614,12 +616,20 @@ export default function StorePage({
     clearMessages();
   };
 
-  const openReadyToSellProduct = (recipe: Recipe) => {
+  const openReadyToSellProduct = async (recipe: Recipe) => {
     const photoUrl = recipe.imageUrl || recipe.coverImage;
     const transferId = ++productPhotoTransferIdRef.current;
     setActiveView('products');
     setEditingProduct(null);
-    setProductDraft(getReadyToSellProductDraft(recipe));
+    let nutrition;
+    try {
+      const profiles = await loadIngredientNutritionProfiles(recipe.ingredients.map(ingredient => ingredient.ingredientId || ''));
+      nutrition = calculateRecipeNutrition(recipe, profiles);
+    } catch (error) {
+      console.warn('Recipe nutrition was unavailable for Ready to Sell.', error);
+      nutrition = { status: 'INCOMPLETE' as const, incompleteReasons: ['Nutrition profiles are unavailable.'] };
+    }
+    setProductDraft(getReadyToSellProductDraft(recipe, nutrition));
     setProductOptions([]);
     setSavedOptionGroupId('');
     setProductPhotoFile(null);
@@ -645,7 +655,7 @@ export default function StorePage({
 
   useEffect(() => {
     if (!readyToSellRecipe) return;
-    openReadyToSellProduct(readyToSellRecipe);
+    void openReadyToSellProduct(readyToSellRecipe);
     onReadyToSellHandled();
   }, [readyToSellRecipe, onReadyToSellHandled]);
 

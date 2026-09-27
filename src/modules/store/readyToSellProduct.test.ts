@@ -4,15 +4,16 @@ import test from 'node:test';
 import type { Recipe } from '../../types';
 import { getReadyToSellProductDraft } from './storeProductVisibility';
 
-const recipe: Pick<Recipe, 'id' | 'title' | 'sellingPrice' | 'calories' | 'costing'> = {
+const recipe: Pick<Recipe, 'id' | 'title' | 'sellingPrice' | 'costing'> = {
   id: 'recipe-laksa',
   title: ' Laksa Noodles ',
-  sellingPrice: 12.5,
-  calories: 420
+  sellingPrice: 12.5
 };
 
+const completeNutrition = { status: 'COMPLETE' as const, totalKcal: 840, kcalPerServing: 420, incompleteReasons: [] };
+
 test('Ready to Sell opens a new Store Product draft with only sellable Recipe fields', () => {
-  assert.deepEqual(getReadyToSellProductDraft(recipe), {
+  assert.deepEqual(getReadyToSellProductDraft(recipe, completeNutrition), {
     photoUrl: '',
     name: 'Laksa Noodles',
     description: '',
@@ -28,7 +29,6 @@ test('Ready to Sell snapshots public Recipe values without copying costing data'
   const draft = getReadyToSellProductDraft({
     ...recipe,
     sellingPrice: 18,
-    calories: 510,
     costing: {
       totalRecipeCost: 6,
       costPerPortion: 3,
@@ -38,7 +38,7 @@ test('Ready to Sell snapshots public Recipe values without copying costing data'
       breakdown: [],
       lastCalculatedAt: '2026-09-27T00:00:00.000Z'
     }
-  });
+  }, { ...completeNutrition, totalKcal: 1020, kcalPerServing: 510 });
 
   assert.equal(draft.price, 18);
   assert.equal(draft.calories, 510);
@@ -47,8 +47,8 @@ test('Ready to Sell snapshots public Recipe values without copying costing data'
   ]);
 });
 
-test('Ready to Sell leaves calories absent when the Recipe has none', () => {
-  const draft = getReadyToSellProductDraft({ ...recipe, calories: undefined });
+test('Ready to Sell leaves calories absent when Recipe nutrition is incomplete', () => {
+  const draft = getReadyToSellProductDraft(recipe, { status: 'INCOMPLETE', incompleteReasons: ['Flour: nutrition profile is required.'] });
 
   assert.equal(draft.calories, undefined);
 });
