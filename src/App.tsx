@@ -642,6 +642,7 @@ export default function App() {
   const postAuthenticationNavigationInFlightRef = useRef(false);
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [sharingRecipe, setSharingRecipe] = useState<Recipe | null>(null);
+  const [readyToSellRecipe, setReadyToSellRecipe] = useState<Recipe | null>(null);
   const [isNavigationDrawerOpen, setIsNavigationDrawerOpen] = useState(false);
   const [isCreateWorkspaceOpen, setIsCreateWorkspaceOpen] = useState(false);
   const [isBusinessTrialGateOpen, setIsBusinessTrialGateOpen] = useState(false);
@@ -848,6 +849,16 @@ export default function App() {
 
   const handleQuickAddHandled = useCallback((requestId: number) => {
     setQuickAddRequest(current => current?.requestId === requestId ? null : current);
+  }, []);
+
+  const handleReadyToSell = (recipe: Recipe) => {
+    setReadyToSellRecipe(recipe);
+    setSelectedRecipe(null);
+    handleRootNavigate('store');
+  };
+
+  const handleReadyToSellHandled = useCallback(() => {
+    setReadyToSellRecipe(null);
   }, []);
 
   const handleStoreNotificationSelect = async (selectedNotification: StoreNotification) => {
@@ -2073,6 +2084,8 @@ export default function App() {
             workspace={currentWorkspace}
             recipes={recipes}
             workspaceRole={currentWorkspaceRole || 'Viewer'}
+            readyToSellRecipe={readyToSellRecipe}
+            onReadyToSellHandled={handleReadyToSellHandled}
             focusOrderId={focusedStoreOrderId}
             notifications={storeNotifications}
             onNotificationClick={notification => void handleStoreNotificationSelect(notification)}
@@ -2598,6 +2611,9 @@ export default function App() {
             onClose={() => setSelectedRecipe(null)}
             onEdit={handleStartEditRecipe}
             onDuplicate={handleDuplicateRecipe}
+            onReadyToSell={hasBusinessEntitlement && getStorePermissions(currentWorkspaceRole).manageProducts
+              ? handleReadyToSell
+              : undefined}
             onShare={handleShareRecipe}
             onDelete={handleDeleteRecipe}
             onToggleFavorite={handleToggleFavorite}
