@@ -56,6 +56,14 @@ test('navigation hiding and dashboard loading use the same fail-closed entitleme
   assert.doesNotMatch(personalHome, /TodaysTasks|Restaurant Command Center|Costing|Invoice|Finance|Team|Reports|Sales/);
 });
 
+test('locked Costing opens the existing gate and preserves the Invoices destination after trial activation', () => {
+  const app = read('../App.tsx');
+  const navigation = read('../components/NavigationDrawer.tsx');
+  assert.match(navigation, /<LockedNavItem[\s\S]*label="Costing"[\s\S]*onClick=\{\(\) => handleNavigate\('costingInvoices'\)\}/);
+  assert.match(app, /setPendingBusinessTrialDestination\(tab\);[\s\S]*setIsBusinessTrialGateOpen\(true\);/);
+  assert.match(app, /const destination = pendingBusinessTrialDestination \|\| 'business';[\s\S]*setActiveTab\(destination\);[\s\S]*ROOT_TAB_PATHS\[destination\]/);
+});
+
 test('server and rules enforce Business entitlement while customer paths stay public', () => {
   const fulfilment = read('../../functions/storeFulfilment.js');
   const manualPayments = read('../../functions/storeManualPayments.js');

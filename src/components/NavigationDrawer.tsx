@@ -248,15 +248,35 @@ export default function NavigationDrawer({
   };
 
 
-  const LockedNavItem = ({ label, icon, feature }: { label: string; icon: React.ReactNode; feature: PlanFeature }) => (
-    <div className="w-full rounded-2xl border border-surface-container-high/70 bg-surface-container-low/70 px-4 py-3 text-left" aria-disabled="true">
-      <div className="flex items-center gap-3 font-sans text-sm font-extrabold text-on-surface-variant">
-        {icon}
-        <span className="flex-1">{label}</span>
-        <LockKeyhole className="h-4 w-4 text-outline" />
+  const LockedNavItem = ({ label, icon, feature, onClick }: {
+    label: string;
+    icon: React.ReactNode;
+    feature: PlanFeature;
+    onClick?: () => void;
+  }) => (
+    onClick ? (
+      <button
+        type="button"
+        onClick={onClick}
+        className="w-full rounded-2xl border border-surface-container-high/70 bg-surface-container-low/70 px-4 py-3 text-left transition-colors hover:bg-surface-container"
+      >
+        <div className="flex items-center gap-3 font-sans text-sm font-extrabold text-on-surface-variant">
+          {icon}
+          <span className="flex-1">{label}</span>
+          <LockKeyhole className="h-4 w-4 text-outline" />
+        </div>
+        <p className="mt-1 pl-8 font-sans text-[10px] font-extrabold uppercase tracking-[0.12em] text-outline">{getLockedAccessLabel(feature)}</p>
+      </button>
+    ) : (
+      <div className="w-full rounded-2xl border border-surface-container-high/70 bg-surface-container-low/70 px-4 py-3 text-left" aria-disabled="true">
+        <div className="flex items-center gap-3 font-sans text-sm font-extrabold text-on-surface-variant">
+          {icon}
+          <span className="flex-1">{label}</span>
+          <LockKeyhole className="h-4 w-4 text-outline" />
+        </div>
+        <p className="mt-1 pl-8 font-sans text-[10px] font-extrabold uppercase tracking-[0.12em] text-outline">{getLockedAccessLabel(feature)}</p>
       </div>
-      <p className="mt-1 pl-8 font-sans text-[10px] font-extrabold uppercase tracking-[0.12em] text-outline">{getLockedAccessLabel(feature)}</p>
-    </div>
+    )
   );
 
   const startRenameCategory = (category: RecipeCategory) => {
@@ -665,7 +685,12 @@ export default function NavigationDrawer({
               )}
 
               {costingMenuItems.length === 0 && currentUser && (
-                <LockedNavItem label="Costing" icon={<Calculator className="w-5 h-5" />} feature="invoiceOcr" />
+                <LockedNavItem
+                  label="Costing"
+                  icon={<Calculator className="w-5 h-5" />}
+                  feature="invoiceOcr"
+                  onClick={() => handleNavigate('costingInvoices')}
+                />
               )}
 
               {costingMenuItems.length > 0 && (
