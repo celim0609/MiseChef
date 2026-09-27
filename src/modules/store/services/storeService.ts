@@ -381,6 +381,7 @@ export const storeService = {
       name: draft.name.trim(),
       description: draft.description.trim(),
       price: draft.price,
+      calories: draft.calories,
       recipeId: draft.recipeId?.trim() || undefined,
       available: draft.available,
       optionGroupIds: [...draft.optionGroupIds],
@@ -402,6 +403,11 @@ export const storeService = {
 
     await setDoc(doc(db, 'storeProducts', product.id), {
       ...removeUndefinedFields(updatedProduct),
+      ...(
+        draft.calories === undefined
+          ? { calories: deleteField() }
+          : {}
+      ),
       ...(!draft.recipeId ? {
         recipeId: deleteField()
       } : {}),

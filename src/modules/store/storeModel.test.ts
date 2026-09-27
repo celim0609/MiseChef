@@ -14,6 +14,7 @@ import {
   normalizeStoreOptionGroup,
   normalizeStoreContact,
   normalizeStorePaymentMethods,
+  normalizeStoreProduct,
   normalizeWorkspaceStore,
   resolveStoreDeliveryEnvironment,
   toStoreSlug,
@@ -236,6 +237,23 @@ test('simple products require only the milestone fields', () => {
     available: true,
     optionGroupIds: []
   }), 'Product photo is required.');
+});
+
+test('optional Product calories must be a non-negative whole number', () => {
+  const draft = {
+    photoUrl: 'https://example.test/product.jpg',
+    name: 'Signature Tart',
+    description: 'Freshly baked.',
+    price: 12.5,
+    available: true,
+    optionGroupIds: []
+  };
+
+  assert.equal(validateStoreProduct({ ...draft, calories: 320 }), '');
+  assert.equal(validateStoreProduct({ ...draft, calories: -1 }), 'Calories must be a non-negative whole number.');
+  assert.equal(validateStoreProduct({ ...draft, calories: 320.5 }), 'Calories must be a non-negative whole number.');
+  assert.equal(normalizeStoreProduct('legacy', draft).calories, undefined);
+  assert.equal(normalizeStoreProduct('calories', { ...draft, calories: 320 }).calories, 320);
 });
 
 test('public Store route contains the ordering flow without exposing order tracking routes', () => {

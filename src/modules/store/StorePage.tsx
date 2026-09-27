@@ -234,6 +234,7 @@ export default function StorePage({
   const productFormHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const productNameInputRef = useRef<HTMLInputElement | null>(null);
   const productPriceInputRef = useRef<HTMLInputElement | null>(null);
+  const productCaloriesInputRef = useRef<HTMLInputElement | null>(null);
   const productDescriptionInputRef = useRef<HTMLTextAreaElement | null>(null);
   const productPhotoInputRef = useRef<HTMLInputElement | null>(null);
   const productOptionsRef = useRef<HTMLDivElement | null>(null);
@@ -718,6 +719,8 @@ export default function StorePage({
               ? productDescriptionInputRef.current
               : target === 'price'
                 ? productPriceInputRef.current
+                : target === 'calories'
+                  ? productCaloriesInputRef.current
                 : productOptionsRef.current?.querySelector<HTMLElement>('input, select, button');
         (targetElement || productFormHeadingRef.current)?.focus({ preventScroll: true });
       });
@@ -1074,6 +1077,10 @@ export default function StorePage({
                 <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Price ({region.currency})</span>
                   <input ref={productPriceInputRef} type="number" min="0" step="0.01" value={productDraft.price} onChange={event => updateProduct('price', Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                </label>
+                <label className="block">
+                  <span className="font-sans text-xs font-extrabold text-primary">Calories per serving (kcal)</span>
+                  <input ref={productCaloriesInputRef} type="number" min="0" step="1" value={productDraft.calories ?? ''} onChange={event => updateProduct('calories', event.target.value === '' ? undefined : Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 </label>
                 <label className="block md:col-span-2">
                   <span className="font-sans text-xs font-extrabold text-primary">Description</span>
