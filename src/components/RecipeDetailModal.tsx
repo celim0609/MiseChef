@@ -10,7 +10,6 @@ import { formatRecipeCreatorLine } from '../services/recipeCreator';
 import { motion } from 'motion/react';
 import { getRecipeCategories } from '../utils/categoryUtils';
 import RecipeCostAnalysis from './RecipeCostAnalysis';
-import { loadIngredientNutritionProfiles } from '../modules/nutrition/services/ingredientNutritionProfileService';
 import { calculateRecipeNutrition } from '../modules/nutrition/services/recipeNutritionCalculator';
 import type { RecipeNutritionSummary } from '../types';
 
@@ -109,7 +108,8 @@ export default function RecipeDetailModal({
 
   useEffect(() => {
     let active = true;
-    void loadIngredientNutritionProfiles(recipe.ingredients.map(ingredient => ingredient.ingredientId || ''))
+    void import('../modules/nutrition/services/ingredientNutritionProfileService')
+      .then(({ loadIngredientNutritionProfiles }) => loadIngredientNutritionProfiles(recipe.ingredients.map(ingredient => ingredient.ingredientId || '')))
       .then(profiles => { if (active) setNutrition(calculateRecipeNutrition(recipe, profiles)); })
       .catch(() => { if (active) setNutrition({ status: 'INCOMPLETE', incompleteReasons: ['Nutrition profiles are unavailable.'] }); });
     return () => { active = false; };
