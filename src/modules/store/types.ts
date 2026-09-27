@@ -227,6 +227,8 @@ export interface StoreProduct {
   name: string;
   description: string;
   price: number;
+  /** Optional public nutrition information, expressed per serving in kcal. */
+  calories?: number;
   recipeId?: string;
   /** Legacy field retained only for existing order/data compatibility. */
   estimatedCost?: number;
@@ -244,6 +246,7 @@ export interface StoreProductDraft {
   name: string;
   description: string;
   price: number;
+  calories?: number;
   recipeId?: string;
   available: boolean;
   optionGroupIds: string[];

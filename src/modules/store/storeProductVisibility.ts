@@ -2,7 +2,7 @@ import type { Recipe } from '../../types';
 import type { StoreProduct, StoreProductDraft } from './types';
 
 export const getReadyToSellProductDraft = (
-  recipe: Pick<Recipe, 'id' | 'title' | 'sellingPrice' | 'costing'>
+  recipe: Pick<Recipe, 'id' | 'title' | 'sellingPrice' | 'calories' | 'costing'>
 ): StoreProductDraft => {
   const requestedPrice = Number(recipe.sellingPrice ?? recipe.costing?.sellingPrice ?? 0);
   const price = Number.isFinite(requestedPrice) && requestedPrice >= 0 ? requestedPrice : 0;
@@ -12,6 +12,7 @@ export const getReadyToSellProductDraft = (
     name: recipe.title.trim(),
     description: '',
     price,
+    ...(Number.isInteger(recipe.calories) && recipe.calories >= 0 ? { calories: recipe.calories } : {}),
     recipeId: recipe.id,
     available: true,
     optionGroupIds: []
@@ -52,6 +53,7 @@ export const getStoreProductEditorDraft = (product: StoreProduct): StoreProductD
   name: product.name,
   description: product.description,
   price: product.price,
+  ...(product.calories !== undefined ? { calories: product.calories } : {}),
   ...(product.recipeId ? { recipeId: product.recipeId } : {}),
   available: product.available,
   optionGroupIds: [...product.optionGroupIds]
@@ -71,7 +73,7 @@ export const getStoreProductEditorPresentation = (product: StoreProduct | null) 
       cancelAction: 'Cancel'
     };
 
-export type StoreProductValidationTarget = 'photo' | 'name' | 'description' | 'price' | 'options';
+export type StoreProductValidationTarget = 'photo' | 'name' | 'description' | 'price' | 'calories' | 'options';
 
 export const getStoreProductValidationTarget = (
   validationMessage: string
@@ -81,6 +83,7 @@ export const getStoreProductValidationTarget = (
   if (message.includes('product name')) return 'name';
   if (message.includes('description')) return 'description';
   if (message.includes('price')) return 'price';
+  if (message.includes('calories')) return 'calories';
   return 'options';
 };
 
@@ -95,6 +98,7 @@ export const buildUpdatedStoreProduct = (
   name: draft.name.trim(),
   description: draft.description.trim(),
   price: draft.price,
+  calories: draft.calories,
   recipeId: draft.recipeId,
   available: draft.available,
   optionGroupIds: [...draft.optionGroupIds],

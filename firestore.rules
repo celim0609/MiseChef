@@ -474,6 +474,7 @@ service cloud.firestore {
           'name',
           'description',
           'price',
+          'calories',
           'recipeId',
           'linkedRecipeId',
           'linkedRecipeTitle',
@@ -499,6 +500,7 @@ service cloud.firestore {
         && data.description.size() <= 1200
         && data.price is number
         && data.price >= 0
+        && (!('calories' in data) || (data.calories is int && data.calories >= 0))
         && (!('recipeId' in data)
           || (data.recipeId is string
             && data.recipeId.size() > 0
@@ -1399,6 +1401,7 @@ service cloud.firestore {
           'name',
           'description',
           'price',
+          'calories',
           'recipeId',
           'linkedRecipeId',
           'linkedRecipeTitle',

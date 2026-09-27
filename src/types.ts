@@ -118,6 +118,8 @@ export interface Recipe {
   recommendedProductIds?: string[];
   videoLink: string;
   sellingPrice?: number;
+  /** Optional chef-entered nutrition information, expressed per serving in kcal. */
+  calories?: number;
   costing?: RecipeCosting;
   recipeCostLastCalculatedAt?: string;
   chefName: string;
