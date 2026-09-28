@@ -19,6 +19,16 @@ const numberValue = (value: string) => {
   return value.trim() && Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 };
 
+export const withUsdaPieceWeight = (selection: IngredientNutritionSelection, value: string): IngredientNutritionSelection => {
+  if (selection.source !== 'usda_fdc') return selection;
+  const gramsPerPiece = numberValue(value);
+  const { gramsPerPiece: _previousGramsPerPiece, ...usdaSelection } = selection;
+  return {
+    ...usdaSelection,
+    ...(gramsPerPiece !== undefined && gramsPerPiece > 0 ? { gramsPerPiece } : {})
+  };
+};
+
 export default function IngredientNutritionSetup({ ingredientName, workspaceId, profile, value, disabled = false, embedded = false, showPieceWeight = false, onChange }: IngredientNutritionSetupProps) {
   const initialOverride = value.source === 'chef_override' ? value : null;
   const selectedPieceWeight = value.source === 'usda_fdc' ? value.gramsPerPiece : undefined;
@@ -76,16 +86,11 @@ export default function IngredientNutritionSetup({ ingredientName, workspaceId, 
     }
   };
 
-  const updateUsdaPieceWeight = () => {
+  const changeUsdaPieceWeight = (nextValue: string) => {
+    setGramsPerPiece(nextValue);
     if (value.source !== 'usda_fdc') return;
-    const nextGramsPerPiece = numberValue(gramsPerPiece);
-    if (gramsPerPiece.trim() && (nextGramsPerPiece === undefined || nextGramsPerPiece <= 0)) {
-      setError('Weight per piece must be greater than zero.');
-      return;
-    }
     setError('');
-    const { gramsPerPiece: _previousGramsPerPiece, ...usdaSelection } = value;
-    onChange({ ...usdaSelection, ...(nextGramsPerPiece === undefined ? {} : { gramsPerPiece: nextGramsPerPiece }) });
+    onChange(withUsdaPieceWeight(value, nextValue));
   };
 
   const nutritionControls = <>
@@ -108,7 +113,7 @@ export default function IngredientNutritionSetup({ ingredientName, workspaceId, 
           {showPieceWeight && <label className="block"><span className="font-sans text-xs font-extrabold text-primary">Weight per piece (g)</span><input type="number" min="0.001" step="0.001" value={gramsPerPiece} onChange={event => setGramsPerPiece(event.target.value)} disabled={disabled} className="mt-2 w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-primary disabled:opacity-50" /><span className="mt-1 block font-sans text-[11px] font-semibold text-on-surface-variant">Required only when Recipes use pcs or nos. Never guessed.</span></label>}
           <button type="button" onClick={selectChefOverride} disabled={disabled} className="rounded-full border border-primary/30 px-4 py-2 font-sans text-xs font-extrabold text-primary disabled:opacity-50">Use chef-confirmed values</button>
         </>}
-        {value.source === 'usda_fdc' && showPieceWeight && <><label className="block"><span className="font-sans text-xs font-extrabold text-primary">Weight per piece (g)</span><input type="number" min="0.001" step="0.001" value={gramsPerPiece} onChange={event => setGramsPerPiece(event.target.value)} disabled={disabled} className="mt-2 w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-primary disabled:opacity-50" /><span className="mt-1 block font-sans text-[11px] font-semibold text-on-surface-variant">Required only when Recipes use pcs or nos. Never guessed.</span></label><button type="button" onClick={updateUsdaPieceWeight} disabled={disabled} className="rounded-full border border-primary/30 px-4 py-2 font-sans text-xs font-extrabold text-primary disabled:opacity-50">Use USDA piece weight</button></>}
+        {value.source === 'usda_fdc' && showPieceWeight && <label className="block"><span className="font-sans text-xs font-extrabold text-primary">Weight per piece (g)</span><input type="number" min="0.001" step="0.001" value={gramsPerPiece} onChange={event => changeUsdaPieceWeight(event.target.value)} disabled={disabled} className="mt-2 w-full rounded-xl border border-surface-container-high bg-white px-4 py-3 font-sans text-sm font-bold text-primary disabled:opacity-50" /><span className="mt-1 block font-sans text-[11px] font-semibold text-on-surface-variant">Required only when Recipes use pcs or nos. Never guessed.</span></label>}
       </> : <button type="button" onClick={() => { setError(''); onChange({ source: 'chef_non_food' }); }} disabled={disabled} className="rounded-full border border-primary/30 px-4 py-2 font-sans text-xs font-extrabold text-primary disabled:opacity-50">Mark as non-food</button>}
       {candidates.map(candidate => <button key={candidate.fdcId} type="button" onClick={() => { setError(''); onChange({ source: 'usda_fdc', fdcId: candidate.fdcId, description: candidate.description }); setCandidates([]); }} disabled={disabled} className="block w-full rounded-xl border border-surface-container-high bg-white px-3 py-2 text-left font-sans text-xs font-bold text-primary"><span>{candidate.description}</span><span className="ml-2 text-on-surface-variant">{candidate.kcalPer100g} kcal/100 g · Select</span></button>)}
       {value.source !== 'none' && <div className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2"><p className="font-sans text-xs font-bold text-primary">{value.source === 'usda_fdc' ? `USDA selected: ${value.description || value.fdcId}` : value.source === 'chef_non_food' ? 'Non-food selected' : 'Chef-confirmed nutrition selected'}</p><button type="button" onClick={() => { setError(''); onChange({ source: 'none' }); }} disabled={disabled} className="font-sans text-xs font-extrabold text-secondary disabled:opacity-50">Clear</button></div>}
