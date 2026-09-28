@@ -3,7 +3,7 @@ import test from 'node:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { Recipe, WorkspaceMemberSummary } from '../types';
 import RecipeDetailModal from './RecipeDetailModal';
-import SearchTab from './SearchTab';
+import SearchTab, { RecipeLibraryCard } from './SearchTab';
 
 const tehIce: Recipe = {
   id: 'teh-ice',
@@ -76,4 +76,17 @@ test('Recipe Detail shows the same creator display name without exposing UID', (
   assert.match(markup, /Created by Sara · Aug 23, 2026/);
   assert.doesNotMatch(markup, />sara</);
   assert.doesNotMatch(markup, /sara@example\.test/);
+});
+
+test('Recipe Library card shows rounded kcal per serving only when nutrition is complete', () => {
+  const completeMarkup = renderToStaticMarkup(
+    <RecipeLibraryCard recipe={tehIce} nutrition={{ status: 'COMPLETE', totalKcal: 451.2, kcalPerServing: 225.6, incompleteReasons: [] }} workspaceMembers={[sara]} onSelectRecipe={() => undefined} onToggleFavorite={() => undefined} />
+  );
+  const incompleteMarkup = renderToStaticMarkup(
+    <RecipeLibraryCard recipe={tehIce} nutrition={{ status: 'INCOMPLETE', incompleteReasons: ['Egg: nutrition profile is required.'] }} workspaceMembers={[sara]} onSelectRecipe={() => undefined} onToggleFavorite={() => undefined} />
+  );
+
+  assert.match(completeMarkup, /5 mins.*226 kcal/);
+  assert.doesNotMatch(completeMarkup, /451\.2|total kcal/);
+  assert.doesNotMatch(incompleteMarkup, /kcal/);
 });
