@@ -611,6 +611,13 @@ export const getPublicStorePaymentResult = onCall({
     return await getStorePaymentResult({
       db,
       adapter,
+      resolveVerificationAdapter: authorizedOrder => createPaymentAdapter(authorizedOrder.payment?.provider, {
+        stripeSecretKey: stripeSecretKey.value(),
+        curlecKeyId: curlecKeyId.value(),
+        curlecKeySecret: curlecKeySecret.value(),
+        curlecPaymentLink: authorizedOrder.payment?.provider === 'curlec'
+          && authorizedOrder.payment?.providerMode === 'payment_link'
+      }),
       sellingWorkspaceId: sellingWorkspaceId.value(),
       slug: request.data?.slug,
       providerPaymentId: request.data?.paymentSessionId,
