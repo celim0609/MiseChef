@@ -53,6 +53,33 @@ export interface RecipeCosting {
   lastCalculatedAt: string;
 }
 
+export type IngredientNutritionKind = 'food' | 'non_food';
+
+export interface IngredientNutritionProfile {
+  id: string;
+  ingredientId: string;
+  workspaceId: string;
+  kind: IngredientNutritionKind;
+  status: 'approved';
+  source: 'usda_fdc' | 'chef_override' | 'chef_non_food';
+  catalogProfileId?: string;
+  kcalPer100g?: number;
+  kcalPer100ml?: number;
+  gramsPerPiece?: number;
+  confirmedBy: string;
+  confirmedAt: string;
+  updatedAt: string;
+}
+
+export type RecipeNutritionStatus = 'COMPLETE' | 'INCOMPLETE';
+
+export interface RecipeNutritionSummary {
+  status: RecipeNutritionStatus;
+  totalKcal?: number;
+  kcalPerServing?: number;
+  incompleteReasons: string[];
+}
+
 export interface MethodStep {
   id: string;
   stepNumber: number;

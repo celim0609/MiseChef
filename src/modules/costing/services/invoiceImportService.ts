@@ -5,7 +5,8 @@ import { costIntelligenceService, type IngredientCostChange } from './costIntell
 import { recipeCostService } from './recipeCostService';
 import { DEFAULT_REGION_CONFIGURATION, type RegionCurrency } from '../../../regions';
 import { getGenericInvoiceLegacyPricing, planGenericInvoicePriceUpdate } from './ingredientPackModel';
-import { asExtractedItem, normalizeIngredientName, validateInvoiceImportMatches, type InvoiceImportMatch } from './invoiceImportReview';
+import { asExtractedItem, getNutritionSelectionForInvoiceMatch, normalizeIngredientName, validateInvoiceImportMatches, type InvoiceImportMatch } from './invoiceImportReview';
+import { applyIngredientNutritionSelection, type IngredientNutritionSelection } from '../../nutrition/services/ingredientNutritionProfileService';
 export { createInvoiceReviewItems, matchInvoiceItemsToIngredients, normalizeIngredientName, validateInvoiceImportMatches } from './invoiceImportReview';
 export type { InvoiceImportMatch } from './invoiceImportReview';
 
@@ -19,6 +20,7 @@ type PlannedInvoiceImport = {
   newCost: number;
   effectiveCost: number;
   appliesPriceUpdate: boolean;
+  nutritionSelection: IngredientNutritionSelection;
 };
 
 const removeUndefinedFields = <T,>(value: T): T => {
@@ -65,6 +67,7 @@ export const invoiceImportService = {
     invoiceUpdates: Partial<CostingInvoice>;
     priceUpdatesApplied: number;
     packPricesPreserved: number;
+    nutritionFailures: string[];
   }> {
     if (!db) throw new Error("We couldn't connect to your workspace. Please refresh the page or try again.");
     if (invoice.processingStatus === 'Imported' || invoice.approvedAt) {
@@ -142,7 +145,8 @@ export const invoiceImportService = {
         previousCost: pricingPlan.previousCost,
         newCost,
         effectiveCost: pricingPlan.effectiveCost,
-        appliesPriceUpdate: pricingPlan.priceApplied
+        appliesPriceUpdate: pricingPlan.priceApplied,
+        nutritionSelection: getNutritionSelectionForInvoiceMatch(match)
       });
 
       return acc;
@@ -240,6 +244,22 @@ export const invoiceImportService = {
     batch.update(invoiceRef, removeUndefinedFields(invoiceUpdates) as unknown as Record<string, unknown>);
     await batch.commit();
 
+    const nutritionFailures: string[] = [];
+    for (const plannedImport of plannedImports) {
+      if (plannedImport.matchedIngredient || plannedImport.nutritionSelection.source === 'none') continue;
+      try {
+        await applyIngredientNutritionSelection({
+          workspaceId,
+          ingredientId: plannedImport.ingredientId,
+          confirmedBy: userId,
+          selection: plannedImport.nutritionSelection
+        });
+      } catch (error) {
+        console.warn('Imported Ingredient nutrition could not be configured.', error);
+        nutritionFailures.push(plannedImport.ingredientName);
+      }
+    }
+
     costIntelligenceService.queuePendingRecipeRecalculations(pendingRecipeRecalculations).catch(error => {
       console.warn('Pending recipe cost recalculation queue could not be saved.', error);
     });
@@ -251,7 +271,8 @@ export const invoiceImportService = {
     return {
       invoiceUpdates,
       priceUpdatesApplied: plannedImports.filter(item => item.appliesPriceUpdate).length,
-      packPricesPreserved: plannedImports.filter(item => !item.appliesPriceUpdate).length
+      packPricesPreserved: plannedImports.filter(item => !item.appliesPriceUpdate).length,
+      nutritionFailures
     };
   }
 };

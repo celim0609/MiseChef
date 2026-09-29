@@ -10,6 +10,8 @@ import { formatRecipeCreatorLine } from '../services/recipeCreator';
 import { motion } from 'motion/react';
 import { getRecipeCategories } from '../utils/categoryUtils';
 import RecipeCostAnalysis from './RecipeCostAnalysis';
+import { calculateRecipeNutrition } from '../modules/nutrition/services/recipeNutritionCalculator';
+import type { RecipeNutritionSummary } from '../types';
 
 const normalizeUnit = (unit = '') => {
   const trimmed = unit.trim().toLowerCase();
@@ -102,6 +104,16 @@ export default function RecipeDetailModal({
   const [targetYield, setTargetYield] = useState('');
   const [recipeView, setRecipeView] = useState<'original' | 'scaled'>('original');
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+  const [nutrition, setNutrition] = useState<RecipeNutritionSummary | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void import('../modules/nutrition/services/ingredientNutritionProfileService')
+      .then(({ loadIngredientNutritionProfiles }) => loadIngredientNutritionProfiles(recipe.ingredients.map(ingredient => ingredient.ingredientId || '')))
+      .then(profiles => { if (active) setNutrition(calculateRecipeNutrition(recipe, profiles)); })
+      .catch(() => { if (active) setNutrition({ status: 'INCOMPLETE', incompleteReasons: ['Nutrition profiles are unavailable.'] }); });
+    return () => { active = false; };
+  }, [recipe]);
 
   const originalYield = recipe.yield || `${recipe.servings} servings`;
   const originalParsedYield = parseYield(originalYield);
@@ -310,6 +322,14 @@ export default function RecipeDetailModal({
                 <span className="text-outline-variant">•</span>
                 <span>{recipe.difficulty}</span>
               </div>
+
+              {nutrition && (
+                <p className={`font-sans text-xs font-bold ${nutrition.status === 'COMPLETE' ? 'text-primary' : 'text-error'}`}>
+                  {nutrition.status === 'COMPLETE'
+                    ? `${Math.round(nutrition.kcalPerServing || 0)} kcal per serving · ${Math.round(nutrition.totalKcal || 0)} kcal total`
+                    : `Nutrition INCOMPLETE — ${nutrition.incompleteReasons[0]}`}
+                </p>
+              )}
 
               {recipe.story && (
                 <div className="bg-surface-container-low/60 p-4 rounded-xl border border-surface-container text-xs sm:text-sm text-on-surface-variant italic leading-relaxed font-semibold">

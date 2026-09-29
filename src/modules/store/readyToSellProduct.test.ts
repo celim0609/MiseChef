@@ -10,19 +10,22 @@ const recipe: Pick<Recipe, 'id' | 'title' | 'sellingPrice' | 'costing'> = {
   sellingPrice: 12.5
 };
 
+const completeNutrition = { status: 'COMPLETE' as const, totalKcal: 840, kcalPerServing: 420, incompleteReasons: [] };
+
 test('Ready to Sell opens a new Store Product draft with only sellable Recipe fields', () => {
-  assert.deepEqual(getReadyToSellProductDraft(recipe), {
+  assert.deepEqual(getReadyToSellProductDraft(recipe, completeNutrition), {
     photoUrl: '',
     name: 'Laksa Noodles',
     description: '',
     price: 12.5,
+    calories: 420,
     recipeId: 'recipe-laksa',
     available: true,
     optionGroupIds: []
   });
 });
 
-test('Ready to Sell snapshots Recipe selling price without copying costing data', () => {
+test('Ready to Sell snapshots public Recipe values without copying costing data', () => {
   const draft = getReadyToSellProductDraft({
     ...recipe,
     sellingPrice: 18,
@@ -35,12 +38,19 @@ test('Ready to Sell snapshots Recipe selling price without copying costing data'
       breakdown: [],
       lastCalculatedAt: '2026-09-27T00:00:00.000Z'
     }
-  });
+  }, { ...completeNutrition, totalKcal: 1020, kcalPerServing: 510 });
 
   assert.equal(draft.price, 18);
+  assert.equal(draft.calories, 510);
   assert.deepEqual(Object.keys(draft).sort(), [
-    'available', 'description', 'name', 'optionGroupIds', 'photoUrl', 'price', 'recipeId'
+    'available', 'calories', 'description', 'name', 'optionGroupIds', 'photoUrl', 'price', 'recipeId'
   ]);
+});
+
+test('Ready to Sell leaves calories absent when Recipe nutrition is incomplete', () => {
+  const draft = getReadyToSellProductDraft(recipe, { status: 'INCOMPLETE', incompleteReasons: ['Flour: nutrition profile is required.'] });
+
+  assert.equal(draft.calories, undefined);
 });
 
 test('Ready to Sell sends a carried Recipe photo through the existing Store Product upload path', () => {

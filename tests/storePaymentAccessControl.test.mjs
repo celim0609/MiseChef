@@ -450,7 +450,7 @@ test('unrelated users and invalid Store Contact data remain denied', async () =>
 
 test('matching Owner can create and Manager can edit a persisted Store product', async () => {
   const productRef = ownerA.firestore().doc('storeProducts/beta-product');
-  await assertSucceeds(productRef.set(createProductRecord('beta-product')));
+  await assertSucceeds(productRef.set({ ...createProductRecord('beta-product'), calories: 320 }));
   assert.equal((await assertSucceeds(productRef.get())).data().name, 'Beta Product');
 
   await assertSucceeds(managerA.firestore().doc('storeProducts/beta-product').update({
@@ -458,6 +458,20 @@ test('matching Owner can create and Manager can edit a persisted Store product',
     updatedAt: '2026-08-16T01:00:00.000Z'
   }));
   assert.equal((await assertSucceeds(productRef.get())).data().name, 'Beta Product Updated');
+});
+
+test('Store Product calories are optional non-negative whole numbers', async () => {
+  await assertSucceeds(ownerA.firestore().doc('storeProducts/calorie-free-product').set(
+    createProductRecord('calorie-free-product')
+  ));
+  await assertFails(ownerA.firestore().doc('storeProducts/decimal-calorie-product').set({
+    ...createProductRecord('decimal-calorie-product'),
+    calories: 320.5
+  }));
+  await assertFails(ownerA.firestore().doc('storeProducts/negative-calorie-product').set({
+    ...createProductRecord('negative-calorie-product'),
+    calories: -1
+  }));
 });
 
 test('Head Chef can manage products but cannot change Store, payment, or Host settings', async () => {

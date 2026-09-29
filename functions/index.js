@@ -102,6 +102,7 @@ const lalamoveApiSecret = defineSecret('LALAMOVE_API_SECRET');
 const curlecKeyId = defineSecret('CURLEC_KEY_ID');
 const curlecKeySecret = defineSecret('CURLEC_KEY_SECRET');
 const curlecWebhookSecret = defineSecret('CURLEC_WEBHOOK_SECRET');
+const usdaFdcApiKey = defineSecret('USDA_FDC_API_KEY');
 // Payment Links are default-deny. Each Firebase environment must opt in.
 const curlecPaymentLinkRolloutEnabled = defineString('CURLEC_PAYMENT_LINK_ROLLOUT_ENABLED', { default: 'false' });
 const sellingWorkspaceId = defineString('SELLING_WORKSPACE_ID', { default: '' });
@@ -1263,6 +1264,69 @@ const readNumber = value => {
   }
   return 0;
 };
+
+const requireNutritionManager = async (request) => {
+  const uid = requireAuthenticatedUser(request);
+  const workspaceId = readString(request.data?.workspaceId);
+  const entitlements = await requireWorkspaceEntitlements({ db, uid, workspaceId });
+  if (!['Owner', 'Manager', 'Head Chef', 'Purchasing'].includes(entitlements.role)) {
+    throw new HttpsError('permission-denied', 'Your workspace role cannot manage Ingredient nutrition.');
+  }
+  return { uid, workspaceId };
+};
+
+const getUsdaEnergy = (food) => {
+  const nutrients = Array.isArray(food?.foodNutrients) ? food.foodNutrients : [];
+  const energy = nutrients.find(nutrient => Number(nutrient.nutrient?.id || nutrient.nutrientId) === 1008
+    || String(nutrient.nutrient?.name || nutrient.nutrientName || '').toLowerCase() === 'energy');
+  const value = Number(energy?.amount ?? energy?.value);
+  const unit = String(energy?.nutrient?.unitName || energy?.unitName || '').toLowerCase();
+  return Number.isFinite(value) && value >= 0 && (!unit || unit === 'kcal') ? value : null;
+};
+
+export const searchUsdaNutritionCatalog = onCall({ region: REGION, secrets: [usdaFdcApiKey] }, async request => {
+  const { workspaceId } = await requireNutritionManager(request);
+  const query = readString(request.data?.query).slice(0, 160);
+  if (!query) throw new HttpsError('invalid-argument', 'USDA search terms are required.');
+  const response = await fetch(`https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${encodeURIComponent(usdaFdcApiKey.value())}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ query, pageSize: 10 })
+  });
+  if (!response.ok) throw new HttpsError('unavailable', 'USDA nutrition lookup is temporarily unavailable.');
+  const payload = await response.json();
+  const foods = Array.isArray(payload.foods) ? payload.foods : [];
+  return {
+    candidates: foods.map(food => ({
+      fdcId: String(food.fdcId || ''), description: readString(food.description), dataType: readString(food.dataType),
+      brandName: readString(food.brandName), kcalPer100g: getUsdaEnergy(food)
+    })).filter(food => food.fdcId && food.description && food.kcalPer100g !== null)
+  };
+});
+
+export const confirmUsdaIngredientNutrition = onCall({ region: REGION, secrets: [usdaFdcApiKey] }, async request => {
+  const { uid, workspaceId } = await requireNutritionManager(request);
+  const ingredientId = readString(request.data?.ingredientId);
+  const fdcId = readString(request.data?.fdcId);
+  const gramsPerPiece = request.data?.gramsPerPiece;
+  if (!ingredientId || !fdcId) throw new HttpsError('invalid-argument', 'Ingredient and USDA food ID are required.');
+  if (gramsPerPiece !== undefined && (!Number.isFinite(gramsPerPiece) || gramsPerPiece <= 0)) {
+    throw new HttpsError('invalid-argument', 'Weight per piece must be greater than zero.');
+  }
+  const ingredient = await db.collection('ingredients').doc(ingredientId).get();
+  if (!ingredient.exists || ingredient.data()?.workspaceId !== workspaceId) throw new HttpsError('not-found', 'Canonical Ingredient not found.');
+  const response = await fetch(`https://api.nal.usda.gov/fdc/v1/food/${encodeURIComponent(fdcId)}?api_key=${encodeURIComponent(usdaFdcApiKey.value())}`);
+  if (!response.ok) throw new HttpsError('unavailable', 'USDA nutrition lookup is temporarily unavailable.');
+  const food = await response.json();
+  const kcalPer100g = getUsdaEnergy(food);
+  if (kcalPer100g === null) throw new HttpsError('failed-precondition', 'USDA did not provide usable kcal per 100 g for this food.');
+  const now = new Date().toISOString();
+  const catalog = { provider: 'usda_fdc', fdcId, description: readString(food.description), dataType: readString(food.dataType), brandName: readString(food.brandName), brandOwner: readString(food.brandOwner), gtinUpc: readString(food.gtinUpc), kcalPer100g, fetchedAt: now, sourceLicense: 'CC0-1.0' };
+  const profile = { id: ingredientId, ingredientId, workspaceId, kind: 'food', status: 'approved', source: 'usda_fdc', catalogProfileId: fdcId, kcalPer100g, ...(gramsPerPiece === undefined ? {} : { gramsPerPiece }), confirmedBy: uid, confirmedAt: now, updatedAt: now };
+  const batch = db.batch();
+  batch.set(db.collection('nutritionCatalog').doc(fdcId), catalog, { merge: true });
+  batch.set(db.collection('ingredientNutritionProfiles').doc(ingredientId), profile);
+  await batch.commit();
+  return { profile };
+});
 
 const isFirebaseStorageUrl = value => {
   try {

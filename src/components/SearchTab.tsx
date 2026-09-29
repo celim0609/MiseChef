@@ -5,11 +5,12 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Check, Clock, Heart, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
-import { Recipe, RecipeCategory, WorkspaceMemberSummary } from '../types';
+import { Recipe, RecipeCategory, RecipeNutritionSummary, WorkspaceMemberSummary } from '../types';
 import { formatRecipeCreatorLine } from '../services/recipeCreator';
 import { getRecipeCategories, recipeHasCategory } from '../utils/categoryUtils';
 import { getRecipeSearchText } from '../utils/recipeSearch';
 import { DiscoverCarousel, createRecipeLibraryDiscoverItems, type DiscoverItem } from './discover';
+import { calculateRecipeNutrition, getSnapshotCalories } from '../modules/nutrition/services/recipeNutritionCalculator';
 
 interface SearchTabProps {
   recipes: Recipe[];
@@ -21,6 +22,33 @@ interface SearchTabProps {
   onToggleFavorite: (recipeId: string) => void;
   selectedCategory?: string | null;
   workspaceMembers?: WorkspaceMemberSummary[];
+}
+
+export function RecipeLibraryCard({ recipe, nutrition, workspaceMembers, onSelectRecipe, onToggleFavorite }: {
+  recipe: Recipe;
+  nutrition?: RecipeNutritionSummary;
+  workspaceMembers: WorkspaceMemberSummary[];
+  onSelectRecipe: (recipe: Recipe) => void;
+  onToggleFavorite: (recipeId: string) => void;
+}) {
+  const calories = getSnapshotCalories(nutrition);
+
+  return (
+    <div onClick={() => onSelectRecipe(recipe)} className="bg-surface-container-low border border-surface-container-high rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer group relative">
+      <div className="relative">
+        <img className="w-full h-44 object-cover" src={recipe.coverImage} alt={recipe.title} referrerPolicy="no-referrer" />
+        <button type="button" onClick={event => { event.stopPropagation(); onToggleFavorite(recipe.id); }} className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/80 backdrop-blur-sm shadow-sm flex items-center justify-center text-secondary active:scale-90 hover:scale-105 transition-all outline-none" aria-label={recipe.isSaved ? 'Remove from favorites' : 'Add to favorites'}>
+          <Heart className={`w-4 h-4 ${recipe.isSaved ? 'fill-secondary text-secondary' : 'text-secondary'}`} />
+        </button>
+      </div>
+      <div className="p-4 space-y-2">
+        <span className="px-2 py-0.5 rounded-full bg-secondary-fixed text-on-secondary-fixed-variant font-sans text-[10px] font-bold">{getRecipeCategories(recipe).join(', ')}</span>
+        <h3 className="font-display font-semibold text-base text-primary leading-snug group-hover:text-secondary duration-300 transition-colors line-clamp-1">{recipe.title}</h3>
+        <p className="font-sans text-xs font-semibold text-on-surface-variant">{formatRecipeCreatorLine(recipe, workspaceMembers).split(' · ')[0]}</p>
+        <div className="flex items-center gap-1.5 text-xs text-outline font-semibold"><Clock className="w-3.5 h-3.5" /><span>{recipe.prepTime} mins</span>{calories !== undefined && <><span aria-hidden="true">·</span><span>{calories} kcal</span></>}</div>
+      </div>
+    </div>
+  );
 }
 
 export default function SearchTab({
@@ -41,6 +69,24 @@ export default function SearchTab({
   const [editingCategoryName, setEditingCategoryName] = useState('');
   const [deletingCategory, setDeletingCategory] = useState<RecipeCategory | null>(null);
   const [moveTargetCategory, setMoveTargetCategory] = useState('');
+  const [recipeNutrition, setRecipeNutrition] = useState<Record<string, RecipeNutritionSummary>>({});
+
+  useEffect(() => {
+    let active = true;
+    const ingredientIds = recipes.flatMap(recipe => recipe.ingredients.map(ingredient => ingredient.ingredientId || '')).filter(Boolean);
+    if (ingredientIds.length === 0) {
+      setRecipeNutrition(Object.fromEntries(recipes.map(recipe => [recipe.id, calculateRecipeNutrition(recipe, {})])));
+      return () => { active = false; };
+    }
+    void import('../modules/nutrition/services/ingredientNutritionProfileService')
+      .then(({ loadIngredientNutritionProfiles }) => loadIngredientNutritionProfiles(ingredientIds))
+      .then(profiles => {
+        if (!active) return;
+        setRecipeNutrition(Object.fromEntries(recipes.map(recipe => [recipe.id, calculateRecipeNutrition(recipe, profiles)])));
+      })
+      .catch(() => { if (active) setRecipeNutrition({}); });
+    return () => { active = false; };
+  }, [recipes]);
 
   const categoryCounts = useMemo(() => {
     return categories.reduce<Record<string, number>>((acc, category) => {
@@ -267,48 +313,7 @@ export default function SearchTab({
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredRecipes.map(recipe => (
-              <div
-                key={recipe.id}
-                onClick={() => onSelectRecipe(recipe)}
-                className="bg-surface-container-low border border-surface-container-high rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer group relative"
-              >
-                <div className="relative">
-                  <img
-                    className="w-full h-44 object-cover"
-                    src={recipe.coverImage}
-                    alt={recipe.title}
-                    referrerPolicy="no-referrer"
-                  />
-                  <button
-                    type="button"
-                    onClick={event => {
-                      event.stopPropagation();
-                      onToggleFavorite(recipe.id);
-                    }}
-                    className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/80 backdrop-blur-sm shadow-sm flex items-center justify-center text-secondary active:scale-90 hover:scale-105 transition-all outline-none"
-                    aria-label={recipe.isSaved ? 'Remove from favorites' : 'Add to favorites'}
-                  >
-                    <Heart className={`w-4 h-4 ${recipe.isSaved ? 'fill-secondary text-secondary' : 'text-secondary'}`} />
-                  </button>
-                </div>
-                <div className="p-4 space-y-2">
-                  <span className="px-2 py-0.5 rounded-full bg-secondary-fixed text-on-secondary-fixed-variant font-sans text-[10px] font-bold">
-                    {getRecipeCategories(recipe).join(', ')}
-                  </span>
-                  <h3 className="font-display font-semibold text-base text-primary leading-snug group-hover:text-secondary duration-300 transition-colors line-clamp-1">
-                    {recipe.title}
-                  </h3>
-                  <p className="font-sans text-xs font-semibold text-on-surface-variant">
-                    {formatRecipeCreatorLine(recipe, workspaceMembers).split(' · ')[0]}
-                  </p>
-                  <div className="flex items-center gap-1.5 text-xs text-outline font-semibold">
-                    <Clock className="w-3.5 h-3.5" />
-                    <span>{recipe.prepTime} mins</span>
-                  </div>
-                </div>
-              </div>
-            ))}
+            {filteredRecipes.map(recipe => <React.Fragment key={recipe.id}><RecipeLibraryCard recipe={recipe} nutrition={recipeNutrition[recipe.id]} workspaceMembers={workspaceMembers} onSelectRecipe={onSelectRecipe} onToggleFavorite={onToggleFavorite} /></React.Fragment>)}
           </div>
         )}
       </section>

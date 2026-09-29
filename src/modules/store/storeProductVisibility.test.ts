@@ -118,11 +118,22 @@ test('Edit loads the selected unavailable product into an independent draft', ()
   assert.notEqual(draft.optionGroupIds, selectedProduct.optionGroupIds);
 });
 
+test('Product calories stay editable independently of the linked Recipe', () => {
+  const selectedProduct = { ...products[1], recipeId: 'recipe-a', calories: 320 };
+  const draft = getStoreProductEditorDraft(selectedProduct);
+  const updated = buildUpdatedStoreProduct(selectedProduct, { ...draft, calories: 410 }, '2026-08-23T01:00:00.000Z');
+
+  assert.equal(draft.calories, 320);
+  assert.equal(updated.calories, 410);
+  assert.equal(updated.recipeId, 'recipe-a');
+});
+
 test('validation messages map to the first appropriate editable field', () => {
   assert.equal(getStoreProductValidationTarget('Product photo is required.'), 'photo');
   assert.equal(getStoreProductValidationTarget('Product name is required.'), 'name');
   assert.equal(getStoreProductValidationTarget('Product description must be shorter.'), 'description');
   assert.equal(getStoreProductValidationTarget('Enter a valid product price.'), 'price');
+  assert.equal(getStoreProductValidationTarget('Calories must be a non-negative whole number.'), 'calories');
   assert.equal(getStoreProductValidationTarget('Add at least one option choice.'), 'options');
 });
 

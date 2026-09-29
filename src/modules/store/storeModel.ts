@@ -393,6 +393,9 @@ export const normalizeStoreProduct = (
   name: readString(data.name, 'Product'),
   description: readString(data.description),
   price: readPrice(data.price),
+  ...(Number.isInteger(Number(data.calories)) && Number(data.calories) >= 0
+    ? { calories: Number(data.calories) }
+    : {}),
   recipeId: readString(data.recipeId) || readString(data.linkedRecipeId) || undefined,
   ...(Number.isFinite(Number(data.estimatedCost)) && Number(data.estimatedCost) >= 0
     ? { estimatedCost: Number(data.estimatedCost) }
@@ -504,6 +507,7 @@ export const validateStoreProduct = (draft: StoreProductDraft) => {
   if (draft.name.trim().length > 160) return 'Product name must be 160 characters or fewer.';
   if (draft.description.trim().length > 1200) return 'Product description must be 1,200 characters or fewer.';
   if (!Number.isFinite(draft.price) || draft.price < 0) return 'Enter a valid product price.';
+  if (draft.calories !== undefined && (!Number.isInteger(draft.calories) || draft.calories < 0)) return 'Calories must be a non-negative whole number.';
   if (draft.optionGroupIds.length > 10) return 'Use 10 option groups or fewer on one product.';
   if (new Set(draft.optionGroupIds).size !== draft.optionGroupIds.length) return 'A product cannot use the same option group twice.';
   return '';
