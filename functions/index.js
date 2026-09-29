@@ -689,15 +689,13 @@ export const stripeStorePaymentWebhook = onRequest({
   }
 });
 
-export const curlecStorePaymentWebhook = onRequest({
-  region: REGION,
-  invoker: 'public',
-  secrets: [curlecKeyId, curlecKeySecret, curlecWebhookSecret],
-  timeoutSeconds: 30,
-  memory: '256MiB'
-}, curlecStorePaymentWebhookHandler);
-
-export async function curlecStorePaymentWebhookHandler(request, response) {
+export const createCurlecStorePaymentWebhookHandler = ({
+  webhookDb = db,
+  createAdapter = createPaymentAdapter,
+  getCurlecKeyId = () => curlecKeyId.value(),
+  getCurlecKeySecret = () => curlecKeySecret.value(),
+  getWebhookSecret = () => curlecWebhookSecret.value()
+} = {}) => async (request, response) => {
   if (request.method !== 'POST') {
     response.status(405).send('Method not allowed');
     return;
@@ -709,9 +707,9 @@ export async function curlecStorePaymentWebhookHandler(request, response) {
     rawBodyByteLength: 0
   };
   try {
-    const adapter = createPaymentAdapter('curlec', {
-      curlecKeyId: curlecKeyId.value(),
-      curlecKeySecret: curlecKeySecret.value(),
+    const adapter = createAdapter('curlec', {
+      curlecKeyId: getCurlecKeyId(),
+      curlecKeySecret: getCurlecKeySecret(),
       curlecPaymentLink: request.body?.event === 'payment_link.paid'
     });
     const signature = request.get('X-Razorpay-Signature');
@@ -720,7 +718,7 @@ export async function curlecStorePaymentWebhookHandler(request, response) {
       rawBody: request.rawBody
     });
     const { verifyCurlecWebhookSignature, getCurlecWebhookDedupeId } = await import('./paymentProviders/curlecStandardCheckout.js');
-    if (!verifyCurlecWebhookSignature(request.rawBody, signature, curlecWebhookSecret.value())) {
+    if (!verifyCurlecWebhookSignature(request.rawBody, signature, getWebhookSecret())) {
       throw new Error('Invalid Curlec webhook signature.');
     }
     const payload = request.body;
@@ -733,7 +731,7 @@ export async function curlecStorePaymentWebhookHandler(request, response) {
       type: payload?.event
     };
     const result = await handleStorePaymentWebhook({
-      db,
+      db: webhookDb,
       adapter,
       event,
       onRejectionStage: stage => { rejectionStage = stage; }
@@ -747,7 +745,17 @@ export async function curlecStorePaymentWebhookHandler(request, response) {
     }));
     response.status(400).send('Webhook rejected');
   }
-}
+};
+
+export const curlecStorePaymentWebhookHandler = createCurlecStorePaymentWebhookHandler();
+
+export const curlecStorePaymentWebhook = onRequest({
+  region: REGION,
+  invoker: 'public',
+  secrets: [curlecKeyId, curlecKeySecret, curlecWebhookSecret],
+  timeoutSeconds: 30,
+  memory: '256MiB'
+}, curlecStorePaymentWebhookHandler);
 
 export const updateStoreOrderStatus = onCall({
   region: REGION,
