@@ -748,6 +748,22 @@ export const handleStorePaymentWebhook = async ({ db, adapter, event, onRejectio
     return { received: true, ignored: true };
   }
   const providerPaymentId = readString(update.payment?.providerPaymentId);
+  // A Payment Link also emits the ordinary payment/order events. Those events
+  // identify the gateway order, while the persisted local relationship is the
+  // Payment Link (`plink_…`) ID. They cannot prove a state transition for that
+  // local order, and must not be reconciled as Standard Checkout events.
+  const isPaymentLinkCompanionEvent = ['payment.captured', 'order.paid', 'payment.failed']
+    .includes(readString(event?.event));
+  const linkedOrderId = readString(update.payment?.orderId);
+  if (isPaymentLinkCompanionEvent && linkedOrderId) {
+    const linkedOrderSnapshot = await db.collection('storeOrders').doc(linkedOrderId).get();
+    const linkedOrder = linkedOrderSnapshot.exists ? linkedOrderSnapshot.data() : null;
+    if (readString(linkedOrder?.payment?.provider) === 'curlec'
+      && readString(linkedOrder?.payment?.providerMode) === 'payment_link'
+      && readString(linkedOrder?.payment?.providerPaymentId).startsWith('plink_')) {
+      return { received: true, ignored: true, reason: 'payment_link_companion_event' };
+    }
+  }
   // Curlec webhooks are keyed by the gateway Order ID. Resolve the local order
   // from that server-persisted ID instead of requiring notes to be echoed back.
   if (!readString(update.payment?.orderId) && providerPaymentId) {
