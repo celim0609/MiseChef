@@ -90,9 +90,9 @@ const adapterFor = ({ payment = localPayment, verifiedPayment = null, onLookup }
   }
 });
 
-const getResult = ({ db, adapter, token = checkoutToken, providerPaymentId = 'order_curlec_1' }) => getStorePaymentResult({
+const getResult = ({ db, adapter, resolveVerificationAdapter, token = checkoutToken, providerPaymentId = 'order_curlec_1' }) => getStorePaymentResult({
   db, adapter, sellingWorkspaceId: 'workspace-1', slug: 'test-store',
-  providerPaymentId, checkoutAccessToken: token
+  resolveVerificationAdapter, providerPaymentId, checkoutAccessToken: token
 });
 
 test('authorized Payment Link return uses its persisted pending state without a Standard Checkout lookup', async () => {
@@ -105,6 +105,36 @@ test('authorized Payment Link return uses its persisted pending state without a 
   assert.equal(result.paymentStatus, 'pending');
   assert.equal(result.status, 'Awaiting Payment');
   assert.equal(lookupCalls, 0);
+  assert.equal(db.writes.length, 0);
+});
+
+test('provider-confirmed Payment Link return reconciles once while the delayed signed webhook remains idempotent', async () => {
+  const db = dbFor({ payment: { ...order().payment, providerMode: 'payment_link', providerPaymentId: 'plink_curlec_1' } });
+  let standardLookupCalls = 0;
+  let linkLookupCalls = 0;
+  const linkAdapter = adapterFor({ payment: paymentLinkPayment, verifiedPayment: {
+    ...paymentLinkPayment, providerTransactionId: 'pay_curlec_1', status: 'paid', providerStatus: 'captured', paymentMethod: 'wallet', failureCode: ''
+  }, onLookup: () => { linkLookupCalls += 1; } });
+  linkAdapter.mode = 'payment_link';
+  const standardAdapter = adapterFor({ payment: paymentLinkPayment, onLookup: () => { standardLookupCalls += 1; } });
+  const first = await getResult({ db, providerPaymentId: 'plink_curlec_1', adapter: standardAdapter, resolveVerificationAdapter: () => linkAdapter });
+  const second = await getResult({ db, providerPaymentId: 'plink_curlec_1', adapter: standardAdapter, resolveVerificationAdapter: () => linkAdapter });
+  assert.equal(first.paymentStatus, 'paid');
+  assert.equal(second.paymentStatus, 'paid');
+  assert.equal(linkLookupCalls, 1);
+  assert.equal(standardLookupCalls, 0);
+  assert.equal(db.documents.get('storeOrders/mise-order-1').payment.providerTransactionId, 'pay_curlec_1');
+});
+
+test('Payment Link provider lookup failure leaves the authorized pending order unchanged', async () => {
+  const db = dbFor({ payment: { ...order().payment, providerMode: 'payment_link', providerPaymentId: 'plink_curlec_1' } });
+  const linkAdapter = adapterFor({ payment: paymentLinkPayment, onLookup: () => { throw new Error('Curlec unavailable'); } });
+  linkAdapter.mode = 'payment_link';
+  await assert.rejects(getResult({
+    db, providerPaymentId: 'plink_curlec_1', adapter: adapterFor({ payment: paymentLinkPayment }),
+    resolveVerificationAdapter: () => linkAdapter
+  }), /Curlec unavailable/);
+  assert.equal(db.documents.get('storeOrders/mise-order-1').payment.status, 'pending');
   assert.equal(db.writes.length, 0);
 });
 

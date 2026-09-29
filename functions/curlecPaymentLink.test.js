@@ -65,3 +65,32 @@ test('Curlec Payment Link reference is deterministic across a retried provider c
   await adapter.createPayment({ order, returnUrl: 'https://misechef-beta-fa4bf.web.app/store/test', checkoutAccessToken: 'opaque-token' });
   assert.deepEqual(references, ['mc_mise-order-link-1', 'mc_mise-order-link-1']);
 });
+
+test('Curlec Payment Link lookup promotes only the exact provider-confirmed captured link payment', async () => {
+  const requests = [];
+  const adapter = createCurlecPaymentLinkAdapter('key_id', 'key_secret', { fetchImpl: async (url, options) => {
+    requests.push({ url, options });
+    return { ok: true, status: 200, json: async () => ({
+      id: 'plink_1', status: 'paid', amount: 1590, amount_paid: 1590, currency: 'MYR',
+      notes: { misechefOrderId: 'mise-order-link-1' },
+      payments: [{ payment_id: 'pay_1', status: 'captured', amount: 1590, method: 'wallet' }]
+    }) };
+  } });
+  const result = await adapter.retrieveVerifiedCapturedPayment({ order: { ...order, payment: { providerPaymentId: 'plink_1', amountMinor: 1590 } } });
+  assert.deepEqual(result, {
+    providerPaymentId: 'plink_1', providerTransactionId: 'pay_1', orderId: 'mise-order-link-1', amountMinor: 1590,
+    currency: 'MYR', status: 'paid', providerStatus: 'captured', paymentMethod: 'wallet', failureCode: ''
+  });
+  assert.equal(requests[0].url, 'https://api.razorpay.com/v1/payment_links/plink_1');
+  assert.equal(requests[0].options.method, undefined);
+});
+
+test('Curlec Payment Link lookup leaves pending or unverifiable links unpromoted and fails safely on provider errors', async () => {
+  const pending = createCurlecPaymentLinkAdapter('key_id', 'key_secret', { fetchImpl: async () => ({
+    ok: true, status: 200, json: async () => ({ id: 'plink_1', status: 'created', amount: 1590, amount_paid: 0, currency: 'MYR', notes: { misechefOrderId: 'mise-order-link-1' }, payments: null })
+  }) });
+  const linkOrder = { ...order, payment: { providerPaymentId: 'plink_1', amountMinor: 1590 } };
+  assert.equal(await pending.retrieveVerifiedCapturedPayment({ order: linkOrder }), null);
+  const unavailable = createCurlecPaymentLinkAdapter('key_id', 'key_secret', { fetchImpl: async () => { throw new Error('unavailable'); } });
+  await assert.rejects(unavailable.retrieveVerifiedCapturedPayment({ order: linkOrder }), error => error.name === 'CurlecPaymentLookupError');
+});

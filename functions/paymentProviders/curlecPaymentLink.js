@@ -1,5 +1,5 @@
 import { PAYMENT_STATUS, readString } from '../storePaymentsCore.js';
-import { CurlecOrderCreationError } from './curlecStandardCheckout.js';
+import { CurlecOrderCreationError, CurlecPaymentLookupError } from './curlecStandardCheckout.js';
 
 export const CURLEC_PAYMENT_LINK_MODE = 'payment_link';
 const API_URL = 'https://api.razorpay.com/v1/payment_links';
@@ -62,6 +62,41 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
       if (!document) throw new Error('The matching MiseChef order could not be found.');
       const order = document.data();
       return { providerPaymentId: readString(providerPaymentId), orderId: document.id, amountMinor: Number(order.payment?.amountMinor), currency: readString(order.currency), status: readString(order.payment?.status) || PAYMENT_STATUS.pending, providerStatus: readString(order.payment?.status), paymentMethod: readString(order.payment?.providerPaymentMethod), providerTransactionId: readString(order.payment?.providerTransactionId), failureCode: readString(order.payment?.failureCode) };
+    },
+    async retrieveVerifiedCapturedPayment({ order }) {
+      const providerPaymentId = readString(order?.payment?.providerPaymentId);
+      if (!providerPaymentId.startsWith('plink_')) throw new CurlecPaymentLookupError();
+      let response;
+      try {
+        response = await fetchImpl(`${API_URL}/${encodeURIComponent(providerPaymentId)}`, {
+          headers: { authorization: authorizationHeader(keyId, keySecret) }
+        });
+      } catch {
+        throw new CurlecPaymentLookupError();
+      }
+      const paymentLink = await response.json().catch(() => ({}));
+      if (!response.ok) throw new CurlecPaymentLookupError();
+      const payments = Array.isArray(paymentLink?.payments) ? paymentLink.payments : [];
+      const capturedPayments = payments.filter(payment => (
+        readString(payment?.status) === 'captured'
+        && Number(payment?.amount) === Number(order.payment?.amountMinor)
+        && readString(payment?.payment_id)
+      ));
+      if (readString(paymentLink?.id) !== providerPaymentId
+        || readString(paymentLink?.status) !== 'paid'
+        || Number(paymentLink?.amount) !== Number(order.payment?.amountMinor)
+        || Number(paymentLink?.amount_paid) !== Number(order.payment?.amountMinor)
+        || readString(paymentLink?.currency).toUpperCase() !== readString(order.currency).toUpperCase()
+        || readString(paymentLink?.notes?.misechefOrderId) !== readString(order.id)
+        || capturedPayments.length !== 1) return null;
+      const capturedPayment = capturedPayments[0];
+      return {
+        providerPaymentId,
+        providerTransactionId: readString(capturedPayment.payment_id),
+        orderId: readString(order.id), amountMinor: Number(order.payment.amountMinor),
+        currency: readString(order.currency).toUpperCase(), status: PAYMENT_STATUS.paid,
+        providerStatus: 'captured', paymentMethod: readString(capturedPayment.method), failureCode: ''
+      };
     },
     async cancelPayment() { throw new Error('Curlec payment link cancellation is not available from checkout.'); },
     readWebhookUpdate(event) {

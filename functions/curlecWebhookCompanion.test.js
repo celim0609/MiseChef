@@ -105,6 +105,16 @@ test('signed Payment Link companion events are idempotent after payment_link.pai
   }
 });
 
+test('a delayed signed payment_link.paid webhook is idempotent after provider reconciliation', async () => {
+  const memory = createMemoryDb({ [orderId]: paymentLinkOrder({ status: 'paid' }) });
+  const handler = handlerFor(memory.db);
+  const result = await invoke({ handler, payload: paymentLinkPaid(), eventId: 'delayed-link-paid' });
+  assert.equal(result.statusCode, 200);
+  assert.equal(memory.order(orderId).status, 'Paid');
+  assert.equal(memory.order(orderId).payment.status, 'paid');
+  assert.equal(memory.order(orderId).payment.providerPaymentId, 'plink_link_1');
+});
+
 test('signed payment.failed reconciles Standard Checkout but not an associated Payment Link', async () => {
   const standard = createMemoryDb({ 'misechef-standard-order': standardOrder() });
   const standardResult = await invoke({
