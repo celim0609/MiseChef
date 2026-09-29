@@ -58,7 +58,7 @@ const order = (overrides = {}) => ({
   id: 'mise-order-1', orderNumber: 'MC-0908-ABCD', storeId: 'store-1', workspaceId: 'workspace-1',
   storeName: 'MiseChef Kitchen', currency: 'MYR', status: 'Awaiting Payment', fulfilmentStatus: 'New',
   payment: {
-    provider: 'curlec', providerPaymentId: 'order_curlec_1', amountMinor: 1590, status: 'pending',
+    provider: 'curlec', providerMode: 'standard_checkout', providerPaymentId: 'order_curlec_1', amountMinor: 1590, status: 'pending',
     checkoutAccessTokenHash: hashToken(checkoutToken)
   },
   ...overrides
@@ -77,19 +77,72 @@ const capturedPayment = {
   ...localPayment, providerTransactionId: 'pay_curlec_1', status: 'paid',
   providerStatus: 'captured', paymentMethod: 'fpx', failureCode: ''
 };
+const paymentLinkPayment = {
+  ...localPayment, providerPaymentId: 'plink_curlec_1'
+};
 
-const adapterFor = ({ verifiedPayment = null, onLookup } = {}) => ({
-  provider: 'curlec', requiresSellingWorkspace: true,
-  retrievePayment: async () => localPayment,
+const adapterFor = ({ payment = localPayment, verifiedPayment = null, onLookup } = {}) => ({
+  provider: 'curlec', mode: 'standard_checkout', requiresSellingWorkspace: true,
+  retrievePayment: async () => payment,
   retrieveVerifiedCapturedPayment: async ({ order: authorizedOrder }) => {
     onLookup?.(authorizedOrder);
     return verifiedPayment;
   }
 });
 
-const getResult = ({ db, adapter, token = checkoutToken }) => getStorePaymentResult({
+const getResult = ({ db, adapter, token = checkoutToken, providerPaymentId = 'order_curlec_1' }) => getStorePaymentResult({
   db, adapter, sellingWorkspaceId: 'workspace-1', slug: 'test-store',
-  providerPaymentId: 'order_curlec_1', checkoutAccessToken: token
+  providerPaymentId, checkoutAccessToken: token
+});
+
+test('authorized Payment Link return uses its persisted pending state without a Standard Checkout lookup', async () => {
+  const db = dbFor({ payment: { ...order().payment, providerMode: 'payment_link', providerPaymentId: 'plink_curlec_1' } });
+  let lookupCalls = 0;
+  const result = await getResult({
+    db, providerPaymentId: 'plink_curlec_1',
+    adapter: adapterFor({ payment: paymentLinkPayment, onLookup: () => { lookupCalls += 1; } })
+  });
+  assert.equal(result.paymentStatus, 'pending');
+  assert.equal(result.status, 'Awaiting Payment');
+  assert.equal(lookupCalls, 0);
+  assert.equal(db.writes.length, 0);
+});
+
+test('Standard Checkout reconciliation still performs its verified provider lookup', async () => {
+  const db = dbFor();
+  let lookupCalls = 0;
+  const result = await getResult({ db, adapter: adapterFor({
+    verifiedPayment: capturedPayment,
+    onLookup: () => { lookupCalls += 1; }
+  }) });
+  assert.equal(lookupCalls, 1);
+  assert.equal(result.paymentStatus, 'paid');
+  assert.equal(db.documents.get('storeOrders/mise-order-1').payment.status, 'paid');
+});
+
+test('Payment Link return preserves a paid state written by the signed webhook without a provider lookup', async () => {
+  const db = dbFor({ status: 'Paid', payment: { ...order().payment, providerMode: 'payment_link', providerPaymentId: 'plink_curlec_1', status: 'paid', providerTransactionId: 'pay_curlec_1' } });
+  let lookupCalls = 0;
+  const result = await getResult({
+    db, providerPaymentId: 'plink_curlec_1',
+    adapter: adapterFor({ payment: { ...paymentLinkPayment, status: 'paid', providerTransactionId: 'pay_curlec_1' }, onLookup: () => { lookupCalls += 1; } })
+  });
+  assert.equal(result.paymentStatus, 'paid');
+  assert.equal(result.status, 'Paid');
+  assert.equal(lookupCalls, 0);
+  assert.equal(db.writes.length, 0);
+});
+
+test('invalid checkout access token prevents Payment Link result access before any provider lookup', async () => {
+  const db = dbFor({ payment: { ...order().payment, providerMode: 'payment_link', providerPaymentId: 'plink_curlec_1' } });
+  let lookupCalls = 0;
+  await assert.rejects(getResult({
+    db, token: 'invalid-token', providerPaymentId: 'plink_curlec_1',
+    adapter: adapterFor({ payment: paymentLinkPayment, onLookup: () => { lookupCalls += 1; } })
+  }), /checkout access token is invalid/);
+  assert.equal(lookupCalls, 0);
+  assert.equal(db.documents.get('storeOrders/mise-order-1').payment.status, 'pending');
+  assert.equal(db.writes.length, 0);
 });
 
 test('authorized Curlec manual lookup promotes one verified captured payment through reconciliation', async () => {
