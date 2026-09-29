@@ -700,7 +700,10 @@ export const getStorePaymentResult = async ({
   // Most gateways remain webhook-owned. Curlec Standard Checkout additionally
   // supports a strictly authorized, server-side captured-payment lookup for
   // recovery when a signed webhook has not arrived.
-  if (typeof adapter.retrieveVerifiedCapturedPayment !== 'function') {
+  // A Payment Link is webhook-owned: its persisted plink_ ID is not a Curlec
+  // Standard Checkout order ID and must never be sent to the order lookup.
+  if (readString(authorizedOrder.payment?.providerMode) !== readString(adapter.mode)
+    || typeof adapter.retrieveVerifiedCapturedPayment !== 'function') {
     return toPublicOrderResult(authorizedOrder);
   }
   // This recovery path is intentionally promotion-only. A terminal or other
