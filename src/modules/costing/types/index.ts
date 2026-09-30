@@ -5,6 +5,10 @@ export type CostingIngredientStatus = 'Active' | 'Archived';
 export interface CostingIngredient {
   id: string;
   name: string;
+  canonicalKey?: string;
+  canonicalBaseKey?: string;
+  canonicalSource?: 'auto_enrichment_v1';
+  priceStatus?: 'missing';
   packQuantity?: number;
   packUnit?: string;
   packPrice?: number;

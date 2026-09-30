@@ -19,6 +19,7 @@ export interface Ingredient {
   costingUnit?: string;
   costLastCalculatedAt?: string;
   costingWarning?: string;
+  priceStatus?: 'missing';
   notes?: string;
 }
 
@@ -69,6 +70,18 @@ export interface IngredientNutritionProfile {
   confirmedBy: string;
   confirmedAt: string;
   updatedAt: string;
+  resolutionAudit?: {
+    method: 'curated_auto' | 'workspace_choice';
+    baseKey: string;
+    variantKey: string;
+    culinaryChoiceLabel: string;
+    resolverVersion: 'v1';
+    inputName: string;
+    matchedAlias: string;
+    fdcId: string;
+    usdaDescription: string;
+    resolvedAt: string;
+  };
 }
 
 export type RecipeNutritionStatus = 'COMPLETE' | 'INCOMPLETE';

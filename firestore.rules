@@ -1187,6 +1187,16 @@ service cloud.firestore {
       allow delete: if isWorkspaceOwnerOrManager(existingWorkspaceId());
     }
 
+    // Server-only uniqueness guard for recipe auto-enrichment. Clients use the
+    // resolved canonical Ingredient, never the index itself.
+    match /workspaceIngredientCanonicalKeys/{key} {
+      allow read, write: if false;
+    }
+
+    match /workspaceIngredientResolutions/{key} {
+      allow read, write: if false;
+    }
+
     // Nutrition is intentionally separate from ingredient costing. USDA catalog
     // documents are Admin-SDK-only; workspace profiles are private to members.
     match /nutritionCatalog/{catalogId} {
