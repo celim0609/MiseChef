@@ -28,6 +28,10 @@ import { loadIngredientNutritionProfiles } from '../modules/nutrition/services/i
 import { calculateRecipeNutrition } from '../modules/nutrition/services/recipeNutritionCalculator';
 import type { IngredientNutritionProfile } from '../types';
 import { resolveRecipeIngredientEnrichment, type RecipeIngredientResolution } from '../modules/recipe-enrichment/services/recipeIngredientEnrichmentService';
+import {
+  getPendingRecipeIngredientEnrichmentTargets,
+  markUnlinkedRecipeIngredientRowsForAutoEnrichment
+} from '../modules/recipe-enrichment/services/recipeIngredientAutoEnrichment';
 
 const MAX_COVER_IMAGE_SIDE = 1200;
 const MAX_COVER_IMAGE_BYTES = 500 * 1024;
@@ -681,6 +685,16 @@ export default function AddRecipeTab({
   const [ingredientResolutions, setIngredientResolutions] = useState<Record<string, RecipeIngredientResolution>>({});
   const [nutritionProfiles, setNutritionProfiles] = useState<Record<string, IngredientNutritionProfile | undefined>>({});
   const [importedIngredientIds, setImportedIngredientIds] = useState<string[]>([]);
+  const ingredientsRef = useRef(ingredients);
+  const pendingAutoEnrichmentRowIdsRef = useRef(new Set<string>());
+  const attemptedAutoEnrichmentNamesRef = useRef(new Map<string, string>());
+  const inFlightEnrichmentKeysRef = useRef(new Set<string>());
+  const initialRowsMarkedForAutoEnrichmentRef = useRef(false);
+
+  if (!initialRowsMarkedForAutoEnrichmentRef.current && initialRecipe?.ingredients?.length) {
+    markUnlinkedRecipeIngredientRowsForAutoEnrichment(initialRecipe.ingredients, pendingAutoEnrichmentRowIdsRef.current);
+    initialRowsMarkedForAutoEnrichmentRef.current = true;
+  }
 
   // Method steps state
   const [methodSteps, setMethodSteps] = useState<MethodStep[]>(
@@ -745,6 +759,10 @@ export default function AddRecipeTab({
     recommendedProductIds,
     videoLink
   });
+
+  useEffect(() => {
+    ingredientsRef.current = ingredients;
+  }, [ingredients]);
 
   useEffect(() => {
     let active = true;
@@ -874,10 +892,16 @@ export default function AddRecipeTab({
 
   const removeIngredientRow = (id: string) => {
     if (ingredients.length === 1) return;
+    pendingAutoEnrichmentRowIdsRef.current.delete(id);
+    attemptedAutoEnrichmentNamesRef.current.delete(id);
     setIngredients(prev => prev.filter(ing => ing.id !== id));
   };
 
   const updateIngredient = (id: string, field: keyof Ingredient, value: string) => {
+    if (field === 'name') {
+      pendingAutoEnrichmentRowIdsRef.current.delete(id);
+      attemptedAutoEnrichmentNamesRef.current.delete(id);
+    }
     setIngredients(prev =>
       prev.map(ing => (ing.id === id ? {
         ...ing,
@@ -895,8 +919,13 @@ export default function AddRecipeTab({
     const name = ingredient.name.trim();
     const resolvedWorkspaceId = workspaceId || userId || '';
     if (!name || !resolvedWorkspaceId) return;
+    const inFlightKey = `${ingredient.id}\u0000${name}`;
+    if (inFlightEnrichmentKeysRef.current.has(inFlightKey)) return;
+    inFlightEnrichmentKeysRef.current.add(inFlightKey);
     try {
       const resolution = await resolveRecipeIngredientEnrichment({ workspaceId: resolvedWorkspaceId, name, variantKey });
+      const currentIngredient = ingredientsRef.current.find(item => item.id === ingredient.id);
+      if (!currentIngredient || currentIngredient.name.trim() !== name) return;
       setIngredientResolutions(current => ({ ...current, [ingredient.id]: resolution }));
       if (resolution.status !== 'auto_matched' || !resolution.ingredient) return;
       setIngredients(current => current.map(item => item.id === ingredient.id ? {
@@ -909,8 +938,33 @@ export default function AddRecipeTab({
         : [...current, resolution.ingredient!].sort((a, b) => a.name.localeCompare(b.name)));
     } catch (error) {
       console.warn('Ingredient auto-enrichment was unavailable.', error);
+    } finally {
+      inFlightEnrichmentKeysRef.current.delete(inFlightKey);
+      const currentIngredient = ingredientsRef.current.find(item => item.id === ingredient.id);
+      if (currentIngredient?.name.trim() === name) {
+        pendingAutoEnrichmentRowIdsRef.current.delete(ingredient.id);
+      }
     }
   };
+
+  useEffect(() => {
+    const liveRowIds = new Set(ingredients.map(ingredient => ingredient.id));
+    pendingAutoEnrichmentRowIdsRef.current.forEach(id => {
+      if (!liveRowIds.has(id)) {
+        pendingAutoEnrichmentRowIdsRef.current.delete(id);
+        attemptedAutoEnrichmentNamesRef.current.delete(id);
+      }
+    });
+
+    getPendingRecipeIngredientEnrichmentTargets(
+      ingredients,
+      pendingAutoEnrichmentRowIdsRef.current,
+      attemptedAutoEnrichmentNamesRef.current
+    ).forEach(ingredient => {
+      attemptedAutoEnrichmentNamesRef.current.set(ingredient.id, ingredient.name.trim());
+      void enrichRecipeIngredient(ingredient);
+    });
+  }, [ingredients]);
 
   const handleIngredientLibrarySelect = (id: string, ingredientId: string) => {
     const matchedIngredient = libraryIngredients.find(ingredient => ingredient.id === ingredientId);
@@ -1175,6 +1229,7 @@ export default function AddRecipeTab({
     if (recipe.chefNotes) setChefNotes(recipe.chefNotes);
     if (recipe.scannedImageDataUrl) setScannedImageDataUrl(recipe.scannedImageDataUrl);
     const normalizedImportedIngredients = recipe.ingredients.map(normalizeIngredientForDisplay);
+    markUnlinkedRecipeIngredientRowsForAutoEnrichment(normalizedImportedIngredients, pendingAutoEnrichmentRowIdsRef.current);
     setIngredients(normalizedImportedIngredients);
     setImportedIngredientIds(normalizedImportedIngredients.map(ingredient => ingredient.id));
     setMethodSteps(recipe.method.length > 0
