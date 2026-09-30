@@ -27,6 +27,7 @@ import { validateRecipeDependencies } from '../modules/costing/services/recipeDe
 import { loadIngredientNutritionProfiles } from '../modules/nutrition/services/ingredientNutritionProfileService';
 import { calculateRecipeNutrition } from '../modules/nutrition/services/recipeNutritionCalculator';
 import type { IngredientNutritionProfile } from '../types';
+import { resolveRecipeIngredientEnrichment, type RecipeIngredientResolution } from '../modules/recipe-enrichment/services/recipeIngredientEnrichmentService';
 
 const MAX_COVER_IMAGE_SIDE = 1200;
 const MAX_COVER_IMAGE_BYTES = 500 * 1024;
@@ -677,6 +678,7 @@ export default function AddRecipeTab({
   );
   const [linkedRecipes, setLinkedRecipes] = useState<LinkedRecipeComponent[]>(initialRecipe?.linkedRecipes || []);
   const [libraryIngredients, setLibraryIngredients] = useState<CostingIngredient[]>([]);
+  const [ingredientResolutions, setIngredientResolutions] = useState<Record<string, RecipeIngredientResolution>>({});
   const [nutritionProfiles, setNutritionProfiles] = useState<Record<string, IngredientNutritionProfile | undefined>>({});
   const [importedIngredientIds, setImportedIngredientIds] = useState<string[]>([]);
 
@@ -877,8 +879,37 @@ export default function AddRecipeTab({
 
   const updateIngredient = (id: string, field: keyof Ingredient, value: string) => {
     setIngredients(prev =>
-      prev.map(ing => (ing.id === id ? { ...ing, [field]: value } : ing))
+      prev.map(ing => (ing.id === id ? {
+        ...ing,
+        [field]: value,
+        ...(field === 'name' ? { ingredientId: undefined, priceStatus: undefined } : {})
+      } : ing))
     );
+    if (field === 'name') setIngredientResolutions(current => {
+      const { [id]: _discarded, ...remaining } = current;
+      return remaining;
+    });
+  };
+
+  const enrichRecipeIngredient = async (ingredient: Ingredient, variantKey?: string) => {
+    const name = ingredient.name.trim();
+    const resolvedWorkspaceId = workspaceId || userId || '';
+    if (!name || !resolvedWorkspaceId) return;
+    try {
+      const resolution = await resolveRecipeIngredientEnrichment({ workspaceId: resolvedWorkspaceId, name, variantKey });
+      setIngredientResolutions(current => ({ ...current, [ingredient.id]: resolution }));
+      if (resolution.status !== 'auto_matched' || !resolution.ingredient) return;
+      setIngredients(current => current.map(item => item.id === ingredient.id ? {
+        ...item,
+        ingredientId: resolution.ingredient!.id,
+        priceStatus: resolution.priceStatus
+      } : item));
+      setLibraryIngredients(current => current.some(item => item.id === resolution.ingredient!.id)
+        ? current
+        : [...current, resolution.ingredient!].sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (error) {
+      console.warn('Ingredient auto-enrichment was unavailable.', error);
+    }
   };
 
   const handleIngredientLibrarySelect = (id: string, ingredientId: string) => {
@@ -1907,6 +1938,7 @@ export default function AddRecipeTab({
                     updateIngredient(ing.id, 'name', e.target.value);
                     clearValidationError('ingredients');
                   }}
+                  onBlur={() => void enrichRecipeIngredient(ing)}
                   aria-invalid={Boolean(validationErrors.ingredients)}
                   className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold"
                 />
@@ -1951,6 +1983,24 @@ export default function AddRecipeTab({
                   ariaLabel={`Link ${ing.name || 'ingredient'} to Ingredient Library`}
                 />
               </div>
+              {ing.priceStatus === 'missing' && (
+                <p className="col-span-2 text-xs font-bold text-outline">Price Missing</p>
+              )}
+              {ingredientResolutions[ing.id]?.status === 'confirmation_required' && (
+                <div className="col-span-2 rounded-xl border border-secondary/30 bg-secondary/5 p-3">
+                  <p className="text-xs font-bold text-primary">Which one do you normally use?</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {ingredientResolutions[ing.id].candidates?.map(candidate => (
+                      <button key={candidate.variantKey} type="button" onClick={() => void enrichRecipeIngredient(ing, candidate.variantKey)} className="rounded-full border border-primary/30 px-3 py-1.5 text-xs font-bold text-primary">
+                        {candidate.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {ingredientResolutions[ing.id]?.status === 'unmatched' && (
+                <p className="col-span-2 text-xs font-bold text-outline">Nutrition needs clarification. You can link an existing Ingredient or use a more specific name.</p>
+              )}
               <button
                 type="button"
                 onClick={() => removeIngredientRow(ing.id)}
