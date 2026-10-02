@@ -29,10 +29,11 @@ test('delivery operational calls cannot cross the persisted provider environment
   assert.match(source, /assertDeliveryEnvironment\(\{ delivery: order\.delivery \|\| \{\}, provider \}\)/);
 });
 test('provider numeric coordinates and equivalent customer strings do not create a false destination mismatch', () => {
-  assert.match(source, /String\(Number\(raw\)\)/);
+  assert.match(source, /Number\.isFinite\(numeric\)/);
   assert.match(source, /sameDeliveryCoordinates/);
   assert.equal(sameDeliveryCoordinates(4.6569255, '4.65692550'), true);
   assert.equal(sameDeliveryCoordinates(101.1172608, '101.1172608'), true);
+  assert.equal(sameDeliveryCoordinates(4.1234567890123456, '4.1234567890123456'), true);
   assert.equal(sameDeliveryCoordinates(4.6569255, '4.6569256'), false);
 });
 test('a quote returns Lalamove canonical routing coordinates while retaining the Google Places address', () => {
