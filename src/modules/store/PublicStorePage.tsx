@@ -89,6 +89,12 @@ type PaymentReturnReconciliation = {
   timedOut: boolean;
 };
 
+type SelectedDeliveryDestination = {
+  formattedAddress: string;
+  latitude: string;
+  longitude: string;
+};
+
 const CHECKOUT_RECOVERY_KEY_PREFIX = 'misechef_checkout_recovery_v1:';
 const GROUP_DRAFT_KEY_PREFIX = 'misechef_group_checkout_draft_v1:';
 const STORE_DRAFT_KEY_PREFIX = 'misechef_store_checkout_draft_v1:';
@@ -176,9 +182,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const [deliveryTime, setDeliveryTime] = useState('');
   const [deliveryMode, setDeliveryMode] = useState<'preorder' | 'instant'>('preorder');
   const [deliveryAddressQuery, setDeliveryAddressQuery] = useState('');
-  const [deliveryAddress, setDeliveryAddress] = useState('');
-  const [deliveryLatitude, setDeliveryLatitude] = useState('');
-  const [deliveryLongitude, setDeliveryLongitude] = useState('');
+  const [deliveryDestination, setDeliveryDestination] = useState<SelectedDeliveryDestination | null>(null);
   const [deliveryUnit, setDeliveryUnit] = useState('');
   const [deliveryInstructions, setDeliveryInstructions] = useState('');
   const [deliverySuggestions, setDeliverySuggestions] = useState<PlaceSuggestion[]>([]);
@@ -215,10 +219,10 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const storeDraftKey = `${STORE_DRAFT_KEY_PREFIX}${slug}`;
   const deliveryPlacesSessionRef = useRef(crypto.randomUUID());
   const deliveryQuoteRequestRef = useRef(0);
+  const deliveryDestinationSelectionRef = useRef(0);
   const checkoutAttemptIdRef = useRef(crypto.randomUUID());
   const paymentStartRef = useRef(false);
 
-  const deliveryAddressForQuote = deliveryAddress;
   const requestedProduct = useMemo(() => (
     resolvePublicStoreProduct(data?.products || [], productSlug)
   ), [data?.products, productSlug]);
@@ -260,7 +264,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   }, [paymentReturnReconciliation]);
 
   useEffect(() => {
-    if (deliveryAddressQuery.trim().length < 3 || (deliveryAddress && deliveryAddressQuery === deliveryAddress)) {
+    if (deliveryAddressQuery.trim().length < 3 || (deliveryDestination && deliveryAddressQuery === deliveryDestination.formattedAddress)) {
       setDeliverySuggestions([]);
       setIsSearchingDeliveryAddress(false);
       return;
@@ -279,7 +283,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
         .finally(() => setIsSearchingDeliveryAddress(false));
     }, 250);
     return () => { controller.abort(); window.clearTimeout(timeout); };
-  }, [deliveryAddress, deliveryAddressQuery]);
+  }, [deliveryDestination, deliveryAddressQuery]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -824,9 +828,8 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     setDeliveryTime(store?.delivery?.fulfilment.preOrder.deliveryHours.from || '');
     deliveryQuoteRequestRef.current += 1;
     setDeliveryAddressQuery('');
-    setDeliveryAddress('');
-    setDeliveryLatitude('');
-    setDeliveryLongitude('');
+    deliveryDestinationSelectionRef.current += 1;
+    setDeliveryDestination(null);
     setDeliveryUnit('');
     setDeliveryInstructions('');
     setDeliverySuggestions([]);
@@ -1000,13 +1003,14 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   };
 
   const requestDeliveryQuote = async ({ refresh = false }: { refresh?: boolean } = {}): Promise<DeliveryQuote | null> => {
-    if (!deliveryAddress || !deliveryLatitude || !deliveryLongitude || (deliveryMode === 'preorder' && (!deliveryDate || !deliveryTime))) return null;
+    const destination = deliveryDestination;
+    if (!destination || (deliveryMode === 'preorder' && (!deliveryDate || !deliveryTime))) return null;
     const requestId = ++deliveryQuoteRequestRef.current;
     setIsCalculatingDelivery(true);
     setIsRefreshingDeliveryQuote(refresh);
     setCheckoutError('');
     try {
-      const quote = await storeDeliveryService.quote(slug, cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({ productId, ...(setId ? { setId } : {}), quantity, selectedOptions, ...(selectedSetItems ? { selectedSetItems } : {}) })), { formattedAddress: deliveryAddressForQuote, latitude: deliveryLatitude, longitude: deliveryLongitude, deliveryInstructions: deliveryRemarks }, deliveryDate, deliveryTime, deliveryMode);
+      const quote = await storeDeliveryService.quote(slug, cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems }) => ({ productId, ...(setId ? { setId } : {}), quantity, selectedOptions, ...(selectedSetItems ? { selectedSetItems } : {}) })), { ...destination, deliveryInstructions: deliveryRemarks }, deliveryDate, deliveryTime, deliveryMode);
       if (requestId === deliveryQuoteRequestRef.current) {
         setDeliveryQuote(quote);
         return quote;
@@ -1032,24 +1036,24 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   };
 
   useEffect(() => {
-    if (fulfilmentMethod !== 'delivery' || !deliveryAddress || !deliveryLatitude || !deliveryLongitude || (deliveryMode === 'preorder' && (!deliveryDate || !deliveryTime))) return;
+    if (fulfilmentMethod !== 'delivery' || !deliveryDestination || (deliveryMode === 'preorder' && (!deliveryDate || !deliveryTime))) return;
     setDeliveryQuote(null);
     setDeliveryPriceConfirmation(null);
     void requestDeliveryQuote();
   // Provider quotations do not include the preorder slot. Unit and instructions are intentionally excluded.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fulfilmentMethod, deliveryMode, deliveryAddress, deliveryLatitude, deliveryLongitude, cart]);
+  }, [fulfilmentMethod, deliveryMode, deliveryDestination, cart]);
 
   const selectDeliveryAddress = async (suggestion: PlaceSuggestion) => {
     deliveryQuoteRequestRef.current += 1;
+    const selectionId = ++deliveryDestinationSelectionRef.current;
     setIsSelectingDeliveryAddress(true);
     setDeliveryAddressError('');
     try {
       const selected = await getSelectedPlace(suggestion.placeId, deliveryPlacesSessionRef.current);
-      setDeliveryAddress(selected.formattedAddress);
+      if (selectionId !== deliveryDestinationSelectionRef.current) return;
+      setDeliveryDestination(selected);
       setDeliveryAddressQuery(selected.formattedAddress);
-      setDeliveryLatitude(selected.latitude);
-      setDeliveryLongitude(selected.longitude);
       setDeliverySuggestions([]);
       setDeliveryQuote(null);
       deliveryPlacesSessionRef.current = crypto.randomUUID();
@@ -1058,6 +1062,17 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     } finally {
       setIsSelectingDeliveryAddress(false);
     }
+  };
+
+  const invalidateDeliveryDestination = (query: string) => {
+    deliveryQuoteRequestRef.current += 1;
+    deliveryDestinationSelectionRef.current += 1;
+    setDeliveryAddressQuery(query);
+    setDeliveryDestination(null);
+    setDeliveryQuote(null);
+    setDeliveryPriceConfirmation(null);
+    setIsCalculatingDelivery(false);
+    setIsRefreshingDeliveryQuote(false);
   };
 
   const preserveGroupCheckoutDraft = () => {
@@ -1586,7 +1601,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                     <div className="relative">
                       <label className="block">
                         <span className="font-sans text-xs font-extrabold text-primary">Search delivery address</span>
-                        <input aria-label="Search delivery address" required autoComplete="off" placeholder="Search Malaysia addresses and places" value={deliveryAddressQuery} onChange={event => { deliveryQuoteRequestRef.current += 1; setDeliveryAddressQuery(event.target.value); setDeliveryAddress(''); setDeliveryLatitude(''); setDeliveryLongitude(''); setDeliveryQuote(null); setDeliveryPriceConfirmation(null); }} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
+                        <input aria-label="Search delivery address" required autoComplete="off" placeholder="Search Malaysia addresses and places" value={deliveryAddressQuery} onChange={event => invalidateDeliveryDestination(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
                       </label>
                       {(isSearchingDeliveryAddress || isSelectingDeliveryAddress) && <p className="mt-2 text-xs font-bold text-on-surface-variant">Searching addresses…</p>}
                       {deliverySuggestions.length > 0 && <div role="listbox" aria-label="Delivery address results" className="absolute z-10 mt-1 w-full overflow-hidden rounded-2xl border border-surface-container-high bg-white shadow-lg">
@@ -1596,7 +1611,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                         </button>)}
                         <p className="px-4 py-2 text-[10px] font-bold text-on-surface-variant">Powered by Google</p>
                       </div>}
-                      {deliveryAddress && <p className="mt-2 text-xs font-bold text-emerald-800">Selected: {deliveryAddress}</p>}
+                      {deliveryDestination && <p className="mt-2 text-xs font-bold text-emerald-800">Selected: {deliveryDestination.formattedAddress}</p>}
                       {deliveryAddressError && <p role="alert" className="mt-2 text-xs font-bold text-error">{deliveryAddressError}</p>}
                     </div>
                     <input aria-label="Unit or floor" placeholder="Unit / Floor (optional)" value={deliveryUnit} onChange={event => setDeliveryUnit(event.target.value)} className="min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
