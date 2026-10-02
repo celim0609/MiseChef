@@ -10,17 +10,18 @@ const money = value => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 // a quote so the browser never presents a quote as payable when the server
 // would reject it as too close to expiry.
 export const DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS = 5_000;
-const coord = value => {
-  const raw = typeof value === 'string' ? value.trim() : typeof value === 'number' && Number.isFinite(value) ? String(value) : '';
-  return /^-?\d{1,3}(\.\d{1,15})?$/.test(raw) && Math.abs(Number(raw)) <= 180 ? String(Number(raw)) : '';
+const coord = (value, maximum = 180) => {
+  const raw = typeof value === 'string' ? value.trim() : typeof value === 'number' ? String(value) : '';
+  const numeric = raw === '' ? NaN : Number(raw);
+  return Number.isFinite(numeric) && Math.abs(numeric) <= maximum ? String(numeric) : '';
 };
 export const sameDeliveryCoordinates = (left, right) => coord(left) !== '' && coord(left) === coord(right);
 const deliveryError = message => new HttpsError('failed-precondition', message);
 const deliveryConfig = store => store?.delivery && typeof store.delivery === 'object' ? store.delivery : {};
 const validateDestination = destination => {
   const address = readString(destination?.formattedAddress);
-  const latitude = coord(destination?.latitude);
-  const longitude = coord(destination?.longitude);
+  const latitude = coord(destination?.latitude, 90);
+  const longitude = coord(destination?.longitude, 180);
   if (!address || address.length > 500 || !latitude || !longitude) throw deliveryError('Choose a delivery address with valid coordinates.');
   return { address, latitude, longitude, instructions: readString(destination?.deliveryInstructions).slice(0, 1500) };
 };
@@ -34,7 +35,7 @@ const validateStoreDelivery = (store, provider) => {
   const config = deliveryConfig(store);
   const pickup = config.pickup && typeof config.pickup === 'object' ? config.pickup : {};
   if (config.enabled !== true || config.provider !== 'lalamove' || readString(config.environment) !== readString(provider?.environment) || readString(config.market) !== 'MY') throw deliveryError('Delivery is not configured for this Store.');
-  if (!readString(config.serviceType) || !readString(pickup.address) || !coord(pickup.latitude) || !coord(pickup.longitude) || !readString(pickup.contactName) || !/^\+[1-9]\d{1,14}$/.test(readString(pickup.contactPhoneE164))) throw deliveryError('This Store delivery pickup is incomplete.');
+  if (!readString(config.serviceType) || !readString(pickup.address) || !coord(pickup.latitude, 90) || !coord(pickup.longitude, 180) || !readString(pickup.contactName) || !/^\+[1-9]\d{1,14}$/.test(readString(pickup.contactPhoneE164))) throw deliveryError('This Store delivery pickup is incomplete.');
   return { config, pickup };
 };
 const assertDeliveryEnvironment = ({ delivery, provider }) => {

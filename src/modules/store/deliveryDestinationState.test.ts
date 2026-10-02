@@ -8,7 +8,9 @@ test('editing a delivery address invalidates the complete selected destination a
   assert.match(publicStorePage, /const \[deliveryDestination, setDeliveryDestination\] = useState<SelectedDeliveryDestination \| null>\(null\)/);
   assert.doesNotMatch(publicStorePage, /const \[deliveryLatitude,/);
   assert.doesNotMatch(publicStorePage, /const \[deliveryLongitude,/);
-  assert.match(publicStorePage, /const invalidateDeliveryDestination = \(query: string\) => \{[\s\S]*setDeliveryDestination\(null\);[\s\S]*setIsCalculatingDelivery\(false\);[\s\S]*setIsRefreshingDeliveryQuote\(false\);/);
+  assert.match(publicStorePage, /const invalidateDeliveryQuoteRequest = \(\) => \{[\s\S]*deliveryQuoteRequestRef\.current \+= 1;[\s\S]*setIsCalculatingDelivery\(false\);[\s\S]*setIsRefreshingDeliveryQuote\(false\);/);
+  assert.match(publicStorePage, /const invalidateDeliveryDestination = \(query: string\) => \{[\s\S]*invalidateDeliveryQuoteRequest\(\);[\s\S]*setDeliveryDestination\(null\);/);
+  assert.match(publicStorePage, /const selectDeliveryAddress = async[\s\S]*invalidateDeliveryQuoteRequest\(\);/);
   assert.match(publicStorePage, /onChange=\{event => invalidateDeliveryDestination\(event\.target\.value\)\}/);
 });
 

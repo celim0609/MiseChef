@@ -811,6 +811,12 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     sessionStorage.removeItem(checkoutRecoveryKey);
   };
 
+  const invalidateDeliveryQuoteRequest = () => {
+    deliveryQuoteRequestRef.current += 1;
+    setIsCalculatingDelivery(false);
+    setIsRefreshingDeliveryQuote(false);
+  };
+
   const closeCheckout = () => {
     const initialPickupDate = groupOrder?.pickupDate || (data ? getValidPickupDates(data.store).find(date => getPickupTimeSlots(data.store, date).length > 0) || '' : '');
     const store = data?.store;
@@ -826,7 +832,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     setDeliveryMode('preorder');
     setDeliveryDate(store?.delivery?.fulfilment.preOrder.enabled ? getValidPickupDates({ ...store, orderDays: store.delivery.fulfilment.preOrder.orderDays, earliestPickupDays: store.delivery.fulfilment.preOrder.earliestDays, maximumAdvanceDays: store.delivery.fulfilment.preOrder.maximumAdvanceDays, unavailableDates: store.delivery.fulfilment.preOrder.unavailableDates })[0] || '' : '');
     setDeliveryTime(store?.delivery?.fulfilment.preOrder.deliveryHours.from || '');
-    deliveryQuoteRequestRef.current += 1;
+    invalidateDeliveryQuoteRequest();
     setDeliveryAddressQuery('');
     deliveryDestinationSelectionRef.current += 1;
     setDeliveryDestination(null);
@@ -1045,7 +1051,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   }, [fulfilmentMethod, deliveryMode, deliveryDestination, cart]);
 
   const selectDeliveryAddress = async (suggestion: PlaceSuggestion) => {
-    deliveryQuoteRequestRef.current += 1;
+    invalidateDeliveryQuoteRequest();
     const selectionId = ++deliveryDestinationSelectionRef.current;
     setIsSelectingDeliveryAddress(true);
     setDeliveryAddressError('');
@@ -1065,14 +1071,12 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   };
 
   const invalidateDeliveryDestination = (query: string) => {
-    deliveryQuoteRequestRef.current += 1;
+    invalidateDeliveryQuoteRequest();
     deliveryDestinationSelectionRef.current += 1;
     setDeliveryAddressQuery(query);
     setDeliveryDestination(null);
     setDeliveryQuote(null);
     setDeliveryPriceConfirmation(null);
-    setIsCalculatingDelivery(false);
-    setIsRefreshingDeliveryQuote(false);
   };
 
   const preserveGroupCheckoutDraft = () => {
