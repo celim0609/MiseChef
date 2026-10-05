@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { providerRoutingDestination, quoteMatchesDestination, sameDeliveryCoordinates } from './storeDelivery.js';
+import { buildLalamoveQuoteRequest, providerRoutingDestination, quoteMatchesDestination, sameDeliveryCoordinates } from './storeDelivery.js';
 
 const source = readFileSync(new URL('./storeDelivery.js', import.meta.url), 'utf8');
 const payments = readFileSync(new URL('./storePayments.js', import.meta.url), 'utf8');
@@ -35,6 +35,28 @@ test('provider numeric coordinates and equivalent customer strings do not create
   assert.equal(sameDeliveryCoordinates(101.1172608, '101.1172608'), true);
   assert.equal(sameDeliveryCoordinates(4.1234567890123456, '4.1234567890123456'), true);
   assert.equal(sameDeliveryCoordinates(4.6569255, '4.6569256'), false);
+});
+test('pre-order quotations include the validated Malaysia delivery slot as UTC scheduleAt', () => {
+  const request = buildLalamoveQuoteRequest({
+    config: { serviceType: 'MOTORCYCLE' },
+    pickup: { latitude: '4.641333', longitude: '101.1420132', address: 'Pickup address' },
+    destination: { latitude: '4.6569255', longitude: '101.1172608', address: 'Delivery address' },
+    schedule: { mode: 'preorder', date: '2026-10-06', time: '09:00', timeZone: 'Asia/Kuala_Lumpur' }
+  });
+  assert.equal(request.data.scheduleAt, '2026-10-06T01:00:00.000Z');
+  assert.deepEqual(request.data.stops, [
+    { coordinates: { lat: '4.641333', lng: '101.1420132' }, address: 'Pickup address' },
+    { coordinates: { lat: '4.6569255', lng: '101.1172608' }, address: 'Delivery address' }
+  ]);
+});
+test('instant quotations omit scheduleAt', () => {
+  const request = buildLalamoveQuoteRequest({
+    config: { serviceType: 'MOTORCYCLE' },
+    pickup: { latitude: '4.641333', longitude: '101.1420132', address: 'Pickup address' },
+    destination: { latitude: '4.6569255', longitude: '101.1172608', address: 'Delivery address' },
+    schedule: { mode: 'instant' }
+  });
+  assert.equal('scheduleAt' in request.data, false);
 });
 test('a quote returns Lalamove canonical routing coordinates while retaining the Google Places address', () => {
   const googleDestination = {

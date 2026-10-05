@@ -68,6 +68,19 @@ const validateInstantSchedule = (store, config) => {
   return { mode: 'instant' };
 };
 const validateDeliverySchedule = (store, config, draft) => readString(draft?.fulfilmentMode) === 'instant' ? validateInstantSchedule(store, config) : validatePreOrderSchedule(store, config, draft);
+const malaysiaPreorderScheduleAt = schedule => new Date(`${schedule.date}T${schedule.time}:00+08:00`).toISOString();
+export const buildLalamoveQuoteRequest = ({ config, pickup, destination, schedule }) => ({
+  market: 'MY',
+  data: {
+    serviceType: config.serviceType,
+    language: 'en_MY',
+    ...(schedule.mode === 'preorder' ? { scheduleAt: malaysiaPreorderScheduleAt(schedule) } : {}),
+    stops: [
+      { coordinates: { lat: pickup.latitude, lng: pickup.longitude }, address: pickup.address },
+      { coordinates: { lat: destination.latitude, lng: destination.longitude }, address: destination.address }
+    ]
+  }
+});
 const customerPricing = ({ providerFee, config, merchandiseSubtotal }) => {
   const subsidy = config.subsidy || {}; const eligible = subsidy.enabled === true && merchandiseSubtotal >= Number(subsidy.minimumMerchandiseSpend || 0);
   const customerDeliveryFee = eligible ? money(Math.min(providerFee, Number(subsidy.maximumCustomerDeliveryCharge || 0))) : providerFee;
@@ -142,10 +155,7 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
   // Rebuild cart on the server. The browser does not send prices or service type.
   const items = buildOrderItems(draft?.selections || [], checkout.products, checkout.optionGroups, checkout.sets);
   if (!items.length) throw deliveryError('Your cart is empty.');
-  const quotation = await provider.createQuote({ market: 'MY', data: { serviceType: config.serviceType, language: 'en_MY', stops: [
-    { coordinates: { lat: pickup.latitude, lng: pickup.longitude }, address: pickup.address },
-    { coordinates: { lat: destination.latitude, lng: destination.longitude }, address: destination.address }
-  ] } });
+  const quotation = await provider.createQuote(buildLalamoveQuoteRequest({ config, pickup, destination, schedule }));
   const quote = quoteSnapshot(quotation);
   if (!quote.quotationId || quote.currency !== 'MYR' || quote.fee < 0 || !quote.expiresAt) throw new Error('Lalamove returned an invalid quotation.');
   const routingDestination = providerRoutingDestination({ quote, destination });
