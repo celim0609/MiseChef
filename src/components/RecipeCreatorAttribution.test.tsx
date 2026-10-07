@@ -78,7 +78,7 @@ test('Recipe Detail shows the same creator display name without exposing UID', (
   assert.doesNotMatch(markup, /sara@example\.test/);
 });
 
-test('Recipe Library card shows rounded kcal per serving only when nutrition is complete', () => {
+test('Recipe Library card preserves complete nutrition and hides incomplete calories', () => {
   const completeMarkup = renderToStaticMarkup(
     <RecipeLibraryCard recipe={tehIce} nutrition={{ status: 'COMPLETE', totalKcal: 451.2, kcalPerServing: 225.6, incompleteReasons: [] }} workspaceMembers={[sara]} onSelectRecipe={() => undefined} onToggleFavorite={() => undefined} />
   );
@@ -89,4 +89,35 @@ test('Recipe Library card shows rounded kcal per serving only when nutrition is 
   assert.match(completeMarkup, /5 mins.*226 kcal/);
   assert.doesNotMatch(completeMarkup, /451\.2|total kcal/);
   assert.doesNotMatch(incompleteMarkup, /kcal/);
+});
+
+
+test('Recipe Library card shows only estimated per-serving calories and ingredient coverage', () => {
+  const markup = renderToStaticMarkup(
+    <RecipeLibraryCard recipe={tehIce} nutrition={{
+      status: 'ESTIMATED', totalKcal: 451.2, kcalPerServing: 225.6,
+      calculatedIngredientCount: 8, totalIngredientCount: 9,
+      incompleteReasons: ['Ginger nutrition data unavailable', 'Garlic nutrition data unavailable']
+    }} workspaceMembers={[sara]} onSelectRecipe={() => undefined} onToggleFavorite={() => undefined} />
+  );
+
+  assert.match(markup, /Estimated · 226 kcal per serving/);
+  assert.match(markup, /8 \/ 9 ingredients calculated/);
+  assert.doesNotMatch(markup, /Ginger|Garlic|nutrition data unavailable|kcal total|451/);
+  assert.match(markup, /Created by Sara/);
+  assert.match(markup, /5 mins/);
+});
+
+test('Recipe Library card displays a valid zero calorie estimate', () => {
+  const markup = renderToStaticMarkup(
+    <RecipeLibraryCard recipe={tehIce} nutrition={{
+      status: 'ESTIMATED', totalKcal: 0, kcalPerServing: 0,
+      calculatedIngredientCount: 1, totalIngredientCount: 2,
+      incompleteReasons: ['Ginger nutrition data unavailable']
+    }} workspaceMembers={[sara]} onSelectRecipe={() => undefined} onToggleFavorite={() => undefined} />
+  );
+
+  assert.match(markup, /Estimated · 0 kcal per serving/);
+  assert.match(markup, /1 \/ 2 ingredients calculated/);
+  assert.doesNotMatch(markup, /Ginger|nutrition data unavailable/);
 });
