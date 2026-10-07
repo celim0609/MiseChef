@@ -76,6 +76,14 @@ export const assertFutureLalamoveSchedule = (schedule, now = Date.now()) => {
   }
   return schedule;
 };
+// Google Places coordinates are valid JavaScript numbers at higher precision
+// than Lalamove accepts. Keep the selected location intact everywhere else,
+// and canonicalize only the provider-bound representation (max 15 decimals).
+export const lalamoveCoordinate = value => {
+  const match = /^([+-]?\d+)(?:\.(\d+))?$/.exec(String(value).trim());
+  if (!match) return '';
+  return match[2] ? `${match[1]}.${match[2].slice(0, 15)}` : match[1];
+};
 export const buildLalamoveQuoteRequest = ({ config, pickup, destination, schedule }) => ({
   market: 'MY',
   data: {
@@ -83,8 +91,8 @@ export const buildLalamoveQuoteRequest = ({ config, pickup, destination, schedul
     language: 'en_MY',
     ...(schedule.mode === 'preorder' ? { scheduleAt: malaysiaPreorderScheduleAt(schedule) } : {}),
     stops: [
-      { coordinates: { lat: pickup.latitude, lng: pickup.longitude }, address: pickup.address },
-      { coordinates: { lat: destination.latitude, lng: destination.longitude }, address: destination.address }
+      { coordinates: { lat: lalamoveCoordinate(pickup.latitude), lng: lalamoveCoordinate(pickup.longitude) }, address: pickup.address },
+      { coordinates: { lat: lalamoveCoordinate(destination.latitude), lng: lalamoveCoordinate(destination.longitude) }, address: destination.address }
     ]
   }
 });

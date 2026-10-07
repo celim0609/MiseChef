@@ -21,3 +21,9 @@ test('only an atomic selected destination is sent to the delivery quote request'
   assert.match(publicStorePage, /const selectionId = \+\+deliveryDestinationSelectionRef\.current;/);
   assert.match(publicStorePage, /if \(selectionId !== deliveryDestinationSelectionRef\.current\) return;/);
 });
+
+test('a failed quote clears loading and exposes a retry rather than a perpetual calculation state', () => {
+  assert.match(publicStorePage, /finally \{ if \(requestId === deliveryQuoteRequestRef\.current\) \{ setIsCalculatingDelivery\(false\); setIsRefreshingDeliveryQuote\(false\); \} \}/);
+  assert.match(publicStorePage, /Retry delivery quote/);
+  assert.match(publicStorePage, /isCalculatingDelivery \? 'Calculating delivery fee…' : checkoutError \? 'Delivery fee unavailable'/);
+});

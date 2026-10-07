@@ -65,6 +65,21 @@ test('instant quotations omit scheduleAt', () => {
   });
   assert.equal('scheduleAt' in request.data, false);
 });
+test('quotation coordinates are serialized to Lalamove’s maximum 15 fractional digits', () => {
+  const request = buildLalamoveQuoteRequest({
+    config: { serviceType: 'MOTORCYCLE' },
+    pickup: { latitude: '4.5974811234567891', longitude: '101.0788491234567891', address: 'Pickup address' },
+    destination: { latitude: '4.6095571234567891', longitude: '101.0958211234567891', address: 'Delivery address' },
+    schedule: { mode: 'instant' }
+  });
+  assert.deepEqual(request.data.stops.map(stop => stop.coordinates), [
+    { lat: '4.597481123456789', lng: '101.078849123456789' },
+    { lat: '4.609557123456789', lng: '101.095821123456789' }
+  ]);
+  for (const stop of request.data.stops) for (const coordinate of Object.values(stop.coordinates)) {
+    assert.match(coordinate, /^[-+]?\d+(?:\.\d{1,15})?$/);
+  }
+});
 test('pre-order quotations reject a scheduleAt that has already passed in Malaysia time', () => {
   const schedule = { mode: 'preorder', date: '2026-10-06', time: '21:00', timeZone: 'Asia/Kuala_Lumpur' };
   assert.throws(
