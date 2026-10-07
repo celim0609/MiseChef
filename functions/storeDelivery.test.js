@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildLalamoveQuoteRequest, providerRoutingDestination, quoteMatchesDestination, sameDeliveryCoordinates } from './storeDelivery.js';
+import { assertFutureLalamoveSchedule, buildLalamoveQuoteRequest, providerRoutingDestination, quoteMatchesDestination, sameDeliveryCoordinates } from './storeDelivery.js';
 
 const source = readFileSync(new URL('./storeDelivery.js', import.meta.url), 'utf8');
 const payments = readFileSync(new URL('./storePayments.js', import.meta.url), 'utf8');
@@ -43,11 +43,18 @@ test('pre-order quotations include the validated Malaysia delivery slot as UTC s
     destination: { latitude: '4.6569255', longitude: '101.1172608', address: 'Delivery address' },
     schedule: { mode: 'preorder', date: '2026-10-06', time: '09:00', timeZone: 'Asia/Kuala_Lumpur' }
   });
-  assert.equal(request.data.scheduleAt, '2026-10-06T01:00:00.000Z');
-  assert.deepEqual(request.data.stops, [
-    { coordinates: { lat: '4.641333', lng: '101.1420132' }, address: 'Pickup address' },
-    { coordinates: { lat: '4.6569255', lng: '101.1172608' }, address: 'Delivery address' }
-  ]);
+  assert.deepEqual(request, {
+    market: 'MY',
+    data: {
+      serviceType: 'MOTORCYCLE',
+      language: 'en_MY',
+      scheduleAt: '2026-10-06T01:00:00.000Z',
+      stops: [
+        { coordinates: { lat: '4.641333', lng: '101.1420132' }, address: 'Pickup address' },
+        { coordinates: { lat: '4.6569255', lng: '101.1172608' }, address: 'Delivery address' }
+      ]
+    }
+  });
 });
 test('instant quotations omit scheduleAt', () => {
   const request = buildLalamoveQuoteRequest({
@@ -57,6 +64,17 @@ test('instant quotations omit scheduleAt', () => {
     schedule: { mode: 'instant' }
   });
   assert.equal('scheduleAt' in request.data, false);
+});
+test('pre-order quotations reject a scheduleAt that has already passed in Malaysia time', () => {
+  const schedule = { mode: 'preorder', date: '2026-10-06', time: '21:00', timeZone: 'Asia/Kuala_Lumpur' };
+  assert.throws(
+    () => assertFutureLalamoveSchedule(schedule, Date.parse('2026-10-06T13:00:00.000Z')),
+    /Choose a future delivery time/
+  );
+  assert.deepEqual(
+    assertFutureLalamoveSchedule(schedule, Date.parse('2026-10-06T12:59:59.999Z')),
+    schedule
+  );
 });
 test('a quote returns Lalamove canonical routing coordinates while retaining the Google Places address', () => {
   const googleDestination = {

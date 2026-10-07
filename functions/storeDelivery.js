@@ -68,7 +68,14 @@ const validateInstantSchedule = (store, config) => {
   return { mode: 'instant' };
 };
 const validateDeliverySchedule = (store, config, draft) => readString(draft?.fulfilmentMode) === 'instant' ? validateInstantSchedule(store, config) : validatePreOrderSchedule(store, config, draft);
-const malaysiaPreorderScheduleAt = schedule => new Date(`${schedule.date}T${schedule.time}:00+08:00`).toISOString();
+export const malaysiaPreorderScheduleAt = schedule => new Date(`${schedule.date}T${schedule.time}:00+08:00`).toISOString();
+export const assertFutureLalamoveSchedule = (schedule, now = Date.now()) => {
+  if (schedule.mode !== 'preorder') return schedule;
+  if (Date.parse(malaysiaPreorderScheduleAt(schedule)) <= now) {
+    throw deliveryError('Choose a future delivery time.');
+  }
+  return schedule;
+};
 export const buildLalamoveQuoteRequest = ({ config, pickup, destination, schedule }) => ({
   market: 'MY',
   data: {
@@ -151,7 +158,7 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
   const { config, pickup } = validateStoreDelivery(checkout.store, provider);
   const destination = validateDestination(draft?.destination);
   if (distanceKm(pickup, destination) > Number(config.fulfilment?.preOrder?.maximumDistanceKm || Infinity)) throw deliveryError('This delivery address is outside the Store’s maximum delivery distance.');
-  const schedule = validateDeliverySchedule(checkout.store, config, draft);
+  const schedule = assertFutureLalamoveSchedule(validateDeliverySchedule(checkout.store, config, draft));
   // Rebuild cart on the server. The browser does not send prices or service type.
   const items = buildOrderItems(draft?.selections || [], checkout.products, checkout.optionGroups, checkout.sets);
   if (!items.length) throw deliveryError('Your cart is empty.');
