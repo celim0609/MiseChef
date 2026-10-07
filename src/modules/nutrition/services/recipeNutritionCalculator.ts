@@ -1,5 +1,6 @@
 import type { IngredientNutritionProfile, Recipe, RecipeNutritionSummary } from '../../../types';
 import { getNutritionUnit } from './nutritionUnits';
+import { resolveRecipeNutritionIdentity } from './recipeNutritionIdentity';
 
 export const calculateRecipeNutrition = (
   recipe: Pick<Recipe, 'ingredients' | 'servings'>,
@@ -9,20 +10,15 @@ export const calculateRecipeNutrition = (
   let totalKcal = 0;
   let calculatedIngredientCount = 0;
   let usableFoodCount = 0;
+  let totalIngredientCount = 0;
 
   for (const ingredient of recipe.ingredients) {
     const label = ingredient.name.trim() || 'Unnamed ingredient';
-    if (!ingredient.ingredientId) {
-      reasons.push(`${label} nutrition data unavailable (link a canonical Ingredient).`);
-      continue;
-    }
-    const profile = profiles[ingredient.ingredientId];
+    const profile = resolveRecipeNutritionIdentity(label, ingredient.ingredientId ? profiles[ingredient.ingredientId] : undefined);
+    if (profile?.status === 'approved' && profile.kind === 'non_food') continue;
+    totalIngredientCount += 1;
     if (!profile || profile.status !== 'approved') {
-      reasons.push(`${label} nutrition data unavailable`);
-      continue;
-    }
-    if (profile.kind === 'non_food') {
-      calculatedIngredientCount += 1;
+      reasons.push(`${label} nutrition data unavailable${ingredient.ingredientId ? '' : ' (link a canonical Ingredient).'}`);
       continue;
     }
 
@@ -65,7 +61,7 @@ export const calculateRecipeNutrition = (
   }
 
   if (!Number.isInteger(recipe.servings) || recipe.servings <= 0) reasons.push('Recipe servings must be a positive whole number.');
-  const coverage = { calculatedIngredientCount, totalIngredientCount: recipe.ingredients.length };
+  const coverage = { calculatedIngredientCount, totalIngredientCount };
   if (!usableFoodCount || !Number.isFinite(totalKcal) || !Number.isInteger(recipe.servings) || recipe.servings <= 0) {
     if (!usableFoodCount) reasons.push('Not enough usable food nutrition data to estimate nutrition.');
     return { status: 'INCOMPLETE', incompleteReasons: reasons, ...coverage };

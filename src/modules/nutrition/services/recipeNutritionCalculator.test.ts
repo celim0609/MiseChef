@@ -49,7 +49,7 @@ test('non-food contributes zero without making a Recipe incomplete', () => {
     ice: profile('ice', { kind: 'non_food', source: 'chef_non_food', kcalPer100g: undefined }),
     rice: profile('rice', { kcalPer100g: 130 })
   });
-  assert.deepEqual(result, { status: 'COMPLETE', totalKcal: 130, kcalPerServing: 65, incompleteReasons: [], calculatedIngredientCount: 2, totalIngredientCount: 2 });
+  assert.deepEqual(result, { status: 'COMPLETE', totalKcal: 130, kcalPerServing: 65, incompleteReasons: [], calculatedIngredientCount: 1, totalIngredientCount: 1 });
 });
 
 
@@ -66,11 +66,11 @@ test('estimates all usable ingredients and reports 8 / 9 coverage', () => {
 });
 
 test('keeps valid zero calorie food usable but rejects empty, zero quantity and non-food-only estimates', () => {
-  const ingredient = { id: 'water', ingredientId: 'water', name: 'Water', qty: '100', unit: 'g' };
-  assert.equal(calculateRecipeNutrition({ servings: 1, ingredients: [ingredient] }, { water: profile('water', { kcalPer100g: 0 }) }).status, 'COMPLETE');
+  const ingredient = { id: 'plain-food', ingredientId: 'plain-food', name: 'Plain food', qty: '100', unit: 'g' };
+  assert.equal(calculateRecipeNutrition({ servings: 1, ingredients: [ingredient] }, { 'plain-food': profile('plain-food', { kcalPer100g: 0 }) }).status, 'COMPLETE');
   for (const ingredients of [[], [{ ...ingredient, qty: '0' }]]) {
-    assert.equal(calculateRecipeNutrition({ servings: 1, ingredients }, { water: profile('water') }).status, 'INCOMPLETE');
+    assert.equal(calculateRecipeNutrition({ servings: 1, ingredients }, { 'plain-food': profile('plain-food') }).status, 'INCOMPLETE');
   }
-  assert.equal(calculateRecipeNutrition({ servings: 1, ingredients: [ingredient] }, { water: profile('water', { kind: 'non_food' }) }).status, 'INCOMPLETE');
-  assert.equal(calculateRecipeNutrition({ servings: 0, ingredients: [ingredient] }, { water: profile('water') }).status, 'INCOMPLETE');
+  assert.equal(calculateRecipeNutrition({ servings: 1, ingredients: [ingredient] }, { 'plain-food': profile('plain-food', { kind: 'non_food' }) }).status, 'INCOMPLETE');
+  assert.equal(calculateRecipeNutrition({ servings: 0, ingredients: [ingredient] }, { 'plain-food': profile('plain-food') }).status, 'INCOMPLETE');
 });
