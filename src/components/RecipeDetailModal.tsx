@@ -1,3 +1,4 @@
+import { RecipeNutritionResult } from './RecipeNutritionResult';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -323,13 +324,7 @@ export default function RecipeDetailModal({
                 <span>{recipe.difficulty}</span>
               </div>
 
-              {nutrition && (
-                <p className={`font-sans text-xs font-bold ${nutrition.status === 'COMPLETE' ? 'text-primary' : 'text-error'}`}>
-                  {nutrition.status === 'COMPLETE'
-                    ? `${Math.round(nutrition.kcalPerServing || 0)} kcal per serving · ${Math.round(nutrition.totalKcal || 0)} kcal total`
-                    : `Nutrition INCOMPLETE — ${nutrition.incompleteReasons[0]}`}
-                </p>
-              )}
+              {nutrition && <RecipeNutritionResult nutrition={nutrition} />}
 
               {recipe.story && (
                 <div className="bg-surface-container-low/60 p-4 rounded-xl border border-surface-container text-xs sm:text-sm text-on-surface-variant italic leading-relaxed font-semibold">

@@ -1,3 +1,4 @@
+import { RecipeNutritionResult } from './RecipeNutritionResult';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -1917,13 +1918,7 @@ export default function AddRecipeTab({
 
         <div className="space-y-1.5 rounded-xl bg-surface-container-low p-4">
           <p className="font-sans font-bold text-xs text-on-surface-variant/90">Nutrition (automatic)</p>
-          {recipeNutrition.status === 'COMPLETE' ? (
-            <p className="font-sans text-sm font-bold text-primary">
-              Total: {Math.round(recipeNutrition.totalKcal || 0)} kcal · {Math.round(recipeNutrition.kcalPerServing || 0)} kcal per serving
-            </p>
-          ) : (
-            <p className="font-sans text-xs font-bold text-error">INCOMPLETE — {recipeNutrition.incompleteReasons[0] || 'Link approved Ingredient nutrition profiles.'}</p>
-          )}
+          <RecipeNutritionResult nutrition={recipeNutrition} />
         </div>
 
         {!isEditing && (

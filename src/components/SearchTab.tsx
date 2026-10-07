@@ -1,3 +1,4 @@
+import { RecipeNutritionResult } from './RecipeNutritionResult';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -46,6 +47,7 @@ export function RecipeLibraryCard({ recipe, nutrition, workspaceMembers, onSelec
         <h3 className="font-display font-semibold text-base text-primary leading-snug group-hover:text-secondary duration-300 transition-colors line-clamp-1">{recipe.title}</h3>
         <p className="font-sans text-xs font-semibold text-on-surface-variant">{formatRecipeCreatorLine(recipe, workspaceMembers).split(' · ')[0]}</p>
         <div className="flex items-center gap-1.5 text-xs text-outline font-semibold"><Clock className="w-3.5 h-3.5" /><span>{recipe.prepTime} mins</span>{calories !== undefined && <><span aria-hidden="true">·</span><span>{calories} kcal</span></>}</div>
+        {nutrition?.status === 'ESTIMATED' && <RecipeNutritionResult nutrition={nutrition} />}
       </div>
     </div>
   );

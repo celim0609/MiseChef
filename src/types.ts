@@ -84,13 +84,15 @@ export interface IngredientNutritionProfile {
   };
 }
 
-export type RecipeNutritionStatus = 'COMPLETE' | 'INCOMPLETE';
+export type RecipeNutritionStatus = 'COMPLETE' | 'ESTIMATED' | 'INCOMPLETE';
 
 export interface RecipeNutritionSummary {
   status: RecipeNutritionStatus;
   totalKcal?: number;
   kcalPerServing?: number;
   incompleteReasons: string[];
+  calculatedIngredientCount?: number;
+  totalIngredientCount?: number;
 }
 
 export interface MethodStep {

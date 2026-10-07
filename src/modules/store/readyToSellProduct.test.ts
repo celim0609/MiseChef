@@ -61,3 +61,14 @@ test('Ready to Sell sends a carried Recipe photo through the existing Store Prod
   assert.match(source, /uploadStoreProductSocialImage\(\{ workspaceId: workspace\.id, productId, file: productPhotoFile \}\)/);
   assert.doesNotMatch(source, /photoUrl: recipe\.(?:imageUrl|coverImage)/);
 });
+
+test('Ready to Sell remains available with estimated nutrition', () => {
+  const draft = getReadyToSellProductDraft(recipe, {
+    status: 'ESTIMATED', totalKcal: 800, kcalPerServing: 400,
+    calculatedIngredientCount: 8, totalIngredientCount: 9,
+    incompleteReasons: ['Ginger nutrition data unavailable']
+  });
+  assert.equal(draft.recipeId, recipe.id);
+  assert.equal(draft.price, 12.5);
+  assert.equal(draft.available, true);
+});

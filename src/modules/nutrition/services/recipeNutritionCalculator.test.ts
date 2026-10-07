@@ -10,7 +10,7 @@ const profile = (id: string, overrides: Partial<IngredientNutritionProfile> = {}
 
 test('calculates approved mass nutrition and snapshots per-serving kcal', () => {
   const result = calculateRecipeNutrition({ servings: 2, ingredients: [{ id: 'flour', ingredientId: 'flour', name: 'Flour', qty: '250', unit: 'g' }] }, { flour: profile('flour', { kcalPer100g: 364 }) });
-  assert.deepEqual(result, { status: 'COMPLETE', totalKcal: 910, kcalPerServing: 455, incompleteReasons: [] });
+  assert.deepEqual(result, { status: 'COMPLETE', totalKcal: 910, kcalPerServing: 455, incompleteReasons: [], calculatedIngredientCount: 1, totalIngredientCount: 1 });
   assert.equal(getSnapshotCalories(result), 455);
 });
 
@@ -27,7 +27,7 @@ test('does not treat missing food nutrition or missing piece weight as zero', ()
   ] }, { banana: profile('banana') });
   assert.equal(result.status, 'INCOMPLETE');
   assert.match(result.incompleteReasons.join(' '), /Weight per piece/);
-  assert.match(result.incompleteReasons.join(' '), /Egg: nutrition profile is required/);
+  assert.match(result.incompleteReasons.join(' '), /Egg nutrition data unavailable/);
 });
 
 test('calculates pcs and nos from approved grams per piece without changing costing units', () => {
@@ -38,7 +38,7 @@ test('calculates pcs and nos from approved grams per piece without changing cost
     egg: profile('egg', { kcalPer100g: 143, gramsPerPiece: 50 }),
     banana: profile('banana', { kcalPer100g: 89, gramsPerPiece: 120 })
   });
-  assert.deepEqual(result, { status: 'COMPLETE', totalKcal: 249.8, kcalPerServing: 124.9, incompleteReasons: [] });
+  assert.deepEqual(result, { status: 'COMPLETE', totalKcal: 249.8, kcalPerServing: 124.9, incompleteReasons: [], calculatedIngredientCount: 2, totalIngredientCount: 2 });
 });
 
 test('non-food contributes zero without making a Recipe incomplete', () => {
@@ -49,5 +49,28 @@ test('non-food contributes zero without making a Recipe incomplete', () => {
     ice: profile('ice', { kind: 'non_food', source: 'chef_non_food', kcalPer100g: undefined }),
     rice: profile('rice', { kcalPer100g: 130 })
   });
-  assert.deepEqual(result, { status: 'COMPLETE', totalKcal: 130, kcalPerServing: 65, incompleteReasons: [] });
+  assert.deepEqual(result, { status: 'COMPLETE', totalKcal: 130, kcalPerServing: 65, incompleteReasons: [], calculatedIngredientCount: 2, totalIngredientCount: 2 });
+});
+
+
+test('estimates all usable ingredients and reports 8 / 9 coverage', () => {
+  const ingredients = Array.from({ length: 8 }, (_, i) => ({ id: String(i), ingredientId: 'rice', name: 'Rice', qty: '100', unit: 'g' }));
+  ingredients.push({ id: 'ginger', ingredientId: 'ginger', name: 'Ginger', qty: '10', unit: 'g' });
+  const result = calculateRecipeNutrition({ servings: 2, ingredients }, { rice: profile('rice') });
+  assert.equal(result.status, 'ESTIMATED');
+  assert.equal(result.totalKcal, 800);
+  assert.equal(result.kcalPerServing, 400);
+  assert.equal(result.calculatedIngredientCount, 8);
+  assert.equal(result.totalIngredientCount, 9);
+  assert.deepEqual(result.incompleteReasons, ['Ginger nutrition data unavailable']);
+});
+
+test('keeps valid zero calorie food usable but rejects empty, zero quantity and non-food-only estimates', () => {
+  const ingredient = { id: 'water', ingredientId: 'water', name: 'Water', qty: '100', unit: 'g' };
+  assert.equal(calculateRecipeNutrition({ servings: 1, ingredients: [ingredient] }, { water: profile('water', { kcalPer100g: 0 }) }).status, 'COMPLETE');
+  for (const ingredients of [[], [{ ...ingredient, qty: '0' }]]) {
+    assert.equal(calculateRecipeNutrition({ servings: 1, ingredients }, { water: profile('water') }).status, 'INCOMPLETE');
+  }
+  assert.equal(calculateRecipeNutrition({ servings: 1, ingredients: [ingredient] }, { water: profile('water', { kind: 'non_food' }) }).status, 'INCOMPLETE');
+  assert.equal(calculateRecipeNutrition({ servings: 0, ingredients: [ingredient] }, { water: profile('water') }).status, 'INCOMPLETE');
 });
