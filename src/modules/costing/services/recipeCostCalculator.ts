@@ -53,7 +53,11 @@ export const calculateRecipeCosting = (
   }
   const nextDependencyPath = [...dependencyPath, recipe.id];
   const activeIngredients = ingredients.filter(ingredient => ingredient.status === 'Active');
+  const linkedRecipeWarnings: string[] = [];
   const costedIngredients = recipe.ingredients.map(recipeIngredient => {
+    if ((recipe.linkedRecipes || []).some(component => component.associatedIngredientId === recipeIngredient.id)) {
+      return removeCalculatedIngredientCost(recipeIngredient);
+    }
     const matchedIngredient = findIngredientMatch(recipeIngredient, activeIngredients);
     if (!matchedIngredient) return removeCalculatedIngredientCost(recipeIngredient);
     const calculatedCost = calculateRecipeIngredientCost(recipeIngredient, matchedIngredient);
@@ -76,6 +80,7 @@ export const calculateRecipeCosting = (
     if (component.recipeId === recipe.id) throw new CircularRecipeDependencyError([recipe.id, recipe.id]);
     const linkedRecipe = recipes.find(candidate => candidate.id === component.recipeId);
     if (!linkedRecipe) {
+      linkedRecipeWarnings.push(`${component.recipeTitle || 'Linked recipe'}: child costing is unavailable.`);
       return {
         recipeIngredientId: component.id,
         linkedRecipeId: component.recipeId,
@@ -96,7 +101,11 @@ export const calculateRecipeCosting = (
       nextDependencyPath
     );
     const quantity = Math.max(0, Number(component.quantity) || 0);
-    const unitCost = Number(calculatedLinkedRecipe.costing?.costPerPortion || 0);
+    const resolvedCost = resolveRecipePerPortionCost(calculatedLinkedRecipe);
+    if (resolvedCost === null || calculatedLinkedRecipe.costing?.linkedRecipeWarnings?.length) {
+      linkedRecipeWarnings.push(`${component.recipeTitle || linkedRecipe.title}: child costing is unavailable or incomplete.`);
+    }
+    const unitCost = resolvedCost ?? 0;
     return {
       recipeIngredientId: component.id,
       linkedRecipeId: component.recipeId,
@@ -152,6 +161,7 @@ export const calculateRecipeCosting = (
       foodCostPercentage,
       grossProfitPercentage,
       breakdown: completeBreakdown,
+      ...(linkedRecipeWarnings.length ? { linkedRecipeWarnings } : {}),
       lastCalculatedAt: calculatedAt
     },
     recipeCostLastCalculatedAt: calculatedAt
