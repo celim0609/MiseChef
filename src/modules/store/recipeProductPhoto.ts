@@ -13,12 +13,22 @@ export const loadRecipePhotoForStoreProduct = async ({
   photoUrl: string;
   fetchImage?: typeof fetch;
 }): Promise<File> => {
-  const response = await fetchImage(photoUrl);
+  let response: Response;
+  try {
+    response = await fetchImage(photoUrl);
+  } catch {
+    throw new Error('Unable to transfer the Recipe photo. Check your connection or choose a Product photo manually.');
+  }
   if (!response.ok) {
     throw new Error('Unable to load the Recipe photo. Please choose a Product photo.');
   }
 
-  const image = await response.blob();
+  let image: Blob;
+  try {
+    image = await response.blob();
+  } catch {
+    throw new Error('Unable to read the Recipe photo. Please choose a Product photo manually.');
+  }
   if (image.size > 10 * 1024 * 1024) {
     throw new Error('Choose an image smaller than 10 MB.');
   }
