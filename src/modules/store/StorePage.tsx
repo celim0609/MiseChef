@@ -629,6 +629,7 @@ export default function StorePage({
       console.warn('Recipe nutrition was unavailable for Ready to Sell.', error);
       nutrition = { status: 'INCOMPLETE' as const, incompleteReasons: ['Nutrition profiles are unavailable.'] };
     }
+    if (productPhotoTransferIdRef.current !== transferId) return;
     setProductDraft(getReadyToSellProductDraft(recipe, nutrition));
     setProductOptions([]);
     setSavedOptionGroupId('');

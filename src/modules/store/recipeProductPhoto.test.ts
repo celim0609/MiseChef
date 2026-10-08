@@ -23,3 +23,24 @@ test('Recipe photo handoff rejects unsupported source types before the public St
     }),
     /Choose a JPG, PNG, or WebP image/);
 });
+
+ test('network/CORS failures show actionable photo guidance instead of Failed to fetch', async () => {
+  await assert.rejects(loadRecipePhotoForStoreProduct({
+    recipeId: 'recipe', photoUrl: 'https://example.test/photo.jpg',
+    fetchImage: async () => { throw new TypeError('Failed to fetch'); }
+  }), /Unable to transfer the Recipe photo.*choose a Product photo manually/);
+});
+
+test('HTTP failures retain manual photo fallback', async () => {
+  await assert.rejects(loadRecipePhotoForStoreProduct({
+    recipeId: 'recipe', photoUrl: 'https://example.test/photo.jpg',
+    fetchImage: async () => new Response('', { status: 403 })
+  }), /Unable to load the Recipe photo.*choose a Product photo/);
+});
+
+test('unreadable photo bodies show clear fallback guidance', async () => {
+  await assert.rejects(loadRecipePhotoForStoreProduct({
+    recipeId: 'recipe', photoUrl: 'https://example.test/photo.jpg',
+    fetchImage: async () => ({ ok: true, blob: async () => { throw new Error('network'); } }) as unknown as Response
+  }), /Unable to read the Recipe photo.*choose a Product photo manually/);
+});

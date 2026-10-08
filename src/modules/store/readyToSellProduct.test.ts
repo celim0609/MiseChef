@@ -72,3 +72,16 @@ test('Ready to Sell remains available with estimated nutrition', () => {
   assert.equal(draft.price, 12.5);
   assert.equal(draft.available, true);
 });
+
+test('manual photos invalidate pending transfers and stale nutrition cannot reset another draft', () => {
+  const source = readFileSync(new URL('./StorePage.tsx', import.meta.url), 'utf8');
+  const manual = source.slice(source.indexOf('const handleProductPhotoChange'), source.indexOf('const handleSetUpStore'));
+  assert.match(manual, /productPhotoTransferIdRef.current \+= 1/);
+  assert.match(manual, /readImageFile\(event, setProductPhotoFile\)/);
+  assert.match(source, /if \(productPhotoTransferIdRef.current !== transferId\) return;\s*setProductDraft/);
+  assert.match(source, /if \(productPhotoTransferIdRef.current === transferId\) setProductPhotoFile\(photo\)/);
+});
+
+test('estimated calories remain absent rather than becoming a complete Product value', () => {
+  assert.equal(getReadyToSellProductDraft(recipe, { status: 'ESTIMATED', totalKcal: 800, kcalPerServing: 400, incompleteReasons: ['Missing data'] }).calories, undefined);
+});
