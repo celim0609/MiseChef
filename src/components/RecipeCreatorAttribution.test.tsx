@@ -86,9 +86,10 @@ test('Recipe Library card preserves complete nutrition and hides incomplete calo
     <RecipeLibraryCard recipe={tehIce} nutrition={{ status: 'INCOMPLETE', incompleteReasons: ['Egg: nutrition profile is required.'] }} workspaceMembers={[sara]} onSelectRecipe={() => undefined} onToggleFavorite={() => undefined} />
   );
 
-  assert.match(completeMarkup, /5 mins.*226 kcal/);
+  assert.match(completeMarkup, /Total Calories: 451 kcal · 226 kcal per serving/);
   assert.doesNotMatch(completeMarkup, /451\.2|total kcal/);
   assert.doesNotMatch(incompleteMarkup, /kcal/);
+  assert.match(incompleteMarkup, /Incomplete/);
 });
 
 
@@ -101,9 +102,9 @@ test('Recipe Library card shows only estimated per-serving calories and ingredie
     }} workspaceMembers={[sara]} onSelectRecipe={() => undefined} onToggleFavorite={() => undefined} />
   );
 
-  assert.match(markup, /Estimated · 226 kcal per serving/);
+  assert.match(markup, /Partial Total: 451 kcal · Partial 226 kcal per serving/);
   assert.match(markup, /8 \/ 9 ingredients calculated/);
-  assert.doesNotMatch(markup, /Ginger|Garlic|nutrition data unavailable|kcal total|451/);
+  assert.doesNotMatch(markup, /Ginger|Garlic|nutrition data unavailable/);
   assert.match(markup, /Created by Sara/);
   assert.match(markup, /5 mins/);
 });
@@ -117,7 +118,7 @@ test('Recipe Library card displays a valid zero calorie estimate', () => {
     }} workspaceMembers={[sara]} onSelectRecipe={() => undefined} onToggleFavorite={() => undefined} />
   );
 
-  assert.match(markup, /Estimated · 0 kcal per serving/);
+  assert.match(markup, /Partial Total: 0 kcal · Partial 0 kcal per serving/);
   assert.match(markup, /1 \/ 2 ingredients calculated/);
   assert.doesNotMatch(markup, /Ginger|nutrition data unavailable/);
 });

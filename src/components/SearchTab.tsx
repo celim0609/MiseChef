@@ -1,3 +1,4 @@
+import { RecipeNutritionSummaryView } from './RecipeNutritionResult';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -10,7 +11,7 @@ import { formatRecipeCreatorLine } from '../services/recipeCreator';
 import { getRecipeCategories, recipeHasCategory } from '../utils/categoryUtils';
 import { getRecipeSearchText } from '../utils/recipeSearch';
 import { DiscoverCarousel, createRecipeLibraryDiscoverItems, type DiscoverItem } from './discover';
-import { calculateRecipeNutrition, getSnapshotCalories } from '../modules/nutrition/services/recipeNutritionCalculator';
+import { calculateRecipeNutrition } from '../modules/nutrition/services/recipeNutritionCalculator';
 
 interface SearchTabProps {
   recipes: Recipe[];
@@ -31,7 +32,6 @@ export function RecipeLibraryCard({ recipe, nutrition, workspaceMembers, onSelec
   onSelectRecipe: (recipe: Recipe) => void;
   onToggleFavorite: (recipeId: string) => void;
 }) {
-  const calories = getSnapshotCalories(nutrition);
 
   return (
     <div onClick={() => onSelectRecipe(recipe)} className="bg-surface-container-low border border-surface-container-high rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow cursor-pointer group relative">
@@ -45,13 +45,8 @@ export function RecipeLibraryCard({ recipe, nutrition, workspaceMembers, onSelec
         <span className="px-2 py-0.5 rounded-full bg-secondary-fixed text-on-secondary-fixed-variant font-sans text-[10px] font-bold">{getRecipeCategories(recipe).join(', ')}</span>
         <h3 className="font-display font-semibold text-base text-primary leading-snug group-hover:text-secondary duration-300 transition-colors line-clamp-1">{recipe.title}</h3>
         <p className="font-sans text-xs font-semibold text-on-surface-variant">{formatRecipeCreatorLine(recipe, workspaceMembers).split(' · ')[0]}</p>
-        <div className="flex items-center gap-1.5 text-xs text-outline font-semibold"><Clock className="w-3.5 h-3.5" /><span>{recipe.prepTime} mins</span>{calories !== undefined && <><span aria-hidden="true">·</span><span>{calories} kcal</span></>}</div>
-        {nutrition?.status === 'ESTIMATED' && (
-          <div className="space-y-1 font-sans text-xs">
-            <p className="font-bold text-primary">Estimated · {Math.round(nutrition.kcalPerServing || 0)} kcal per serving</p>
-            <p>{nutrition.calculatedIngredientCount} / {nutrition.totalIngredientCount} ingredients calculated</p>
-          </div>
-        )}
+        <div className="flex items-center gap-1.5 text-xs text-outline font-semibold"><Clock className="w-3.5 h-3.5" /><span>{recipe.prepTime} mins</span></div>
+        {nutrition && <RecipeNutritionSummaryView nutrition={nutrition} />}
       </div>
     </div>
   );
