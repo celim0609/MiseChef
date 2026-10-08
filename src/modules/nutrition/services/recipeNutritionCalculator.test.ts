@@ -10,7 +10,7 @@ const profile = (id: string, overrides: Partial<IngredientNutritionProfile> = {}
 
 test('calculates approved mass nutrition and snapshots per-serving kcal', () => {
   const result = calculateRecipeNutrition({ servings: 2, ingredients: [{ id: 'flour', ingredientId: 'flour', name: 'Flour', qty: '250', unit: 'g' }] }, { flour: profile('flour', { kcalPer100g: 364 }) });
-  assert.deepEqual(result, { status: 'COMPLETE', totalKcal: 910, kcalPerServing: 455, incompleteReasons: [], calculatedIngredientCount: 1, totalIngredientCount: 1 });
+  assert.deepEqual((( { ingredientBreakdown, ...summary }) => summary)(result), { status: 'COMPLETE', totalKcal: 910, kcalPerServing: 455, incompleteReasons: [], calculatedIngredientCount: 1, totalIngredientCount: 1 });
   assert.equal(getSnapshotCalories(result), 455);
 });
 
@@ -38,7 +38,7 @@ test('calculates pcs and nos from approved grams per piece without changing cost
     egg: profile('egg', { kcalPer100g: 143, gramsPerPiece: 50 }),
     banana: profile('banana', { kcalPer100g: 89, gramsPerPiece: 120 })
   });
-  assert.deepEqual(result, { status: 'COMPLETE', totalKcal: 249.8, kcalPerServing: 124.9, incompleteReasons: [], calculatedIngredientCount: 2, totalIngredientCount: 2 });
+  assert.deepEqual((( { ingredientBreakdown, ...summary }) => summary)(result), { status: 'COMPLETE', totalKcal: 249.8, kcalPerServing: 124.9, incompleteReasons: [], calculatedIngredientCount: 2, totalIngredientCount: 2 });
 });
 
 test('non-food contributes zero without making a Recipe incomplete', () => {
@@ -49,7 +49,7 @@ test('non-food contributes zero without making a Recipe incomplete', () => {
     ice: profile('ice', { kind: 'non_food', source: 'chef_non_food', kcalPer100g: undefined }),
     rice: profile('rice', { kcalPer100g: 130 })
   });
-  assert.deepEqual(result, { status: 'COMPLETE', totalKcal: 130, kcalPerServing: 65, incompleteReasons: [], calculatedIngredientCount: 1, totalIngredientCount: 1 });
+  assert.deepEqual((( { ingredientBreakdown, ...summary }) => summary)(result), { status: 'COMPLETE', totalKcal: 130, kcalPerServing: 65, incompleteReasons: [], calculatedIngredientCount: 1, totalIngredientCount: 1 });
 });
 
 

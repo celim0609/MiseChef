@@ -86,8 +86,17 @@ export interface IngredientNutritionProfile {
 
 export type RecipeNutritionStatus = 'COMPLETE' | 'ESTIMATED' | 'INCOMPLETE';
 
+export interface RecipeIngredientNutrition {
+  id: string;
+  name: string;
+  quantity: string;
+  unit: string;
+  kcal?: number;
+}
+
 export interface RecipeNutritionSummary {
   status: RecipeNutritionStatus;
+  ingredientBreakdown?: RecipeIngredientNutrition[];
   totalKcal?: number;
   kcalPerServing?: number;
   incompleteReasons: string[];

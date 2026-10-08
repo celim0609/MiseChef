@@ -1,4 +1,4 @@
-import type { IngredientNutritionProfile, Recipe, RecipeNutritionSummary } from '../../../types';
+import type { IngredientNutritionProfile, Recipe, RecipeIngredientNutrition, RecipeNutritionSummary } from '../../../types';
 import { getNutritionUnit } from './nutritionUnits';
 import { resolveRecipeNutritionIdentity } from './recipeNutritionIdentity';
 
@@ -7,6 +7,7 @@ export const calculateRecipeNutrition = (
   profiles: Record<string, IngredientNutritionProfile | undefined>
 ): RecipeNutritionSummary => {
   const reasons: string[] = [];
+  const ingredientBreakdown: RecipeIngredientNutrition[] = [];
   let totalKcal = 0;
   let calculatedIngredientCount = 0;
   let usableFoodCount = 0;
@@ -17,6 +18,8 @@ export const calculateRecipeNutrition = (
     const profile = resolveRecipeNutritionIdentity(label, ingredient.ingredientId ? profiles[ingredient.ingredientId] : undefined);
     if (profile?.status === 'approved' && profile.kind === 'non_food') continue;
     totalIngredientCount += 1;
+    const breakdownRow: RecipeIngredientNutrition = { id: ingredient.id, name: ingredient.name, quantity: ingredient.qty, unit: ingredient.unit };
+    ingredientBreakdown.push(breakdownRow);
     if (!profile || profile.status !== 'approved') {
       reasons.push(`${label} nutrition data unavailable${ingredient.ingredientId ? '' : ' (link a canonical Ingredient).'}`);
       continue;
@@ -43,6 +46,7 @@ export const calculateRecipeNutrition = (
       }
       const contribution = quantity * (profile.gramsPerPiece as number) * (profile.kcalPer100g as number) / 100;
       if (!Number.isFinite(contribution)) { reasons.push(`${label}: nutrition calculation is out of range.`); continue; }
+      breakdownRow.kcal = contribution;
       totalKcal += contribution;
       calculatedIngredientCount += 1;
       if (quantity > 0) usableFoodCount += 1;
@@ -55,13 +59,14 @@ export const calculateRecipeNutrition = (
     }
     const contribution = quantity * unit.baseQuantity * (per100 as number) / 100;
     if (!Number.isFinite(contribution)) { reasons.push(`${label}: nutrition calculation is out of range.`); continue; }
+    breakdownRow.kcal = contribution;
     totalKcal += contribution;
     calculatedIngredientCount += 1;
     if (quantity > 0) usableFoodCount += 1;
   }
 
   if (!Number.isInteger(recipe.servings) || recipe.servings <= 0) reasons.push('Recipe servings must be a positive whole number.');
-  const coverage = { calculatedIngredientCount, totalIngredientCount };
+  const coverage = { calculatedIngredientCount, totalIngredientCount, ingredientBreakdown };
   if (!usableFoodCount || !Number.isFinite(totalKcal) || !Number.isInteger(recipe.servings) || recipe.servings <= 0) {
     if (!usableFoodCount) reasons.push('Not enough usable food nutrition data to estimate nutrition.');
     return { status: 'INCOMPLETE', incompleteReasons: reasons, ...coverage };

@@ -78,3 +78,18 @@ test('Beta example coverage excludes operational rows and resolves only verified
   assert.equal(soy.totalIngredientCount, 7);
   assert.equal(soy.kcalPerServing, 80);
 });
+
+test('breakdown reuses exact contributions, preserves duplicate rows, excludes non-food and leaves failures unavailable', () => {
+  const ingredients = [row('Food', 'g', '25', 'food'), row('Food', 'pcs', '2', 'piece'), row('Water', 'ml'), row('Unknown'), row('Food', 'unsupported', '1', 'food'), row('Coaster')];
+  const before = structuredClone(ingredients);
+  const result = calculateRecipeNutrition({ servings: 2, ingredients }, { food: profile(), piece: profile({ gramsPerPiece: 50 }) });
+  assert.deepEqual(result.ingredientBreakdown?.map(item => item.kcal), [25, 100, 0, undefined, undefined]);
+  assert.equal(result.totalKcal, 125);
+  assert.equal(result.kcalPerServing, 62.5);
+  assert.equal(result.calculatedIngredientCount, 3);
+  assert.equal(result.totalIngredientCount, 5);
+  assert.deepEqual(ingredients, before);
+  const incomplete = calculateRecipeNutrition({ servings: 1, ingredients: [row('Unknown')] }, {});
+  assert.equal(incomplete.status, 'INCOMPLETE');
+  assert.equal(incomplete.ingredientBreakdown?.[0].kcal, undefined);
+});
