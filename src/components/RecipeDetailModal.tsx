@@ -1,3 +1,5 @@
+import { LinkedRecipeCostSummary } from './LinkedRecipeCostSummary';
+import { scaleLinkedRecipeQuantities } from '../modules/costing/services/linkedRecipePresentation';
 import { RecipeNutritionResult } from './RecipeNutritionResult';
 /**
  * @license
@@ -75,6 +77,7 @@ const scaleQuantity = (quantity: string, ratio: number) => {
 
 interface RecipeDetailModalProps {
   recipe: Recipe;
+  recipes?: Recipe[];
   onClose: () => void;
   onEdit: (recipe: Recipe) => void;
   onDuplicate: (recipe: Recipe) => void;
@@ -94,7 +97,8 @@ export default function RecipeDetailModal({
   onShare,
   onDelete,
   onToggleFavorite,
-  workspaceMembers = []
+  workspaceMembers = [],
+  recipes = []
 }: RecipeDetailModalProps) {
   const [checkedIngredients, setCheckedIngredients] = useState<string[]>([]);
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
@@ -141,6 +145,7 @@ export default function RecipeDetailModal({
         ...ingredient,
         qty: scaleQuantity(ingredient.qty, scaleRatio)
       })),
+      linkedRecipes: scaleLinkedRecipeQuantities(recipe.linkedRecipes, scaleRatio),
       method: recipe.method
     };
   }, [canScale, recipe, scaleRatio, targetParsedYield, targetYield]);
@@ -449,6 +454,13 @@ export default function RecipeDetailModal({
               </ul>
             </section>
 
+            {Boolean(displayedRecipe.linkedRecipes?.length) && <section className="space-y-2">
+              <h3 className="font-display text-2xl font-bold text-primary">Linked Recipes</h3>
+              {displayedRecipe.linkedRecipes?.map(component => <div key={component.id} className="rounded-xl bg-surface-container-low p-3">
+                <p className="font-sans text-sm">{component.recipeTitle || 'Linked recipe'} · {component.quantity} child portions used per parent batch</p>
+                <LinkedRecipeCostSummary child={recipes.find(child => child.id === component.recipeId)} quantity={component.quantity} />
+              </div>)}
+            </section>}
             <RecipeCostAnalysis recipe={recipe} />
 
             <section className="space-y-5">

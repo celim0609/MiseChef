@@ -42,6 +42,7 @@ export interface LinkedRecipeComponent {
   recipeTitle?: string;
   quantity: number;
   unit: 'portion';
+  associatedIngredientId?: string;
 }
 
 export interface RecipeCosting {
@@ -51,6 +52,7 @@ export interface RecipeCosting {
   foodCostPercentage: number;
   grossProfitPercentage: number;
   breakdown: RecipeCostBreakdownItem[];
+  linkedRecipeWarnings?: string[];
   lastCalculatedAt: string;
 }
 

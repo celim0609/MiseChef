@@ -1,3 +1,5 @@
+import { LinkedRecipeCostSummary } from './LinkedRecipeCostSummary';
+import { calculateRecipeCosting } from '../modules/costing/services/recipeCostCalculator';
 import { RecipeNutritionResult } from './RecipeNutritionResult';
 /**
  * @license
@@ -2098,7 +2100,7 @@ export default function AddRecipeTab({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 className="font-display text-2xl font-bold tracking-tight text-primary">Linked Recipes</h3>
-            <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Use an existing recipe as a costed component. Cost follows its current per-portion calculation.</p>
+            <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Use child recipe portions for the whole parent batch. Servings determine cost per portion; Yield text does not convert units.</p>
           </div>
           <button
             type="button"
@@ -2112,7 +2114,10 @@ export default function AddRecipeTab({
         {validationErrors.linkedRecipes && <p role="alert" className="font-sans text-xs font-bold text-error">{validationErrors.linkedRecipes}</p>}
         {linkedRecipes.map(component => {
           const selectedRecipe = recipes.find(recipe => recipe.id === component.recipeId);
-          const unitCost = Number(selectedRecipe?.costing?.costPerPortion || 0);
+          let calculatedChild: Recipe | undefined;
+          try {
+            calculatedChild = selectedRecipe ? calculateRecipeCosting(selectedRecipe, libraryIngredients, new Date().toISOString(), recipes) : undefined;
+          } catch { /* Invalid dependencies are reported as unavailable in the summary. */ }
           return (
             <div key={component.id} className="grid gap-3 rounded-2xl border border-surface-container-high bg-surface-container-low p-4 sm:grid-cols-[minmax(0,1fr)_120px_110px_44px] sm:items-end">
               <label className="block">
@@ -2124,7 +2129,8 @@ export default function AddRecipeTab({
                     setLinkedRecipes(current => current.map(item => item.id === component.id ? {
                       ...item,
                       recipeId: event.target.value,
-                      recipeTitle: selected?.title || ''
+                      recipeTitle: selected?.title || '',
+                      associatedIngredientId: undefined
                     } : item));
                     clearValidationError('linkedRecipes');
                   }}
@@ -2134,7 +2140,7 @@ export default function AddRecipeTab({
                 </select>
               </label>
               <label className="block">
-                <span className="font-sans text-[11px] font-extrabold text-on-surface-variant">Quantity</span>
+                <span className="font-sans text-[11px] font-extrabold text-on-surface-variant">Child portions used per parent batch</span>
                 <input
                   type="number"
                   min="0.000001"
@@ -2144,10 +2150,16 @@ export default function AddRecipeTab({
                   className="mt-1 w-full rounded-xl border border-surface-container-high bg-background px-3 py-3 font-sans text-sm font-bold text-primary"
                 />
               </label>
-              <div>
-                <span className="font-sans text-[11px] font-extrabold text-on-surface-variant">Cost / portion</span>
-                <p className="mt-1 rounded-xl bg-background px-3 py-3 font-sans text-sm font-extrabold text-primary">{unitCost.toFixed(2)}</p>
-              </div>
+              <LinkedRecipeCostSummary child={calculatedChild} quantity={component.quantity} />
+              <label className="block sm:col-span-3">
+                <span className="font-sans text-[11px] font-extrabold">Ingredient cost replaced by this link (optional)</span>
+                <select aria-label={`Ingredient cost replaced by ${component.recipeTitle || 'linked recipe'}`} value={component.associatedIngredientId || ''}
+                  onChange={event => setLinkedRecipes(current => current.map(item => item.id === component.id ? { ...item, associatedIngredientId: event.target.value || undefined } : item))}
+                  className="mt-1 w-full rounded-xl border border-surface-container-high bg-background px-3 py-2 text-sm">
+                  <option value="">None — cost ingredients separately</option>
+                  {ingredients.filter(ingredient => !linkedRecipes.some(other => other.id !== component.id && other.associatedIngredientId === ingredient.id)).map(ingredient => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}
+                </select>
+              </label>
               <button type="button" aria-label={`Remove ${component.recipeTitle || 'linked recipe'}`} onClick={() => setLinkedRecipes(current => current.filter(item => item.id !== component.id))} className="flex h-11 items-center justify-center rounded-xl bg-background text-error"><Trash2 className="h-4 w-4" /></button>
             </div>
           );

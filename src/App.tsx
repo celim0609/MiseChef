@@ -2619,6 +2619,7 @@ export default function App() {
       <AnimatePresence>
         {selectedRecipe && (
           <RecipeDetailModal
+            recipes={recipes}
             recipe={selectedRecipe}
             onClose={() => setSelectedRecipe(null)}
             onEdit={handleStartEditRecipe}
