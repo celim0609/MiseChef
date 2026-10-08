@@ -26,6 +26,19 @@ const salt: NutritionIdentity = {
   kind: 'food', status: 'approved', source: 'usda_fdc', catalogProfileId: '173468', kcalPer100g: 0
 };
 
+// USDA FDC verified 2026-10-08: nutrient 1008, explicit kcal per 100 g.
+// 2709248 "Passion fruit, raw": 97 kcal. Generic edible raw fruit profile,
+// not juice/nectar and not the skin or whole fruit including refuse.
+// 169097 "Oranges, raw, all commercial varieties": 47 kcal, edible raw fruit.
+// Mass only: no assumed density, piece weight, yield or slice conversion.
+const rawFruitIdentities: Record<string, NutritionIdentity> = {};
+for (const name of ['passion fruit pulp', 'raw passion fruit pulp', 'fresh passion fruit pulp']) {
+  rawFruitIdentities[name] = { kind: 'food', status: 'approved', source: 'usda_fdc', catalogProfileId: '2709248', kcalPer100g: 97 };
+}
+for (const name of ['fresh orange', 'raw orange', 'fresh orange flesh', 'raw orange flesh']) {
+  rawFruitIdentities[name] = { kind: 'food', status: 'approved', source: 'usda_fdc', catalogProfileId: '169097', kcalPer100g: 47 };
+}
+
 export const resolveRecipeNutritionIdentity = (name: string, profile?: IngredientNutritionProfile): NutritionIdentity | undefined => {
   // Explicit profiles take precedence, including non-food and chef overrides.
   // An existing unapproved profile must not be silently bypassed.
@@ -34,5 +47,5 @@ export const resolveRecipeNutritionIdentity = (name: string, profile?: Ingredien
   if (operationalNames.has(key)) return { kind: 'non_food', status: 'approved' };
   if (waterNames.has(key)) return water;
   if (saltNames.has(key)) return salt;
-  return undefined;
+  return Object.hasOwn(rawFruitIdentities, key) ? rawFruitIdentities[key] : undefined;
 };
