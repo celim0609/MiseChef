@@ -16,7 +16,7 @@ test('the authenticated app classifies every Workspace business route centrally'
   assert.doesNotMatch(classification, /'search'|'favorites'|'portfolio'|'profile'|'billing'/);
   assert.match(app, /BUSINESS_WORKSPACE_TABS\.has\(tab\) && !hasBusinessEntitlement/);
   assert.match(app, /currentUser && BUSINESS_WORKSPACE_TABS\.has\(activeTab\)/);
-  assert.match(app, /businessEntitlement === null/);
+  assert.match(app, /workspaceAccess === 'loading' \|\| workspaceAccess === 'error'/);
   assert.match(app, /!hasBusinessEntitlement \|\| !canAccessRootTab/);
 });
 

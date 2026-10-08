@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { resolveWorkspaceAccess } from './services/workspaceAccessState';
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { Search, Home } from 'lucide-react';
 import { getRedirectResult, onAuthStateChanged, signOut, type Unsubscribe, type User } from 'firebase/auth';
@@ -663,7 +664,7 @@ export default function App() {
   const [currentUserRole, setCurrentUserRole] = useState<UserRole>('user');
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [currentWorkspace, setCurrentWorkspace] = useState<Workspace | null>(null);
-  const [businessEntitlement, setBusinessEntitlement] = useState<{ workspaceId: string; allowed: boolean } | null>(null);
+  const [businessEntitlement, setBusinessEntitlement] = useState<{ workspaceId: string; allowed: boolean; error?: boolean } | null>(null);
   const [chefProfile, setChefProfile] = useState<ChefProfile>(DEFAULT_CHEF_PROFILE);
   const [customAvatarUrl, setCustomAvatarUrl] = useState('');
   const [selectedCostingInvoiceId, setSelectedCostingInvoiceId] = useState<string | null>(() => getCostingInvoiceIdFromPath(window.location.pathname));
@@ -718,6 +719,8 @@ export default function App() {
     && businessEntitlement.allowed
   );
 
+  const workspaceAccess = resolveWorkspaceAccess(currentWorkspace?.id, currentWorkspaceRole, businessEntitlement, workspaceSetupStatus === 'error' ? 'error' : workspaceSetupStatus === 'ready' ? 'ready' : 'loading');
+
   useEffect(() => {
     let cancelled = false;
     setBusinessEntitlement(null);
@@ -731,7 +734,7 @@ export default function App() {
         });
       })
       .catch(() => {
-        if (!cancelled) setBusinessEntitlement({ workspaceId: currentWorkspace.id, allowed: false });
+        if (!cancelled) setBusinessEntitlement({ workspaceId: currentWorkspace.id, allowed: false, error: true });
       });
 
     return () => { cancelled = true; };
@@ -789,6 +792,13 @@ export default function App() {
       setIsNavigationDrawerOpen(false);
       window.history.replaceState(null, '', ROOT_TAB_PATHS.home);
       triggerNotification('Admin is only available to MiseChef super admins.', 'info');
+      return;
+    }
+
+    if (BUSINESS_WORKSPACE_TABS.has(tab) && (workspaceAccess === 'loading' || workspaceAccess === 'error')) {
+      setActiveTab(tab);
+      setIsNavigationDrawerOpen(false);
+      window.history.replaceState(null, '', ROOT_TAB_PATHS[tab]);
       return;
     }
 
@@ -1096,16 +1106,12 @@ export default function App() {
     }
 
     if (currentUser && BUSINESS_WORKSPACE_TABS.has(activeTab)) {
-      if (!currentWorkspace) {
-        handleRootNavigate(activeTab);
-        return;
-      }
-      if (businessEntitlement === null) return;
+      if (workspaceAccess === 'loading' || workspaceAccess === 'error') return;
       if (!hasBusinessEntitlement || !canAccessRootTab(activeTab, currentWorkspaceRole, currentUserRole === 'super_admin')) {
         handleRootNavigate(activeTab);
       }
     }
-  }, [activeTab, currentUser, currentUserRole, currentWorkspace, currentWorkspaceRole, businessEntitlement, hasBusinessEntitlement]);
+  }, [activeTab, currentUser, currentUserRole, currentWorkspace, currentWorkspaceRole, businessEntitlement, hasBusinessEntitlement, workspaceAccess]);
 
   useEffect(() => {
     const pathname = window.location.pathname;
@@ -1990,8 +1996,14 @@ export default function App() {
       );
     }
 
+    if (BUSINESS_WORKSPACE_TABS.has(activeTab) && workspaceAccess === 'loading') {
+      return <p role="status" className="p-6">Loading workspace access…</p>;
+    }
+    if (BUSINESS_WORKSPACE_TABS.has(activeTab) && workspaceAccess === 'error') {
+      return <div role="alert" className="p-6">Workspace access could not be verified. Please refresh to retry. Your subscription has not been changed.</div>;
+    }
     if (BUSINESS_WORKSPACE_TABS.has(activeTab) && !hasBusinessEntitlement) {
-      return null;
+      return <p role="alert" className="p-6">Access denied for this workspace.</p>;
     }
 
     switch (activeTab) {

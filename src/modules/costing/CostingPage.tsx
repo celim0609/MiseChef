@@ -1,3 +1,4 @@
+import { canEditIngredientLibrary } from './ingredientLibraryAccess';
 import type { RootTab, WorkspaceMemberRole } from '../../types';
 import CostingIngredientsPage from './pages/Ingredients';
 import InvoiceDetailPage from './pages/InvoiceDetail';
@@ -22,7 +23,7 @@ export default function CostingPage({ activeTab, userId, workspaceId, invoiceId,
 
   switch (activeTab) {
     case 'costingIngredients':
-      return <CostingIngredientsPage userId={userId} workspaceId={workspaceId} openCreateRequest={quickAddRequest?.action === 'ingredient' ? quickAddRequest.requestId : undefined} onQuickAddHandled={onQuickAddHandled} />;
+      return <CostingIngredientsPage userId={userId} workspaceId={workspaceId} canEditIngredients={canEditIngredientLibrary(workspaceRole)} openCreateRequest={quickAddRequest?.action === 'ingredient' ? quickAddRequest.requestId : undefined} onQuickAddHandled={onQuickAddHandled} />;
     case 'costingInvoices':
       return <CostingInvoicesPage userId={userId} workspaceId={workspaceId} canManageInvoices={canManageInvoices} openUploadRequest={quickAddRequest?.action === 'invoice' ? quickAddRequest.requestId : undefined} onQuickAddHandled={onQuickAddHandled} onOpenInvoice={onOpenInvoice} />;
     case 'costingInvoiceDetail':
