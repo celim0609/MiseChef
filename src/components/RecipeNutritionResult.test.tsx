@@ -9,7 +9,7 @@ test('partial nutrition displays estimate, coverage, calories and every missing 
     calculatedIngredientCount: 8, totalIngredientCount: 10,
     incompleteReasons: ['Ginger nutrition data unavailable', 'Garlic nutrition data unavailable']
   }} />);
-  for (const text of ['Estimated', '8 / 10 ingredients calculated', '800 kcal total', '400 kcal per serving', 'Ginger nutrition data unavailable', 'Garlic nutrition data unavailable']) assert.ok(html.includes(text));
+  for (const text of ['Partial Total: 800 kcal', '8 / 10 ingredients calculated', 'Partial 400 kcal per serving', 'Ginger nutrition data unavailable', 'Garlic nutrition data unavailable']) assert.ok(html.includes(text));
   assert.ok(!html.includes('Incomplete'));
 });
 
@@ -27,5 +27,18 @@ test('details render calculator contributions, unavailable dash and verified zer
   assert.match(html, /Water.*100<\/td><td>ml<\/td><td[^>]*>0 kcal/);
   assert.match(html, /Unknown sauce.*3<\/td><td>tbsp<\/td><td[^>]*>—/);
   assert.doesNotMatch(html, /12 oz cup/);
-  assert.match(html, /0 kcal total · 0 kcal per serving/);
+  assert.match(html, /Partial Total: 0 kcal · Partial 0 kcal per serving/);
+});
+
+test('complete and unavailable details retain coverage and breakdown without inventing totals', () => {
+  const complete = renderToStaticMarkup(<RecipeNutritionResult nutrition={{ status: 'COMPLETE', totalKcal: 100, kcalPerServing: 50, calculatedIngredientCount: 1, totalIngredientCount: 1, incompleteReasons: [], ingredientBreakdown: [{ id: 'a', name: 'Food', quantity: '100', unit: 'g', kcal: 100 }] }} />);
+  assert.match(complete, /Total Calories: 100 kcal · 50 kcal per serving/);
+  assert.match(complete, /1 \/ 1 ingredients calculated/);
+  assert.match(complete, /Ingredient nutrition breakdown/);
+  assert.doesNotMatch(complete, /Partial/);
+  const empty = renderToStaticMarkup(<RecipeNutritionResult nutrition={{ status: 'INCOMPLETE', calculatedIngredientCount: 0, totalIngredientCount: 1, incompleteReasons: [], ingredientBreakdown: [{ id: 'a', name: 'Food', quantity: '100', unit: 'g' }] }} />);
+  assert.match(empty, /Incomplete/);
+  assert.match(empty, /0 \/ 1 ingredients calculated/);
+  assert.match(empty, /—/);
+  assert.doesNotMatch(empty, /Total Calories|Partial Total|0 kcal/);
 });
