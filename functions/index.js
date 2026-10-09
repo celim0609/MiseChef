@@ -1,3 +1,4 @@
+import { createRecipePipelineService } from './recipePipelineService.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import { readFileSync } from 'node:fs';
 import { initializeApp } from 'firebase-admin/app';
@@ -1310,6 +1311,10 @@ const requireRecipeEnrichmentMember = async request => {
   return { uid, workspaceId };
 };
 
+export const saveChefIngredientNutrition = onCall({ region: REGION }, request => createRecipePipelineService(db).saveChefProfile(request));
+export const getWorkspaceNutritionProfiles = onCall({ region: REGION }, request => createRecipePipelineService(db).profiles(request));
+export const calculateWorkspaceRecipeCosting = onCall({ region: REGION }, request => createRecipePipelineService(db).costing(request));
+
 const fetchCuratedUsdaProfile = async variant => {
   const response = await fetch(`https://api.nal.usda.gov/fdc/v1/food/${encodeURIComponent(variant.fdcId)}?api_key=${encodeURIComponent(usdaFdcApiKey.value())}`);
   if (!response.ok) throw new HttpsError('unavailable', 'Nutrition lookup is temporarily unavailable.');
@@ -1417,7 +1422,7 @@ export const confirmUsdaIngredientNutrition = onCall({ region: REGION, secrets: 
   if (kcalPer100g === null) throw new HttpsError('failed-precondition', 'USDA did not provide usable kcal per 100 g for this food.');
   const now = new Date().toISOString();
   const catalog = { provider: 'usda_fdc', fdcId, description: readString(food.description), dataType: readString(food.dataType), brandName: readString(food.brandName), brandOwner: readString(food.brandOwner), gtinUpc: readString(food.gtinUpc), kcalPer100g, fetchedAt: now, sourceLicense: 'CC0-1.0' };
-  const profile = { id: ingredientId, ingredientId, workspaceId, kind: 'food', status: 'approved', source: 'usda_fdc', catalogProfileId: fdcId, kcalPer100g, ...(gramsPerPiece === undefined ? {} : { gramsPerPiece }), confirmedBy: uid, confirmedAt: now, updatedAt: now };
+  const profile = { id: ingredientId, ingredientId, workspaceId, kind: 'food', status: 'approved', source: 'usda_fdc', catalogProfileId: fdcId, foodDescription: readString(food.description), kcalPer100g, ...(gramsPerPiece === undefined ? {} : { gramsPerPiece }), confirmedBy: uid, confirmedAt: now, updatedAt: now };
   const batch = db.batch();
   batch.set(db.collection('nutritionCatalog').doc(fdcId), catalog, { merge: true });
   batch.set(db.collection('ingredientNutritionProfiles').doc(ingredientId), profile);

@@ -54,3 +54,20 @@ test('the internal USDA catalog is not client-readable', async () => {
   await seed();
   await assertFails(getDoc(doc(testEnv.authenticatedContext('chef-a').firestore(), 'nutritionCatalog', '12345')));
 });
+
+for (const role of ['Owner', 'Manager', 'Sous Chef', 'Chef']) {
+  test(`${role}: same-workspace profiles are readable while cross-workspace reads remain denied`, async () => {
+    await seed();
+    await testEnv.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), 'workspaceMembers', `${workspaceId}_reader`), { workspaceId, userId: 'reader', role, status: 'Active' });
+      await setDoc(doc(context.firestore(), 'ingredientNutritionProfiles', 'foreign-food'), { ...chefOverride(), id: 'foreign-food', ingredientId: 'foreign-food', workspaceId: 'other-workspace' });
+    });
+    const db = testEnv.authenticatedContext('reader').firestore();
+    await assertSucceeds(getDoc(doc(db, 'ingredientNutritionProfiles', ingredientId)));
+    await assertFails(getDoc(doc(db, 'ingredientNutritionProfiles', 'foreign-food')));
+    if (role === 'Chef' || role === 'Sous Chef') {
+      await assertFails(updateDoc(doc(db, 'ingredientNutritionProfiles', ingredientId), { kcalPer100g: 999, confirmedBy: 'reader' }));
+      await assertFails(setDoc(doc(db, 'ingredients', 'unauthorized-edit'), { id: 'unauthorized-edit', workspaceId, createdBy: 'reader', status: 'Active' }));
+    }
+  });
+}

@@ -27,9 +27,7 @@ import RecipeCostAnalysis from './RecipeCostAnalysis';
 import { calculateRecipeEditorCostPreview } from '../modules/costing/services/recipeEditorCostPreview';
 import IngredientLibraryPicker from './IngredientLibraryPicker';
 import { validateRecipeDependencies } from '../modules/costing/services/recipeDependencyModel';
-import { loadIngredientNutritionProfiles } from '../modules/nutrition/services/ingredientNutritionProfileService';
-import { calculateRecipeNutrition } from '../modules/nutrition/services/recipeNutritionCalculator';
-import type { IngredientNutritionProfile } from '../types';
+import { useRecipeNutrition } from '../modules/nutrition/hooks/useRecipeNutrition';
 import { resolveRecipeIngredientEnrichment, type RecipeIngredientResolution } from '../modules/recipe-enrichment/services/recipeIngredientEnrichmentService';
 import {
   getPendingRecipeIngredientEnrichmentTargets,
@@ -683,10 +681,10 @@ export default function AddRecipeTab({
       ? initialRecipe.ingredients
       : [{ id: 'ing_1', name: '', qty: '', unit: '' }]
   );
+  const [nutritionYield, setNutritionYield] = useState<Recipe['nutritionYield']>(initialRecipe?.nutritionYield);
   const [linkedRecipes, setLinkedRecipes] = useState<LinkedRecipeComponent[]>(initialRecipe?.linkedRecipes || []);
   const [libraryIngredients, setLibraryIngredients] = useState<CostingIngredient[]>([]);
   const [ingredientResolutions, setIngredientResolutions] = useState<Record<string, RecipeIngredientResolution>>({});
-  const [nutritionProfiles, setNutritionProfiles] = useState<Record<string, IngredientNutritionProfile | undefined>>({});
   const [importedIngredientIds, setImportedIngredientIds] = useState<string[]>([]);
   const ingredientsRef = useRef(ingredients);
   const pendingAutoEnrichmentRowIdsRef = useRef(new Set<string>());
@@ -767,24 +765,17 @@ export default function AddRecipeTab({
     ingredientsRef.current = ingredients;
   }, [ingredients]);
 
-  useEffect(() => {
-    let active = true;
-    void loadIngredientNutritionProfiles(ingredients.map(ingredient => ingredient.ingredientId || ''))
-      .then(profiles => { if (active) setNutritionProfiles(profiles); })
-      .catch(error => console.warn('Ingredient nutrition profiles were unavailable.', error));
-    return () => { active = false; };
-  }, [ingredients]);
-
-  const recipeNutrition = useMemo(() => calculateRecipeNutrition({
-    ingredients,
-    servings: Number(servings)
-  }, nutritionProfiles), [ingredients, nutritionProfiles, servings]);
+  const nutritionDraft = useMemo(() => ({
+    id: initialRecipe?.id, workspaceId: workspaceId || userId,
+    ingredients, servings: Number(servings), linkedRecipes
+  }), [initialRecipe?.id, workspaceId, userId, ingredients, servings, linkedRecipes]);
+  const recipeNutrition = useRecipeNutrition(nutritionDraft, recipes, workspaceId || userId);
 
   if (!initialEditorSnapshotRef.current) {
     initialEditorSnapshotRef.current = editorSnapshot;
   }
 
-  const isDirty = editorSnapshot !== initialEditorSnapshotRef.current;
+  const isDirty = editorSnapshot !== initialEditorSnapshotRef.current || JSON.stringify(nutritionYield) !== JSON.stringify(initialRecipe?.nutritionYield);
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -1484,6 +1475,7 @@ export default function AddRecipeTab({
       prepTime: validatedPrepTime as number,
       cookTime: (validatedCookTime as number) || undefined,
       servings: savedServings,
+      nutritionYield,
       yield: recipeYield.trim() || `${savedServings} servings`,
       difficulty,
       story: story.trim() || 'A homemade culinary masterpiece baked with fresh herbs and careful attention.',
@@ -2154,12 +2146,13 @@ export default function AddRecipeTab({
               <label className="block sm:col-span-3">
                 <span className="font-sans text-[11px] font-extrabold">Ingredient cost replaced by this link (optional)</span>
                 <select aria-label={`Ingredient cost replaced by ${component.recipeTitle || 'linked recipe'}`} value={component.associatedIngredientId || ''}
-                  onChange={event => setLinkedRecipes(current => current.map(item => item.id === component.id ? { ...item, associatedIngredientId: event.target.value || undefined } : item))}
+                  onChange={event => setLinkedRecipes(current => current.map(item => item.id === component.id ? { ...item, associatedIngredientId: event.target.value || undefined, nutritionUseAssociatedQuantity: false } : item))}
                   className="mt-1 w-full rounded-xl border border-surface-container-high bg-background px-3 py-2 text-sm">
                   <option value="">None — cost ingredients separately</option>
                   {ingredients.filter(ingredient => !linkedRecipes.some(other => other.id !== component.id && other.associatedIngredientId === ingredient.id)).map(ingredient => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}
                 </select>
               </label>
+              {component.associatedIngredientId && <label className="text-xs sm:col-span-3"><input type="checkbox" checked={Boolean(component.nutritionUseAssociatedQuantity)} onChange={event => setLinkedRecipes(current => current.map(item => item.id === component.id ? { ...item, nutritionUseAssociatedQuantity: event.target.checked } : item))} /> Calculate nutrition from associated ingredient quantity using child's verified batch yield. Otherwise use the saved child portions.</label>}
               <button type="button" aria-label={`Remove ${component.recipeTitle || 'linked recipe'}`} onClick={() => setLinkedRecipes(current => current.filter(item => item.id !== component.id))} className="flex h-11 items-center justify-center rounded-xl bg-background text-error"><Trash2 className="h-4 w-4" /></button>
             </div>
           );
@@ -2167,6 +2160,15 @@ export default function AddRecipeTab({
       </section>
 
       {/* Instructions Section */}
+      <div className="rounded-xl bg-surface-container-low p-3 space-y-2">
+        <label className="flex gap-2 text-sm font-bold"><input type="checkbox" checked={Boolean(nutritionYield)} onChange={event => setNutritionYield(event.target.checked ? { quantity: 0, unit: 'g' } : undefined)} /> Confirm measured edible batch yield for nutrition</label>
+        {nutritionYield && <div className="flex gap-2">
+          <input aria-label="Verified edible batch quantity" type="number" min="0.000001" step="any" value={nutritionYield.quantity || ''} onChange={event => setNutritionYield({ ...nutritionYield, quantity: Number(event.target.value) })} className="rounded border p-2" />
+          <select aria-label="Verified edible batch unit" value={nutritionYield.unit} onChange={event => setNutritionYield({ ...nutritionYield, unit: event.target.value as 'g' | 'ml' | 'pcs' })}><option value="g">g</option><option value="ml">ml</option><option value="pcs">pcs</option></select>
+          <p className="text-xs">Enter a positive measured finished edible output. Missing or invalid yield stays unavailable for nutrition. Does not change costing, servings or saved Yield.</p>
+        </div>}
+      </div>
+
       <section className="space-y-4" id="method-section">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h3 className="font-display text-2xl font-bold text-primary tracking-tight">Instructions</h3>

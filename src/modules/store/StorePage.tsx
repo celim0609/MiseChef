@@ -623,8 +623,8 @@ export default function StorePage({
     setEditingProduct(null);
     let nutrition;
     try {
-      const profiles = await loadIngredientNutritionProfiles(recipe.ingredients.map(ingredient => ingredient.ingredientId || ''));
-      nutrition = calculateRecipeNutrition(recipe, profiles);
+      const profiles = await loadIngredientNutritionProfiles(recipe.ingredients.map(ingredient => ingredient.ingredientId || ''), workspace.id);
+      nutrition = calculateRecipeNutrition(recipe, profiles, recipes);
     } catch (error) {
       console.warn('Recipe nutrition was unavailable for Ready to Sell.', error);
       nutrition = { status: 'INCOMPLETE' as const, incompleteReasons: ['Nutrition profiles are unavailable.'] };

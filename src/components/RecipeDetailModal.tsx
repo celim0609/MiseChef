@@ -13,7 +13,7 @@ import { formatRecipeCreatorLine } from '../services/recipeCreator';
 import { motion } from 'motion/react';
 import { getRecipeCategories } from '../utils/categoryUtils';
 import RecipeCostAnalysis from './RecipeCostAnalysis';
-import { calculateRecipeNutrition } from '../modules/nutrition/services/recipeNutritionCalculator';
+import { useRecipeNutrition } from '../modules/nutrition/hooks/useRecipeNutrition';
 import type { RecipeNutritionSummary } from '../types';
 
 const normalizeUnit = (unit = '') => {
@@ -109,16 +109,6 @@ export default function RecipeDetailModal({
   const [targetYield, setTargetYield] = useState('');
   const [recipeView, setRecipeView] = useState<'original' | 'scaled'>('original');
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
-  const [nutrition, setNutrition] = useState<RecipeNutritionSummary | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    void import('../modules/nutrition/services/ingredientNutritionProfileService')
-      .then(({ loadIngredientNutritionProfiles }) => loadIngredientNutritionProfiles(recipe.ingredients.map(ingredient => ingredient.ingredientId || '')))
-      .then(profiles => { if (active) setNutrition(calculateRecipeNutrition(recipe, profiles)); })
-      .catch(() => { if (active) setNutrition({ status: 'INCOMPLETE', incompleteReasons: ['Nutrition profiles are unavailable.'] }); });
-    return () => { active = false; };
-  }, [recipe]);
 
   const originalYield = recipe.yield || `${recipe.servings} servings`;
   const originalParsedYield = parseYield(originalYield);
@@ -138,6 +128,7 @@ export default function RecipeDetailModal({
     return {
       ...recipe,
       yield: targetYield.trim(),
+      nutritionYield: recipe.nutritionYield ? { ...recipe.nutritionYield, quantity: recipe.nutritionYield.quantity * scaleRatio } : undefined,
       servings: targetParsedYield.unit === 'servings'
         ? Math.round(targetParsedYield.amount)
         : recipe.servings,
@@ -150,6 +141,7 @@ export default function RecipeDetailModal({
     };
   }, [canScale, recipe, scaleRatio, targetParsedYield, targetYield]);
   const displayedRecipe = isScaledView ? scaledRecipe : recipe;
+  const nutrition = useRecipeNutrition(displayedRecipe, recipes);
   const displayedYield = displayedRecipe.yield || `${displayedRecipe.servings} servings`;
 
   useEffect(() => {

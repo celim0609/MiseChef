@@ -1,4 +1,5 @@
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { createNutritionRefresh } from './nutritionSubscription';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '../../../firebase';
 import type { IngredientNutritionProfile } from '../../../types';
@@ -9,14 +10,25 @@ export type IngredientNutritionSelection =
   | { source: 'chef_override'; kcalPer100g?: number; kcalPer100ml?: number; gramsPerPiece?: number }
   | { source: 'usda_fdc'; fdcId: string; description?: string; gramsPerPiece?: number };
 
-export const loadIngredientNutritionProfiles = async (ingredientIds: string[]) => {
-  if (!db || ingredientIds.length === 0) return {} as Record<string, IngredientNutritionProfile | undefined>;
-  const uniqueIds = [...new Set(ingredientIds.filter(Boolean))];
-  const snapshots = await Promise.all(uniqueIds.map(id => getDoc(doc(db, 'ingredientNutritionProfiles', id))));
-  return snapshots.reduce<Record<string, IngredientNutritionProfile | undefined>>((profiles, snapshot) => {
-    if (snapshot.exists()) profiles[snapshot.id] = { id: snapshot.id, ...snapshot.data() } as IngredientNutritionProfile;
-    return profiles;
-  }, {});
+export const loadIngredientNutritionProfiles = async (_ingredientIds: string[], workspaceId?: string) => {
+  if (!workspaceId) return {} as Record<string, IngredientNutritionProfile | undefined>;
+  if (!functions) throw new Error('Nutrition service is unavailable.');
+  const call = httpsCallable<{ workspaceId: string }, { profiles: Record<string, IngredientNutritionProfile> }>(functions, 'getWorkspaceNutritionProfiles');
+  return (await call({ workspaceId })).data.profiles;
+};
+
+export const subscribeWorkspaceNutritionProfiles = (
+  workspaceId: string,
+  onProfiles: (profiles: Record<string, IngredientNutritionProfile | undefined>) => void,
+  onError: (error: unknown) => void,
+  onLoading: () => void = () => {}
+) => {
+  if (!db) { onError(new Error('Nutrition service is unavailable.')); return () => {}; }
+  const refresh = createNutritionRefresh(() => loadIngredientNutritionProfiles([], workspaceId), onProfiles, onError, onLoading);
+  const unsubscribe = onSnapshot(query(collection(db, 'ingredientNutritionProfiles'), where('workspaceId', '==', workspaceId)), () => {
+    void refresh.refresh();
+  }, onError);
+  return () => { refresh.dispose(); unsubscribe(); };
 };
 
 export type UsdaNutritionCandidate = { fdcId: string; description: string; dataType: string; brandName: string; kcalPer100g: number };
@@ -34,11 +46,9 @@ export const confirmUsdaIngredientNutrition = async (workspaceId: string, ingred
 };
 
 export const saveChefNutritionProfile = async (profile: Omit<IngredientNutritionProfile, 'confirmedAt' | 'updatedAt'>) => {
-  if (!db) throw new Error('Nutrition profiles are unavailable.');
-  const now = new Date().toISOString();
-  const nextProfile: IngredientNutritionProfile = { ...profile, confirmedAt: now, updatedAt: now };
-  await setDoc(doc(db, 'ingredientNutritionProfiles', profile.ingredientId), nextProfile);
-  return nextProfile;
+  if (!functions) throw new Error('Nutrition profiles are unavailable.');
+  const call = httpsCallable<{ workspaceId: string; profile: typeof profile }, { profile: IngredientNutritionProfile }>(functions, 'saveChefIngredientNutrition');
+  return (await call({ workspaceId: profile.workspaceId, profile })).data.profile;
 };
 
 export const applyIngredientNutritionSelection = async ({

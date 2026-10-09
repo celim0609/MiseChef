@@ -43,6 +43,7 @@ export interface LinkedRecipeComponent {
   quantity: number;
   unit: 'portion';
   associatedIngredientId?: string;
+  nutritionUseAssociatedQuantity?: boolean;
 }
 
 export interface RecipeCosting {
@@ -66,6 +67,8 @@ export interface IngredientNutritionProfile {
   status: 'approved';
   source: 'usda_fdc' | 'chef_override' | 'chef_non_food';
   catalogProfileId?: string;
+  foodDescription?: string;
+  reviewWarnings?: string[];
   kcalPer100g?: number;
   kcalPer100ml?: number;
   gramsPerPiece?: number;
@@ -94,6 +97,8 @@ export interface RecipeIngredientNutrition {
   quantity: string;
   unit: string;
   kcal?: number;
+  foodDescription?: string;
+  reviewWarnings?: string[];
 }
 
 export interface RecipeNutritionSummary {
@@ -102,6 +107,7 @@ export interface RecipeNutritionSummary {
   totalKcal?: number;
   kcalPerServing?: number;
   incompleteReasons: string[];
+  reviewWarnings?: string[];
   calculatedIngredientCount?: number;
   totalIngredientCount?: number;
 }
@@ -166,6 +172,8 @@ export interface Recipe {
   chefNotes?: string;
   ingredients: Ingredient[];
   linkedRecipes?: LinkedRecipeComponent[];
+  // Explicitly confirmed edible batch output; never inferred from free-text yield.
+  nutritionYield?: { quantity: number; unit: 'g' | 'ml' | 'pcs' };
   method: MethodStep[];
   recommendedProducts?: RecommendedProduct[];
   recommendedProductIds?: string[];

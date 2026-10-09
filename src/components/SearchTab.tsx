@@ -11,10 +11,12 @@ import { formatRecipeCreatorLine } from '../services/recipeCreator';
 import { getRecipeCategories, recipeHasCategory } from '../utils/categoryUtils';
 import { getRecipeSearchText } from '../utils/recipeSearch';
 import { DiscoverCarousel, createRecipeLibraryDiscoverItems, type DiscoverItem } from './discover';
+import { useWorkspaceNutritionProfiles, unavailableNutrition } from '../modules/nutrition/hooks/useRecipeNutrition';
 import { calculateRecipeNutrition } from '../modules/nutrition/services/recipeNutritionCalculator';
 
 interface SearchTabProps {
   recipes: Recipe[];
+  workspaceId?: string;
   categories: RecipeCategory[];
   onSelectRecipe: (recipe: Recipe) => void;
   onCreateCategory: (name: string) => RecipeCategory | null;
@@ -54,6 +56,7 @@ export function RecipeLibraryCard({ recipe, nutrition, workspaceMembers, onSelec
 
 export default function SearchTab({
   recipes,
+  workspaceId,
   categories,
   onSelectRecipe,
   onCreateCategory,
@@ -70,24 +73,10 @@ export default function SearchTab({
   const [editingCategoryName, setEditingCategoryName] = useState('');
   const [deletingCategory, setDeletingCategory] = useState<RecipeCategory | null>(null);
   const [moveTargetCategory, setMoveTargetCategory] = useState('');
-  const [recipeNutrition, setRecipeNutrition] = useState<Record<string, RecipeNutritionSummary>>({});
-
-  useEffect(() => {
-    let active = true;
-    const ingredientIds = recipes.flatMap(recipe => recipe.ingredients.map(ingredient => ingredient.ingredientId || '')).filter(Boolean);
-    if (ingredientIds.length === 0) {
-      setRecipeNutrition(Object.fromEntries(recipes.map(recipe => [recipe.id, calculateRecipeNutrition(recipe, {})])));
-      return () => { active = false; };
-    }
-    void import('../modules/nutrition/services/ingredientNutritionProfileService')
-      .then(({ loadIngredientNutritionProfiles }) => loadIngredientNutritionProfiles(ingredientIds))
-      .then(profiles => {
-        if (!active) return;
-        setRecipeNutrition(Object.fromEntries(recipes.map(recipe => [recipe.id, calculateRecipeNutrition(recipe, profiles)])));
-      })
-      .catch(() => { if (active) setRecipeNutrition({}); });
-    return () => { active = false; };
-  }, [recipes]);
+  const nutritionState = useWorkspaceNutritionProfiles(workspaceId || recipes.find(recipe => recipe.workspaceId)?.workspaceId);
+  const recipeNutrition = useMemo(() => Object.fromEntries(recipes.map(recipe => [recipe.id,
+    nutritionState.profiles ? calculateRecipeNutrition(recipe, nutritionState.profiles, recipes) : unavailableNutrition(nutritionState.error)
+  ])), [recipes, nutritionState.profiles, nutritionState.error]);
 
   const categoryCounts = useMemo(() => {
     return categories.reduce<Record<string, number>>((acc, category) => {

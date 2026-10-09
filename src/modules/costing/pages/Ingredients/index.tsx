@@ -261,7 +261,7 @@ export default function CostingIngredientsPage({ canEditIngredients = false, use
     setMessage('');
     setOpenSections({ purchase: false, nutrition: false, supplier: false, yieldWaste: false });
     setIsDrawerOpen(true);
-    void loadIngredientNutritionProfiles([ingredient.id]).then(profiles => {
+    void loadIngredientNutritionProfiles([ingredient.id], workspaceId || userId).then(profiles => {
       const profile = profiles[ingredient.id] || null;
       setNutritionProfile(profile);
       setNutritionSelection(selectionFromProfile(profile));
@@ -350,7 +350,7 @@ export default function CostingIngredientsPage({ canEditIngredients = false, use
         savedIngredient = updatedIngredient;
         const previousCost = Number(selectedIngredient.currentPrice || 0);
         const nextCost = Number(updatedIngredient.currentPrice || 0);
-        const packPricingChanged = ['packQuantity', 'packUnit', 'packPrice', 'recipeUnit'].some(field => (
+        const packPricingChanged = ['packQuantity', 'packUnit', 'packPrice', 'recipeUnit', 'conversionFactor', 'yieldPercentage', 'wastePercentage'].some(field => (
           selectedIngredient[field as keyof CostingIngredient] !== updatedIngredient[field as keyof CostingIngredient]
         ));
         if (previousCost !== nextCost || packPricingChanged) {

@@ -30,7 +30,7 @@ export function RecipeNutritionResult({ nutrition }: { nutrition: RecipeNutritio
             <tbody>
               {nutrition.ingredientBreakdown.map((ingredient, index) => (
                 <tr key={`${ingredient.id}-${index}`}>
-                  <th scope="row" className="py-1 font-normal">{ingredient.name}</th>
+                  <th scope="row" className="py-1 font-normal">{ingredient.name}{ingredient.foodDescription && <span className="block text-[11px] text-on-surface-variant">USDA: {ingredient.foodDescription}</span>}</th>
                   <td>{ingredient.quantity}</td>
                   <td>{ingredient.unit}</td>
                   <td className="text-right">{ingredient.kcal !== undefined && Number.isFinite(ingredient.kcal) ? `${Number(ingredient.kcal.toFixed(2))} kcal` : '—'}</td>
@@ -40,6 +40,7 @@ export function RecipeNutritionResult({ nutrition }: { nutrition: RecipeNutritio
           </table>
         </div>
       )}
+      {Boolean(nutrition.reviewWarnings?.length) && <ul aria-label="Nutrition selections requiring review" className="text-amber-800">{nutrition.reviewWarnings?.map((warning, index) => <li key={index}>Review: {warning}</li>)}</ul>}
       {nutrition.incompleteReasons.length > 0 && (
         <ul className="space-y-1 text-on-surface-variant">
           {nutrition.incompleteReasons.map((reason, index) => <li key={index}>{reason}</li>)}
