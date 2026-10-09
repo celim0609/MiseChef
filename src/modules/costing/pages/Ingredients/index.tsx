@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
+import { isKnownOperationalIngredient } from '../../../nutrition/services/recipeNutritionIdentity';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import { Archive, ChevronDown, ChevronLeft, ChevronRight, Edit3, Plus, Search, X } from 'lucide-react';
 import { ingredientService, recipeCostService } from '../../services';
 import { getCustomerFriendlyErrorMessage, isPermissionError } from '../../../../utils/customerErrorMessages';
@@ -166,12 +167,14 @@ export default function CostingIngredientsPage({ canEditIngredients = false, use
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const nutritionRequestRef = useRef(0);
   const [nutritionProfile, setNutritionProfile] = useState<IngredientNutritionProfile | null>(null);
   const [nutritionSelection, setNutritionSelection] = useState<IngredientNutritionSelection>({ source: 'none' });
   const [isNutritionDirty, setIsNutritionDirty] = useState(false);
   const [openSections, setOpenSections] = useState<Record<IngredientFormSection, boolean>>({ purchase: false, nutrition: false, supplier: false, yieldWaste: false });
 
   useEffect(() => {
+    nutritionRequestRef.current += 1;
     setSelectedIngredient(null);
     setIsDrawerOpen(false);
     setFormState(getEmptyForm(region.currency));
@@ -236,6 +239,7 @@ export default function CostingIngredientsPage({ canEditIngredients = false, use
 
   const openCreateDrawer = () => {
     if (!canEdit) return;
+    nutritionRequestRef.current += 1;
     setSelectedIngredient(null);
     setFormState(getEmptyForm(region.currency));
     setErrorMessage('');
@@ -261,11 +265,24 @@ export default function CostingIngredientsPage({ canEditIngredients = false, use
     setMessage('');
     setOpenSections({ purchase: false, nutrition: false, supplier: false, yieldWaste: false });
     setIsDrawerOpen(true);
+    const requestId = ++nutritionRequestRef.current;
+    setNutritionProfile(null);
+    setNutritionSelection({ source: 'none' });
+    setIsNutritionDirty(false);
+    if (isKnownOperationalIngredient(ingredient.name)) {
+      setNutritionSelection({ source: 'chef_non_food' });
+      setIsNutritionDirty(true);
+      return;
+    }
     void loadIngredientNutritionProfiles([ingredient.id], workspaceId || userId).then(profiles => {
+      if (nutritionRequestRef.current !== requestId) return;
       const profile = profiles[ingredient.id] || null;
       setNutritionProfile(profile);
       setNutritionSelection(selectionFromProfile(profile));
       setIsNutritionDirty(false);
+    }).catch(error => {
+      if (nutritionRequestRef.current !== requestId) return;
+      setErrorMessage(isPermissionError(error) ? 'Access to Nutrition was denied. Ingredient costing can still be saved.' : 'Nutrition service is unavailable. Ingredient costing can still be saved.');
     });
   };
 
@@ -386,13 +403,14 @@ export default function CostingIngredientsPage({ canEditIngredients = false, use
         setMessage('Ingredient created.');
       }
 
-      if (isNutritionDirty) {
+      const packaging = isKnownOperationalIngredient(savedIngredient.name);
+      if (isNutritionDirty || packaging) {
         try {
           const profile = await applyIngredientNutritionSelection({
             workspaceId: workspaceId || userId,
             ingredientId: savedIngredient.id,
             confirmedBy: userId,
-            selection: nutritionSelection
+            selection: packaging ? { source: 'chef_non_food' } : nutritionSelection
           });
           setNutritionProfile(profile);
           setIsNutritionDirty(false);
@@ -559,7 +577,7 @@ export default function CostingIngredientsPage({ canEditIngredients = false, use
               </IngredientFormDisclosure>
 
               <IngredientFormDisclosure title="Nutrition" summary={getNutritionSummary(nutritionProfile, nutritionSelection, isNutritionDirty)} optional isOpen={openSections.nutrition} onToggle={() => setOpenSections(current => ({ ...current, nutrition: !current.nutrition }))}>
-                <IngredientNutritionSetup ingredientName={formState.name} workspaceId={workspaceId || userId} profile={nutritionProfile} value={nutritionSelection} disabled={isSaving} embedded showPieceWeight={['pcs', 'nos'].includes(formState.recipeUnit.trim().toLowerCase())} onChange={selection => { setNutritionSelection(selection); setIsNutritionDirty(true); }} />
+                <IngredientNutritionSetup ingredientName={formState.name} workspaceId={workspaceId || userId} profile={nutritionProfile} value={nutritionSelection} disabled={isSaving} embedded showPieceWeight={['pcs', 'nos'].includes(formState.recipeUnit.trim().toLowerCase())} onChange={selection => { nutritionRequestRef.current += 1; setNutritionSelection(selection); setIsNutritionDirty(true); }} />
               </IngredientFormDisclosure>
 
               <IngredientFormDisclosure title="Supplier" summary={formState.supplierId || 'Not configured'} isOpen={openSections.supplier} onToggle={() => setOpenSections(current => ({ ...current, supplier: !current.supplier }))}>

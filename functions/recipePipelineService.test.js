@@ -122,3 +122,13 @@ for (const role of ['Owner', 'Manager', 'Sous Chef', 'Chef']) {
     assert.equal(documents.recipes.r.yield, 'Existing Yield text');
   });
 }
+
+test('Purchasing can read nutrition for its authorized Ingredient management without gaining Recipe calculation', async () => {
+  const { service, documents } = fixture('Purchasing');
+  const request = { auth: { uid: 'member' }, data: { workspaceId } };
+  assert.deepEqual(Object.keys((await service.profiles(request)).profiles), ['sugar']);
+  await assert.rejects(service.costing(request), error => error.code === 'permission-denied');
+  await assert.rejects(service.profiles({ ...request, data: { workspaceId: 'b' } }), error => error.code === 'permission-denied');
+  documents.workspaces.a.subscriptionStatus = 'expired';
+  await assert.rejects(service.profiles(request), error => error.code === 'permission-denied');
+});

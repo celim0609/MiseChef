@@ -1,3 +1,4 @@
+import { isKnownOperationalIngredient } from '../services/recipeNutritionIdentity';
 import { useEffect, useState } from 'react';
 import type { IngredientNutritionProfile } from '../../../types';
 import type { IngredientNutritionSelection, UsdaNutritionCandidate } from '../services/ingredientNutritionProfileService';
@@ -30,9 +31,10 @@ export const withUsdaPieceWeight = (selection: IngredientNutritionSelection, val
 };
 
 export default function IngredientNutritionSetup({ ingredientName, workspaceId, profile, value, disabled = false, embedded = false, showPieceWeight = false, onChange }: IngredientNutritionSetupProps) {
+  const knownPackaging = !profile && isKnownOperationalIngredient(ingredientName);
   const initialOverride = value.source === 'chef_override' ? value : null;
   const selectedPieceWeight = value.source === 'usda_fdc' ? value.gramsPerPiece : undefined;
-  const [kind, setKind] = useState(value.source === 'chef_non_food' || profile?.kind === 'non_food' ? 'non_food' : 'food');
+  const [kind, setKind] = useState(knownPackaging || value.source === 'chef_non_food' || profile?.kind === 'non_food' ? 'non_food' : 'food');
   const [kcalPer100g, setKcalPer100g] = useState(initialOverride?.kcalPer100g === undefined ? String(profile?.kcalPer100g ?? '') : String(initialOverride.kcalPer100g));
   const [kcalPer100ml, setKcalPer100ml] = useState(initialOverride?.kcalPer100ml === undefined ? String(profile?.kcalPer100ml ?? '') : String(initialOverride.kcalPer100ml));
   const [gramsPerPiece, setGramsPerPiece] = useState(selectedPieceWeight === undefined ? (initialOverride?.gramsPerPiece === undefined ? String(profile?.gramsPerPiece ?? '') : String(initialOverride.gramsPerPiece)) : String(selectedPieceWeight));
@@ -42,7 +44,7 @@ export default function IngredientNutritionSetup({ ingredientName, workspaceId, 
   const [isManualSetupOpen, setIsManualSetupOpen] = useState(value.source === 'chef_override');
 
   useEffect(() => {
-    setKind(value.source === 'chef_non_food' || profile?.kind === 'non_food' ? 'non_food' : 'food');
+    setKind(knownPackaging || value.source === 'chef_non_food' || profile?.kind === 'non_food' ? 'non_food' : 'food');
     if (value.source === 'chef_override') {
       setIsManualSetupOpen(true);
       setKcalPer100g(value.kcalPer100g === undefined ? '' : String(value.kcalPer100g));
@@ -51,7 +53,7 @@ export default function IngredientNutritionSetup({ ingredientName, workspaceId, 
     } else if (value.source === 'usda_fdc') {
       setGramsPerPiece(value.gramsPerPiece === undefined ? String(profile?.gramsPerPiece ?? '') : String(value.gramsPerPiece));
     }
-  }, [profile?.id, value]);
+  }, [profile?.id, value, knownPackaging]);
 
   const selectChefOverride = () => {
     const nextKcalPer100g = numberValue(kcalPer100g);
@@ -70,6 +72,7 @@ export default function IngredientNutritionSetup({ ingredientName, workspaceId, 
   };
 
   const findUsda = async () => {
+    if (knownPackaging || kind === 'non_food') return;
     if (!workspaceId || !ingredientName.trim()) {
       setError('Enter an Ingredient name before searching USDA nutrition.');
       return;

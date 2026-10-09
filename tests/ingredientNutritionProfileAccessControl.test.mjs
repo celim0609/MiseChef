@@ -71,3 +71,12 @@ for (const role of ['Owner', 'Manager', 'Sous Chef', 'Chef']) {
     }
   });
 }
+
+test('new direct-client packaging profile reproduces the denied create; rules remain fail-closed', async () => {
+  await seed();
+  const id = 'box-650';
+  const packaging = { id, ingredientId: id, workspaceId, kind: 'non_food', source: 'chef_non_food', status: 'approved', confirmedBy: 'chef-a', confirmedAt: '', updatedAt: '' };
+  const target = doc(testEnv.authenticatedContext('chef-a').firestore(), 'ingredientNutritionProfiles', id);
+  await assertFails(setDoc(target, packaging));
+  await assertFails(setDoc(target, { ...packaging, createdBy: 'chef-a' }));
+});

@@ -47,7 +47,10 @@ export const createRecipePipelineService = db => ({
     return { profile };
   },
   async profiles(request) {
-    const { workspaceId } = await authorizeRecipePipeline(db, request);
+    const workspaceId = typeof request.data?.workspaceId === 'string' ? request.data.workspaceId.trim() : '';
+    const access = await requireWorkspaceAccess({ db, uid: request.auth?.uid, workspaceId });
+    const purchasing = access.role === 'Purchasing' && hasActiveBusinessEntitlement(resolveWorkspaceSubscription({ data: access.workspaceSnapshot.data() }));
+    if (!mayCalculateRecipe(access.role) && !purchasing) throw new HttpsError('permission-denied', 'Your role cannot read Ingredient nutrition.');
     const [profiles, ingredients] = await Promise.all([
       db.collection('ingredientNutritionProfiles').where('workspaceId', '==', workspaceId).get(),
       db.collection('ingredients').where('workspaceId', '==', workspaceId).get()

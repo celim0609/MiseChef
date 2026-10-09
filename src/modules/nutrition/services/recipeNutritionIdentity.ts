@@ -3,7 +3,8 @@ import type { IngredientNutritionProfile } from '../../../types';
 // Nutrition-only identities: never change ingredient IDs, names, costing links,
 // or the enrichment matcher. No substring, qualifier stripping or fuzzy matching.
 const normalize = (name: string) => name.normalize('NFKC').trim().toLocaleLowerCase().replace(/\s+/g, ' ');
-const operationalNames = new Set(['coaster', '12 oz cup']);
+const operationalNames = new Set(['coaster', '12 oz cup', 'box 650']);
+export const isKnownOperationalIngredient = (name: string) => operationalNames.has(normalize(name));
 const waterNames = new Set(['water', 'plain water', 'water (水)', '水', 'ice', 'plain ice']);
 const saltNames = new Set(['salt', 'table salt', 'salt (盐)', '盐', '食盐']);
 
