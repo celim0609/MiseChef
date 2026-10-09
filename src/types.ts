@@ -174,7 +174,7 @@ export interface Recipe {
   linkedRecipes?: LinkedRecipeComponent[];
   // Explicitly confirmed finished edible batch output, independent of servings.
   // Shared by measured links for nutrition and costing; never inferred from Yield.
-  nutritionYield?: { quantity: number; unit: 'g' | 'ml' | 'pcs' };
+  nutritionYield?: { quantity: number; unit: 'g' | 'ml' | 'pcs' } | null;
   method: MethodStep[];
   recommendedProducts?: RecommendedProduct[];
   recommendedProductIds?: string[];

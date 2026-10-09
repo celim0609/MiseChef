@@ -1,3 +1,5 @@
+import { RecipeYieldInput } from './RecipeYieldInput';
+import { parseMeasuredRecipeYield, resolveRecipeYieldDenominator } from '../modules/nutrition/services/recipeYield';
 import { getDefaultLinkedRecipeUnit } from '../modules/costing/services/linkedRecipeUsage';
 import { LinkedRecipeCostSummary } from './LinkedRecipeCostSummary';
 import { calculateRecipeCosting } from '../modules/costing/services/recipeCostCalculator';
@@ -682,7 +684,10 @@ export default function AddRecipeTab({
       ? initialRecipe.ingredients
       : [{ id: 'ing_1', name: '', qty: '', unit: '' }]
   );
-  const [nutritionYield, setNutritionYield] = useState<Recipe['nutritionYield']>(initialRecipe?.nutritionYield);
+  const [yieldChefEdited, setYieldChefEdited] = useState(false);
+  const [yieldConfirmed, setYieldConfirmed] = useState(false);
+  const nutritionYield = resolveRecipeYieldDenominator({ text: recipeYield, originalText: initialRecipe?.yield || (initialRecipe ? `${initialRecipe.servings} servings` : ''), previous: initialRecipe?.nutritionYield, chefEdited: yieldChefEdited, confirmed: yieldConfirmed });
+  const yieldNeedsConfirmation = Boolean(parseMeasuredRecipeYield(recipeYield)) && getDefaultLinkedRecipeUnit({ servings: Number(servings), nutritionYield }) === 'portion';
   const [linkedRecipes, setLinkedRecipes] = useState<LinkedRecipeComponent[]>(initialRecipe?.linkedRecipes || []);
   const [libraryIngredients, setLibraryIngredients] = useState<CostingIngredient[]>([]);
   const [isIngredientLibraryAvailable, setIsIngredientLibraryAvailable] = useState(false);
@@ -1222,6 +1227,8 @@ export default function AddRecipeTab({
     setTitle(recipe.title);
     if (recipe.description) setStory(recipe.description);
     setRecipeYield(recipe.yield || recipeYield);
+    setYieldChefEdited(false);
+    setYieldConfirmed(false);
     if (recipe.servings) setServings(String(recipe.servings));
     if (recipe.prepTime) setPrepTime(String(recipe.prepTime));
     if (recipe.cookTime !== null && recipe.cookTime !== undefined) setCookTime(String(recipe.cookTime));
@@ -1904,16 +1911,7 @@ export default function AddRecipeTab({
           </div>
         </div>
 
-        <div className="space-y-1.5">
-          <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Yield</label>
-          <input
-            type="text"
-            value={recipeYield}
-            onChange={e => setRecipeYield(e.target.value)}
-            placeholder="e.g. 12 pcs, 20 servings, 1 loaf"
-            className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold"
-          />
-        </div>
+        <RecipeYieldInput value={recipeYield} needsConfirmation={yieldNeedsConfirmation} onChange={value => { setRecipeYield(value); setYieldChefEdited(true); setYieldConfirmed(false); }} onConfirm={() => setYieldConfirmed(true)} />
 
         <div className="space-y-1.5 rounded-xl bg-surface-container-low p-4">
           <p className="font-sans font-bold text-xs text-on-surface-variant/90">Nutrition (automatic)</p>
@@ -2173,14 +2171,7 @@ export default function AddRecipeTab({
       </section>
 
       {/* Instructions Section */}
-      <div className="rounded-xl bg-surface-container-low p-3 space-y-2">
-        <label className="text-sm font-bold">Measured finished yield (optional)</label>
-        <div className="flex gap-2">
-          <input aria-label="Verified edible batch quantity" type="number" min="0.000001" step="any" placeholder="Finished quantity" value={nutritionYield?.quantity || ''} onChange={event => setNutritionYield(event.target.value === '' ? undefined : { quantity: Number(event.target.value), unit: nutritionYield?.unit || 'g' })} className="rounded border p-2" />
-          <select aria-label="Verified edible batch unit" value={nutritionYield?.unit || 'g'} onChange={event => setNutritionYield({ quantity: nutritionYield?.quantity || 0, unit: event.target.value as 'g' | 'ml' | 'pcs' })}><option value="g">g</option><option value="ml">ml</option><option value="pcs">pcs</option></select>
-        </div>
-        <p className="text-xs">Enter measured finished output once. Linked recipes reuse it for kcal and cost. Leave blank if unknown; servings and existing Yield text stay unchanged.</p>
-      </div>
+
 
       <section className="space-y-4" id="method-section">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

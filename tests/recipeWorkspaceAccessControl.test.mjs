@@ -244,3 +244,23 @@ for (const role of ['Owner', 'Manager', 'Sous Chef', 'Chef']) {
     await assertFails(getDoc(doc(authDb('outsider'), 'recipes', 'yield-recipe')));
   });
 }
+
+for (const role of ['Owner', 'Manager', 'Sous Chef', 'Chef']) {
+  test(`${role} persists single Yield confirmation and clears changed output through existing merge permissions`, async () => {
+    const workspaceId = 'single-yield';
+    await seedWorkspace({ workspaceId, ownerId: 'owner', members: [{ userId: 'member', role }] });
+    const original = { ...recipe({ id: 'soy-yield', workspaceId, userId: 'owner' }), yield: '290g', servings: 8, coverImage: 'https://example.test/manual.jpg' };
+    await testEnv.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'recipes', original.id), original));
+    const ref = doc(authDb(role === 'Owner' ? 'owner' : 'member'), 'recipes', original.id);
+    await assertSucceeds(setDoc(ref, { yield: '290g', nutritionYield: { quantity: 290, unit: 'g' } }, { merge: true }));
+    const confirmed = (await getDoc(ref)).data();
+    assert.equal(confirmed.nutritionYield.quantity, 290);
+    assert.equal(confirmed.servings, 8);
+    assert.equal(confirmed.coverImage, original.coverImage);
+    assert.deepEqual(confirmed.costing, original.costing);
+    await assertSucceeds(setDoc(ref, JSON.parse(JSON.stringify({ yield: '20 servings', nutritionYield: null })), { merge: true }));
+    assert.equal((await getDoc(ref)).data().nutritionYield, null);
+    await assertFails(setDoc(doc(authDb('outsider'), 'recipes', original.id), { nutritionYield: { quantity: 290, unit: 'g' } }, { merge: true }));
+    await assertFails(setDoc(ref, { workspaceId: 'foreign' }, { merge: true }));
+  });
+}

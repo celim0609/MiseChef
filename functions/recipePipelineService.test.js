@@ -132,3 +132,18 @@ test('Purchasing can read nutrition for its authorized Ingredient management wit
   documents.workspaces.a.subscriptionStatus = 'expired';
   await assert.rejects(service.profiles(request), error => error.code === 'permission-denied');
 });
+
+test('authorized costing round trip preserves explicit yield confirmation and invalidation without writes', async () => {
+  const { service, documents } = fixture('Chef');
+  const original = JSON.stringify(documents);
+  for (const nutritionYield of [{ quantity: 290, unit: 'g' }, null]) {
+    const draft = { ...recipe, yield: nutritionYield ? '290g' : '20 servings', nutritionYield, coverImage: 'https://example.test/manual.jpg' };
+    const response = await service.costing({ auth: { uid: 'member' }, data: { workspaceId, recipe: JSON.parse(JSON.stringify(draft)) } });
+    const returned = JSON.parse(JSON.stringify(response)).recipes[0];
+    assert.deepEqual(returned.nutritionYield, nutritionYield);
+    assert.equal(returned.yield, draft.yield);
+    assert.equal(returned.coverImage, draft.coverImage);
+    assert.equal(returned.servings, draft.servings);
+  }
+  assert.equal(JSON.stringify(documents), original);
+});
