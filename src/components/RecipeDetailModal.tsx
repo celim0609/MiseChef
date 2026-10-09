@@ -1,3 +1,4 @@
+import { RecipeMeasuredYieldStatus } from './RecipeMeasuredYieldStatus';
 import { LinkedRecipeCostSummary } from './LinkedRecipeCostSummary';
 import { scaleLinkedRecipeQuantities } from '../modules/costing/services/linkedRecipePresentation';
 import { RecipeNutritionResult } from './RecipeNutritionResult';
@@ -321,7 +322,7 @@ export default function RecipeDetailModal({
                 <span>{recipe.difficulty}</span>
               </div>
 
-              {displayedRecipe.nutritionYield && <p className="font-sans text-xs font-bold">Confirmed finished yield: {displayedRecipe.nutritionYield.quantity} {displayedRecipe.nutritionYield.unit}</p>}
+              <RecipeMeasuredYieldStatus recipe={displayedRecipe} measuredLinkNeedsYield={recipes.some(parent => parent.workspaceId === recipe.workspaceId && parent.linkedRecipes?.some(link => link.recipeId === recipe.id && (Boolean(link.nutritionUseAssociatedQuantity) || Boolean(link.unit && link.unit !== 'portion'))))} />
               {nutrition && <RecipeNutritionResult nutrition={nutrition} />}
 
               {recipe.story && (
