@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import type { Recipe } from '../../types';
-import { getReadyToSellProductDraft } from './storeProductVisibility';
+import { getReadyToSellProductDraft, getStoreProductEditorDraft, buildUpdatedStoreProduct } from './storeProductVisibility';
 
 const recipe: Pick<Recipe, 'id' | 'title' | 'sellingPrice' | 'costing'> = {
   id: 'recipe-laksa',
@@ -84,4 +84,18 @@ test('manual photos invalidate pending transfers and stale nutrition cannot rese
 
 test('estimated calories remain absent rather than becoming a complete Product value', () => {
   assert.equal(getReadyToSellProductDraft(recipe, { status: 'ESTIMATED', totalKcal: 800, kcalPerServing: 400, incompleteReasons: ['Missing data'] }).calories, undefined);
+});
+
+test('Ready to Sell carries Partial kcal as clearly labelled editable public description', () => {
+  const draft = getReadyToSellProductDraft(recipe, { status: 'ESTIMATED', totalKcal: 80, kcalPerServing: 8.275862, incompleteReasons: ['Missing food'] });
+  assert.match(draft.description, /Partial nutrition \(estimated\): 8.3 kcal per serving/);
+  assert.equal(draft.calories, undefined);
+  assert.equal(draft.photoUrl, '');
+  const saved = buildUpdatedStoreProduct({ ...draft, id: 'product', workspaceId: 'workspace', storeId: 'store', createdAt: '', updatedAt: '' } as import('./types').StoreProduct, { ...draft, description: 'My manual product description', calories: 100 }, 'now');
+  const reopened = getStoreProductEditorDraft(saved);
+  assert.equal(reopened.description, 'My manual product description');
+  assert.equal(reopened.calories, 100);
+  for (const value of [undefined, NaN, Infinity, -1]) {
+    assert.equal(getReadyToSellProductDraft(recipe, { status: 'ESTIMATED', kcalPerServing: value, incompleteReasons: [] }).description, '');
+  }
 });

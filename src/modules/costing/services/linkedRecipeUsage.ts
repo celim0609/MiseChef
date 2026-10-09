@@ -19,3 +19,9 @@ export const resolveLinkedRecipeUsage = (child: RecipeOutput, quantity: number, 
   const ratio = quantity * usedUnit.baseQuantity / (finished.quantity * finishedUnit.baseQuantity);
   return Number.isFinite(ratio) && ratio > 0 ? { ratio } : { ratio: null, reason: 'Linked quantity conversion is out of range.' };
 };
+
+// New links reuse structured measured output only. Existing portion links are untouched.
+export const getDefaultLinkedRecipeUnit = (child: RecipeOutput) => {
+  const finished = child.nutritionYield;
+  return finished && resolveLinkedRecipeUsage(child, 1, finished.unit).ratio !== null ? finished.unit : 'portion';
+};

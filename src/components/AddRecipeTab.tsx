@@ -1,3 +1,4 @@
+import { getDefaultLinkedRecipeUnit } from '../modules/costing/services/linkedRecipeUsage';
 import { LinkedRecipeCostSummary } from './LinkedRecipeCostSummary';
 import { calculateRecipeCosting } from '../modules/costing/services/recipeCostCalculator';
 import { RecipeNutritionResult } from './RecipeNutritionResult';
@@ -981,7 +982,7 @@ export default function AddRecipeTab({
       recipeId: available.id,
       recipeTitle: available.title,
       quantity: 1,
-      unit: 'portion'
+      unit: getDefaultLinkedRecipeUnit(available)
     }]);
     clearValidationError('linkedRecipes');
   };
@@ -2096,7 +2097,7 @@ export default function AddRecipeTab({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 className="font-display text-2xl font-bold tracking-tight text-primary">Linked Recipes</h3>
-            <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Enter the quantity used in the parent batch. Portion links use servings; measured links require a confirmed finished yield.</p>
+            <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Enter how much you use. Saved measured yield is reused automatically; portion links use child servings.</p>
           </div>
           <button
             type="button"
@@ -2126,6 +2127,8 @@ export default function AddRecipeTab({
                       ...item,
                       recipeId: event.target.value,
                       recipeTitle: selected?.title || '',
+                      unit: selected ? getDefaultLinkedRecipeUnit(selected) : 'portion',
+                      nutritionUseAssociatedQuantity: false,
                       associatedIngredientId: undefined
                     } : item));
                     clearValidationError('linkedRecipes');
@@ -2162,7 +2165,7 @@ export default function AddRecipeTab({
                   {ingredients.filter(ingredient => !linkedRecipes.some(other => other.id !== component.id && other.associatedIngredientId === ingredient.id)).map(ingredient => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}
                 </select>
               </label>
-              {component.associatedIngredientId && (!component.unit || component.unit === 'portion') && <label className="text-xs sm:col-span-3"><input type="checkbox" checked={Boolean(component.nutritionUseAssociatedQuantity)} onChange={event => setLinkedRecipes(current => current.map(item => item.id === component.id ? { ...item, nutritionUseAssociatedQuantity: event.target.checked } : item))} /> Calculate nutrition from associated ingredient quantity using child's verified batch yield. Otherwise use the saved child portions.</label>}
+              {component.associatedIngredientId && (!component.unit || component.unit === 'portion') && <details className="text-xs sm:col-span-3"><summary>Advanced nutrition option</summary><label><input type="checkbox" checked={Boolean(component.nutritionUseAssociatedQuantity)} onChange={event => setLinkedRecipes(current => current.map(item => item.id === component.id ? { ...item, nutritionUseAssociatedQuantity: event.target.checked } : item))} /> Calculate nutrition from associated ingredient quantity using child's verified batch yield. Otherwise use the saved child portions.</label></details>}
               <button type="button" aria-label={`Remove ${component.recipeTitle || 'linked recipe'}`} onClick={() => setLinkedRecipes(current => current.filter(item => item.id !== component.id))} className="flex h-11 items-center justify-center rounded-xl bg-background text-error"><Trash2 className="h-4 w-4" /></button>
             </div>
           );
@@ -2171,12 +2174,12 @@ export default function AddRecipeTab({
 
       {/* Instructions Section */}
       <div className="rounded-xl bg-surface-container-low p-3 space-y-2">
-        <label className="flex gap-2 text-sm font-bold"><input type="checkbox" checked={Boolean(nutritionYield)} onChange={event => setNutritionYield(event.target.checked ? { quantity: 0, unit: 'g' } : undefined)} /> Confirm measured finished yield</label>
-        {nutritionYield && <div className="flex gap-2">
-          <input aria-label="Verified edible batch quantity" type="number" min="0.000001" step="any" value={nutritionYield.quantity || ''} onChange={event => setNutritionYield({ ...nutritionYield, quantity: Number(event.target.value) })} className="rounded border p-2" />
-          <select aria-label="Verified edible batch unit" value={nutritionYield.unit} onChange={event => setNutritionYield({ ...nutritionYield, unit: event.target.value as 'g' | 'ml' | 'pcs' })}><option value="g">g</option><option value="ml">ml</option><option value="pcs">pcs</option></select>
-          <p className="text-xs">Enter a positive measured finished edible output. Measured links use this yield for calories and cost. Portion links, servings and saved Yield text remain unchanged.</p>
-        </div>}
+        <label className="text-sm font-bold">Measured finished yield (optional)</label>
+        <div className="flex gap-2">
+          <input aria-label="Verified edible batch quantity" type="number" min="0.000001" step="any" placeholder="Finished quantity" value={nutritionYield?.quantity || ''} onChange={event => setNutritionYield(event.target.value === '' ? undefined : { quantity: Number(event.target.value), unit: nutritionYield?.unit || 'g' })} className="rounded border p-2" />
+          <select aria-label="Verified edible batch unit" value={nutritionYield?.unit || 'g'} onChange={event => setNutritionYield({ quantity: nutritionYield?.quantity || 0, unit: event.target.value as 'g' | 'ml' | 'pcs' })}><option value="g">g</option><option value="ml">ml</option><option value="pcs">pcs</option></select>
+        </div>
+        <p className="text-xs">Enter measured finished output once. Linked recipes reuse it for kcal and cost. Leave blank if unknown; servings and existing Yield text stay unchanged.</p>
       </div>
 
       <section className="space-y-4" id="method-section">

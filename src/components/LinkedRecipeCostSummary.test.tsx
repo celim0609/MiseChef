@@ -49,3 +49,19 @@ test('measured summary shows unavailable rather than a zero contribution without
   assert.match(html, /Child costing unavailable/);
   assert.doesNotMatch(html, /0.00/);
 });
+
+test('missing or incompatible measured yield asks inline once; valid saved yield needs no confirmation', () => {
+  const child = { id: 'soy', title: 'Seasoning Soy', servings: 8, nutritionYield: { quantity: 290, unit: 'g' } } as Recipe;
+  const valid = renderToStaticMarkup(<LinkedRecipeCostSummary child={child} quantity={30} unit="g" />);
+  assert.doesNotMatch(valid, /What is the measured/);
+  const incompatible = renderToStaticMarkup(<LinkedRecipeCostSummary child={child} quantity={30} unit="ml" />);
+  assert.equal((incompatible.match(/What is the measured finished yield/g) || []).length, 1);
+  assert.match(incompatible, /g and ml are not interchangeable/);
+});
+
+test('editor reuses yield for new links and hides legacy controls without requiring confirmation', () => {
+  const editor = readFileSync(new URL('./AddRecipeTab.tsx', import.meta.url), 'utf8');
+  assert.match(editor, /unit: getDefaultLinkedRecipeUnit\(available\)/);
+  assert.match(editor, /Advanced nutrition option/);
+  assert.doesNotMatch(editor, /Confirm measured finished yield/);
+});

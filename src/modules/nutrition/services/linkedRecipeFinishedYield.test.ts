@@ -116,3 +116,13 @@ test('invalid finished yield and quantities fail closed; compatible verified vol
   child.nutritionYield = { quantity: 10, unit: 'pcs' };
   close(resolveLinkedRecipeUsage(child, 0.5, 'pcs').ratio || undefined, 0.05);
 });
+
+test('Seasoning Soy saved measured output contributes 8.3 Partial kcal for 30g without confirmation', () => {
+  const child = { ...recipe('soy', [food('soy'), food('unknown')], 8), nutritionYield: { quantity: 290, unit: 'g' as const }, yield: '290g' };
+  const parent = { ...recipe('parent', []), linkedRecipes: [link('soy', 30, 'g')] };
+  const result = calculateRecipeNutrition(parent, { soy: profile('soy', 80) }, [child]);
+  close(result.totalKcal, 80 * 30 / 290);
+  assert.equal(result.status, 'ESTIMATED');
+  assert.equal(Math.round(result.totalKcal! * 10) / 10, 8.3);
+  assert.equal(child.nutritionYield.quantity, 290);
+});
