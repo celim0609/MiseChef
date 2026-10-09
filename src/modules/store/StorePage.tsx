@@ -1305,6 +1305,7 @@ export default function StorePage({
                       {product.available ? 'Available' : 'Unavailable'}
                     </span>
                   </div>
+                  {product.calories !== undefined && <p className="mt-2 font-sans text-xs font-bold text-on-surface-variant">{product.calories} kcal per serving</p>}
                   {product.description && <p className="mt-3 line-clamp-2 font-sans text-xs font-bold leading-relaxed text-on-surface-variant">{product.description}</p>}
                   {product.recipeId && (() => {
                     const recipe = recipes.find(candidate => candidate.id === product.recipeId);

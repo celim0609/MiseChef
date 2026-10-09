@@ -393,7 +393,7 @@ export const normalizeStoreProduct = (
   name: readString(data.name, 'Product'),
   description: readString(data.description),
   price: readPrice(data.price),
-  ...(Number.isInteger(Number(data.calories)) && Number(data.calories) >= 0
+  ...((typeof data.calories === 'number' || (typeof data.calories === 'string' && data.calories.trim() !== '')) && Number.isInteger(Number(data.calories)) && Number(data.calories) >= 0
     ? { calories: Number(data.calories) }
     : {}),
   recipeId: readString(data.recipeId) || readString(data.linkedRecipeId) || undefined,
