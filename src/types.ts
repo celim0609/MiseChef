@@ -41,7 +41,7 @@ export interface LinkedRecipeComponent {
   recipeId: string;
   recipeTitle?: string;
   quantity: number;
-  unit: 'portion';
+  unit: 'portion' | 'g' | 'kg' | 'ml' | 'l' | 'pcs';
   associatedIngredientId?: string;
   nutritionUseAssociatedQuantity?: boolean;
 }
@@ -172,7 +172,8 @@ export interface Recipe {
   chefNotes?: string;
   ingredients: Ingredient[];
   linkedRecipes?: LinkedRecipeComponent[];
-  // Explicitly confirmed edible batch output; never inferred from free-text yield.
+  // Explicitly confirmed finished edible batch output, independent of servings.
+  // Shared by measured links for nutrition and costing; never inferred from Yield.
   nutritionYield?: { quantity: number; unit: 'g' | 'ml' | 'pcs' };
   method: MethodStep[];
   recommendedProducts?: RecommendedProduct[];

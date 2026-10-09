@@ -1,4 +1,5 @@
-import type { Ingredient, Recipe, RecipeCostBreakdownItem } from '../../../types';
+import { resolveLinkedRecipeUsage } from './linkedRecipeUsage';
+import type { Ingredient, LinkedRecipeComponent, Recipe, RecipeCostBreakdownItem } from '../../../types';
 import type { CostingIngredient } from '../types';
 import { calculateRecipeIngredientCost, parseRecipeQuantity } from './ingredientPackModel';
 import { CircularRecipeDependencyError } from './recipeDependencyModel';
@@ -17,6 +18,21 @@ export const resolveRecipePerPortionCost = (recipe: Recipe | undefined): number 
     && cost >= 0
     ? roundMoney(cost)
     : null;
+};
+
+export const resolveLinkedRecipeCost = (child: Recipe | undefined, component: Pick<LinkedRecipeComponent, 'quantity' | 'unit'>) => {
+  if (!child) return null;
+  // Preserve legacy portion rounding exactly; measured units use batch cost.
+  if (!component.unit || component.unit === 'portion') {
+    const unitCost = resolveRecipePerPortionCost(child);
+    return unitCost === null || !Number.isFinite(component.quantity) || component.quantity <= 0 ? null
+      : { unitCost, contribution: roundMoney(component.quantity * unitCost) };
+  }
+  const usage = resolveLinkedRecipeUsage(child, component.quantity, component.unit);
+  const batchCost = child.costing?.totalRecipeCost;
+  if (usage.ratio === null || !child.costing?.breakdown?.length || !Number.isFinite(batchCost) || (batchCost as number) < 0) return null;
+  const contribution = (batchCost as number) * usage.ratio;
+  return Number.isFinite(contribution) ? { unitCost: contribution / component.quantity, contribution: roundMoney(contribution) } : null;
 };
 
 const removeCalculatedIngredientCost = (ingredient: Ingredient, costingWarning?: string): Ingredient => {
@@ -87,7 +103,7 @@ export const calculateRecipeCosting = (
         itemType: 'linkedRecipe' as const,
         ingredientName: component.recipeTitle || 'Unavailable linked recipe',
         quantity: roundQuantity(Number(component.quantity)),
-        unit: 'portion',
+        unit: component.unit || 'portion',
         unitCost: 0,
         ingredientCost: 0,
         percentageOfTotalRecipeCost: 0
@@ -101,20 +117,20 @@ export const calculateRecipeCosting = (
       nextDependencyPath
     );
     const quantity = Math.max(0, Number(component.quantity) || 0);
-    const resolvedCost = resolveRecipePerPortionCost(calculatedLinkedRecipe);
+    const resolvedCost = resolveLinkedRecipeCost(calculatedLinkedRecipe, { quantity, unit: component.unit || 'portion' });
     if (resolvedCost === null || calculatedLinkedRecipe.costing?.linkedRecipeWarnings?.length) {
-      linkedRecipeWarnings.push(`${component.recipeTitle || linkedRecipe.title}: child costing is unavailable or incomplete.`);
+      linkedRecipeWarnings.push(`${component.recipeTitle || linkedRecipe.title}: child costing is unavailable or incomplete. Check finished yield for measured links.`);
     }
-    const unitCost = resolvedCost ?? 0;
+    const unitCost = resolvedCost?.unitCost ?? 0;
     return {
       recipeIngredientId: component.id,
       linkedRecipeId: component.recipeId,
       itemType: 'linkedRecipe' as const,
       ingredientName: component.recipeTitle || linkedRecipe.title,
       quantity: roundQuantity(quantity),
-      unit: 'portion',
+      unit: component.unit || 'portion',
       unitCost,
-      ingredientCost: roundMoney(quantity * unitCost),
+      ingredientCost: resolvedCost?.contribution ?? 0,
       percentageOfTotalRecipeCost: 0
     };
   });

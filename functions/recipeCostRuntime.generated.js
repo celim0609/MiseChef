@@ -1,3 +1,63 @@
+// src/modules/nutrition/services/nutritionUnits.ts
+var UNITS = {
+  mg: { dimension: "mass", baseQuantity: 1e-3 },
+  milligram: { dimension: "mass", baseQuantity: 1e-3 },
+  milligrams: { dimension: "mass", baseQuantity: 1e-3 },
+  g: { dimension: "mass", baseQuantity: 1 },
+  gram: { dimension: "mass", baseQuantity: 1 },
+  grams: { dimension: "mass", baseQuantity: 1 },
+  kg: { dimension: "mass", baseQuantity: 1e3 },
+  kilogram: { dimension: "mass", baseQuantity: 1e3 },
+  kilograms: { dimension: "mass", baseQuantity: 1e3 },
+  oz: { dimension: "mass", baseQuantity: 28.349523125 },
+  ounce: { dimension: "mass", baseQuantity: 28.349523125 },
+  ounces: { dimension: "mass", baseQuantity: 28.349523125 },
+  lb: { dimension: "mass", baseQuantity: 453.59237 },
+  lbs: { dimension: "mass", baseQuantity: 453.59237 },
+  pound: { dimension: "mass", baseQuantity: 453.59237 },
+  pounds: { dimension: "mass", baseQuantity: 453.59237 },
+  ml: { dimension: "volume", baseQuantity: 1 },
+  millilitre: { dimension: "volume", baseQuantity: 1 },
+  millilitres: { dimension: "volume", baseQuantity: 1 },
+  milliliter: { dimension: "volume", baseQuantity: 1 },
+  milliliters: { dimension: "volume", baseQuantity: 1 },
+  l: { dimension: "volume", baseQuantity: 1e3 },
+  litre: { dimension: "volume", baseQuantity: 1e3 },
+  litres: { dimension: "volume", baseQuantity: 1e3 },
+  liter: { dimension: "volume", baseQuantity: 1e3 },
+  liters: { dimension: "volume", baseQuantity: 1e3 },
+  tsp: { dimension: "volume", baseQuantity: 5 },
+  teaspoon: { dimension: "volume", baseQuantity: 5 },
+  teaspoons: { dimension: "volume", baseQuantity: 5 },
+  tbsp: { dimension: "volume", baseQuantity: 15 },
+  tablespoon: { dimension: "volume", baseQuantity: 15 },
+  tablespoons: { dimension: "volume", baseQuantity: 15 },
+  pcs: { dimension: "count", baseQuantity: 1 },
+  pc: { dimension: "count", baseQuantity: 1 },
+  piece: { dimension: "count", baseQuantity: 1 },
+  pieces: { dimension: "count", baseQuantity: 1 },
+  no: { dimension: "count", baseQuantity: 1 },
+  nos: { dimension: "count", baseQuantity: 1 }
+};
+var getNutritionUnit = (unit = "") => UNITS[unit.trim().toLocaleLowerCase().replace(/\./g, "").replace(/\s+/g, " ")];
+
+// src/modules/costing/services/linkedRecipeUsage.ts
+var resolveLinkedRecipeUsage = (child, quantity, unit = "portion") => {
+  if (!Number.isFinite(quantity) || quantity <= 0) return { ratio: null, reason: "A positive linked quantity is required." };
+  if (unit === "portion") {
+    if (!Number.isInteger(child.servings) || child.servings <= 0) return { ratio: null, reason: "Valid child servings are required for portion links." };
+    return { ratio: quantity / child.servings };
+  }
+  const usedUnit = getNutritionUnit(unit);
+  const finished = child.nutritionYield;
+  const finishedUnit = finished && getNutritionUnit(finished.unit);
+  if (!finished || !Number.isFinite(finished.quantity) || finished.quantity <= 0 || !usedUnit || !finishedUnit || usedUnit.dimension !== finishedUnit.dimension) {
+    return { ratio: null, reason: "A compatible, explicitly confirmed finished yield is required." };
+  }
+  const ratio = quantity * usedUnit.baseQuantity / (finished.quantity * finishedUnit.baseQuantity);
+  return Number.isFinite(ratio) && ratio > 0 ? { ratio } : { ratio: null, reason: "Linked quantity conversion is out of range." };
+};
+
 // src/modules/costing/services/ingredientPackModel.ts
 var MEASUREMENT_UNITS = {
   mg: { dimension: "mass", baseQuantity: 1e-3, displayUnit: "mg" },
@@ -180,6 +240,18 @@ var resolveRecipePerPortionCost = (recipe) => {
   const hasCanonicalBreakdown = Boolean(recipe?.costing?.breakdown?.length);
   return hasCanonicalBreakdown && Number(recipe?.servings || 0) > 0 && Number.isFinite(cost) && cost >= 0 ? roundMoney(cost) : null;
 };
+var resolveLinkedRecipeCost = (child, component) => {
+  if (!child) return null;
+  if (!component.unit || component.unit === "portion") {
+    const unitCost = resolveRecipePerPortionCost(child);
+    return unitCost === null || !Number.isFinite(component.quantity) || component.quantity <= 0 ? null : { unitCost, contribution: roundMoney(component.quantity * unitCost) };
+  }
+  const usage = resolveLinkedRecipeUsage(child, component.quantity, component.unit);
+  const batchCost = child.costing?.totalRecipeCost;
+  if (usage.ratio === null || !child.costing?.breakdown?.length || !Number.isFinite(batchCost) || batchCost < 0) return null;
+  const contribution = batchCost * usage.ratio;
+  return Number.isFinite(contribution) ? { unitCost: contribution / component.quantity, contribution: roundMoney(contribution) } : null;
+};
 var removeCalculatedIngredientCost = (ingredient, costingWarning) => {
   const {
     unitCost: _unitCost,
@@ -237,7 +309,7 @@ var calculateRecipeCosting = (recipe, ingredients, calculatedAt = (/* @__PURE__ 
         itemType: "linkedRecipe",
         ingredientName: component.recipeTitle || "Unavailable linked recipe",
         quantity: roundQuantity(Number(component.quantity)),
-        unit: "portion",
+        unit: component.unit || "portion",
         unitCost: 0,
         ingredientCost: 0,
         percentageOfTotalRecipeCost: 0
@@ -251,20 +323,20 @@ var calculateRecipeCosting = (recipe, ingredients, calculatedAt = (/* @__PURE__ 
       nextDependencyPath
     );
     const quantity = Math.max(0, Number(component.quantity) || 0);
-    const resolvedCost = resolveRecipePerPortionCost(calculatedLinkedRecipe);
+    const resolvedCost = resolveLinkedRecipeCost(calculatedLinkedRecipe, { quantity, unit: component.unit || "portion" });
     if (resolvedCost === null || calculatedLinkedRecipe.costing?.linkedRecipeWarnings?.length) {
-      linkedRecipeWarnings.push(`${component.recipeTitle || linkedRecipe.title}: child costing is unavailable or incomplete.`);
+      linkedRecipeWarnings.push(`${component.recipeTitle || linkedRecipe.title}: child costing is unavailable or incomplete. Check finished yield for measured links.`);
     }
-    const unitCost = resolvedCost ?? 0;
+    const unitCost = resolvedCost?.unitCost ?? 0;
     return {
       recipeIngredientId: component.id,
       linkedRecipeId: component.recipeId,
       itemType: "linkedRecipe",
       ingredientName: component.recipeTitle || linkedRecipe.title,
       quantity: roundQuantity(quantity),
-      unit: "portion",
+      unit: component.unit || "portion",
       unitCost,
-      ingredientCost: roundMoney(quantity * unitCost),
+      ingredientCost: resolvedCost?.contribution ?? 0,
       percentageOfTotalRecipeCost: 0
     };
   });

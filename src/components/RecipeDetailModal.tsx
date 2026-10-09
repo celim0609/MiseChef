@@ -321,6 +321,7 @@ export default function RecipeDetailModal({
                 <span>{recipe.difficulty}</span>
               </div>
 
+              {displayedRecipe.nutritionYield && <p className="font-sans text-xs font-bold">Confirmed finished yield: {displayedRecipe.nutritionYield.quantity} {displayedRecipe.nutritionYield.unit}</p>}
               {nutrition && <RecipeNutritionResult nutrition={nutrition} />}
 
               {recipe.story && (
@@ -449,8 +450,8 @@ export default function RecipeDetailModal({
             {Boolean(displayedRecipe.linkedRecipes?.length) && <section className="space-y-2">
               <h3 className="font-display text-2xl font-bold text-primary">Linked Recipes</h3>
               {displayedRecipe.linkedRecipes?.map(component => <div key={component.id} className="rounded-xl bg-surface-container-low p-3">
-                <p className="font-sans text-sm">{component.recipeTitle || 'Linked recipe'} · {component.quantity} child portions used per parent batch</p>
-                <LinkedRecipeCostSummary child={recipes.find(child => child.id === component.recipeId)} quantity={component.quantity} />
+                <p className="font-sans text-sm">{component.recipeTitle || 'Linked recipe'} · {component.quantity} {!component.unit || component.unit === 'portion' ? 'child portions' : component.unit} used per parent batch</p>
+                <LinkedRecipeCostSummary child={recipes.find(child => child.id === component.recipeId)} quantity={component.quantity} unit={component.unit} />
               </div>)}
             </section>}
             <RecipeCostAnalysis recipe={recipe} />

@@ -100,3 +100,25 @@ test('Chef/Sous Chef profile writes, foreign Ingredients, forged USDA approval a
     { ingredientId: 'sugar', kind: 'food', source: 'chef_override', kcalPer100g: 100, gramsPerPiece: 0 }
   ]) await assert.rejects(service.saveChefProfile({ auth: { uid: 'member' }, data: { workspaceId, profile } }), error => ['permission-denied', 'invalid-argument'].includes(error.code));
 });
+
+for (const role of ['Owner', 'Manager', 'Sous Chef', 'Chef']) {
+  test(`${role}: measured child costs and dependent yield changes use the same scoped calculator`, async () => {
+    const { service, documents } = fixture(role);
+    documents.recipes.r.servings = 8;
+    documents.recipes.r.nutritionYield = { quantity: 230, unit: 'g' };
+    documents.recipes.r.yield = 'Existing Yield text';
+    documents.recipes.parent.ingredients = [{ id: 'associated', name: 'Caster Sugar', ingredientId: 'sugar', qty: '60', unit: 'g' }];
+    documents.recipes.parent.linkedRecipes = [{ id: 'l', recipeId: 'r', quantity: 60, unit: 'g', associatedIngredientId: 'associated' }];
+    const request = { auth: { uid: role === 'Owner' ? 'owner' : 'member' }, data: { workspaceId, recipe: documents.recipes.parent } };
+    const initial = JSON.stringify(documents);
+    const result = await service.costing(request);
+    assert.equal(result.recipes[0].costing.totalRecipeCost, 0.1);
+    assert.equal(result.recipes[0].costing.breakdown.length, 1);
+    assert.equal(result.recipes[0].costing.breakdown[0].unit, 'g');
+    assert.equal(JSON.stringify(documents), initial);
+    documents.recipes.r.nutritionYield.quantity = 460;
+    const changed = await service.costing({ auth: request.auth, data: { workspaceId, changedRecipeId: 'r' } });
+    assert.equal(changed.recipes[0].costing.totalRecipeCost, 0.05);
+    assert.equal(documents.recipes.r.yield, 'Existing Yield text');
+  });
+}

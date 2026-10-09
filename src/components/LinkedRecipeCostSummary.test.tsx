@@ -33,3 +33,19 @@ test('editor and scaled detail integrate explicit portion semantics and associat
   assert.match(detail, /scaleLinkedRecipeQuantities\(recipe.linkedRecipes, scaleRatio\)/);
   assert.match(detail, /displayedRecipe.linkedRecipes\?\.map/);
 });
+
+test('measured summary displays confirmed finished yield and batch-proportional contribution', () => {
+  const child = { id: 'sauce', servings: 8, nutritionYield: { quantity: 230, unit: 'g' }, costing: { totalRecipeCost: 23, costPerPortion: 2.88, breakdown: [{}] } } as Recipe;
+  const html = renderToStaticMarkup(<LinkedRecipeCostSummary child={child} quantity={60} unit="g" />);
+  assert.match(html, /Finished yield:.*230 g/);
+  assert.match(html, /Cost per g:/);
+  assert.match(html, /6.00/);
+  assert.doesNotMatch(html, /role="alert"/);
+});
+
+test('measured summary shows unavailable rather than a zero contribution without verified yield', () => {
+  const child = { id: 'sauce', servings: 8, yield: '230g', costing: { totalRecipeCost: 23, costPerPortion: 2.88, breakdown: [{}] } } as Recipe;
+  const html = renderToStaticMarkup(<LinkedRecipeCostSummary child={child} quantity={60} unit="g" />);
+  assert.match(html, /Child costing unavailable/);
+  assert.doesNotMatch(html, /0.00/);
+});

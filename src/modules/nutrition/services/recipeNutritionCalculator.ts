@@ -1,3 +1,4 @@
+import { resolveLinkedRecipeUsage } from '../../costing/services/linkedRecipeUsage';
 import type { IngredientNutritionProfile, Recipe, RecipeIngredientNutrition, RecipeNutritionSummary } from '../../../types';
 import { getNutritionUnit } from './nutritionUnits';
 import { resolveRecipeNutritionIdentity } from './recipeNutritionIdentity';
@@ -85,24 +86,15 @@ export const calculateRecipeNutrition = (
     const child = recipes.find(candidate => candidate.id === link.recipeId && (!recipe.workspaceId || candidate.workspaceId === recipe.workspaceId));
     const label = child?.title || link.recipeTitle || 'Linked Recipe';
     const associated = recipe.ingredients.find(ingredient => ingredient.id === link.associatedIngredientId);
-    const row: RecipeIngredientNutrition = { id: link.id, name: label, quantity: link.nutritionUseAssociatedQuantity ? (associated?.qty || '') : String(link.quantity), unit: link.nutritionUseAssociatedQuantity ? (associated?.unit || '') : 'portion' };
+    const row: RecipeIngredientNutrition = { id: link.id, name: label, quantity: link.nutritionUseAssociatedQuantity ? (associated?.qty || '') : String(link.quantity), unit: link.nutritionUseAssociatedQuantity ? (associated?.unit || '') : (link.unit || 'portion') };
     const fail = (message: string) => { totalIngredientCount++; ingredientBreakdown.push(row); reasons.push(`${label}: ${message}`); };
     if (!child) { fail('linked Recipe is unavailable in this workspace.'); continue; }
     if (link.associatedIngredientId && !associated) { fail('associated ingredient is unavailable.'); continue; }
-    let ratio: number;
-    if (link.nutritionUseAssociatedQuantity) {
-      const used = Number(associated?.qty);
-      const usedUnit = getNutritionUnit(associated?.unit);
-      const output = child.nutritionYield;
-      const outputUnit = output && getNutritionUnit(output.unit);
-      if (!associated?.qty.trim() || !Number.isFinite(used) || used <= 0 || !output || !Number.isFinite(output.quantity) || output.quantity <= 0 || !usedUnit || !outputUnit || usedUnit.dimension !== outputUnit.dimension) {
-        fail('a compatible, verified edible batch yield is required for the actual quantity used.'); continue;
-      }
-      ratio = used * usedUnit.baseQuantity / (output.quantity * outputUnit.baseQuantity);
-    } else {
-      if (!Number.isFinite(link.quantity) || link.quantity <= 0 || !Number.isInteger(child.servings) || child.servings <= 0) { fail('valid child portions and child servings are required.'); continue; }
-      ratio = link.quantity / child.servings;
-    }
+    const usage = link.nutritionUseAssociatedQuantity
+      ? resolveLinkedRecipeUsage(child, associated?.qty.trim() ? Number(associated.qty) : NaN, associated?.unit || '')
+      : resolveLinkedRecipeUsage(child, link.quantity, link.unit || 'portion');
+    if (usage.ratio === null) { fail(usage.reason || 'Linked quantity is unavailable.'); continue; }
+    const ratio = usage.ratio;
     const nutrition = calculateRecipeNutrition(child, profiles, recipes, nextPath);
     // A child containing only confirmed non-food contributes neither coverage nor energy.
     if (nutrition.totalIngredientCount === 0) continue;
