@@ -506,6 +506,7 @@ service cloud.firestore {
           'linkedRecipeTitle',
           'estimatedCost',
           'available',
+          'availableDay',
           'optionGroupIds',
           'createdBy',
           'createdAt',
@@ -542,6 +543,7 @@ service cloud.firestore {
             && get(/databases/$(database)/documents/recipes/$(data.linkedRecipeId)).data.workspaceId == data.workspaceId))
         && (!('estimatedCost' in data) || (data.estimatedCost is number && data.estimatedCost >= 0))
         && data.available is bool
+        && (!('availableDay' in data) || data.availableDay in ['all', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])
         && data.optionGroupIds is list
         && data.optionGroupIds.size() <= 10
         && data.createdBy is string
@@ -1461,6 +1463,7 @@ service cloud.firestore {
           'linkedRecipeTitle',
           'estimatedCost',
           'available',
+          'availableDay',
           'optionGroupIds',
           'updatedAt'
         ])

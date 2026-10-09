@@ -233,6 +233,7 @@ export interface StoreProduct {
   /** Legacy field retained only for existing order/data compatibility. */
   estimatedCost?: number;
   available: boolean;
+  availableDay?: 'all' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
   optionGroupIds: string[];
   createdBy: string;
   createdAt: string;
@@ -249,6 +250,7 @@ export interface StoreProductDraft {
   calories?: number;
   recipeId?: string;
   available: boolean;
+  availableDay?: 'all' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
   optionGroupIds: string[];
 }
 

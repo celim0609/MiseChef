@@ -28,7 +28,7 @@ test('delivery quote is refreshed only when payment begins and never by an idle 
   assert.match(publicStorePage, /Refresh your delivery quote before checkout\./);
   assert.match(publicStorePage, /const checkoutAttemptIdRef = useRef\(crypto\.randomUUID\(\)\)/);
   assert.match(publicStorePage, /checkoutAttemptId: checkoutAttemptIdRef\.current/);
-  assert.match(publicStorePage, /disabled=\{isPlacingOrder \|\| !deliveryQuoteReady\}/);
+  assert.match(publicStorePage, /disabled=\{isPlacingOrder \|\| !deliveryQuoteReady \|\| !cartDateAllowed\}/);
   assert.match(publicStorePage, /deliveryQuoteHasSufficientLifetime/);
   assert.match(publicStorePage, /if \(!deliveryQuoteHasSufficientLifetime\) \{\s*const refreshed = await refreshDeliveryQuoteForPayment\(\)/);
   assert.match(publicStorePage, /const refreshDeliveryQuoteForPayment/);
