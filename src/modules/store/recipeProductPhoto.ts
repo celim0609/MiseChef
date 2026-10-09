@@ -15,7 +15,15 @@ export const loadRecipePhotoForStoreProduct = async ({
 }): Promise<File> => {
   let response: Response;
   try {
-    response = await fetchImage(photoUrl);
+    // Recipe images have year-long caching. A fresh Firebase URL prevents a
+    // response cached without CORS headers from surviving a bucket policy repair.
+    let source = photoUrl;
+    if (photoUrl.startsWith('https://firebasestorage.googleapis.com/')) {
+      const url = new URL(photoUrl);
+      url.searchParams.set('recipePhotoTransfer', String(Date.now()));
+      source = url.toString();
+    }
+    response = await fetchImage(source, { cache: 'no-store' });
   } catch {
     throw new Error('Unable to transfer the Recipe photo. Check your connection or choose a Product photo manually.');
   }
