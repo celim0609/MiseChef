@@ -175,6 +175,11 @@ jobs:
         with:
           credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MISECHEF_PRODUCTION }}
 
+      - name: Apply and verify approved Recipe image CORS
+        run: >-
+          node "$GITHUB_WORKSPACE/controller/scripts/repairRecipePhotoCors.mjs"
+          --candidate-root "$GITHUB_WORKSPACE/candidate"
+
       - name: Run canonical protected full-resource Production release
         run: >-
           node "$GITHUB_WORKSPACE/controller/scripts/deployProduction.mjs"
