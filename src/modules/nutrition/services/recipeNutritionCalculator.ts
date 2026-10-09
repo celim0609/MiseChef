@@ -3,13 +3,14 @@ import type { IngredientNutritionProfile, Recipe, RecipeIngredientNutrition, Rec
 import { getNutritionUnit } from './nutritionUnits';
 import { resolveRecipeNutritionIdentity } from './recipeNutritionIdentity';
 
-export type NutritionRecipe = Pick<Recipe, 'ingredients' | 'servings'> & Partial<Pick<Recipe, 'id' | 'workspaceId' | 'linkedRecipes' | 'nutritionYield'>>;
+export type NutritionRecipe = Pick<Recipe, 'ingredients' | 'servings'> & Partial<Pick<Recipe, 'id' | 'workspaceId' | 'linkedRecipes' | 'nutritionYield' | 'yield'>>;
 
 export const calculateRecipeNutrition = (
   recipe: NutritionRecipe,
   profiles: Record<string, IngredientNutritionProfile | undefined>,
   recipes: Recipe[] = [],
-  path: string[] = []
+  path: string[] = [],
+  batchOnly = false
 ): RecipeNutritionSummary => {
   const reasons: string[] = [];
   const reviewWarnings: string[] = [];
@@ -95,7 +96,8 @@ export const calculateRecipeNutrition = (
       : resolveLinkedRecipeUsage(child, link.quantity, link.unit || 'portion');
     if (usage.ratio === null) { fail(usage.reason || 'Linked quantity is unavailable.'); continue; }
     const ratio = usage.ratio;
-    const nutrition = calculateRecipeNutrition(child, profiles, recipes, nextPath);
+    const measuredUsage = (link.nutritionUseAssociatedQuantity ? associated?.unit : link.unit || 'portion') !== 'portion';
+    const nutrition = calculateRecipeNutrition(child, profiles, recipes, nextPath, measuredUsage);
     // A child containing only confirmed non-food contributes neither coverage nor energy.
     if (nutrition.totalIngredientCount === 0) continue;
     totalIngredientCount += nutrition.totalIngredientCount || 1;
@@ -111,13 +113,14 @@ export const calculateRecipeNutrition = (
     reasons.push(...nutrition.incompleteReasons.map(reason => `${label}: ${reason}`));
   }
 
-  if (!Number.isInteger(recipe.servings) || recipe.servings <= 0) reasons.push('Recipe servings must be a positive whole number.');
+  const validServings = Number.isInteger(recipe.servings) && recipe.servings > 0;
+  if (!batchOnly && !validServings) reasons.push('Recipe servings must be a positive whole number.');
   const coverage = { calculatedIngredientCount, totalIngredientCount, ingredientBreakdown, ...(reviewWarnings.length ? { reviewWarnings } : {}) };
-  if (!usableFoodCount || !Number.isFinite(totalKcal) || !Number.isInteger(recipe.servings) || recipe.servings <= 0) {
+  if (!usableFoodCount || !Number.isFinite(totalKcal) || (!batchOnly && !validServings)) {
     if (!usableFoodCount) reasons.push('Not enough usable food nutrition data to estimate nutrition.');
     return { status: 'INCOMPLETE', incompleteReasons: reasons, ...coverage };
   }
-  return { status: reasons.length ? 'ESTIMATED' : 'COMPLETE', totalKcal, kcalPerServing: totalKcal / recipe.servings, incompleteReasons: reasons, ...coverage };
+  return { status: reasons.length ? 'ESTIMATED' : 'COMPLETE', totalKcal, ...(validServings ? { kcalPerServing: totalKcal / recipe.servings } : {}), incompleteReasons: reasons, ...coverage };
 };
 
 export const getSnapshotCalories = (nutrition: RecipeNutritionSummary | undefined) => (

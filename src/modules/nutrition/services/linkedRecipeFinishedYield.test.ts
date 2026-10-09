@@ -60,14 +60,14 @@ test('kg/g compatible links use the same kcal and cost ratio; volume never guess
   assert.equal(cost.costing?.breakdown.length, 0);
 });
 
-test('missing finished yield cannot be inferred from ingredient weights or existing free-text Yield', () => {
-  const child = sauce(); delete (child as Partial<Recipe>).nutritionYield; child.yield = '230g';
+test('ambiguous finished yield cannot be inferred from ingredient weights', () => {
+  const child = sauce(); delete (child as Partial<Recipe>).nutritionYield; child.yield = 'about 230g';
   const parent = recipe('p', []); parent.linkedRecipes = [link('teriyaki')];
   const result = calculateRecipeNutrition(parent, profiles, [child]);
   assert.equal(result.status, 'INCOMPLETE'); assert.equal(result.totalKcal, undefined);
   assert.match(result.incompleteReasons.join(' '), /explicitly confirmed finished yield/);
   assert.equal(calculateRecipeCosting(parent, library, '', [child]).costing?.linkedRecipeWarnings?.length, 1);
-  assert.equal(child.yield, '230g');
+  assert.equal(child.yield, 'about 230g');
 });
 
 test('scaling parent usage doubles kcal and cost; scaling child batch and finished yield preserves per-gram contribution', () => {

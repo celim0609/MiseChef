@@ -54,11 +54,11 @@ test('missing children, cross-workspace children, invalid portions and cycles ne
   assert.equal(calculateRecipeNutrition(parent, profiles, [child]).status, 'INCOMPLETE');
 });
 
-test('actual associated mass uses only confirmed edible batch yield; free text is never a conversion', () => {
+test('actual associated mass uses explicit saved batch Yield without a second field', () => {
   const child = recipe('child', [row('food', '1000')], 10); child.yield = '1000g';
   const parent = recipe('parent', [row('sauce', '60')], 1);
   parent.linkedRecipes = [{ ...link('child', 1, 'sauce'), nutritionUseAssociatedQuantity: true }];
-  assert.equal(calculateRecipeNutrition(parent, profiles, [child]).status, 'INCOMPLETE');
+  assert.equal(calculateRecipeNutrition(parent, profiles, [child]).totalKcal, 240);
   child.nutritionYield = { quantity: 1000, unit: 'g' };
   assert.equal(calculateRecipeNutrition(parent, profiles, [child]).totalKcal, 240);
   parent.ingredients[0].qty = '0.06'; parent.ingredients[0].unit = 'kg';

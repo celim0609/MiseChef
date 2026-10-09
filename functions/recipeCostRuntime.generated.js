@@ -41,7 +41,21 @@ var UNITS = {
 };
 var getNutritionUnit = (unit = "") => UNITS[unit.trim().toLocaleLowerCase().replace(/\./g, "").replace(/\s+/g, " ")];
 
+// src/modules/nutrition/services/recipeYield.ts
+var parseMeasuredRecipeYield = (text) => {
+  const match = text.trim().match(/^((?:\d+(?:\.\d*)?|\.\d+))\s*(mg|milligrams?|g|grams?|kg|kilograms?|ml|millilit(?:er|re)s?|l|lit(?:er|re)s?|pcs?|pieces?)$/i);
+  if (!match) return void 0;
+  const unit = getNutritionUnit(match[2]);
+  const quantity = Number(match[1]) * (unit?.baseQuantity || 0);
+  if (!unit || !Number.isFinite(quantity) || quantity <= 0) return void 0;
+  return { quantity, unit: unit.dimension === "mass" ? "g" : unit.dimension === "volume" ? "ml" : "pcs" };
+};
+
 // src/modules/costing/services/linkedRecipeUsage.ts
+var getLinkedRecipeFinishedYield = (child) => {
+  const saved = parseMeasuredRecipeYield(child.yield || "");
+  return saved?.unit === "g" ? saved : child.nutritionYield;
+};
 var resolveLinkedRecipeUsage = (child, quantity, unit = "portion") => {
   if (!Number.isFinite(quantity) || quantity <= 0) return { ratio: null, reason: "A positive linked quantity is required." };
   if (unit === "portion") {
@@ -49,7 +63,7 @@ var resolveLinkedRecipeUsage = (child, quantity, unit = "portion") => {
     return { ratio: quantity / child.servings };
   }
   const usedUnit = getNutritionUnit(unit);
-  const finished = child.nutritionYield;
+  const finished = getLinkedRecipeFinishedYield(child);
   const finishedUnit = finished && getNutritionUnit(finished.unit);
   if (!finished || !Number.isFinite(finished.quantity) || finished.quantity <= 0 || !usedUnit || !finishedUnit || usedUnit.dimension !== finishedUnit.dimension) {
     return { ratio: null, reason: "A compatible, explicitly confirmed finished yield is required." };

@@ -11,19 +11,20 @@ const parent = { id: 'bihun', workspaceId: 'workspace', title: 'Wok fried bihun'
 const profile = (id: string, kcalPer100g: number): IngredientNutritionProfile => ({ id, ingredientId: id, workspaceId: 'workspace', kind: 'food', status: 'approved', source: 'chef_override', kcalPer100g, confirmedBy: 'owner', confirmedAt: '', updatedAt: '' });
 const profiles = { base: profile('base', 47.525), sugar: profile('sugar', 401), box650: { ...profile('box650', 0), kind: 'non_food' as const, source: 'chef_non_food' as const, kcalPer100g: undefined } };
 
-test('live-shaped legacy 290g / 40g link stays unavailable and renders the specific reason', () => {
+test('live-shaped saved 290g / 40g link calculates Partial kcal without a second confirmation', () => {
   const before = JSON.stringify({ child, parent, profiles });
   const result = calculateRecipeNutrition(parent, profiles, [child]);
-  assert.equal(result.totalKcal, 47.525);
+  assert.ok(Math.abs(result.totalKcal! - (47.525 + 80.2 * 40 / 290)) < 1e-9);
   assert.equal(result.status, 'ESTIMATED');
-  assert.equal(result.ingredientBreakdown?.find(row => row.id === 'link')?.kcal, undefined);
+  assert.ok(Math.abs(result.ingredientBreakdown!.find(row => row.id === 'link')!.kcal! - 80.2 * 40 / 290) < 1e-9);
   assert.equal(result.ingredientBreakdown?.filter(row => row.name === 'Seasoning Soy').length, 1);
   assert.ok(!result.ingredientBreakdown?.some(row => row.id === 'associated' || row.id === 'box'));
-  assert.equal(result.totalIngredientCount, 2);
+  assert.equal(result.totalIngredientCount, 3);
   const html = renderToStaticMarkup(<RecipeNutritionResult nutrition={result} />);
-  assert.match(html, /explicitly confirmed finished yield is required/);
+  assert.doesNotMatch(html, /explicitly confirmed finished yield is required/);
+  assert.match(html, /11.06 kcal/);
   assert.match(html, /Seasoning Soy/);
-  assert.match(html, /—/);
+  assert.match(html, /Partial/);
   assert.equal(JSON.stringify({ child, parent, profiles }), before);
 });
 
@@ -34,24 +35,24 @@ test('only an explicit compatible measured yield enables 11.062 Partial kcal and
   assert.ok(Math.abs(result.ingredientBreakdown!.find(row => row.id === 'link')!.kcal! - 80.2 * 40 / 290) < 1e-9);
   assert.ok(Math.abs(result.totalKcal! - (47.525 + 80.2 * 40 / 290)) < 1e-9);
   assert.match(renderToStaticMarkup(<RecipeNutritionResult nutrition={result} />), /11.06 kcal/);
-  const incompatible = calculateRecipeNutrition(parent, profiles, [{ ...verified, nutritionYield: { quantity: 290, unit: 'ml' } }]);
+  const incompatible = calculateRecipeNutrition(parent, profiles, [{ ...verified, yield: '290ml', nutritionYield: { quantity: 290, unit: 'ml' } }]);
   assert.equal(incompatible.ingredientBreakdown!.find(row => row.id === 'link')!.kcal, undefined);
 });
 
 test('child detail distinguishes saved display text from verified finished yield without a second confirmation', () => {
   const html = renderToStaticMarkup(<RecipeMeasuredYieldStatus recipe={child} measuredLinkNeedsYield />);
-  assert.match(html, /290g.*display text only/);
-  assert.match(html, /Measured finished yield not set/);
+  assert.match(html, /Confirmed finished yield:.*290.*g/);
+  assert.doesNotMatch(html, /Measured finished yield not set/);
   const verified = renderToStaticMarkup(<RecipeMeasuredYieldStatus recipe={{ ...child, nutritionYield: { quantity: 290, unit: 'g' } }} measuredLinkNeedsYield />);
   assert.match(verified, /Confirmed finished yield:.*290.*g/);
   assert.doesNotMatch(verified, /not set|display text only/);
-  assert.equal(renderToStaticMarkup(<RecipeMeasuredYieldStatus recipe={child} />), '');
+  assert.equal(renderToStaticMarkup(<RecipeMeasuredYieldStatus recipe={{ ...child, yield: 'about 290g' }} />), '');
 });
 
 
 test('Recipe detail renders the diagnostic for the persisted measured link, but not another workspace', () => {
   const actions = { onClose() {}, onEdit() {}, onDuplicate() {}, onShare() {}, onDelete() {}, onToggleFavorite() {} };
   const render = (recipes: Recipe[]) => renderToStaticMarkup(<RecipeDetailModal recipe={{ ...child, method: [], categories: [] }} recipes={recipes} {...actions} />);
-  assert.match(render([parent]), /290g.*display text only/);
+  assert.match(render([parent]), /Confirmed finished yield:.*290.*g/);
   assert.doesNotMatch(render([{ ...parent, workspaceId: 'other' }]), /Measured finished yield not set/);
 });

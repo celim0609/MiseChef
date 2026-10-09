@@ -147,3 +147,27 @@ test('authorized costing round trip preserves explicit yield confirmation and in
   }
   assert.equal(JSON.stringify(documents), original);
 });
+
+for (const role of ['Owner', 'Manager', 'Sous Chef', 'Chef']) {
+  test(`${role}: saved single mass Yield survives authorized costing round trip without child servings`, async () => {
+    const { service, documents } = fixture(role);
+    documents.recipes.r.yield = '290g';
+    delete documents.recipes.r.nutritionYield;
+    documents.recipes.r.servings = 0;
+    documents.recipes.parent.ingredients = [{ id: 'associated', name: 'Caster Sugar', ingredientId: 'sugar', qty: '40', unit: 'g' }];
+    documents.recipes.parent.linkedRecipes = [{ id: 'l', recipeId: 'r', quantity: 40, unit: 'g', associatedIngredientId: 'associated' }];
+    const auth = { uid: role === 'Owner' ? 'owner' : 'member' };
+    const original = JSON.stringify(documents);
+    const first = await service.costing({ auth, data: { workspaceId, recipe: JSON.parse(JSON.stringify(documents.recipes.parent)) } });
+    const reloaded = JSON.parse(JSON.stringify(first.recipes[0]));
+    assert.equal(reloaded.costing.totalRecipeCost, 0.06); // Child batch 0.4 MYR * 40 / 290, existing money rounding.
+    assert.equal(reloaded.costing.breakdown.length, 1);
+    assert.equal(reloaded.ingredients[0].ingredientCost, undefined);
+    const again = await service.costing({ auth, data: { workspaceId, recipe: reloaded } });
+    assert.equal(again.recipes[0].costing.totalRecipeCost, 0.06);
+    assert.equal(JSON.stringify(documents), original);
+    documents.recipes.r.yield = '580g';
+    const changed = await service.costing({ auth, data: { workspaceId, changedRecipeId: 'r' } });
+    assert.equal(changed.recipes[0].costing.totalRecipeCost, 0.03);
+  });
+}

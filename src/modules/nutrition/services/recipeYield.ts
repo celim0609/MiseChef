@@ -15,8 +15,10 @@ export const parseMeasuredRecipeYield = (text: string): NonNullable<Recipe['nutr
 export const resolveRecipeYieldDenominator = ({ text, originalText = '', previous, chefEdited = false, confirmed = false }: {
   text: string; originalText?: string; previous?: Recipe['nutritionYield']; chefEdited?: boolean; confirmed?: boolean;
 }): Recipe['nutritionYield'] => {
-  if (!chefEdited && !confirmed && text === originalText) return previous;
   const measured = parseMeasuredRecipeYield(text);
+  // An explicit mass Yield is the Chef-facing denominator, including saved legacy values.
+  if (measured?.unit === 'g') return measured;
+  if (!chefEdited && !confirmed && text === originalText) return previous;
   if (measured && (chefEdited || confirmed)) return measured;
   // Explicit null survives the existing callable JSON and Firestore merge path,
   // invalidating a previous denominator only when Yield was actually changed.
