@@ -623,3 +623,44 @@ test('customer order reference collision regenerates before returning', async ()
     businessDateKey: '20260822'
   });
 });
+
+const weekdayOrder = (availableDay, overrides = {}) => buildPendingOrder({
+  id: 'weekday-order', orderNumber: 'MC-260726-ABCDEF', store,
+  products: [{ ...products[0], ...(availableDay === undefined ? {} : { availableDay }) }],
+  optionGroups, paymentProvider: STRIPE_PROVIDER_ID, paymentProviderMode: STRIPE_PROVIDER_MODE,
+  draft: { ...draft, ...overrides }, now: new Date('2026-07-26T04:00:00Z')
+});
+
+test('Monday and Tuesday meals reject forged pickup dates and retain the existing order date', () => {
+  assert.equal(weekdayOrder('mon').pickupDate, '2026-07-27');
+  assert.throws(() => weekdayOrder('mon', { pickupDate: '2026-07-28' }), /Available day/);
+  assert.equal(weekdayOrder('tue', { pickupDate: '2026-07-28' }).pickupDate, '2026-07-28');
+  assert.throws(() => weekdayOrder('tue'), /Available day/);
+  assert.equal(weekdayOrder(undefined).pickupDate, '2026-07-27');
+  assert.equal(weekdayOrder(undefined, { pickupDate: '2026-07-28' }).pickupDate, '2026-07-28');
+  assert.equal(weekdayOrder('all', { pickupDate: '2026-07-28' }).pickupDate, '2026-07-28');
+});
+
+test('delivery checks the authoritative schedule rather than a forged client delivery date', () => {
+  const delivery = date => ({ fulfilmentMethod: 'delivery', deliveryDate: '2026-07-27',
+    deliverySnapshot: { fulfilmentMode: 'preorder', schedule: { mode: 'preorder', date, time: '12:00', timeZone: 'Asia/Kuala_Lumpur' } } });
+  const order = weekdayOrder('mon', delivery('2026-07-27'));
+  assert.equal(order.delivery.schedule.date, '2026-07-27');
+  assert.throws(() => weekdayOrder('mon', delivery('2026-07-28')), /Available day/);
+  assert.equal(weekdayOrder('tue', delivery('2026-07-28')).delivery.schedule.date, '2026-07-28');
+  assert.throws(() => weekdayOrder('tue', delivery('2026-07-27')), /Available day/);
+  assert.throws(() => weekdayOrder('mon', { fulfilmentMethod: 'delivery', deliverySnapshot: { fulfilmentMode: 'preorder' } }), /Available day/);
+});
+
+test('instant delivery cannot bypass meal weekdays by sending a matching date', () => {
+  const instant = { fulfilmentMethod: 'delivery', deliveryDate: '2026-07-27', deliverySnapshot: { fulfilmentMode: 'instant' } };
+  assert.throws(() => weekdayOrder('mon', instant), /Available day/);
+  assert.equal(weekdayOrder('sun', instant).delivery.fulfilmentMode, 'instant');
+  assert.equal(weekdayOrder(undefined, instant).delivery.fulfilmentMode, 'instant');
+});
+
+
+test('injected delivery snapshots cannot smuggle a mismatching stored date through pickup checkout', () => {
+  assert.throws(() => weekdayOrder('mon', { deliverySnapshot: { fulfilmentMode: 'preorder', schedule: { date: '2026-07-28' } } }), /Available day/);
+  assert.throws(() => weekdayOrder('sun', { deliverySnapshot: { fulfilmentMode: 'instant', schedule: { date: '2026-07-27' } } }), /Available day/);
+});

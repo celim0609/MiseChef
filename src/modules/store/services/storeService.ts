@@ -384,6 +384,7 @@ export const storeService = {
       calories: draft.calories,
       recipeId: draft.recipeId?.trim() || undefined,
       available: draft.available,
+      availableDay: draft.availableDay ?? 'all',
       optionGroupIds: [...draft.optionGroupIds],
       createdBy,
       createdAt: now,

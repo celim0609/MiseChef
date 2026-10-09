@@ -1,3 +1,4 @@
+import { AVAILABLE_DAYS } from '../../../functions/storeProductAvailability.js';
 import type { Workspace } from '../../types';
 import { getWorkspaceRegionConfiguration, normalizeRegionCode } from '../../regions';
 import { isValidBusinessWhatsApp } from './selling';
@@ -401,6 +402,7 @@ export const normalizeStoreProduct = (
     ? { estimatedCost: Number(data.estimatedCost) }
     : {}),
   available: readBoolean(data.available),
+  availableDay: (data.availableDay ?? 'all') as StoreProduct['availableDay'],
   optionGroupIds: Array.isArray(data.optionGroupIds)
     ? [...new Set(data.optionGroupIds.filter((groupId): groupId is string => typeof groupId === 'string' && Boolean(groupId.trim())).map(groupId => groupId.trim()))]
     : [],
@@ -502,6 +504,7 @@ export const validateStoreSettings = (
 };
 
 export const validateStoreProduct = (draft: StoreProductDraft) => {
+  if (!AVAILABLE_DAYS.includes(draft.availableDay ?? 'all')) return 'Choose a valid Available day.';
   if (!draft.photoUrl.trim()) return 'Product photo is required.';
   if (!draft.name.trim()) return 'Product name is required.';
   if (draft.name.trim().length > 160) return 'Product name must be 160 characters or fewer.';

@@ -1,3 +1,4 @@
+import { cartAllowsFulfilmentDate, currentFulfilmentDate } from './storeProductAvailability.js';
 import { randomBytes } from 'node:crypto';
 import { calculatePromotionPricing } from './storePromotionPricing.js';
 
@@ -409,6 +410,15 @@ export const buildPendingOrder = ({
     name: 'Secure online payment'
   };
   const items = buildOrderItems(draft.selections, products, optionGroups, sets);
+  const fulfilmentDate = draft.deliverySnapshot
+    ? (draft.deliverySnapshot?.fulfilmentMode === 'instant'
+      ? currentFulfilmentDate(region.timeZone, now)
+      : readString(draft.deliverySnapshot?.schedule?.date))
+    : readString(draft.pickupDate);
+  if (!cartAllowsFulfilmentDate(draft.selections, products, fulfilmentDate)
+    || (draft.deliverySnapshot?.schedule && !cartAllowsFulfilmentDate(draft.selections, products, readString(draft.deliverySnapshot.schedule.date)))) {
+    throw new Error('Choose a fulfilment date matching the Available day of every meal in your cart.');
+  }
   const pickupLocation = store.pickupLocations.find(
     location => readString(location.id) === readString(draft.pickupLocationId)
   );

@@ -60,6 +60,7 @@ export const getStoreProductEditorDraft = (product: StoreProduct): StoreProductD
   ...(product.calories !== undefined ? { calories: product.calories } : {}),
   ...(product.recipeId ? { recipeId: product.recipeId } : {}),
   available: product.available,
+  availableDay: product.availableDay ?? 'all',
   optionGroupIds: [...product.optionGroupIds]
 });
 
@@ -105,6 +106,7 @@ export const buildUpdatedStoreProduct = (
   calories: draft.calories,
   recipeId: draft.recipeId,
   available: draft.available,
+  availableDay: draft.availableDay ?? 'all',
   optionGroupIds: [...draft.optionGroupIds],
   updatedAt
 });

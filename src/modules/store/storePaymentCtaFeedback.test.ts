@@ -30,7 +30,7 @@ test('an active payment return reconciliation remains locked after lifecycle res
 });
 
 test('the checkout CTA immediately shows a spinner and processing state while disabled', () => {
-  assert.match(page, /disabled=\{isPlacingOrder \|\| !deliveryQuoteReady\}/);
+  assert.match(page, /disabled=\{isPlacingOrder \|\| !deliveryQuoteReady \|\| !cartDateAllowed\}/);
   assert.match(page, /<Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" \/> Processing payment…/);
 });
 

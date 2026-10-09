@@ -612,3 +612,40 @@ test('promotion rules reject invalid type terms and cross-workspace records', as
     ...createPromotionRecord('promo-cross'), workspaceId: WORKSPACE_B, storeId: WORKSPACE_B
   }));
 });
+
+
+test('Store Product Available day is optional, constrained, editable and preserved on reload', async () => {
+  const legacy = ownerA.firestore().doc('storeProducts/day-legacy');
+  await assertSucceeds(legacy.set(createProductRecord('day-legacy')));
+  assert.equal((await legacy.get()).data().availableDay, undefined);
+  for (const availableDay of ['all', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
+    const id = `day-${availableDay}`;
+    const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+    await assertSucceeds(ref.set({ ...createProductRecord(id), availableDay }));
+    assert.equal((await ref.get()).data().availableDay, availableDay);
+    await assertSucceeds(managerA.firestore().doc(`storeProducts/${id}`).update({ availableDay: 'tue' }));
+    assert.equal((await ref.get()).data().availableDay, 'tue');
+    await assertSucceeds(anonymous.firestore().doc(`storeProducts/${id}`).get());
+  }
+  for (const [index, availableDay] of ['', 'monday', 'MON', null, 1, true, ['mon'], { day: 'mon' }].entries()) {
+    const id = `day-invalid-${index}`;
+    await assertFails(ownerA.firestore().doc(`storeProducts/${id}`).set({ ...createProductRecord(id), availableDay }));
+    await assertFails(legacy.update({ availableDay }));
+  }
+});
+
+test('Available day does not widen Store Product permissions or unrelated field validation', async () => {
+  const id = 'day-security';
+  const record = { ...createProductRecord(id), availableDay: 'mon' };
+  const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+  await assertSucceeds(ref.set(record));
+  for (const context of [anonymous, memberA, ownerB, customerA]) {
+    await assertFails(context.firestore().doc(`storeProducts/${id}`).update({ availableDay: 'tue' }));
+    await assertFails(context.firestore().doc('storeProducts/day-unauthorized').set({ ...createProductRecord('day-unauthorized'), availableDay: 'mon' }));
+  }
+  await assertFails(ref.update({ availableDay: 'tue', price: -1 }));
+  await assertFails(ref.update({ availableDay: 'tue', unexpected: true }));
+  await assertFails(ref.update({ availableDay: 'tue', workspaceId: WORKSPACE_B }));
+  await assertSucceeds(ref.update({ available: false }));
+  await assertFails(anonymous.firestore().doc(`storeProducts/${id}`).get());
+});

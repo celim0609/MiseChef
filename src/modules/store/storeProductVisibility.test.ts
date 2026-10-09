@@ -113,6 +113,7 @@ test('Edit loads the selected unavailable product into an independent draft', ()
     description: selectedProduct.description,
     price: 12.5,
     available: false,
+    availableDay: 'all',
     optionGroupIds: ['size']
   });
   assert.notEqual(draft.optionGroupIds, selectedProduct.optionGroupIds);

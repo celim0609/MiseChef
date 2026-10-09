@@ -119,6 +119,7 @@ const emptyProductDraft = (): StoreProductDraft => ({
   description: '',
   price: 0,
   available: true,
+  availableDay: 'all',
   optionGroupIds: []
 });
 
@@ -1084,6 +1085,13 @@ export default function StorePage({
                 <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Product Name</span>
                   <input ref={productNameInputRef} value={productDraft.name} onChange={event => updateProduct('name', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                </label>
+                <label className="block">
+                  <span className="font-sans text-xs font-extrabold text-primary">Available day</span>
+                  <select aria-label="Available day" value={productDraft.availableDay ?? 'all'} onChange={event => updateProduct('availableDay', event.target.value as StoreProductDraft['availableDay'])} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">
+                    <option value="all">All days</option>
+                    {(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const).map(day => <option key={day} value={day}>{day.charAt(0).toUpperCase() + day.slice(1)}</option>)}
+                  </select>
                 </label>
                 <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Price ({region.currency})</span>
