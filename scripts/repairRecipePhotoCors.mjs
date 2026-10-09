@@ -4,16 +4,17 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { assertProductionAuthority, PRODUCTION_PROJECT_ID, PRODUCTION_STORAGE_BUCKET, PRODUCTION_ORIGIN, PRODUCTION_DEFAULT_ORIGIN } from './productionDeploymentSafety.mjs';
 
 export const repairRecipePhotoCors = async ({ bucket, policy, fetchImage = fetch }) => {
   if (bucket.name !== PRODUCTION_STORAGE_BUCKET) throw new Error('Recipe photo CORS requires the verified Production image bucket.');
-  if (JSON.stringify(policy) !== JSON.stringify([{ origin: [PRODUCTION_ORIGIN, PRODUCTION_DEFAULT_ORIGIN], method: ['GET', 'POST', 'PUT', 'DELETE', 'HEAD'], responseHeader: ['Content-Type', 'Authorization', 'x-goog-resumable'], maxAgeSeconds: 3600 }])) throw new Error('Recipe photo CORS differs from the approved policy.');
+  if (!isDeepStrictEqual(policy, [{ origin: [PRODUCTION_ORIGIN, PRODUCTION_DEFAULT_ORIGIN], method: ['GET', 'POST', 'PUT', 'DELETE', 'HEAD'], responseHeader: ['Content-Type', 'Authorization', 'x-goog-resumable'], maxAgeSeconds: 3600 }])) throw new Error('Recipe photo CORS differs from the approved policy.');
   const [before] = await bucket.getMetadata();
-  if (before.cors?.length && JSON.stringify(before.cors) !== JSON.stringify(policy)) throw new Error('An unexpected existing CORS policy requires review.');
+  if (before.cors?.length && !isDeepStrictEqual(before.cors, policy)) throw new Error('An unexpected existing CORS policy requires review.');
   if (!before.cors?.length) await bucket.setCorsConfiguration(policy);
   const [after] = await bucket.getMetadata();
-  if (JSON.stringify(after.cors) !== JSON.stringify(policy)) throw new Error('Production image CORS policy verification failed.');
+  if (!isDeepStrictEqual(after.cors, policy)) throw new Error('Production image CORS policy verification failed.');
   const [files] = await bucket.getFiles({ prefix: 'recipes/', maxResults: 20, autoPaginate: false });
   const image = files.find(file => /^image\/(jpeg|png|webp)$/.test(file.metadata?.contentType || '') && file.metadata?.metadata?.firebaseStorageDownloadTokens);
   if (!image) throw new Error('No existing Recipe image is available for Production-origin CORS verification.');

@@ -38,3 +38,12 @@ test('CORS repair stays behind human Production environment and exact authority 
  assert.ok(step<workflow.indexOf('Run canonical protected full-resource Production release'));
  const script=readFileSync(new URL('./repairRecipePhotoCors.mjs',import.meta.url),'utf8');assert.match(script,/assertProductionAuthority/);assert.match(script,/GITHUB_ACTIONS/);
 });
+
+
+test('Google metadata key order is irrelevant while actual policy differences fail closed', async () => {
+ const reordered=policy.map(p=>({maxAgeSeconds:p.maxAgeSeconds,responseHeader:p.responseHeader,method:p.method,origin:p.origin}));
+ const f=fixture(reordered);await repairRecipePhotoCors({...f,policy});assert.equal(f.writes(),0);
+ for(const changed of [{...policy[0],maxAgeSeconds:7200},{...policy[0],origin:[...policy[0].origin,'*']},{...policy[0],method:['GET']}]) {
+  const other=fixture([changed]);await assert.rejects(repairRecipePhotoCors({...other,policy}),/requires review/);assert.equal(other.writes(),0);
+ }
+});
