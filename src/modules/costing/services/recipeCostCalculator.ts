@@ -1,3 +1,4 @@
+import { getRecipeCostCompleteness } from './recipeCostCompleteness';
 import { resolveLinkedRecipeUsage } from './linkedRecipeUsage';
 import type { Ingredient, LinkedRecipeComponent, Recipe, RecipeCostBreakdownItem } from '../../../types';
 import type { CostingIngredient } from '../types';
@@ -30,7 +31,7 @@ export const resolveLinkedRecipeCost = (child: Recipe | undefined, component: Pi
   }
   const usage = resolveLinkedRecipeUsage(child, component.quantity, component.unit);
   const batchCost = child.costing?.totalRecipeCost;
-  if (usage.ratio === null || !child.costing?.breakdown?.length || !Number.isFinite(batchCost) || (batchCost as number) < 0) return null;
+  if (usage.ratio === null || getRecipeCostCompleteness(child) === 'INCOMPLETE' || !Number.isFinite(batchCost) || (batchCost as number) < 0) return null;
   const contribution = (batchCost as number) * usage.ratio;
   return Number.isFinite(contribution) ? { unitCost: contribution / component.quantity, contribution: roundMoney(contribution) } : null;
 };
@@ -75,7 +76,8 @@ export const calculateRecipeCosting = (
       return removeCalculatedIngredientCost(recipeIngredient);
     }
     const matchedIngredient = findIngredientMatch(recipeIngredient, activeIngredients);
-    if (!matchedIngredient) return removeCalculatedIngredientCost(recipeIngredient);
+    if (!matchedIngredient) return removeCalculatedIngredientCost(recipeIngredient, 'Ingredient cost unavailable: link a priced Ingredient.');
+    if (matchedIngredient.priceStatus === 'missing') return removeCalculatedIngredientCost(recipeIngredient, 'Ingredient cost unavailable: purchase price is missing.');
     const calculatedCost = calculateRecipeIngredientCost(recipeIngredient, matchedIngredient);
     if (!('unitCost' in calculatedCost)) {
       return removeCalculatedIngredientCost(recipeIngredient, calculatedCost.warning);
@@ -118,7 +120,7 @@ export const calculateRecipeCosting = (
     );
     const quantity = Math.max(0, Number(component.quantity) || 0);
     const resolvedCost = resolveLinkedRecipeCost(calculatedLinkedRecipe, { quantity, unit: component.unit || 'portion' });
-    if (resolvedCost === null || calculatedLinkedRecipe.costing?.linkedRecipeWarnings?.length) {
+    if (resolvedCost === null || getRecipeCostCompleteness(calculatedLinkedRecipe) !== 'COMPLETE') {
       linkedRecipeWarnings.push(`${component.recipeTitle || linkedRecipe.title}: child costing is unavailable or incomplete. Check finished yield for measured links.`);
     }
     const unitCost = resolvedCost?.unitCost ?? 0;

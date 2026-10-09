@@ -1,3 +1,4 @@
+import { getRecipeCostCompleteness } from '../modules/costing/services/recipeCostCompleteness';
 import React, { useState } from 'react';
 import { ChevronDown, DollarSign } from 'lucide-react';
 import type { Recipe } from '../types';
@@ -47,6 +48,7 @@ export default function RecipeCostAnalysis({
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const region = useWorkspaceRegion();
   const recipeCosting = recipe.costing;
+  const completeness = getRecipeCostCompleteness(recipe);
   const costingWarnings = recipe.ingredients.filter(ingredient => ingredient.costingWarning);
   const hasCostBreakdown = Boolean(recipeCosting?.breakdown?.length);
   const hasTotalCost = hasCostBreakdown && Number.isFinite(Number(recipeCosting?.totalRecipeCost));
@@ -89,13 +91,13 @@ export default function RecipeCostAnalysis({
         <div id={contentId} className="space-y-5 border-t border-surface-container px-5 py-5">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
             <div className="rounded-xl border border-surface-container bg-surface-container-low px-3 py-2">
-              <span className="block font-sans text-[10px] font-bold uppercase tracking-wider text-outline">Total Cost</span>
+              <span className="block font-sans text-[10px] font-bold uppercase tracking-wider text-outline">{completeness === 'PARTIAL' ? 'Partial Total Cost' : completeness === 'INCOMPLETE' ? 'Incomplete Cost' : 'Total Cost'}</span>
               <span className="font-sans text-sm font-extrabold text-primary">
                 {hasTotalCost ? formatRegionCurrency(Number(recipeCosting?.totalRecipeCost), region.currency) : '—'}
               </span>
             </div>
             <div className="rounded-xl border border-surface-container bg-surface-container-low px-3 py-2">
-              <span className="block font-sans text-[10px] font-bold uppercase tracking-wider text-outline">Per Portion</span>
+              <span className="block font-sans text-[10px] font-bold uppercase tracking-wider text-outline">{completeness === 'PARTIAL' ? 'Partial Cost Per Portion' : 'Per Portion'}</span>
               <span className="font-sans text-sm font-extrabold text-primary">
                 {hasPerPortionCost ? formatRegionCurrency(Number(recipeCosting?.costPerPortion), region.currency) : '—'}
               </span>
@@ -146,6 +148,7 @@ export default function RecipeCostAnalysis({
             </div>
           </div>
 
+          {completeness !== 'COMPLETE' && <p role="alert" className="font-sans text-xs font-bold text-amber-800">Food Cost is {completeness === 'PARTIAL' ? 'partial' : 'incomplete'}. Missing costs are unavailable, not zero.</p>}
           {recipeCosting?.linkedRecipeWarnings?.map(warning => (
             <p role="alert" key={warning} className="font-sans text-xs font-bold text-amber-800">{warning}</p>
           ))}

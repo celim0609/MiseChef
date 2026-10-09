@@ -65,3 +65,22 @@ test('editor reuses yield for new links and hides legacy controls without requir
   assert.match(editor, /Advanced nutrition option/);
   assert.doesNotMatch(editor, /Confirm measured finished yield/);
 });
+
+test('known partial child contribution stays visible with an explicit partial warning', () => {
+ const child = { id: 'soy', servings: 8, nutritionYield: { quantity: 290, unit: 'g' }, ingredients: [{ id: 'known', ingredientCost: 29 }, { id: 'missing', costingWarning: 'unavailable' }], costing: { totalRecipeCost: 29, costPerPortion: 3.63, breakdown: [{}] } } as Recipe;
+ const html = renderToStaticMarkup(<LinkedRecipeCostSummary child={child} quantity={40} unit="g" />);
+ assert.match(html, /Partial Food Cost contribution:/);
+ assert.match(html, /4.00/);
+ assert.match(html, /Missing costs are not zero/);
+});
+
+test('parent Food Cost labels known subtotals Partial and unavailable totals Incomplete', async () => {
+ const { default: RecipeCostAnalysis } = await import('./RecipeCostAnalysis');
+ const partial = { id: 'parent', ingredients: [{ id: 'known', ingredientCost: 4 }, { id: 'unknown', costingWarning: 'unavailable' }], costing: { totalRecipeCost: 4, costPerPortion: 4, breakdown: [{}] } } as Recipe;
+ const html = renderToStaticMarkup(<RecipeCostAnalysis recipe={partial} defaultOpen />);
+ assert.match(html, /Partial Total Cost/);
+ assert.match(html, /Partial Cost Per Portion/);
+ assert.match(html, /Missing costs are unavailable, not zero/);
+ const unavailable = renderToStaticMarkup(<RecipeCostAnalysis recipe={{ ...partial, ingredients: [partial.ingredients[1]], costing: { ...partial.costing!, totalRecipeCost: 0, breakdown: [] } }} defaultOpen />);
+ assert.match(unavailable, /Incomplete Cost/);
+});
