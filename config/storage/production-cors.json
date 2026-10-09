@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://misechef.ai", "https://misechef-fa4bf.web.app"],
+    "method": ["GET", "POST", "PUT", "DELETE", "HEAD"],
+    "responseHeader": ["Content-Type", "Authorization", "x-goog-resumable"],
+    "maxAgeSeconds": 3600
+  }
+]
