@@ -1,3 +1,6 @@
+import { RecipeYieldInput } from './RecipeYieldInput';
+import { parseMeasuredRecipeYield, resolveRecipeYieldDenominator } from '../modules/nutrition/services/recipeYield';
+import { getDefaultLinkedRecipeUnit } from '../modules/costing/services/linkedRecipeUsage';
 import { LinkedRecipeCostSummary } from './LinkedRecipeCostSummary';
 import { calculateRecipeCosting } from '../modules/costing/services/recipeCostCalculator';
 import { RecipeNutritionResult } from './RecipeNutritionResult';
@@ -27,9 +30,12 @@ import RecipeCostAnalysis from './RecipeCostAnalysis';
 import { calculateRecipeEditorCostPreview } from '../modules/costing/services/recipeEditorCostPreview';
 import IngredientLibraryPicker from './IngredientLibraryPicker';
 import { validateRecipeDependencies } from '../modules/costing/services/recipeDependencyModel';
-import { loadIngredientNutritionProfiles } from '../modules/nutrition/services/ingredientNutritionProfileService';
-import { calculateRecipeNutrition } from '../modules/nutrition/services/recipeNutritionCalculator';
-import type { IngredientNutritionProfile } from '../types';
+import { useRecipeNutrition } from '../modules/nutrition/hooks/useRecipeNutrition';
+import { resolveRecipeIngredientEnrichment, type RecipeIngredientResolution } from '../modules/recipe-enrichment/services/recipeIngredientEnrichmentService';
+import {
+  getPendingRecipeIngredientEnrichmentTargets,
+  markUnlinkedRecipeIngredientRowsForAutoEnrichment
+} from '../modules/recipe-enrichment/services/recipeIngredientAutoEnrichment';
 
 const MAX_COVER_IMAGE_SIDE = 1200;
 const MAX_COVER_IMAGE_BYTES = 500 * 1024;
@@ -678,10 +684,25 @@ export default function AddRecipeTab({
       ? initialRecipe.ingredients
       : [{ id: 'ing_1', name: '', qty: '', unit: '' }]
   );
+  const [yieldChefEdited, setYieldChefEdited] = useState(false);
+  const [yieldConfirmed, setYieldConfirmed] = useState(false);
+  const nutritionYield = resolveRecipeYieldDenominator({ text: recipeYield, originalText: initialRecipe?.yield || (initialRecipe ? `${initialRecipe.servings} servings` : ''), previous: initialRecipe?.nutritionYield, chefEdited: yieldChefEdited, confirmed: yieldConfirmed });
+  const yieldNeedsConfirmation = Boolean(parseMeasuredRecipeYield(recipeYield)) && getDefaultLinkedRecipeUnit({ servings: Number(servings), nutritionYield }) === 'portion';
   const [linkedRecipes, setLinkedRecipes] = useState<LinkedRecipeComponent[]>(initialRecipe?.linkedRecipes || []);
   const [libraryIngredients, setLibraryIngredients] = useState<CostingIngredient[]>([]);
-  const [nutritionProfiles, setNutritionProfiles] = useState<Record<string, IngredientNutritionProfile | undefined>>({});
+  const [isIngredientLibraryAvailable, setIsIngredientLibraryAvailable] = useState(false);
+  const [ingredientResolutions, setIngredientResolutions] = useState<Record<string, RecipeIngredientResolution>>({});
   const [importedIngredientIds, setImportedIngredientIds] = useState<string[]>([]);
+  const ingredientsRef = useRef(ingredients);
+  const pendingAutoEnrichmentRowIdsRef = useRef(new Set<string>());
+  const attemptedAutoEnrichmentNamesRef = useRef(new Map<string, string>());
+  const inFlightEnrichmentKeysRef = useRef(new Set<string>());
+  const initialRowsMarkedForAutoEnrichmentRef = useRef(false);
+
+  if (!initialRowsMarkedForAutoEnrichmentRef.current && initialRecipe?.ingredients?.length) {
+    markUnlinkedRecipeIngredientRowsForAutoEnrichment(initialRecipe.ingredients, pendingAutoEnrichmentRowIdsRef.current);
+    initialRowsMarkedForAutoEnrichmentRef.current = true;
+  }
 
   // Method steps state
   const [methodSteps, setMethodSteps] = useState<MethodStep[]>(
@@ -748,23 +769,20 @@ export default function AddRecipeTab({
   });
 
   useEffect(() => {
-    let active = true;
-    void loadIngredientNutritionProfiles(ingredients.map(ingredient => ingredient.ingredientId || ''))
-      .then(profiles => { if (active) setNutritionProfiles(profiles); })
-      .catch(error => console.warn('Ingredient nutrition profiles were unavailable.', error));
-    return () => { active = false; };
+    ingredientsRef.current = ingredients;
   }, [ingredients]);
 
-  const recipeNutrition = useMemo(() => calculateRecipeNutrition({
-    ingredients,
-    servings: Number(servings)
-  }, nutritionProfiles), [ingredients, nutritionProfiles, servings]);
+  const nutritionDraft = useMemo(() => ({
+    id: initialRecipe?.id, workspaceId: workspaceId || userId,
+    ingredients, servings: Number(servings), linkedRecipes
+  }), [initialRecipe?.id, workspaceId, userId, ingredients, servings, linkedRecipes]);
+  const recipeNutrition = useRecipeNutrition(nutritionDraft, recipes, workspaceId || userId);
 
   if (!initialEditorSnapshotRef.current) {
     initialEditorSnapshotRef.current = editorSnapshot;
   }
 
-  const isDirty = editorSnapshot !== initialEditorSnapshotRef.current;
+  const isDirty = editorSnapshot !== initialEditorSnapshotRef.current || JSON.stringify(nutritionYield) !== JSON.stringify(initialRecipe?.nutritionYield);
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -798,16 +816,19 @@ export default function AddRecipeTab({
 
     if (!workspaceId && !userId) {
       setLibraryIngredients([]);
+      setIsIngredientLibraryAvailable(false);
       return () => {
         isMounted = false;
       };
     }
 
     setLibraryIngredients([]);
+    setIsIngredientLibraryAvailable(false);
     loadRecipeIngredientLibrary(workspaceId, userId, ingredientService.listIngredients)
       .then(loadedIngredients => {
         if (isMounted) {
           setLibraryIngredients(loadedIngredients);
+          setIsIngredientLibraryAvailable(true);
         }
       })
       .catch(error => {
@@ -875,14 +896,79 @@ export default function AddRecipeTab({
 
   const removeIngredientRow = (id: string) => {
     if (ingredients.length === 1) return;
+    pendingAutoEnrichmentRowIdsRef.current.delete(id);
+    attemptedAutoEnrichmentNamesRef.current.delete(id);
     setIngredients(prev => prev.filter(ing => ing.id !== id));
   };
 
   const updateIngredient = (id: string, field: keyof Ingredient, value: string) => {
+    if (field === 'name') {
+      pendingAutoEnrichmentRowIdsRef.current.delete(id);
+      attemptedAutoEnrichmentNamesRef.current.delete(id);
+    }
     setIngredients(prev =>
-      prev.map(ing => (ing.id === id ? { ...ing, [field]: value } : ing))
+      prev.map(ing => (ing.id === id ? {
+        ...ing,
+        [field]: value,
+        ...(field === 'name' ? { ingredientId: undefined, priceStatus: undefined } : {})
+      } : ing))
     );
+    if (field === 'name') setIngredientResolutions(current => {
+      const { [id]: _discarded, ...remaining } = current;
+      return remaining;
+    });
   };
+
+  const enrichRecipeIngredient = async (ingredient: Ingredient, variantKey?: string) => {
+    const name = ingredient.name.trim();
+    const resolvedWorkspaceId = workspaceId || userId || '';
+    if (!name || !resolvedWorkspaceId) return;
+    const inFlightKey = `${ingredient.id}\u0000${name}`;
+    if (inFlightEnrichmentKeysRef.current.has(inFlightKey)) return;
+    inFlightEnrichmentKeysRef.current.add(inFlightKey);
+    try {
+      const resolution = await resolveRecipeIngredientEnrichment({ workspaceId: resolvedWorkspaceId, name, variantKey });
+      const currentIngredient = ingredientsRef.current.find(item => item.id === ingredient.id);
+      if (!currentIngredient || currentIngredient.name.trim() !== name) return;
+      setIngredientResolutions(current => ({ ...current, [ingredient.id]: resolution }));
+      if (resolution.status !== 'auto_matched' || !resolution.ingredient) return;
+      setIngredients(current => current.map(item => item.id === ingredient.id ? {
+        ...item,
+        ingredientId: resolution.ingredient!.id,
+        priceStatus: resolution.priceStatus
+      } : item));
+      setLibraryIngredients(current => current.some(item => item.id === resolution.ingredient!.id)
+        ? current
+        : [...current, resolution.ingredient!].sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (error) {
+      console.warn('Ingredient auto-enrichment was unavailable.', error);
+    } finally {
+      inFlightEnrichmentKeysRef.current.delete(inFlightKey);
+      const currentIngredient = ingredientsRef.current.find(item => item.id === ingredient.id);
+      if (currentIngredient?.name.trim() === name) {
+        pendingAutoEnrichmentRowIdsRef.current.delete(ingredient.id);
+      }
+    }
+  };
+
+  useEffect(() => {
+    const liveRowIds = new Set(ingredients.map(ingredient => ingredient.id));
+    pendingAutoEnrichmentRowIdsRef.current.forEach(id => {
+      if (!liveRowIds.has(id)) {
+        pendingAutoEnrichmentRowIdsRef.current.delete(id);
+        attemptedAutoEnrichmentNamesRef.current.delete(id);
+      }
+    });
+
+    getPendingRecipeIngredientEnrichmentTargets(
+      ingredients,
+      pendingAutoEnrichmentRowIdsRef.current,
+      attemptedAutoEnrichmentNamesRef.current
+    ).forEach(ingredient => {
+      attemptedAutoEnrichmentNamesRef.current.set(ingredient.id, ingredient.name.trim());
+      void enrichRecipeIngredient(ingredient);
+    });
+  }, [ingredients]);
 
   const handleIngredientLibrarySelect = (id: string, ingredientId: string) => {
     const matchedIngredient = libraryIngredients.find(ingredient => ingredient.id === ingredientId);
@@ -901,7 +987,7 @@ export default function AddRecipeTab({
       recipeId: available.id,
       recipeTitle: available.title,
       quantity: 1,
-      unit: 'portion'
+      unit: getDefaultLinkedRecipeUnit(available)
     }]);
     clearValidationError('linkedRecipes');
   };
@@ -1141,12 +1227,15 @@ export default function AddRecipeTab({
     setTitle(recipe.title);
     if (recipe.description) setStory(recipe.description);
     setRecipeYield(recipe.yield || recipeYield);
+    setYieldChefEdited(false);
+    setYieldConfirmed(false);
     if (recipe.servings) setServings(String(recipe.servings));
     if (recipe.prepTime) setPrepTime(String(recipe.prepTime));
     if (recipe.cookTime !== null && recipe.cookTime !== undefined) setCookTime(String(recipe.cookTime));
     if (recipe.chefNotes) setChefNotes(recipe.chefNotes);
     if (recipe.scannedImageDataUrl) setScannedImageDataUrl(recipe.scannedImageDataUrl);
     const normalizedImportedIngredients = recipe.ingredients.map(normalizeIngredientForDisplay);
+    markUnlinkedRecipeIngredientRowsForAutoEnrichment(normalizedImportedIngredients, pendingAutoEnrichmentRowIdsRef.current);
     setIngredients(normalizedImportedIngredients);
     setImportedIngredientIds(normalizedImportedIngredients.map(ingredient => ingredient.id));
     setMethodSteps(recipe.method.length > 0
@@ -1398,6 +1487,7 @@ export default function AddRecipeTab({
       prepTime: validatedPrepTime as number,
       cookTime: (validatedCookTime as number) || undefined,
       servings: savedServings,
+      nutritionYield,
       yield: recipeYield.trim() || `${savedServings} servings`,
       difficulty,
       story: story.trim() || 'A homemade culinary masterpiece baked with fresh herbs and careful attention.',
@@ -1821,16 +1911,7 @@ export default function AddRecipeTab({
           </div>
         </div>
 
-        <div className="space-y-1.5">
-          <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Yield</label>
-          <input
-            type="text"
-            value={recipeYield}
-            onChange={e => setRecipeYield(e.target.value)}
-            placeholder="e.g. 12 pcs, 20 servings, 1 loaf"
-            className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold"
-          />
-        </div>
+        <RecipeYieldInput value={recipeYield} needsConfirmation={yieldNeedsConfirmation} onChange={value => { setRecipeYield(value); setYieldChefEdited(true); setYieldConfirmed(false); }} onConfirm={() => setYieldConfirmed(true)} />
 
         <div className="space-y-1.5 rounded-xl bg-surface-container-low p-4">
           <p className="font-sans font-bold text-xs text-on-surface-variant/90">Nutrition (automatic)</p>
@@ -1904,6 +1985,7 @@ export default function AddRecipeTab({
                     updateIngredient(ing.id, 'name', e.target.value);
                     clearValidationError('ingredients');
                   }}
+                  onBlur={() => void enrichRecipeIngredient(ing)}
                   aria-invalid={Boolean(validationErrors.ingredients)}
                   className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm p-4 font-semibold"
                 />
@@ -1948,6 +2030,24 @@ export default function AddRecipeTab({
                   ariaLabel={`Link ${ing.name || 'ingredient'} to Ingredient Library`}
                 />
               </div>
+              {ing.priceStatus === 'missing' && (
+                <p className="col-span-2 text-xs font-bold text-outline">Price Missing</p>
+              )}
+              {ingredientResolutions[ing.id]?.status === 'confirmation_required' && (
+                <div className="col-span-2 rounded-xl border border-secondary/30 bg-secondary/5 p-3">
+                  <p className="text-xs font-bold text-primary">Which one do you normally use?</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {ingredientResolutions[ing.id].candidates?.map(candidate => (
+                      <button key={candidate.variantKey} type="button" onClick={() => void enrichRecipeIngredient(ing, candidate.variantKey)} className="rounded-full border border-primary/30 px-3 py-1.5 text-xs font-bold text-primary">
+                        {candidate.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {ingredientResolutions[ing.id]?.status === 'unmatched' && (
+                <p className="col-span-2 text-xs font-bold text-outline">Nutrition needs clarification. You can link an existing Ingredient or use a more specific name.</p>
+              )}
               <button
                 type="button"
                 onClick={() => removeIngredientRow(ing.id)}
@@ -1995,7 +2095,7 @@ export default function AddRecipeTab({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 className="font-display text-2xl font-bold tracking-tight text-primary">Linked Recipes</h3>
-            <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Use child recipe portions for the whole parent batch. Servings determine cost per portion; Yield text does not convert units.</p>
+            <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Enter how much you use. Saved measured yield is reused automatically; portion links use child servings.</p>
           </div>
           <button
             type="button"
@@ -2011,7 +2111,7 @@ export default function AddRecipeTab({
           const selectedRecipe = recipes.find(recipe => recipe.id === component.recipeId);
           let calculatedChild: Recipe | undefined;
           try {
-            calculatedChild = selectedRecipe ? calculateRecipeCosting(selectedRecipe, libraryIngredients, new Date().toISOString(), recipes) : undefined;
+            calculatedChild = selectedRecipe ? (isIngredientLibraryAvailable ? calculateRecipeCosting(selectedRecipe, libraryIngredients, new Date().toISOString(), recipes) : selectedRecipe) : undefined;
           } catch { /* Invalid dependencies are reported as unavailable in the summary. */ }
           return (
             <div key={component.id} className="grid gap-3 rounded-2xl border border-surface-container-high bg-surface-container-low p-4 sm:grid-cols-[minmax(0,1fr)_120px_110px_44px] sm:items-end">
@@ -2025,6 +2125,8 @@ export default function AddRecipeTab({
                       ...item,
                       recipeId: event.target.value,
                       recipeTitle: selected?.title || '',
+                      unit: selected ? getDefaultLinkedRecipeUnit(selected) : 'portion',
+                      nutritionUseAssociatedQuantity: false,
                       associatedIngredientId: undefined
                     } : item));
                     clearValidationError('linkedRecipes');
@@ -2035,7 +2137,7 @@ export default function AddRecipeTab({
                 </select>
               </label>
               <label className="block">
-                <span className="font-sans text-[11px] font-extrabold text-on-surface-variant">Child portions used per parent batch</span>
+                <span className="font-sans text-[11px] font-extrabold text-on-surface-variant">{!component.unit || component.unit === 'portion' ? 'Child portions used per parent batch' : 'Child quantity used per parent batch'}</span>
                 <input
                   type="number"
                   min="0.000001"
@@ -2045,16 +2147,23 @@ export default function AddRecipeTab({
                   className="mt-1 w-full rounded-xl border border-surface-container-high bg-background px-3 py-3 font-sans text-sm font-bold text-primary"
                 />
               </label>
-              <LinkedRecipeCostSummary child={calculatedChild} quantity={component.quantity} />
+              <label className="block">
+                <span className="font-sans text-[11px] font-extrabold">Quantity unit</span>
+                <select aria-label={`Quantity unit for ${component.recipeTitle || 'linked recipe'}`} value={component.unit || 'portion'} onChange={event => setLinkedRecipes(current => current.map(item => item.id === component.id ? { ...item, unit: event.target.value as LinkedRecipeComponent['unit'], nutritionUseAssociatedQuantity: false } : item))} className="mt-1 w-full rounded-xl border p-2 text-sm">
+                  <option value="portion">Child portion</option><option value="g">g</option><option value="kg">kg</option><option value="ml">ml</option><option value="l">l</option><option value="pcs">pcs</option>
+                </select>
+              </label>
+              <div className="sm:col-span-4"><LinkedRecipeCostSummary child={calculatedChild} quantity={component.quantity} unit={component.unit} /></div>
               <label className="block sm:col-span-3">
                 <span className="font-sans text-[11px] font-extrabold">Ingredient cost replaced by this link (optional)</span>
                 <select aria-label={`Ingredient cost replaced by ${component.recipeTitle || 'linked recipe'}`} value={component.associatedIngredientId || ''}
-                  onChange={event => setLinkedRecipes(current => current.map(item => item.id === component.id ? { ...item, associatedIngredientId: event.target.value || undefined } : item))}
+                  onChange={event => setLinkedRecipes(current => current.map(item => item.id === component.id ? { ...item, associatedIngredientId: event.target.value || undefined, nutritionUseAssociatedQuantity: false } : item))}
                   className="mt-1 w-full rounded-xl border border-surface-container-high bg-background px-3 py-2 text-sm">
                   <option value="">None — cost ingredients separately</option>
                   {ingredients.filter(ingredient => !linkedRecipes.some(other => other.id !== component.id && other.associatedIngredientId === ingredient.id)).map(ingredient => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}
                 </select>
               </label>
+              {component.associatedIngredientId && (!component.unit || component.unit === 'portion') && <details className="text-xs sm:col-span-3"><summary>Advanced nutrition option</summary><label><input type="checkbox" checked={Boolean(component.nutritionUseAssociatedQuantity)} onChange={event => setLinkedRecipes(current => current.map(item => item.id === component.id ? { ...item, nutritionUseAssociatedQuantity: event.target.checked } : item))} /> Calculate nutrition from associated ingredient quantity using child's verified batch yield. Otherwise use the saved child portions.</label></details>}
               <button type="button" aria-label={`Remove ${component.recipeTitle || 'linked recipe'}`} onClick={() => setLinkedRecipes(current => current.filter(item => item.id !== component.id))} className="flex h-11 items-center justify-center rounded-xl bg-background text-error"><Trash2 className="h-4 w-4" /></button>
             </div>
           );
@@ -2062,6 +2171,8 @@ export default function AddRecipeTab({
       </section>
 
       {/* Instructions Section */}
+
+
       <section className="space-y-4" id="method-section">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h3 className="font-display text-2xl font-bold text-primary tracking-tight">Instructions</h3>

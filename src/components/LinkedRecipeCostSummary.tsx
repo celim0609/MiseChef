@@ -1,15 +1,20 @@
-import type { Recipe } from '../types';
-import { resolveRecipePerPortionCost } from '../modules/costing/services/recipeCostCalculator';
+import { getLinkedRecipeFinishedYield, resolveLinkedRecipeUsage } from '../modules/costing/services/linkedRecipeUsage';
+import type { LinkedRecipeComponent, Recipe } from '../types';
+import { resolveLinkedRecipeCost } from '../modules/costing/services/recipeCostCalculator';
 import { formatRegionCurrency, useWorkspaceRegion } from '../regions';
 
-export function LinkedRecipeCostSummary({ child, quantity }: { child?: Recipe; quantity: number }) {
+export function LinkedRecipeCostSummary({ child, quantity, unit = 'portion' }: { child?: Recipe; quantity: number; unit?: LinkedRecipeComponent['unit'] }) {
   const region = useWorkspaceRegion();
-  const cost = resolveRecipePerPortionCost(child);
+  const cost = resolveLinkedRecipeCost(child, { quantity, unit });
   const unavailable = cost === null || Boolean(child?.costing?.linkedRecipeWarnings?.length);
+  const finishedYield = child && getLinkedRecipeFinishedYield(child);
+  const needsYield = unit !== 'portion' && child && resolveLinkedRecipeUsage(child, quantity, unit).ratio === null;
   return <div className="font-sans text-xs text-on-surface-variant">
-    <p>Child servings: {child?.servings || '—'}</p>
-    <p>Cost per portion: {unavailable ? '—' : formatRegionCurrency(cost, region.currency)}</p>
-    <p>Contribution: {unavailable ? '—' : formatRegionCurrency(Number((quantity * cost!).toFixed(2)), region.currency)}</p>
-    {unavailable && <p role="alert" className="font-bold text-amber-800">Child costing unavailable. Check the child recipe’s ingredients and servings.</p>}
+    {unit === 'portion' && <p>Child servings: {child?.servings || '—'}</p>}
+    {unit !== 'portion' && <p>Finished yield: {finishedYield ? `${finishedYield.quantity} ${finishedYield.unit}` : '—'}</p>}
+    <p>Cost per {unit === 'portion' ? 'portion' : unit}: {unavailable ? '—' : formatRegionCurrency(cost!.unitCost, region.currency)}</p>
+    <p>Contribution: {unavailable ? '—' : formatRegionCurrency(cost!.contribution, region.currency)}</p>
+    {needsYield && <p role="note">What is the measured finished yield? Set or confirm Yield once in {child.title || 'the child recipe'} using a unit compatible with {unit}. Enter an explicit quantity and unit in Yield; g and ml are not interchangeable.</p>}
+    {unavailable && <p role="alert" className="font-bold text-amber-800">Child costing unavailable. Check the child recipe’s ingredients, servings or confirmed finished yield.</p>}
   </div>;
 }

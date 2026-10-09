@@ -224,3 +224,43 @@ describe('Workspace Recipe visibility', () => {
     await assertFails(getDoc(doc(authDb('owner-b'), 'recipes', 'costed-a')));
   });
 });
+
+for (const role of ['Owner', 'Manager', 'Sous Chef', 'Chef']) {
+  test(`${role} can save confirmed finished yield and measured links without changing workspace or original Yield`, async () => {
+    const workspaceId = 'yield-workspace';
+    await seedWorkspace({ workspaceId, ownerId: 'owner', members: [{ userId: 'member', role }] });
+    await testEnv.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'recipes', 'yield-recipe'), {
+      ...recipe({ id: 'yield-recipe', workspaceId, userId: 'owner' }), yield: 'Original saved Yield', servings: 8
+    }));
+    const db = authDb(role === 'Owner' ? 'owner' : 'member');
+    await assertSucceeds(updateDoc(doc(db, 'recipes', 'yield-recipe'), {
+      nutritionYield: { quantity: 230, unit: 'g' },
+      linkedRecipes: [{ id: 'link', recipeId: 'child', quantity: 60, unit: 'g', associatedIngredientId: 'tea' }]
+    }));
+    const saved = (await getDoc(doc(db, 'recipes', 'yield-recipe'))).data();
+    assert.equal(saved.yield, 'Original saved Yield'); assert.equal(saved.servings, 8);
+    assert.equal(saved.nutritionYield.quantity, 230); assert.equal(saved.linkedRecipes[0].quantity, 60);
+    await assertFails(updateDoc(doc(db, 'recipes', 'yield-recipe'), { workspaceId: 'foreign' }));
+    await assertFails(getDoc(doc(authDb('outsider'), 'recipes', 'yield-recipe')));
+  });
+}
+
+for (const role of ['Owner', 'Manager', 'Sous Chef', 'Chef']) {
+  test(`${role} persists single Yield confirmation and clears changed output through existing merge permissions`, async () => {
+    const workspaceId = 'single-yield';
+    await seedWorkspace({ workspaceId, ownerId: 'owner', members: [{ userId: 'member', role }] });
+    const original = { ...recipe({ id: 'soy-yield', workspaceId, userId: 'owner' }), yield: '290g', servings: 8, coverImage: 'https://example.test/manual.jpg' };
+    await testEnv.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'recipes', original.id), original));
+    const ref = doc(authDb(role === 'Owner' ? 'owner' : 'member'), 'recipes', original.id);
+    await assertSucceeds(setDoc(ref, { yield: '290g', nutritionYield: { quantity: 290, unit: 'g' } }, { merge: true }));
+    const confirmed = (await getDoc(ref)).data();
+    assert.equal(confirmed.nutritionYield.quantity, 290);
+    assert.equal(confirmed.servings, 8);
+    assert.equal(confirmed.coverImage, original.coverImage);
+    assert.deepEqual(confirmed.costing, original.costing);
+    await assertSucceeds(setDoc(ref, JSON.parse(JSON.stringify({ yield: '20 servings', nutritionYield: null })), { merge: true }));
+    assert.equal((await getDoc(ref)).data().nutritionYield, null);
+    await assertFails(setDoc(doc(authDb('outsider'), 'recipes', original.id), { nutritionYield: { quantity: 290, unit: 'g' } }, { merge: true }));
+    await assertFails(setDoc(ref, { workspaceId: 'foreign' }, { merge: true }));
+  });
+}

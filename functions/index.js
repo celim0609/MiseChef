@@ -1,3 +1,4 @@
+import { createRecipePipelineService } from './recipePipelineService.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import { readFileSync } from 'node:fs';
 import { initializeApp } from 'firebase-admin/app';
@@ -90,6 +91,7 @@ import {
   withResumeImportTimeout
 } from './resumeImportJob.js';
 import { buildResumeImportPrompt } from './resumeImportPrompt.js';
+import { findRecipeIngredientFamily, findRecipeIngredientVariant, normalizeRecipeIngredientName, resolverOptions } from './recipeIngredientEnrichment.js';
 
 initializeApp();
 
@@ -1299,6 +1301,91 @@ const getUsdaEnergy = (food) => {
   return Number.isFinite(value) && value >= 0 && (!unit || unit === 'kcal') ? value : null;
 };
 
+const requireRecipeEnrichmentMember = async request => {
+  const uid = requireAuthenticatedUser(request);
+  const workspaceId = readString(request.data?.workspaceId);
+  const entitlements = await requireWorkspaceEntitlements({ db, uid, workspaceId });
+  if (!['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef'].includes(entitlements.role)) {
+    throw new HttpsError('permission-denied', 'Your workspace role cannot enrich recipe Ingredients.');
+  }
+  return { uid, workspaceId };
+};
+
+export const saveChefIngredientNutrition = onCall({ region: REGION }, request => createRecipePipelineService(db).saveChefProfile(request));
+export const getWorkspaceNutritionProfiles = onCall({ region: REGION }, request => createRecipePipelineService(db).profiles(request));
+export const calculateWorkspaceRecipeCosting = onCall({ region: REGION }, request => createRecipePipelineService(db).costing(request));
+
+const fetchCuratedUsdaProfile = async variant => {
+  const response = await fetch(`https://api.nal.usda.gov/fdc/v1/food/${encodeURIComponent(variant.fdcId)}?api_key=${encodeURIComponent(usdaFdcApiKey.value())}`);
+  if (!response.ok) throw new HttpsError('unavailable', 'Nutrition lookup is temporarily unavailable.');
+  const food = await response.json();
+  // Curated IDs are still verified at runtime: a changed/mistaken catalog entry
+  // must fail closed rather than silently attach an unrelated food.
+  if (readString(food.brandName) || readString(food.brandOwner)) {
+    throw new HttpsError('failed-precondition', 'The curated nutrition profile is not a generic food.');
+  }
+  const kcalPer100g = getUsdaEnergy(food);
+  if (kcalPer100g === null) throw new HttpsError('failed-precondition', 'The curated nutrition profile no longer has usable kcal data.');
+  return { food, kcalPer100g };
+};
+
+export const resolveRecipeIngredientEnrichment = onCall({ region: REGION, secrets: [usdaFdcApiKey] }, async request => {
+  const { uid, workspaceId } = await requireRecipeEnrichmentMember(request);
+  const inputName = readString(request.data?.name).slice(0, 160);
+  const requestedVariantKey = readString(request.data?.variantKey);
+  if (!inputName) throw new HttpsError('invalid-argument', 'An Ingredient name is required.');
+
+  const family = findRecipeIngredientFamily(inputName);
+  if (!family) return { status: 'unmatched' };
+  const resolutionIndex = db.collection('workspaceIngredientResolutions').doc(`${workspaceId}__${family.baseKey}`);
+  let variant = family.variantKey ? family : null;
+  let remembered = null;
+  if (!variant && !requestedVariantKey) {
+    const rememberedSnapshot = await resolutionIndex.get();
+    remembered = rememberedSnapshot.exists ? rememberedSnapshot.data() : null;
+    if (remembered?.defaultVariantKey) variant = findRecipeIngredientVariant(family, remembered.defaultVariantKey);
+  }
+  if (!variant && requestedVariantKey) variant = findRecipeIngredientVariant(family, requestedVariantKey);
+  if (!variant) return { status: 'confirmation_required', candidates: resolverOptions(family) };
+
+  const { food, kcalPer100g } = await fetchCuratedUsdaProfile(variant);
+  const now = new Date().toISOString();
+  const canonicalKey = variant.variantKey;
+  const canonicalIndex = db.collection('workspaceIngredientCanonicalKeys').doc(`${workspaceId}__${canonicalKey}`);
+  const result = await db.runTransaction(async transaction => {
+    const [canonicalSnapshot, resolutionSnapshot] = await Promise.all([transaction.get(canonicalIndex), transaction.get(resolutionIndex)]);
+    let ingredientRef;
+    if (canonicalSnapshot.exists) {
+      ingredientRef = db.collection('ingredients').doc(canonicalSnapshot.data().ingredientId);
+    } else {
+      ingredientRef = db.collection('ingredients').doc();
+      transaction.set(ingredientRef, {
+        id: ingredientRef.id, name: variant.label, canonicalKey, canonicalBaseKey: family.baseKey,
+        canonicalSource: 'auto_enrichment_v1', category: '', purchaseUnit: '', recipeUnit: '', conversionFactor: 1,
+        currentPrice: 0, priceStatus: 'missing', currency: '', supplierId: '', yieldPercentage: 100, wastePercentage: 0,
+        status: 'Active', notes: 'Created by recipe auto-enrichment.', createdAt: now, updatedAt: now, createdBy: uid, workspaceId
+      });
+      transaction.set(canonicalIndex, { workspaceId, canonicalKey, ingredientId: ingredientRef.id, createdAt: now, updatedAt: now, resolverVersion: 'v1' });
+    }
+    const profileRef = db.collection('ingredientNutritionProfiles').doc(ingredientRef.id);
+    transaction.set(profileRef, {
+      id: ingredientRef.id, ingredientId: ingredientRef.id, workspaceId, kind: 'food', status: 'approved', source: 'usda_fdc',
+      catalogProfileId: variant.fdcId, kcalPer100g, confirmedBy: uid, confirmedAt: now, updatedAt: now,
+      resolutionAudit: { method: resolutionSnapshot.exists ? 'workspace_choice' : 'curated_auto', baseKey: family.baseKey, variantKey: canonicalKey,
+        culinaryChoiceLabel: variant.label, resolverVersion: 'v1', inputName, matchedAlias: normalizeRecipeIngredientName(inputName),
+        fdcId: variant.fdcId, usdaDescription: readString(food.description), resolvedAt: now }
+    }, { merge: true });
+    if (family.askOnce && (requestedVariantKey || !resolutionSnapshot.exists)) {
+      transaction.set(resolutionIndex, { workspaceId, baseKey: family.baseKey, defaultVariantKey: canonicalKey, canonicalIngredientId: ingredientRef.id,
+        confirmedBy: uid, confirmedAt: now, updatedBy: uid, updatedAt: now, resolverVersion: 'v1', source: 'chef_culinary_choice', choiceLabel: variant.label }, { merge: true });
+    }
+    return { ingredientId: ingredientRef.id };
+  });
+  const ingredient = (await db.collection('ingredients').doc(result.ingredientId).get()).data();
+  const nutritionProfile = (await db.collection('ingredientNutritionProfiles').doc(result.ingredientId).get()).data();
+  return { status: 'auto_matched', ingredient, nutritionProfile, priceStatus: 'missing' };
+});
+
 export const searchUsdaNutritionCatalog = onCall({ region: REGION, secrets: [usdaFdcApiKey] }, async request => {
   const { workspaceId } = await requireNutritionManager(request);
   const query = readString(request.data?.query).slice(0, 160);
@@ -1335,7 +1422,7 @@ export const confirmUsdaIngredientNutrition = onCall({ region: REGION, secrets: 
   if (kcalPer100g === null) throw new HttpsError('failed-precondition', 'USDA did not provide usable kcal per 100 g for this food.');
   const now = new Date().toISOString();
   const catalog = { provider: 'usda_fdc', fdcId, description: readString(food.description), dataType: readString(food.dataType), brandName: readString(food.brandName), brandOwner: readString(food.brandOwner), gtinUpc: readString(food.gtinUpc), kcalPer100g, fetchedAt: now, sourceLicense: 'CC0-1.0' };
-  const profile = { id: ingredientId, ingredientId, workspaceId, kind: 'food', status: 'approved', source: 'usda_fdc', catalogProfileId: fdcId, kcalPer100g, ...(gramsPerPiece === undefined ? {} : { gramsPerPiece }), confirmedBy: uid, confirmedAt: now, updatedAt: now };
+  const profile = { id: ingredientId, ingredientId, workspaceId, kind: 'food', status: 'approved', source: 'usda_fdc', catalogProfileId: fdcId, foodDescription: readString(food.description), kcalPer100g, ...(gramsPerPiece === undefined ? {} : { gramsPerPiece }), confirmedBy: uid, confirmedAt: now, updatedAt: now };
   const batch = db.batch();
   batch.set(db.collection('nutritionCatalog').doc(fdcId), catalog, { merge: true });
   batch.set(db.collection('ingredientNutritionProfiles').doc(ingredientId), profile);

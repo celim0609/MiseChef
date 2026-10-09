@@ -54,3 +54,41 @@ test('the internal USDA catalog is not client-readable', async () => {
   await seed();
   await assertFails(getDoc(doc(testEnv.authenticatedContext('chef-a').firestore(), 'nutritionCatalog', '12345')));
 });
+
+for (const role of ['Owner', 'Manager', 'Sous Chef', 'Chef']) {
+  test(`${role}: same-workspace profiles are readable while cross-workspace reads remain denied`, async () => {
+    await seed();
+    await testEnv.withSecurityRulesDisabled(async context => {
+      await setDoc(doc(context.firestore(), 'workspaceMembers', `${workspaceId}_reader`), { workspaceId, userId: 'reader', role, status: 'Active' });
+      await setDoc(doc(context.firestore(), 'ingredientNutritionProfiles', 'foreign-food'), { ...chefOverride(), id: 'foreign-food', ingredientId: 'foreign-food', workspaceId: 'other-workspace' });
+    });
+    const db = testEnv.authenticatedContext('reader').firestore();
+    await assertSucceeds(getDoc(doc(db, 'ingredientNutritionProfiles', ingredientId)));
+    await assertFails(getDoc(doc(db, 'ingredientNutritionProfiles', 'foreign-food')));
+    if (role === 'Chef' || role === 'Sous Chef') {
+      await assertFails(updateDoc(doc(db, 'ingredientNutritionProfiles', ingredientId), { kcalPer100g: 999, confirmedBy: 'reader' }));
+      await assertFails(setDoc(doc(db, 'ingredients', 'unauthorized-edit'), { id: 'unauthorized-edit', workspaceId, createdBy: 'reader', status: 'Active' }));
+    }
+  });
+}
+
+test('new direct-client packaging profile reproduces the denied create; rules remain fail-closed', async () => {
+  await seed();
+  const id = 'box-650';
+  const packaging = { id, ingredientId: id, workspaceId, kind: 'non_food', source: 'chef_non_food', status: 'approved', confirmedBy: 'chef-a', confirmedAt: '', updatedAt: '' };
+  const target = doc(testEnv.authenticatedContext('chef-a').firestore(), 'ingredientNutritionProfiles', id);
+  await assertFails(setDoc(target, packaging));
+  await assertFails(setDoc(target, { ...packaging, createdBy: 'chef-a' }));
+});
+
+test('unchanged Production rules deny direct client access to server-only enrichment indexes', async () => {
+  await seed();
+  for (const collection of ['workspaceIngredientCanonicalKeys', 'workspaceIngredientResolutions']) {
+    await testEnv.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), collection, 'guard'), { workspaceId, ingredientId }));
+    for (const uid of ['chef-a', 'outsider']) {
+      const ref = doc(testEnv.authenticatedContext(uid).firestore(), collection, 'guard');
+      await assertFails(getDoc(ref));
+      await assertFails(setDoc(ref, { workspaceId, ingredientId }));
+    }
+  }
+});

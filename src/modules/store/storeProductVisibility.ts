@@ -12,7 +12,9 @@ export const getReadyToSellProductDraft = (
   return {
     photoUrl: '',
     name: recipe.title.trim(),
-    description: '',
+    description: nutrition?.status === 'ESTIMATED' && typeof nutrition.kcalPerServing === 'number' && Number.isFinite(nutrition.kcalPerServing) && nutrition.kcalPerServing >= 0
+      ? `Partial nutrition (estimated): ${Math.round(nutrition.kcalPerServing * 10) / 10} kcal per serving. Some ingredient nutrition is unavailable.`
+      : '',
     price,
     ...(getSnapshotCalories(nutrition) !== undefined ? { calories: getSnapshotCalories(nutrition) } : {}),
     recipeId: recipe.id,

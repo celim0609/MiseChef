@@ -1,3 +1,4 @@
+import type { RecipeNutritionSummary } from '../types';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -41,4 +42,17 @@ test('complete and unavailable details retain coverage and breakdown without inv
   assert.match(empty, /0 \/ 1 ingredients calculated/);
   assert.match(empty, /—/);
   assert.doesNotMatch(empty, /Total Calories|Partial Total|0 kcal/);
+});
+
+test('nutrition details show the USDA description and review warning without changing approved calories', () => {
+  const nutrition: RecipeNutritionSummary = {
+    status: 'COMPLETE', totalKcal: 523, kcalPerServing: 523, incompleteReasons: [], calculatedIngredientCount: 1, totalIngredientCount: 1,
+    ingredientBreakdown: [{ id: 'sugar', name: 'Caster Sugar', quantity: '100', unit: 'g', kcal: 523, foodDescription: 'Cookie, sugar or plain, sugar free' }],
+    reviewWarnings: ['Caster Sugar: selected USDA food requires review.']
+  };
+  const html = renderToStaticMarkup(<RecipeNutritionResult nutrition={nutrition} />);
+  assert.match(html, /USDA: Cookie, sugar or plain, sugar free/);
+  assert.match(html, /Nutrition selections requiring review/);
+  assert.match(html, /523 kcal/);
+  assert.equal(nutrition.totalKcal, 523);
 });

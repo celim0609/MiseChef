@@ -7,7 +7,7 @@ import { resolveWorkspaceAccess } from './services/workspaceAccessState';
 import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { Search, Home } from 'lucide-react';
 import { getRedirectResult, onAuthStateChanged, signOut, type Unsubscribe, type User } from 'firebase/auth';
-import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, setDoc, where } from 'firebase/firestore';
 import { ChefProfile, CompanyRole, DEFAULT_CHEF_PROFILE, Recipe, RecipeCategory, RootTab, UserRole, Workspace, WorkspaceMemberRole } from './types';
 import { INITIAL_COLLECTIONS, INITIAL_RECIPES } from './data';
 import Header from './components/Header';
@@ -1213,33 +1213,26 @@ export default function App() {
 
     let isCancelled = false;
 
-    const loadWorkspaceData = async () => {
-      try {
-        const [cloudRecipes, cloudCategories] = await Promise.all([
-          loadFirestoreRecipes(currentUser, currentWorkspace?.id || currentUser.uid),
-          loadFirestoreCategories(currentUser, currentWorkspace?.id || currentUser.uid)
-        ]);
-
-        if (!isCancelled) {
-          setRecipes(cloudRecipes);
-          setCategories(cloudCategories);
-          localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(cloudCategories));
-          setSelectedHomeCategory(null);
-          setIsFavoritesFilterActive(false);
-          setSelectedRecipe(null);
-        }
-      } catch (err) {
-        if (!isCancelled) {
-          triggerNotification("We couldn't load your recipes. Please refresh the page or try again.", 'info');
-        }
+    const workspaceId = currentWorkspace?.id || currentUser.uid;
+    setSelectedHomeCategory(null);
+    setIsFavoritesFilterActive(false);
+    setSelectedRecipe(null);
+    setRecipes([]);
+    void loadFirestoreCategories(currentUser, workspaceId).then(cloudCategories => {
+      if (!isCancelled) {
+        setCategories(cloudCategories);
+        localStorage.setItem(STORAGE_CATEGORIES_KEY, JSON.stringify(cloudCategories));
       }
-    };
-
-    loadWorkspaceData();
-
-    return () => {
-      isCancelled = true;
-    };
+    }).catch(() => { if (!isCancelled) triggerNotification('Categories could not be loaded. Please retry.', 'info'); });
+    const unsubscribe = onSnapshot(query(collection(db, 'recipes'), where('workspaceId', '==', workspaceId)), snapshot => {
+      if (isCancelled) return;
+      const cloudRecipes = snapshot.docs.map(document => normalizeLoadedRecipe({ ...document.data(), id: document.id } as Recipe))
+        .filter(recipe => recipe.workspaceId === workspaceId)
+        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      setRecipes(cloudRecipes);
+      setSelectedRecipe(current => current ? cloudRecipes.find(recipe => recipe.id === current.id) || null : null);
+    }, () => { if (!isCancelled) triggerNotification('Recipes could not be refreshed. Please retry.', 'info'); });
+    return () => { isCancelled = true; unsubscribe(); };
   }, [currentUser, currentWorkspace, isGuestMode]);
 
   // Save changes helper
@@ -1403,8 +1396,7 @@ export default function App() {
         await saveRecipeToFirestore(costedRecipe, currentUser, activeWorkspaceId);
         const dependents = await recipeCostService.recalculateDependentRecipes(costedRecipe.id, activeWorkspaceId);
         const dependentById = new Map(dependents.map(recipe => [recipe.id, recipe]));
-        const updated = [costedRecipe, ...recipes.map(recipe => dependentById.get(recipe.id) || recipe)];
-        setRecipes(updated);
+        setRecipes(current => [costedRecipe, ...current.filter(recipe => recipe.id !== costedRecipe.id).map(recipe => dependentById.get(recipe.id) || recipe)]);
         triggerNotification(`Saved "${costedRecipe.title}" to your cookbook.`, 'success');
       } else {
         const updated = [newRecipe, ...recipes];
@@ -1446,10 +1438,9 @@ export default function App() {
         await saveRecipeToFirestore(costedRecipe, currentUser, activeWorkspaceId, 'update');
         const dependents = await recipeCostService.recalculateDependentRecipes(costedRecipe.id, activeWorkspaceId);
         const dependentById = new Map(dependents.map(recipe => [recipe.id, recipe]));
-        const updated = recipes.map(recipe => recipe.id === costedRecipe.id
+        setRecipes(current => current.map(recipe => recipe.id === costedRecipe.id
           ? costedRecipe
-          : dependentById.get(recipe.id) || recipe);
-        setRecipes(updated);
+          : dependentById.get(recipe.id) || recipe));
         setSelectedRecipe(costedRecipe);
         triggerNotification(`Updated "${costedRecipe.title}".`, 'success');
       } else {
@@ -2156,6 +2147,7 @@ export default function App() {
       case 'search':
         return (
           <SearchTab
+            workspaceId={activeWorkspaceId}
             recipes={recipes}
             categories={categories}
             onSelectRecipe={setSelectedRecipe}
