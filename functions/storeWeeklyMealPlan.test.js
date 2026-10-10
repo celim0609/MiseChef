@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { WEEKLY_DAYS, getWeeklyDates, getWeeklyPickupTimes, validateWeeklyMealPlan, weeklyCartError, buildWeeklyOrderDetails, publicWeeklyFulfilments } from './storeWeeklyMealPlan.js';
+import { WEEKLY_DAYS, getWeeklyDates, buildWeeklyDeliverySchedule, getWeeklyPickupTimes, validateWeeklyMealPlan, weeklyCartError, buildWeeklyOrderDetails, publicWeeklyFulfilments } from './storeWeeklyMealPlan.js';
 import { getValidPickupDates, getPickupTimeSlots } from './storePaymentsCore.js';
 
 const now = new Date('2026-07-26T04:00:00Z');
@@ -25,9 +25,9 @@ test('weekly slots respect every Store day, blocked date, time and advance windo
   assert.throws(() => build({ draft: { ...draft, pickupTime: '08:00' } }), /all five days/);
 });
 
-test('catalogue rejects missing, nested, foreign, hidden, option-bearing and weekday-mismatching meals', () => {
+test('catalogue rejects missing, nested, foreign, hidden, option-bearing meals', () => {
   assert.equal(validateWeeklyMealPlan(plan, products, 's'), '');
-  for (const changes of [{ available: false }, { storeId: 'foreign' }, { workspaceId: 'foreign' }, { productType: 'weekly_meal_plan' }, { optionGroupIds: ['options'] }, { availableDay: 'tue' }]) {
+  for (const changes of [{ available: false }, { storeId: 'foreign' }, { workspaceId: 'foreign' }, { productType: 'weekly_meal_plan' }, { optionGroupIds: ['options'] }]) {
     assert.ok(validateWeeklyMealPlan(plan, [{ ...meals[0], ...changes }, ...products.slice(1)], 's'));
   }
   assert.ok(validateWeeklyMealPlan({ ...plan, weeklyMeals: { mon: 'mon' } }, products, 's'));
@@ -73,4 +73,16 @@ test('a Monday inside the preorder window is unavailable if its Friday falls out
   assert.ok(getValidPickupDates(limited, wednesday).includes('2026-08-03'));
   assert.equal(getValidPickupDates(limited, wednesday).includes('2026-08-07'), false);
   assert.deepEqual(getWeeklyPickupTimes(limited, '2026-08-03', getValidPickupDates, getPickupTimeSlots, wednesday), []);
+});
+
+test('weekly mapping overrides standalone weekday while one delivery time covers every assigned day', () => {
+  const changed = products.map(product => product.id === 'thu' ? { ...product, availableDay: 'tue' } : product);
+  assert.equal(validateWeeklyMealPlan(plan, changed, 's'), '');
+  assert.equal(build({ products: changed }).weeklyFulfilments[3].productId, 'thu');
+  for (const time of ['09:00', '13:30']) {
+    const schedule = buildWeeklyDeliverySchedule('2026-07-27', time);
+    assert.deepEqual(schedule.map(entry => entry.date), getWeeklyDates('2026-07-27'));
+    assert.ok(schedule.every(entry => entry.time === time && entry.itemIndexes[0] === 0));
+  }
+  assert.throws(() => buildWeeklyDeliverySchedule('2026-07-28', '10:00'), /Monday/);
 });

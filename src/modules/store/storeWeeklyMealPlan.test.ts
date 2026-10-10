@@ -48,3 +48,10 @@ test('public and merchant UI wire weekly schedule controls and preserve legacy d
   assert.match(orders, /updateStatus\('Completed', day.day\)/);
   assert.match(orders, /&& !selectedOrder.weeklyFulfilments/);
 });
+
+test('weekly delivery UI uses one shared schedule time and hides per-day delivery time controls', () => {
+  const page = readFileSync(new URL('./PublicStorePage.tsx', import.meta.url), 'utf8');
+  assert.match(page, /buildWeeklyDeliverySchedule\(deliveryDate, deliveryTime\)/);
+  assert.match(page, /!\(weeklyCartPlan && fulfilmentMethod === 'delivery'\) && <label>Time/);
+  assert.match(page, /One delivery time applies to all five days/);
+});

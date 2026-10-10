@@ -65,8 +65,8 @@ test('three fulfilments multiply first quote by three even when quantities diffe
 test('Weekly Plan references one paid line five times with five immutable meal components', () => {
   const days = ['mon','tue','wed','thu','fri'];
   const plan = { id: 'plan', name: 'Week', price: 45, available: true, storeId: 's', workspaceId: 's', productType: 'weekly_meal_plan', optionGroupIds: [], weeklyMeals: Object.fromEntries(days.map(day => [day,day])) };
-  const fulfilments = days.map((day, index) => ({ date: `2026-07-${27 + index}`, time: `${10 + index}:00`, itemIndexes: [0] }));
-  const order = financial({ products: [...products, plan], draft: { ...draft, selections: [{ productId: 'plan', quantity: 2 }], fulfilments, fulfilmentMethod: 'delivery', fulfilmentMode: 'preorder', deliverySnapshot: { quote: { fee: 6 }, schedule: { date: '2026-07-27' } } } });
+  const fulfilments = days.map((day, index) => ({ date: `2026-07-${27 + index}`, time: '10:00', itemIndexes: [0] }));
+  const order = financial({ products: [...products.map(product => product.id === 'thu' ? { ...product, availableDay: 'tue' } : product), plan], draft: { ...draft, selections: [{ productId: 'plan', quantity: 2 }], fulfilments, fulfilmentMethod: 'delivery', fulfilmentMode: 'preorder', deliverySnapshot: { quote: { fee: 6 }, schedule: { date: '2026-07-27' } } } });
   assert.equal(order.items.length, 1); assert.equal(order.totals.merchandiseSubtotal, 90);
   assert.equal(order.totals.deliveryFee, 30); assert.equal(order.deliveryPricingSnapshot.fulfilmentCount, 5);
   assert.deepEqual(order.items[0].weeklyPlanSnapshot.meals.map(meal => meal.productName), days.map(day => `${day} meal`));
@@ -89,4 +89,16 @@ test('customer projection includes meals/schedules but omits IDs, costs and oper
   assert.equal(projection[0].completed, true); assert.equal(projection[1].completed, false);
   assert.equal(JSON.stringify(projection).includes('private'), false);
   assert.equal(JSON.stringify(projection).includes('itemIndex'), false);
+});
+
+test('weekly delivery rejects different daily times and shifted weekdays while standalone locks remain', () => {
+  const days = ['mon','tue','wed','thu','fri'];
+  const plan = { id: 'plan', name: 'Week', price: 45, available: true, storeId: 's', workspaceId: 's', productType: 'weekly_meal_plan', optionGroupIds: [], weeklyMeals: Object.fromEntries(days.map(day => [day,day])) };
+  const fulfilments = days.map((day, index) => ({ date: `2026-07-${27 + index}`, time: '13:30', itemIndexes: [0] }));
+  const weeklyDraft = { ...draft, selections: [{ productId: 'plan', quantity: 2 }], fulfilments, fulfilmentMethod: 'delivery', fulfilmentMode: 'preorder' };
+  const overrides = { products: [...products, plan], draft: weeklyDraft };
+  assert.ok(build(overrides).fulfilments.every(entry => entry.time === '13:30'));
+  assert.throws(() => build({ ...overrides, draft: { ...weeklyDraft, fulfilments: fulfilments.map((entry, i) => i === 3 ? { ...entry, time: '14:00' } : entry) } }), /one delivery time/);
+  assert.throws(() => build({ ...overrides, draft: { ...weeklyDraft, fulfilments: fulfilments.map((entry, i) => ({ ...entry, date: ['2026-07-28','2026-07-29','2026-07-30','2026-07-31','2026-08-01'][i] })) } }), /starting Monday/);
+  assert.throws(() => build({ draft: { ...draft, fulfilments: [{ ...schedule[0], date: '2026-07-28' }, schedule[1]] } }), /Available day/);
 });

@@ -35,6 +35,7 @@ export const buildOrderFulfilments = ({ store, draft, products, groupOrder, getD
       || entry.itemIndexes.length !== 1 || entry.itemIndexes[0] !== 0)) throw new Error('Weekly Meal Plans require all five days starting Monday.');
   }
   const delivery = draft.fulfilmentMethod === 'delivery';
+  if (weekly && delivery && schedule.some(entry => entry.time !== schedule[0].time)) throw new Error('Choose one delivery time for the whole weekly plan.');
   if (!delivery && draft.deliverySnapshot) throw new Error('Pickup fulfilments cannot include a delivery snapshot.');
   if (delivery && draft.fulfilmentMode === 'instant') throw new Error('Multiple fulfilments require pre-order delivery.');
   const preOrder = store.delivery?.fulfilment?.preOrder;
@@ -60,7 +61,7 @@ export const buildOrderFulfilments = ({ store, draft, products, groupOrder, getD
       const product = products.find(product => product.id === (weekly ? plan.weeklyMeals[WEEKLY_DAYS[dayIndex]] : selection.productId));
       if (selection.setId) {
         if ((selection.selectedSetItems || []).some(item => !productAllowsFulfilmentDate(products.find(product => product.id === item.productId) || {}, entry.date))) throw new Error('A Set meal does not match its Available day.');
-      } else if (!product || !productAllowsFulfilmentDate(product, entry.date)) throw new Error('A meal does not match its Available day.');
+      } else if (!product || (!weekly && !productAllowsFulfilmentDate(product, entry.date))) throw new Error('A meal does not match its Available day.');
       if (!Number.isInteger(selection.quantity) || selection.quantity < 1 || selection.quantity > 20) throw new Error('Choose a valid quantity.');
       return { itemIndex, quantity: selection.quantity, ...(weekly ? { componentDay: WEEKLY_DAYS[dayIndex] } : {}) };
     });

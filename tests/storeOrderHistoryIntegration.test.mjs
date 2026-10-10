@@ -231,7 +231,7 @@ test('multi-day pickup creates one financial order/payment and checkout retries 
     orderDays: ['monday','tuesday','wednesday','thursday','friday'], earliestPickupDays: 0, maximumAdvanceDays: 14, unavailableDates: [], paymentMethods: [paymentMethod] };
   await db.collection('stores').doc(workspaceId).set(store);
   await db.collection('workspaces').doc(workspaceId).set({ ownerId, subscriptionPlan: 'professional', subscriptionStatus: 'active' });
-  for (const day of ['mon','fri']) await db.collection('storeProducts').doc(`${workspaceId}-${day}`).set({ storeId: workspaceId, workspaceId, name: `${day} meal`, available: true, availableDay: day, price: 10, optionGroupIds: [] });
+  for (const day of ['mon','fri']) await db.collection('storeProducts').doc(`${workspaceId}-${day}`).set({ storeId: workspaceId, workspaceId, name: `${day} meal`, available: true, availableDay: day === 'thu' ? 'tue' : day, price: 10, optionGroupIds: [] });
   const adapter = createManualPaymentAdapter(paymentMethod); const originalCreate = adapter.createPayment; let paymentsCreated = 0;
   adapter.createPayment = async (...args) => { paymentsCreated++; return originalCreate(...args); };
   const draft = { checkoutAttemptId: '95b3c233-9fe4-4f03-9677-2774106b5201', paymentMethodId: paymentMethod.id, customerName: 'Guest', phone: '+60123456789', pickupDate: '2026-08-24', pickupTime: '10:00', pickupLocationId: 'counter', pickupSession: 'Breakfast', notes: '',
@@ -274,7 +274,7 @@ test('Weekly delivery persists one payment, five fulfilments and immutable first
       fulfilment: { preOrder: { enabled: true, orderDays: ['monday','tuesday','wednesday','thursday','friday'], maximumAdvanceDays: 14, earliestDays: 0, unavailableDates: [], deliveryHours: { from: '09:00', to: '18:00' } } } } };
   await db.collection('stores').doc(workspaceId).set(store);
   await db.collection('workspaces').doc(workspaceId).set({ ownerId, subscriptionPlan: 'professional', subscriptionStatus: 'active' });
-  for (const day of days) await db.collection('storeProducts').doc(`${workspaceId}-${day}`).set({ storeId: workspaceId, workspaceId, name: `${day} meal`, available: true, availableDay: day, price: 10, optionGroupIds: [] });
+  for (const day of days) await db.collection('storeProducts').doc(`${workspaceId}-${day}`).set({ storeId: workspaceId, workspaceId, name: `${day} meal`, available: true, availableDay: day === 'thu' ? 'tue' : day, price: 10, optionGroupIds: [] });
   const planId = `${workspaceId}-plan`;
   await db.collection('storeProducts').doc(planId).set({ storeId: workspaceId, workspaceId, name: 'Weekly Plan', productType: 'weekly_meal_plan', weeklyMeals: Object.fromEntries(days.map(day => [day, `${workspaceId}-${day}`])), available: true, price: 45, optionGroupIds: [] });
   let quoteCount = 0; let dispatchCount = 0; let firstQuote;
@@ -286,7 +286,7 @@ test('Weekly delivery persists one payment, five fulfilments and immutable first
     createOrder: async request => { dispatchCount++; return { orderId: `provider-${request.data.metadata.misechefFulfilmentId}`, status: 'ASSIGNING_DRIVER' }; },
     retrieveOrder: async ({ orderId }) => ({ orderId, status: 'COMPLETED', priceBreakdown: { total: 39, currency: 'MYR' } }) };
   const draft = { checkoutAttemptId: '53b3c233-9fe4-4f03-9677-2774106b5202', paymentMethodId: paymentMethod.id, customerName: 'Guest', phone: '+60123456789', pickupLocationId: 'counter', fulfilmentMethod: 'delivery', fulfilmentMode: 'preorder',
-    selections: [{ productId: planId, quantity: 2, selectedOptions: [] }], fulfilments: dates.map((date,index) => ({ date, time: `${10+index}:00`, itemIndexes: [0] })),
+    selections: [{ productId: planId, quantity: 2, selectedOptions: [] }], fulfilments: dates.map(date => ({ date, time: '13:30', itemIndexes: [0] })),
     destination: { formattedAddress: 'Customer address', latitude: '4.7', longitude: '101.2' } };
   const adapter = createManualPaymentAdapter(paymentMethod); const originalCreate = adapter.createPayment; let paymentCount = 0;
   adapter.createPayment = async (...args) => { paymentCount++; return originalCreate(...args); };
@@ -300,6 +300,8 @@ test('Weekly delivery persists one payment, five fulfilments and immutable first
     const orders = await db.collection('storeOrders').where('storeId', '==', workspaceId).get(); assert.equal(orders.size, 1);
     const ref = orders.docs[0].ref; const initial = orders.docs[0].data();
     assert.equal(initial.items.length, 1); assert.equal(initial.fulfilments.length, 5); assert.equal(initial.total, 134.5);
+    assert.ok(initial.fulfilments.every(entry => entry.time === '13:30'));
+    assert.equal(initial.items[0].weeklyPlanSnapshot.meals[3].productId, `${workspaceId}-thu`);
     assert.equal(initial.deliveryPricingSnapshot.fulfilmentCount, 5); assert.equal(initial.deliveryPricingSnapshot.finalDeliveryTotal, 44.5);
     await ref.update({ 'payment.status': 'paid', status: 'Paid' });
     for (const [index, day] of initial.fulfilments.entries()) {

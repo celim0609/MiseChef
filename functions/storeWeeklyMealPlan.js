@@ -8,6 +8,14 @@ export const getWeeklyDates = monday => {
   return WEEKLY_DAYS.map((_, index) => new Date(start.getTime() + index * 86400000).toISOString().slice(0, 10));
 };
 
+// Weekly assignments define the meal's weekday within this plan. Standalone
+// Available Day restrictions are still enforced for standalone cart lines.
+export const buildWeeklyDeliverySchedule = (monday, time) => {
+  const dates = getWeeklyDates(monday);
+  if (dates.length !== 5 || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new Error('Choose a Monday and one delivery time for the whole weekly plan.');
+  return dates.map(date => ({ date, time, itemIndexes: [0] }));
+};
+
 // The catalogue and checkout both enforce references; purchased meals are later
 // read exclusively from the order snapshot, never from this mutable catalogue.
 export const validateWeeklyMealPlan = (product, products, storeId) => {
@@ -19,8 +27,7 @@ export const validateWeeklyMealPlan = (product, products, storeId) => {
   for (const day of WEEKLY_DAYS) {
     const meal = products.find(candidate => candidate.id === meals[day]);
     if (!meal || meal.id === product.id || meal.storeId !== storeId || meal.workspaceId !== storeId
-      || (meal.productType ?? 'single') !== 'single' || meal.available !== true || (meal.optionGroupIds || []).length
-      || !['all', day].includes(meal.availableDay ?? 'all')) return `Choose an available ${day} Single Product from this Store with no options and a matching Available day.`;
+      || (meal.productType ?? 'single') !== 'single' || meal.available !== true || (meal.optionGroupIds || []).length) return `Choose an available ${day} Single Product from this Store with no options.`;
   }
   return '';
 };
