@@ -351,17 +351,17 @@ test('cancel targets only its fulfilment and never refunds or cancels the financ
   assert.equal((await dispatchStoreDelivery(fixture.args)).status, 'provider_terminal');
 });
 
-const quoteFixture = () => {
+const quoteFixture = (actualFee = 7, dayCount = 5) => {
   const store = { id: 's', workspaceId: 's', slug: 'test', name: 'Kitchen', country: 'MY', currency: 'MYR',
     delivery: { enabled: true, provider: 'lalamove', environment: 'sandbox', market: 'MY', serviceType: 'MOTORCYCLE',
       pickup: multiOrder().delivery.pickup,
       fulfilment: { preOrder: { enabled: true, orderDays: ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'], earliestDays: 1, maximumAdvanceDays: 14, unavailableDates: [], deliveryHours: { from: '09:00', to: '18:00' } } } } };
-  const now = new Date(); const dates = Array.from({ length: 5 }, (_, index) => new Date(now.getTime() + (index + 2) * 86400000).toISOString().slice(0, 10));
+  const now = new Date(); const dates = Array.from({ length: dayCount }, (_, index) => new Date(now.getTime() + (index + 2) * 86400000).toISOString().slice(0, 10));
   const products = dates.map((date, index) => ({ id: `meal-${index}`, storeId: 's', available: true, price: 10, name: 'Meal', optionGroupIds: [] }));
   const db = multiDb({ 'stores/s': store, ...Object.fromEntries(products.map(product => [`storeProducts/${product.id}`, product])) });
   let quotes = 0; let firstQuote;
   const provider = { environment: 'sandbox', createQuote: async request => {
-    quotes++; firstQuote = { quotationId: 'checkout-quote', expiresAt: new Date(Date.now() + 300000).toISOString(), serviceType: 'MOTORCYCLE', priceBreakdown: { total: 7, currency: 'MYR' }, stops: request.data.stops, scheduleAt: request.data.scheduleAt }; return firstQuote;
+    quotes++; firstQuote = { quotationId: 'checkout-quote', expiresAt: new Date(Date.now() + 300000).toISOString(), serviceType: 'MOTORCYCLE', priceBreakdown: { total: actualFee, currency: 'MYR' }, stops: request.data.stops, scheduleAt: request.data.scheduleAt }; return firstQuote;
   }, retrieveQuote: async () => firstQuote };
   const draft = { selections: products.map(product => ({ productId: product.id, quantity: 2 })), fulfilments: dates.map((date, index) => ({ date, time: '10:00', itemIndexes: [index] })), fulfilmentMode: 'preorder', destination: { formattedAddress: 'Customer', latitude: '4.7', longitude: '101.2' } };
   return { store, db, provider, draft, dates, quoteCount: () => quotes };
@@ -381,6 +381,28 @@ test('five-day checkout quotes earliest day exactly once, persists ×5 and binds
   await assert.rejects(revalidateDeliveryForPayment({ ...fixture, draft: { ...draft, selections: draft.selections.map(selection => ({ ...selection, quantity: 3 })) } }), /schedule or delivery pricing/);
   await assert.rejects(revalidateDeliveryForPayment({ ...fixture, draft: { ...draft, destination: { ...draft.destination, formattedAddress: 'Other' } } }), /schedule or delivery pricing/);
 });
+
+for (const [dayCount, expectedTotal] of [[3, 25.2], [5, 42]]) {
+  test(`${dayCount}-day checkout uses the actual RM8.40 address quote and freezes RM${expectedTotal}`, async () => {
+    const fixture = quoteFixture(8.4, dayCount);
+    const createQuote = fixture.provider.createQuote;
+    fixture.provider.createQuote = async request => {
+      assert.equal(request.data.stops[1].address, fixture.draft.destination.formattedAddress);
+      return createQuote(request);
+    };
+    const result = await createStoreDeliveryQuote({ ...fixture, slug: 'test', draft: fixture.draft });
+    assert.equal(fixture.quoteCount(), 1);
+    assert.equal(result.schedule.date, fixture.dates[0]);
+    assert.equal(result.quote.customerDeliveryFee, expectedTotal);
+    const snapshot = fixture.db.documents[`storeDeliveryQuoteSnapshots/${result.pricingSnapshotId}`];
+    assert.equal(snapshot.firstQuote.fee, 8.4);
+    assert.equal(snapshot.fulfilmentCount, dayCount);
+    assert.equal(snapshot.finalDeliveryTotal, expectedTotal);
+    await revalidateDeliveryForPayment({ ...fixture, draft: { ...fixture.draft, deliveryQuoteId: result.quote.quotationId, deliveryPricingSnapshotId: result.pricingSnapshotId } });
+    assert.equal(fixture.quoteCount(), 1);
+    assert.equal(snapshot.finalDeliveryTotal, expectedTotal);
+  });
+}
 
 test('single-day delivery retains original subsidy and pricing without new schedule fields', async () => {
   const fixture = quoteFixture();
