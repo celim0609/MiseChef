@@ -1,3 +1,4 @@
+import { deliveryFeeLabel } from './storeOrderFulfilments';
 import { formatRegionCurrency } from '../../regions';
 import type { StorePaymentOrderSummary } from './types';
 
@@ -17,7 +18,7 @@ export default function PaymentOrderSummary({ summary }: { summary: StorePayment
       <dl className="mt-3 space-y-2 border-t border-surface-container-high pt-3 font-sans text-sm font-bold text-primary">
         <div className="flex justify-between gap-3"><dt>Items subtotal</dt><dd>{formatRegionCurrency(summary.totals.merchandiseSubtotal, summary.totals.currency)}</dd></div>
         {summary.totals.discountTotal > 0 && <div className="flex justify-between gap-3"><dt>Discount</dt><dd>−{formatRegionCurrency(summary.totals.discountTotal, summary.totals.currency)}</dd></div>}
-        {summary.fulfilmentMethod === 'delivery' && <div className="flex justify-between gap-3"><dt>Delivery fee</dt><dd>{formatRegionCurrency(summary.totals.deliveryFee, summary.totals.currency)}</dd></div>}
+        {summary.fulfilmentMethod === 'delivery' && <div className="flex justify-between gap-3"><dt>{deliveryFeeLabel(summary.fulfilments?.length || 1)}</dt><dd>{formatRegionCurrency(summary.totals.deliveryFee, summary.totals.currency)}</dd></div>}
         <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold"><dt>Total</dt><dd>{formatRegionCurrency(summary.totals.grandTotal, summary.totals.currency)}</dd></div>
       </dl>
     </section>

@@ -49,9 +49,25 @@ test('public and merchant UI wire weekly schedule controls and preserve legacy d
   assert.match(orders, /&& !selectedOrder.weeklyFulfilments/);
 });
 
-test('weekly delivery UI uses one shared schedule time and hides per-day delivery time controls', () => {
+test('weekly and selected-day UI is read-only per meal and uses one shared time for pickup and delivery', () => {
   const page = readFileSync(new URL('./PublicStorePage.tsx', import.meta.url), 'utf8');
-  assert.match(page, /buildWeeklyDeliverySchedule\(deliveryDate, deliveryTime\)/);
-  assert.match(page, /!\(weeklyCartPlan && fulfilmentMethod === 'delivery'\) && <label>Time/);
-  assert.match(page, /One delivery time applies to all five days/);
+  assert.match(page, /groupFulfilmentSchedule\(applySharedTime\(/);
+  assert.match(page, /fulfilmentMethod === 'delivery' \? deliveryTime : pickupTime/);
+  assert.match(page, /!weeklyCartPlan && group.dates.length > 1/);
+  assert.match(page, /'Weekly schedule' : 'Selected days'/);
+  assert.doesNotMatch(page, /aria-label=\{`(?:Time|Date) for \$\{row.label\}/);
+  assert.doesNotMatch(page, /fulfilment\(s\)|One order and one payment|Choose each day's time below|>Fulfilment</);
+  assert.match(page, /sharedPickupTimes.map/);
+  assert.match(page, /deliveryFeeLabel\(proposedFulfilments\?\.length \|\| 1\)/);
+});
+
+test('ordinary single-product checkout keeps original date/time controls without the weekly schedule', () => {
+  const page = readFileSync(new URL('./PublicStorePage.tsx', import.meta.url), 'utf8');
+  assert.match(page, /usesScheduledCheckout\(cart.length, Boolean\(weeklyCartPlan\)/);
+  assert.match(page, /!groupOrder && !multiScheduleEnabled && <label/);
+  assert.match(page, /!multiScheduleEnabled && <label[^]*?aria-label="Delivery time"/);
+  assert.match(page, /aria-label="Pickup date"/);
+  assert.match(page, /aria-label="Delivery date"/);
+  assert.match(page, /if \(multiScheduleEnabled\) \{/);
+  assert.match(page, /multiScheduleEnabled && <section aria-label=\{weeklyCartPlan/);
 });
