@@ -235,3 +235,17 @@ test('customer history exposes only the persisted immutable promotion snapshot',
   assert.equal(JSON.stringify(result).includes('private-id'), false);
   assert.equal(JSON.stringify(result).includes('private-product'), false);
 });
+
+test('customer weekly schedules use purchased snapshots and omit private product/operator identifiers', async () => {
+  const order = buildOrder({ customerUid: 'customer-a' });
+  order.weeklyFulfilments = ['mon','tue','wed','thu','fri'].map((day, index) => ({ day, date: `2026-08-${24 + index}`, productId: 'private-meal-id', productName: `${day} lunch`, photoUrl: 'meal.jpg', pickupTime: '10:00', pickupLocationName: 'Counter', quantity: 2 }));
+  order.weeklyCompletion = { mon: { completedAt: '2026-08-24T02:00:00Z', completedBy: 'private-operator' } };
+  const { orders } = await listCustomerOrders({ db: createListDb([{ id: order.id, data: order }]), uid: 'customer-a' });
+  assert.equal(orders[0].weeklyFulfilments.length, 5);
+  assert.equal(orders[0].weeklyFulfilments[0].completed, true);
+  assert.equal(orders[0].weeklyFulfilments[1].completed, false);
+  assert.equal(orders[0].weeklyFulfilments[0].productName, 'mon lunch');
+  assert.equal(JSON.stringify(orders).includes('private-meal-id'), false);
+  assert.equal(JSON.stringify(orders).includes('private-operator'), false);
+  assert.deepEqual(toPublicOrderResult(order).weeklyFulfilments, orders[0].weeklyFulfilments);
+});

@@ -777,7 +777,8 @@ export const updateStoreOrderStatus = onCall({
       uid: request.auth?.uid,
       orderId: request.data?.orderId,
       nextStatus: request.data?.nextStatus,
-      cancellationReason: request.data?.cancellationReason
+      cancellationReason: request.data?.cancellationReason,
+      weeklyDay: request.data?.weeklyDay
     });
   } catch (error) {
     if (error instanceof HttpsError) throw error;

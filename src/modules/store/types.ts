@@ -215,6 +215,18 @@ export interface StoreOptionGroupDraft {
   options: StoreOption[];
 }
 
+export type WeeklyDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri';
+export type WeeklyMeals = Record<WeeklyDay, string>;
+export interface WeeklyMealSnapshot { day: WeeklyDay; productId: string; productName: string; photoUrl: string }
+export interface WeeklyFulfilment extends WeeklyMealSnapshot {
+  date: string; pickupTime: string; pickupLocationId: string; pickupLocationName: string;
+  pickupLocationAddress: string; quantity: number;
+}
+export interface PublicWeeklyFulfilment {
+  day: WeeklyDay; date: string; productName: string; photoUrl: string;
+  pickupTime: string; pickupLocationName: string; quantity: number; completed: boolean;
+}
+
 export interface StoreProduct {
   id: string;
   /** Immutable, Store-scoped public URL segment. Legacy products may not have one yet. */
@@ -234,6 +246,8 @@ export interface StoreProduct {
   estimatedCost?: number;
   available: boolean;
   availableDay?: 'all' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+  productType?: 'single' | 'weekly_meal_plan';
+  weeklyMeals?: WeeklyMeals;
   optionGroupIds: string[];
   createdBy: string;
   createdAt: string;
@@ -251,6 +265,8 @@ export interface StoreProductDraft {
   recipeId?: string;
   available: boolean;
   availableDay?: 'all' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+  productType?: 'single' | 'weekly_meal_plan';
+  weeklyMeals?: WeeklyMeals;
   optionGroupIds: string[];
 }
 
@@ -396,6 +412,7 @@ export interface StoreOrderItemOption {
 }
 
 export interface StoreOrderItem {
+  weeklyPlanSnapshot?: { meals: WeeklyMealSnapshot[] };
   itemType?: 'product' | 'set';
   productId: string;
   productName: string;
@@ -456,6 +473,8 @@ export interface StoreNotification {
 }
 
 export interface StoreOrder {
+  weeklyFulfilments?: WeeklyFulfilment[];
+  weeklyCompletion?: Partial<Record<WeeklyDay, { completedAt: string; completedBy: string }>>;
   id: string;
   orderNumber: string;
   pickupCode?: string;
@@ -551,6 +570,7 @@ export interface StoreOrder {
 }
 
 export interface CustomerStoreOrderSummary {
+  weeklyFulfilments?: PublicWeeklyFulfilment[];
   orderNumber: string;
   orderDate: string;
   storeName: string;
@@ -676,6 +696,7 @@ export interface StorePaymentSession {
 }
 
 export interface PublicStoreOrderResult {
+  weeklyFulfilments?: PublicWeeklyFulfilment[];
   orderNumber: string;
   pickupCode: string;
   storeName: string;

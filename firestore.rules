@@ -489,6 +489,31 @@ service cloud.firestore {
         && data.updatedAt is string;
     }
 
+    function isWeeklyMealReference(productId, planId, workspaceId, day) {
+      let meal = get(/databases/$(database)/documents/storeProducts/$(productId)).data;
+      return productId is string && productId.size() > 0 && productId != planId
+        && meal.workspaceId == workspaceId && meal.storeId == workspaceId
+        && meal.available == true && meal.optionGroupIds.size() == 0
+        && (!('productType' in meal) || meal.productType == 'single')
+        && (!('availableDay' in meal) || meal.availableDay in ['all', day]);
+    }
+
+    function isValidWeeklyProduct(data, productId) {
+      return (!('productType' in data) || data.productType in ['single', 'weekly_meal_plan'])
+        && ((('productType' in data) && data.productType == 'weekly_meal_plan')
+          ? (data.optionGroupIds.size() == 0
+            && (!('availableDay' in data) || data.availableDay == 'all')
+            && data.weeklyMeals is map
+            && data.weeklyMeals.keys().hasAll(['mon', 'tue', 'wed', 'thu', 'fri'])
+            && data.weeklyMeals.keys().hasOnly(['mon', 'tue', 'wed', 'thu', 'fri'])
+            && isWeeklyMealReference(data.weeklyMeals.mon, productId, data.workspaceId, 'mon')
+            && isWeeklyMealReference(data.weeklyMeals.tue, productId, data.workspaceId, 'tue')
+            && isWeeklyMealReference(data.weeklyMeals.wed, productId, data.workspaceId, 'wed')
+            && isWeeklyMealReference(data.weeklyMeals.thu, productId, data.workspaceId, 'thu')
+            && isWeeklyMealReference(data.weeklyMeals.fri, productId, data.workspaceId, 'fri'))
+          : !('weeklyMeals' in data));
+    }
+
     function isValidStoreProduct(data, productId) {
       return data.keys().hasOnly([
           'id',
@@ -507,11 +532,14 @@ service cloud.firestore {
           'estimatedCost',
           'available',
           'availableDay',
+          'productType',
+          'weeklyMeals',
           'optionGroupIds',
           'createdBy',
           'createdAt',
           'updatedAt'
         ])
+        && isValidWeeklyProduct(data, productId)
         && data.id == productId
         && (!('productSlug' in data) || (data.productSlug is string
           && data.productSlug.matches('^[a-z0-9]+(?:-[a-z0-9]+)*-' + productId + '$')
@@ -1454,6 +1482,8 @@ service cloud.firestore {
           'estimatedCost',
           'available',
           'availableDay',
+          'productType',
+          'weeklyMeals',
           'optionGroupIds',
           'updatedAt'
         ])

@@ -664,3 +664,28 @@ test('injected delivery snapshots cannot smuggle a mismatching stored date throu
   assert.throws(() => weekdayOrder('mon', { deliverySnapshot: { fulfilmentMode: 'preorder', schedule: { date: '2026-07-28' } } }), /Available day/);
   assert.throws(() => weekdayOrder('sun', { deliverySnapshot: { fulfilmentMode: 'instant', schedule: { date: '2026-07-27' } } }), /Available day/);
 });
+
+test('Weekly Meal Plan creates one priced item/payment and five immutable daily pickups', () => {
+  const days = ['mon','tue','wed','thu','fri'];
+  const meals = days.map(day => ({ id: day, storeId: store.id, workspaceId: store.id, name: `${day} lunch`, available: true, availableDay: day, photoUrl: `${day}.jpg`, price: 10, optionGroupIds: [] }));
+  const plan = { id: 'weekly', storeId: store.id, workspaceId: store.id, name: 'Weekly lunch', photoUrl: 'weekly.jpg', price: 45, available: true, productType: 'weekly_meal_plan', weeklyMeals: Object.fromEntries(days.map(day => [day, day])), optionGroupIds: [] };
+  const args = { id: 'weekly-order', orderNumber: 'MC-260726-WEEKLY', store, products: [...meals, plan], optionGroups: [], paymentProvider: STRIPE_PROVIDER_ID, paymentProviderMode: STRIPE_PROVIDER_MODE, draft: { ...draft, selections: [{ productId: 'weekly', quantity: 2, selectedOptions: [] }] }, now: new Date('2026-07-26T04:00:00Z') };
+  const order = buildPendingOrder(args);
+  assert.equal(order.items.length, 1); assert.equal(order.items[0].quantity, 2);
+  assert.equal(order.items[0].lineTotal, 90); assert.equal(order.payment.amountMinor, 9000);
+  assert.equal(order.total, 90); assert.equal(order.weeklyFulfilments.length, 5);
+  assert.equal(order.items[0].weeklyPlanSnapshot.meals.length, 5);
+  assert.equal(order.weeklyFulfilments[4].date, '2026-07-31');
+  assert.equal(order.fulfilmentMethod, 'pickup'); assert.equal('delivery' in order, false);
+  const before = JSON.stringify(order.weeklyFulfilments);
+  meals[0].name = 'Later edit'; plan.weeklyMeals.mon = 'tue';
+  assert.equal(JSON.stringify(order.weeklyFulfilments), before);
+  plan.weeklyMeals.mon = 'mon';
+  assert.throws(() => buildPendingOrder({ ...args, draft: { ...args.draft, selections: [...args.draft.selections, { productId: 'mon', quantity: 1, selectedOptions: [] }] } }), /alone/);
+  assert.throws(() => buildPendingOrder({ ...args, store: { ...store, unavailableDates: ['2026-07-29'] } }), /all five days/);
+  assert.throws(() => buildPendingOrder({ ...args, draft: { ...args.draft, pickupDate: '2026-07-28' } }), /Monday/);
+  assert.throws(() => buildPendingOrder({ ...args, draft: { ...args.draft, fulfilmentMethod: 'delivery', deliverySnapshot: { fulfilmentMode: 'instant' } } }), /pickup-only/);
+  const publicOrder = toPublicOrderResult(order);
+  assert.equal(publicOrder.weeklyFulfilments[0].productName, 'mon lunch');
+  assert.equal(JSON.stringify(publicOrder).includes('productId'), false);
+});

@@ -1,3 +1,4 @@
+import { isWeeklyMealPlan, WEEKLY_DAYS, getWeeklyDates, getWeeklyPickupTimes, validateWeeklyMealPlan, weeklyCartError } from '../../../functions/storeWeeklyMealPlan.js';
 import { cartAllowsFulfilmentDate, currentFulfilmentDate } from '../../../functions/storeProductAvailability.js';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, type User } from 'firebase/auth';
@@ -724,7 +725,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     : '', [configuredSetSelections, configuringSet, data]);
 
   const hasAvailableProductOptions = (product: StoreProduct) => (
-    product.optionGroupIds.every(groupId => {
+    (!isWeeklyMealPlan(product) || Boolean(data && !groupOrder && !validateWeeklyMealPlan(product, data.products, data.store.id))) && product.optionGroupIds.every(groupId => {
       const group = optionGroupsById.get(groupId);
       if (!group) return false;
       if (!group.available) return true;
@@ -778,8 +779,12 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const requestedPromotion = useMemo(() => promotionId ? publicPromotions.find(item => item.id === promotionId) || null : null, [promotionId, publicPromotions]);
   const promotionProducts = useMemo(() => (data?.products || []).filter(product => promotionByProduct.has(product.id)), [data?.products, promotionByProduct]);
   useEffect(() => { setArePromotionsLoaded(false); void publicPromotionService.list(slug).then(setPublicPromotions).catch(() => setPublicPromotions([])).finally(() => setArePromotionsLoaded(true)); }, [slug]);
+  const weeklyCartPlan = data?.products.find(product => cart.some(line => line.productId === product.id) && isWeeklyMealPlan(product));
+  const getCheckoutPickupTimes = (date: string) => data ? weeklyCartPlan
+    ? getWeeklyPickupTimes(data.store, date, getValidPickupDates, getPickupTimeSlots)
+    : getPickupTimeSlots(data.store, date) : [];
   const validPickupDates = useMemo(
-    () => data ? getValidPickupDates(data.store).filter(date => cartAllowsFulfilmentDate(cart, data.products, date)) : [],
+    () => data ? getValidPickupDates(data.store).filter(date => cartAllowsFulfilmentDate(cart, data.products, date) && (!weeklyCartPlan || getWeeklyPickupTimes(data.store, date, getValidPickupDates, getPickupTimeSlots).length > 0)) : [],
     [data, cart]
   );
   const pickupDatesWithTimes = useMemo(
@@ -795,16 +800,26 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     if (!groupOrder && !pickupDatesWithTimes.includes(pickupDate)) {
       const nextDate = pickupDatesWithTimes[0] || '';
       setPickupDate(nextDate);
-      setPickupTime(data && nextDate ? getPickupTimeSlots(data.store, nextDate)[0] || '' : '');
+      setPickupTime(data && nextDate ? getCheckoutPickupTimes(nextDate)[0] || '' : '');
     }
   }, [data, groupOrder, pickupDatesWithTimes, pickupDate]);
   useEffect(() => {
     if (!validDeliveryDates.includes(deliveryDate)) setDeliveryDate(validDeliveryDates[0] || '');
   }, [validDeliveryDates, deliveryDate]);
+  useEffect(() => {
+    if (weeklyCartPlan) {
+      setFulfilmentMethod('pickup');
+      if (!getCheckoutPickupTimes(pickupDate).includes(pickupTime)) setPickupTime(getCheckoutPickupTimes(pickupDate)[0] || '');
+    }
+  }, [data, weeklyCartPlan, pickupDate, pickupTime]);
+  const weeklyCheckoutError = data ? weeklyCartError(cart, data.products)
+    || (weeklyCartPlan ? validateWeeklyMealPlan(weeklyCartPlan, data.products, data.store.id)
+      || (groupOrder ? 'Weekly Meal Plans cannot join Group Orders.' : '')
+      || (fulfilmentMethod !== 'pickup' || !getCheckoutPickupTimes(pickupDate).includes(pickupTime) ? 'Choose a Monday and pickup time available for all five days.' : '') : '') : '';
   const selectedFulfilmentDate = fulfilmentMethod === 'delivery'
     ? (deliveryMode === 'instant' ? currentFulfilmentDate(getRegionConfiguration(data?.store.country).timeZone) : deliveryDate)
     : pickupDate;
-  const cartDateAllowed = Boolean(data && cartAllowsFulfilmentDate(cart, data.products, selectedFulfilmentDate));
+  const cartDateAllowed = Boolean(data && !weeklyCheckoutError && cartAllowsFulfilmentDate(cart, data.products, selectedFulfilmentDate));
   const selectedPickupLocation = data?.store.pickupLocations.find(
     location => location.id === pickupLocationId
   );
@@ -813,8 +828,12 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   );
 
   const addConfiguredProduct = (product: StoreProduct, selectedOptions: CartSelection['selectedOptions']) => {
+    if (data && (weeklyCartError([...cart.filter(line => line.productId !== product.id), { productId: product.id, selectedOptions }], data.products) || (isWeeklyMealPlan(product) && groupOrder))) {
+      setCheckoutError('A Weekly Meal Plan must be purchased alone, without Sets, options or Group Orders.'); setIsCheckoutOpen(true); return;
+    }
     const key = selectionKey(product.id, selectedOptions);
     setCart(current => {
+      if (data && weeklyCartError([...current.filter(line => line.productId !== product.id), { productId: product.id, selectedOptions }], data.products)) return current;
       const existing = current.find(line => line.key === key);
       if (existing) {
         return current.map(line => line.key === key
@@ -881,9 +900,11 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   };
 
   const addConfiguredSet = (set: StoreSet) => {
+    if (weeklyCartPlan) { setCheckoutError('A Weekly Meal Plan must be purchased alone.'); setIsCheckoutOpen(true); return; }
     const selectedSetItems = configuredSetSelections;
     const key = `set:${set.id}:${selectedSetItems.map(item => `${item.groupId}=${item.productId}`).sort().join('|')}`;
     setCart(current => {
+      if (data && current.some(line => isWeeklyMealPlan(data.products.find(product => product.id === line.productId)))) return current;
       const existing = current.find(line => line.key === key);
       if (existing) return current.map(line => line.key === key ? { ...line, quantity: Math.min(20, line.quantity + 1) } : line);
       return [...current, { key, productId: set.id, setId: set.id, quantity: 1, selectedOptions: [], selectedSetItems }];
@@ -897,6 +918,10 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   };
 
   const startAddingProduct = (product: StoreProduct) => {
+    if (isWeeklyMealPlan(product) && data) {
+      const error = validateWeeklyMealPlan(product, data.products, data.store.id);
+      if (error) { setCheckoutError(error); setIsCheckoutOpen(true); return; }
+    }
     if (product.optionGroupIds.length === 0) {
       addConfiguredProduct(product, []);
       return;
@@ -931,7 +956,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     setIsPlacingOrder(true);
     let navigatingToProvider = false;
     try {
-      if (!cartDateAllowed) throw new Error('Choose a fulfilment date matching the Available day of every meal in your cart.');
+      if (!cartDateAllowed) throw new Error(weeklyCheckoutError || 'Choose a fulfilment date matching the Available day of every meal in your cart.');
       let quoteForPayment = deliveryQuote;
       let refreshedForPayment = false;
       if (fulfilmentMethod === 'delivery') {
@@ -1134,6 +1159,10 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const groupLoginReturnTo = groupOrder
     ? `/login?returnTo=${encodeURIComponent(`/group/${encodeURIComponent(groupOrder.shareCode)}`)}`
     : '/login';
+  const renderWeeklyMeals = (product: StoreProduct, monday = '') => isWeeklyMealPlan(product) ? <div className="mt-3 rounded-xl bg-surface-container-low p-3"><p className="text-sm font-extrabold text-primary">Weekly Meal Plan · Mon–Fri · Pickup only</p><ul className="mt-2 space-y-2">{WEEKLY_DAYS.map((day, index) => {
+    const meal = data.products.find(candidate => candidate.id === product.weeklyMeals?.[day]);
+    return <li key={day} className="flex items-center gap-2 text-sm font-bold text-primary">{meal?.photoUrl && <img src={meal.photoUrl} alt="" className="h-10 w-10 rounded-lg object-cover" />}<span>{day.toUpperCase()}{getWeeklyDates(monday)[index] ? ` · ${getWeeklyDates(monday)[index]}` : ''}: {meal?.name || 'Meal unavailable'}</span></li>;
+  })}</ul></div> : null;
   const canOrderPickup = store.pickupEnabled
     && store.pickupLocations.length > 0
     && (groupOrder ? validPickupDates.length > 0 : pickupDatesWithTimes.length > 0)
@@ -1257,6 +1286,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                 <p className="mt-3 font-sans text-xl font-extrabold text-secondary">{formatRegionCurrency(requestedProduct.price, store.currency)}</p>
                 {requestedProduct.calories !== undefined && <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">{requestedProduct.calories} kcal</p>}
                 {requestedProduct.description && <p className="mt-4 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{requestedProduct.description}</p>}
+                {renderWeeklyMeals(requestedProduct)}
                 {canOrderPickup && <button type="button" disabled={!hasAvailableProductOptions(requestedProduct)} onClick={() => startAddingProduct(requestedProduct)} className="mt-6 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
                   {!hasAvailableProductOptions(requestedProduct) ? 'Options unavailable' : requestedProduct.optionGroupIds.length > 0 ? 'Choose Options' : 'Add to Cart'}
                 </button>}
@@ -1296,7 +1326,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                 </div>
               </nav>
               <div className="mt-6 space-y-10">
-                {promotionProducts.length > 0 && <section ref={hotDealsSectionRef} id="catalogue-hot-deals" className="scroll-mt-20 rounded-3xl border border-secondary/20 bg-secondary/5 p-4 sm:p-6"><h3 className="font-display text-2xl font-bold text-primary">🔥 Hot Deals</h3><p className="mt-1 text-sm font-bold text-on-surface-variant">Special offers available now</p><div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{promotionProducts.map(product => { const promotion = promotionByProduct.get(product.id)!; const offer = promotion.type === 'percentage' ? `${promotion.terms.percentageOff}% OFF` : promotion.type === 'fixed_amount' ? `RM${promotion.terms.fixedAmountOff} OFF` : `BUY ${promotion.terms.buyQuantity} GET ${promotion.terms.getQuantity} FREE`; return <article key={`promo-${product.id}`} className="overflow-hidden rounded-3xl border border-secondary/30 bg-white shadow-sm">{product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-48 w-full object-cover" referrerPolicy="no-referrer" />}<div className="p-4"><span className="rounded-full bg-secondary/10 px-3 py-1 text-xs font-extrabold text-secondary">{offer}</span><h4 className="mt-3 font-display text-xl font-bold text-primary">{product.name}</h4><p className="mt-1 font-bold text-secondary">{formatRegionCurrency(product.price, store.currency)}</p>{product.calories !== undefined && <p className="mt-1 text-sm font-bold text-on-surface-variant">{product.calories} kcal</p>}{product.description && <p className="mt-2 text-xs font-bold text-on-surface-variant">{product.description}</p>}{promotion.estimatedPrice !== null && <p className="mt-1 text-sm font-bold text-on-surface-variant">Est. {formatRegionCurrency(promotion.estimatedPrice, store.currency)}</p>}<p className="mt-2 text-xs font-bold text-on-surface-variant">Offer preview — final savings confirmed at checkout.</p>{canOrderPickup && <button type="button" onClick={() => startAddingProduct(product)} className="mt-4 w-full rounded-full bg-primary px-5 py-3 text-xs font-extrabold text-on-primary">Add to Cart</button>}</div></article>; })}</div></section>}
+                {promotionProducts.length > 0 && <section ref={hotDealsSectionRef} id="catalogue-hot-deals" className="scroll-mt-20 rounded-3xl border border-secondary/20 bg-secondary/5 p-4 sm:p-6"><h3 className="font-display text-2xl font-bold text-primary">🔥 Hot Deals</h3><p className="mt-1 text-sm font-bold text-on-surface-variant">Special offers available now</p><div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{promotionProducts.map(product => { const promotion = promotionByProduct.get(product.id)!; const offer = promotion.type === 'percentage' ? `${promotion.terms.percentageOff}% OFF` : promotion.type === 'fixed_amount' ? `RM${promotion.terms.fixedAmountOff} OFF` : `BUY ${promotion.terms.buyQuantity} GET ${promotion.terms.getQuantity} FREE`; return <article key={`promo-${product.id}`} className="overflow-hidden rounded-3xl border border-secondary/30 bg-white shadow-sm">{product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-48 w-full object-cover" referrerPolicy="no-referrer" />}<div className="p-4"><span className="rounded-full bg-secondary/10 px-3 py-1 text-xs font-extrabold text-secondary">{offer}</span><h4 className="mt-3 font-display text-xl font-bold text-primary">{product.name}</h4><p className="mt-1 font-bold text-secondary">{formatRegionCurrency(product.price, store.currency)}</p>{product.calories !== undefined && <p className="mt-1 text-sm font-bold text-on-surface-variant">{product.calories} kcal</p>}{product.description && <p className="mt-2 text-xs font-bold text-on-surface-variant">{product.description}</p>}{promotion.estimatedPrice !== null && <p className="mt-1 text-sm font-bold text-on-surface-variant">Est. {formatRegionCurrency(promotion.estimatedPrice, store.currency)}</p>}<p className="mt-2 text-xs font-bold text-on-surface-variant">Offer preview — final savings confirmed at checkout.</p>{renderWeeklyMeals(product)}{canOrderPickup && <button type="button" onClick={() => startAddingProduct(product)} className="mt-4 w-full rounded-full bg-primary px-5 py-3 text-xs font-extrabold text-on-primary">Add to Cart</button>}</div></article>; })}</div></section>}
                 {mainProducts.length > 0 && <section ref={mainSectionRef} id="catalogue-main" className="scroll-mt-20">
                   <h3 className="font-display text-2xl font-bold text-primary">Main</h3>
                   <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -1308,7 +1338,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                           <p className="mt-1 font-sans text-base font-extrabold text-secondary">{formatRegionCurrency(product.price, store.currency)}</p>{promotionByProduct.has(product.id) && <p className="mt-1 text-xs font-extrabold text-secondary">🔥 {promotionByProduct.get(product.id)!.type === 'percentage' ? `${promotionByProduct.get(product.id)!.terms.percentageOff}% OFF` : promotionByProduct.get(product.id)!.type === 'fixed_amount' ? `RM${promotionByProduct.get(product.id)!.terms.fixedAmountOff} OFF` : `BUY ${promotionByProduct.get(product.id)!.terms.buyQuantity} GET ${promotionByProduct.get(product.id)!.terms.getQuantity} FREE`}</p>}
                           {product.calories !== undefined && <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">{product.calories} kcal</p>}
                           {product.description && <p className="mt-2 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{product.description}</p>}
-                          {canOrderPickup && <button type="button" disabled={!hasAvailableProductOptions(product)} onClick={() => startAddingProduct(product)} className="mt-4 w-full rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
+                          {renderWeeklyMeals(product)}{canOrderPickup && <button type="button" disabled={!hasAvailableProductOptions(product)} onClick={() => startAddingProduct(product)} className="mt-4 w-full rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
                             {!hasAvailableProductOptions(product) ? 'Options unavailable' : product.optionGroupIds.length > 0 ? 'Choose Options' : 'Add to Cart'}
                           </button>}
                         </div>
@@ -1346,6 +1376,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                     <p className="mt-1 font-sans text-base font-extrabold text-secondary">{formatRegionCurrency(product.price, store.currency)}</p>
                     {product.calories !== undefined && <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">{product.calories} kcal</p>}
                     {product.description && <p className="mt-2 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{product.description}</p>}
+                    {renderWeeklyMeals(product)}
                     {canOrderPickup && (
                       <button type="button" disabled={!hasAvailableProductOptions(product)} onClick={() => startAddingProduct(product)} className="mt-4 w-full rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
                         {!hasAvailableProductOptions(product)
@@ -1429,6 +1460,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
               <dl className="mt-4 grid gap-3 rounded-2xl bg-white/70 p-4">
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Order Number</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.orderNumber}</dd></div>
                 {placedOrder.pickupCode && <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Code</dt><dd className="mt-0.5 font-display text-2xl font-bold tracking-[0.18em]">{placedOrder.pickupCode}</dd></div>}
+                {placedOrder.weeklyFulfilments && <div className="col-span-2"><dt className="font-bold">Weekly Meal Plan · Mon–Fri</dt><dd><ul>{placedOrder.weeklyFulfilments.map(day => <li key={day.day} className="mt-2 text-sm font-bold">{day.day.toUpperCase()} · {day.date} · {day.pickupTime} · {day.pickupLocationName} · {day.quantity} × {day.productName}</li>)}</ul></dd></div>}
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Date</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{formatPickupDateLabel(placedOrder.pickupDate, store.country)}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Location</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupLocationName}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Time</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupTime ? formatPickupTimeLabel(placedOrder.pickupTime, store.country) : placedOrder.pickupSession}</dd></div>
@@ -1554,6 +1586,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                 {fulfilmentMethod === 'delivery' && <div className="flex justify-between gap-3"><dt>Delivery Fee</dt><dd className="text-primary">{hasDisplayableDeliveryQuote ? formatRegionCurrency(customerDeliveryFee, store.currency) : isCalculatingDelivery ? 'Calculating…' : checkoutError ? 'Unavailable' : 'Pending'}</dd></div>}
                 <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold text-primary"><dt>Total</dt><dd>{fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Pending delivery fee' : formatRegionCurrency(checkoutTotal, store.currency)}</dd></div>
                 </dl>
+                {weeklyCartPlan && <div aria-label="Weekly Meal Plan schedule">{renderWeeklyMeals(weeklyCartPlan, pickupDate)}<p className="mt-2 text-sm font-bold">{cart[0]?.quantity} complete weekly plan(s) · {pickupTime} each day · {selectedPickupLocation?.name}</p></div>}
                 {fulfilmentMethod === 'pickup' && selectedPickupLocation && <dl aria-label="Pickup Details" className="mt-4 space-y-1 rounded-xl bg-surface-container-low p-3 font-sans text-sm font-bold text-primary">
                   <dt className="text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup Details</dt>
                   <div><dt className="inline text-on-surface-variant">Location: </dt><dd className="inline">{selectedPickupLocation.name}</dd></div>
@@ -1611,10 +1644,10 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
 
                 <section aria-labelledby="fulfilment-heading" className="order-1">
                   <h3 id="fulfilment-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Fulfilment</h3>
-                  {!cartDateAllowed && <p role="alert" className="mt-2 font-sans text-sm font-bold text-error">Choose a fulfilment date matching the Available day of every meal in your cart.</p>}
+                  {!cartDateAllowed && <p role="alert" className="mt-2 font-sans text-sm font-bold text-error">{weeklyCheckoutError || 'Choose a fulfilment date matching the Available day of every meal in your cart.'}</p>}
                   <div className="mt-2 flex gap-2">
                     <button type="button" onClick={() => { setFulfilmentMethod('pickup'); setDeliveryQuote(null); setDeliveryPriceConfirmation(null); }} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${fulfilmentMethod === 'pickup' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Pickup</button>
-                    {store.delivery?.enabled && (store.delivery.fulfilment.preOrder.enabled || store.delivery.fulfilment.instant.enabled) && !groupOrder && <button type="button" onClick={() => { setFulfilmentMethod('delivery'); setDeliveryMode(store.delivery?.fulfilment.instant.enabled && !store.delivery?.fulfilment.preOrder.enabled ? 'instant' : 'preorder'); setDeliveryPriceConfirmation(null); }} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${fulfilmentMethod === 'delivery' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Delivery</button>}
+                    {!weeklyCartPlan && store.delivery?.enabled && (store.delivery.fulfilment.preOrder.enabled || store.delivery.fulfilment.instant.enabled) && !groupOrder && <button type="button" onClick={() => { setFulfilmentMethod('delivery'); setDeliveryMode(store.delivery?.fulfilment.instant.enabled && !store.delivery?.fulfilment.preOrder.enabled ? 'instant' : 'preorder'); setDeliveryPriceConfirmation(null); }} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${fulfilmentMethod === 'delivery' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Delivery</button>}
                   </div>
                 </section>
 
@@ -1653,8 +1686,8 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                   <h3 id="pickup-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup Details</h3>
                   <div className="mt-2 space-y-2">
                     <label className="block">
-                      <span className="font-sans text-xs font-extrabold text-primary">Date</span>
-                      <select aria-label="Pickup date" required disabled={Boolean(groupOrder)} value={pickupDate} onChange={event => { const date = event.target.value; setPickupDate(date); setPickupTime(getPickupTimeSlots(store, date)[0] || ''); }} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary disabled:opacity-70">
+                      <span className="font-sans text-xs font-extrabold text-primary">{weeklyCartPlan ? 'Week starting Monday' : 'Date'}</span>
+                      <select aria-label="Pickup date" required disabled={Boolean(groupOrder)} value={pickupDate} onChange={event => { const date = event.target.value; setPickupDate(date); setPickupTime(getCheckoutPickupTimes(date)[0] || ''); }} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary disabled:opacity-70">
                         {!(groupOrder ? validPickupDates : pickupDatesWithTimes).length && <option value="">No matching dates available</option>}
                         {(groupOrder ? validPickupDates : pickupDatesWithTimes).map(date => <option key={date} value={date}>{formatPickupDateLabel(date, store.country)}</option>)}
                       </select>
@@ -1663,7 +1696,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                       <span className="font-sans text-xs font-extrabold text-primary">Time</span>
                       <select aria-label="Pickup time" required value={pickupTime} onChange={event => setPickupTime(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
                         <option value="">Choose a pickup time</option>
-                        {getPickupTimeSlots(store, pickupDate).map(time => <option key={time} value={time}>{formatPickupTimeLabel(time, store.country)}</option>)}
+                        {getCheckoutPickupTimes(pickupDate).map(time => <option key={time} value={time}>{formatPickupTimeLabel(time, store.country)}</option>)}
                       </select>
                     </label>}
                     <label className="block">

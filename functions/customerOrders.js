@@ -1,3 +1,4 @@
+import { publicWeeklyFulfilments } from './storeWeeklyMealPlan.js';
 import { HttpsError } from 'firebase-functions/v2/https';
 
 const readString = value => typeof value === 'string' ? value.trim() : '';
@@ -46,6 +47,7 @@ const customerOrder = document => {
     promotionAdjustment: adjustments[index]
   })).filter(Boolean);
   return {
+    ...(data.weeklyFulfilments ? { weeklyFulfilments: publicWeeklyFulfilments(data) } : {}),
     orderNumber: readString(data.orderNumber),
     orderDate: toIso(data.createdAt),
     storeName: readString(data.storeName) || 'Store',

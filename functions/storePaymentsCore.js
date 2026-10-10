@@ -1,3 +1,4 @@
+import { buildWeeklyOrderDetails, isWeeklyMealPlan, publicWeeklyFulfilments } from './storeWeeklyMealPlan.js';
 import { cartAllowsFulfilmentDate, currentFulfilmentDate } from './storeProductAvailability.js';
 import { randomBytes } from 'node:crypto';
 import { calculatePromotionPricing } from './storePromotionPricing.js';
@@ -258,6 +259,7 @@ const buildSetOrderItem = (selection, sets, products) => {
       const productId = readString(choice.productId);
       const option = options.find(candidate => readString(candidate.productId) === productId);
       const product = products.find(candidate => candidate.id === productId && candidate.available === true);
+      if (isWeeklyMealPlan(product)) throw new Error('Weekly Meal Plans cannot be included in Sets.');
       if (!option || !product) throw new Error(`Choose an available ${groupName} option for ${readString(set.name) || 'this set'}.`);
       selectedGroups.push({
         groupId,
@@ -409,7 +411,9 @@ export const buildPendingOrder = ({
     id: 'stripe',
     name: 'Secure online payment'
   };
+  const weekly = buildWeeklyOrderDetails({ store, draft, products, groupOrder, now, getDates: getValidPickupDates, getTimes: getPickupTimeSlots });
   const items = buildOrderItems(draft.selections, products, optionGroups, sets);
+  if (weekly) items[0].weeklyPlanSnapshot = weekly.weeklyPlanSnapshot;
   const fulfilmentDate = draft.deliverySnapshot
     ? (draft.deliverySnapshot?.fulfilmentMode === 'instant'
       ? currentFulfilmentDate(region.timeZone, now)
@@ -472,6 +476,7 @@ export const buildPendingOrder = ({
     pickupLocationNotes: readString(pickupLocation?.notes),
     notes: readString(draft.notes),
     items,
+    ...(weekly ? { weeklyFulfilments: weekly.weeklyFulfilments, weeklyCompletion: weekly.weeklyCompletion } : {}),
     itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
     totals: { merchandiseSubtotal, discountTotal, discountedMerchandiseTotal, deliveryFee, grandTotal: total, currency: region.currency },
     ...(promotionSnapshot.appliedPromotions.length ? { promotionSnapshot } : {}),
@@ -577,6 +582,7 @@ export const toPublicPaymentOrderSummary = order => {
 };
 
 export const toPublicOrderResult = order => ({
+  ...(order.weeklyFulfilments ? { weeklyFulfilments: publicWeeklyFulfilments(order) } : {}),
   orderNumber: readString(order.orderNumber),
   pickupCode: readString(order.pickupCode),
   storeName: readString(order.storeName),

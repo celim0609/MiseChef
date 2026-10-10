@@ -59,6 +59,8 @@ export const getStoreProductEditorDraft = (product: StoreProduct): StoreProductD
   price: product.price,
   ...(product.calories !== undefined ? { calories: product.calories } : {}),
   ...(product.recipeId ? { recipeId: product.recipeId } : {}),
+  ...(product.productType !== undefined ? { productType: product.productType } : {}),
+  ...(product.weeklyMeals ? { weeklyMeals: { ...product.weeklyMeals } } : {}),
   available: product.available,
   availableDay: product.availableDay ?? 'all',
   optionGroupIds: [...product.optionGroupIds]
@@ -105,6 +107,8 @@ export const buildUpdatedStoreProduct = (
   price: draft.price,
   calories: draft.calories,
   recipeId: draft.recipeId,
+  productType: draft.productType,
+  weeklyMeals: draft.productType === 'weekly_meal_plan' && draft.weeklyMeals ? { ...draft.weeklyMeals } : undefined,
   available: draft.available,
   availableDay: draft.availableDay ?? 'all',
   optionGroupIds: [...draft.optionGroupIds],

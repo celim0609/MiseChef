@@ -1,3 +1,4 @@
+import { validateWeeklyMealPlan } from '../../../../functions/storeWeeklyMealPlan.js';
 import {
   collection,
   deleteField,
@@ -370,6 +371,8 @@ export const storeService = {
     const validationError = validateStoreProduct(draft);
     if (validationError) throw new Error(validationError);
 
+    const weeklyError = validateWeeklyMealPlan({ ...draft, id }, draft.productType === 'weekly_meal_plan' ? await this.listAdminProducts(workspaceId) : [], workspaceId);
+    if (weeklyError) throw new Error(weeklyError);
     const now = new Date().toISOString();
     const product: StoreProduct = {
       id,
@@ -384,6 +387,8 @@ export const storeService = {
       calories: draft.calories,
       recipeId: draft.recipeId?.trim() || undefined,
       available: draft.available,
+      productType: draft.productType,
+      weeklyMeals: draft.weeklyMeals ? { ...draft.weeklyMeals } : undefined,
       availableDay: draft.availableDay ?? 'all',
       optionGroupIds: [...draft.optionGroupIds],
       createdBy,
@@ -400,10 +405,13 @@ export const storeService = {
     const validationError = validateStoreProduct(draft);
     if (validationError) throw new Error(validationError);
 
+    const weeklyError = validateWeeklyMealPlan({ ...draft, id: product.id }, draft.productType === 'weekly_meal_plan' ? await this.listAdminProducts(product.workspaceId) : [], product.workspaceId);
+    if (weeklyError) throw new Error(weeklyError);
     const updatedProduct = buildUpdatedStoreProduct(product, draft, new Date().toISOString());
 
     await setDoc(doc(db, 'storeProducts', product.id), {
       ...removeUndefinedFields(updatedProduct),
+      ...(!draft.weeklyMeals ? { weeklyMeals: deleteField() } : {}),
       ...(
         draft.calories === undefined
           ? { calories: deleteField() }

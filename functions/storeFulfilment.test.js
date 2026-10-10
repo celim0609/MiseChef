@@ -490,3 +490,48 @@ test('Group batch enforces its atomic write ceiling before any write', async () 
   }), error => error.code === 'resource-exhausted');
   assert.equal(db.writes.length, 0);
 });
+
+const weeklyOrder = () => ({
+  ...paidOrder, orderSource: 'online', fulfilmentMethod: 'pickup', fulfilmentStatus: 'New',
+  payment: { status: 'paid', refundStatus: 'none' },
+  weeklyFulfilments: ['mon','tue','wed','thu','fri'].map((day, index) => ({ day, date: `2026-07-${27 + index}`, productName: `${day} meal`, pickupTime: '10:00', pickupLocationId: 'counter', quantity: 2 })),
+  weeklyCompletion: {}
+});
+
+test('daily Complete preserves snapshots and payment; parent completes only after five independent days', async () => {
+  const order = weeklyOrder();
+  const immutable = JSON.stringify(order.weeklyFulfilments);
+  for (const [index, weeklyDay] of ['wed','mon','fri','tue','thu'].entries()) {
+    const db = createFakeDb({ 'storeOrders/order-a': structuredClone(order), 'workspaces/workspace-a': { ownerId: 'owner-a' } });
+    const result = await updateStoreOrderFulfilment({ db, uid: 'owner-a', orderId: 'order-a', nextStatus: 'Completed', weeklyDay });
+    const update = db.writes.find(write => write.ref.collectionName === 'storeOrders').data;
+    assert.equal('weeklyFulfilments' in update, false);
+    assert.equal('items' in update, false); assert.equal('payment' in update, false);
+    assert.equal(db.writes.some(write => write.ref.collectionName === 'storeNotifications'), false);
+    assert.equal(result.fulfilmentStatus, index === 4 ? 'Completed' : 'New');
+    assert.equal('completedAt' in update, index === 4);
+    Object.assign(order, update);
+    assert.equal(JSON.stringify(order.weeklyFulfilments), immutable);
+  }
+  const db = createFakeDb({ 'storeOrders/order-a': order, 'workspaces/workspace-a': { ownerId: 'owner-a' } });
+  await updateStoreOrderFulfilment({ db, uid: 'owner-a', orderId: 'order-a', nextStatus: 'Completed', weeklyDay: 'mon' });
+  assert.equal(db.writes.length, 0);
+});
+
+test('weekly completion rejects generic parent/POS completion, invalid day, cancellation, unpaid and unauthorized attempts', async () => {
+  for (const change of [{}, { weeklyDay: 'sat' }, { weeklyDay: 'mon', nextStatus: 'Preparing' }, { nextStatus: 'Cancelled', cancellationReason: 'Customer request' }]) {
+    const db = createFakeDb({ 'storeOrders/order-a': weeklyOrder(), 'workspaces/workspace-a': { ownerId: 'owner-a' } });
+    await assert.rejects(updateStoreOrderFulfilment({ db, uid: 'owner-a', orderId: 'order-a', nextStatus: 'Completed', ...change }));
+    assert.equal(db.writes.length, 0);
+  }
+  for (const change of [{ payment: { status: 'pending' } }, { fulfilmentStatus: 'Cancelled' }]) {
+    const db = createFakeDb({ 'storeOrders/order-a': { ...weeklyOrder(), ...change }, 'workspaces/workspace-a': { ownerId: 'owner-a' } });
+    await assert.rejects(updateStoreOrderFulfilment({ db, uid: 'owner-a', orderId: 'order-a', nextStatus: 'Completed', weeklyDay: 'mon' }));
+    assert.equal(db.writes.length, 0);
+  }
+  for (const uid of ['', 'foreign-owner', 'customer-a']) {
+    const db = createFakeDb({ 'storeOrders/order-a': weeklyOrder(), 'workspaces/workspace-a': { ownerId: 'owner-a' } });
+    await assert.rejects(updateStoreOrderFulfilment({ db, uid, orderId: 'order-a', nextStatus: 'Completed', weeklyDay: 'mon' }));
+    assert.equal(db.writes.length, 0);
+  }
+});

@@ -103,7 +103,8 @@ export const updateStoreOrderFulfilment = async ({
   uid,
   orderId,
   nextStatus,
-  cancellationReason
+  cancellationReason,
+  weeklyDay
 }) => {
   const normalizedOrderId = readString(orderId);
   const normalizedNextStatus = readString(nextStatus);
@@ -161,6 +162,36 @@ export const updateStoreOrderFulfilment = async ({
     ) {
       throw new HttpsError('failed-precondition', 'Confirm payment before processing this order.');
     }
+    if (Array.isArray(order.weeklyFulfilments)) {
+      const day = readString(weeklyDay);
+      const days = order.weeklyFulfilments;
+      if (normalizedNextStatus !== STORE_FULFILMENT_STATUS.completed || !day
+        || days.length !== 5 || !days.some(entry => entry.day === day)) {
+        throw new HttpsError('failed-precondition', 'Complete each day of this Weekly Meal Plan independently.');
+      }
+      if (order.payment?.status !== 'paid' || currentStatus === 'Cancelled') {
+        throw new HttpsError('failed-precondition', 'Only a paid, active Weekly Meal Plan can be completed.');
+      }
+      const completion = order.weeklyCompletion || {};
+      if (completion[day]) return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
+      const nextCompletion = { ...completion, [day]: { completedAt: new Date().toISOString(), completedBy: uid } };
+      const complete = days.every(entry => Boolean(nextCompletion[entry.day]));
+      transaction.update(orderReference, {
+        weeklyCompletion: nextCompletion,
+        ...(complete ? { fulfilmentStatus: STORE_FULFILMENT_STATUS.completed, completedAt: FieldValue.serverTimestamp() } : {}),
+        fulfilmentUpdatedAt: FieldValue.serverTimestamp(), fulfilmentUpdatedBy: uid, updatedAt: FieldValue.serverTimestamp()
+      });
+      const eventReference = db.collection('storeOrderTimeline').doc(`${normalizedOrderId}_weekly_${day}_completed`);
+      transaction.create(eventReference, {
+        id: eventReference.id, orderId: normalizedOrderId, workspaceId,
+        storeId: readString(order.storeId) || workspaceId,
+        type: 'fulfilment_status', label: `${day.toUpperCase()} completed`,
+        previousStatus: currentStatus, newStatus: complete ? 'Completed' : currentStatus,
+        actingUserId: uid, createdAt: FieldValue.serverTimestamp()
+      });
+      return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: complete ? 'Completed' : currentStatus, cancellationReason: '' };
+    }
+    if (weeklyDay !== undefined) throw new HttpsError('invalid-argument', 'This is not a Weekly Meal Plan order.');
     if (!canTransitionStoreFulfilment({
       currentStatus,
       nextStatus: normalizedNextStatus

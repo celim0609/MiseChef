@@ -97,6 +97,7 @@ export default function PublicOrdersPage({ currentUser }: { currentUser: User | 
                 ) : (
                   <p className="mt-2 font-sans text-xs font-bold text-on-surface-variant">Item details are unavailable for this order{order.itemCount > 0 ? ` · ${order.itemCount} item${order.itemCount === 1 ? '' : 's'}` : ''}.</p>
                 )}
+                {order.weeklyFulfilments && <ul aria-label="Weekly Meal Plan schedule" className="mt-4 space-y-2">{order.weeklyFulfilments.map(day => <li key={day.day} className="rounded-xl bg-white p-3 text-sm font-bold text-primary">{day.day.toUpperCase()} · {day.date} · {day.pickupTime} · {day.pickupLocationName}<span className="block">{day.quantity} × {day.productName} · {day.completed ? 'Completed' : 'Scheduled'}</span></li>)}</ul>}
                 {order.remarks && <p className="mt-4 rounded-xl bg-white px-3 py-2 font-sans text-xs font-bold text-on-surface-variant"><span className="font-extrabold text-primary">Remark:</span> {order.remarks}</p>}
               </section>
               {order.totals ? <dl aria-label={`Order total for ${order.orderNumber}`} className="mt-5 space-y-2 border-t border-surface-container-high pt-4 font-sans text-sm font-bold text-on-surface-variant">

@@ -177,12 +177,12 @@ export default function StoreOrdersPanel({
     return order.fulfilmentStatus === activeFilter;
   }), [activeFilter, orders]);
 
-  const updateStatus = async (nextStatus: StoreFulfilmentStatus) => {
+  const updateStatus = async (nextStatus: StoreFulfilmentStatus, weeklyDay?: string) => {
     if (!selectedOrder || isUpdating) return;
     setIsUpdating(true);
     setErrorMessage('');
     try {
-      await storeOrderService.updateFulfilment(selectedOrder.id, nextStatus);
+      await storeOrderService.updateFulfilment(selectedOrder.id, nextStatus, '', weeklyDay);
       if (nextStatus === 'Completed' || nextStatus === 'Cancelled') {
         setHistoryRefreshKey(current => current + 1);
       }
@@ -458,7 +458,9 @@ export default function StoreOrdersPanel({
                   <button type="button" disabled={isUpdating} onClick={() => reviewPayment('reject')} className="rounded-full bg-error/10 px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">Reject Payment</button>
                 </>
               )}
+              {selectedOrder.weeklyFulfilments && <section aria-label="Weekly Meal Plan schedule" className="w-full space-y-2">{selectedOrder.weeklyFulfilments.map(day => <div key={day.day} className="rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>{day.day.toUpperCase()} · {day.date} · {day.pickupTime} · {day.pickupLocationName}</p><p>{day.quantity} × {day.productName}</p>{selectedOrder.weeklyCompletion?.[day.day] ? <span>Completed</span> : canProcessOrders && selectedOrder.payment.status === 'paid' && !['Completed', 'Cancelled'].includes(selectedOrder.fulfilmentStatus) && <button type="button" disabled={isUpdating} onClick={() => updateStatus('Completed', day.day)} className="mt-2 rounded-full bg-primary px-4 py-2 text-on-primary disabled:opacity-50">Complete {day.day.toUpperCase()}</button>}</div>)}</section>}
               {canProcessOrders
+                && !selectedOrder.weeklyFulfilments
                 && isOrderOperationallyEligible(selectedOrder)
                 && NEXT_STATUS[selectedOrder.fulfilmentStatus as StoreFulfilmentStatus] && (
                 <button
@@ -483,7 +485,7 @@ export default function StoreOrdersPanel({
                 storeName={storeName}
                 className="flex-1"
               />
-              {canProcessOrders && selectedOrder.payment.refundStatus === 'refunded'
+              {canProcessOrders && !selectedOrder.weeklyFulfilments && selectedOrder.payment.refundStatus === 'refunded'
                 && !['Completed', 'Cancelled'].includes(selectedOrder.fulfilmentStatus) && (
                 <button type="button" disabled={isUpdating} onClick={() => updateStatus('Cancelled')} className="rounded-full bg-error/10 px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">
                   Mark Cancelled

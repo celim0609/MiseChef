@@ -101,3 +101,12 @@ test('historical orders without setSnapshot remain compatible', () => {
   assert.deepEqual(historical.selectedOptions, []);
   assert.equal(historical.productName, 'Legacy Product');
 });
+
+test('weekly item snapshots retain all five purchased meals without live catalogue lookup', () => {
+  const meals = ['mon','tue','wed','thu','fri'].map(day => ({ day, productId: `meal-${day}`, productName: `${day} lunch`, photoUrl: `${day}.jpg` }));
+  const input = { ...configuredSetItem, setSnapshot: undefined, weeklyPlanSnapshot: { meals } };
+  const item = normalizeStoreOrderItem(JSON.parse(JSON.stringify(input)));
+  assert.deepEqual(item.weeklyPlanSnapshot?.meals, meals);
+  assert.notEqual(item.weeklyPlanSnapshot?.meals, meals);
+  assert.equal(item.quantity, 1);
+});

@@ -1,5 +1,7 @@
 import type {
   StoreOrderItem,
+  WeeklyFulfilment,
+  WeeklyMealSnapshot,
   StoreOrderItemOption,
   StoreOrderSetSelection,
   StoreOrderSetSnapshot
@@ -69,7 +71,8 @@ export const normalizeStoreOrderItem = (value: unknown): StoreOrderItem => {
     selectedOptions: Array.isArray(item.selectedOptions)
       ? item.selectedOptions.map(normalizeSelectedOption)
       : [],
-    ...(setSnapshot ? { setSnapshot } : {})
+    ...(setSnapshot ? { setSnapshot } : {}),
+    ...(item.weeklyPlanSnapshot && typeof item.weeklyPlanSnapshot === 'object' && Array.isArray((item.weeklyPlanSnapshot as { meals?: unknown }).meals) ? { weeklyPlanSnapshot: { meals: ((item.weeklyPlanSnapshot as { meals: unknown[] }).meals).map(normalizeWeeklyMeal) } } : {})
   };
 };
 
@@ -81,3 +84,14 @@ export const formatStoreOrderSetSelection = (
     ? ` (+${currency} ${selection.priceAdjustment.toFixed(2)})`
     : ''
 }`;
+
+const normalizeWeeklyMeal = (value: unknown): WeeklyMealSnapshot => {
+  const meal = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  return { day: readString(meal.day) as WeeklyMealSnapshot['day'], productId: readString(meal.productId), productName: readString(meal.productName), photoUrl: readString(meal.photoUrl) };
+};
+
+export const normalizeWeeklyFulfilments = (value: unknown): WeeklyFulfilment[] | undefined => Array.isArray(value) ? value.map(entry => ({
+  ...normalizeWeeklyMeal(entry), date: readString(entry.date), pickupTime: readString(entry.pickupTime),
+  pickupLocationId: readString(entry.pickupLocationId), pickupLocationName: readString(entry.pickupLocationName),
+  pickupLocationAddress: readString(entry.pickupLocationAddress), quantity: Math.max(1, readNumber(entry.quantity))
+})) : undefined;

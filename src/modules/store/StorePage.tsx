@@ -1,3 +1,4 @@
+import { isWeeklyMealPlan, WEEKLY_DAYS, validateWeeklyMealPlan } from '../../../functions/storeWeeklyMealPlan.js';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
   ArrowDown,
@@ -747,7 +748,7 @@ export default function StorePage({
       ...productDraft,
       photoUrl: productPhotoFile ? 'pending-upload' : productDraft.photoUrl,
       optionGroupIds: productOptions.map(group => group.id)
-    });
+    }) || validateWeeklyMealPlan({ ...productDraft, id: editingProduct?.id || '' }, products, workspace.id);
     const optionError = productOptions
       .map((group, groupIndex) => validateStoreOptionGroup({
         ...group,
@@ -1087,8 +1088,19 @@ export default function StorePage({
                   <input ref={productNameInputRef} value={productDraft.name} onChange={event => updateProduct('name', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 </label>
                 <label className="block">
+                  <span className="font-sans text-xs font-extrabold text-primary">Product Type</span>
+                  <select aria-label="Product Type" value={productDraft.productType ?? 'single'} onChange={event => {
+                    const productType = event.target.value as StoreProductDraft['productType'];
+                    setProductDraft(current => ({ ...current, productType, weeklyMeals: productType === 'weekly_meal_plan' ? current.weeklyMeals || { mon: '', tue: '', wed: '', thu: '', fri: '' } : undefined, ...(productType === 'weekly_meal_plan' ? { availableDay: 'all', optionGroupIds: [] } : {}) }));
+                    if (productType === 'weekly_meal_plan') setProductOptions([]);
+                  }} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 text-sm font-bold text-primary">
+                    <option value="single">Single Product</option><option value="weekly_meal_plan">Weekly Meal Plan</option>
+                  </select>
+                </label>
+                {isWeeklyMealPlan(productDraft) && <fieldset className="space-y-3 md:col-span-2"><legend className="font-bold text-primary">Included meals · Mon–Fri · Pickup only</legend>{WEEKLY_DAYS.map(day => <label key={day} className="block"><span className="text-sm font-bold text-primary">{({ mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday' })[day]}</span><select aria-label={`${day} meal`} required value={productDraft.weeklyMeals?.[day] || ''} onChange={event => setProductDraft(current => ({ ...current, weeklyMeals: { mon: '', tue: '', wed: '', thu: '', fri: '', ...current.weeklyMeals, [day]: event.target.value } }))} className="mt-1 w-full rounded-xl border p-3 text-sm font-bold text-primary"><option value="">Select Single Product</option>{products.filter(product => product.id !== editingProduct?.id && (product.productType ?? 'single') === 'single' && product.available && !product.optionGroupIds.length && ['all', day].includes(product.availableDay ?? 'all')).map(product => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label>)}</fieldset>}
+                <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Available day</span>
-                  <select aria-label="Available day" value={productDraft.availableDay ?? 'all'} onChange={event => updateProduct('availableDay', event.target.value as StoreProductDraft['availableDay'])} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">
+                  <select aria-label="Available day" disabled={isWeeklyMealPlan(productDraft)} value={productDraft.availableDay ?? 'all'} onChange={event => updateProduct('availableDay', event.target.value as StoreProductDraft['availableDay'])} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">
                     <option value="all">All days</option>
                     {(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const).map(day => <option key={day} value={day}>{day.charAt(0).toUpperCase() + day.slice(1)}</option>)}
                   </select>
@@ -1145,7 +1157,7 @@ export default function StorePage({
                 </label>
               </div>
 
-              <div ref={productOptionsRef} className="mt-8 border-t border-surface-container-high pt-6">
+              <div hidden={isWeeklyMealPlan(productDraft)} ref={productOptionsRef} className="mt-8 border-t border-surface-container-high pt-6">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                   <div>
                     <h3 className="font-display text-xl font-bold text-primary">Options</h3>
