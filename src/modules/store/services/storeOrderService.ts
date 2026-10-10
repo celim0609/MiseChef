@@ -19,7 +19,7 @@ import { httpsCallable } from 'firebase/functions';
 import { getBlob, ref } from 'firebase/storage';
 import { db, functions, storage } from '../../../firebase';
 import { getOrderPickupCode } from '../selling';
-import { normalizeStoreOrderItem, normalizeWeeklyFulfilments } from '../storeOrderSnapshot';
+import { normalizeStoreOrderItem, normalizeWeeklyFulfilments, normalizeOrderFulfilments } from '../storeOrderSnapshot';
 import {
   getOrderCompletionTimestamp,
   isOrderOperationallyEligible,
@@ -114,6 +114,9 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     fulfilmentMethod: data.fulfilmentMethod === 'delivery' ? 'delivery' : 'pickup',
     totals: data.totals && typeof data.totals === 'object' ? data.totals as StoreOrder['totals'] : undefined,
     delivery: data.delivery && typeof data.delivery === 'object' ? data.delivery as StoreOrder['delivery'] : undefined,
+    fulfilments: normalizeOrderFulfilments(data.fulfilments),
+    fulfilmentCompletion: data.fulfilmentCompletion as StoreOrder['fulfilmentCompletion'],
+    fulfilmentOperations: data.fulfilmentOperations as StoreOrder['fulfilmentOperations'],
     weeklyFulfilments: normalizeWeeklyFulfilments(data.weeklyFulfilments),
     weeklyCompletion: data.weeklyCompletion as StoreOrder['weeklyCompletion'],
     pickupDate: readString(data.pickupDate),
@@ -469,18 +472,20 @@ export const storeOrderService = {
     orderId: string,
     nextStatus: StoreFulfilmentStatus,
     cancellationReason = '',
-    weeklyDay?: string
+    weeklyDay?: string,
+    fulfilmentId?: string
   ) {
     if (!functions) throw new Error('Order updates are temporarily unavailable.');
     const updateStatus = httpsCallable<
-      { orderId: string; nextStatus: StoreFulfilmentStatus; cancellationReason?: string; weeklyDay?: string },
+      { orderId: string; nextStatus: StoreFulfilmentStatus; cancellationReason?: string; weeklyDay?: string; fulfilmentId?: string },
       { orderId: string; previousStatus: string; fulfilmentStatus: StoreFulfilmentStatus; cancellationReason: string }
     >(functions, 'updateStoreOrderStatus');
     return (await updateStatus({
       orderId,
       nextStatus,
       ...(cancellationReason ? { cancellationReason } : {}),
-      ...(weeklyDay ? { weeklyDay } : {})
+      ...(weeklyDay ? { weeklyDay } : {}),
+      ...(fulfilmentId ? { fulfilmentId } : {})
     })).data;
   },
 

@@ -95,3 +95,13 @@ export const normalizeWeeklyFulfilments = (value: unknown): WeeklyFulfilment[] |
   pickupLocationId: readString(entry.pickupLocationId), pickupLocationName: readString(entry.pickupLocationName),
   pickupLocationAddress: readString(entry.pickupLocationAddress), quantity: Math.max(1, readNumber(entry.quantity))
 })) : undefined;
+
+
+export const normalizeOrderFulfilments = (value: unknown): import('./types').OrderFulfilment[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter(entry => entry && typeof entry.id === 'string' && Array.isArray(entry.allocations)).map(entry => ({
+    id: readString(entry.id), method: entry.method === 'delivery' ? 'delivery' : 'pickup', date: readString(entry.date), time: readString(entry.time),
+    pickupLocationId: readString(entry.pickupLocationId), pickupLocationName: readString(entry.pickupLocationName), pickupLocationAddress: readString(entry.pickupLocationAddress),
+    allocations: entry.allocations.map(allocation => ({ itemIndex: readNumber(allocation.itemIndex), quantity: readNumber(allocation.quantity), ...(allocation.componentDay ? { componentDay: allocation.componentDay } : {}) }))
+  }));
+};

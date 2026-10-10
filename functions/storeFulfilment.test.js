@@ -535,3 +535,31 @@ test('weekly completion rejects generic parent/POS completion, invalid day, canc
     assert.equal(db.writes.length, 0);
   }
 });
+
+test('generic pickup completions are independent, idempotent and cannot bypass the parent', async () => {
+  const order = { ...weeklyOrder(), weeklyFulfilments: undefined, weeklyCompletion: undefined,
+    fulfilments: [{ id: 'monday', method: 'pickup' }, { id: 'friday', method: 'pickup' }], fulfilmentCompletion: {}, total: 42 };
+  const make = () => createFakeDb({ 'storeOrders/order-a': structuredClone(order), 'workspaces/workspace-a': { ownerId: 'owner-a' } });
+  await assert.rejects(updateStoreOrderFulfilment({ db: make(), uid: 'owner-a', orderId: 'order-a', nextStatus: 'Completed' }), /fulfilment/);
+  for (const [index, fulfilmentId] of ['friday','monday'].entries()) {
+    const db = make();
+    const result = await updateStoreOrderFulfilment({ db, uid: 'owner-a', orderId: 'order-a', nextStatus: 'Completed', fulfilmentId });
+    assert.equal(result.fulfilmentStatus, index === 1 ? 'Completed' : 'New');
+    const patch = db.writes[0].data;
+    assert.equal('fulfilments' in patch, false); assert.equal('payment' in patch, false); assert.equal('total' in patch, false);
+    Object.assign(order, patch);
+  }
+  const db = make(); await updateStoreOrderFulfilment({ db, uid: 'owner-a', orderId: 'order-a', nextStatus: 'Completed', fulfilmentId: 'monday' });
+  assert.equal(db.writes.length, 0);
+});
+
+test('new daily delivery ready action cannot manually complete parent or change paid financial data', async () => {
+  const order = { ...weeklyOrder(), fulfilmentMethod: 'delivery', weeklyFulfilments: undefined,
+    fulfilments: [{ id: 'monday', method: 'delivery' }], fulfilmentCompletion: {}, fulfilmentOperations: {} };
+  const make = () => createFakeDb({ 'storeOrders/order-a': order, 'workspaces/workspace-a': { ownerId: 'owner-a' } });
+  const db = make(); await updateStoreOrderFulfilment({ db, uid: 'owner-a', orderId: 'order-a', nextStatus: 'Ready', fulfilmentId: 'monday' });
+  assert.equal(db.writes[0].data['fulfilmentOperations.monday.kitchenStatus'], 'Ready');
+  assert.equal('fulfilmentStatus' in db.writes[0].data, false);
+  await assert.rejects(updateStoreOrderFulfilment({ db: make(), uid: 'owner-a', orderId: 'order-a', nextStatus: 'Completed', fulfilmentId: 'monday' }));
+  await assert.rejects(updateStoreOrderFulfilment({ db: make(), uid: 'foreign', orderId: 'order-a', nextStatus: 'Ready', fulfilmentId: 'monday' }));
+});

@@ -104,7 +104,8 @@ export const updateStoreOrderFulfilment = async ({
   orderId,
   nextStatus,
   cancellationReason,
-  weeklyDay
+  weeklyDay,
+  fulfilmentId
 }) => {
   const normalizedOrderId = readString(orderId);
   const normalizedNextStatus = readString(nextStatus);
@@ -162,6 +163,26 @@ export const updateStoreOrderFulfilment = async ({
     ) {
       throw new HttpsError('failed-precondition', 'Confirm payment before processing this order.');
     }
+    if (Array.isArray(order.fulfilments)) {
+      const entry = order.fulfilments.find(entry => entry.id === fulfilmentId);
+      if (!entry || order.payment?.status !== 'paid' || currentStatus === 'Cancelled') throw new HttpsError('failed-precondition', 'Choose an active, paid fulfilment.');
+      const operation = order.fulfilmentOperations?.[entry.id] || {};
+      if (order.fulfilmentCompletion?.[entry.id]) return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
+      if (entry.method === 'delivery' && normalizedNextStatus !== 'Ready') throw new HttpsError('failed-precondition', 'Delivery completion must be confirmed by Lalamove.');
+      if (entry.method === 'pickup' && normalizedNextStatus !== 'Completed') throw new HttpsError('failed-precondition', 'Complete each pickup independently.');
+      if (entry.method === 'delivery') {
+        if (operation.kitchenStatus === 'Ready') return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
+        transaction.update(orderReference, { [`fulfilmentOperations.${entry.id}.kitchenStatus`]: 'Ready', updatedAt: FieldValue.serverTimestamp() });
+      } else {
+        const completion = { ...(order.fulfilmentCompletion || {}), [entry.id]: { completedAt: new Date().toISOString(), completedBy: uid } };
+        const complete = order.fulfilments.every(day => Boolean(completion[day.id]));
+        transaction.update(orderReference, { fulfilmentCompletion: completion,
+          ...(complete ? { fulfilmentStatus: 'Completed', completedAt: FieldValue.serverTimestamp() } : {}),
+          fulfilmentUpdatedAt: FieldValue.serverTimestamp(), fulfilmentUpdatedBy: uid, updatedAt: FieldValue.serverTimestamp() });
+      }
+      return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: normalizedNextStatus === 'Completed' && order.fulfilments.every(day => day.id === entry.id || order.fulfilmentCompletion?.[day.id]) ? 'Completed' : currentStatus, cancellationReason: '' };
+    }
+    if (fulfilmentId !== undefined) throw new HttpsError('invalid-argument', 'This order has no separate fulfilments.');
     if (Array.isArray(order.weeklyFulfilments)) {
       const day = readString(weeklyDay);
       const days = order.weeklyFulfilments;

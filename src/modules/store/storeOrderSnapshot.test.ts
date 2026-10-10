@@ -110,3 +110,11 @@ test('weekly item snapshots retain all five purchased meals without live catalog
   assert.notEqual(item.weeklyPlanSnapshot?.meals, meals);
   assert.equal(item.quantity, 1);
 });
+
+test('multi-fulfilment schedule reload preserves allocations, dates, times and methods', async () => {
+  const { normalizeOrderFulfilments } = await import('./storeOrderSnapshot');
+  const fulfilments = [{ id: 'day_20261012', method: 'delivery', date: '2026-10-12', time: '10:00', pickupLocationId: '', pickupLocationName: 'Kitchen', pickupLocationAddress: 'Kitchen address', allocations: [{ itemIndex: 0, quantity: 2, componentDay: 'mon' }] }];
+  const normalized = normalizeOrderFulfilments(JSON.parse(JSON.stringify(fulfilments)));
+  assert.deepEqual(normalized, fulfilments); assert.notEqual(normalized, fulfilments);
+  assert.equal(normalizeOrderFulfilments(undefined), undefined);
+});

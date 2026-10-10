@@ -481,17 +481,17 @@ export const dispatchStoreLalamoveDelivery = onCall({
   memory: '256MiB'
 }, async request => {
   const provider = createRuntimeLalamoveProvider();
-  return dispatchStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId });
+  return dispatchStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId });
 });
 
 export const refreshStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => {
   const provider = createRuntimeLalamoveProvider();
-  return refreshStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId });
+  return refreshStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId });
 });
 
 export const cancelStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => {
   const provider = createRuntimeLalamoveProvider();
-  return cancelStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId });
+  return cancelStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId });
 });
 
 // No webhook endpoint is enabled yet. Scheduled order-detail reconciliation is
@@ -778,7 +778,8 @@ export const updateStoreOrderStatus = onCall({
       orderId: request.data?.orderId,
       nextStatus: request.data?.nextStatus,
       cancellationReason: request.data?.cancellationReason,
-      weeklyDay: request.data?.weeklyDay
+      weeklyDay: request.data?.weeklyDay,
+      fulfilmentId: request.data?.fulfilmentId
     });
   } catch (error) {
     if (error instanceof HttpsError) throw error;

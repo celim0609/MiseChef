@@ -221,3 +221,96 @@ test('actual new-order writes remain queryable after Completed and Cancelled tra
     await deleteApp(app);
   }
 });
+
+test('multi-day pickup creates one financial order/payment and checkout retries reuse it', async () => {
+  const app = initializeApp({ projectId: 'demo-misechef-store-payment-rules' }, `multi-order-${process.pid}`);
+  const db = getFirestore(app); const workspaceId = `multi-order-${process.pid}`; const ownerId = `${workspaceId}-owner`;
+  const paymentMethod = { id: 'touch_n_go_qr', enabled: true, qrCodeUrl: 'data:image/png;base64,aA==', instructions: 'Upload proof.', name: 'Touch ’n Go eWallet', receiptAllowed: true };
+  const store = { workspaceId, slug: workspaceId, name: 'Multi Kitchen', country: 'MY', currency: 'MYR', pickupEnabled: true,
+    pickupOperatingHours: { start: '09:00', end: '18:00' }, pickupSessions: ['Breakfast'], pickupLocations: [{ id: 'counter', name: 'Counter', address: '', notes: '' }],
+    orderDays: ['monday','tuesday','wednesday','thursday','friday'], earliestPickupDays: 0, maximumAdvanceDays: 14, unavailableDates: [], paymentMethods: [paymentMethod] };
+  await db.collection('stores').doc(workspaceId).set(store);
+  await db.collection('workspaces').doc(workspaceId).set({ ownerId, subscriptionPlan: 'professional', subscriptionStatus: 'active' });
+  for (const day of ['mon','fri']) await db.collection('storeProducts').doc(`${workspaceId}-${day}`).set({ storeId: workspaceId, workspaceId, name: `${day} meal`, available: true, availableDay: day, price: 10, optionGroupIds: [] });
+  const adapter = createManualPaymentAdapter(paymentMethod); const originalCreate = adapter.createPayment; let paymentsCreated = 0;
+  adapter.createPayment = async (...args) => { paymentsCreated++; return originalCreate(...args); };
+  const draft = { checkoutAttemptId: '95b3c233-9fe4-4f03-9677-2774106b5201', paymentMethodId: paymentMethod.id, customerName: 'Guest', phone: '+60123456789', pickupDate: '2026-08-24', pickupTime: '10:00', pickupLocationId: 'counter', pickupSession: 'Breakfast', notes: '',
+    selections: [{ productId: `${workspaceId}-mon`, quantity: 2, selectedOptions: [] }, { productId: `${workspaceId}-fri`, quantity: 3, selectedOptions: [] }],
+    fulfilments: [{ date: '2026-08-24', time: '10:00', itemIndexes: [0] }, { date: '2026-08-28', time: '11:00', itemIndexes: [1] }] };
+  try {
+    const result = await createStorePayment({ db, adapter, slug: workspaceId, draft, now: NOW });
+    const replay = await createStorePayment({ db, adapter, slug: workspaceId, draft, now: NOW });
+    assert.equal(result.orderNumber, replay.orderNumber); assert.equal(paymentsCreated, 1);
+    const orders = await db.collection('storeOrders').where('storeId', '==', workspaceId).get();
+    assert.equal(orders.size, 1); const ref = orders.docs[0].ref; const order = orders.docs[0].data();
+    assert.equal(order.total, 50); assert.equal(order.items.length, 2); assert.equal(order.fulfilments.length, 2);
+    await ref.update({ 'payment.status': 'paid', status: 'Paid' });
+    await updateStoreOrderFulfilment({ db, uid: ownerId, orderId: ref.id, nextStatus: 'Completed', fulfilmentId: order.fulfilments[0].id });
+    assert.equal((await ref.get()).data().fulfilmentStatus, 'New');
+    await updateStoreOrderFulfilment({ db, uid: ownerId, orderId: ref.id, nextStatus: 'Completed', fulfilmentId: order.fulfilments[1].id });
+    const completed = (await ref.get()).data();
+    assert.equal(completed.fulfilmentStatus, 'Completed'); assert.deepEqual(completed.fulfilments, order.fulfilments); assert.equal(completed.total, 50);
+    const completion = completed.fulfilmentCompletion;
+    await updateStoreOrderFulfilment({ db, uid: ownerId, orderId: ref.id, nextStatus: 'Completed', fulfilmentId: order.fulfilments[0].id });
+    assert.deepEqual((await ref.get()).data().fulfilmentCompletion, completion);
+  } finally { await deleteApp(app); }
+});
+
+test('Weekly delivery persists one payment, five fulfilments and immutable first quote ×5 through dispatch completion', async () => {
+  const { createStoreDeliveryQuote, dispatchStoreDelivery, refreshStoreDelivery } = await import('../functions/storeDelivery.js');
+  // The unchanged payment boundary uses the Functions default Firestore app.
+  const app = initializeApp({ projectId: 'demo-misechef-store-payment-rules' });
+  const db = getFirestore(app); const workspaceId = `weekly-delivery-${process.pid}`; const ownerId = `${workspaceId}-owner`;
+  const now = new Date(); const monday = new Date(now.getTime() + 86400000);
+  while (monday.getUTCDay() !== 1) monday.setUTCDate(monday.getUTCDate() + 1);
+  const dates = Array.from({ length: 5 }, (_, index) => new Date(monday.getTime() + index * 86400000).toISOString().slice(0,10));
+  const days = ['mon','tue','wed','thu','fri'];
+  const paymentMethod = { id: 'touch_n_go_qr', enabled: true, qrCodeUrl: 'data:image/png;base64,aA==', instructions: 'Upload proof.', name: 'Touch ’n Go eWallet', receiptAllowed: true };
+  const pickup = { name: 'Kitchen', address: 'Kitchen address', latitude: '4.6', longitude: '101.1', contactName: 'Chef', contactPhoneE164: '+60123456789' };
+  const store = { workspaceId, slug: workspaceId, name: 'Weekly delivery kitchen', country: 'MY', currency: 'MYR', pickupEnabled: true,
+    pickupOperatingHours: { start: '09:00', end: '18:00' }, pickupLocations: [{ id: 'counter', name: 'Counter' }],
+    orderDays: ['monday','tuesday','wednesday','thursday','friday'], maximumAdvanceDays: 14, paymentMethods: [paymentMethod],
+    delivery: { enabled: true, provider: 'lalamove', environment: 'sandbox', market: 'MY', serviceType: 'MOTORCYCLE', pickup,
+      fulfilment: { preOrder: { enabled: true, orderDays: ['monday','tuesday','wednesday','thursday','friday'], maximumAdvanceDays: 14, earliestDays: 0, unavailableDates: [], deliveryHours: { from: '09:00', to: '18:00' } } } } };
+  await db.collection('stores').doc(workspaceId).set(store);
+  await db.collection('workspaces').doc(workspaceId).set({ ownerId, subscriptionPlan: 'professional', subscriptionStatus: 'active' });
+  for (const day of days) await db.collection('storeProducts').doc(`${workspaceId}-${day}`).set({ storeId: workspaceId, workspaceId, name: `${day} meal`, available: true, availableDay: day, price: 10, optionGroupIds: [] });
+  const planId = `${workspaceId}-plan`;
+  await db.collection('storeProducts').doc(planId).set({ storeId: workspaceId, workspaceId, name: 'Weekly Plan', productType: 'weekly_meal_plan', weeklyMeals: Object.fromEntries(days.map(day => [day, `${workspaceId}-${day}`])), available: true, price: 45, optionGroupIds: [] });
+  let quoteCount = 0; let dispatchCount = 0; let firstQuote;
+  const provider = { environment: 'sandbox', createQuote: async request => {
+    quoteCount++;
+    const quote = { quotationId: `quote-${quoteCount}`, expiresAt: new Date(Date.now()+300000).toISOString(), serviceType: 'MOTORCYCLE', priceBreakdown: { total: quoteCount === 1 ? 8.9 : 35, currency: 'MYR' }, stops: request.data.stops.map((stop,index) => ({ ...stop, stopId: `stop-${index}` })) };
+    firstQuote ||= quote; return quote;
+  }, retrieveQuote: async () => firstQuote,
+    createOrder: async request => { dispatchCount++; return { orderId: `provider-${request.data.metadata.misechefFulfilmentId}`, status: 'ASSIGNING_DRIVER' }; },
+    retrieveOrder: async ({ orderId }) => ({ orderId, status: 'COMPLETED', priceBreakdown: { total: 39, currency: 'MYR' } }) };
+  const draft = { checkoutAttemptId: '53b3c233-9fe4-4f03-9677-2774106b5202', paymentMethodId: paymentMethod.id, customerName: 'Guest', phone: '+60123456789', pickupLocationId: 'counter', fulfilmentMethod: 'delivery', fulfilmentMode: 'preorder',
+    selections: [{ productId: planId, quantity: 2, selectedOptions: [] }], fulfilments: dates.map((date,index) => ({ date, time: `${10+index}:00`, itemIndexes: [0] })),
+    destination: { formattedAddress: 'Customer address', latitude: '4.7', longitude: '101.2' } };
+  const adapter = createManualPaymentAdapter(paymentMethod); const originalCreate = adapter.createPayment; let paymentCount = 0;
+  adapter.createPayment = async (...args) => { paymentCount++; return originalCreate(...args); };
+  try {
+    const quote = await createStoreDeliveryQuote({ db, provider, slug: workspaceId, draft });
+    assert.equal(quoteCount, 1); assert.equal(quote.quote.customerDeliveryFee, 44.5);
+    const checkoutDraft = { ...draft, deliveryQuoteId: quote.quote.quotationId, deliveryPricingSnapshotId: quote.pricingSnapshotId };
+    const result = await createStorePayment({ db, adapter, deliveryProvider: provider, slug: workspaceId, draft: checkoutDraft, now });
+    const retry = await createStorePayment({ db, adapter, deliveryProvider: provider, slug: workspaceId, draft: checkoutDraft, now });
+    assert.equal(result.orderNumber, retry.orderNumber); assert.equal(paymentCount, 1); assert.equal(quoteCount, 1);
+    const orders = await db.collection('storeOrders').where('storeId', '==', workspaceId).get(); assert.equal(orders.size, 1);
+    const ref = orders.docs[0].ref; const initial = orders.docs[0].data();
+    assert.equal(initial.items.length, 1); assert.equal(initial.fulfilments.length, 5); assert.equal(initial.total, 134.5);
+    assert.equal(initial.deliveryPricingSnapshot.fulfilmentCount, 5); assert.equal(initial.deliveryPricingSnapshot.finalDeliveryTotal, 44.5);
+    await ref.update({ 'payment.status': 'paid', status: 'Paid' });
+    for (const [index, day] of initial.fulfilments.entries()) {
+      await updateStoreOrderFulfilment({ db, uid: ownerId, orderId: ref.id, nextStatus: 'Ready', fulfilmentId: day.id });
+      await Promise.all([dispatchStoreDelivery({ db, provider, uid: ownerId, orderId: ref.id, fulfilmentId: day.id }), dispatchStoreDelivery({ db, provider, uid: ownerId, orderId: ref.id, fulfilmentId: day.id })]);
+      await refreshStoreDelivery({ db, provider, uid: ownerId, orderId: ref.id, fulfilmentId: day.id });
+      const order = (await ref.get()).data();
+      assert.equal(order.fulfilmentStatus, index === 4 ? 'Completed' : 'New');
+      assert.equal(order.total, initial.total); assert.deepEqual(order.totals, initial.totals); assert.deepEqual(order.deliveryPricingSnapshot, initial.deliveryPricingSnapshot);
+      assert.equal(order.payment.amountMinor, initial.payment.amountMinor);
+    }
+    assert.equal(dispatchCount, 5); assert.equal(paymentCount, 1); assert.equal(quoteCount, 6); // One checkout quote plus five operational dispatch quotes.
+  } finally { await deleteApp(app); }
+});

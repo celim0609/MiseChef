@@ -696,3 +696,15 @@ test('Weekly schema rejects invalid references, nesting, options and unknown fie
   await assertFails(ownerA.firestore().doc('storeProducts/explicit-single').update({ weeklyMeals: weeklyRecord('x').weeklyMeals }));
   await assertFails(ownerA.firestore().doc('storeOrders/order-payment-a').update({ weeklyFulfilments: [], weeklyCompletion: { mon: { completedBy: 'owner-a' } } }));
 });
+
+test('multi-fulfilment snapshots, dispatch claims and frozen pricing remain server-owned', async () => {
+  for (const context of [ownerA, memberA, customerA]) {
+    for (const patch of [
+      { fulfilments: [{ id: 'day_20261012', date: '2026-10-12', time: '10:00', allocations: [{ itemIndex: 0, quantity: 1 }] }] },
+      { fulfilmentCompletion: { day_20261012: { completedBy: 'forged', completedAt: 'now' } } },
+      { fulfilmentOperations: { day_20261012: { dispatch: { status: 'created' }, providerOrder: { orderId: 'forged' } } } },
+      { deliveryPricingSnapshot: { firstDayFee: 0, fulfilmentCount: 0, finalDeliveryTotal: 0 } },
+      { activeFulfilmentDeliveries: false }
+    ]) await assertFails(context.firestore().doc(`storeOrders/${ORDER_A}`).update(patch));
+  }
+});

@@ -1,3 +1,4 @@
+import { publicOrderFulfilments } from './storeOrderFulfilments.js';
 import { publicWeeklyFulfilments } from './storeWeeklyMealPlan.js';
 import { HttpsError } from 'firebase-functions/v2/https';
 
@@ -47,6 +48,7 @@ const customerOrder = document => {
     promotionAdjustment: adjustments[index]
   })).filter(Boolean);
   return {
+    ...(data.fulfilments ? { fulfilments: publicOrderFulfilments(data) } : {}),
     ...(data.weeklyFulfilments ? { weeklyFulfilments: publicWeeklyFulfilments(data) } : {}),
     orderNumber: readString(data.orderNumber),
     orderDate: toIso(data.createdAt),

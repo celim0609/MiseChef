@@ -34,13 +34,13 @@ test('client date filtering and mixed-cart blocking reuse shared server validati
   assert.ok(weeklyCartError([{ productId: 'plan' }, { productId: 'single' }], [{ id: 'plan', productType: 'weekly_meal_plan' }]));
 });
 
-test('public and merchant UI wire the pickup-only weekly controls and daily completion guard', () => {
+test('public and merchant UI wire weekly schedule controls and preserve legacy daily completion', () => {
   const page = readFileSync(new URL('./PublicStorePage.tsx', import.meta.url), 'utf8');
   const editor = readFileSync(new URL('./StorePage.tsx', import.meta.url), 'utf8');
   const orders = readFileSync(new URL('./StoreOrdersPanel.tsx', import.meta.url), 'utf8');
   assert.match(editor, /aria-label="Product Type"/);
   assert.match(editor, /Select Single Product/);
-  assert.match(page, /!weeklyCartPlan && store.delivery\?\.enabled/);
+  assert.match(page, /store.delivery\?\.enabled/);
   assert.match(page, /Week starting Monday/);
   assert.match(page, /renderWeeklyMeals\(requestedProduct\)/);
   assert.match(page, /weeklyCheckoutError/);

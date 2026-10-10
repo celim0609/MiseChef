@@ -177,12 +177,12 @@ export default function StoreOrdersPanel({
     return order.fulfilmentStatus === activeFilter;
   }), [activeFilter, orders]);
 
-  const updateStatus = async (nextStatus: StoreFulfilmentStatus, weeklyDay?: string) => {
+  const updateStatus = async (nextStatus: StoreFulfilmentStatus, weeklyDay?: string, fulfilmentId?: string) => {
     if (!selectedOrder || isUpdating) return;
     setIsUpdating(true);
     setErrorMessage('');
     try {
-      await storeOrderService.updateFulfilment(selectedOrder.id, nextStatus, '', weeklyDay);
+      await storeOrderService.updateFulfilment(selectedOrder.id, nextStatus, '', weeklyDay, fulfilmentId);
       if (nextStatus === 'Completed' || nextStatus === 'Cancelled') {
         setHistoryRefreshKey(current => current + 1);
       }
@@ -213,21 +213,21 @@ export default function StoreOrdersPanel({
     }
   };
 
-  const dispatchDelivery = async (orderId: string) => {
+  const dispatchDelivery = async (orderId: string, fulfilmentId?: string) => {
     setErrorMessage('');
     setIsUpdating(true);
     try {
-      const result = await storeDeliveryService.dispatch(orderId);
+      const result = await storeDeliveryService.dispatch(orderId, fulfilmentId);
       if (result.status === 'dispatch_blocked_requote') setErrorMessage(`Dispatch blocked: refreshed fee exceeds the RM5 absorption limit by ${result.difference?.toFixed(2) || '0.00'}.`);
     } catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to dispatch delivery.'); } finally { setIsUpdating(false); }
   };
-  const cancelDelivery = async (orderId: string) => {
+  const cancelDelivery = async (orderId: string, fulfilmentId?: string) => {
     setErrorMessage(''); setIsUpdating(true);
-    try { await storeDeliveryService.cancel(orderId); } catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to cancel delivery.'); } finally { setIsUpdating(false); }
+    try { await storeDeliveryService.cancel(orderId, fulfilmentId); } catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to cancel delivery.'); } finally { setIsUpdating(false); }
   };
-  const refreshDelivery = async (orderId: string) => {
+  const refreshDelivery = async (orderId: string, fulfilmentId?: string) => {
     setErrorMessage(''); setIsUpdating(true);
-    try { await storeDeliveryService.refresh(orderId); } catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to refresh delivery.'); } finally { setIsUpdating(false); }
+    try { await storeDeliveryService.refresh(orderId, fulfilmentId); } catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to refresh delivery.'); } finally { setIsUpdating(false); }
   };
 
   // While this specific POS order is open, refresh at a bounded cadence. The
@@ -458,9 +458,24 @@ export default function StoreOrdersPanel({
                   <button type="button" disabled={isUpdating} onClick={() => reviewPayment('reject')} className="rounded-full bg-error/10 px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">Reject Payment</button>
                 </>
               )}
+              {selectedOrder.fulfilments && <section aria-label="Fulfilment schedule" className="w-full space-y-3">{selectedOrder.fulfilments.map(day => {
+                const operation = selectedOrder.fulfilmentOperations?.[day.id];
+                const complete = Boolean(selectedOrder.fulfilmentCompletion?.[day.id]);
+                const dispatchStatus = operation?.dispatch?.status || 'not_requested';
+                const canAct = canProcessOrders && selectedOrder.payment.status === 'paid' && !['Completed', 'Cancelled'].includes(selectedOrder.fulfilmentStatus);
+                return <div key={day.id} className="rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>{day.date} · {day.time} · {day.method} · {day.pickupLocationName}</p>{day.allocations.map((allocation, index) => { const item = selectedOrder.items[allocation.itemIndex]; const meal = allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(meal => meal.day === allocation.componentDay) : item; return <p key={index}>{allocation.quantity} × {meal?.productName}</p>; })}
+                  {complete ? <span>Completed</span> : canAct && (day.method === 'pickup' ? <button type="button" disabled={isUpdating} onClick={() => updateStatus('Completed', undefined, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">Complete {day.date}</button> : <div><p>{operation?.kitchenStatus || 'Scheduled'} · {dispatchStatus} · {operation?.lifecycle?.state || ''}</p>{operation?.providerOrder?.orderId && <p>Lalamove: {operation.providerOrder.orderId}</p>}
+                    {operation?.kitchenStatus !== 'Ready' && <button type="button" disabled={isUpdating} onClick={() => updateStatus('Ready', undefined, day.id)} className="m-2 rounded-full border px-4 py-2">Mark ready</button>}
+                    {operation?.kitchenStatus === 'Ready' && ['not_requested', 'failed'].includes(dispatchStatus) && <button type="button" disabled={isUpdating} onClick={() => dispatchDelivery(selectedOrder.id, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">Request Lalamove</button>}
+                    {['creating', 'created', 'outcome_unknown', 'cancel_requested'].includes(dispatchStatus) && <button type="button" disabled={isUpdating} onClick={() => refreshDelivery(selectedOrder.id, day.id)} className="m-2 rounded-full border px-4 py-2">Refresh dispatch</button>}
+                    {dispatchStatus === 'created' && <button type="button" disabled={isUpdating} onClick={() => cancelDelivery(selectedOrder.id, day.id)} className="m-2 rounded-full border px-4 py-2">Cancel dispatch</button>}
+                    {dispatchStatus === 'outcome_unknown' && <p role="alert">Provider submission outcome is uncertain. Reconcile the existing request before any replacement dispatch.</p>}
+                  </div>)}
+                </div>;
+              })}</section>}
               {selectedOrder.weeklyFulfilments && <section aria-label="Weekly Meal Plan schedule" className="w-full space-y-2">{selectedOrder.weeklyFulfilments.map(day => <div key={day.day} className="rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>{day.day.toUpperCase()} · {day.date} · {day.pickupTime} · {day.pickupLocationName}</p><p>{day.quantity} × {day.productName}</p>{selectedOrder.weeklyCompletion?.[day.day] ? <span>Completed</span> : canProcessOrders && selectedOrder.payment.status === 'paid' && !['Completed', 'Cancelled'].includes(selectedOrder.fulfilmentStatus) && <button type="button" disabled={isUpdating} onClick={() => updateStatus('Completed', day.day)} className="mt-2 rounded-full bg-primary px-4 py-2 text-on-primary disabled:opacity-50">Complete {day.day.toUpperCase()}</button>}</div>)}</section>}
               {canProcessOrders
-                && !selectedOrder.weeklyFulfilments
+                && !selectedOrder.weeklyFulfilments && !selectedOrder.fulfilments
                 && isOrderOperationallyEligible(selectedOrder)
                 && NEXT_STATUS[selectedOrder.fulfilmentStatus as StoreFulfilmentStatus] && (
                 <button
@@ -473,19 +488,19 @@ export default function StoreOrdersPanel({
                   Mark {NEXT_STATUS[selectedOrder.fulfilmentStatus as StoreFulfilmentStatus]}
                 </button>
               )}
-              {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && selectedOrder.delivery?.lifecycle?.state !== 'completed' && !['created', 'creating', 'provider_terminal', 'cancelled'].includes(selectedOrder.delivery?.dispatch?.status || '') && ((selectedOrder.delivery?.fulfilmentMode === 'instant' && ['Preparing', 'Ready'].includes(selectedOrder.fulfilmentStatus)) || (selectedOrder.delivery?.fulfilmentMode !== 'instant' && selectedOrder.fulfilmentStatus === 'Ready')) && (
+              {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && selectedOrder.delivery?.lifecycle?.state !== 'completed' && !['created', 'creating', 'provider_terminal', 'cancelled'].includes(selectedOrder.delivery?.dispatch?.status || '') && ((selectedOrder.delivery?.fulfilmentMode === 'instant' && ['Preparing', 'Ready'].includes(selectedOrder.fulfilmentStatus)) || (selectedOrder.delivery?.fulfilmentMode !== 'instant' && selectedOrder.fulfilmentStatus === 'Ready')) && (
                 <button type="button" disabled={isUpdating} onClick={() => dispatchDelivery(selectedOrder.id)} className="mt-3 w-full rounded-full bg-secondary px-5 py-3 font-sans text-xs font-extrabold text-on-secondary disabled:opacity-50">{selectedOrder.delivery?.fulfilmentMode === 'instant' ? 'Find Driver' : 'Request Lalamove delivery'}</button>
               )}
-              {selectedOrder.fulfilmentMethod === 'delivery' && <div className="mt-3 rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>Delivery: {deliveryLifecycleLabel(selectedOrder.delivery?.lifecycle?.state)}</p>{selectedOrder.delivery?.lifecycle?.state === 'assigning_driver' && deliveryElapsed(selectedOrder.delivery.lifecycle.history) && <p className="mt-1 text-xs">Searching for {deliveryElapsed(selectedOrder.delivery.lifecycle.history)}</p>}{selectedOrder.delivery?.providerOrder?.driver?.name && <p className="mt-1 text-xs">Driver: {selectedOrder.delivery.providerOrder.driver.name}{selectedOrder.delivery.providerOrder.driver.plateNumber ? ` · ${selectedOrder.delivery.providerOrder.driver.plateNumber}` : ''}</p>}{selectedOrder.delivery?.providerOrder?.driver?.phone && <p className="mt-1 text-xs">{selectedOrder.delivery.providerOrder.driver.phone}</p>}{selectedOrder.delivery?.providerOrder?.shareLink && <a className="mt-2 inline-block text-xs underline" href={selectedOrder.delivery.providerOrder.shareLink} target="_blank" rel="noreferrer">Track delivery</a>}{['expired', 'rejected', 'canceled'].includes(selectedOrder.delivery?.lifecycle?.state || '') && <p className="mt-2 text-xs">Merchant review required. A replacement is never created automatically.</p>}</div>}
-              {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && activeDeliveryLifecycle(selectedOrder.delivery?.lifecycle?.state) && <button type="button" disabled={isUpdating} onClick={() => refreshDelivery(selectedOrder.id)} className="mt-3 rounded-full border border-outline px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-50">Refresh delivery</button>}
-              {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && ['assigning_driver', 'driver_assigned'].includes(selectedOrder.delivery?.lifecycle?.state || '') && <button type="button" disabled={isUpdating} onClick={() => cancelDelivery(selectedOrder.id)} className="mt-3 rounded-full border border-error px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">Cancel Lalamove delivery</button>}
+              {selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && <div className="mt-3 rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>Delivery: {deliveryLifecycleLabel(selectedOrder.delivery?.lifecycle?.state)}</p>{selectedOrder.delivery?.lifecycle?.state === 'assigning_driver' && deliveryElapsed(selectedOrder.delivery.lifecycle.history) && <p className="mt-1 text-xs">Searching for {deliveryElapsed(selectedOrder.delivery.lifecycle.history)}</p>}{selectedOrder.delivery?.providerOrder?.driver?.name && <p className="mt-1 text-xs">Driver: {selectedOrder.delivery.providerOrder.driver.name}{selectedOrder.delivery.providerOrder.driver.plateNumber ? ` · ${selectedOrder.delivery.providerOrder.driver.plateNumber}` : ''}</p>}{selectedOrder.delivery?.providerOrder?.driver?.phone && <p className="mt-1 text-xs">{selectedOrder.delivery.providerOrder.driver.phone}</p>}{selectedOrder.delivery?.providerOrder?.shareLink && <a className="mt-2 inline-block text-xs underline" href={selectedOrder.delivery.providerOrder.shareLink} target="_blank" rel="noreferrer">Track delivery</a>}{['expired', 'rejected', 'canceled'].includes(selectedOrder.delivery?.lifecycle?.state || '') && <p className="mt-2 text-xs">Merchant review required. A replacement is never created automatically.</p>}</div>}
+              {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && activeDeliveryLifecycle(selectedOrder.delivery?.lifecycle?.state) && <button type="button" disabled={isUpdating} onClick={() => refreshDelivery(selectedOrder.id)} className="mt-3 rounded-full border border-outline px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-50">Refresh delivery</button>}
+              {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && ['assigning_driver', 'driver_assigned'].includes(selectedOrder.delivery?.lifecycle?.state || '') && <button type="button" disabled={isUpdating} onClick={() => cancelDelivery(selectedOrder.id)} className="mt-3 rounded-full border border-error px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">Cancel Lalamove delivery</button>}
               <WhatsAppCustomerButton
                 order={selectedOrder}
                 country={country}
                 storeName={storeName}
                 className="flex-1"
               />
-              {canProcessOrders && !selectedOrder.weeklyFulfilments && selectedOrder.payment.refundStatus === 'refunded'
+              {canProcessOrders && !selectedOrder.weeklyFulfilments && !selectedOrder.fulfilments && selectedOrder.payment.refundStatus === 'refunded'
                 && !['Completed', 'Cancelled'].includes(selectedOrder.fulfilmentStatus) && (
                 <button type="button" disabled={isUpdating} onClick={() => updateStatus('Cancelled')} className="rounded-full bg-error/10 px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">
                   Mark Cancelled

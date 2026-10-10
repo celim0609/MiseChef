@@ -1,3 +1,4 @@
+import { buildOrderFulfilments, publicOrderFulfilments } from './storeOrderFulfilments.js';
 import { buildWeeklyOrderDetails, isWeeklyMealPlan, publicWeeklyFulfilments } from './storeWeeklyMealPlan.js';
 import { cartAllowsFulfilmentDate, currentFulfilmentDate } from './storeProductAvailability.js';
 import { randomBytes } from 'node:crypto';
@@ -399,6 +400,8 @@ export const buildPendingOrder = ({
   draft,
   now = new Date()
 }) => {
+  const scheduled = buildOrderFulfilments({ store, draft, products, groupOrder, getDates: getValidPickupDates, getTimes: getPickupTimeSlots, now });
+  if (scheduled) draft = { ...draft, pickupDate: scheduled.fulfilments[0].date, pickupTime: scheduled.fulfilments[0].time };
   validateDraft(store, draft, now, Boolean(groupOrder));
   const region = REGIONS[readString(store.country)];
   if (!region || readString(store.currency) !== region.currency) {
@@ -411,16 +414,16 @@ export const buildPendingOrder = ({
     id: 'stripe',
     name: 'Secure online payment'
   };
-  const weekly = buildWeeklyOrderDetails({ store, draft, products, groupOrder, now, getDates: getValidPickupDates, getTimes: getPickupTimeSlots });
+  const weekly = scheduled ? null : buildWeeklyOrderDetails({ store, draft, products, groupOrder, now, getDates: getValidPickupDates, getTimes: getPickupTimeSlots });
   const items = buildOrderItems(draft.selections, products, optionGroups, sets);
-  if (weekly) items[0].weeklyPlanSnapshot = weekly.weeklyPlanSnapshot;
+  if (weekly || scheduled?.weeklyPlanSnapshot) items[0].weeklyPlanSnapshot = weekly?.weeklyPlanSnapshot || scheduled.weeklyPlanSnapshot;
   const fulfilmentDate = draft.deliverySnapshot
     ? (draft.deliverySnapshot?.fulfilmentMode === 'instant'
       ? currentFulfilmentDate(region.timeZone, now)
       : readString(draft.deliverySnapshot?.schedule?.date))
     : readString(draft.pickupDate);
-  if (!cartAllowsFulfilmentDate(draft.selections, products, fulfilmentDate)
-    || (draft.deliverySnapshot?.schedule && !cartAllowsFulfilmentDate(draft.selections, products, readString(draft.deliverySnapshot.schedule.date)))) {
+  if (!scheduled && (!cartAllowsFulfilmentDate(draft.selections, products, fulfilmentDate)
+    || (draft.deliverySnapshot?.schedule && !cartAllowsFulfilmentDate(draft.selections, products, readString(draft.deliverySnapshot.schedule.date))))) {
     throw new Error('Choose a fulfilment date matching the Available day of every meal in your cart.');
   }
   const pickupLocation = store.pickupLocations.find(
@@ -432,9 +435,11 @@ export const buildPendingOrder = ({
   const { merchandiseSubtotal, discountTotal, discountedMerchandiseTotal, promotionSnapshot } = promotionPricing;
   const providerDeliveryFee = draft.deliverySnapshot ? roundMoney(Math.max(0, readNumber(draft.deliverySnapshot.quote?.fee))) : 0;
   const subsidy = store.delivery?.subsidy || {};
-  const subsidyApplied = Boolean(draft.deliverySnapshot && subsidy.enabled === true && discountedMerchandiseTotal >= Math.max(0, readNumber(subsidy.minimumMerchandiseSpend)));
+  const subsidyApplied = Boolean(draft.deliverySnapshot && !(scheduled && scheduled.fulfilments.length > 1) && subsidy.enabled === true && discountedMerchandiseTotal >= Math.max(0, readNumber(subsidy.minimumMerchandiseSpend)));
   const deliveryFeeCap = roundMoney(Math.max(0, readNumber(subsidy.maximumCustomerDeliveryCharge)));
-  const deliveryFee = draft.deliverySnapshot ? (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee) : 0;
+  const fulfilmentCount = scheduled?.fulfilments.length || 1;
+  const firstDayFee = draft.deliverySnapshot ? (scheduled && fulfilmentCount > 1 ? providerDeliveryFee : (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee)) : 0;
+  const deliveryFee = scheduled ? roundMoney(firstDayFee * fulfilmentCount) : draft.deliverySnapshot ? (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee) : 0;
   const storeAbsorbedDeliveryFee = roundMoney(Math.max(providerDeliveryFee - deliveryFee, 0));
   const total = roundMoney(discountedMerchandiseTotal + deliveryFee);
   const amountMinor = Math.round(total * 100);
@@ -476,6 +481,7 @@ export const buildPendingOrder = ({
     pickupLocationNotes: readString(pickupLocation?.notes),
     notes: readString(draft.notes),
     items,
+    ...(scheduled ? { fulfilments: scheduled.fulfilments, fulfilmentCompletion: {}, fulfilmentOperations: {}, ...(draft.deliverySnapshot ? { deliveryPricingSnapshot: { firstQuote: draft.deliverySnapshot.quote, fulfilmentCount, firstDayFee, finalDeliveryTotal: deliveryFee } } : {}) } : {}),
     ...(weekly ? { weeklyFulfilments: weekly.weeklyFulfilments, weeklyCompletion: weekly.weeklyCompletion } : {}),
     itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
     totals: { merchandiseSubtotal, discountTotal, discountedMerchandiseTotal, deliveryFee, grandTotal: total, currency: region.currency },
@@ -561,6 +567,7 @@ export const toPublicPaymentOrderSummary = order => {
   });
   if (items.some(item => item === null)) return null;
   return {
+    ...(order.fulfilments ? { fulfilments: publicOrderFulfilments(order) } : {}),
     fulfilmentMethod,
     ...(fulfilmentMethod === 'pickup' ? {
       pickupDetails: {
@@ -582,6 +589,7 @@ export const toPublicPaymentOrderSummary = order => {
 };
 
 export const toPublicOrderResult = order => ({
+  ...(order.fulfilments ? { fulfilments: publicOrderFulfilments(order) } : {}),
   ...(order.weeklyFulfilments ? { weeklyFulfilments: publicWeeklyFulfilments(order) } : {}),
   orderNumber: readString(order.orderNumber),
   pickupCode: readString(order.pickupCode),

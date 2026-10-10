@@ -1,3 +1,20 @@
+export interface DraftFulfilment { date: string; time: string; itemIndexes: number[] }
+export interface OrderFulfilment {
+  id: string; method: 'pickup' | 'delivery'; date: string; time: string;
+  pickupLocationId: string; pickupLocationName: string; pickupLocationAddress: string;
+  allocations: Array<{ itemIndex: number; quantity: number; componentDay?: WeeklyDay }>;
+}
+export interface PublicOrderFulfilment {
+  id: string; method: 'pickup' | 'delivery'; date: string; time: string;
+  pickupLocationName: string; completed: boolean;
+  meals: Array<{ productName: string; quantity: number }>;
+}
+export interface FulfilmentOperation {
+  kitchenStatus?: string;
+  dispatch?: { status?: string; errorCode?: string; identity?: string };
+  lifecycle?: { state?: string; providerStatus?: string };
+  providerOrder?: { orderId?: string; status?: string; priceBreakdown?: Record<string, unknown> };
+}
 import type { RegionCode, RegionCurrency } from '../../regions';
 
 export type StorePaymentProviderId = string;
@@ -473,6 +490,9 @@ export interface StoreNotification {
 }
 
 export interface StoreOrder {
+  fulfilments?: OrderFulfilment[];
+  fulfilmentCompletion?: Record<string, { completedAt: string; completedBy: string }>;
+  fulfilmentOperations?: Record<string, FulfilmentOperation>;
   weeklyFulfilments?: WeeklyFulfilment[];
   weeklyCompletion?: Partial<Record<WeeklyDay, { completedAt: string; completedBy: string }>>;
   id: string;
@@ -570,6 +590,7 @@ export interface StoreOrder {
 }
 
 export interface CustomerStoreOrderSummary {
+  fulfilments?: PublicOrderFulfilment[];
   weeklyFulfilments?: PublicWeeklyFulfilment[];
   orderNumber: string;
   orderDate: string;
@@ -594,6 +615,7 @@ export interface CustomerStoreOrderSummary {
 }
 
 export interface StoreOrderDraft {
+  fulfilments?: DraftFulfilment[];
   /** Opaque client-generated idempotency key for one checkout submission. */
   checkoutAttemptId?: string;
   /** Meta in-app-browser hint; the server permits this POC only on Beta. */
@@ -667,6 +689,7 @@ export interface PublicOrderGroupContext {
 }
 
 export interface StorePaymentOrderSummary {
+  fulfilments?: PublicOrderFulfilment[];
   fulfilmentMethod: 'pickup' | 'delivery';
   /** Fulfilment values from the server-created pending-order snapshot. */
   pickupDetails?: {
@@ -696,6 +719,7 @@ export interface StorePaymentSession {
 }
 
 export interface PublicStoreOrderResult {
+  fulfilments?: PublicOrderFulfilment[];
   weeklyFulfilments?: PublicWeeklyFulfilment[];
   orderNumber: string;
   pickupCode: string;
