@@ -290,7 +290,16 @@ test('Group ownership, tenant values, reward configuration, and totals are serve
 
 test('Host Program settings have an isolated validated Firestore update path', () => {
   assert.match(rules, /function isValidStoreHostProgram\(value\)/);
-  assert.match(rules, /affectedKeys\(\)\.hasOnly\(\['hostProgram', 'updatedAt'\]\)[\s\S]*isValidStoreHostProgram\(request\.resource\.data\.hostProgram\)/);
+  const storeRules = rules.slice(rules.indexOf('match /stores/{workspaceId}'), rules.indexOf('match /storeSlugs/{slug}'));
+  const updateGuard = storeRules.match(/function canUpdateStoreSettings\(\) \{([\s\S]*?)\n      \}/)?.[1];
+  const isolatedUpdates = storeRules.match(/function isValidIsolatedStoreUpdate\(data, changedKeys\) \{([\s\S]*?)\n      \}/)?.[1];
+  assert.ok(updateGuard, 'Store update authorization helper must exist');
+  assert.ok(isolatedUpdates, 'Store isolated update validator must exist');
+  assert.match(storeRules, /allow update: if canUpdateStoreSettings\(\);/);
+  assert.match(updateGuard.replace(/\/\/[^\n]*/g, ''), /return hasActiveBusinessEntitlement\(workspaceId\)\s*&& isWorkspaceOwnerOrManager\(workspaceId\)\s*&& changedKeys\.hasOnly\(/);
+  assert.match(updateGuard, /let data = request\.resource\.data;\s*let changedKeys = data\.diff\(resource\.data\)\.affectedKeys\(\);/);
+  assert.match(updateGuard, /isValidIsolatedStoreUpdate\(data, changedKeys\)\s*\? true : isValidChangedStoreGroups\(data, changedKeys\)/);
+  assert.match(isolatedUpdates, /changedKeys\.hasOnly\(\['hostProgram', 'updatedAt'\]\)\s*\? isValidStoreHostProgram\(data\.hostProgram\) : false/);
   assert.match(rules, /value\.keys\(\)\.hasOnly\(\['enabled', 'rewardPercent', 'minimumQualifyingSales'\]\)/);
   assert.match(rules, /value\.rewardPercent >= 0[\s\S]*value\.rewardPercent <= 100/);
   assert.match(rules, /value\.minimumQualifyingSales >= 0/);
