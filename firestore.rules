@@ -1399,48 +1399,81 @@ service cloud.firestore {
         && request.resource.data.createdBy == request.auth.uid
         && existsAfter(/databases/$(database)/documents/storeSlugs/$(request.resource.data.slug))
         && getAfter(/databases/$(database)/documents/storeSlugs/$(request.resource.data.slug)).data.workspaceId == workspaceId;
-      allow update: if hasActiveBusinessEntitlement(workspaceId)
-        && isWorkspaceOwnerOrManager(workspaceId)
-        && ((request.resource.data.diff(resource.data).affectedKeys().hasOnly(['paymentMethods', 'updatedAt'])
-          && hasValidStorePaymentMethods(request.resource.data)) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['delivery', 'deliveryEnabled', 'updatedAt'])
-          && isValidStoreDelivery(request.resource.data.delivery)) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hostProgram', 'updatedAt'])
-          && isValidStoreHostProgram(request.resource.data.hostProgram)) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unavailableDates', 'updatedAt'])
-          && request.resource.data.unavailableDates is list
-          && request.resource.data.unavailableDates.size() <= 60) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pickupOperatingHours', 'updatedAt'])
-          && isValidPickupOperatingHours(request.resource.data.pickupOperatingHours)) || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pickupLocations', 'pickupSessions', 'pickupEnabled', 'updatedAt'])
-          && request.resource.data.pickupEnabled is bool
-          && request.resource.data.pickupSessions is list
-          && request.resource.data.pickupSessions.size() <= 20
-          && request.resource.data.pickupLocations is list
-          && request.resource.data.pickupLocations.size() <= 20
-          && request.resource.data.updatedAt is string) || (isValidStoreSettings(
-          request.resource.data,
-          workspaceId,
-          request.resource.data.diff(resource.data).affectedKeys().hasAny(['paymentMethods'])
-        )
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'name',
-          'logoUrl',
-          'coverImageUrl',
-          'description',
-          'contactInformation',
-          'businessWhatsApp',
-          'storeContact',
-          'businessHours',
-          'pickupEnabled',
-          'deliveryEnabled',
-          'delivery',
-          'pickupOperatingHours',
-          'pickupSessions',
-          'pickupLocations',
-          'orderDays',
-          'earliestPickupDays',
-          'maximumAdvanceDays',
-          'unavailableDates',
-          'paymentMethods',
-          'hostProgram',
-          'updatedAt'
-        ])));
+      function isValidStoreBrandingUpdate(data) {
+        return data.name is string && data.name.size() > 0 && data.name.size() <= 120
+          && data.logoUrl is string && data.coverImageUrl is string
+          && data.description is string && data.description.size() <= 1200;
+      }
+      function isValidStoreContactUpdate(data) {
+        return data.contactInformation is string && data.contactInformation.size() <= 500
+          && data.businessWhatsApp is string && data.businessWhatsApp.size() <= 30
+          && isValidStoreContact(data.storeContact)
+          && data.businessHours is string && data.businessHours.size() <= 300;
+      }
+      function isValidStoreBookingUpdate(data) {
+        return data.orderDays is list && data.orderDays.size() > 0 && data.orderDays.size() <= 7
+          && data.orderDays.hasOnly(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
+          && data.earliestPickupDays in [0, 1] && data.maximumAdvanceDays in [7, 14, 30]
+          && data.unavailableDates is list && data.unavailableDates.size() <= 60;
+      }
+      function isValidStorePickupUpdate(data) {
+        return data.pickupEnabled is bool
+          && data.pickupSessions is list && data.pickupSessions.size() <= 20
+          && data.pickupLocations is list && data.pickupLocations.size() <= 20
+          && ('pickupOperatingHours' in data ? isValidPickupOperatingHours(data.pickupOperatingHours) : true);
+      }
+      function isValidIsolatedStoreUpdate(data, changedKeys) {
+        // Keep the existing exceptions, including their legacy-data and updatedAt behavior.
+        return (changedKeys.hasOnly(['paymentMethods', 'updatedAt'])
+            ? hasValidStorePaymentMethods(data) : false)
+          || (changedKeys.hasOnly(['delivery', 'deliveryEnabled', 'updatedAt'])
+            ? ('delivery' in data ? isValidStoreDelivery(data.delivery) : false) : false)
+          || (changedKeys.hasOnly(['hostProgram', 'updatedAt'])
+            ? isValidStoreHostProgram(data.hostProgram) : false)
+          || (changedKeys.hasOnly(['unavailableDates', 'updatedAt'])
+            ? (data.unavailableDates is list && data.unavailableDates.size() <= 60) : false)
+          || (changedKeys.hasOnly(['pickupOperatingHours', 'updatedAt'])
+            ? ('pickupOperatingHours' in data ? isValidPickupOperatingHours(data.pickupOperatingHours) : false) : false)
+          || (changedKeys.hasOnly(['pickupLocations', 'pickupSessions', 'pickupEnabled', 'updatedAt'])
+            ? (data.pickupEnabled is bool
+              && data.pickupSessions is list && data.pickupSessions.size() <= 20
+              && data.pickupLocations is list && data.pickupLocations.size() <= 20
+              && data.updatedAt is string) : false);
+      }
+      function isValidChangedStoreGroups(data, changedKeys) {
+        return (changedKeys.hasAny(['name', 'logoUrl', 'coverImageUrl', 'description'])
+            ? isValidStoreBrandingUpdate(data) : true)
+          && (changedKeys.hasAny(['contactInformation', 'businessWhatsApp', 'storeContact', 'businessHours'])
+            ? isValidStoreContactUpdate(data) : true)
+          && (changedKeys.hasAny(['orderDays', 'earliestPickupDays', 'maximumAdvanceDays', 'unavailableDates'])
+            ? isValidStoreBookingUpdate(data) : true)
+          && (changedKeys.hasAny(['pickupEnabled', 'pickupSessions', 'pickupLocations', 'pickupOperatingHours'])
+            ? isValidStorePickupUpdate(data) : true)
+          && (changedKeys.hasAny(['delivery', 'deliveryEnabled'])
+            ? (data.deliveryEnabled is bool && ('delivery' in data ? isValidStoreDelivery(data.delivery) : true)) : true)
+          && (changedKeys.hasAny(['hostProgram']) ? isValidStoreHostProgram(data.hostProgram) : true)
+          && (changedKeys.hasAny(['paymentMethods']) ? hasValidStorePaymentMethods(data) : true)
+          && (changedKeys.hasAny(['updatedAt']) ? data.updatedAt is string : true);
+      }
+      function canUpdateStoreSettings() {
+        let data = request.resource.data;
+        let changedKeys = data.diff(resource.data).affectedKeys();
+        return hasActiveBusinessEntitlement(workspaceId)
+          && isWorkspaceOwnerOrManager(workspaceId)
+          // The existing mutable-field allowlist also protects identity, region and creation metadata.
+          && changedKeys.hasOnly([
+            'name', 'logoUrl', 'coverImageUrl', 'description', 'contactInformation', 'businessWhatsApp',
+            'storeContact', 'businessHours', 'pickupEnabled', 'deliveryEnabled', 'delivery',
+            'pickupOperatingHours', 'pickupSessions', 'pickupLocations', 'orderDays', 'earliestPickupDays',
+            'maximumAdvanceDays', 'unavailableDates', 'paymentMethods', 'hostProgram', 'updatedAt'
+          ])
+          && ((changedKeys.hasOnly(['updatedAt']) && ('updatedAt' in data && data.updatedAt is string)) ? true
+            : changedKeys.hasOnly(['paymentMethods', 'delivery', 'deliveryEnabled', 'hostProgram',
+              'unavailableDates', 'pickupOperatingHours', 'pickupLocations', 'pickupSessions', 'pickupEnabled', 'updatedAt'])
+            ? (isValidIsolatedStoreUpdate(data, changedKeys) ? true : isValidChangedStoreGroups(data, changedKeys))
+            : isValidChangedStoreGroups(data, changedKeys));
+      }
+      allow update: if canUpdateStoreSettings();
       allow delete: if false;
     }
 
