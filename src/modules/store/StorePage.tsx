@@ -51,6 +51,7 @@ import {
 import {
   createDefaultStoreDelivery,
   formatPickupDateLabel,
+  formatPickupTimeLabel,
   formatStoreOptionSelectionRequirement,
   STORE_PAYMENT_METHODS,
   STORE_ORDER_DAYS,
@@ -140,7 +141,7 @@ const toSettingsDraft = (store: WorkspaceStore): StoreSettingsDraft => ({
   pickupSessions: [...store.pickupSessions],
   pickupLocations: store.pickupLocations.map(location => ({ ...location })),
   orderDays: [...store.orderDays],
-  pickupOrderCutoffTime: store.pickupOrderCutoffTime || null,
+  orderCutoffTime: store.orderCutoffTime || null,
   earliestPickupDays: store.earliestPickupDays,
   maximumAdvanceDays: store.maximumAdvanceDays,
   unavailableDates: [...store.unavailableDates],
@@ -1423,6 +1424,16 @@ export default function StorePage({
 
       {activeView === 'settings' && (
         <form onSubmit={handlePickupSave} role="tabpanel" id="store-settings-panel-pickup-delivery" aria-labelledby="store-settings-tab-pickup-delivery" hidden={settingsTab !== 'pickup-delivery'} className="space-y-8">
+          <section aria-labelledby="order-timing-heading" className="rounded-3xl bg-white p-5 shadow-sm sm:p-6">
+            <h2 id="order-timing-heading" className="font-display text-2xl font-bold text-primary">Order timing</h2>
+              <label className="block">
+                <span className="font-sans text-xs font-extrabold text-primary">Order cut-off time</span>
+                <input type="time" aria-label="Order cut-off time" value={settingsDraft.orderCutoffTime || ''} onChange={event => updateSettings('orderCutoffTime', event.target.value || null)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
+                <button type="button" onClick={() => updateSettings('orderCutoffTime', null)} className="mt-2 text-xs font-bold text-primary">Clear cut-off time</button>
+              </label>
+            {settingsDraft.orderCutoffTime && <p className="mt-2 text-xs text-on-surface-variant">Orders placed after {formatPickupTimeLabel(settingsDraft.orderCutoffTime)} will start from the next available day for pickup or delivery.</p>}
+          </section>
+
           <section>
             <div>
               <h2 className="font-display text-2xl font-bold text-primary">Pickup operating hours</h2>
@@ -1466,7 +1477,7 @@ export default function StorePage({
             <div className="flex items-end justify-between gap-4">
               <div>
                 <h2 className="font-display text-2xl font-bold text-primary">Pickup Sessions</h2>
-                <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">When can customers collect?</p>
+                <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Optional labels for group order pickup times.</p>
               </div>
               <button type="button" onClick={() => updateSettings('pickupSessions', [...settingsDraft.pickupSessions, ''])} className="inline-flex shrink-0 items-center gap-2 rounded-full bg-white px-4 py-2.5 font-sans text-xs font-extrabold text-primary shadow-sm">
                 <Plus className="h-3.5 w-3.5" /> Add
@@ -1490,7 +1501,7 @@ export default function StorePage({
             </div>
             <div className="mt-5 space-y-6 rounded-3xl bg-white p-5 shadow-sm sm:p-6">
               <fieldset>
-                <legend className="font-sans text-xs font-extrabold text-primary">Order Days</legend>
+                <legend className="font-sans text-xs font-extrabold text-primary">Pickup days</legend>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {STORE_ORDER_DAYS.map(day => {
                     const isSelected = settingsDraft.orderDays.includes(day.id);
@@ -1527,11 +1538,7 @@ export default function StorePage({
                 </label>
               </div>
 
-              <label className="block">
-                <span className="font-sans text-xs font-extrabold text-primary">Order cut-off time</span>
-                <input type="time" aria-label="Order cut-off time" value={settingsDraft.pickupOrderCutoffTime || ''} onChange={event => updateSettings('pickupOrderCutoffTime', event.target.value || null)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
-                <button type="button" onClick={() => updateSettings('pickupOrderCutoffTime', null)} className="mt-2 text-xs font-bold text-primary">Clear cut-off time</button>
-              </label>
+
 
               <div>
                 <span className="font-sans text-xs font-extrabold text-primary">Unavailable Dates</span>
@@ -1704,24 +1711,32 @@ export default function StorePage({
           </fieldset>
           <section aria-label="Delivery settings" hidden={settingsTab !== 'pickup-delivery'} className="mt-8 rounded-3xl bg-surface-container-low p-5">
             <h2 className="font-display text-2xl font-bold text-primary">Delivery</h2>
-            <p className="mt-1 text-sm font-bold text-on-surface-variant">Lalamove configuration for this MiseChef environment. Credentials remain on the server.</p>
+            <p className="mt-1 text-sm font-bold text-on-surface-variant">Choose how customers receive their orders.</p>
             {(() => { const environment = resolveStoreDeliveryEnvironment(); const delivery = { ...(settingsDraft.delivery || createDefaultStoreDelivery(environment)), environment }; const environmentLabel = environment === 'production' ? 'Production only' : 'Sandbox only'; const update = (next: typeof delivery) => updateSettings('delivery', { ...next, environment }); return <div className="mt-4 grid gap-3 md:grid-cols-2">
               <label className="flex items-center gap-2 md:col-span-2"><input type="checkbox" checked={delivery.enabled} onChange={event => update({ ...delivery, enabled: event.target.checked })} /><span className="font-bold">Enable delivery</span></label>
-              <label><span className="text-xs font-bold">Provider</span><input disabled value="Lalamove" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
-              <label><span className="text-xs font-bold">Environment</span><input disabled value={environmentLabel} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <fieldset className="grid gap-3 md:col-span-2 md:grid-cols-2"><legend className="mb-3 text-sm font-bold">Delivery setup</legend>
               <label><span className="text-xs font-bold">Pickup location</span><select value={delivery.pickupLocationId} onChange={event => { const location = settingsDraft.pickupLocations.find(item => item.id === event.target.value); update({ ...delivery, pickupLocationId: event.target.value, pickup: { ...delivery.pickup, name: location?.name || delivery.pickup.name, address: location?.address || delivery.pickup.address } }); }} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold"><option value="">Choose existing location</option>{settingsDraft.pickupLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
-              <label><span className="text-xs font-bold">Lalamove service type</span><input value={delivery.serviceType} onChange={event => update({ ...delivery, serviceType: event.target.value })} placeholder="Select after City Info" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
-              <label className="md:col-span-2"><span className="text-xs font-bold">Pickup address</span><input value={delivery.pickup.address} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, address: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
-              <label><span className="text-xs font-bold">Latitude</span><input inputMode="decimal" value={delivery.pickup.latitude} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, latitude: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Longitude</span><input inputMode="decimal" value={delivery.pickup.longitude} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, longitude: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
-              <label><span className="text-xs font-bold">Sender name</span><input value={delivery.pickup.contactName} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, contactName: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Sender phone (E.164)</span><input value={delivery.pickup.contactPhoneE164} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, contactPhoneE164: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
-              <label className="flex items-center gap-2 md:col-span-2"><input type="checkbox" checked={delivery.subsidy.enabled} onChange={event => update({ ...delivery, subsidy: { ...delivery.subsidy, enabled: event.target.checked } })} /><span className="font-bold">Enable delivery subsidy</span></label>
-              <label><span className="text-xs font-bold">Minimum merchandise spend (MYR)</span><input type="number" min="0" step="0.01" value={delivery.subsidy.minimumMerchandiseSpend} onChange={event => update({ ...delivery, subsidy: { ...delivery.subsidy, minimumMerchandiseSpend: Number(event.target.value) } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Maximum customer delivery charge (MYR)</span><input type="number" min="0" step="0.01" value={delivery.subsidy.maximumCustomerDeliveryCharge} onChange={event => update({ ...delivery, subsidy: { ...delivery.subsidy, maximumCustomerDeliveryCharge: Number(event.target.value) } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              </fieldset>
+              <fieldset className="grid gap-3 md:col-span-2 md:grid-cols-2"><legend className="mb-3 text-sm font-bold">Customer delivery fee</legend>
+              <label className="flex items-center gap-2 md:col-span-2"><input type="checkbox" checked={delivery.subsidy.enabled} onChange={event => update({ ...delivery, subsidy: { ...delivery.subsidy, enabled: event.target.checked } })} /><span className="font-bold">Help customers pay for delivery</span></label>
+              <label><span className="text-xs font-bold">Minimum order total (MYR)</span><input type="number" min="0" step="0.01" value={delivery.subsidy.minimumMerchandiseSpend} onChange={event => update({ ...delivery, subsidy: { ...delivery.subsidy, minimumMerchandiseSpend: Number(event.target.value) } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Customer pays up to (MYR)</span><input type="number" min="0" step="0.01" value={delivery.subsidy.maximumCustomerDeliveryCharge} onChange={event => update({ ...delivery, subsidy: { ...delivery.subsidy, maximumCustomerDeliveryCharge: Number(event.target.value) } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              </fieldset>
+              <fieldset className="grid gap-3 md:col-span-2 md:grid-cols-2"><legend className="mb-3 text-sm font-bold">Delivery schedule</legend>
               <div className="rounded-xl bg-white p-3 text-sm font-bold md:col-span-2"><p>Pre-order delivery</p><label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={delivery.fulfilment.preOrder.enabled} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, enabled: event.target.checked } } })} />Enabled</label><p className="mt-3">Instant Delivery</p><label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={delivery.fulfilment.instant.enabled} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, instant: { ...delivery.fulfilment.instant, enabled: event.target.checked } } })} />Enabled</label>{delivery.fulfilment.instant.enabled && <div className="mt-3 grid gap-2 sm:grid-cols-3"><label><span className="text-xs">Starts</span><input type="time" value={delivery.fulfilment.instant.operatingHours.start} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, instant: { ...delivery.fulfilment.instant, operatingHours: { ...delivery.fulfilment.instant.operatingHours, start: event.target.value } } } })} className="mt-1 w-full rounded-lg bg-surface-container-low p-2" /></label><label><span className="text-xs">Ends</span><input type="time" value={delivery.fulfilment.instant.operatingHours.end} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, instant: { ...delivery.fulfilment.instant, operatingHours: { ...delivery.fulfilment.instant.operatingHours, end: event.target.value } } } })} className="mt-1 w-full rounded-lg bg-surface-container-low p-2" /></label><label><span className="text-xs">Preparation minutes</span><input type="number" min="0" max="180" value={delivery.fulfilment.instant.preparationMinutes} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, instant: { ...delivery.fulfilment.instant, preparationMinutes: Number(event.target.value) } } })} className="mt-1 w-full rounded-lg bg-surface-container-low p-2" /></label></div>}</div>
               <label><span className="text-xs font-bold">Delivery Hours — From</span><input type="time" value={delivery.fulfilment.preOrder.deliveryHours.from} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, deliveryHours: { ...delivery.fulfilment.preOrder.deliveryHours, from: event.target.value } } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Delivery Hours — To</span><input type="time" value={delivery.fulfilment.preOrder.deliveryHours.to} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, deliveryHours: { ...delivery.fulfilment.preOrder.deliveryHours, to: event.target.value } } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
               <label><span className="text-xs font-bold">Maximum Delivery Distance (km)</span><input type="number" min="1" max="500" value={delivery.fulfilment.preOrder.maximumDistanceKm} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, maximumDistanceKm: Number(event.target.value) } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
               <label><span className="text-xs font-bold">Earliest delivery</span><select value={delivery.fulfilment.preOrder.earliestDays} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, earliestDays: Number(event.target.value) as 0 | 1 } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold"><option value={0}>Same day allowed</option><option value={1}>From tomorrow</option></select></label><label><span className="text-xs font-bold">Maximum advance booking</span><select value={delivery.fulfilment.preOrder.maximumAdvanceDays} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, maximumAdvanceDays: Number(event.target.value) as 7 | 14 | 30 } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold"><option value={7}>7 days</option><option value={14}>14 days</option><option value={30}>30 days</option></select></label>
               <label className="md:col-span-2"><span className="text-xs font-bold">Unavailable delivery dates</span><input value={delivery.fulfilment.preOrder.unavailableDates.join(', ')} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, unavailableDates: event.target.value.split(',').map(value => value.trim()).filter(Boolean) } } })} placeholder="YYYY-MM-DD, YYYY-MM-DD" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              </fieldset>
+              <details className="md:col-span-2 rounded-xl bg-white p-4"><summary className="cursor-pointer text-sm font-bold">Advanced settings</summary><div className="mt-3 grid gap-3 md:grid-cols-2">
+              <label><span className="text-xs font-bold">Provider</span><input disabled value="Lalamove" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <label><span className="text-xs font-bold">Environment</span><input disabled value={environmentLabel} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <label><span className="text-xs font-bold">Lalamove service type</span><input value={delivery.serviceType} onChange={event => update({ ...delivery, serviceType: event.target.value })} placeholder="Select after City Info" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <label className="md:col-span-2"><span className="text-xs font-bold">Pickup address</span><input value={delivery.pickup.address} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, address: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <label><span className="text-xs font-bold">Latitude</span><input inputMode="decimal" value={delivery.pickup.latitude} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, latitude: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Longitude</span><input inputMode="decimal" value={delivery.pickup.longitude} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, longitude: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <label><span className="text-xs font-bold">Sender name</span><input value={delivery.pickup.contactName} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, contactName: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Sender phone (E.164)</span><input value={delivery.pickup.contactPhoneE164} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, contactPhoneE164: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
               <button type="button" onClick={() => storeDeliveryService.cityInfo(workspace.id).then(data => setDeliveryServiceKeys(data)).catch(error => setErrorMessage(error instanceof Error ? error.message : 'Unable to load City Info.'))} className="rounded-full bg-white px-4 py-2 text-xs font-bold text-primary">Load {environment === 'production' ? 'Production' : 'Sandbox'} City Info</button>{deliveryServiceKeys.length > 0 && <p className="self-center text-xs font-bold">Available keys: {deliveryServiceKeys.join(', ')}</p>}
+              </div></details>
             </div>; })()}
           </section>
           <div className="mt-7 flex justify-end">

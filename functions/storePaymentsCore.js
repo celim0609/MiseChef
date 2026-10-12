@@ -181,17 +181,23 @@ export const createAvailableOrderReference = async ({
   throw new Error('A customer order reference could not be allocated. Please try again.');
 };
 
+export const isAfterOrderCutoff = (store, currentDate = new Date()) => {
+  const cutoff = Object.prototype.hasOwnProperty.call(store, 'orderCutoffTime') ? store.orderCutoffTime : store.pickupOrderCutoffTime;
+  if (typeof cutoff !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(cutoff)) return false;
+  const region = REGIONS[readString(store.country)] || REGIONS.MY;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en', {
+    timeZone: region.timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  }).formatToParts(currentDate).map(part => [part.type, part.value]));
+  const seconds = Number(parts.hour) * 3600 + Number(parts.minute) * 60 + Number(parts.second) + currentDate.getUTCMilliseconds() / 1000;
+  return seconds > timeMinutes(cutoff) * 60;
+};
+
 export const getValidPickupDates = (store, currentDate = new Date()) => {
   const region = REGIONS[readString(store.country)] || REGIONS.MY;
   const today = toRegionDateCursor(currentDate, region.timeZone);
   const enabledDays = new Set(Array.isArray(store.orderDays) ? store.orderDays : ORDER_DAY_BY_INDEX);
   const blockedDates = new Set(Array.isArray(store.unavailableDates) ? store.unavailableDates : []);
-  const cutoff = store.pickupOrderCutoffTime;
-  const parts = Object.fromEntries(new Intl.DateTimeFormat('en', {
-    timeZone: region.timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
-  }).formatToParts(currentDate).map(part => [part.type, part.value]));
-  const seconds = Number(parts.hour) * 3600 + Number(parts.minute) * 60 + Number(parts.second) + currentDate.getUTCMilliseconds() / 1000;
-  const afterCutoff = typeof cutoff === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(cutoff) && seconds > timeMinutes(cutoff) * 60;
+  const afterCutoff = isAfterOrderCutoff(store, currentDate);
   const earliest = (store.earliestPickupDays === 1 ? 1 : 0) + (afterCutoff ? 1 : 0);
   const maximum = [7, 14, 30].includes(store.maximumAdvanceDays) ? store.maximumAdvanceDays : 14;
   const dates = [];
@@ -208,6 +214,7 @@ export const getValidPickupDates = (store, currentDate = new Date()) => {
 
 const validateDraft = (store, draft, currentDate, isLegacyGroupOrder = false) => {
   const isDelivery = readString(draft.fulfilmentMethod) === 'delivery';
+  if (isDelivery && draft.fulfilmentMode === 'instant' && isAfterOrderCutoff(store, currentDate)) throw new Error('Orders placed after the cut-off require a future delivery date.');
   if (!isDelivery && store.pickupEnabled !== true) throw new Error('Pickup ordering is not available.');
   if (!readString(draft.customerName)) throw new Error('Name is required.');
   if (readString(draft.customerName).length > 120) throw new Error('Name must be 120 characters or fewer.');

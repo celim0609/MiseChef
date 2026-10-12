@@ -2,7 +2,7 @@ import { canonicalSchedule, buildOrderFulfilments } from './storeOrderFulfilment
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { randomBytes, createHash } from 'node:crypto';
-import { buildOrderItems, getValidPickupDates, getPickupTimeSlots, readString } from './storePaymentsCore.js';
+import { buildOrderItems, getValidPickupDates, isAfterOrderCutoff, getPickupTimeSlots, readString } from './storePaymentsCore.js';
 import { loadStoreCheckoutData } from './storePayments.js';
 import { calculatePromotionPricing } from './storePromotionPricing.js';
 
@@ -45,22 +45,23 @@ const assertDeliveryEnvironment = ({ delivery, provider }) => {
   const environment = readString(delivery?.environment) || (readString(provider?.environment) === 'sandbox' ? 'sandbox' : '');
   if (!environment || environment !== readString(provider?.environment)) throw deliveryError('Delivery environment does not match this Firebase project.');
 };
-const validatePreOrderSchedule = (store, config, draft) => {
+export const validatePreOrderSchedule = (store, config, draft, now = new Date()) => {
   const preOrder = config.fulfilment?.preOrder || { enabled: true, orderDays: store.orderDays, earliestDays: store.earliestPickupDays, maximumAdvanceDays: store.maximumAdvanceDays, unavailableDates: store.unavailableDates, sessions: store.pickupSessions };
   if (preOrder.enabled !== true) throw deliveryError('Pre-order delivery is unavailable for this Store.');
   const deliveryDate = readString(draft?.deliveryDate);
   const deliveryTime = readString(draft?.deliveryTime);
-  const dates = getValidPickupDates({ country: store.country, orderDays: preOrder.orderDays, earliestPickupDays: preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates });
+  const dates = getValidPickupDates({ ...store, country: store.country, orderDays: preOrder.orderDays, earliestPickupDays: preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates }, now);
   if (!dates.includes(deliveryDate)) throw deliveryError('Choose an available delivery date.');
   const hours = preOrder.deliveryHours || { from: '00:00', to: '23:59' };
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(deliveryTime) || deliveryTime < readString(hours.from) || deliveryTime > readString(hours.to)) throw deliveryError('Choose a delivery time within the configured delivery hours.');
   return { mode: 'preorder', date: deliveryDate, time: deliveryTime, timeZone: 'Asia/Kuala_Lumpur' };
 };
-const validateInstantSchedule = (store, config) => {
+export const validateInstantSchedule = (store, config, now = new Date()) => {
+  if (isAfterOrderCutoff(store, now)) throw deliveryError('Orders placed after the cut-off require a future delivery date.');
   const instant = config.fulfilment?.instant || {};
   if (instant.enabled !== true) throw deliveryError('Instant delivery is unavailable for this Store. Choose Pre-order delivery.');
   const zone = readString(store.timeZone) || 'Asia/Kuala_Lumpur';
-  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: zone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now);
   const current = Number(parts.find(part => part.type === 'hour')?.value || 99) * 60 + Number(parts.find(part => part.type === 'minute')?.value || 99);
   const minutes = value => { const match = /^(\d\d):(\d\d)$/.exec(readString(value)); return match ? Number(match[1]) * 60 + Number(match[2]) : -1; };
   const start = minutes(instant.operatingHours?.start); const end = minutes(instant.operatingHours?.end);

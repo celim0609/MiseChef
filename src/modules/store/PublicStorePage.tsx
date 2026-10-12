@@ -38,6 +38,7 @@ import {
   formatStoreOptionSelectionRequirement,
   formatPickupDateLabel,
   formatPickupTimeLabel,
+  isAfterOrderCutoff,
   getStoreOptionSelectionLimits,
   getStorePaymentMethodLabel,
   getPickupTimeSlots,
@@ -304,7 +305,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
         setPickupSession(groupOrder?.pickupSession || storeData?.store.pickupSessions[0] || '');
         setPickupLocationId(groupOrder?.pickupLocationId || storeData?.store.pickupLocations[0]?.id || '');
         const preOrder = storeData?.store.delivery?.fulfilment.preOrder;
-        setDeliveryDate(storeData && preOrder ? getValidPickupDates({ ...storeData.store, pickupOrderCutoffTime: null, orderDays: preOrder.orderDays, earliestPickupDays: preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates })[0] || '' : '');
+        setDeliveryDate(storeData && preOrder ? getValidPickupDates({ ...storeData.store, orderDays: preOrder.orderDays, earliestPickupDays: preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates })[0] || '' : '');
         setDeliveryTime(preOrder?.deliveryHours.from || '');
         setPaymentMethodId(storeData?.store.paymentMethods.find(
           method => method.enabled && method.id !== 'cash_on_pickup'
@@ -791,12 +792,12 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     : getPickupTimeSlots(data.store, date) : [];
   const [pickupClock, setPickupClock] = useState(() => new Date());
   useEffect(() => {
-    if (!data?.store.pickupOrderCutoffTime) return;
+    if (!data?.store.orderCutoffTime) return;
     const refresh = () => setPickupClock(new Date());
     const timer = window.setInterval(refresh, 1000);
     window.addEventListener('focus', refresh);
     return () => { window.clearInterval(timer); window.removeEventListener('focus', refresh); };
-  }, [data?.store.pickupOrderCutoffTime]);
+  }, [data?.store.orderCutoffTime]);
   const validPickupDates = useMemo(
     () => data ? getValidPickupDates(data.store, pickupClock).filter(date => (multiScheduleEnabled || cartAllowsFulfilmentDate(cart, data.products, date)) && (!weeklyCartPlan || getWeeklyDates(date).length === 5)) : [],
     [data, cart, multiScheduleEnabled, pickupClock]
@@ -805,11 +806,18 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     () => data ? validPickupDates.filter(date => getPickupTimeSlots(data.store, date).length > 0) : [],
     [data, validPickupDates]
   );
+  const afterOrderCutoff = Boolean(data && isAfterOrderCutoff(data.store, pickupClock));
+  useEffect(() => {
+    if (afterOrderCutoff && deliveryMode === 'instant') {
+      setDeliveryMode('preorder');
+      if (!data?.store.delivery?.fulfilment.preOrder.enabled) setFulfilmentMethod('pickup');
+    }
+  }, [afterOrderCutoff, deliveryMode, data?.store.delivery?.fulfilment.preOrder.enabled]);
   const validDeliveryDates = useMemo(() => {
     const preOrder = data?.store.delivery?.fulfilment.preOrder;
-    return data && preOrder ? getValidPickupDates({ ...data.store, pickupOrderCutoffTime: null, orderDays: preOrder.orderDays, earliestPickupDays: preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates })
+    return data && preOrder ? getValidPickupDates({ ...data.store, orderDays: preOrder.orderDays, earliestPickupDays: preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates })
       .filter(date => (multiScheduleEnabled || cartAllowsFulfilmentDate(cart, data.products, date)) && (!weeklyCartPlan || getWeeklyDates(date).length === 5)) : [];
-  }, [data, cart, multiScheduleEnabled]);
+  }, [data, cart, multiScheduleEnabled, pickupClock]);
   useEffect(() => {
     if (!groupOrder && !pickupDatesWithTimes.includes(pickupDate)) {
       const nextDate = pickupDatesWithTimes[0] || '';
@@ -832,7 +840,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     ? (deliveryMode === 'instant' ? currentFulfilmentDate(getRegionConfiguration(data?.store.country).timeZone) : deliveryDate)
     : pickupDate;
   const scheduleDates = data ? (fulfilmentMethod === 'delivery'
-    ? getValidPickupDates({ ...data.store, pickupOrderCutoffTime: null, orderDays: data.store.delivery?.fulfilment.preOrder.orderDays, earliestPickupDays: data.store.delivery?.fulfilment.preOrder.earliestDays, maximumAdvanceDays: data.store.delivery?.fulfilment.preOrder.maximumAdvanceDays, unavailableDates: data.store.delivery?.fulfilment.preOrder.unavailableDates })
+    ? getValidPickupDates({ ...data.store, orderDays: data.store.delivery?.fulfilment.preOrder.orderDays, earliestPickupDays: data.store.delivery?.fulfilment.preOrder.earliestDays, maximumAdvanceDays: data.store.delivery?.fulfilment.preOrder.maximumAdvanceDays, unavailableDates: data.store.delivery?.fulfilment.preOrder.unavailableDates })
     : getValidPickupDates(data.store)) : [];
   const scheduleRows = multiScheduleEnabled ? (weeklyCartPlan ? WEEKLY_DAYS.map((day, index) => ({ key: `weekly_${day}`, itemIndex: 0, label: data?.products.find(product => product.id === weeklyCartPlan.weeklyMeals?.[day])?.name || day,
     dates: [getWeeklyDates(fulfilmentMethod === 'delivery' ? deliveryDate : pickupDate)[index]].filter(date => scheduleDates.includes(date)) }))
@@ -919,7 +927,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     setPickupSession(groupOrder?.pickupSession || store?.pickupSessions[0] || '');
     setPickupLocationId(groupOrder?.pickupLocationId || store?.pickupLocations[0]?.id || '');
     setDeliveryMode('preorder');
-    setDeliveryDate(store?.delivery?.fulfilment.preOrder.enabled ? getValidPickupDates({ ...store, pickupOrderCutoffTime: null, orderDays: store.delivery.fulfilment.preOrder.orderDays, earliestPickupDays: store.delivery.fulfilment.preOrder.earliestDays, maximumAdvanceDays: store.delivery.fulfilment.preOrder.maximumAdvanceDays, unavailableDates: store.delivery.fulfilment.preOrder.unavailableDates })[0] || '' : '');
+    setDeliveryDate(store?.delivery?.fulfilment.preOrder.enabled ? getValidPickupDates({ ...store, orderDays: store.delivery.fulfilment.preOrder.orderDays, earliestPickupDays: store.delivery.fulfilment.preOrder.earliestDays, maximumAdvanceDays: store.delivery.fulfilment.preOrder.maximumAdvanceDays, unavailableDates: store.delivery.fulfilment.preOrder.unavailableDates })[0] || '' : '');
     setDeliveryTime(store?.delivery?.fulfilment.preOrder.deliveryHours.from || '');
     invalidateDeliveryQuoteRequest();
     setDeliveryAddressQuery('');
@@ -1699,17 +1707,18 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
 
                 <section aria-labelledby="fulfilment-heading" className="order-1">
                   <h3 id="fulfilment-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup or delivery</h3>
+                {store.orderCutoffTime && <p className="mt-2 text-xs text-on-surface-variant">Orders placed after {formatPickupTimeLabel(store.orderCutoffTime)} will start from the next available day for pickup or delivery.</p>}
                   {!cartDateAllowed && <p role="alert" className="mt-2 font-sans text-sm font-bold text-error">{scheduleError || weeklyCheckoutError || 'Choose an available day for each meal.'}</p>}
                   <div className="mt-2 flex gap-2">
                     <button type="button" onClick={() => { setFulfilmentMethod('pickup'); setDeliveryQuote(null); setDeliveryPriceConfirmation(null); }} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${fulfilmentMethod === 'pickup' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Pickup</button>
-                    {store.delivery?.enabled && (store.delivery.fulfilment.preOrder.enabled || store.delivery.fulfilment.instant.enabled) && !groupOrder && <button type="button" onClick={() => { setFulfilmentMethod('delivery'); setDeliveryMode(!requiresMultipleDays && store.delivery?.fulfilment.instant.enabled && !store.delivery?.fulfilment.preOrder.enabled ? 'instant' : 'preorder'); setDeliveryPriceConfirmation(null); }} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${fulfilmentMethod === 'delivery' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Delivery</button>}
+                    {store.delivery?.enabled && (store.delivery.fulfilment.preOrder.enabled || store.delivery.fulfilment.instant.enabled) && !groupOrder && <button type="button" disabled={afterOrderCutoff && !store.delivery.fulfilment.preOrder.enabled} onClick={() => { setFulfilmentMethod('delivery'); setDeliveryMode(!requiresMultipleDays && store.delivery?.fulfilment.instant.enabled && !store.delivery?.fulfilment.preOrder.enabled ? 'instant' : 'preorder'); setDeliveryPriceConfirmation(null); }} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${fulfilmentMethod === 'delivery' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Delivery</button>}
                   </div>
                 </section>
 
                 {fulfilmentMethod === 'delivery' && <section aria-labelledby="delivery-details-heading" className="order-2">
                   <h3 id="delivery-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Delivery Details</h3>
                   <div className="mt-2 space-y-2">
-                    {!requiresMultipleDays && store.delivery.fulfilment.preOrder.enabled && store.delivery.fulfilment.instant.enabled && <div className="flex gap-2"><button type="button" onClick={() => { setDeliveryMode('instant'); setDeliveryQuote(null); setDeliveryPriceConfirmation(null); }} className={`rounded-xl px-4 py-2 text-sm font-bold ${deliveryMode === 'instant' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Deliver now</button><button type="button" onClick={() => { setDeliveryMode('preorder'); setDeliveryQuote(null); setDeliveryPriceConfirmation(null); }} className={`rounded-xl px-4 py-2 text-sm font-bold ${deliveryMode === 'preorder' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Pre-order</button></div>}
+                    {!requiresMultipleDays && store.delivery.fulfilment.preOrder.enabled && store.delivery.fulfilment.instant.enabled && <div className="flex gap-2"><button type="button" disabled={afterOrderCutoff} onClick={() => { setDeliveryMode('instant'); setDeliveryQuote(null); setDeliveryPriceConfirmation(null); }} className={`rounded-xl px-4 py-2 text-sm font-bold ${deliveryMode === 'instant' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Deliver now</button><button type="button" onClick={() => { setDeliveryMode('preorder'); setDeliveryQuote(null); setDeliveryPriceConfirmation(null); }} className={`rounded-xl px-4 py-2 text-sm font-bold ${deliveryMode === 'preorder' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Pre-order</button></div>}
                     {deliveryMode === 'preorder' && (!multiScheduleEnabled || weeklyCartPlan) && <><label className="block"><span className="font-sans text-xs font-extrabold text-primary">{weeklyCartPlan ? 'Week starting Monday' : 'Delivery date'}</span><select aria-label="Delivery date" value={deliveryDate} onChange={event => setDeliveryDate(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">{!validDeliveryDates.length && <option value="">No matching dates available</option>}{validDeliveryDates.map(date => <option key={date} value={date}>{formatPickupDateLabel(date, store.country)}</option>)}</select></label>{!multiScheduleEnabled && <label className="block"><span className="font-sans text-xs font-extrabold text-primary">Delivery time</span><input aria-label="Delivery time" type="time" min={store.delivery.fulfilment.preOrder.deliveryHours.from} max={store.delivery.fulfilment.preOrder.deliveryHours.to} value={deliveryTime} onChange={event => setDeliveryTime(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" /></label>}</>}
                     {!multiScheduleEnabled && store.delivery.subsidy.enabled && <p className="text-xs font-bold text-on-surface-variant">Spend {formatRegionCurrency(store.delivery.subsidy.minimumMerchandiseSpend, store.currency)} to enjoy delivery capped at {formatRegionCurrency(store.delivery.subsidy.maximumCustomerDeliveryCharge, store.currency)}.</p>}
                     <div className="relative">
@@ -1739,7 +1748,6 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
 
                 {fulfilmentMethod === 'pickup' && <section aria-labelledby="pickup-details-heading" className="order-2">
                   <h3 id="pickup-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup Details</h3>
-                  {store.pickupOrderCutoffTime && <p className="mt-2 text-xs text-on-surface-variant">Orders placed after {formatPickupTimeLabel(store.pickupOrderCutoffTime)} will start from the next available pickup day.</p>}
                   <div className="mt-2 space-y-2">
                     {(!multiScheduleEnabled || weeklyCartPlan) && <label className="block">
                       <span className="font-sans text-xs font-extrabold text-primary">{weeklyCartPlan ? 'Week starting Monday' : 'Date'}</span>

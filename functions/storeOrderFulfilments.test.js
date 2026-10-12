@@ -98,17 +98,22 @@ test('weekly delivery rejects different daily times and shifted weekdays while s
   const weeklyDraft = { ...draft, selections: [{ productId: 'plan', quantity: 2 }], fulfilments, fulfilmentMethod: 'delivery', fulfilmentMode: 'preorder' };
   const overrides = { products: [...products, plan], draft: weeklyDraft };
   assert.ok(build(overrides).fulfilments.every(entry => entry.time === '13:30'));
+  const cutoffStore = { ...store, orderCutoffTime: '18:00', delivery: { ...store.delivery, fulfilment: { ...store.delivery.fulfilment, preOrder: { ...store.delivery.fulfilment.preOrder, earliestDays: 1 } } } };
+  assert.ok(build({ ...overrides, store: cutoffStore, now: new Date('2026-07-26T10:00:00Z') }));
+  assert.throws(() => build({ ...overrides, store: cutoffStore, now: new Date('2026-07-26T10:00:01Z') }), /available fulfilment date/);
   assert.throws(() => build({ ...overrides, draft: { ...weeklyDraft, fulfilments: fulfilments.map((entry, i) => i === 3 ? { ...entry, time: '14:00' } : entry) } }), /one delivery time/);
   assert.throws(() => build({ ...overrides, draft: { ...weeklyDraft, fulfilments: fulfilments.map((entry, i) => ({ ...entry, date: ['2026-07-28','2026-07-29','2026-07-30','2026-07-31','2026-08-01'][i] })) } }), /starting Monday/);
   assert.throws(() => build({ draft: { ...draft, fulfilments: [{ ...schedule[0], date: '2026-07-28' }, schedule[1]] } }), /Available day/);
 });
 
 
-test('scheduled delivery ignores pickup cut-off while scheduled pickup enforces it', () => {
-  const cutoffStore = { ...store, earliestPickupDays: 1, pickupOrderCutoffTime: '18:00' };
+test('scheduled pickup and delivery both enforce the shared cut-off', () => {
+  const cutoffStore = { ...store, earliestPickupDays: 1, orderCutoffTime: '18:00' };
   const after = new Date('2026-07-26T10:00:01Z');
   assert.throws(() => build({ store: cutoffStore, now: after }), /available fulfilment date/);
   assert.throws(() => financial({ store: cutoffStore, now: after }), /available fulfilment date/);
   const deliveryDraft = { ...draft, fulfilmentMethod: 'delivery', fulfilmentMode: 'preorder', fulfilments: schedule.map(entry => ({ ...entry, time: '10:00' })) };
-  assert.deepEqual(build({ store: cutoffStore, draft: deliveryDraft, now: after }), build({ store: { ...cutoffStore, pickupOrderCutoffTime: null }, draft: deliveryDraft, now: after }));
+  const deliveryStore = { ...cutoffStore, delivery: { ...cutoffStore.delivery, fulfilment: { ...cutoffStore.delivery.fulfilment, preOrder: { ...cutoffStore.delivery.fulfilment.preOrder, earliestDays: 1 } } } };
+  assert.throws(() => build({ store: deliveryStore, draft: deliveryDraft, now: after }), /available fulfilment date/);
+  assert.ok(build({ store: { ...deliveryStore, orderCutoffTime: null }, draft: deliveryDraft, now: after }));
 });

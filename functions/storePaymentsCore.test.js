@@ -693,17 +693,25 @@ test('Weekly Meal Plan creates one priced item/payment and five immutable daily 
 
 
 test('pickup cut-off uses store clock, strict boundary, calendar offset and unchanged horizon', () => {
-  const store = { country: 'MY', orderDays: ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'], earliestPickupDays: 1, maximumAdvanceDays: 7, unavailableDates: [], pickupOrderCutoffTime: '18:00' };
+  const store = { country: 'MY', orderDays: ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'], earliestPickupDays: 1, maximumAdvanceDays: 7, unavailableDates: [], orderCutoffTime: '18:00' };
   assert.equal(getValidPickupDates(store, new Date('2026-10-12T09:59:59Z'))[0], '2026-10-13');
-  assert.equal(getValidPickupDates({ ...store, pickupOrderCutoffTime: '19:00' }, new Date('2026-10-12T10:30:00Z'))[0], '2026-10-13');
+  assert.equal(getValidPickupDates({ ...store, orderCutoffTime: '19:00' }, new Date('2026-10-12T10:30:00Z'))[0], '2026-10-13');
   const at = new Date('2026-10-12T10:00:00.000Z');
   assert.equal(getValidPickupDates(store, at)[0], '2026-10-13');
   const after = new Date('2026-10-12T10:00:00.001Z');
   assert.equal(getValidPickupDates(store, after)[0], '2026-10-14');
   assert.equal(getValidPickupDates(store, after).at(-1), '2026-10-19');
-  for (const disabled of [undefined, null, '']) assert.equal(getValidPickupDates({ ...store, pickupOrderCutoffTime: disabled }, after)[0], '2026-10-13');
+  for (const disabled of [undefined, null, '']) assert.equal(getValidPickupDates({ ...store, orderCutoffTime: disabled }, after)[0], '2026-10-13');
   assert.equal(getValidPickupDates(store, new Date('2026-10-12T16:00:00Z'))[0], '2026-10-14');
-  assert.equal(getValidPickupDates({ ...store, earliestPickupDays: 0, pickupOrderCutoffTime: '00:00' }, new Date('2026-10-12T16:00:00Z'))[0], '2026-10-13');
+  assert.equal(getValidPickupDates({ ...store, earliestPickupDays: 0, orderCutoffTime: '00:00' }, new Date('2026-10-12T16:00:00Z'))[0], '2026-10-13');
   assert.equal(getValidPickupDates({ ...store, unavailableDates: ['2026-10-14'], orderDays: ['friday'] }, after)[0], '2026-10-16');
   assert.deepEqual(getValidPickupDates({ ...store, orderDays: [] }, after), []);
+});
+
+
+test('raw Beta cut-off fallback applies until migrated and explicit null takes precedence', () => {
+  const legacy = { ...store, earliestPickupDays: 1, pickupOrderCutoffTime: '18:00' };
+  const after = new Date('2026-10-12T10:00:01Z');
+  assert.equal(getValidPickupDates(legacy, after)[0], '2026-10-14');
+  assert.equal(getValidPickupDates({ ...legacy, orderCutoffTime: null }, after)[0], '2026-10-13');
 });

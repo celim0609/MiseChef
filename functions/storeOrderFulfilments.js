@@ -39,7 +39,7 @@ export const buildOrderFulfilments = ({ store, draft, products, groupOrder, getD
   if (!delivery && draft.deliverySnapshot) throw new Error('Pickup fulfilments cannot include a delivery snapshot.');
   if (delivery && draft.fulfilmentMode === 'instant') throw new Error('Multiple fulfilments require pre-order delivery.');
   const preOrder = store.delivery?.fulfilment?.preOrder;
-  const dateStore = delivery ? { ...store, pickupOrderCutoffTime: null, orderDays: preOrder?.orderDays ?? store.orderDays,
+  const dateStore = delivery ? { ...store, orderDays: preOrder?.orderDays ?? store.orderDays,
     earliestPickupDays: preOrder?.earliestDays ?? store.earliestPickupDays,
     maximumAdvanceDays: preOrder?.maximumAdvanceDays ?? store.maximumAdvanceDays,
     unavailableDates: preOrder?.unavailableDates ?? store.unavailableDates } : store;

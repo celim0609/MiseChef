@@ -126,9 +126,9 @@ const completeStore = () => ({
 const resetCompleteStore = () => environment.withSecurityRulesDisabled(context =>
   context.firestore().doc(STORE_PATH).set(completeStore()));
 const settingsChanges = {
-  'Pickup cut-off': { pickupOrderCutoffTime: '18:00' },
-  'Cleared pickup cut-off': { pickupOrderCutoffTime: null },
-  'Empty pickup cut-off': { pickupOrderCutoffTime: '' },
+  'Pickup cut-off': { orderCutoffTime: '18:00' },
+  'Cleared pickup cut-off': { orderCutoffTime: null },
+  'Empty pickup cut-off': { orderCutoffTime: '' },
   'Earliest Pickup': { earliestPickupDays: 0 },
   'Maximum Advance Booking': { maximumAdvanceDays: 14 },
   'Order Days': { orderDays: ['monday', 'wednesday'] },
@@ -136,7 +136,7 @@ const settingsChanges = {
   'Pickup operating hours': { pickupOperatingHours: { start: '10:00', end: '17:00' } },
   'Delivery settings': { delivery: delivery({ maximumDistanceKm: 10, sessions: ['Morning'] }) },
   'combined Pickup & Delivery': {
-    pickupOrderCutoffTime: '18:00',
+    orderCutoffTime: '18:00',
     earliestPickupDays: 0, maximumAdvanceDays: 14, orderDays: ['monday', 'wednesday'],
     pickupOperatingHours: { start: '10:00', end: '17:00' },
     pickupSessions: ['Morning'], delivery: delivery({ maximumDistanceKm: 10, sessions: ['Morning'] })
@@ -169,7 +169,7 @@ for (const [label, changes] of Object.entries(settingsChanges)) {
 
 test('complete Store: invalid settings and protected fields remain denied', async () => {
   for (const changes of [
-    { pickupOrderCutoffTime: '24:00' }, { pickupOrderCutoffTime: 1800 }, { earliestPickupDays: 2 }, { maximumAdvanceDays: 365 }, { orderDays: ['holiday'] },
+    { orderCutoffTime: '24:00' }, { orderCutoffTime: 1800 }, { earliestPickupDays: 2 }, { maximumAdvanceDays: 365 }, { orderDays: ['holiday'] },
     { pickupOperatingHours: { start: '18:00', end: '09:00' } },
     { delivery: delivery({ maximumDistanceKm: 501, sessions: Array(21).fill('Morning') }) },
     { earliestPickupDays: 0, delivery: delivery({ maximumDistanceKm: 501, sessions: Array(21).fill('Morning') }) },
@@ -199,7 +199,7 @@ test('complete Store: unrelated updates tolerate unchanged invalid legacy fields
 
 test('mixed groups reject invalid Pickup even when Delivery is valid', async () => {
   for (const invalid of [
-    { pickupOrderCutoffTime: '24:00' }, { pickupOrderCutoffTime: 1800 }, { earliestPickupDays: 2 }, { maximumAdvanceDays: 365 }, { orderDays: ['holiday'] },
+    { orderCutoffTime: '24:00' }, { orderCutoffTime: 1800 }, { earliestPickupDays: 2 }, { maximumAdvanceDays: 365 }, { orderDays: ['holiday'] },
     { pickupEnabled: 'yes' }, { pickupSessions: Array(21).fill('Morning') },
     { pickupLocations: Array(21).fill({ id: 'a' }) },
     { pickupOperatingHours: { start: '18:00', end: '09:00' } }
@@ -296,4 +296,22 @@ test('inactive Manager and inactive business entitlement remain denied', async (
   await assertFails(owner.firestore().doc(STORE_PATH).update({ earliestPickupDays: 0 }));
   await environment.withSecurityRulesDisabled(context => context.firestore().doc(`workspaces/${WORKSPACE_ID}`)
     .update({ subscriptionStatus: 'active' }));
+});
+
+
+test('legacy Beta cutoff migrates with combined settings and cannot be recreated', async () => {
+  await environment.withSecurityRulesDisabled(context => context.firestore()
+    .doc(`workspaceMembers/${WORKSPACE_ID}_manager-a`)
+    .set({ workspaceId: WORKSPACE_ID, userId: 'manager-a', role: 'Manager', status: 'Active' }));
+  for (const actor of [owner, environment.authenticatedContext('manager-a', { email: 'manager-a@example.test' })]) {
+    await resetCompleteStore();
+    await environment.withSecurityRulesDisabled(context => context.firestore().doc(STORE_PATH).update({ pickupOrderCutoffTime: '18:00' }));
+    await assertSucceeds(actor.firestore().doc(STORE_PATH).update({
+      ...settingsChanges['combined Pickup & Delivery'],
+      orderCutoffTime: '18:00', pickupOrderCutoffTime: firebase.firestore.FieldValue.delete()
+    }));
+    await assertFails(actor.firestore().doc(STORE_PATH).update({ pickupOrderCutoffTime: '19:00' }));
+    await assertSucceeds(actor.firestore().doc(STORE_PATH).update({ orderCutoffTime: null }));
+    await assertSucceeds(actor.firestore().doc(STORE_PATH).update({ orderCutoffTime: firebase.firestore.FieldValue.delete() }));
+  }
 });

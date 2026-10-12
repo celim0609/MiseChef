@@ -201,7 +201,7 @@ export const storeService = {
         notes: location.notes.trim()
       })),
       orderDays: [...draft.orderDays],
-      pickupOrderCutoffTime: draft.pickupOrderCutoffTime || null,
+      orderCutoffTime: draft.orderCutoffTime || null,
       earliestPickupDays: draft.earliestPickupDays,
       maximumAdvanceDays: draft.maximumAdvanceDays,
       unavailableDates: [...new Set(draft.unavailableDates)].sort(),
@@ -218,6 +218,9 @@ export const storeService = {
       store,
       updatedStore
     );
+    if (Object.prototype.hasOwnProperty.call(persistedSnapshot.data(), 'pickupOrderCutoffTime')) {
+      changedFields.pickupOrderCutoffTime = deleteField();
+    }
     if (Object.keys(changedFields).length > 0) {
       await setDoc(storeRef, removeUndefinedFields(changedFields), { merge: true });
     }

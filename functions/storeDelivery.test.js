@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { assertFutureLalamoveSchedule, buildLalamoveQuoteRequest, providerRoutingDestination, quoteMatchesDestination, sameDeliveryCoordinates } from './storeDelivery.js';
+import { validatePreOrderSchedule, validateInstantSchedule, assertFutureLalamoveSchedule, buildLalamoveQuoteRequest, providerRoutingDestination, quoteMatchesDestination, sameDeliveryCoordinates } from './storeDelivery.js';
 
 const source = readFileSync(new URL('./storeDelivery.js', import.meta.url), 'utf8');
 const payments = readFileSync(new URL('./storePayments.js', import.meta.url), 'utf8');
@@ -420,4 +420,21 @@ test('an immediate terminal provider response still records daily completion tra
   assert.equal(order.fulfilmentCompletion.day_0.completedBy, 'lalamove');
   assert.equal(order.fulfilmentStatus, 'New');
   assert.equal(order.fulfilmentOperations.day_0.dispatch.status, 'completed');
+});
+
+
+test('delivery scheduling enforces shared cut-off, calendar filters and fixed horizon', () => {
+  const config = { fulfilment: { preOrder: { enabled: true, orderDays: ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'], earliestDays: 1, maximumAdvanceDays: 7, unavailableDates: ['2026-10-14'], deliveryHours: { from: '09:00', to: '21:00' } }, instant: { enabled: true, operatingHours: { start: '09:00', end: '21:00' } } } };
+  const store = { country: 'MY', orderCutoffTime: '18:00' };
+  const draft = { deliveryDate: '2026-10-13', deliveryTime: '12:00' };
+  const at = new Date('2026-10-12T10:00:00Z');
+  const after = new Date('2026-10-12T10:00:00.001Z');
+  assert.equal(validatePreOrderSchedule(store, config, draft, at).date, draft.deliveryDate);
+  assert.throws(() => validatePreOrderSchedule(store, config, draft, after), /available delivery date/);
+  assert.throws(() => validatePreOrderSchedule(store, config, { ...draft, deliveryDate: '2026-10-14' }, after), /available delivery date/);
+  assert.equal(validatePreOrderSchedule(store, config, { ...draft, deliveryDate: '2026-10-15' }, after).date, '2026-10-15');
+  assert.throws(() => validatePreOrderSchedule(store, config, { ...draft, deliveryDate: '2026-10-20' }, after), /available delivery date/);
+  assert.deepEqual(validateInstantSchedule(store, config, at), { mode: 'instant' });
+  assert.throws(() => validateInstantSchedule(store, config, after), /future delivery date/);
+  assert.deepEqual(validateInstantSchedule({ ...store, orderCutoffTime: null }, config, after), { mode: 'instant' });
 });
