@@ -376,6 +376,11 @@ service cloud.firestore {
         ));
     }
 
+    function isValidPickupOrderCutoffTime(data) {
+      let cutoff = data.get('pickupOrderCutoffTime', null);
+      return cutoff == null || (cutoff is string && cutoff.matches('^$|^([01][0-9]|2[0-3]):[0-5][0-9]$'));
+    }
+
     function hasValidStoreSettingsKeys(data) {
       return data.keys().hasOnly([
           'id',
@@ -396,6 +401,7 @@ service cloud.firestore {
           'pickupSessions',
           'pickupLocations',
           'orderDays',
+          'pickupOrderCutoffTime',
           'earliestPickupDays',
           'maximumAdvanceDays',
           'unavailableDates',
@@ -470,6 +476,7 @@ service cloud.firestore {
           'saturday',
           'sunday'
         ])
+        && isValidPickupOrderCutoffTime(data)
         && data.earliestPickupDays in [0, 1]
         && data.maximumAdvanceDays in [7, 14, 30]
         && data.unavailableDates is list
@@ -1413,6 +1420,7 @@ service cloud.firestore {
       function isValidStoreBookingUpdate(data) {
         return data.orderDays is list && data.orderDays.size() > 0 && data.orderDays.size() <= 7
           && data.orderDays.hasOnly(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
+          && isValidPickupOrderCutoffTime(data)
           && data.earliestPickupDays in [0, 1] && data.maximumAdvanceDays in [7, 14, 30]
           && data.unavailableDates is list && data.unavailableDates.size() <= 60;
       }
@@ -1445,7 +1453,8 @@ service cloud.firestore {
             ? isValidStoreBrandingUpdate(data) : true)
           && (changedKeys.hasAny(['contactInformation', 'businessWhatsApp', 'storeContact', 'businessHours'])
             ? isValidStoreContactUpdate(data) : true)
-          && (changedKeys.hasAny(['orderDays', 'earliestPickupDays', 'maximumAdvanceDays', 'unavailableDates'])
+          // Booking changes cannot use isolated exceptions; skip that routing to stay within the rules expression budget.
+          && (changedKeys.hasAny(['orderDays', 'pickupOrderCutoffTime', 'earliestPickupDays', 'maximumAdvanceDays', 'unavailableDates'])
             ? isValidStoreBookingUpdate(data) : true)
           && (changedKeys.hasAny(['pickupEnabled', 'pickupSessions', 'pickupLocations', 'pickupOperatingHours'])
             ? isValidStorePickupUpdate(data) : true)
@@ -1464,14 +1473,17 @@ service cloud.firestore {
           && changedKeys.hasOnly([
             'name', 'logoUrl', 'coverImageUrl', 'description', 'contactInformation', 'businessWhatsApp',
             'storeContact', 'businessHours', 'pickupEnabled', 'deliveryEnabled', 'delivery',
-            'pickupOperatingHours', 'pickupSessions', 'pickupLocations', 'orderDays', 'earliestPickupDays',
+            'pickupOperatingHours', 'pickupSessions', 'pickupLocations', 'orderDays', 'pickupOrderCutoffTime', 'earliestPickupDays',
             'maximumAdvanceDays', 'unavailableDates', 'paymentMethods', 'hostProgram', 'updatedAt'
           ])
-          && ((changedKeys.hasOnly(['updatedAt']) && ('updatedAt' in data && data.updatedAt is string)) ? true
+          // Booking changes cannot use isolated exceptions; skip that routing to stay within the rules expression budget.
+          && (changedKeys.hasAny(['orderDays', 'earliestPickupDays', 'maximumAdvanceDays', 'pickupOrderCutoffTime'])
+            ? isValidChangedStoreGroups(data, changedKeys)
+            : ((changedKeys.hasOnly(['updatedAt']) && ('updatedAt' in data && data.updatedAt is string)) ? true
             : changedKeys.hasOnly(['paymentMethods', 'delivery', 'deliveryEnabled', 'hostProgram',
               'unavailableDates', 'pickupOperatingHours', 'pickupLocations', 'pickupSessions', 'pickupEnabled', 'updatedAt'])
             ? (isValidIsolatedStoreUpdate(data, changedKeys) ? true : isValidChangedStoreGroups(data, changedKeys))
-            : isValidChangedStoreGroups(data, changedKeys));
+            : isValidChangedStoreGroups(data, changedKeys)));
       }
       allow update: if canUpdateStoreSettings();
       allow delete: if false;

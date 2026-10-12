@@ -102,3 +102,13 @@ test('weekly delivery rejects different daily times and shifted weekdays while s
   assert.throws(() => build({ ...overrides, draft: { ...weeklyDraft, fulfilments: fulfilments.map((entry, i) => ({ ...entry, date: ['2026-07-28','2026-07-29','2026-07-30','2026-07-31','2026-08-01'][i] })) } }), /starting Monday/);
   assert.throws(() => build({ draft: { ...draft, fulfilments: [{ ...schedule[0], date: '2026-07-28' }, schedule[1]] } }), /Available day/);
 });
+
+
+test('scheduled delivery ignores pickup cut-off while scheduled pickup enforces it', () => {
+  const cutoffStore = { ...store, earliestPickupDays: 1, pickupOrderCutoffTime: '18:00' };
+  const after = new Date('2026-07-26T10:00:01Z');
+  assert.throws(() => build({ store: cutoffStore, now: after }), /available fulfilment date/);
+  assert.throws(() => financial({ store: cutoffStore, now: after }), /available fulfilment date/);
+  const deliveryDraft = { ...draft, fulfilmentMethod: 'delivery', fulfilmentMode: 'preorder', fulfilments: schedule.map(entry => ({ ...entry, time: '10:00' })) };
+  assert.deepEqual(build({ store: cutoffStore, draft: deliveryDraft, now: after }), build({ store: { ...cutoffStore, pickupOrderCutoffTime: null }, draft: deliveryDraft, now: after }));
+});

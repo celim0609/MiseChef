@@ -86,3 +86,10 @@ test('weekly mapping overrides standalone weekday while one delivery time covers
   }
   assert.throws(() => buildWeeklyDeliverySchedule('2026-07-28', '10:00'), /Monday/);
 });
+
+
+test('weekly pickup excludes a Monday moved behind the cut-off', () => {
+  const cutoffStore = { country: 'MY', orderDays: ['monday','tuesday','wednesday','thursday','friday'], earliestPickupDays: 1, maximumAdvanceDays: 14, unavailableDates: [], pickupOrderCutoffTime: '18:00', pickupOperatingHours: { start: '10:00', end: '18:00' } };
+  assert.ok(getWeeklyPickupTimes(cutoffStore, '2026-10-12', getValidPickupDates, getPickupTimeSlots, new Date('2026-10-11T10:00:00Z')).length);
+  assert.deepEqual(getWeeklyPickupTimes(cutoffStore, '2026-10-12', getValidPickupDates, getPickupTimeSlots, new Date('2026-10-11T10:00:01Z')), []);
+});

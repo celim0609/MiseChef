@@ -126,6 +126,9 @@ const completeStore = () => ({
 const resetCompleteStore = () => environment.withSecurityRulesDisabled(context =>
   context.firestore().doc(STORE_PATH).set(completeStore()));
 const settingsChanges = {
+  'Pickup cut-off': { pickupOrderCutoffTime: '18:00' },
+  'Cleared pickup cut-off': { pickupOrderCutoffTime: null },
+  'Empty pickup cut-off': { pickupOrderCutoffTime: '' },
   'Earliest Pickup': { earliestPickupDays: 0 },
   'Maximum Advance Booking': { maximumAdvanceDays: 14 },
   'Order Days': { orderDays: ['monday', 'wednesday'] },
@@ -133,6 +136,7 @@ const settingsChanges = {
   'Pickup operating hours': { pickupOperatingHours: { start: '10:00', end: '17:00' } },
   'Delivery settings': { delivery: delivery({ maximumDistanceKm: 10, sessions: ['Morning'] }) },
   'combined Pickup & Delivery': {
+    pickupOrderCutoffTime: '18:00',
     earliestPickupDays: 0, maximumAdvanceDays: 14, orderDays: ['monday', 'wednesday'],
     pickupOperatingHours: { start: '10:00', end: '17:00' },
     pickupSessions: ['Morning'], delivery: delivery({ maximumDistanceKm: 10, sessions: ['Morning'] })
@@ -165,7 +169,7 @@ for (const [label, changes] of Object.entries(settingsChanges)) {
 
 test('complete Store: invalid settings and protected fields remain denied', async () => {
   for (const changes of [
-    { earliestPickupDays: 2 }, { maximumAdvanceDays: 365 }, { orderDays: ['holiday'] },
+    { pickupOrderCutoffTime: '24:00' }, { pickupOrderCutoffTime: 1800 }, { earliestPickupDays: 2 }, { maximumAdvanceDays: 365 }, { orderDays: ['holiday'] },
     { pickupOperatingHours: { start: '18:00', end: '09:00' } },
     { delivery: delivery({ maximumDistanceKm: 501, sessions: Array(21).fill('Morning') }) },
     { earliestPickupDays: 0, delivery: delivery({ maximumDistanceKm: 501, sessions: Array(21).fill('Morning') }) },
@@ -195,7 +199,7 @@ test('complete Store: unrelated updates tolerate unchanged invalid legacy fields
 
 test('mixed groups reject invalid Pickup even when Delivery is valid', async () => {
   for (const invalid of [
-    { earliestPickupDays: 2 }, { maximumAdvanceDays: 365 }, { orderDays: ['holiday'] },
+    { pickupOrderCutoffTime: '24:00' }, { pickupOrderCutoffTime: 1800 }, { earliestPickupDays: 2 }, { maximumAdvanceDays: 365 }, { orderDays: ['holiday'] },
     { pickupEnabled: 'yes' }, { pickupSessions: Array(21).fill('Morning') },
     { pickupLocations: Array(21).fill({ id: 'a' }) },
     { pickupOperatingHours: { start: '18:00', end: '09:00' } }

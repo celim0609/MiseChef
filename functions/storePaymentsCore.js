@@ -186,7 +186,13 @@ export const getValidPickupDates = (store, currentDate = new Date()) => {
   const today = toRegionDateCursor(currentDate, region.timeZone);
   const enabledDays = new Set(Array.isArray(store.orderDays) ? store.orderDays : ORDER_DAY_BY_INDEX);
   const blockedDates = new Set(Array.isArray(store.unavailableDates) ? store.unavailableDates : []);
-  const earliest = store.earliestPickupDays === 1 ? 1 : 0;
+  const cutoff = store.pickupOrderCutoffTime;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en', {
+    timeZone: region.timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  }).formatToParts(currentDate).map(part => [part.type, part.value]));
+  const seconds = Number(parts.hour) * 3600 + Number(parts.minute) * 60 + Number(parts.second) + currentDate.getUTCMilliseconds() / 1000;
+  const afterCutoff = typeof cutoff === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(cutoff) && seconds > timeMinutes(cutoff) * 60;
+  const earliest = (store.earliestPickupDays === 1 ? 1 : 0) + (afterCutoff ? 1 : 0);
   const maximum = [7, 14, 30].includes(store.maximumAdvanceDays) ? store.maximumAdvanceDays : 14;
   const dates = [];
 

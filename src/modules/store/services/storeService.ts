@@ -201,6 +201,7 @@ export const storeService = {
         notes: location.notes.trim()
       })),
       orderDays: [...draft.orderDays],
+      pickupOrderCutoffTime: draft.pickupOrderCutoffTime || null,
       earliestPickupDays: draft.earliestPickupDays,
       maximumAdvanceDays: draft.maximumAdvanceDays,
       unavailableDates: [...new Set(draft.unavailableDates)].sort(),

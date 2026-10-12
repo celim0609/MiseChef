@@ -96,6 +96,7 @@ export interface WorkspaceStore {
   pickupSessions: string[];
   pickupLocations: StorePickupLocation[];
   orderDays: StoreOrderDay[];
+  pickupOrderCutoffTime?: string | null;
   earliestPickupDays: StoreEarliestPickupDays;
   maximumAdvanceDays: StoreMaximumAdvanceDays;
   unavailableDates: string[];
@@ -124,6 +125,7 @@ export interface StoreSettingsDraft {
   pickupSessions: string[];
   pickupLocations: StorePickupLocation[];
   orderDays: StoreOrderDay[];
+  pickupOrderCutoffTime?: string | null;
   earliestPickupDays: StoreEarliestPickupDays;
   maximumAdvanceDays: StoreMaximumAdvanceDays;
   unavailableDates: string[];

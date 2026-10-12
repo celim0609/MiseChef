@@ -208,9 +208,23 @@ const addRegionDays = (date: Date, days: number) => {
   return next;
 };
 
+export const isAfterPickupOrderCutoff = (
+  store: Partial<Pick<WorkspaceStore, 'country' | 'pickupOrderCutoffTime'>>,
+  now: Date
+) => {
+  const cutoff = store.pickupOrderCutoffTime;
+  if (!cutoff || !/^([01]\d|2[0-3]):[0-5]\d$/.test(cutoff)) return false;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en', {
+    timeZone: getWorkspaceRegionConfiguration(store).timeZone,
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  }).formatToParts(now).map(part => [part.type, part.value]));
+  const seconds = Number(parts.hour) * 3600 + Number(parts.minute) * 60 + Number(parts.second) + now.getUTCMilliseconds() / 1000;
+  return seconds > pickupMinutes(cutoff) * 60;
+};
+
 export const getValidPickupDates = (
   store: Pick<WorkspaceStore, 'orderDays' | 'earliestPickupDays' | 'maximumAdvanceDays' | 'unavailableDates'>
-    & Partial<Pick<WorkspaceStore, 'country'>>,
+    & Partial<Pick<WorkspaceStore, 'country' | 'pickupOrderCutoffTime'>>,
   currentDate = new Date()
 ) => {
   const region = getWorkspaceRegionConfiguration(store);
@@ -221,7 +235,7 @@ export const getValidPickupDates = (
   const dates: string[] = [];
 
   for (
-    let offset = store.earliestPickupDays;
+    let offset = store.earliestPickupDays + (isAfterPickupOrderCutoff(store, currentDate) ? 1 : 0);
     offset <= store.maximumAdvanceDays;
     offset += 1
   ) {
@@ -356,6 +370,7 @@ export const normalizeWorkspaceStore = (
         .map(day => day.id)
         .filter(day => rawOrderDays.includes(day))
       : [...DEFAULT_STORE_ORDER_DAYS],
+    pickupOrderCutoffTime: validTime(data.pickupOrderCutoffTime, '') || null,
     earliestPickupDays: readEarliestPickupDays(data.earliestPickupDays),
     maximumAdvanceDays: readMaximumAdvanceDays(data.maximumAdvanceDays),
     unavailableDates: Array.isArray(data.unavailableDates)
@@ -473,6 +488,7 @@ export const validateStoreSettings = (
   if (draft.orderDays.length === 0) return 'Choose at least one order day.';
   if (new Set(draft.orderDays).size !== draft.orderDays.length) return 'Order days must be unique.';
   if (draft.orderDays.some(day => !DEFAULT_STORE_ORDER_DAYS.includes(day))) return 'Choose valid order days.';
+  if (draft.pickupOrderCutoffTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(draft.pickupOrderCutoffTime)) return 'Choose a valid order cut-off time.';
   if (draft.earliestPickupDays !== 0 && draft.earliestPickupDays !== 1) return 'Choose a valid earliest pickup option.';
   if (![7, 14, 30].includes(draft.maximumAdvanceDays)) return 'Choose a valid advance booking window.';
   if (draft.unavailableDates.length > 60) return 'Use 60 unavailable dates or fewer.';

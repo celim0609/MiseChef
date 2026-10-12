@@ -140,6 +140,7 @@ const toSettingsDraft = (store: WorkspaceStore): StoreSettingsDraft => ({
   pickupSessions: [...store.pickupSessions],
   pickupLocations: store.pickupLocations.map(location => ({ ...location })),
   orderDays: [...store.orderDays],
+  pickupOrderCutoffTime: store.pickupOrderCutoffTime || null,
   earliestPickupDays: store.earliestPickupDays,
   maximumAdvanceDays: store.maximumAdvanceDays,
   unavailableDates: [...store.unavailableDates],
@@ -1510,21 +1511,27 @@ export default function StorePage({
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
-                  <span className="font-sans text-xs font-extrabold text-primary">Earliest Pickup</span>
-                  <select aria-label="Earliest pickup" value={settingsDraft.earliestPickupDays} onChange={event => updateSettings('earliestPickupDays', Number(event.target.value) as 0 | 1)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                  <span className="font-sans text-xs font-extrabold text-primary">Earliest pickup date</span>
+                  <select aria-label="Earliest pickup date" value={settingsDraft.earliestPickupDays} onChange={event => updateSettings('earliestPickupDays', Number(event.target.value) as 0 | 1)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
                     <option value={0}>Same Day</option>
                     <option value={1}>Next Day</option>
                   </select>
                 </label>
                 <label className="block">
-                  <span className="font-sans text-xs font-extrabold text-primary">Maximum Advance Booking</span>
-                  <select aria-label="Maximum advance booking" value={settingsDraft.maximumAdvanceDays} onChange={event => updateSettings('maximumAdvanceDays', Number(event.target.value) as 7 | 14 | 30)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                  <span className="font-sans text-xs font-extrabold text-primary">Customers can book pickup up to</span>
+                  <select aria-label="Customers can book pickup up to" value={settingsDraft.maximumAdvanceDays} onChange={event => updateSettings('maximumAdvanceDays', Number(event.target.value) as 7 | 14 | 30)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
                     <option value={7}>7 Days</option>
                     <option value={14}>14 Days</option>
                     <option value={30}>30 Days</option>
                   </select>
                 </label>
               </div>
+
+              <label className="block">
+                <span className="font-sans text-xs font-extrabold text-primary">Order cut-off time</span>
+                <input type="time" aria-label="Order cut-off time" value={settingsDraft.pickupOrderCutoffTime || ''} onChange={event => updateSettings('pickupOrderCutoffTime', event.target.value || null)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
+                <button type="button" onClick={() => updateSettings('pickupOrderCutoffTime', null)} className="mt-2 text-xs font-bold text-primary">Clear cut-off time</button>
+              </label>
 
               <div>
                 <span className="font-sans text-xs font-extrabold text-primary">Unavailable Dates</span>
