@@ -455,7 +455,7 @@ export const buildPendingOrder = ({
   let firstDayFee = draft.deliverySnapshot ? (scheduled && fulfilmentCount > 1 ? providerDeliveryFee : (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee)) : 0;
   let deliveryFee = scheduled ? roundMoney(firstDayFee * fulfilmentCount) : draft.deliverySnapshot ? (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee) : 0;
   const dayPricing = draft.deliverySnapshot && store.delivery?.freeDelivery?.enabled === true
-    ? calculateDeliveryDayPricing({ config: store.delivery, providerFee: providerDeliveryFee, items, fulfilments: scheduled?.fulfilments, pickup: draft.deliverySnapshot.pickup, destination: draft.deliverySnapshot.recipient, discountedMerchandiseTotal, date: fulfilmentDate }) : null;
+    ? calculateDeliveryDayPricing({ config: store.delivery, providerFee: providerDeliveryFee, items, fulfilments: scheduled?.fulfilments, pickup: draft.deliverySnapshot.pickup, destination: draft.deliverySnapshot.recipient, promotionPricing, date: fulfilmentDate }) : null;
   if (dayPricing) { deliveryFee = dayPricing.customerDeliveryFee; firstDayFee = dayPricing.days[0].customerDeliveryFee; }
   const storeAbsorbedDeliveryFee = roundMoney(Math.max(providerDeliveryFee * (dayPricing ? fulfilmentCount : 1) - deliveryFee, 0));
   const total = roundMoney(discountedMerchandiseTotal + deliveryFee);

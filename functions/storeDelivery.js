@@ -189,7 +189,7 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
   const promotionPricing = calculatePromotionPricing({ items, promotions: checkout.promotions });
   const fulfilmentCount = fulfilments?.fulfilments.length || 1;
   const pricing = fulfilmentCount > 1 ? { customerDeliveryFee: money(quote.fee * fulfilmentCount) } : customerPricing({ providerFee: quote.fee, config, merchandiseSubtotal: promotionPricing.discountedMerchandiseTotal });
-  const dayPricing = calculateDeliveryDayPricing({ config, providerFee: quote.fee, items, fulfilments: fulfilments?.fulfilments, pickup, destination: routingDestination, discountedMerchandiseTotal: promotionPricing.discountedMerchandiseTotal, date: schedule.date || '' });
+  const dayPricing = calculateDeliveryDayPricing({ config, providerFee: quote.fee, items, fulfilments: fulfilments?.fulfilments, pickup, destination: routingDestination, promotionPricing, date: schedule.date || '' });
   if (config.freeDelivery?.enabled === true) pricing.customerDeliveryFee = dayPricing.customerDeliveryFee;
   // Bind the displayed promotion/delivery price to a server record. The
   // browser receives only an opaque id and cannot author a price baseline.

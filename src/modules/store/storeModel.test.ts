@@ -711,5 +711,5 @@ test('free delivery defaults stay disabled and merchant policy round-trips witho
   assert.deepEqual(normalized.delivery?.freeDelivery, policy);
   assert.deepEqual(normalized.delivery?.subsidy, baseline.delivery?.subsidy);
   assert.deepEqual(normalized.delivery?.fulfilment, baseline.delivery?.fulfilment);
-  assert.deepEqual(buildStoreSettingsUpdate(baseline, baseline, normalized).delivery, normalized.delivery);
+  assert.deepEqual(buildStoreSettingsUpdate({ ...baseline }, baseline, normalized).delivery, normalized.delivery);
 });

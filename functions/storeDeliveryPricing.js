@@ -15,22 +15,28 @@ export const validFreeDelivery = value => value && typeof value.enabled === 'boo
   && Number.isFinite(value.distanceThresholdKm) && value.distanceThresholdKm > 0 && value.distanceThresholdKm <= 500
   && [value.minimumSubtotalWithin, value.minimumSubtotalBeyond].every(amount => Number.isFinite(amount) && amount >= 0 && amount <= 100000);
 
-export const calculateDeliveryDayPricing = ({ config, providerFee, items, fulfilments, pickup, destination, discountedMerchandiseTotal, date = '' }) => {
+export const calculateDeliveryDayPricing = ({ config, providerFee, items, fulfilments, pickup, destination, promotionPricing, date = '' }) => {
   if (!Number.isFinite(providerFee) || providerFee < 0) throw new Error('Invalid provider delivery fee.');
   const free = config.freeDelivery;
   if (free?.enabled === true && !validFreeDelivery(free)) throw new Error('Invalid free delivery settings.');
   const distanceKm = free?.enabled === true ? deliveryDistanceKm(pickup, destination) : null;
   const entries = fulfilments?.length ? fulfilments : [{ date, allocations: items.map((item, itemIndex) => ({ itemIndex })) }];
+  const { discountedMerchandiseTotal, promotionSnapshot } = promotionPricing;
+  const discountedTotalMinor = minor(discountedMerchandiseTotal);
+  if (!Number.isSafeInteger(discountedTotalMinor) || discountedTotalMinor < 0) throw new Error('Invalid discounted merchandise total.');
   const subtotalMinor = entries.map(() => 0);
-  // A weekly-plan line is allocated once across its five component days.
-  items.forEach((item, itemIndex) => {
+  const lines = promotionSnapshot.lineAdjustments;
+  if (entries.length > 1 && (lines.length !== items.length || lines.reduce((sum, line) => sum + minor(line.finalLineTotal), 0) !== discountedTotalMinor)) throw new Error('Discounted merchandise allocations do not match the order total.');
+  // Allocate canonical discounted lines, including a weekly plan across its five days.
+  items.forEach((_, itemIndex) => {
     const indexes = entries.flatMap((entry, index) => entry.allocations.some(allocation => allocation.itemIndex === itemIndex) ? [index] : []);
     if (!indexes.length) throw new Error('Delivery item has no service day.');
-    const total = minor(item.lineTotal);
+    const total = entries.length === 1 ? 0 : minor(lines[itemIndex].finalLineTotal);
     if (!Number.isSafeInteger(total) || total < 0) throw new Error('Invalid service-day merchandise subtotal.');
     const share = Math.floor(total / indexes.length);
     indexes.forEach((index, offset) => { subtotalMinor[index] += share + (offset < total % indexes.length ? 1 : 0); });
   });
+  if (entries.length === 1) subtotalMinor[0] = discountedTotalMinor;
   const subsidy = config.subsidy || {};
   // Preserve the existing single-day subsidy and multi-day quote multiplier.
   const subsidyApplied = entries.length === 1 && subsidy.enabled === true && discountedMerchandiseTotal >= Number(subsidy.minimumMerchandiseSpend || 0);

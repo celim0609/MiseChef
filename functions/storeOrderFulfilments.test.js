@@ -140,4 +140,24 @@ test('weekly delivery submission evaluates each fifth of merchandise, not the fu
   assert.deepEqual(order.deliveryPricingSnapshot.days.map(day => day.customerDeliveryFee), [0,0,6,6,6]);
   assert.equal(order.totals.deliveryFee, 18);
   assert.equal(order.payment.amountMinor, 31802);
+  const discounted = financial({ store: deliveryStore, products: [...products, plan], promotions: [{ id: 'weekly-discount', storeId: 's', workspaceId: 's', name: 'Weekly discount', active: true, type: 'fixed_amount', eligibleProductIds: ['plan'], fixedAmountOff: 30, minimumOrderAmount: 0, startsAt: '2020-01-01T00:00:00Z' }], draft: { ...draft, selections: [{ productId: 'plan', quantity: 1 }], fulfilments, fulfilmentMethod: 'delivery', fulfilmentMode: 'preorder', deliverySnapshot: { quote: { fee: 6 }, pickup: { latitude: '3', longitude: '101' }, recipient: { latitude: '3.01', longitude: '101' }, schedule: { date: '2026-07-27' } } } });
+  assert.equal(discounted.totals.discountedMerchandiseTotal, 270.02);
+  assert.deepEqual(discounted.deliveryPricingSnapshot.days.map(day => day.merchandiseSubtotal), [54.01,54.01,54,54,54]);
+  assert.deepEqual(discounted.deliveryPricingSnapshot.days.map(day => day.freeDeliveryApplied), [false,false,false,false,false]);
+  assert.equal(discounted.totals.deliveryFee, 30);
+
+});
+
+
+test('submission uses discounted daily merchandise for free delivery and retains weekly-alone validation', () => {
+  const freeDelivery = { enabled: true, distanceThresholdKm: 8, minimumSubtotalWithin: 60, minimumSubtotalBeyond: 120 };
+  const deliverySnapshot = { quote: { fee: 7.25 }, pickup: { latitude: '3', longitude: '101' }, recipient: { latitude: '3.01', longitude: '101' }, schedule: { date: schedule[0].date } };
+  const order = financial({ store: { ...store, delivery: { ...store.delivery, freeDelivery } }, products: products.map(product => product.id === 'mon' ? { ...product, price: 30 } : product), promotions: [{ id: 'discount', storeId: 's', workspaceId: 's', name: 'Discount', active: true, type: 'fixed_amount', eligibleProductIds: ['mon'], fixedAmountOff: 5, minimumOrderAmount: 0, startsAt: '2020-01-01T00:00:00Z' }], draft: { ...draft, fulfilmentMethod: 'delivery', fulfilmentMode: 'preorder', deliverySnapshot } });
+  assert.equal(order.totals.discountedMerchandiseTotal, 80);
+  assert.deepEqual(order.deliveryPricingSnapshot.days.map(day => day.merchandiseSubtotal), [50,30]);
+  assert.deepEqual(order.deliveryPricingSnapshot.days.map(day => day.freeDeliveryApplied), [false,false]);
+  assert.equal(order.totals.deliveryFee, 14.5);
+  assert.equal(order.payment.amountMinor, 9450);
+  const plan = { id: 'plan', productType: 'weekly_meal_plan' };
+  assert.throws(() => financial({ products: [...products, plan], draft: { ...draft, selections: [{ productId: 'plan', quantity: 1 }, { productId: 'mon', quantity: 1 }] } }), /purchased alone/);
 });
