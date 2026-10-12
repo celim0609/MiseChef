@@ -96,7 +96,7 @@ test('Store Contact fields are schema-bounded and remain under existing Store te
   assert.ok(contactUpdate, 'Store Contact update validator must exist');
   assert.ok(createRule, 'Store creation rule must exist');
   assert.match(storeRules, /allow update: if canUpdateStoreSettings\(\);/);
-  assert.match(updateGuard.replace(/\/\/[^\n]*/g, ''), /return hasActiveBusinessEntitlement\(workspaceId\)\s*&& isWorkspaceOwnerOrManager\(workspaceId\)\s*&& changedKeys\.hasOnly\(/);
+  assert.match(updateGuard.replace(/\/\/[^\n]*/g, ''), /return canManageActiveStore\(\)\s*&& changedKeys\.hasOnly\(/);
   assert.match(updateGuard, /isValidIsolatedStoreUpdate\(data, changedKeys\)\s*\? true : isValidChangedStoreGroups\(data, changedKeys\)/);
   assert.match(changedGroups, /&& \(changedKeys\.hasAny\(\['contactInformation', 'businessWhatsApp', 'storeContact', 'businessHours'\]\)\s*\? isValidStoreContactUpdate\(data\) : true\)/);
   assert.match(contactUpdate, /return data\.contactInformation is string && data\.contactInformation\.size\(\) <= 500\s*&& data\.businessWhatsApp is string && data\.businessWhatsApp\.size\(\) <= 30\s*&& isValidStoreContact\(data\.storeContact\)\s*&& data\.businessHours is string && data\.businessHours\.size\(\) <= 300;/);

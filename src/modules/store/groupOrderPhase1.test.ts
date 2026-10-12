@@ -296,7 +296,8 @@ test('Host Program settings have an isolated validated Firestore update path', (
   assert.ok(updateGuard, 'Store update authorization helper must exist');
   assert.ok(isolatedUpdates, 'Store isolated update validator must exist');
   assert.match(storeRules, /allow update: if canUpdateStoreSettings\(\);/);
-  assert.match(updateGuard.replace(/\/\/[^\n]*/g, ''), /return hasActiveBusinessEntitlement\(workspaceId\)\s*&& isWorkspaceOwnerOrManager\(workspaceId\)\s*&& changedKeys\.hasOnly\(/);
+  assert.match(rules, /function canManageActiveStore\(\)/);
+  assert.match(updateGuard.replace(/\/\/[^\n]*/g, ''), /return canManageActiveStore\(\)\s*&& changedKeys\.hasOnly\(/);
   assert.match(updateGuard, /let data = request\.resource\.data;\s*let changedKeys = data\.diff\(resource\.data\)\.affectedKeys\(\);/);
   assert.match(updateGuard, /isValidIsolatedStoreUpdate\(data, changedKeys\)\s*\? true : isValidChangedStoreGroups\(data, changedKeys\)/);
   assert.match(isolatedUpdates, /changedKeys\.hasOnly\(\['hostProgram', 'updatedAt'\]\)\s*\? isValidStoreHostProgram\(data\.hostProgram\) : false/);

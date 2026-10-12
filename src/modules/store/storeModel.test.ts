@@ -699,3 +699,17 @@ test('legacy Beta cut-off normalizes to the shared field; explicit null disables
   assert.equal(buildStoreSettingsUpdate({ ...raw, orderCutoffTime: '19:00' }, migrated, migrated).orderCutoffTime, undefined);
   assert.equal(buildStoreSettingsUpdate(raw, migrated, { ...migrated, orderCutoffTime: null }).orderCutoffTime, null);
 });
+
+test('free delivery defaults stay disabled and merchant policy round-trips without changing other delivery settings', () => {
+  const baseline = createDefaultWorkspaceStore({ id: 'free-delivery', name: 'Store', country: 'MY' }, 'owner', '2026-10-13T00:00:00.000Z');
+  assert.deepEqual(baseline.delivery?.freeDelivery, { enabled: false, distanceThresholdKm: 8, minimumSubtotalWithin: 60, minimumSubtotalBeyond: 120 });
+  const legacy = { ...baseline, delivery: { ...baseline.delivery } };
+  delete legacy.delivery.freeDelivery;
+  assert.equal(normalizeWorkspaceStore(baseline.id, legacy).delivery?.freeDelivery?.enabled, false);
+  const policy = { enabled: true, distanceThresholdKm: 12.5, minimumSubtotalWithin: 75, minimumSubtotalBeyond: 150 };
+  const normalized = normalizeWorkspaceStore(baseline.id, { ...baseline, delivery: { ...baseline.delivery, freeDelivery: policy } });
+  assert.deepEqual(normalized.delivery?.freeDelivery, policy);
+  assert.deepEqual(normalized.delivery?.subsidy, baseline.delivery?.subsidy);
+  assert.deepEqual(normalized.delivery?.fulfilment, baseline.delivery?.fulfilment);
+  assert.deepEqual(buildStoreSettingsUpdate(baseline, baseline, normalized).delivery, normalized.delivery);
+});

@@ -1,3 +1,4 @@
+import { calculateDeliveryDayPricing, deliveryDistanceKm as distanceKm } from './storeDeliveryPricing.js';
 import { canonicalSchedule, buildOrderFulfilments } from './storeOrderFulfilments.js';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
@@ -25,12 +26,6 @@ const validateDestination = destination => {
   const longitude = coord(destination?.longitude, 180);
   if (!address || address.length > 500 || !latitude || !longitude) throw deliveryError('Choose a delivery address with valid coordinates.');
   return { address, latitude, longitude, instructions: readString(destination?.deliveryInstructions).slice(0, 1500) };
-};
-const distanceKm = (from, to) => {
-  const radians = value => Number(value) * Math.PI / 180;
-  const dLat = radians(Number(to.latitude) - Number(from.latitude)); const dLng = radians(Number(to.longitude) - Number(from.longitude));
-  const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(from.latitude)) * Math.cos(radians(to.latitude)) * Math.sin(dLng / 2) ** 2;
-  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
 const validateStoreDelivery = (store, provider) => {
   const config = deliveryConfig(store);
@@ -194,6 +189,8 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
   const promotionPricing = calculatePromotionPricing({ items, promotions: checkout.promotions });
   const fulfilmentCount = fulfilments?.fulfilments.length || 1;
   const pricing = fulfilmentCount > 1 ? { customerDeliveryFee: money(quote.fee * fulfilmentCount) } : customerPricing({ providerFee: quote.fee, config, merchandiseSubtotal: promotionPricing.discountedMerchandiseTotal });
+  const dayPricing = calculateDeliveryDayPricing({ config, providerFee: quote.fee, items, fulfilments: fulfilments?.fulfilments, pickup, destination: routingDestination, discountedMerchandiseTotal: promotionPricing.discountedMerchandiseTotal, date: schedule.date || '' });
+  if (config.freeDelivery?.enabled === true) pricing.customerDeliveryFee = dayPricing.customerDeliveryFee;
   // Bind the displayed promotion/delivery price to a server record. The
   // browser receives only an opaque id and cannot author a price baseline.
   const pricingSnapshotId = randomBytes(24).toString('hex');
@@ -207,7 +204,7 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
     expiresAt: quote.expiresAt,
     createdAt: new Date().toISOString()
   });
-  return { quote: { quotationId: quote.quotationId, expiresAt: quote.expiresAt, customerDeliveryFee: pricing.customerDeliveryFee, currency: 'MYR', minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS, ...(fulfilments ? { firstDayFee: fulfilmentCount > 1 ? quote.fee : pricing.customerDeliveryFee, fulfilmentCount } : {}) }, pricingSnapshotId, merchandiseSubtotal: promotionPricing.discountedMerchandiseTotal, destination: routingDestination, schedule };
+  return { quote: { quotationId: quote.quotationId, expiresAt: quote.expiresAt, customerDeliveryFee: pricing.customerDeliveryFee, currency: 'MYR', days: dayPricing.days.map(({ date, customerDeliveryFee, freeDeliveryApplied }) => ({ date, customerDeliveryFee, freeDeliveryApplied })), minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS, ...(fulfilments ? { firstDayFee: config.freeDelivery?.enabled === true ? dayPricing.days[0].customerDeliveryFee : fulfilmentCount > 1 ? quote.fee : pricing.customerDeliveryFee, fulfilmentCount } : {}) }, pricingSnapshotId, merchandiseSubtotal: promotionPricing.discountedMerchandiseTotal, destination: routingDestination, schedule };
 };
 
 export const getLalamoveSandboxCityInfo = async ({ db, uid, workspaceId, provider }) => {

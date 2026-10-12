@@ -134,12 +134,13 @@ const settingsChanges = {
   'Order Days': { orderDays: ['monday', 'wednesday'] },
   'Pickup configuration': { pickupSessions: ['Morning'], pickupLocations: [{ id: 'pickup-b', name: 'Counter B', address: '2 Test Street', notes: '' }] },
   'Pickup operating hours': { pickupOperatingHours: { start: '10:00', end: '17:00' } },
+  'Free delivery': { delivery: { ...delivery(), freeDelivery: { enabled: true, distanceThresholdKm: 8, minimumSubtotalWithin: 60, minimumSubtotalBeyond: 120 } } },
   'Delivery settings': { delivery: delivery({ maximumDistanceKm: 10, sessions: ['Morning'] }) },
   'combined Pickup & Delivery': {
     orderCutoffTime: '18:00',
     earliestPickupDays: 0, maximumAdvanceDays: 14, orderDays: ['monday', 'wednesday'],
     pickupOperatingHours: { start: '10:00', end: '17:00' },
-    pickupSessions: ['Morning'], delivery: delivery({ maximumDistanceKm: 10, sessions: ['Morning'] })
+    pickupSessions: ['Morning'], delivery: { ...delivery({ maximumDistanceKm: 10, sessions: ['Morning'] }), freeDelivery: { enabled: true, distanceThresholdKm: 8, minimumSubtotalWithin: 60, minimumSubtotalBeyond: 120 } }
   }
 };
 for (const [label, changes] of Object.entries(settingsChanges)) {
@@ -313,5 +314,14 @@ test('legacy Beta cutoff migrates with combined settings and cannot be recreated
     await assertFails(actor.firestore().doc(STORE_PATH).update({ pickupOrderCutoffTime: '19:00' }));
     await assertSucceeds(actor.firestore().doc(STORE_PATH).update({ orderCutoffTime: null }));
     await assertSucceeds(actor.firestore().doc(STORE_PATH).update({ orderCutoffTime: firebase.firestore.FieldValue.delete() }));
+  }
+});
+
+
+test('free delivery rejects invalid bounds, missing fields and unknown policy keys', async () => {
+  await resetCompleteStore();
+  const valid = { enabled: true, distanceThresholdKm: 8, minimumSubtotalWithin: 60, minimumSubtotalBeyond: 120 };
+  for (const freeDelivery of [{ ...valid, enabled: 'yes' }, { ...valid, distanceThresholdKm: '8' }, { ...valid, minimumSubtotalWithin: '60' }, { ...valid, distanceThresholdKm: 0 }, { ...valid, distanceThresholdKm: 501 }, { ...valid, minimumSubtotalWithin: -1 }, { ...valid, minimumSubtotalBeyond: 100001 }, { enabled: true }, { ...valid, fee: 0 }]) {
+    await assertFails(owner.firestore().doc(STORE_PATH).update({ delivery: { ...delivery(), freeDelivery } }));
   }
 });

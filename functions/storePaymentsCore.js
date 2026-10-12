@@ -1,3 +1,4 @@
+import { calculateDeliveryDayPricing } from './storeDeliveryPricing.js';
 import { buildOrderFulfilments, publicOrderFulfilments } from './storeOrderFulfilments.js';
 import { buildWeeklyOrderDetails, isWeeklyMealPlan, publicWeeklyFulfilments } from './storeWeeklyMealPlan.js';
 import { cartAllowsFulfilmentDate, currentFulfilmentDate } from './storeProductAvailability.js';
@@ -451,9 +452,12 @@ export const buildPendingOrder = ({
   const subsidyApplied = Boolean(draft.deliverySnapshot && !(scheduled && scheduled.fulfilments.length > 1) && subsidy.enabled === true && discountedMerchandiseTotal >= Math.max(0, readNumber(subsidy.minimumMerchandiseSpend)));
   const deliveryFeeCap = roundMoney(Math.max(0, readNumber(subsidy.maximumCustomerDeliveryCharge)));
   const fulfilmentCount = scheduled?.fulfilments.length || 1;
-  const firstDayFee = draft.deliverySnapshot ? (scheduled && fulfilmentCount > 1 ? providerDeliveryFee : (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee)) : 0;
-  const deliveryFee = scheduled ? roundMoney(firstDayFee * fulfilmentCount) : draft.deliverySnapshot ? (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee) : 0;
-  const storeAbsorbedDeliveryFee = roundMoney(Math.max(providerDeliveryFee - deliveryFee, 0));
+  let firstDayFee = draft.deliverySnapshot ? (scheduled && fulfilmentCount > 1 ? providerDeliveryFee : (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee)) : 0;
+  let deliveryFee = scheduled ? roundMoney(firstDayFee * fulfilmentCount) : draft.deliverySnapshot ? (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee) : 0;
+  const dayPricing = draft.deliverySnapshot && store.delivery?.freeDelivery?.enabled === true
+    ? calculateDeliveryDayPricing({ config: store.delivery, providerFee: providerDeliveryFee, items, fulfilments: scheduled?.fulfilments, pickup: draft.deliverySnapshot.pickup, destination: draft.deliverySnapshot.recipient, discountedMerchandiseTotal, date: fulfilmentDate }) : null;
+  if (dayPricing) { deliveryFee = dayPricing.customerDeliveryFee; firstDayFee = dayPricing.days[0].customerDeliveryFee; }
+  const storeAbsorbedDeliveryFee = roundMoney(Math.max(providerDeliveryFee * (dayPricing ? fulfilmentCount : 1) - deliveryFee, 0));
   const total = roundMoney(discountedMerchandiseTotal + deliveryFee);
   const amountMinor = Math.round(total * 100);
   if (amountMinor < 1) throw new Error('Order total must be greater than zero.');
@@ -494,12 +498,12 @@ export const buildPendingOrder = ({
     pickupLocationNotes: readString(pickupLocation?.notes),
     notes: readString(draft.notes),
     items,
-    ...(scheduled ? { fulfilments: scheduled.fulfilments, fulfilmentCompletion: {}, fulfilmentOperations: {}, ...(draft.deliverySnapshot ? { deliveryPricingSnapshot: { firstQuote: draft.deliverySnapshot.quote, fulfilmentCount, firstDayFee, finalDeliveryTotal: deliveryFee } } : {}) } : {}),
+    ...(scheduled ? { fulfilments: scheduled.fulfilments, fulfilmentCompletion: {}, fulfilmentOperations: {}, ...(draft.deliverySnapshot ? { deliveryPricingSnapshot: { firstQuote: draft.deliverySnapshot.quote, fulfilmentCount, firstDayFee, finalDeliveryTotal: deliveryFee, ...(dayPricing ? { days: dayPricing.days, distanceKm: dayPricing.distanceKm } : {}) } } : {}) } : {}),
     ...(weekly ? { weeklyFulfilments: weekly.weeklyFulfilments, weeklyCompletion: weekly.weeklyCompletion } : {}),
     itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
     totals: { merchandiseSubtotal, discountTotal, discountedMerchandiseTotal, deliveryFee, grandTotal: total, currency: region.currency },
     ...(promotionSnapshot.appliedPromotions.length ? { promotionSnapshot } : {}),
-    ...(draft.deliverySnapshot ? { delivery: { ...draft.deliverySnapshot, pricing: { providerDeliveryFee, customerDeliveryFee: deliveryFee, storeAbsorbedDeliveryFee, subsidyEnabled: subsidy.enabled === true, subsidyApplied, minimumMerchandiseSpend: roundMoney(Math.max(0, readNumber(subsidy.minimumMerchandiseSpend))), deliveryFeeCap, currency: region.currency } } } : {}),
+    ...(draft.deliverySnapshot ? { delivery: { ...draft.deliverySnapshot, pricing: { providerDeliveryFee, customerDeliveryFee: deliveryFee, storeAbsorbedDeliveryFee, subsidyEnabled: subsidy.enabled === true, subsidyApplied, ...(dayPricing ? { freeDeliveryEnabled: true, days: dayPricing.days, distanceKm: dayPricing.distanceKm } : {}), minimumMerchandiseSpend: roundMoney(Math.max(0, readNumber(subsidy.minimumMerchandiseSpend))), deliveryFeeCap, currency: region.currency } } } : {}),
     total,
     status: 'Awaiting Payment',
     fulfilmentStatus: 'New',

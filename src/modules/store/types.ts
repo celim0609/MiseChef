@@ -52,6 +52,7 @@ export interface StoreDeliveryConfig {
   pickupLocationId: string;
   serviceType: string;
   pickup: { name: string; address: string; latitude: string; longitude: string; contactName: string; contactPhoneE164: string };
+  freeDelivery?: { enabled: boolean; distanceThresholdKm: number; minimumSubtotalWithin: number; minimumSubtotalBeyond: number };
   subsidy: { enabled: boolean; minimumMerchandiseSpend: number; maximumCustomerDeliveryCharge: number };
   fulfilment: {
     preOrder: { enabled: boolean; orderDays: StoreOrderDay[]; earliestDays: StoreEarliestPickupDays; maximumAdvanceDays: StoreMaximumAdvanceDays; unavailableDates: string[]; deliveryHours: { from: string; to: string }; maximumDistanceKm: number; sessions?: string[] };

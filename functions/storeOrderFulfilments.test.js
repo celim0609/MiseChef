@@ -117,3 +117,27 @@ test('scheduled pickup and delivery both enforce the shared cut-off', () => {
   assert.throws(() => build({ store: deliveryStore, draft: deliveryDraft, now: after }), /available fulfilment date/);
   assert.ok(build({ store: { ...deliveryStore, orderCutoffTime: null }, draft: deliveryDraft, now: after }));
 });
+
+test('server charges only non-qualifying days and ignores forged free fees and subtotals', () => {
+  const deliveryStore = { ...store, delivery: { ...store.delivery, freeDelivery: { enabled: true, distanceThresholdKm: 8, minimumSubtotalWithin: 25, minimumSubtotalBeyond: 120 } } };
+  const deliveryDraft = { ...draft, fulfilmentMethod: 'delivery', fulfilmentMode: 'preorder', deliverySnapshot: { quote: { fee: 7.25 }, pickup: { latitude: '3', longitude: '101' }, recipient: { latitude: '3.01', longitude: '101' }, schedule: { date: schedule[0].date }, pricing: { days: [{ merchandiseSubtotal: 999, customerDeliveryFee: 0 }] } }, deliveryFee: 0, distanceKm: 0 };
+  const order = financial({ store: deliveryStore, draft: deliveryDraft });
+  assert.deepEqual(order.deliveryPricingSnapshot.days.map(day => day.merchandiseSubtotal), [20,30]);
+  assert.deepEqual(order.deliveryPricingSnapshot.days.map(day => day.customerDeliveryFee), [7.25,0]);
+  assert.equal(order.totals.deliveryFee, 7.25);
+  assert.equal(order.total, 57.25);
+  assert.equal(order.payment.amountMinor, 5725);
+  assert.equal(order.deliveryPricingSnapshot.firstQuote.fee, 7.25);
+});
+
+
+test('weekly delivery submission evaluates each fifth of merchandise, not the full weekly price', () => {
+  const days = ['mon','tue','wed','thu','fri'];
+  const plan = { id: 'plan', name: 'Week', price: 300.02, available: true, storeId: 's', workspaceId: 's', productType: 'weekly_meal_plan', optionGroupIds: [], weeklyMeals: Object.fromEntries(days.map(day => [day,day])) };
+  const fulfilments = days.map((day, index) => ({ date: `2026-07-${27 + index}`, time: '10:00', itemIndexes: [0] }));
+  const deliveryStore = { ...store, delivery: { ...store.delivery, freeDelivery: { enabled: true, distanceThresholdKm: 8, minimumSubtotalWithin: 60.01, minimumSubtotalBeyond: 120 } } };
+  const order = financial({ store: deliveryStore, products: [...products, plan], draft: { ...draft, selections: [{ productId: 'plan', quantity: 1 }], fulfilments, fulfilmentMethod: 'delivery', fulfilmentMode: 'preorder', deliverySnapshot: { quote: { fee: 6 }, pickup: { latitude: '3', longitude: '101' }, recipient: { latitude: '3.01', longitude: '101' }, schedule: { date: '2026-07-27' } } } });
+  assert.deepEqual(order.deliveryPricingSnapshot.days.map(day => day.customerDeliveryFee), [0,0,6,6,6]);
+  assert.equal(order.totals.deliveryFee, 18);
+  assert.equal(order.payment.amountMinor, 31802);
+});

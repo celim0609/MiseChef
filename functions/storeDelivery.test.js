@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { buildPendingOrder } from './storePaymentsCore.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { validatePreOrderSchedule, validateInstantSchedule, assertFutureLalamoveSchedule, buildLalamoveQuoteRequest, providerRoutingDestination, quoteMatchesDestination, sameDeliveryCoordinates } from './storeDelivery.js';
@@ -437,4 +438,19 @@ test('delivery scheduling enforces shared cut-off, calendar filters and fixed ho
   assert.deepEqual(validateInstantSchedule(store, config, at), { mode: 'instant' });
   assert.throws(() => validateInstantSchedule(store, config, after), /future delivery date/);
   assert.deepEqual(validateInstantSchedule({ ...store, orderCutoffTime: null }, config, after), { mode: 'instant' });
+});
+
+test('quote and submission agree on free delivery per day without changing actual Lalamove quote', async () => {
+  const fixture = quoteFixture(8.4, 3);
+  fixture.db.documents['stores/s'].delivery.freeDelivery = { enabled: true, distanceThresholdKm: 500, minimumSubtotalWithin: 15, minimumSubtotalBeyond: 120 };
+  fixture.draft.selections.forEach((selection, index) => { selection.quantity = index === 0 ? 2 : 1; });
+  const result = await createStoreDeliveryQuote({ ...fixture, slug: 'test', draft: { ...fixture.draft, deliveryFee: 0, distanceKm: 0 } });
+  assert.equal(fixture.quoteCount(), 1);
+  assert.deepEqual(result.quote.days.map(day => day.customerDeliveryFee), [0,8.4,8.4]);
+  assert.equal(result.quote.customerDeliveryFee, 16.8);
+  const deliverySnapshot = await revalidateDeliveryForPayment({ ...fixture, draft: { ...fixture.draft, deliveryQuoteId: result.quote.quotationId, deliveryPricingSnapshotId: result.pricingSnapshotId } });
+  assert.equal(deliverySnapshot.quote.fee, 8.4);
+  const order = buildPendingOrder({ id: 'free-order', orderNumber: 'MC-free', store: { ...fixture.store, pickupLocations: [] }, draft: { ...fixture.draft, customerName: 'Guest', phone: '+60123456789', fulfilmentMethod: 'delivery', deliverySnapshot }, products: Object.entries(fixture.db.documents).filter(([path]) => path.startsWith('storeProducts/')).map(([, product]) => product), optionGroups: [], paymentProvider: 'stripe', paymentProviderMode: 'single_merchant' });
+  assert.equal(order.totals.deliveryFee, result.quote.customerDeliveryFee);
+  assert.deepEqual(order.deliveryPricingSnapshot.days.map(day => day.customerDeliveryFee), [0,8.4,8.4]);
 });
