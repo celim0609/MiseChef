@@ -86,6 +86,13 @@ export const isDatedWeekOpen = (store, monday, now = new Date()) => {
 // and maximum advance window, but never derive closing from earliest days.
 export const fullWeekDateStore = (store, plan) => hasDatedMenu(plan)
   ? { ...store, earliestPickupDays: 0, orderCutoffTime: null, ...(store.delivery ? { delivery: { ...store.delivery, fulfilment: { ...store.delivery.fulfilment, preOrder: { ...store.delivery.fulfilment?.preOrder, earliestDays: 0 } } } } : {}) } : store;
+export const fullWeekServiceDatesAvailable = (store, monday, getDates, now = new Date()) => {
+  const dates = getWeeklyDates(monday);
+  const orderDays = new Set(store.orderDays || []);
+  const unavailableDates = new Set(store.unavailableDates || []);
+  return dates.length === 5 && getDates(store, now).includes(monday)
+    && dates.every((date, index) => orderDays.has(['monday', 'tuesday', 'wednesday', 'thursday', 'friday'][index]) && !unavailableDates.has(date));
+};
 export const weekRangeLabel = monday => {
   const dates = getWeeklyDates(monday);
   if (!dates.length) return '';
@@ -169,10 +176,11 @@ export const weeklyCartError = (selections, products) => {
 };
 
 // Reuse the existing Store date window, blocked dates and pickup time slots.
-export const getWeeklyPickupTimes = (store, monday, getDates, getTimes, now = new Date()) => {
+export const getWeeklyPickupTimes = (store, monday, getDates, getTimes, now = new Date(), plan) => {
   const dates = getWeeklyDates(monday);
   const validDates = getDates(store, now);
-  if (dates.length !== 5 || dates.some(date => !validDates.includes(date))) return [];
+  if (hasDatedMenu(plan) ? !fullWeekServiceDatesAvailable(store, monday, getDates, now)
+    : dates.length !== 5 || dates.some(date => !validDates.includes(date))) return [];
   return getTimes(store, monday, now).filter(time => dates.every(date => getTimes(store, date, now).includes(time)));
 };
 

@@ -1,7 +1,7 @@
 import { HealthyLunchCheckoutDates } from './HealthyLunchCheckoutDates';
 import HealthyLunchMenu, { type HealthyLunchChoice } from './HealthyLunchMenu';
 import { addDatedHealthyLunchLine, groupFulfilmentSchedule, selectionAllowsDate, usesScheduledCheckout, commonPickupTimes, applySharedTime, checkoutDayGroups, scheduleDateLabel, deliveryFeeLabel, type DraftFulfilment } from './storeOrderFulfilments';
-import { isWeeklyMealPlan, WEEKLY_DAYS, getWeeklyDates, getWeeklyPickupTimes, validateWeeklyMealPlan, weeklyCartError, datedWeeks, hasDatedMenu, hasRotationMenu, isHealthyLunchWeekBlocked, isDatedWeekOpen, fullWeekDateStore, weekRangeLabel, validateWeeklyStructure, resolvePlanMeal, resolveHealthyLunchDay, hasEmbeddedMenu, isFullWeekSelection } from '../../../functions/storeWeeklyMealPlan.js';
+import { isWeeklyMealPlan, WEEKLY_DAYS, getWeeklyDates, getWeeklyPickupTimes, validateWeeklyMealPlan, weeklyCartError, datedWeeks, hasDatedMenu, hasRotationMenu, isHealthyLunchWeekBlocked, isDatedWeekOpen, fullWeekDateStore, fullWeekServiceDatesAvailable, weekRangeLabel, validateWeeklyStructure, resolvePlanMeal, resolveHealthyLunchDay, hasEmbeddedMenu, isFullWeekSelection } from '../../../functions/storeWeeklyMealPlan.js';
 import { cartAllowsFulfilmentDate, currentFulfilmentDate } from '../../../functions/storeProductAvailability.js';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, type User } from 'firebase/auth';
@@ -806,8 +806,8 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     const dates = getValidPickupDates(fullWeekDateStore(store, plan), now);
     return (plan.weeklyWeeks !== undefined ? datedWeeks(plan).map(week => week.startMonday) : dates.filter(date => getWeeklyDates(date).length === 5))
       .filter(monday => !validateWeeklyMealPlan(plan, data!.products, store.id, monday) && (!hasDatedMenu(plan) || isDatedWeekOpen(store, monday, now)) && !isHealthyLunchWeekBlocked(plan, monday)
-        && getWeeklyDates(monday).every(date => dates.includes(date))
-        && (method === 'delivery' ? store.delivery?.fulfilment.preOrder.enabled : getWeeklyPickupTimes(fullWeekDateStore(store, plan), monday, getValidPickupDates, getPickupTimeSlots, now).length > 0));
+        && (hasDatedMenu(plan) ? fullWeekServiceDatesAvailable(fullWeekDateStore(store, plan), monday, getValidPickupDates, now) : getWeeklyDates(monday).every(date => dates.includes(date)))
+        && (method === 'delivery' ? store.delivery?.fulfilment.preOrder.enabled : getWeeklyPickupTimes(fullWeekDateStore(store, plan), monday, getValidPickupDates, getPickupTimeSlots, now, plan).length > 0));
   };
   const weeklyCartPlan = data?.products.find(product => cart.some(line => line.productId === product.id && isFullWeekSelection(line, data!.products)) && isWeeklyMealPlan(product));
   const restrictedWeekdays = new Set(cart.map(line => data?.products.find(product => product.id === line.productId)?.availableDay || 'all').filter(day => day !== 'all'));
@@ -816,7 +816,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const multiScheduleEnabled = !groupOrder && (healthyDayCart || usesScheduledCheckout(cart.length, Boolean(weeklyCartPlan), Boolean(groupOrder), fulfilmentMethod === 'delivery' && deliveryMode === 'instant'));
   useEffect(() => { if (requiresMultipleDays && deliveryMode === 'instant') setDeliveryMode('preorder'); }, [requiresMultipleDays, deliveryMode]);
   const getCheckoutPickupTimes = (date: string) => data ? weeklyCartPlan
-    ? getWeeklyPickupTimes(fullWeekDateStore(data.store, weeklyCartPlan), date, getValidPickupDates, getPickupTimeSlots)
+    ? getWeeklyPickupTimes(fullWeekDateStore(data.store, weeklyCartPlan), date, getValidPickupDates, getPickupTimeSlots, new Date(), weeklyCartPlan)
     : getPickupTimeSlots(data.store, date) : [];
   const [pickupClock, setPickupClock] = useState(() => new Date());
   useEffect(() => {
@@ -867,10 +867,11 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const selectedFulfilmentDate = fulfilmentMethod === 'delivery'
     ? (deliveryMode === 'instant' ? currentFulfilmentDate(getRegionConfiguration(data?.store.country).timeZone) : deliveryDate)
     : pickupDate;
-  const scheduleDates = data ? getValidPickupDates(weeklyCartPlan ? fullWeekDateStore(healthyDateStore(fulfilmentMethod), weeklyCartPlan) : healthyDateStore(fulfilmentMethod), pickupClock) : [];
+  const scheduleDateStore = data ? weeklyCartPlan ? fullWeekDateStore(healthyDateStore(fulfilmentMethod), weeklyCartPlan) : healthyDateStore(fulfilmentMethod) : null;
+  const scheduleDates = scheduleDateStore ? getValidPickupDates(scheduleDateStore, pickupClock) : [];
   const selectedWeekMonday = fulfilmentMethod === 'delivery' ? deliveryDate : pickupDate;
   const scheduleRows = multiScheduleEnabled ? (weeklyCartPlan ? WEEKLY_DAYS.map((day, index) => ({ key: `weekly_${day}`, itemIndex: 0, label: resolvePlanMeal(weeklyCartPlan, data!.products, selectedWeekMonday, day)?.name || day,
-    dates: [getWeeklyDates(fulfilmentMethod === 'delivery' ? deliveryDate : pickupDate)[index]].filter(date => scheduleDates.includes(date)) }))
+    dates: [getWeeklyDates(fulfilmentMethod === 'delivery' ? deliveryDate : pickupDate)[index]].filter(date => hasDatedMenu(weeklyCartPlan) ? Boolean(scheduleDateStore && fullWeekServiceDatesAvailable(scheduleDateStore, selectedWeekMonday, getValidPickupDates, pickupClock)) : scheduleDates.includes(date)) }))
     : cart.map((line, index) => ({ key: `line_${index}_${line.productId || line.setId}`, itemIndex: index,
       label: cartDetails[index]?.product?.name || 'Set',
       dates: scheduleDates.filter(date => data && (!line.healthyLunchDate || line.healthyLunchDate === date) && selectionAllowsDate(line, data.products, date)) }))) : [];
@@ -894,7 +895,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
       ));
       if (fulfilmentMethod === 'pickup' && !sharedPickupTimes.includes(pickupTime)) throw new Error('Choose a pickup time available on every selected day.');
       if (weeklyCartPlan && hasDatedMenu(weeklyCartPlan) && (!isDatedWeekOpen(data!.store, selectedWeekMonday, pickupClock) || isHealthyLunchWeekBlocked(weeklyCartPlan, selectedWeekMonday))) throw new Error('This 5-Day Plan is closed.');
-      if (weeklyCartPlan && proposedFulfilments.some(entry => !scheduleDates.includes(entry.date))) throw new Error('Choose an available Monday–Friday week.');
+      if (weeklyCartPlan && (hasDatedMenu(weeklyCartPlan) ? !scheduleDateStore || !fullWeekServiceDatesAvailable(scheduleDateStore, selectedWeekMonday, getValidPickupDates, pickupClock) : proposedFulfilments.some(entry => !scheduleDates.includes(entry.date)))) throw new Error('Choose an available Monday–Friday week.');
       if (weeklyCartPlan && proposedFulfilments.length !== 5) throw new Error('Choose an available Monday–Friday week.');
       if (fulfilmentMethod === 'delivery' && deliveryMode !== 'preorder') throw new Error('Choose Pre-order delivery for scheduled meals.');
       const hours = data?.store.delivery?.fulfilment.preOrder.deliveryHours;

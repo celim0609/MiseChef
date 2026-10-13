@@ -279,6 +279,17 @@ test('rotation keeps multi-date orders and purchased snapshots fixed when future
   assert.equal(financial({ ...checkout, products: [plan] }).items[0].weeklyPlanSnapshot.meals[0].productName, 'Changed mon lunch');
 });
 
+test('dated full week checks the advance window against Monday at checkout', () => {
+  const plan = { id: 'rotation', name: 'Healthy Lunch', storeId: 's', workspaceId: 's', available: true, productType: 'weekly_meal_plan', weeklyMenuVersion: 3,
+    price: 50, optionGroupIds: [], rotationStartMonday: '2026-07-27', healthyLunchBlockedDates: [], rotationWeeks: { week1: { meals: directMenu('A') } } };
+  const limited = { ...store, maximumAdvanceDays: 7 };
+  const selected = { ...draft, selections: [{ productId: plan.id, quantity: 1 }], fulfilments: ['03', '04', '05', '06', '07'].map(day => ({ date: `2026-08-${day}`, time: '10:00', itemIndexes: [0] })) };
+  const now = new Date('2026-07-29T04:00:00Z');
+  const order = financial({ products: [plan], store: limited, draft: selected, now });
+  assert.deepEqual(order.fulfilments.map(day => day.date), ['2026-08-03', '2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07']);
+  assert.throws(() => financial({ products: [plan], store: limited, draft: { ...selected, fulfilments: ['10', '11', '12', '13', '14'].map(day => ({ date: `2026-08-${day}`, time: '10:00', itemIndexes: [0] })) }, now }), /fulfilment date/);
+});
+
 test('blocked rotation date refuses a full week and that individual date without shifting next week', () => {
   const plan = { id: 'rotation', name: 'Healthy Lunch', storeId: 's', workspaceId: 's', available: true, productType: 'weekly_meal_plan', weeklyMenuVersion: 3,
     price: 50, optionGroupIds: [], rotationStartMonday: '2026-07-27', healthyLunchBlockedDates: ['2026-07-29'],

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { WEEKLY_DAYS, getWeeklyDates, buildWeeklyDeliverySchedule, getWeeklyPickupTimes, validateWeeklyMealPlan, weeklyCartError, buildWeeklyOrderDetails, publicWeeklyFulfilments } from './storeWeeklyMealPlan.js';
+import { WEEKLY_DAYS, getWeeklyDates, buildWeeklyDeliverySchedule, getWeeklyPickupTimes, fullWeekDateStore, fullWeekServiceDatesAvailable, rotationWeekForMonday, validateWeeklyMealPlan, weeklyCartError, buildWeeklyOrderDetails, publicWeeklyFulfilments } from './storeWeeklyMealPlan.js';
 import { getValidPickupDates, getPickupTimeSlots } from './storePaymentsCore.js';
 
 const now = new Date('2026-07-26T04:00:00Z');
@@ -73,6 +73,21 @@ test('a Monday inside the preorder window is unavailable if its Friday falls out
   assert.ok(getValidPickupDates(limited, wednesday).includes('2026-08-03'));
   assert.equal(getValidPickupDates(limited, wednesday).includes('2026-08-07'), false);
   assert.deepEqual(getWeeklyPickupTimes(limited, '2026-08-03', getValidPickupDates, getPickupTimeSlots, wednesday), []);
+});
+
+test('dated 5-Day Plan anchors the advance window on Monday and keeps all five Store days', () => {
+  const wednesday = new Date('2026-07-29T04:00:00Z');
+  const limited = { ...store, maximumAdvanceDays: 7 };
+  const dated = { ...plan, weeklyMeals: undefined, weeklyMenuVersion: 3, rotationStartMonday: '2026-07-27', rotationWeeks: { week2: { meals: Object.fromEntries(WEEKLY_DAYS.map(day => [day, { name: day, photoUrl: 'meal.jpg', price: 10 }])) } } };
+  const dateStore = fullWeekDateStore(limited, dated);
+  assert.equal(fullWeekServiceDatesAvailable(dateStore, '2026-08-03', getValidPickupDates, wednesday), true);
+  assert.ok(getWeeklyPickupTimes(dateStore, '2026-08-03', getValidPickupDates, getPickupTimeSlots, wednesday, dated).includes('10:00'));
+  assert.equal(fullWeekServiceDatesAvailable(dateStore, '2026-08-10', getValidPickupDates, wednesday), false);
+  assert.deepEqual(getWeeklyPickupTimes(dateStore, '2026-08-10', getValidPickupDates, getPickupTimeSlots, wednesday, dated), []);
+  assert.equal(fullWeekServiceDatesAvailable({ ...dateStore, orderDays: ['monday', 'tuesday', 'wednesday', 'thursday'] }, '2026-08-03', getValidPickupDates, wednesday), false);
+  assert.equal(fullWeekServiceDatesAvailable({ ...dateStore, unavailableDates: ['2026-08-07'] }, '2026-08-03', getValidPickupDates, wednesday), false);
+  assert.equal(rotationWeekForMonday(dated, '2026-08-03'), dated.rotationWeeks.week2);
+  assert.equal(rotationWeekForMonday(dated, '2026-08-10'), dated.rotationWeeks.week2);
 });
 
 test('weekly mapping overrides standalone weekday while one delivery time covers every assigned day', () => {

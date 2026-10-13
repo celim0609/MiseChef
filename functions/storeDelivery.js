@@ -163,11 +163,11 @@ const deliveryScheduleBinding = draft => createHash('sha256').update(JSON.string
   schedule: canonicalSchedule(draft), selections: draft.selections,
   address: validateDestination(draft.destination).address
 })).digest('hex');
-const scheduledDelivery = (store, draft) => {
+const scheduledDelivery = (store, draft, datedFullWeek = false) => {
   const entries = canonicalSchedule(draft);
   if (!entries) return { draft, entries: null };
   if (draft.fulfilmentMode === 'instant') throw deliveryError('Multiple fulfilments require pre-order delivery.');
-  entries.forEach(entry => assertFutureLalamoveSchedule(validatePreOrderSchedule(store, deliveryConfig(store), { deliveryDate: entry.date, deliveryTime: entry.time })));
+  entries.forEach(entry => assertFutureLalamoveSchedule(validatePreOrderSchedule(store, deliveryConfig(store), { deliveryDate: datedFullWeek ? entries[0].date : entry.date, deliveryTime: entry.time })));
   return { entries, draft: { ...draft, fulfilmentMode: 'preorder', deliveryDate: entries[0].date, deliveryTime: entries[0].time } };
 };
 
@@ -178,7 +178,7 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
   if (distanceKm(pickup, destination) > Number(config.fulfilment?.preOrder?.maximumDistanceKm || Infinity)) throw deliveryError('This delivery address is outside the Store’s maximum delivery distance.');
   const fulfilments = buildOrderFulfilments({ store: checkout.store, draft: { ...draft, fulfilmentMethod: 'delivery' }, products: checkout.products, getDates: getValidPickupDates, getTimes: getPickupTimeSlots });
   const scheduleStore = fulfilments?.weeklyPlanSnapshot ? fullWeekDateStore(checkout.store, checkout.products.find(product => product.id === draft.selections?.[0]?.productId)) : checkout.store;
-  const scheduled = scheduledDelivery(scheduleStore, draft);
+  const scheduled = scheduledDelivery(scheduleStore, draft, Boolean(fulfilments?.weeklyPlanSnapshot && hasDatedMenu(checkout.products.find(product => product.id === draft.selections?.[0]?.productId))));
   draft = scheduled.draft;
   const schedule = assertFutureLalamoveSchedule(validateDeliverySchedule(scheduleStore, deliveryConfig(scheduleStore), draft));
   // Rebuild cart on the server. The browser does not send prices or service type.
@@ -228,7 +228,7 @@ export const revalidateDeliveryForPayment = async ({ provider, store, draft, now
   const plan = products.find(product => product.id === draft.selections?.[0]?.productId);
   if (hasDatedMenu(plan)) buildOrderFulfilments({ store, draft: { ...draft, fulfilmentMethod: 'delivery' }, products, now: new Date(now), getDates: getValidPickupDates, getTimes: getPickupTimeSlots });
   const scheduleStore = isFullWeekSelection(draft.selections?.[0], products) ? fullWeekDateStore(store, plan) : store;
-  const scheduled = scheduledDelivery(scheduleStore, draft);
+  const scheduled = scheduledDelivery(scheduleStore, draft, isFullWeekSelection(draft.selections?.[0], products) && hasDatedMenu(plan));
   draft = scheduled.draft;
   const schedule = validateDeliverySchedule(scheduleStore, deliveryConfig(scheduleStore), draft);
   const quote = quoteSnapshot(await provider.retrieveQuote({ market: 'MY', quotationId: readString(draft?.deliveryQuoteId) }));

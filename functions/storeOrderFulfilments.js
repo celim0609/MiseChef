@@ -1,5 +1,5 @@
 import { productAllowsFulfilmentDate } from './storeProductAvailability.js';
-import { isWeeklyMealPlan, WEEKLY_DAYS, getWeeklyDates, weeklyCartError, validateWeeklyMealPlan, resolveWeeklyMeals, isDatedWeekOpen, isHealthyLunchWeekBlocked, hasDatedMenu, fullWeekDateStore, validateHealthyLunchDay, isFullWeekSelection, resolvePlanMeal, hasEmbeddedMenu, weeklyMealSnapshot } from './storeWeeklyMealPlan.js';
+import { isWeeklyMealPlan, WEEKLY_DAYS, getWeeklyDates, weeklyCartError, validateWeeklyMealPlan, resolveWeeklyMeals, isDatedWeekOpen, isHealthyLunchWeekBlocked, hasDatedMenu, fullWeekDateStore, fullWeekServiceDatesAvailable, validateHealthyLunchDay, isFullWeekSelection, resolvePlanMeal, hasEmbeddedMenu, weeklyMealSnapshot } from './storeWeeklyMealPlan.js';
 
 // A schedule is server-canonical: exactly one fulfilment per calendar day.
 // Quantities and financial lines are never duplicated into another order.
@@ -45,12 +45,14 @@ export const buildOrderFulfilments = ({ store, draft, products, groupOrder, getD
     earliestPickupDays: preOrder?.earliestDays ?? store.earliestPickupDays,
     maximumAdvanceDays: preOrder?.maximumAdvanceDays ?? store.maximumAdvanceDays,
     unavailableDates: preOrder?.unavailableDates ?? store.unavailableDates } : store;
-  const dates = getDates(weekly ? fullWeekDateStore(dateStore, plan) : dateStore, now);
+  const effectiveDateStore = weekly ? fullWeekDateStore(dateStore, plan) : dateStore;
+  const dates = getDates(effectiveDateStore, now);
+  const datedFullWeekAvailable = weekly && hasDatedMenu(plan) && fullWeekServiceDatesAvailable(effectiveDateStore, schedule[0].date, getDates, now);
   const location = store.pickupLocations?.find(location => location.id === draft.pickupLocationId);
   if (!delivery && !location) throw new Error('Choose a valid pickup location.');
   const seen = new Set();
   const fulfilments = schedule.map((entry, dayIndex) => {
-    if (!dates.includes(entry.date)) throw new Error('Choose an available fulfilment date.');
+    if (weekly && hasDatedMenu(plan) ? !datedFullWeekAvailable : !dates.includes(entry.date)) throw new Error('Choose an available fulfilment date.');
     if (delivery) {
       const hours = preOrder?.deliveryHours || { from: '00:00', to: '23:59' };
       if (preOrder?.enabled === false || entry.time < hours.from || entry.time > hours.to
