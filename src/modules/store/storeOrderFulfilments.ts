@@ -1,3 +1,4 @@
+import { hasEmbeddedMenu, resolveHealthyLunchDay } from '../../../functions/storeWeeklyMealPlan.js';
 import { productAllowsFulfilmentDate } from '../../../functions/storeProductAvailability.js';
 import type { CartSelection, StoreProduct } from './types';
 
@@ -13,9 +14,14 @@ export const groupFulfilmentSchedule = (entries: DraftFulfilment[]): DraftFulfil
   }
   return [...days.values()].sort((a, b) => a.date.localeCompare(b.date));
 };
-export const selectionAllowsDate = (selection: CartSelection, products: StoreProduct[], date: string) => selection.setId
-  ? (selection.selectedSetItems || []).every(item => productAllowsFulfilmentDate(products.find(product => product.id === item.productId) || {}, date))
-  : productAllowsFulfilmentDate(products.find(product => product.id === selection.productId) || {}, date);
+export const selectionAllowsDate = (selection: CartSelection, products: StoreProduct[], date: string) => {
+  if (selection.healthyLunchDate && selection.healthyLunchDate !== date) return false;
+  const product = products.find(product => product.id === selection.productId);
+  if (hasEmbeddedMenu(product) && selection.healthyLunchDate) return selection.healthyLunchPlanId === product?.id && Boolean(resolveHealthyLunchDay(product, products, date));
+  return selection.setId
+    ? (selection.selectedSetItems || []).every(item => productAllowsFulfilmentDate(products.find(product => product.id === item.productId) || {}, date))
+    : productAllowsFulfilmentDate(product || {}, date);
+};
 
 export const usesScheduledCheckout = (lineCount: number, weekly: boolean, group: boolean, instant: boolean) =>
   !group && (weekly || lineCount > 1) && !instant;

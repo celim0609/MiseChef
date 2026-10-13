@@ -205,3 +205,55 @@ test('an unavailable meal in a different week does not close a valid selected we
   const dayDraft = { ...draft, selections: [{ productId: 'wed', quantity: 1, healthyLunchPlanId: plan.id, healthyLunchDate: '2026-08-05' }], fulfilments: [{ date: '2026-08-05', time: '10:00', itemIndexes: [0] }] };
   assert.equal(financial({ products: catalogue, draft: dayDraft }).total, 10);
 });
+
+const directMenu = (label = 'A') => Object.fromEntries(['mon','tue','wed','thu','fri'].map((day, index) => [day, { name: `${label} ${day} lunch`, photoUrl: `https://example.test/${label}-${day}.jpg`, price: 11 + index, calories: 410 + index, description: `${label} ${day} description` }]));
+const directPlan = () => ({ id: 'embedded', name: 'Healthy Lunch', storeId: 's', workspaceId: 's', available: true, productType: 'weekly_meal_plan', price: 50, optionGroupIds: [], weeklyMenuVersion: 2,
+  weeklyWeeks: { week2: { startMonday: '2026-07-27', meals: directMenu() }, week1: { startMonday: '2026-08-03', meals: directMenu('B') } } });
+
+test('embedded full-week purchase snapshots five meals at one package price without Product references', () => {
+  const plan = directPlan();
+  const weeklyDraft = { ...draft, selections: [{ productId: plan.id, quantity: 2 }], fulfilments: ['27','28','29','30','31'].map(day => ({ date: `2026-07-${day}`, time: '10:00', itemIndexes: [0] })) };
+  const options = { products: [plan], draft: weeklyDraft, store: { ...store, orderCutoffTime: '18:00', earliestPickupDays: 1 }, now: new Date('2026-07-26T10:00:00Z') };
+  const order = financial(options);
+  assert.equal(order.total, 100); assert.equal(order.items.length, 1); assert.equal(order.payment.amountMinor, 10000);
+  assert.equal(order.items[0].weeklyPlanSnapshot.meals.length, 5);
+  assert.equal(order.items[0].weeklyPlanSnapshot.meals[0].productName, 'A mon lunch');
+  assert.equal(order.items[0].weeklyPlanSnapshot.meals[0].price, 11);
+  assert.equal(order.items[0].weeklyPlanSnapshot.meals[0].calories, 410);
+  assert.throws(() => financial({ ...options, now: new Date('2026-07-26T10:00:00.001Z') }), /closed/);
+  plan.weeklyWeeks.week2.meals.mon.name = 'Changed later'; plan.weeklyWeeks.week2.meals.mon.photoUrl = 'new.jpg';
+  assert.equal(order.items[0].weeklyPlanSnapshot.meals[0].productName, 'A mon lunch');
+  assert.equal(order.items[0].weeklyPlanSnapshot.meals[0].photoUrl, 'https://example.test/A-mon.jpg');
+  const publicDay = publicOrderFulfilments(order)[0].meals[0];
+  assert.equal(publicDay.calories, 410); assert.equal(publicDay.photoUrl, 'https://example.test/A-mon.jpg');
+  assert.equal(publicDay.productId, undefined);
+});
+
+test('embedded single days use normal cutoff and authoritative day prices, with multiple dates from one plan', () => {
+  const plan = directPlan();
+  const selections = ['2026-07-29','2026-08-03'].map(date => ({ productId: plan.id, healthyLunchPlanId: plan.id, healthyLunchDate: date, quantity: 2, price: 0, selectedOptions: [] }));
+  const dayDraft = { ...draft, selections, fulfilments: selections.map((selection, index) => ({ date: selection.healthyLunchDate, time: '10:00', itemIndexes: [index] })) };
+  const options = { products: [plan], draft: dayDraft, store: { ...store, earliestPickupDays: 1, orderCutoffTime: '18:00' }, now: new Date('2026-07-27T10:01:00Z') };
+  const order = financial(options);
+  assert.equal(order.total, 48); // 2 × Wednesday 13 + 2 × next Monday 11
+  assert.equal(order.items[0].productName, 'A wed lunch'); assert.equal(order.items[1].productName, 'B mon lunch');
+  assert.equal(order.items[0].calories, 412); assert.equal(order.items[0].description, 'A wed description');
+  assert.equal(order.items[0].weeklyPlanSnapshot, undefined);
+  assert.equal(order.fulfilments.length, 2);
+  assert.throws(() => financial({ ...options, now: new Date('2026-07-28T10:01:00Z') }), /available/);
+  assert.throws(() => financial({ ...options, draft: { ...dayDraft, selections: [{ ...selections[0], healthyLunchDate: '2026-07-30' }, selections[1]] } }), /valid Healthy Lunch/);
+  assert.throws(() => financial({ ...options, draft: { ...dayDraft, selections: [{ ...selections[0], healthyLunchPlanId: 'foreign' }, selections[1]] } }), /Healthy Lunch/);
+  assert.throws(() => financial({ ...options, draft: { ...dayDraft, selections: [{ ...selections[0], healthyLunchDate: '2026-08-10' }, selections[1]], fulfilments: [{ date: '2026-08-10', time: '10:00', itemIndexes: [0] }, dayDraft.fulfilments[1]] } }), /does not match|available/);
+});
+
+test('embedded full-week and per-day deliveries keep existing per-day free-delivery pricing', () => {
+  const plan = directPlan();
+  const deliveryStore = { ...store, delivery: { ...store.delivery, freeDelivery: { enabled: true, distanceThresholdKm: 5, minimumSubtotalWithin: 15, minimumSubtotalBeyond: 25 } } };
+  const deliverySnapshot = { quote: { fee: 7, quotationId: 'q' }, schedule: { date: '2026-07-27' }, fulfilmentMode: 'preorder', pickup: { latitude: '4.6', longitude: '101.1' }, recipient: { latitude: '4.601', longitude: '101.101' } };
+  const weeklyDraft = { ...draft, fulfilmentMethod: 'delivery', fulfilmentMode: 'preorder', deliverySnapshot, selections: [{ productId: plan.id, quantity: 1 }], fulfilments: ['27','28','29','30','31'].map(day => ({ date: `2026-07-${day}`, time: '10:00', itemIndexes: [0] })) };
+  const full = financial({ products: [plan], store: deliveryStore, draft: weeklyDraft });
+  assert.equal(full.totals.deliveryFee, 35); assert.equal(full.total, 85); // weekly 50 / 5 = 10 per day, below 15
+  const single = financial({ products: [plan], store: deliveryStore, draft: { ...weeklyDraft, selections: [{ productId: plan.id, healthyLunchPlanId: plan.id, healthyLunchDate: '2026-07-31', quantity: 1 }], fulfilments: [{ date: '2026-07-31', time: '10:00', itemIndexes: [0] }] } });
+  assert.equal(single.items[0].basePrice, 15); assert.equal(single.totals.deliveryFee, 0); assert.equal(single.total, 15);
+  assert.equal(single.fulfilments[0].allocations[0].componentDay, undefined);
+});

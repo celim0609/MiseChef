@@ -127,3 +127,14 @@ test('dated plan and single-day association survive normalization without changi
   assert.equal(normalizeStoreOrderItem({ productName: 'Old Single' }).healthyLunchSnapshot, undefined);
   assert.equal(normalizeStoreOrderItem({ weeklyPlanSnapshot: { meals: [] } }).weeklyPlanSnapshot?.startMonday, undefined);
 });
+
+test('embedded order snapshots preserve purchased photos, kcal, descriptions and day prices', () => {
+  const original = { productName: 'Healthy Lunch', weeklyPlanSnapshot: { startMonday: '2026-10-19', meals: [{ day: 'mon', productId: 'plan', productName: 'Purchased lunch', photoUrl: 'https://example.test/frozen.jpg', price: 12, calories: 450, description: 'Purchased vegetables' }] } };
+  const item = normalizeStoreOrderItem(original);
+  original.weeklyPlanSnapshot.meals[0].productName = 'Edited menu';
+  assert.equal(item.weeklyPlanSnapshot!.meals[0].productName, 'Purchased lunch');
+  assert.equal(item.weeklyPlanSnapshot!.meals[0].photoUrl, 'https://example.test/frozen.jpg');
+  assert.equal(item.weeklyPlanSnapshot!.meals[0].calories, 450); assert.equal(item.weeklyPlanSnapshot!.meals[0].price, 12);
+  const day = normalizeStoreOrderItem({ productName: 'Lunch', calories: 0, description: 'Purchased recipe', basePrice: 12, unitPrice: 12 });
+  assert.equal(day.calories, 0); assert.equal(day.description, 'Purchased recipe'); assert.equal(day.basePrice, 12);
+});

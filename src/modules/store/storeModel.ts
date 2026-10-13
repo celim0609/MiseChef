@@ -421,6 +421,7 @@ export const normalizeStoreProduct = (
     ? { estimatedCost: Number(data.estimatedCost) }
     : {}),
   ...(data.productType !== undefined ? { productType: data.productType as StoreProduct['productType'] } : {}),
+  ...(data.weeklyMenuVersion !== undefined ? { weeklyMenuVersion: data.weeklyMenuVersion as 2 } : {}),
   ...(data.weeklyWeeks && typeof data.weeklyWeeks === 'object' ? { weeklyWeeks: structuredClone(data.weeklyWeeks) as StoreProduct['weeklyWeeks'] } : {}),
   ...(data.weeklyMeals && typeof data.weeklyMeals === 'object' ? { weeklyMeals: { ...data.weeklyMeals as NonNullable<StoreProduct['weeklyMeals']> } } : {}),
   available: readBoolean(data.available),
@@ -534,7 +535,7 @@ export const validateStoreProduct = (draft: StoreProductDraft) => {
     if (draft.optionGroupIds.length || (draft.availableDay ?? 'all') !== 'all') return 'Weekly plans cannot have options or an Available day restriction.';
     const weeklyError = validateWeeklyStructure(draft);
     if (weeklyError) return weeklyError;
-  } else if (draft.weeklyMeals !== undefined || draft.weeklyWeeks !== undefined) return 'Single Products cannot contain weekly meals.';
+  } else if (draft.weeklyMeals !== undefined || draft.weeklyWeeks !== undefined || draft.weeklyMenuVersion !== undefined) return 'Single Products cannot contain weekly meals.';
 
   if (!AVAILABLE_DAYS.includes(draft.availableDay ?? 'all')) return 'Choose a valid Available day.';
   if (!draft.photoUrl.trim()) return 'Product photo is required.';

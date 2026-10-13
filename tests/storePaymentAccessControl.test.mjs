@@ -725,3 +725,38 @@ test('dated four-week schema saves twenty distinct meals within Rules budget and
   for (const invalid of [{}, { week5: weeklyWeeks.week1 }, { week1: { ...weeklyWeeks.week1, unknown: true } }, { week1: { ...weeklyWeeks.week1, startMonday: 'Monday' } }, { week1: { ...weeklyWeeks.week1, meals: { mon: 'meal' } } }, { week1: { ...weeklyWeeks.week1, meals: { ...weeklyWeeks.week1.meals, mon: id } } }]) await assertFails(ref.update({ weeklyWeeks: invalid }));
   await assertFails(ref.update({ productType: 'single' }));
 });
+
+const embeddedMealRecord = day => ({ photoUrl: `https://example.test/embedded-${day}.jpg`, name: `${day} lunch`, price: 12.5, calories: 450, description: 'Healthy lunch' });
+const embeddedWeekRecord = startMonday => ({ startMonday, meals: Object.fromEntries(weeklyDays.map(day => [day, embeddedMealRecord(day)])) });
+
+test('embedded menus save any one to four slots, including Week 2 alone, without Single Products', async () => {
+  const id = 'embedded-healthy-lunch';
+  const weeklyWeeks = { week1: embeddedWeekRecord('2026-10-19'), week2: embeddedWeekRecord('2026-10-26'), week3: embeddedWeekRecord('2026-11-02'), week4: embeddedWeekRecord('2026-11-09') };
+  const record = { ...createProductRecord(id), productType: 'weekly_meal_plan', weeklyMenuVersion: 2, weeklyWeeks };
+  const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+  await assertSucceeds(ref.set(record));
+  for (const slots of [['week2'], ['week1','week3'], ['week1','week2'], ['week1','week2','week3','week4']]) {
+    const selected = Object.fromEntries(slots.map(slot => [slot, weeklyWeeks[slot]]));
+    await assertSucceeds(ref.update({ weeklyWeeks: selected }));
+    assert.deepEqual((await ref.get()).data().weeklyWeeks, selected);
+  }
+  await assertSucceeds(managerA.firestore().doc(`storeProducts/${id}`).update({ price: 50 }));
+  await assertSucceeds(anonymous.firestore().doc(`storeProducts/${id}`).get());
+  for (const context of [anonymous, memberA, ownerB, customerA]) await assertFails(context.firestore().doc(`storeProducts/${id}`).update({ weeklyWeeks: { week2: weeklyWeeks.week2 } }));
+});
+
+test('embedded schema rejects invalid meals and version mixing without changing old weekly schema', async () => {
+  const id = 'embedded-healthy-lunch';
+  const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+  const week = embeddedWeekRecord('2026-10-26');
+  for (const invalid of ['old-product-id', null, []]) await assertFails(ref.update({ weeklyWeeks: { week2: { ...week, meals: { ...week.meals, mon: invalid } } } }));
+  for (const weeklyWeeks of [{}, { week5: week }, { week2: { ...week, meals: { mon: embeddedMealRecord('mon') } } }]) await assertFails(ref.update({ weeklyWeeks }));
+  await assertFails(ref.update({ weeklyMenuVersion: 3 }));
+  await assertFails(ref.update({ weeklyWeeks: { week2: { ...week, meals: weeklyRecord('x').weeklyMeals } } }));
+  const simple = { ...week, meals: Object.fromEntries(weeklyDays.map(day => [day, { photoUrl: 'https://example.test/meal.jpg', name: `${day} simple`, price: 0 }])) };
+  await assertSucceeds(ref.set({ weeklyWeeks: { week3: simple } }, { mergeFields: ['weeklyWeeks'] }));
+  const saved = (await ref.get()).data();
+  assert.deepEqual(Object.keys(saved.weeklyWeeks), ['week3']);
+  assert.equal(saved.weeklyWeeks.week3.meals.mon.description, undefined);
+  assert.equal(saved.weeklyWeeks.week3.meals.mon.calories, undefined);
+});

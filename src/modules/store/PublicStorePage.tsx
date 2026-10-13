@@ -1,6 +1,6 @@
-import HealthyLunchMenu from './HealthyLunchMenu';
+import HealthyLunchMenu, { type HealthyLunchChoice } from './HealthyLunchMenu';
 import { groupFulfilmentSchedule, selectionAllowsDate, usesScheduledCheckout, commonPickupTimes, applySharedTime, checkoutDayGroups, scheduleDateLabel, deliveryFeeLabel, type DraftFulfilment } from './storeOrderFulfilments';
-import { isWeeklyMealPlan, WEEKLY_DAYS, getWeeklyDates, getWeeklyPickupTimes, validateWeeklyMealPlan, weeklyCartError, datedWeeks, resolveWeeklyMeals, isDatedWeekOpen, fullWeekDateStore, weekRangeLabel, validateWeeklyStructure } from '../../../functions/storeWeeklyMealPlan.js';
+import { isWeeklyMealPlan, WEEKLY_DAYS, getWeeklyDates, getWeeklyPickupTimes, validateWeeklyMealPlan, weeklyCartError, datedWeeks, isDatedWeekOpen, fullWeekDateStore, weekRangeLabel, validateWeeklyStructure, resolvePlanMeal, resolveHealthyLunchDay, hasEmbeddedMenu, isFullWeekSelection } from '../../../functions/storeWeeklyMealPlan.js';
 import { cartAllowsFulfilmentDate, currentFulfilmentDate } from '../../../functions/storeProductAvailability.js';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, type User } from 'firebase/auth';
@@ -455,7 +455,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
       const top = catalogueTopRef.current?.getBoundingClientRect();
       const end = catalogueEndRef.current?.getBoundingClientRect();
       if (!top || !end) return;
-      setIsCatalogueCartVisible(top.top < window.innerHeight && end.top > window.innerHeight - 96);
+      setIsCatalogueCartVisible(top.top < window.innerHeight && end.top > 0);
     };
     window.addEventListener('scroll', updateCatalogueCartVisibility, { passive: true });
     window.addEventListener('resize', updateCatalogueCartVisibility);
@@ -668,7 +668,8 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
 
   const cartDetails = useMemo(() => cart.map(line => {
     const set = line.setId ? data?.sets.find(candidate => candidate.id === line.setId) : undefined;
-    const product = data?.products.find(candidate => candidate.id === line.productId);
+    const catalogueProduct = data?.products.find(candidate => candidate.id === line.productId);
+    const product = catalogueProduct && hasEmbeddedMenu(catalogueProduct) && line.healthyLunchDate ? resolveHealthyLunchDay(catalogueProduct, data!.products, line.healthyLunchDate) : catalogueProduct;
     const options = line.selectedOptions.map(selection => {
       const group = optionGroupsById.get(selection.groupId);
       const option = group?.options.find(candidate => candidate.id === selection.optionId);
@@ -796,7 +797,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
       ...(store.pickupEnabled ? getValidPickupDates(store, now).filter(date => getPickupTimeSlots(store, date, now).length) : []),
       ...(store.delivery?.enabled && preOrder?.enabled ? getValidPickupDates(healthyDateStore('delivery'), now).filter(date => Date.parse(`${date}T${preOrder.deliveryHours.to}:00+08:00`) > now.getTime()) : [])
     ])].sort();
-    return dates.filter(date => datedWeeks(plan).some(week => getWeeklyDates(week.startMonday).some((dayDate, index) => dayDate === date && data!.products.some(meal => meal.id === week.meals[WEEKLY_DAYS[index]] && meal.available && selectionAllowsDate({ productId: meal.id, quantity: 1, selectedOptions: [] }, data!.products, date)))));
+    return dates.filter(date => { const meal = resolveHealthyLunchDay(plan, data!.products, date); return meal?.available && (hasEmbeddedMenu(plan) || selectionAllowsDate({ productId: meal.id, quantity: 1, selectedOptions: [] }, data!.products, date)); });
   };
   const availablePlanMondays = (plan: StoreProduct, method: string, now = new Date()): string[] => {
     const store = healthyDateStore(method);
@@ -807,7 +808,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
         && getWeeklyDates(monday).every(date => dates.includes(date))
         && (method === 'delivery' ? store.delivery?.fulfilment.preOrder.enabled : getWeeklyPickupTimes(fullWeekDateStore(store, plan), monday, getValidPickupDates, getPickupTimeSlots, now).length > 0));
   };
-  const weeklyCartPlan = data?.products.find(product => cart.some(line => line.productId === product.id) && isWeeklyMealPlan(product));
+  const weeklyCartPlan = data?.products.find(product => cart.some(line => line.productId === product.id && isFullWeekSelection(line, data!.products)) && isWeeklyMealPlan(product));
   const restrictedWeekdays = new Set(cart.map(line => data?.products.find(product => product.id === line.productId)?.availableDay || 'all').filter(day => day !== 'all'));
   const requiresMultipleDays = Boolean(weeklyCartPlan) || cart.some(line => line.healthyLunchDate) || restrictedWeekdays.size > 1;
   const healthyDayCart = cart.some(line => line.healthyLunchDate);
@@ -867,11 +868,10 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     : pickupDate;
   const scheduleDates = data ? getValidPickupDates(weeklyCartPlan ? fullWeekDateStore(healthyDateStore(fulfilmentMethod), weeklyCartPlan) : healthyDateStore(fulfilmentMethod), pickupClock) : [];
   const selectedWeekMonday = fulfilmentMethod === 'delivery' ? deliveryDate : pickupDate;
-  const selectedWeekMeals = weeklyCartPlan ? resolveWeeklyMeals(weeklyCartPlan, selectedWeekMonday) : undefined;
-  const scheduleRows = multiScheduleEnabled ? (weeklyCartPlan ? WEEKLY_DAYS.map((day, index) => ({ key: `weekly_${day}`, itemIndex: 0, label: data?.products.find(product => product.id === selectedWeekMeals?.[day])?.name || day,
+  const scheduleRows = multiScheduleEnabled ? (weeklyCartPlan ? WEEKLY_DAYS.map((day, index) => ({ key: `weekly_${day}`, itemIndex: 0, label: resolvePlanMeal(weeklyCartPlan, data!.products, selectedWeekMonday, day)?.name || day,
     dates: [getWeeklyDates(fulfilmentMethod === 'delivery' ? deliveryDate : pickupDate)[index]].filter(date => scheduleDates.includes(date)) }))
     : cart.map((line, index) => ({ key: `line_${index}_${line.productId || line.setId}`, itemIndex: index,
-      label: data?.products.find(product => product.id === line.productId)?.name || 'Set',
+      label: cartDetails[index]?.product?.name || 'Set',
       dates: scheduleDates.filter(date => data && (!line.healthyLunchDate || line.healthyLunchDate === date) && selectionAllowsDate(line, data.products, date)) }))) : [];
   const rowValue = (row: typeof scheduleRows[number]) => {
     const selected = lineSchedule[row.key];
@@ -912,12 +912,12 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   );
 
   const addConfiguredProduct = (product: StoreProduct, selectedOptions: CartSelection['selectedOptions']) => {
-    if (data && (weeklyCartError([...cart.filter(line => line.productId !== product.id), { productId: product.id, selectedOptions }], data.products) || (isWeeklyMealPlan(product) && groupOrder))) {
+    const key = selectionKey(product.id, selectedOptions);
+    if (data && (weeklyCartError([...cart.filter(line => line.key !== key), { productId: product.id, selectedOptions }], data.products) || (isWeeklyMealPlan(product) && groupOrder))) {
       setCheckoutError('A Weekly Meal Plan must be purchased alone, without Sets, options or Group Orders.'); setIsCheckoutOpen(true); return;
     }
-    const key = selectionKey(product.id, selectedOptions);
     setCart(current => {
-      if (data && weeklyCartError([...current.filter(line => line.productId !== product.id), { productId: product.id, selectedOptions }], data.products)) return current;
+      if (data && weeklyCartError([...current.filter(line => line.key !== key), { productId: product.id, selectedOptions }], data.products)) return current;
       const existing = current.find(line => line.key === key);
       if (existing) {
         return current.map(line => line.key === key
@@ -1002,17 +1002,15 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     sessionStorage.removeItem(checkoutRecoveryKey);
   };
 
-  const startAddingProduct = (product: StoreProduct) => {
+  const startAddingProduct = (product: StoreProduct, selectedChoice?: HealthyLunchChoice) => {
     if (isWeeklyMealPlan(product) && data && product.weeklyWeeks !== undefined) {
-      const choice = healthyChoices[product.id] || { mode: 'week', date: '' };
+      const choice = selectedChoice || healthyChoices[product.id] || { mode: 'week', date: '' };
       if (choice.mode === 'day') {
         const availableDates = availableHealthyDays(product);
         choice.date = availableDates.includes(choice.date) ? choice.date : availableDates[0] || '';
-        const week = datedWeeks(product).find(week => getWeeklyDates(week.startMonday).includes(choice.date));
-        const dayIndex = week ? getWeeklyDates(week.startMonday).indexOf(choice.date) : -1;
-        const meal = data.products.find(meal => meal.id === week?.meals[WEEKLY_DAYS[dayIndex]]);
+        const meal = resolveHealthyLunchDay(product, data.products, choice.date);
         const validDates = [...getValidPickupDates(data.store), ...(data.store.delivery?.fulfilment.preOrder.enabled ? getValidPickupDates(healthyDateStore('delivery')) : [])];
-        if (!meal || !meal.available || !validDates.includes(choice.date) || !selectionAllowsDate({ productId: meal.id, quantity: 1, selectedOptions: [] }, data.products, choice.date)) { setCheckoutError('Choose an available lunch date.'); setIsCheckoutOpen(true); return; }
+        if (!meal || !meal.available || !validDates.includes(choice.date) || !(hasEmbeddedMenu(product) || selectionAllowsDate({ productId: meal.id, quantity: 1, selectedOptions: [] }, data.products, choice.date))) { setCheckoutError('Choose an available lunch date.'); setIsCheckoutOpen(true); return; }
         const key = `healthy_${product.id}_${choice.date}`;
         if (weeklyCartPlan || groupOrder) { setCheckoutError('Order Healthy Lunch separately from a 5-Day Plan or Group Order.'); setIsCheckoutOpen(true); return; }
         setCart(current => current.some(line => line.key === key) ? current.map(line => line.key === key ? { ...line, quantity: Math.min(20, line.quantity + 1) } : line) : [...current, { key, productId: meal.id, quantity: 1, selectedOptions: [], healthyLunchPlanId: product.id, healthyLunchDate: choice.date }]);
@@ -1278,7 +1276,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     const choice = healthyChoices[product.id] || { mode: 'week' as const, date: '' };
     const weeks = [...new Set([...(store.pickupEnabled ? availablePlanMondays(product, 'pickup', pickupClock) : []), ...(store.delivery?.enabled ? availablePlanMondays(product, 'delivery', pickupClock) : [])])].sort();
     const dayDates = availableHealthyDays(product, pickupClock);
-    return <HealthyLunchMenu product={product} products={data.products} currency={store.currency} weeks={weeks} dayDates={dayDates} choice={choice} monday={monday} onChange={choice => setHealthyChoices(current => ({ ...current, [product.id]: choice }))} />;
+    return <HealthyLunchMenu product={product} products={data.products} currency={store.currency} weeks={weeks} dayDates={dayDates} choice={choice} monday={monday} canOrder={canOrderPickup && hasAvailableProductOptions(product)} onAdd={choice => startAddingProduct(product, choice)} onChange={choice => setHealthyChoices(current => ({ ...current, [product.id]: choice }))} />;
   };
   const canOrderPickup = store.pickupEnabled
     && store.pickupLocations.length > 0
@@ -1395,16 +1393,16 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
             </div>
             <div className="grid md:grid-cols-2">
               <div className="aspect-[4/3] bg-surface-container-low">
-                {requestedProduct.photoUrl && <img src={requestedProduct.photoUrl} alt={requestedProduct.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />}
+                {!isWeeklyMealPlan(requestedProduct) && requestedProduct.photoUrl && <img src={requestedProduct.photoUrl} alt={requestedProduct.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />}
               </div>
               <div className="p-5 sm:p-7">
                 {promotionByProduct.has(requestedProduct.id) && <p className="font-sans text-xs font-extrabold text-secondary">🔥 {getPromotionOfferLabel(promotionByProduct.get(requestedProduct.id)!)}</p>}
                 <h2 id="standalone-product-title" className="mt-2 font-display text-3xl font-bold text-primary">{requestedProduct.name}</h2>
-                <p className="mt-3 font-sans text-xl font-extrabold text-secondary">{productPriceLabel(requestedProduct)}</p>
+                <p className="mt-3 font-sans text-xl font-extrabold text-secondary">{!isWeeklyMealPlan(requestedProduct) && productPriceLabel(requestedProduct)}</p>
                 {requestedProduct.calories !== undefined && <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">{requestedProduct.calories} kcal</p>}
                 {requestedProduct.description && <p className="mt-4 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{requestedProduct.description}</p>}
                 {renderWeeklyMeals(requestedProduct)}
-                {canOrderPickup && <button type="button" disabled={!hasAvailableProductOptions(requestedProduct)} onClick={() => startAddingProduct(requestedProduct)} className="mt-6 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
+                {canOrderPickup && !isWeeklyMealPlan(requestedProduct) && <button type="button" disabled={!hasAvailableProductOptions(requestedProduct)} onClick={() => startAddingProduct(requestedProduct)} className="mt-6 w-full rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
                   {!hasAvailableProductOptions(requestedProduct) ? 'Options unavailable' : requestedProduct.optionGroupIds.length > 0 ? 'Choose Options' : 'Add to Cart'}
                 </button>}
               </div>
@@ -1443,19 +1441,19 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                 </div>
               </nav>
               <div className="mt-6 space-y-10">
-                {promotionProducts.length > 0 && <section ref={hotDealsSectionRef} id="catalogue-hot-deals" className="scroll-mt-20 rounded-3xl border border-secondary/20 bg-secondary/5 p-4 sm:p-6"><h3 className="font-display text-2xl font-bold text-primary">🔥 Hot Deals</h3><p className="mt-1 text-sm font-bold text-on-surface-variant">Special offers available now</p><div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{promotionProducts.map(product => { const promotion = promotionByProduct.get(product.id)!; const offer = promotion.type === 'percentage' ? `${promotion.terms.percentageOff}% OFF` : promotion.type === 'fixed_amount' ? `RM${promotion.terms.fixedAmountOff} OFF` : `BUY ${promotion.terms.buyQuantity} GET ${promotion.terms.getQuantity} FREE`; return <article key={`promo-${product.id}`} className="overflow-hidden rounded-3xl border border-secondary/30 bg-white shadow-sm">{product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-48 w-full object-cover" referrerPolicy="no-referrer" />}<div className="p-4"><span className="rounded-full bg-secondary/10 px-3 py-1 text-xs font-extrabold text-secondary">{offer}</span><h4 className="mt-3 font-display text-xl font-bold text-primary">{product.name}</h4><p className="mt-1 font-bold text-secondary">{productPriceLabel(product)}</p>{product.calories !== undefined && <p className="mt-1 text-sm font-bold text-on-surface-variant">{product.calories} kcal</p>}{product.description && <p className="mt-2 text-xs font-bold text-on-surface-variant">{product.description}</p>}{promotion.estimatedPrice !== null && <p className="mt-1 text-sm font-bold text-on-surface-variant">Est. {formatRegionCurrency(promotion.estimatedPrice, store.currency)}</p>}<p className="mt-2 text-xs font-bold text-on-surface-variant">Offer preview — final savings confirmed at checkout.</p>{renderWeeklyMeals(product)}{canOrderPickup && <button type="button" onClick={() => startAddingProduct(product)} className="mt-4 w-full rounded-full bg-primary px-5 py-3 text-xs font-extrabold text-on-primary">Add to Cart</button>}</div></article>; })}</div></section>}
+                {promotionProducts.length > 0 && <section ref={hotDealsSectionRef} id="catalogue-hot-deals" className="scroll-mt-20 rounded-3xl border border-secondary/20 bg-secondary/5 p-4 sm:p-6"><h3 className="font-display text-2xl font-bold text-primary">🔥 Hot Deals</h3><p className="mt-1 text-sm font-bold text-on-surface-variant">Special offers available now</p><div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{promotionProducts.map(product => { const promotion = promotionByProduct.get(product.id)!; const offer = promotion.type === 'percentage' ? `${promotion.terms.percentageOff}% OFF` : promotion.type === 'fixed_amount' ? `RM${promotion.terms.fixedAmountOff} OFF` : `BUY ${promotion.terms.buyQuantity} GET ${promotion.terms.getQuantity} FREE`; return <article key={`promo-${product.id}`} className="overflow-hidden rounded-3xl border border-secondary/30 bg-white shadow-sm">{!isWeeklyMealPlan(product) && product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-48 w-full object-cover" referrerPolicy="no-referrer" />}<div className="p-4"><span className="rounded-full bg-secondary/10 px-3 py-1 text-xs font-extrabold text-secondary">{offer}</span><h4 className="mt-3 font-display text-xl font-bold text-primary">{product.name}</h4><p className="mt-1 font-bold text-secondary">{!isWeeklyMealPlan(product) && productPriceLabel(product)}</p>{product.calories !== undefined && <p className="mt-1 text-sm font-bold text-on-surface-variant">{product.calories} kcal</p>}{product.description && <p className="mt-2 text-xs font-bold text-on-surface-variant">{product.description}</p>}{promotion.estimatedPrice !== null && <p className="mt-1 text-sm font-bold text-on-surface-variant">Est. {formatRegionCurrency(promotion.estimatedPrice, store.currency)}</p>}<p className="mt-2 text-xs font-bold text-on-surface-variant">Offer preview — final savings confirmed at checkout.</p>{renderWeeklyMeals(product)}{canOrderPickup && !isWeeklyMealPlan(product) && <button type="button" onClick={() => startAddingProduct(product)} className="mt-4 w-full rounded-full bg-primary px-5 py-3 text-xs font-extrabold text-on-primary">Add to Cart</button>}</div></article>; })}</div></section>}
                 {mainProducts.length > 0 && <section ref={mainSectionRef} id="catalogue-main" className="scroll-mt-20">
                   <h3 className="font-display text-2xl font-bold text-primary">Main</h3>
                   <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                     {mainProducts.map(product => (
-                      <article id={`store-product-${product.id}`} key={product.id} tabIndex={-1} className="scroll-mt-24 overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
-                        {product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-48 w-full object-cover" referrerPolicy="no-referrer" />}
+                      <article id={`store-product-${product.id}`} key={product.id} tabIndex={-1} className={`scroll-mt-24 overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm ${isWeeklyMealPlan(product) ? 'md:col-span-2 xl:col-span-3' : ''}`}>
+                        {!isWeeklyMealPlan(product) && product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-48 w-full object-cover" referrerPolicy="no-referrer" />}
                         <div className="p-4">
                           <h4 className="font-display text-xl font-bold text-primary">{product.name}</h4>
-                          <p className="mt-1 font-sans text-base font-extrabold text-secondary">{productPriceLabel(product)}</p>{promotionByProduct.has(product.id) && <p className="mt-1 text-xs font-extrabold text-secondary">🔥 {promotionByProduct.get(product.id)!.type === 'percentage' ? `${promotionByProduct.get(product.id)!.terms.percentageOff}% OFF` : promotionByProduct.get(product.id)!.type === 'fixed_amount' ? `RM${promotionByProduct.get(product.id)!.terms.fixedAmountOff} OFF` : `BUY ${promotionByProduct.get(product.id)!.terms.buyQuantity} GET ${promotionByProduct.get(product.id)!.terms.getQuantity} FREE`}</p>}
+                          <p className="mt-1 font-sans text-base font-extrabold text-secondary">{!isWeeklyMealPlan(product) && productPriceLabel(product)}</p>{promotionByProduct.has(product.id) && <p className="mt-1 text-xs font-extrabold text-secondary">🔥 {promotionByProduct.get(product.id)!.type === 'percentage' ? `${promotionByProduct.get(product.id)!.terms.percentageOff}% OFF` : promotionByProduct.get(product.id)!.type === 'fixed_amount' ? `RM${promotionByProduct.get(product.id)!.terms.fixedAmountOff} OFF` : `BUY ${promotionByProduct.get(product.id)!.terms.buyQuantity} GET ${promotionByProduct.get(product.id)!.terms.getQuantity} FREE`}</p>}
                           {product.calories !== undefined && <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">{product.calories} kcal</p>}
                           {product.description && <p className="mt-2 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{product.description}</p>}
-                          {renderWeeklyMeals(product)}{canOrderPickup && <button type="button" disabled={!hasAvailableProductOptions(product)} onClick={() => startAddingProduct(product)} className="mt-4 w-full rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
+                          {renderWeeklyMeals(product)}{canOrderPickup && !isWeeklyMealPlan(product) && <button type="button" disabled={!hasAvailableProductOptions(product)} onClick={() => startAddingProduct(product)} className="mt-4 w-full rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
                             {!hasAvailableProductOptions(product) ? 'Options unavailable' : product.optionGroupIds.length > 0 ? 'Choose Options' : 'Add to Cart'}
                           </button>}
                         </div>
@@ -1486,15 +1484,15 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                   <h3 className="font-display text-2xl font-bold text-primary">Drinks</h3>
                   <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {drinkProducts.map(product => (
-                <article id={`store-product-${product.id}`} key={product.id} tabIndex={-1} className="scroll-mt-24 overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm">
-                  {product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-48 w-full object-cover" referrerPolicy="no-referrer" />}
+                <article id={`store-product-${product.id}`} key={product.id} tabIndex={-1} className={`scroll-mt-24 overflow-hidden rounded-3xl border border-surface-container-high bg-white shadow-sm ${isWeeklyMealPlan(product) ? 'md:col-span-2 xl:col-span-3' : ''}`}>
+                  {!isWeeklyMealPlan(product) && product.photoUrl && <img src={product.photoUrl} alt={product.name} className="h-48 w-full object-cover" referrerPolicy="no-referrer" />}
                   <div className="p-4">
                     <h4 className="font-display text-xl font-bold text-primary">{product.name}</h4>
-                    <p className="mt-1 font-sans text-base font-extrabold text-secondary">{productPriceLabel(product)}</p>
+                    <p className="mt-1 font-sans text-base font-extrabold text-secondary">{!isWeeklyMealPlan(product) && productPriceLabel(product)}</p>
                     {product.calories !== undefined && <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">{product.calories} kcal</p>}
                     {product.description && <p className="mt-2 font-sans text-sm font-bold leading-relaxed text-on-surface-variant">{product.description}</p>}
                     {renderWeeklyMeals(product)}
-                    {canOrderPickup && (
+                    {canOrderPickup && !isWeeklyMealPlan(product) && (
                       <button type="button" disabled={!hasAvailableProductOptions(product)} onClick={() => startAddingProduct(product)} className="mt-4 w-full rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">
                         {!hasAvailableProductOptions(product)
                           ? 'Options unavailable'

@@ -69,3 +69,12 @@ test('ordinary single-day a la carte bypasses scheduled/shared-time checkout and
     assert.doesNotMatch(html, /fulfilment|8.40|× [35]/);
   }
 });
+
+test('embedded day schedule is pinned to its real date without requiring Single Products', async () => {
+  const { selectionAllowsDate } = await import('./storeOrderFulfilments');
+  const plan = { id: 'healthy', productType: 'weekly_meal_plan', weeklyMenuVersion: 2, available: true, weeklyWeeks: { week3: { startMonday: '2026-10-19', meals: Object.fromEntries(['mon','tue','wed','thu','fri'].map(day => [day, { name: day, photoUrl: 'https://example.test/meal.jpg', price: 12 }])) } } } as import('./types').StoreProduct;
+  const selection = { productId: plan.id, quantity: 1, selectedOptions: [], healthyLunchPlanId: plan.id, healthyLunchDate: '2026-10-21' };
+  assert.equal(selectionAllowsDate(selection, [plan], '2026-10-21'), true);
+  assert.equal(selectionAllowsDate(selection, [plan], '2026-10-22'), false);
+  assert.equal(selectionAllowsDate({ ...selection, healthyLunchPlanId: 'foreign' }, [plan], '2026-10-21'), false);
+});

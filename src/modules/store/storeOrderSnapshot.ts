@@ -64,6 +64,8 @@ export const normalizeStoreOrderItem = (value: unknown): StoreOrderItem => {
     productId: readString(item.productId),
     productName: readString(item.productName, 'Product'),
     photoUrl: readString(item.photoUrl),
+    ...(item.calories !== undefined ? { calories: readNumber(item.calories) } : {}),
+    ...(item.description !== undefined ? { description: readString(item.description) } : {}),
     quantity: Math.max(1, Math.round(readNumber(item.quantity))),
     basePrice: readNumber(item.basePrice),
     unitPrice: readNumber(item.unitPrice),
@@ -88,7 +90,7 @@ export const formatStoreOrderSetSelection = (
 
 const normalizeWeeklyMeal = (value: unknown): WeeklyMealSnapshot => {
   const meal = value && typeof value === 'object' ? value as Record<string, unknown> : {};
-  return { day: readString(meal.day) as WeeklyMealSnapshot['day'], productId: readString(meal.productId), productName: readString(meal.productName), photoUrl: readString(meal.photoUrl) };
+  return { day: readString(meal.day) as WeeklyMealSnapshot['day'], productId: readString(meal.productId), productName: readString(meal.productName), photoUrl: readString(meal.photoUrl), ...(meal.price !== undefined ? { price: readNumber(meal.price) } : {}), ...(meal.calories !== undefined ? { calories: readNumber(meal.calories) } : {}), ...(meal.description !== undefined ? { description: readString(meal.description) } : {}) };
 };
 
 export const normalizeWeeklyFulfilments = (value: unknown): WeeklyFulfilment[] | undefined => Array.isArray(value) ? value.map(entry => ({

@@ -1,3 +1,4 @@
+import type { HealthyLunchMeal, EmbeddedWeeklyMeals } from './types';
 import { isWeeklyMealPlan, WEEKLY_DAYS, WEEK_SLOTS, validateWeeklyMealPlan } from '../../../functions/storeWeeklyMealPlan.js';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
@@ -32,6 +33,7 @@ import {
   uploadStoreBrandImage,
   uploadStorePaymentQr,
   uploadStoreProductPhoto,
+  uploadHealthyLunchMealPhoto,
   uploadStoreProductSocialImage
 } from '../../services/storage';
 import { storeService } from './services';
@@ -77,6 +79,8 @@ import {
 import {
   filterAdminStoreProducts,
   getStoreProductEditorDraft,
+  getEmbeddedHealthyLunchDraft,
+  prepareHealthyLunchDraft,
   getStoreProductEditorPresentation,
   getReadyToSellProductDraft,
   getStoreProductValidationTarget
@@ -229,6 +233,10 @@ export default function StorePage({
   const [productDraft, setProductDraft] = useState<StoreProductDraft>(emptyProductDraft);
   const [productOptions, setProductOptions] = useState<ProductOptionEditor[]>([]);
   const [savedOptionGroupId, setSavedOptionGroupId] = useState('');
+  const [mealPhotoFiles, setMealPhotoFiles] = useState<Record<string, File>>({});
+  const mealPreviewUrls = useRef<Record<string, string>>({});
+  const clearMealPhotos = () => { Object.values(mealPreviewUrls.current).forEach(URL.revokeObjectURL); mealPreviewUrls.current = {}; setMealPhotoFiles({}); };
+  useEffect(() => () => { Object.values(mealPreviewUrls.current).forEach(URL.revokeObjectURL); }, []);
   const [productPhotoFile, setProductPhotoFile] = useState<File | null>(null);
   const [productPhotoPreviewUrl, setProductPhotoPreviewUrl] = useState('');
   const [isRecipePhotoLoading, setIsRecipePhotoLoading] = useState(false);
@@ -665,6 +673,7 @@ export default function StorePage({
   }, [readyToSellRecipe, onReadyToSellHandled]);
 
   const closeProductForm = () => {
+    clearMealPhotos();
     productPhotoTransferIdRef.current += 1;
     setEditingProduct(null);
     setProductDraft(emptyProductDraft());
@@ -680,7 +689,9 @@ export default function StorePage({
   const openProductEditor = (product: StoreProduct) => {
     productPhotoTransferIdRef.current += 1;
     setEditingProduct(product);
-    setProductDraft(getStoreProductEditorDraft(product));
+    clearMealPhotos();
+    if (product.weeklyWeeks) setProductDraft(getEmbeddedHealthyLunchDraft(product, products));
+    else setProductDraft(getStoreProductEditorDraft(product));
     setProductOptions(product.optionGroupIds.flatMap(groupId => {
       const group = optionGroups.find(candidate => candidate.id === groupId);
       return group ? [toProductOptionEditor(group, product.optionGroupIds.indexOf(groupId))] : [];
@@ -745,12 +756,13 @@ export default function StorePage({
   const handleProductSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!store || isSaving) return;
+    const configuredDraft = prepareHealthyLunchDraft(productDraft);
 
     const preflightError = validateStoreProduct({
-      ...productDraft,
-      photoUrl: productPhotoFile ? 'pending-upload' : productDraft.photoUrl,
+      ...configuredDraft,
+      photoUrl: productPhotoFile ? 'pending-upload' : configuredDraft.photoUrl,
       optionGroupIds: productOptions.map(group => group.id)
-    }) || validateWeeklyMealPlan({ ...productDraft, id: editingProduct?.id || '' }, products, workspace.id);
+    }) || validateWeeklyMealPlan({ ...configuredDraft, id: editingProduct?.id || '' }, products, workspace.id);
     const optionError = productOptions
       .map((group, groupIndex) => validateStoreOptionGroup({
         ...group,
@@ -812,9 +824,16 @@ export default function StorePage({
           uploadStoreProductSocialImage({ workspaceId: workspace.id, productId, file: productPhotoFile })
         ])
         : null;
-      const photoUrl = uploadedImages?.[0] || productDraft.photoUrl;
+      const weeklyWeeks = configuredDraft.weeklyWeeks ? structuredClone(configuredDraft.weeklyWeeks) : undefined;
+      if (configuredDraft.weeklyMenuVersion === 2) await Promise.all((Object.entries(mealPhotoFiles) as Array<[string, File]>).map(async ([key, file]) => {
+        const [slot, day] = key.split('_'); const week = weeklyWeeks?.[slot];
+        if (week) (week.meals as EmbeddedWeeklyMeals)[day].photoUrl = await uploadHealthyLunchMealPhoto({ workspaceId: workspace.id, productId, file });
+      }));
+      const embeddedCover = configuredDraft.weeklyMenuVersion === 2 ? (Object.values(weeklyWeeks || {}) as Array<{ startMonday: string; meals: EmbeddedWeeklyMeals }>).sort((a, b) => a.startMonday.localeCompare(b.startMonday))[0]?.meals.mon as HealthyLunchMeal | undefined : undefined;
+      const photoUrl = embeddedCover?.photoUrl || uploadedImages?.[0] || configuredDraft.photoUrl;
       const nextDraft: StoreProductDraft = {
-        ...productDraft,
+        ...configuredDraft,
+        weeklyWeeks,
         photoUrl,
         ...(uploadedImages ? { socialImageUrl: uploadedImages[1] } : {}),
         optionGroupIds: savedGroups.map(group => group.id)
@@ -859,6 +878,7 @@ export default function StorePage({
       setProductOptions([]);
       setProductPhotoFile(null);
       setIsProductFormOpen(false);
+      clearMealPhotos();
       setRecentlySavedProductId(savedProduct.id);
       setMessage(groupDeletionFailed
         ? 'Product saved. One unused option group could not be deleted; please try again.'
@@ -1093,32 +1113,48 @@ export default function StorePage({
                   <span className="font-sans text-xs font-extrabold text-primary">Product Type</span>
                   <select aria-label="Product Type" value={productDraft.productType ?? 'single'} onChange={event => {
                     const productType = event.target.value as StoreProductDraft['productType'];
-                    setProductDraft(current => ({ ...current, productType, weeklyWeeks: productType === 'weekly_meal_plan' ? current.weeklyWeeks || {} : undefined, weeklyMeals: productType === 'weekly_meal_plan' ? current.weeklyMeals || { mon: '', tue: '', wed: '', thu: '', fri: '' } : undefined, ...(productType === 'weekly_meal_plan' ? { availableDay: 'all', optionGroupIds: [] } : {}) }));
+                    setProductDraft(current => ({ ...current, productType, weeklyMenuVersion: productType === 'weekly_meal_plan' ? 2 : undefined, weeklyWeeks: productType === 'weekly_meal_plan' ? current.weeklyWeeks || {} : undefined, weeklyMeals: undefined, ...(productType === 'weekly_meal_plan' ? { availableDay: 'all', optionGroupIds: [] } : {}) }));
+                    clearMealPhotos();
                     if (productType === 'weekly_meal_plan') setProductOptions([]);
                   }} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 text-sm font-bold text-primary">
                     <option value="single">Single Product</option><option value="weekly_meal_plan">Weekly Meal Plan</option>
                   </select>
                 </label>
                 {isWeeklyMealPlan(productDraft) && <fieldset className="space-y-3 md:col-span-2"><legend className="font-bold text-primary">Healthy Lunch · Mon–Fri</legend>
+                  {productDraft.weeklyMenuVersion !== 2 ? <div className="rounded-xl border p-3"><p className="text-sm">This existing plan keeps its saved weekly menu.</p><button type="button" onClick={() => setProductDraft(getEmbeddedHealthyLunchDraft(editingProduct!, products))} className="mt-2 rounded-full border px-4 py-2 font-bold">Edit meals in Healthy Lunch setup</button></div> : <>
+                  <p className="text-sm text-on-surface-variant">Configure any 1–4 weeks. Enter a Monday to add a week; clear it to leave that week out.</p>
                   {WEEK_SLOTS.map((slot, index) => {
                     const week = productDraft.weeklyWeeks?.[slot];
-                    const meals = week?.meals || (index === 0 ? productDraft.weeklyMeals : undefined) || { mon: '', tue: '', wed: '', thu: '', fri: '' };
-                    return <details key={slot} open={index === 0 || Boolean(week)} className="rounded-xl border p-3"><summary className="cursor-pointer font-bold">Week {index + 1}</summary>
-                      <label className="mt-3 block text-sm font-bold">Start Monday<input aria-label={`Week ${index + 1} start Monday`} type="date" value={week?.startMonday || ''} onChange={event => setProductDraft(current => {
-                        const weeklyWeeks = { ...current.weeklyWeeks };
-                        if (event.target.value) weeklyWeeks[slot] = { startMonday: event.target.value, meals: { ...meals } };
-                        else delete weeklyWeeks[slot];
-                        return { ...current, weeklyWeeks, weeklyMeals: undefined };
-                      })} className="mt-1 block w-full rounded-xl border p-3" /></label>
-                      {!week && <p className="mt-2 text-sm text-on-surface-variant">Enter a Monday to publish this week.</p>}
-                      {(week || (index === 0 && productDraft.weeklyMeals)) && WEEKLY_DAYS.map(day => <label key={day} className="mt-3 block text-sm font-bold">{({ mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday' })[day]} meal
-                        <select aria-label={`Week ${index + 1} ${day} meal`} value={meals[day]} onChange={event => setProductDraft(current => week
-                          ? { ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: { ...week, meals: { ...meals, [day]: event.target.value } } }, weeklyMeals: undefined }
-                          : { ...current, weeklyMeals: { ...meals, [day]: event.target.value } })} className="mt-1 block w-full rounded-xl border p-3">
-                          <option value="">Select Single Product</option>{products.filter(product => product.id !== editingProduct?.id && (product.productType ?? 'single') === 'single' && product.available && !product.optionGroupIds.length && ['all', day].includes(product.availableDay ?? 'all')).map(product => <option key={product.id} value={product.id}>{product.name}</option>)}
-                        </select></label>)}
+                    const emptyMeals = () => Object.fromEntries(WEEKLY_DAYS.map(day => [day, { photoUrl: '', name: '', price: 0 }])) as EmbeddedWeeklyMeals;
+                    const meals = (week?.meals || emptyMeals()) as EmbeddedWeeklyMeals;
+                    const updateMeal = (day: string, patch: Partial<HealthyLunchMeal>) => setProductDraft(current => ({ ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: { startMonday: week!.startMonday, meals: { ...meals, [day]: { ...meals[day], ...patch } } } } }));
+                    return <details key={slot} open={Boolean(week)} className="rounded-xl border p-3"><summary className="cursor-pointer font-bold">Week {index + 1}</summary>
+                      <label className="mt-3 block text-sm font-bold">Start Monday<input aria-label={`Week ${index + 1} start Monday`} type="date" value={week?.startMonday || ''} onChange={event => {
+                        const startMonday = event.target.value;
+                        if (!startMonday) { for (const day of WEEKLY_DAYS) { const key = `${slot}_${day}`; if (mealPreviewUrls.current[key]) URL.revokeObjectURL(mealPreviewUrls.current[key]); delete mealPreviewUrls.current[key]; } setMealPhotoFiles(files => Object.fromEntries(Object.entries(files).filter(([key]) => !key.startsWith(`${slot}_`)))); }
+                        setProductDraft(current => {
+                          const weeklyWeeks = { ...current.weeklyWeeks };
+                          if (startMonday) weeklyWeeks[slot] = { startMonday, meals: structuredClone(meals) }; else delete weeklyWeeks[slot];
+                          return { ...current, weeklyWeeks, weeklyMeals: undefined };
+                        });
+                      }} className="mt-1 block w-full rounded-xl border p-3" /></label>
+                      {week && WEEKLY_DAYS.map(day => <fieldset key={day} className="mt-4 space-y-2 rounded-xl bg-surface-container-low p-3"><legend className="font-bold">{({ mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday' })[day]}</legend>
+                        <label className="block text-sm font-bold">Photo<input aria-label={`Week ${index + 1} ${day} photo`} type="file" accept="image/jpeg,image/png,image/webp" onChange={event => {
+                          const file = event.target.files?.[0]; if (!file) return;
+                          if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) { setErrorMessage('Choose a JPEG, PNG or WebP meal photo up to 10 MB.'); return; }
+                          const key = `${slot}_${day}`;
+                          if (mealPreviewUrls.current[key]) URL.revokeObjectURL(mealPreviewUrls.current[key]);
+                          const photoUrl = URL.createObjectURL(file); mealPreviewUrls.current[key] = photoUrl;
+                          setMealPhotoFiles(current => ({ ...current, [key]: file })); updateMeal(day, { photoUrl });
+                        }} className="mt-1 block w-full" /></label>
+                        {meals[day].photoUrl && <img src={meals[day].photoUrl} alt={`${day} meal preview`} className="h-24 w-24 rounded-xl object-cover" />}
+                        <label className="block text-sm font-bold">Meal name<input aria-label={`Week ${index + 1} ${day} name`} required value={meals[day].name} maxLength={160} onChange={event => updateMeal(day, { name: event.target.value })} className="mt-1 block w-full rounded-xl border p-2" /></label>
+                        <label className="block text-sm font-bold">Single-day price<input aria-label={`Week ${index + 1} ${day} price`} required type="number" min="0" step="0.01" value={meals[day].price} onChange={event => updateMeal(day, { price: event.target.value === '' ? NaN : Number(event.target.value) })} className="mt-1 block w-full rounded-xl border p-2" /></label>
+                        <label className="block text-sm font-bold">Kcal (optional)<input aria-label={`Week ${index + 1} ${day} kcal`} type="number" min="0" step="1" value={meals[day].calories ?? ''} onChange={event => updateMeal(day, { calories: event.target.value === '' ? undefined : Number(event.target.value) })} className="mt-1 block w-full rounded-xl border p-2" /></label>
+                        <label className="block text-sm font-bold">Description (optional)<textarea aria-label={`Week ${index + 1} ${day} description`} maxLength={1200} value={meals[day].description || ''} onChange={event => updateMeal(day, { description: event.target.value || undefined })} className="mt-1 block w-full rounded-xl border p-2" /></label>
+                      </fieldset>)}
                     </details>;
-                  })}
+                  })}</>}
                 </fieldset>}
                 <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Available day</span>
@@ -1128,10 +1164,10 @@ export default function StorePage({
                   </select>
                 </label>
                 <label className="block">
-                  <span className="font-sans text-xs font-extrabold text-primary">Price ({region.currency})</span>
+                  <span className="font-sans text-xs font-extrabold text-primary">{isWeeklyMealPlan(productDraft) ? '5-Day Plan Price' : 'Price'} ({region.currency})</span>
                   <input ref={productPriceInputRef} type="number" min="0" step="0.01" value={productDraft.price} onChange={event => updateProduct('price', Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 </label>
-                <label className="block">
+                <label hidden={productDraft.weeklyMenuVersion === 2} className={productDraft.weeklyMenuVersion === 2 ? 'hidden' : 'block'}>
                   <span className="font-sans text-xs font-extrabold text-primary">Calories per serving (kcal)</span>
                   <input ref={productCaloriesInputRef} type="number" min="0" step="1" value={productDraft.calories ?? ''} onChange={event => updateProduct('calories', event.target.value === '' ? undefined : Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 </label>
@@ -1162,9 +1198,9 @@ export default function StorePage({
                     price: productDraft.price,
                     recipeId: productDraft.recipeId
                   }, currentRecipeCosting);
-                  return <div className="md:col-span-2 rounded-2xl border border-primary/15 bg-primary/5 p-4"><h3 className="font-display text-lg font-bold text-primary">Cost Analysis</h3><dl className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4"><div><dt className="font-bold text-outline">Estimated Cost</dt><dd className="mt-1 font-extrabold text-primary">{analysis.estimatedCost === null ? 'Cost unavailable' : formatRegionCurrency(analysis.estimatedCost, region.currency)}</dd></div><div><dt className="font-bold text-outline">Selling Price</dt><dd className="mt-1 font-extrabold text-primary">{formatRegionCurrency(analysis.sellingPrice, region.currency)}</dd></div><div><dt className="font-bold text-outline">Gross Profit</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossProfit === null ? 'Missing recipe cost' : formatRegionCurrency(analysis.grossProfit, region.currency)}</dd></div><div><dt className="font-bold text-outline">Gross Margin</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossMargin === null ? 'Missing recipe cost' : `${analysis.grossMargin.toFixed(2)}%`}</dd></div></dl></div>;
+                  return <div className="md:col-span-2 rounded-2xl border border-primary/15 bg-primary/5 p-4"><h3 className="font-display text-lg font-bold text-primary">Cost Analysis</h3><dl className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4"><div><dt className="font-bold text-outline">Estimated Cost</dt><dd className="mt-1 font-extrabold text-primary">{analysis.estimatedCost === null ? 'Cost unavailable' : formatRegionCurrency(analysis.estimatedCost, region.currency)}</dd></div><div><dt className="font-bold text-outline">{isWeeklyMealPlan(productDraft) ? '5-Day Plan Price' : 'Selling Price'}</dt><dd className="mt-1 font-extrabold text-primary">{formatRegionCurrency(analysis.sellingPrice, region.currency)}</dd></div><div><dt className="font-bold text-outline">Gross Profit</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossProfit === null ? 'Missing recipe cost' : formatRegionCurrency(analysis.grossProfit, region.currency)}</dd></div><div><dt className="font-bold text-outline">Gross Margin</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossMargin === null ? 'Missing recipe cost' : `${analysis.grossMargin.toFixed(2)}%`}</dd></div></dl></div>;
                 })()}
-                <label className="block">
+                <label hidden={productDraft.weeklyMenuVersion === 2} className={productDraft.weeklyMenuVersion === 2 ? 'hidden' : 'block'}>
                   <span className="font-sans text-xs font-extrabold text-primary">Product Photo <span aria-hidden="true">*</span></span>
                   <input ref={productPhotoInputRef} type="file" accept="image/jpeg,image/png,image/webp" aria-required={!editingProduct && !productDraft.photoUrl} onChange={handleProductPhotoChange} className="mt-2 block w-full font-sans text-xs font-bold text-on-surface-variant" />
                   {productPhotoPreviewUrl && <img src={productPhotoPreviewUrl} alt="Product photo preview" className="mt-3 h-32 w-32 rounded-xl border border-surface-container-high object-cover" />}

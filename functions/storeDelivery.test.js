@@ -480,3 +480,27 @@ test('dated full-week quote and payment revalidation use Sunday cutoff instead o
   await assert.rejects(revalidateDeliveryForPayment({ ...options, now: cutoff + 1 }), /closed/);
   assert.equal(fixture.quoteCount(), 1);
 });
+
+test('embedded full-week and single-day Lalamove quotes share menu data but keep distinct cutoff and fee rules', async () => {
+  const fixture = quoteFixture();
+  const start = new Date(); start.setUTCDate(start.getUTCDate() + ((8 - start.getUTCDay()) % 7 || 7));
+  const monday = start.toISOString().slice(0, 10);
+  const dates = Array.from({ length: 5 }, (_, index) => new Date(Date.parse(`${monday}T00:00:00Z`) + index * 86400000).toISOString().slice(0, 10));
+  const days = ['mon','tue','wed','thu','fri'];
+  const plan = { id: 'embedded-quote', name: 'Healthy Lunch', storeId: 's', workspaceId: 's', productType: 'weekly_meal_plan', weeklyMenuVersion: 2, available: true, price: 50, optionGroupIds: [], weeklyWeeks: { week3: { startMonday: monday, meals: Object.fromEntries(days.map((day, index) => [day, { name: `${day} direct`, photoUrl: `https://example.test/${day}.jpg`, price: 11 + index, calories: 400 }])) } } };
+  fixture.store.orderCutoffTime = '18:00';
+  fixture.store.delivery.freeDelivery = { enabled: true, distanceThresholdKm: 100, minimumSubtotalWithin: 13, minimumSubtotalBeyond: 30 };
+  fixture.db.documents[`storeProducts/${plan.id}`] = plan;
+  const fullDraft = { ...fixture.draft, selections: [{ productId: plan.id, quantity: 1 }], fulfilments: dates.map(date => ({ date, time: '10:00', itemIndexes: [0] })) };
+  const full = await createStoreDeliveryQuote({ ...fixture, slug: 'test', draft: fullDraft });
+  assert.equal(full.merchandiseSubtotal, 50); assert.equal(full.quote.customerDeliveryFee, 35); assert.equal(full.quote.fulfilmentCount, 5);
+  const singleDraft = { ...fullDraft, selections: [{ productId: plan.id, healthyLunchPlanId: plan.id, healthyLunchDate: dates[2], quantity: 1, price: 0 }], fulfilments: [{ date: dates[2], time: '10:00', itemIndexes: [0] }] };
+  const single = await createStoreDeliveryQuote({ ...fixture, slug: 'test', draft: singleDraft });
+  assert.equal(single.merchandiseSubtotal, 13); assert.equal(single.quote.customerDeliveryFee, 0); assert.equal(single.quote.fulfilmentCount, 1);
+  const mondayAfterCutoff = Date.parse(`${dates[0]}T18:00:00+08:00`) + 1;
+  const provider = { ...fixture.provider, retrieveQuote: async () => ({ ...(await fixture.provider.retrieveQuote()), expiresAt: new Date(mondayAfterCutoff + 3 * 86400000).toISOString() }) };
+  const options = { db: fixture.db, provider, store: fixture.store, products: [plan], draft: { ...singleDraft, deliveryQuoteId: single.quote.quotationId, deliveryPricingSnapshotId: single.pricingSnapshotId } };
+  assert.equal((await revalidateDeliveryForPayment({ ...options, now: mondayAfterCutoff })).schedule.date, dates[2]);
+  await assert.rejects(revalidateDeliveryForPayment({ ...options, now: mondayAfterCutoff + 86400000 }), /available/);
+  assert.equal(fixture.quoteCount(), 2);
+});

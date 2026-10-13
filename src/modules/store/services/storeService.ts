@@ -43,6 +43,7 @@ import {
 } from '../storeAuthorization';
 import {
   buildUpdatedStoreProduct,
+  prepareHealthyLunchDraft,
   filterPublicAvailableProducts
 } from '../storeProductVisibility';
 import { buildStoreSettingsUpdate } from './storeSettingsUpdate';
@@ -372,10 +373,11 @@ export const storeService = {
     createdBy: string;
   }): Promise<StoreProduct> {
     if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    draft = prepareHealthyLunchDraft(draft);
     const validationError = validateStoreProduct(draft);
     if (validationError) throw new Error(validationError);
 
-    const weeklyError = validateWeeklyMealPlan({ ...draft, id }, draft.productType === 'weekly_meal_plan' ? await this.listAdminProducts(workspaceId) : [], workspaceId);
+    const weeklyError = validateWeeklyMealPlan({ ...draft, id }, draft.productType === 'weekly_meal_plan' && draft.weeklyMenuVersion !== 2 ? await this.listAdminProducts(workspaceId) : [], workspaceId);
     if (weeklyError) throw new Error(weeklyError);
     const now = new Date().toISOString();
     const product: StoreProduct = {
@@ -392,6 +394,7 @@ export const storeService = {
       recipeId: draft.recipeId?.trim() || undefined,
       available: draft.available,
       productType: draft.productType,
+      weeklyMenuVersion: draft.weeklyMenuVersion,
       weeklyWeeks: draft.weeklyWeeks ? structuredClone(draft.weeklyWeeks) : undefined,
       weeklyMeals: draft.weeklyMeals ? { ...draft.weeklyMeals } : undefined,
       availableDay: draft.availableDay ?? 'all',
@@ -407,15 +410,17 @@ export const storeService = {
 
   async updateProduct(product: StoreProduct, draft: StoreProductDraft): Promise<StoreProduct> {
     if (!db) throw new Error("We couldn't connect to your Store. Please refresh the page or try again.");
+    draft = prepareHealthyLunchDraft(draft);
     const validationError = validateStoreProduct(draft);
     if (validationError) throw new Error(validationError);
 
-    const weeklyError = validateWeeklyMealPlan({ ...draft, id: product.id }, draft.productType === 'weekly_meal_plan' ? await this.listAdminProducts(product.workspaceId) : [], product.workspaceId);
+    const weeklyError = validateWeeklyMealPlan({ ...draft, id: product.id }, draft.productType === 'weekly_meal_plan' && draft.weeklyMenuVersion !== 2 ? await this.listAdminProducts(product.workspaceId) : [], product.workspaceId);
     if (weeklyError) throw new Error(weeklyError);
     const updatedProduct = buildUpdatedStoreProduct(product, draft, new Date().toISOString());
 
-    await setDoc(doc(db, 'storeProducts', product.id), {
+    const productPatch = {
       ...removeUndefinedFields(updatedProduct),
+      ...(draft.weeklyMenuVersion === undefined ? { weeklyMenuVersion: deleteField() } : {}),
       ...(!draft.weeklyWeeks ? { weeklyWeeks: deleteField() } : {}),
       ...(!draft.weeklyMeals ? { weeklyMeals: deleteField() } : {}),
       ...(
@@ -431,7 +436,10 @@ export const storeService = {
       linkedRecipeId: deleteField(),
       linkedRecipeTitle: deleteField(),
       estimatedCost: deleteField()
-    }, { merge: true });
+    };
+    // Replace the weeks map as one field so removed slots and cleared optional
+    // meal fields cannot survive Firestore's recursive merge behavior.
+    await setDoc(doc(db, 'storeProducts', product.id), productPatch, { mergeFields: Object.keys(productPatch) });
     return updatedProduct;
   },
 

@@ -1,6 +1,6 @@
 import { calculateDeliveryDayPricing } from './storeDeliveryPricing.js';
 import { buildOrderFulfilments, publicOrderFulfilments } from './storeOrderFulfilments.js';
-import { buildWeeklyOrderDetails, isWeeklyMealPlan, publicWeeklyFulfilments, validateHealthyLunchDay } from './storeWeeklyMealPlan.js';
+import { buildWeeklyOrderDetails, isWeeklyMealPlan, publicWeeklyFulfilments, validateHealthyLunchDay, hasEmbeddedMenu } from './storeWeeklyMealPlan.js';
 import { cartAllowsFulfilmentDate, currentFulfilmentDate } from './storeProductAvailability.js';
 import { randomBytes } from 'node:crypto';
 import { calculatePromotionPricing } from './storePromotionPricing.js';
@@ -320,10 +320,14 @@ const buildSetOrderItem = (selection, sets, products) => {
 
 export const buildOrderItems = (selections, products, optionGroups, sets = []) => selections.map(selection => {
   if (readString(selection.setId)) return buildSetOrderItem(selection, sets, products);
-  const product = products.find(candidate => (
+  let product = products.find(candidate => (
     candidate.id === readString(selection.productId) && candidate.available === true
   ));
   if (!product) throw new Error('A product in your cart is no longer available.');
+  if (hasEmbeddedMenu(product) && selection.healthyLunchDate !== undefined) {
+    product = validateHealthyLunchDay(selection, products, selection.healthyLunchDate, product.storeId);
+    if (!product) throw new Error('Choose a valid Healthy Lunch meal.');
+  }
 
   const productGroupIds = Array.isArray(product.optionGroupIds) ? product.optionGroupIds : [];
   const choices = Array.isArray(selection.selectedOptions) ? selection.selectedOptions : [];
@@ -390,6 +394,7 @@ export const buildOrderItems = (selections, products, optionGroups, sets = []) =
     productId: product.id,
     productName: readString(product.name),
     photoUrl: readString(product.photoUrl),
+    ...(selection.healthyLunchPlanId && hasEmbeddedMenu(products.find(plan => plan.id === selection.healthyLunchPlanId)) ? { ...(product.calories !== undefined ? { calories: product.calories } : {}), ...(product.description !== undefined ? { description: product.description } : {}) } : {}),
     quantity: selection.quantity,
     basePrice,
     unitPrice,

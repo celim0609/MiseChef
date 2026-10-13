@@ -39,7 +39,8 @@ test('public and merchant UI wire weekly schedule controls and preserve legacy d
   const editor = readFileSync(new URL('./StorePage.tsx', import.meta.url), 'utf8');
   const orders = readFileSync(new URL('./StoreOrdersPanel.tsx', import.meta.url), 'utf8');
   assert.match(editor, /aria-label="Product Type"/);
-  assert.match(editor, /Select Single Product/);
+  assert.match(editor, /Single-day price/);
+  assert.doesNotMatch(editor, /Select Single Product/);
   assert.match(page, /store.delivery\?\.enabled/);
   assert.match(page, /5-Day Plan dates/);
   assert.match(page, /renderWeeklyMeals\(requestedProduct\)/);
@@ -92,4 +93,37 @@ test('dated weeks survive create/edit/reload without aliasing and old menus stay
   assert.equal(buildUpdatedStoreProduct(reloaded, getStoreProductEditorDraft(legacy), 'later').weeklyWeeks, undefined);
   assert.equal(getStoreProductEditorDraft(normalizeStoreProduct('old', { ...saved, weeklyWeeks: undefined, weeklyMeals })).weeklyWeeks, undefined);
   assert.match(validateStoreProduct({ ...draft, productType: 'single' }), /Single Products/);
+});
+
+test('embedded drafts omit empty weeks, keep Week 2 alone, and preserve direct meals through save/reload', async () => {
+  const { prepareHealthyLunchDraft, getEmbeddedHealthyLunchDraft } = await import('./storeProductVisibility');
+  const meals = Object.fromEntries(WEEKLY_DAYS.map(day => [day, { name: ` ${day} direct `, photoUrl: `https://example.test/${day}.jpg`, price: 12, calories: 0 }])) as import('./types').EmbeddedWeeklyMeals;
+  const draft = prepareHealthyLunchDraft({ ...getStoreProductEditorDraft(legacy), productType: 'weekly_meal_plan', weeklyMenuVersion: 2, photoUrl: '', weeklyWeeks: { week1: { startMonday: '', meals }, week2: { startMonday: '2026-10-19', meals } } });
+  assert.equal(validateStoreProduct(draft), '');
+  assert.deepEqual(Object.keys(draft.weeklyWeeks!), ['week2']);
+  assert.equal(draft.photoUrl, 'https://example.test/mon.jpg');
+  const saved = buildUpdatedStoreProduct(legacy, draft, 'now');
+  const loaded = normalizeStoreProduct(saved.id, JSON.parse(JSON.stringify(saved)));
+  assert.equal(loaded.weeklyMenuVersion, 2);
+  const edited = getEmbeddedHealthyLunchDraft(loaded, []);
+  assert.deepEqual(edited.weeklyWeeks, draft.weeklyWeeks);
+  (edited.weeklyWeeks!.week2!.meals as import('./types').EmbeddedWeeklyMeals).mon.name = 'Changed';
+  assert.equal((loaded.weeklyWeeks!.week2!.meals as import('./types').EmbeddedWeeklyMeals).mon.name, 'mon direct');
+  assert.match(validateStoreProduct(prepareHealthyLunchDraft({ ...draft, weeklyWeeks: { week3: { startMonday: '', meals } } })), /at least one/);
+});
+
+test('converting referenced menus copies meal values into a draft without modifying products or old menu data', async () => {
+  const { getEmbeddedHealthyLunchDraft } = await import('./storeProductVisibility');
+  const sourceMeals = WEEKLY_DAYS.map(day => ({ ...legacy, id: `meal-${day}`, name: `${day} meal`, price: 12, calories: 450, description: 'Vegetables' }));
+  const old = { ...legacy, productType: 'weekly_meal_plan' as const, weeklyMeals };
+  const dated = { ...old, weeklyWeeks: { week3: { startMonday: '2026-10-19', meals: weeklyMeals } } };
+  const before = JSON.stringify([dated, sourceMeals]);
+  const converted = getEmbeddedHealthyLunchDraft(dated, sourceMeals);
+  assert.equal(converted.weeklyMenuVersion, 2); assert.equal(converted.weeklyMeals, undefined);
+  assert.equal((converted.weeklyWeeks!.week3!.meals as import('./types').EmbeddedWeeklyMeals).mon.name, 'mon meal');
+  assert.equal(JSON.stringify([dated, sourceMeals]), before);
+  const undated = getEmbeddedHealthyLunchDraft(old, sourceMeals);
+  assert.equal(undated.weeklyWeeks!.week1!.startMonday, '');
+  assert.equal((undated.weeklyWeeks!.week1!.meals as import('./types').EmbeddedWeeklyMeals).mon.price, 12);
+  assert.equal(getStoreProductEditorDraft(old).weeklyMenuVersion, undefined);
 });

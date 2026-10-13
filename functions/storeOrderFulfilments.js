@@ -1,5 +1,5 @@
 import { productAllowsFulfilmentDate } from './storeProductAvailability.js';
-import { isWeeklyMealPlan, WEEKLY_DAYS, getWeeklyDates, weeklyCartError, validateWeeklyMealPlan, resolveWeeklyMeals, isDatedWeekOpen, fullWeekDateStore, validateHealthyLunchDay } from './storeWeeklyMealPlan.js';
+import { isWeeklyMealPlan, WEEKLY_DAYS, getWeeklyDates, weeklyCartError, validateWeeklyMealPlan, resolveWeeklyMeals, isDatedWeekOpen, fullWeekDateStore, validateHealthyLunchDay, isFullWeekSelection, resolvePlanMeal, hasEmbeddedMenu, weeklyMealSnapshot } from './storeWeeklyMealPlan.js';
 
 // A schedule is server-canonical: exactly one fulfilment per calendar day.
 // Quantities and financial lines are never duplicated into another order.
@@ -26,7 +26,7 @@ export const buildOrderFulfilments = ({ store, draft, products, groupOrder, getD
   const error = weeklyCartError(selections, products);
   if (error) throw new Error(error);
   const plan = products.find(product => product.id === selections[0]?.productId);
-  const weekly = isWeeklyMealPlan(plan);
+  const weekly = isFullWeekSelection(selections[0], products);
   const selectedMeals = weekly ? resolveWeeklyMeals(plan, schedule[0].date) : null;
   if (weekly) {
     if (!selectedMeals || (plan.weeklyWeeks !== undefined && !isDatedWeekOpen(store, schedule[0].date, now))) throw new Error('This 5-Day Plan is closed or unavailable.');
@@ -60,8 +60,8 @@ export const buildOrderFulfilments = ({ store, draft, products, groupOrder, getD
       const selection = selections[itemIndex];
       if (!selection || (!weekly && seen.has(itemIndex))) throw new Error('Each cart line must belong to exactly one fulfilment.');
       seen.add(itemIndex);
-      validateHealthyLunchDay(selection, products, entry.date, store.workspaceId || store.id);
-      const product = products.find(product => product.id === (weekly ? selectedMeals[WEEKLY_DAYS[dayIndex]] : selection.productId));
+      const dayMeal = validateHealthyLunchDay(selection, products, entry.date, store.workspaceId || store.id);
+      const product = weekly ? resolvePlanMeal(plan, products, schedule[0].date, WEEKLY_DAYS[dayIndex]) : dayMeal || products.find(product => product.id === selection.productId);
       if (selection.setId) {
         if ((selection.selectedSetItems || []).some(item => !productAllowsFulfilmentDate(products.find(product => product.id === item.productId) || {}, entry.date))) throw new Error('A Set meal does not match its Available day.');
       } else if (!product || (!weekly && !productAllowsFulfilmentDate(product, entry.date))) throw new Error('A meal does not match its Available day.');
@@ -74,8 +74,8 @@ export const buildOrderFulfilments = ({ store, draft, products, groupOrder, getD
   });
   if (seen.size !== selections.length) throw new Error('Schedule every cart line exactly once.');
   const meals = weekly ? WEEKLY_DAYS.map(day => {
-    const meal = products.find(product => product.id === selectedMeals[day]);
-    return { day, productId: meal.id, productName: meal.name, photoUrl: meal.photoUrl || '' };
+    const meal = resolvePlanMeal(plan, products, schedule[0].date, day);
+    return weeklyMealSnapshot(meal, day, hasEmbeddedMenu(plan));
   }) : null;
   return { fulfilments, ...(meals ? { weeklyPlanSnapshot: { meals, ...(plan.weeklyWeeks !== undefined ? { startMonday: schedule[0].date } : {}) } } : {}) };
 };
@@ -88,6 +88,6 @@ export const publicOrderFulfilments = order => Array.isArray(order.fulfilments) 
   meals: entry.allocations.map(allocation => {
     const item = order.items?.[allocation.itemIndex];
     const meal = allocation.componentDay ? item?.weeklyPlanSnapshot?.meals?.find(meal => meal.day === allocation.componentDay) : item;
-    return { productName: meal?.productName || '', quantity: allocation.quantity };
+    return { productName: meal?.productName || '', quantity: allocation.quantity, ...(meal?.photoUrl ? { photoUrl: meal.photoUrl } : {}), ...(meal?.calories !== undefined ? { calories: meal.calories } : {}), ...(meal?.description !== undefined ? { description: meal.description } : {}) };
   })
 })) : undefined;

@@ -715,3 +715,13 @@ test('raw Beta cut-off fallback applies until migrated and explicit null takes p
   assert.equal(getValidPickupDates(legacy, after)[0], '2026-10-14');
   assert.equal(getValidPickupDates({ ...legacy, orderCutoffTime: null }, after)[0], '2026-10-13');
 });
+
+test('embedded day financial lines ignore client meal details and reject missing or mismatched plan identity', async () => {
+  const { buildOrderItems } = await import('./storePaymentsCore.js');
+  const plan = { id: 'direct', storeId: 's', workspaceId: 's', available: true, productType: 'weekly_meal_plan', weeklyMenuVersion: 2, optionGroupIds: [], price: 60, weeklyWeeks: { week4: { startMonday: '2026-10-19', meals: Object.fromEntries(['mon','tue','wed','thu','fri'].map(day => [day, { name: `${day} saved meal`, photoUrl: 'https://example.test/saved.jpg', price: 12.5, calories: 450, description: 'Saved description' }])) } } };
+  const selection = { productId: plan.id, healthyLunchPlanId: plan.id, healthyLunchDate: '2026-10-21', quantity: 2, selectedOptions: [], name: 'Forged name', price: 0, calories: 0, photoUrl: 'forged.jpg' };
+  const item = buildOrderItems([selection], [plan], [])[0];
+  assert.equal(item.unitPrice, 12.5); assert.equal(item.lineTotal, 25); assert.equal(item.productName, 'wed saved meal'); assert.equal(item.calories, 450); assert.equal(item.photoUrl, 'https://example.test/saved.jpg');
+  assert.throws(() => buildOrderItems([{ ...selection, healthyLunchPlanId: undefined }], [plan], []), /Healthy Lunch/);
+  assert.throws(() => buildOrderItems([{ ...selection, healthyLunchDate: '2026-10-26' }], [plan], []), /does not match/);
+});

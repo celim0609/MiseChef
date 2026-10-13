@@ -130,3 +130,41 @@ test('four distinct dated menus resolve by date and reject malformed slots and f
   for (const invalid of [{}, { week5: weeklyWeeks.week1 }, { week1: { ...weeklyWeeks.week1, startMonday: '2026-07-28' } }, { week1: weeklyWeeks.week1, week2: weeklyWeeks.week1 }, { week1: { ...weeklyWeeks.week1, meals: { mon: 'mon' } } }]) assert.ok(validateWeeklyStructure({ ...dated, weeklyWeeks: invalid }));
   assert.ok(validateWeeklyMealPlan(dated, [{ ...meals[0], storeId: 'foreign' }, ...meals.slice(1), dated], 's'));
 });
+
+const embeddedMeals = () => Object.fromEntries(WEEKLY_DAYS.map((day, index) => [day, {
+  photoUrl: `https://example.test/${day}.jpg`, name: `${day} embedded lunch`, price: 11 + index,
+  calories: 400 + index, description: `${day} ingredients`
+}]));
+const embeddedPlan = () => ({ ...plan, weeklyMeals: undefined, weeklyMenuVersion: 2,
+  weeklyWeeks: { week2: { startMonday: '2026-07-27', meals: embeddedMeals() } } });
+
+test('embedded menu accepts any one to four slots, resolves by actual Monday, and needs no Single Products', async () => {
+  const { resolveHealthyLunchDay, datedWeeks, validateWeeklyStructure } = await import('./storeWeeklyMealPlan.js');
+  for (const slots of [['week2'], ['week1','week2'], ['week1','week3'], ['week1','week2','week3','week4']]) {
+    const dated = embeddedPlan();
+    dated.weeklyWeeks = Object.fromEntries(slots.map((slot, index) => [slot, { startMonday: ['2026-08-17','2026-08-10','2026-08-03','2026-07-27'][index], meals: embeddedMeals() }]));
+    assert.equal(validateWeeklyMealPlan(dated, [dated], 's'), '');
+    assert.equal(datedWeeks(dated).length, slots.length);
+    assert.deepEqual(datedWeeks(dated).map(week => week.startMonday), Object.values(dated.weeklyWeeks).map(week => week.startMonday).sort());
+  }
+  const dated = embeddedPlan();
+  const meal = resolveHealthyLunchDay(dated, [dated], '2026-07-29');
+  assert.equal(meal.name, 'wed embedded lunch'); assert.equal(meal.price, 13); assert.equal(meal.calories, 402);
+  assert.equal(resolveHealthyLunchDay(dated, [dated], '2026-08-05'), undefined);
+  assert.ok(validateWeeklyStructure({ ...dated, weeklyWeeks: {} }));
+  assert.ok(validateWeeklyStructure({ ...dated, weeklyWeeks: undefined }));
+});
+
+test('embedded validation rejects incomplete meals, invalid prices, dates and version mixing', async () => {
+  const { validateWeeklyStructure } = await import('./storeWeeklyMealPlan.js');
+  for (const change of [{ name: '' }, { photoUrl: '' }, { price: -1 }, { price: NaN }, { price: '12' }, { calories: -1 }, { calories: 1.5 }, { description: 'x'.repeat(1201) }, { unknown: true }]) {
+    const dated = embeddedPlan(); dated.weeklyWeeks.week2.meals.mon = { ...dated.weeklyWeeks.week2.meals.mon, ...change };
+    assert.ok(validateWeeklyStructure(dated));
+  }
+  const optional = embeddedPlan(); delete optional.weeklyWeeks.week2.meals.mon.calories; delete optional.weeklyWeeks.week2.meals.mon.description;
+  assert.equal(validateWeeklyStructure(optional), '');
+  assert.ok(validateWeeklyStructure({ ...optional, weeklyMenuVersion: 3 }));
+  assert.ok(validateWeeklyStructure({ ...optional, weeklyMenuVersion: undefined }));
+  assert.ok(validateWeeklyStructure({ ...optional, weeklyWeeks: { week2: { startMonday: '2026-07-28', meals: embeddedMeals() } } }));
+  assert.ok(validateWeeklyStructure({ ...optional, weeklyWeeks: { week2: optional.weeklyWeeks.week2, week4: optional.weeklyWeeks.week2 } }));
+});

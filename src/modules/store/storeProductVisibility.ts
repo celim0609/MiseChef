@@ -1,3 +1,4 @@
+import { WEEKLY_DAYS, resolvePlanMeal, datedWeeks } from '../../../functions/storeWeeklyMealPlan.js';
 import type { Recipe, RecipeNutritionSummary } from '../../types';
 import { getSnapshotCalories } from '../nutrition/services/recipeNutritionCalculator';
 import type { StoreProduct, StoreProductDraft } from './types';
@@ -60,6 +61,7 @@ export const getStoreProductEditorDraft = (product: StoreProduct): StoreProductD
   ...(product.calories !== undefined ? { calories: product.calories } : {}),
   ...(product.recipeId ? { recipeId: product.recipeId } : {}),
   ...(product.productType !== undefined ? { productType: product.productType } : {}),
+  ...(product.weeklyMenuVersion !== undefined ? { weeklyMenuVersion: product.weeklyMenuVersion } : {}),
   ...(product.weeklyWeeks ? { weeklyWeeks: structuredClone(product.weeklyWeeks) } : {}),
   ...(product.weeklyMeals ? { weeklyMeals: { ...product.weeklyMeals } } : {}),
   available: product.available,
@@ -109,6 +111,7 @@ export const buildUpdatedStoreProduct = (
   calories: draft.calories,
   recipeId: draft.recipeId,
   productType: draft.productType,
+  weeklyMenuVersion: draft.productType === 'weekly_meal_plan' ? draft.weeklyMenuVersion : undefined,
   weeklyWeeks: draft.productType === 'weekly_meal_plan' && draft.weeklyWeeks ? structuredClone(draft.weeklyWeeks) : undefined,
   weeklyMeals: draft.productType === 'weekly_meal_plan' && draft.weeklyMeals ? { ...draft.weeklyMeals } : undefined,
   available: draft.available,
@@ -116,3 +119,31 @@ export const buildUpdatedStoreProduct = (
   optionGroupIds: [...draft.optionGroupIds],
   updatedAt
 });
+
+// Conversion is a draft-only operation; purchased orders and Single Products
+// are untouched. Undated legacy menus need a Monday before conversion saves.
+export const getEmbeddedHealthyLunchDraft = (product: StoreProduct, products: StoreProduct[]): StoreProductDraft => {
+  const draft = getStoreProductEditorDraft(product);
+  if (product.weeklyMenuVersion === 2) return draft;
+  const menus = product.weeklyWeeks ? Object.entries(product.weeklyWeeks) : [['week1', { startMonday: '', meals: product.weeklyMeals }]];
+  const weeklyWeeks = Object.fromEntries(menus.map(([slot, week]) => [slot, {
+    startMonday: week.startMonday,
+    meals: Object.fromEntries(WEEKLY_DAYS.map(day => {
+      const meal = resolvePlanMeal(product, products, week.startMonday, day);
+      return [day, { photoUrl: meal?.photoUrl || '', name: meal?.name || '', price: meal?.price ?? 0,
+        ...(meal?.calories !== undefined ? { calories: meal.calories } : {}), ...(meal?.description ? { description: meal.description } : {}) }];
+    }))
+  }]));
+  return { ...draft, weeklyMenuVersion: 2, weeklyWeeks, weeklyMeals: undefined };
+};
+
+export const prepareHealthyLunchDraft = (draft: StoreProductDraft): StoreProductDraft => {
+  if (draft.weeklyMenuVersion !== 2) return draft;
+  const weeklyWeeks = Object.fromEntries(Object.entries(draft.weeklyWeeks || {}).filter(([, week]) => Boolean(week?.startMonday)).map(([slot, week]) => [slot, {
+    ...week, meals: Object.fromEntries(Object.entries(week.meals).map(([day, meal]) => [day, typeof meal === 'object' ? { ...meal,
+      name: meal.name.trim(), photoUrl: meal.photoUrl.trim(), ...(meal.description !== undefined ? { description: meal.description.trim() } : {}) } : meal]))
+  }])) as StoreProductDraft['weeklyWeeks'];
+  const first = Object.values(weeklyWeeks).sort((a, b) => a.startMonday.localeCompare(b.startMonday))[0];
+  const cover = first?.meals.mon;
+  return { ...draft, weeklyWeeks, weeklyMeals: undefined, photoUrl: typeof cover === 'object' ? cover.photoUrl : draft.photoUrl };
+};

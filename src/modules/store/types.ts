@@ -237,8 +237,10 @@ export interface StoreOptionGroupDraft {
 
 export type WeeklyDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri';
 export type WeeklyMeals = Record<WeeklyDay, string>;
-export type WeeklyWeeks = Partial<Record<'week1' | 'week2' | 'week3' | 'week4', { startMonday: string; meals: WeeklyMeals }>>;
-export interface WeeklyMealSnapshot { day: WeeklyDay; productId: string; productName: string; photoUrl: string }
+export interface HealthyLunchMeal { photoUrl: string; name: string; price: number; calories?: number; description?: string }
+export type EmbeddedWeeklyMeals = Record<WeeklyDay, HealthyLunchMeal>;
+export type WeeklyWeeks = Partial<Record<'week1' | 'week2' | 'week3' | 'week4', { startMonday: string; meals: WeeklyMeals | EmbeddedWeeklyMeals }>>;
+export interface WeeklyMealSnapshot { day: WeeklyDay; productId: string; productName: string; photoUrl: string; price?: number; calories?: number; description?: string }
 export interface WeeklyFulfilment extends WeeklyMealSnapshot {
   date: string; pickupTime: string; pickupLocationId: string; pickupLocationName: string;
   pickupLocationAddress: string; quantity: number;
@@ -270,6 +272,7 @@ export interface StoreProduct {
   productType?: 'single' | 'weekly_meal_plan';
   weeklyMeals?: WeeklyMeals;
   weeklyWeeks?: WeeklyWeeks;
+  weeklyMenuVersion?: 2;
   optionGroupIds: string[];
   createdBy: string;
   createdAt: string;
@@ -290,6 +293,7 @@ export interface StoreProductDraft {
   productType?: 'single' | 'weekly_meal_plan';
   weeklyMeals?: WeeklyMeals;
   weeklyWeeks?: WeeklyWeeks;
+  weeklyMenuVersion?: 2;
   optionGroupIds: string[];
 }
 
@@ -437,6 +441,8 @@ export interface StoreOrderItemOption {
 }
 
 export interface StoreOrderItem {
+  calories?: number;
+  description?: string;
   healthyLunchSnapshot?: { planId: string; date: string };
   weeklyPlanSnapshot?: { meals: WeeklyMealSnapshot[]; startMonday?: string };
   itemType?: 'product' | 'set';
