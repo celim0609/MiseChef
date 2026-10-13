@@ -72,7 +72,8 @@ export const normalizeStoreOrderItem = (value: unknown): StoreOrderItem => {
       ? item.selectedOptions.map(normalizeSelectedOption)
       : [],
     ...(setSnapshot ? { setSnapshot } : {}),
-    ...(item.weeklyPlanSnapshot && typeof item.weeklyPlanSnapshot === 'object' && Array.isArray((item.weeklyPlanSnapshot as { meals?: unknown }).meals) ? { weeklyPlanSnapshot: { meals: ((item.weeklyPlanSnapshot as { meals: unknown[] }).meals).map(normalizeWeeklyMeal) } } : {})
+    ...(item.healthyLunchSnapshot && typeof item.healthyLunchSnapshot === 'object' ? { healthyLunchSnapshot: { planId: readString((item.healthyLunchSnapshot as { planId?: string }).planId), date: readString((item.healthyLunchSnapshot as { date?: string }).date) } } : {}),
+    ...(item.weeklyPlanSnapshot && typeof item.weeklyPlanSnapshot === 'object' && Array.isArray((item.weeklyPlanSnapshot as { meals?: unknown }).meals) ? { weeklyPlanSnapshot: { ...((item.weeklyPlanSnapshot as { startMonday?: string }).startMonday ? { startMonday: readString((item.weeklyPlanSnapshot as { startMonday?: string }).startMonday) } : {}), meals: ((item.weeklyPlanSnapshot as { meals: unknown[] }).meals).map(normalizeWeeklyMeal) } } : {})
   };
 };
 

@@ -161,3 +161,47 @@ test('submission uses discounted daily merchandise for free delivery and retains
   const plan = { id: 'plan', productType: 'weekly_meal_plan' };
   assert.throws(() => financial({ products: [...products, plan], draft: { ...draft, selections: [{ productId: 'plan', quantity: 1 }, { productId: 'mon', quantity: 1 }] } }), /purchased alone/);
 });
+
+test('dated full week enforces explicit cutoff at checkout and snapshots the selected dated menu', () => {
+  const weeklyWeeks = { week1: { startMonday: '2026-07-27', meals: Object.fromEntries(products.map(meal => [meal.id, meal.id])) }, week2: { startMonday: '2026-08-03', meals: { mon: 'fri', tue: 'thu', wed: 'wed', thu: 'tue', fri: 'mon' } } };
+  const plan = { id: 'healthy', storeId: 's', workspaceId: 's', name: 'Healthy Lunch', price: 45, available: true, optionGroupIds: [], productType: 'weekly_meal_plan', weeklyWeeks };
+  const fulfilments = ['27','28','29','30','31'].map(day => ({ date: `2026-07-${day}`, time: '10:00', itemIndexes: [0] }));
+  const weeklyDraft = { ...draft, selections: [{ productId: plan.id, quantity: 2 }], fulfilments };
+  const weeklyStore = { ...store, earliestPickupDays: 1, orderCutoffTime: '18:00' };
+  const options = { store: weeklyStore, draft: weeklyDraft, products: [...products, plan], now: new Date('2026-07-26T10:00:00.000Z') };
+  const order = financial(options);
+  assert.equal(order.total, 90);
+  assert.equal(order.fulfilments.length, 5);
+  assert.equal(order.items[0].weeklyPlanSnapshot.startMonday, '2026-07-27');
+  assert.throws(() => financial({ ...options, now: new Date('2026-07-26T10:00:00.001Z') }), /closed/);
+  assert.throws(() => financial({ ...options, draft: { ...weeklyDraft, fulfilments: undefined } }), /schedule|dated/);
+  for (const method of ['pickup','delivery']) {
+    const next = financial({ ...options, draft: { ...weeklyDraft, fulfilmentMethod: method, ...(method === 'delivery' ? { fulfilmentMode: 'preorder', deliverySnapshot: { quote: { fee: 7 }, schedule: { date: '2026-07-27' }, fulfilmentMode: 'preorder' } } : {}), fulfilments: ['03','04','05','06','07'].map(day => ({ date: `2026-08-${day}`, time: '10:00', itemIndexes: [0] })) } });
+    assert.equal(next.items[0].weeklyPlanSnapshot.meals[0].productId, 'fri');
+    assert.equal(next.totals.deliveryFee, method === 'delivery' ? 35 : 0);
+  }
+  assert.throws(() => financial({ ...options, store: { ...weeklyStore, unavailableDates: ['2026-07-29'] } }), /available/);
+  assert.throws(() => financial({ ...options, draft: { ...weeklyDraft, fulfilments: fulfilments.map((entry, index) => index === 2 ? { ...entry, time: '11:00' } : entry) } }), /whole weekly/);
+});
+
+test('future Healthy Lunch days stay orderable after full-week closure using normal cutoff rules', () => {
+  const plan = { id: 'healthy', storeId: 's', workspaceId: 's', available: true, productType: 'weekly_meal_plan', weeklyWeeks: { week1: { startMonday: '2026-07-27', meals: Object.fromEntries(products.map(meal => [meal.id, meal.id])) } } };
+  const selection = { productId: 'wed', quantity: 2, healthyLunchPlanId: 'healthy', healthyLunchDate: '2026-07-29' };
+  const dayDraft = { ...draft, selections: [selection], fulfilments: [{ date: '2026-07-29', time: '10:00', itemIndexes: [0] }] };
+  const options = { products: [...products, plan], draft: dayDraft, store: { ...store, earliestPickupDays: 1, orderCutoffTime: '18:00' }, now: new Date('2026-07-27T10:01:00Z') };
+  assert.equal(financial(options).total, 20);
+  assert.throws(() => financial({ ...options, now: new Date('2026-07-28T10:01:00Z') }), /available/);
+  assert.throws(() => financial({ ...options, draft: { ...dayDraft, selections: [{ ...selection, productId: 'mon' }] } }), /does not match/);
+  assert.throws(() => financial({ ...options, draft: { ...dayDraft, selections: [{ ...selection, healthyLunchDate: '2026-07-30' }] } }), /valid Healthy Lunch date/);
+  assert.throws(() => financial({ ...options, products: [...products, { ...plan, available: false }] }), /Healthy Lunch/);
+});
+
+test('an unavailable meal in a different week does not close a valid selected week or day', () => {
+  const weeklyWeeks = { week1: { startMonday: '2026-07-27', meals: { mon: 'old-mon', tue: 'tue', wed: 'wed', thu: 'thu', fri: 'fri' } }, week2: { startMonday: '2026-08-03', meals: Object.fromEntries(products.map(meal => [meal.id, meal.id])) } };
+  const plan = { id: 'healthy', storeId: 's', workspaceId: 's', available: true, name: 'Healthy Lunch', price: 45, productType: 'weekly_meal_plan', weeklyWeeks };
+  const catalogue = [...products, { ...products[0], id: 'old-mon', available: false }, plan];
+  const datedDraft = { ...draft, selections: [{ productId: plan.id, quantity: 1 }], fulfilments: ['03','04','05','06','07'].map(day => ({ date: `2026-08-${day}`, time: '10:00', itemIndexes: [0] })) };
+  assert.equal(financial({ products: catalogue, draft: datedDraft }).fulfilments.length, 5);
+  const dayDraft = { ...draft, selections: [{ productId: 'wed', quantity: 1, healthyLunchPlanId: plan.id, healthyLunchDate: '2026-08-05' }], fulfilments: [{ date: '2026-08-05', time: '10:00', itemIndexes: [0] }] };
+  assert.equal(financial({ products: catalogue, draft: dayDraft }).total, 10);
+});

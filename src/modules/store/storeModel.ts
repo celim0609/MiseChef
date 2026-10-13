@@ -1,4 +1,4 @@
-import { isWeeklyMealPlan, WEEKLY_DAYS } from '../../../functions/storeWeeklyMealPlan.js';
+import { isWeeklyMealPlan, WEEKLY_DAYS, validateWeeklyStructure } from '../../../functions/storeWeeklyMealPlan.js';
 import { AVAILABLE_DAYS } from '../../../functions/storeProductAvailability.js';
 import type { Workspace } from '../../types';
 import { getWorkspaceRegionConfiguration, normalizeRegionCode } from '../../regions';
@@ -421,6 +421,7 @@ export const normalizeStoreProduct = (
     ? { estimatedCost: Number(data.estimatedCost) }
     : {}),
   ...(data.productType !== undefined ? { productType: data.productType as StoreProduct['productType'] } : {}),
+  ...(data.weeklyWeeks && typeof data.weeklyWeeks === 'object' ? { weeklyWeeks: structuredClone(data.weeklyWeeks) as StoreProduct['weeklyWeeks'] } : {}),
   ...(data.weeklyMeals && typeof data.weeklyMeals === 'object' ? { weeklyMeals: { ...data.weeklyMeals as NonNullable<StoreProduct['weeklyMeals']> } } : {}),
   available: readBoolean(data.available),
   availableDay: (data.availableDay ?? 'all') as StoreProduct['availableDay'],
@@ -531,8 +532,9 @@ export const validateStoreProduct = (draft: StoreProductDraft) => {
   if (!['single', 'weekly_meal_plan'].includes(draft.productType ?? 'single')) return 'Choose a valid Product Type.';
   if (isWeeklyMealPlan(draft)) {
     if (draft.optionGroupIds.length || (draft.availableDay ?? 'all') !== 'all') return 'Weekly plans cannot have options or an Available day restriction.';
-    if (!draft.weeklyMeals || Object.keys(draft.weeklyMeals).length !== 5 || WEEKLY_DAYS.some(day => !draft.weeklyMeals[day]?.trim())) return 'Choose a meal for every weekday.';
-  } else if (draft.weeklyMeals !== undefined) return 'Single Products cannot contain weekly meals.';
+    const weeklyError = validateWeeklyStructure(draft);
+    if (weeklyError) return weeklyError;
+  } else if (draft.weeklyMeals !== undefined || draft.weeklyWeeks !== undefined) return 'Single Products cannot contain weekly meals.';
 
   if (!AVAILABLE_DAYS.includes(draft.availableDay ?? 'all')) return 'Choose a valid Available day.';
   if (!draft.photoUrl.trim()) return 'Product photo is required.';

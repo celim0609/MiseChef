@@ -392,6 +392,7 @@ export const storeService = {
       recipeId: draft.recipeId?.trim() || undefined,
       available: draft.available,
       productType: draft.productType,
+      weeklyWeeks: draft.weeklyWeeks ? structuredClone(draft.weeklyWeeks) : undefined,
       weeklyMeals: draft.weeklyMeals ? { ...draft.weeklyMeals } : undefined,
       availableDay: draft.availableDay ?? 'all',
       optionGroupIds: [...draft.optionGroupIds],
@@ -415,6 +416,7 @@ export const storeService = {
 
     await setDoc(doc(db, 'storeProducts', product.id), {
       ...removeUndefinedFields(updatedProduct),
+      ...(!draft.weeklyWeeks ? { weeklyWeeks: deleteField() } : {}),
       ...(!draft.weeklyMeals ? { weeklyMeals: deleteField() } : {}),
       ...(
         draft.calories === undefined

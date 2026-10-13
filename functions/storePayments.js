@@ -493,6 +493,7 @@ export const createStorePayment = async ({
       deliverySnapshot: await revalidateDeliveryForPayment({
         provider: deliveryProvider,
         store: checkoutData.store,
+        products: checkoutData.products,
         draft,
         now: now.getTime(),
         minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS

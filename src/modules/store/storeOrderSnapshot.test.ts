@@ -118,3 +118,12 @@ test('multi-fulfilment schedule reload preserves allocations, dates, times and m
   assert.deepEqual(normalized, fulfilments); assert.notEqual(normalized, fulfilments);
   assert.equal(normalizeOrderFulfilments(undefined), undefined);
 });
+
+test('dated plan and single-day association survive normalization without changing existing snapshots', () => {
+  const dated = normalizeStoreOrderItem({ productName: 'Healthy Lunch', weeklyPlanSnapshot: { startMonday: '2026-10-19', meals: [{ day: 'mon', productId: 'meal', productName: 'Monday lunch', photoUrl: '' }] } });
+  assert.equal(dated.weeklyPlanSnapshot?.startMonday, '2026-10-19');
+  const day = normalizeStoreOrderItem({ productName: 'Wednesday lunch', healthyLunchSnapshot: { planId: 'healthy', date: '2026-10-21' } });
+  assert.deepEqual(day.healthyLunchSnapshot, { planId: 'healthy', date: '2026-10-21' });
+  assert.equal(normalizeStoreOrderItem({ productName: 'Old Single' }).healthyLunchSnapshot, undefined);
+  assert.equal(normalizeStoreOrderItem({ weeklyPlanSnapshot: { meals: [] } }).weeklyPlanSnapshot?.startMonday, undefined);
+});

@@ -1,4 +1,4 @@
-import { isWeeklyMealPlan, WEEKLY_DAYS, validateWeeklyMealPlan } from '../../../functions/storeWeeklyMealPlan.js';
+import { isWeeklyMealPlan, WEEKLY_DAYS, WEEK_SLOTS, validateWeeklyMealPlan } from '../../../functions/storeWeeklyMealPlan.js';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
   ArrowDown,
@@ -1093,13 +1093,33 @@ export default function StorePage({
                   <span className="font-sans text-xs font-extrabold text-primary">Product Type</span>
                   <select aria-label="Product Type" value={productDraft.productType ?? 'single'} onChange={event => {
                     const productType = event.target.value as StoreProductDraft['productType'];
-                    setProductDraft(current => ({ ...current, productType, weeklyMeals: productType === 'weekly_meal_plan' ? current.weeklyMeals || { mon: '', tue: '', wed: '', thu: '', fri: '' } : undefined, ...(productType === 'weekly_meal_plan' ? { availableDay: 'all', optionGroupIds: [] } : {}) }));
+                    setProductDraft(current => ({ ...current, productType, weeklyWeeks: productType === 'weekly_meal_plan' ? current.weeklyWeeks || {} : undefined, weeklyMeals: productType === 'weekly_meal_plan' ? current.weeklyMeals || { mon: '', tue: '', wed: '', thu: '', fri: '' } : undefined, ...(productType === 'weekly_meal_plan' ? { availableDay: 'all', optionGroupIds: [] } : {}) }));
                     if (productType === 'weekly_meal_plan') setProductOptions([]);
                   }} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 text-sm font-bold text-primary">
                     <option value="single">Single Product</option><option value="weekly_meal_plan">Weekly Meal Plan</option>
                   </select>
                 </label>
-                {isWeeklyMealPlan(productDraft) && <fieldset className="space-y-3 md:col-span-2"><legend className="font-bold text-primary">Included meals · Mon–Fri · Pickup only</legend>{WEEKLY_DAYS.map(day => <label key={day} className="block"><span className="text-sm font-bold text-primary">{({ mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday' })[day]}</span><select aria-label={`${day} meal`} required value={productDraft.weeklyMeals?.[day] || ''} onChange={event => setProductDraft(current => ({ ...current, weeklyMeals: { mon: '', tue: '', wed: '', thu: '', fri: '', ...current.weeklyMeals, [day]: event.target.value } }))} className="mt-1 w-full rounded-xl border p-3 text-sm font-bold text-primary"><option value="">Select Single Product</option>{products.filter(product => product.id !== editingProduct?.id && (product.productType ?? 'single') === 'single' && product.available && !product.optionGroupIds.length && ['all', day].includes(product.availableDay ?? 'all')).map(product => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label>)}</fieldset>}
+                {isWeeklyMealPlan(productDraft) && <fieldset className="space-y-3 md:col-span-2"><legend className="font-bold text-primary">Healthy Lunch · Mon–Fri</legend>
+                  {WEEK_SLOTS.map((slot, index) => {
+                    const week = productDraft.weeklyWeeks?.[slot];
+                    const meals = week?.meals || (index === 0 ? productDraft.weeklyMeals : undefined) || { mon: '', tue: '', wed: '', thu: '', fri: '' };
+                    return <details key={slot} open={index === 0 || Boolean(week)} className="rounded-xl border p-3"><summary className="cursor-pointer font-bold">Week {index + 1}</summary>
+                      <label className="mt-3 block text-sm font-bold">Start Monday<input aria-label={`Week ${index + 1} start Monday`} type="date" value={week?.startMonday || ''} onChange={event => setProductDraft(current => {
+                        const weeklyWeeks = { ...current.weeklyWeeks };
+                        if (event.target.value) weeklyWeeks[slot] = { startMonday: event.target.value, meals: { ...meals } };
+                        else delete weeklyWeeks[slot];
+                        return { ...current, weeklyWeeks, weeklyMeals: undefined };
+                      })} className="mt-1 block w-full rounded-xl border p-3" /></label>
+                      {!week && <p className="mt-2 text-sm text-on-surface-variant">Enter a Monday to publish this week.</p>}
+                      {(week || (index === 0 && productDraft.weeklyMeals)) && WEEKLY_DAYS.map(day => <label key={day} className="mt-3 block text-sm font-bold">{({ mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday' })[day]} meal
+                        <select aria-label={`Week ${index + 1} ${day} meal`} value={meals[day]} onChange={event => setProductDraft(current => week
+                          ? { ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: { ...week, meals: { ...meals, [day]: event.target.value } } }, weeklyMeals: undefined }
+                          : { ...current, weeklyMeals: { ...meals, [day]: event.target.value } })} className="mt-1 block w-full rounded-xl border p-3">
+                          <option value="">Select Single Product</option>{products.filter(product => product.id !== editingProduct?.id && (product.productType ?? 'single') === 'single' && product.available && !product.optionGroupIds.length && ['all', day].includes(product.availableDay ?? 'all')).map(product => <option key={product.id} value={product.id}>{product.name}</option>)}
+                        </select></label>)}
+                    </details>;
+                  })}
+                </fieldset>}
                 <label className="block">
                   <span className="font-sans text-xs font-extrabold text-primary">Available day</span>
                   <select aria-label="Available day" disabled={isWeeklyMealPlan(productDraft)} value={productDraft.availableDay ?? 'all'} onChange={event => updateProduct('availableDay', event.target.value as StoreProductDraft['availableDay'])} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">

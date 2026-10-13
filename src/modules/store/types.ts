@@ -237,6 +237,7 @@ export interface StoreOptionGroupDraft {
 
 export type WeeklyDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri';
 export type WeeklyMeals = Record<WeeklyDay, string>;
+export type WeeklyWeeks = Partial<Record<'week1' | 'week2' | 'week3' | 'week4', { startMonday: string; meals: WeeklyMeals }>>;
 export interface WeeklyMealSnapshot { day: WeeklyDay; productId: string; productName: string; photoUrl: string }
 export interface WeeklyFulfilment extends WeeklyMealSnapshot {
   date: string; pickupTime: string; pickupLocationId: string; pickupLocationName: string;
@@ -268,6 +269,7 @@ export interface StoreProduct {
   availableDay?: 'all' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
   productType?: 'single' | 'weekly_meal_plan';
   weeklyMeals?: WeeklyMeals;
+  weeklyWeeks?: WeeklyWeeks;
   optionGroupIds: string[];
   createdBy: string;
   createdAt: string;
@@ -287,6 +289,7 @@ export interface StoreProductDraft {
   availableDay?: 'all' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
   productType?: 'single' | 'weekly_meal_plan';
   weeklyMeals?: WeeklyMeals;
+  weeklyWeeks?: WeeklyWeeks;
   optionGroupIds: string[];
 }
 
@@ -386,6 +389,8 @@ export interface PublicStoreData {
 }
 
 export interface CartSelection {
+  healthyLunchPlanId?: string;
+  healthyLunchDate?: string;
   productId: string;
   setId?: string;
   quantity: number;
@@ -432,7 +437,8 @@ export interface StoreOrderItemOption {
 }
 
 export interface StoreOrderItem {
-  weeklyPlanSnapshot?: { meals: WeeklyMealSnapshot[] };
+  healthyLunchSnapshot?: { planId: string; date: string };
+  weeklyPlanSnapshot?: { meals: WeeklyMealSnapshot[]; startMonday?: string };
   itemType?: 'product' | 'set';
   productId: string;
   productName: string;

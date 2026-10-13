@@ -454,3 +454,29 @@ test('quote and submission agree on free delivery per day without changing actua
   assert.equal(order.totals.deliveryFee, result.quote.customerDeliveryFee);
   assert.deepEqual(order.deliveryPricingSnapshot.days.map(day => day.customerDeliveryFee), [0,8.4,8.4]);
 });
+
+test('dated full-week quote and payment revalidation use Sunday cutoff instead of earliest days', async () => {
+  const fixture = quoteFixture();
+  const start = new Date(); start.setUTCDate(start.getUTCDate() + ((8 - start.getUTCDay()) % 7 || 7));
+  const monday = start.toISOString().slice(0, 10);
+  const dates = Array.from({ length: 5 }, (_, index) => new Date(Date.parse(`${monday}T00:00:00Z`) + index * 86400000).toISOString().slice(0, 10));
+  const days = ['mon','tue','wed','thu','fri'];
+  fixture.store.orderCutoffTime = '18:00';
+  fixture.store.delivery.fulfilment.preOrder.earliestDays = 1;
+  const meals = days.map((day, index) => ({ id: `dated-${day}`, name: `${day} lunch`, storeId: 's', workspaceId: 's', price: 12, available: true, optionGroupIds: [], availableDay: day }));
+  const plan = { id: 'healthy', name: 'Healthy Lunch', storeId: 's', workspaceId: 's', productType: 'weekly_meal_plan', available: true, price: 55, optionGroupIds: [], weeklyWeeks: { week1: { startMonday: monday, meals: Object.fromEntries(meals.map((meal, index) => [days[index], meal.id])) } } };
+  for (const product of [...meals, plan]) fixture.db.documents[`storeProducts/${product.id}`] = product;
+  const draft = { ...fixture.draft, selections: [{ productId: plan.id, quantity: 1 }], fulfilments: dates.map(date => ({ date, time: '10:00', itemIndexes: [0] })) };
+  const result = await createStoreDeliveryQuote({ ...fixture, slug: 'test', draft });
+  assert.equal(result.quote.customerDeliveryFee, 35);
+  assert.equal(result.quote.fulfilmentCount, 5);
+  const paymentDraft = { ...draft, deliveryQuoteId: result.quote.quotationId, deliveryPricingSnapshotId: result.pricingSnapshotId };
+  const cutoff = Date.parse(`${monday}T00:00:00+08:00`) - 6 * 3600000;
+  // Keep the mocked provider quote valid at the deterministic payment test time.
+  const quoteProvider = { ...fixture.provider, retrieveQuote: async () => ({ ...(await fixture.provider.retrieveQuote()), expiresAt: new Date(cutoff + 86400000).toISOString() }) };
+  const options = { db: fixture.db, provider: quoteProvider, store: fixture.store, products: [...meals, plan], draft: paymentDraft };
+  const atCutoff = await revalidateDeliveryForPayment({ ...options, now: cutoff });
+  assert.equal(atCutoff.schedule.date, monday);
+  await assert.rejects(revalidateDeliveryForPayment({ ...options, now: cutoff + 1 }), /closed/);
+  assert.equal(fixture.quoteCount(), 1);
+});

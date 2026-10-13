@@ -1,6 +1,6 @@
 import { calculateDeliveryDayPricing } from './storeDeliveryPricing.js';
 import { buildOrderFulfilments, publicOrderFulfilments } from './storeOrderFulfilments.js';
-import { buildWeeklyOrderDetails, isWeeklyMealPlan, publicWeeklyFulfilments } from './storeWeeklyMealPlan.js';
+import { buildWeeklyOrderDetails, isWeeklyMealPlan, publicWeeklyFulfilments, validateHealthyLunchDay } from './storeWeeklyMealPlan.js';
 import { cartAllowsFulfilmentDate, currentFulfilmentDate } from './storeProductAvailability.js';
 import { randomBytes } from 'node:crypto';
 import { calculatePromotionPricing } from './storePromotionPricing.js';
@@ -213,7 +213,7 @@ export const getValidPickupDates = (store, currentDate = new Date()) => {
   return dates;
 };
 
-const validateDraft = (store, draft, currentDate, isLegacyGroupOrder = false) => {
+const validateDraft = (store, draft, currentDate, isLegacyGroupOrder = false, validatedSchedule = false) => {
   const isDelivery = readString(draft.fulfilmentMethod) === 'delivery';
   if (isDelivery && draft.fulfilmentMode === 'instant' && isAfterOrderCutoff(store, currentDate)) throw new Error('Orders placed after the cut-off require a future delivery date.');
   if (!isDelivery && store.pickupEnabled !== true) throw new Error('Pickup ordering is not available.');
@@ -225,10 +225,10 @@ const validateDraft = (store, draft, currentDate, isLegacyGroupOrder = false) =>
   if (customerEmail && (customerEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail))) {
     throw new Error('Enter a valid email address.');
   }
-  if (!isDelivery && !getValidPickupDates(store, currentDate).includes(readString(draft.pickupDate))) {
+  if (!isDelivery && !validatedSchedule && !getValidPickupDates(store, currentDate).includes(readString(draft.pickupDate))) {
     throw new Error('Choose an available pickup date.');
   }
-  if (!isDelivery && !isLegacyGroupOrder && !getPickupTimeSlots(store, readString(draft.pickupDate), currentDate).includes(readString(draft.pickupTime))) {
+  if (!isDelivery && !validatedSchedule && !isLegacyGroupOrder && !getPickupTimeSlots(store, readString(draft.pickupDate), currentDate).includes(readString(draft.pickupTime))) {
     throw new Error('Choose a valid pickup time.');
   }
   if (!isDelivery && isLegacyGroupOrder && (!Array.isArray(store.pickupSessions) || !store.pickupSessions.includes(readString(draft.pickupSession)))) {
@@ -386,6 +386,7 @@ export const buildOrderItems = (selections, products, optionGroups, sets = []) =
   ));
   return {
     itemType: 'product',
+    ...(selection.healthyLunchPlanId ? { healthyLunchSnapshot: { planId: selection.healthyLunchPlanId, date: selection.healthyLunchDate } } : {}),
     productId: product.id,
     productName: readString(product.name),
     photoUrl: readString(product.photoUrl),
@@ -416,7 +417,9 @@ export const buildPendingOrder = ({
 }) => {
   const scheduled = buildOrderFulfilments({ store, draft, products, groupOrder, getDates: getValidPickupDates, getTimes: getPickupTimeSlots, now });
   if (scheduled) draft = { ...draft, pickupDate: scheduled.fulfilments[0].date, pickupTime: scheduled.fulfilments[0].time };
-  validateDraft(store, draft, now, Boolean(groupOrder));
+  validateDraft(store, draft, now, Boolean(groupOrder), Boolean(scheduled));
+  if (draft.selections?.some(selection => selection.healthyLunchPlanId) && (groupOrder || draft.groupShareCode || draft.fulfilmentMode === 'instant')) throw new Error('Healthy Lunch dates require scheduled ordering.');
+  if (!scheduled) for (const selection of draft.selections || []) validateHealthyLunchDay(selection, products, draft.fulfilmentMethod === 'delivery' ? (draft.deliveryDate || draft.deliverySnapshot?.schedule?.date) : draft.pickupDate, store.workspaceId || store.id);
   const region = REGIONS[readString(store.country)];
   if (!region || readString(store.currency) !== region.currency) {
     throw new Error('This Store currency is not supported.');

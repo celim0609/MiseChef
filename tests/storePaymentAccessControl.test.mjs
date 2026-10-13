@@ -708,3 +708,20 @@ test('multi-fulfilment snapshots, dispatch claims and frozen pricing remain serv
     ]) await assertFails(context.firestore().doc(`storeOrders/${ORDER_A}`).update(patch));
   }
 });
+
+test('dated four-week schema saves twenty distinct meals within Rules budget and keeps product permissions', async () => {
+  const id = 'dated-healthy-lunch';
+  const weeklyWeeks = Object.fromEntries(['2026-10-19','2026-10-26','2026-11-02','2026-11-09'].map((startMonday, index) => [`week${index + 1}`, { startMonday, meals: Object.fromEntries(weeklyDays.map(day => [day, `dated-${index}-${day}`])) }]));
+  for (const week of Object.values(weeklyWeeks)) for (const [day, mealId] of Object.entries(week.meals)) await assertSucceeds(ownerA.firestore().doc(`storeProducts/${mealId}`).set({ ...createProductRecord(mealId), availableDay: day }));
+  const record = { ...createProductRecord(id), productType: 'weekly_meal_plan', weeklyWeeks };
+  const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+  await assertSucceeds(ref.set(record));
+  assert.deepEqual((await ref.get()).data().weeklyWeeks, weeklyWeeks);
+  await assertSucceeds(managerA.firestore().doc(`storeProducts/${id}`).update({ weeklyWeeks: { week2: weeklyWeeks.week2 } }));
+  for (const context of [anonymous, memberA, ownerB, customerA]) {
+    await assertFails(context.firestore().doc(`storeProducts/${id}`).update({ weeklyWeeks }));
+    await assertFails(context.firestore().doc('storeProducts/dated-unauthorized').set({ ...record, id: 'dated-unauthorized' }));
+  }
+  for (const invalid of [{}, { week5: weeklyWeeks.week1 }, { week1: { ...weeklyWeeks.week1, unknown: true } }, { week1: { ...weeklyWeeks.week1, startMonday: 'Monday' } }, { week1: { ...weeklyWeeks.week1, meals: { mon: 'meal' } } }, { week1: { ...weeklyWeeks.week1, meals: { ...weeklyWeeks.week1.meals, mon: id } } }]) await assertFails(ref.update({ weeklyWeeks: invalid }));
+  await assertFails(ref.update({ productType: 'single' }));
+});

@@ -1,4 +1,5 @@
 import { calculateDeliveryDayPricing, deliveryDistanceKm as distanceKm } from './storeDeliveryPricing.js';
+import { fullWeekDateStore } from './storeWeeklyMealPlan.js';
 import { canonicalSchedule, buildOrderFulfilments } from './storeOrderFulfilments.js';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
@@ -175,10 +176,11 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
   const { config, pickup } = validateStoreDelivery(checkout.store, provider);
   const destination = validateDestination(draft?.destination);
   if (distanceKm(pickup, destination) > Number(config.fulfilment?.preOrder?.maximumDistanceKm || Infinity)) throw deliveryError('This delivery address is outside the Store’s maximum delivery distance.');
-  const scheduled = scheduledDelivery(checkout.store, draft);
-  draft = scheduled.draft;
   const fulfilments = buildOrderFulfilments({ store: checkout.store, draft: { ...draft, fulfilmentMethod: 'delivery' }, products: checkout.products, getDates: getValidPickupDates, getTimes: getPickupTimeSlots });
-  const schedule = assertFutureLalamoveSchedule(validateDeliverySchedule(checkout.store, config, draft));
+  const scheduleStore = fulfilments?.weeklyPlanSnapshot ? fullWeekDateStore(checkout.store, checkout.products.find(product => product.id === draft.selections?.[0]?.productId)) : checkout.store;
+  const scheduled = scheduledDelivery(scheduleStore, draft);
+  draft = scheduled.draft;
+  const schedule = assertFutureLalamoveSchedule(validateDeliverySchedule(scheduleStore, deliveryConfig(scheduleStore), draft));
   // Rebuild cart on the server. The browser does not send prices or service type.
   const items = buildOrderItems(draft?.selections || [], checkout.products, checkout.optionGroups, checkout.sets);
   if (!items.length) throw deliveryError('Your cart is empty.');
@@ -219,13 +221,16 @@ export const getLalamoveSandboxCityInfo = async ({ db, uid, workspaceId, provide
 // payment-session request. Refuse quotations that are about to expire before
 // the order/payment boundary so no payment session is opened on a quote that
 // is likely to expire while that boundary is crossed.
-export const revalidateDeliveryForPayment = async ({ provider, store, draft, now = Date.now(), minimumValidityMs = 0, db }) => {
+export const revalidateDeliveryForPayment = async ({ provider, store, draft, now = Date.now(), minimumValidityMs = 0, db, products = [] }) => {
   const { config, pickup } = validateStoreDelivery(store, provider);
   const destination = validateDestination(draft?.destination);
   if (distanceKm(pickup, destination) > Number(config.fulfilment?.preOrder?.maximumDistanceKm || Infinity)) throw deliveryError('This delivery address is outside the Store’s maximum delivery distance.');
-  const scheduled = scheduledDelivery(store, draft);
+  const plan = products.find(product => product.id === draft.selections?.[0]?.productId);
+  if (plan?.weeklyWeeks !== undefined) buildOrderFulfilments({ store, draft: { ...draft, fulfilmentMethod: 'delivery' }, products, now: new Date(now), getDates: getValidPickupDates, getTimes: getPickupTimeSlots });
+  const scheduleStore = fullWeekDateStore(store, plan);
+  const scheduled = scheduledDelivery(scheduleStore, draft);
   draft = scheduled.draft;
-  const schedule = validateDeliverySchedule(store, config, draft);
+  const schedule = validateDeliverySchedule(scheduleStore, deliveryConfig(scheduleStore), draft);
   const quote = quoteSnapshot(await provider.retrieveQuote({ market: 'MY', quotationId: readString(draft?.deliveryQuoteId) }));
   if (!quote.quotationId || quote.currency !== 'MYR' || !Number.isFinite(quote.fee) || quote.fee < 0 || Date.parse(quote.expiresAt) <= Number(now) + Number(minimumValidityMs) || quote.serviceType !== config.serviceType || quote.stops.length !== 2) throw deliveryError('Refresh your delivery quote before checkout.');
   // Lalamove returns coordinates as either JSON numbers or strings. Coordinates

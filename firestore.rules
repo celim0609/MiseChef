@@ -587,20 +587,39 @@ service cloud.firestore {
         && (!('availableDay' in meal) || meal.availableDay in ['all', day]);
     }
 
+    function isValidDatedWeek(week, planId) {
+      let meals = week.meals;
+      return week is map && week.keys().hasOnly(['startMonday', 'meals']) && week.size() == 2
+        && week.startMonday is string && week.startMonday.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && meals is map && meals.size() == 5 && meals.keys().hasAll(['mon', 'tue', 'wed', 'thu', 'fri'])
+        && meals.mon is string && meals.tue is string && meals.wed is string && meals.thu is string && meals.fri is string
+        && ![meals.mon, meals.tue, meals.wed, meals.thu, meals.fri].hasAny(['', planId]);
+    }
+    // Four weeks can reference twenty distinct products, beyond the Rules
+    // document-read budget. Validate bounded schema here; save and checkout
+    // validate references against the Store catalogue without changing access.
+    function isValidDatedWeeks(weeks, planId) {
+      return weeks is map && weeks.size() > 0 && weeks.keys().hasOnly(['week1', 'week2', 'week3', 'week4'])
+        && (!('week1' in weeks) || isValidDatedWeek(weeks.week1, planId))
+        && (!('week2' in weeks) || isValidDatedWeek(weeks.week2, planId))
+        && (!('week3' in weeks) || isValidDatedWeek(weeks.week3, planId))
+        && (!('week4' in weeks) || isValidDatedWeek(weeks.week4, planId));
+    }
+
     function isValidWeeklyProduct(data, productId) {
       return (!('productType' in data) || data.productType in ['single', 'weekly_meal_plan'])
         && ((('productType' in data) && data.productType == 'weekly_meal_plan')
           ? (data.optionGroupIds.size() == 0
             && (!('availableDay' in data) || data.availableDay == 'all')
-            && data.weeklyMeals is map
+            && (('weeklyWeeks' in data) ? isValidDatedWeeks(data.weeklyWeeks, productId) : (data.weeklyMeals is map
             && data.weeklyMeals.keys().hasAll(['mon', 'tue', 'wed', 'thu', 'fri'])
             && data.weeklyMeals.keys().hasOnly(['mon', 'tue', 'wed', 'thu', 'fri'])
             && isWeeklyMealReference(data.weeklyMeals.mon, productId, data.workspaceId, 'mon')
             && isWeeklyMealReference(data.weeklyMeals.tue, productId, data.workspaceId, 'tue')
             && isWeeklyMealReference(data.weeklyMeals.wed, productId, data.workspaceId, 'wed')
             && isWeeklyMealReference(data.weeklyMeals.thu, productId, data.workspaceId, 'thu')
-            && isWeeklyMealReference(data.weeklyMeals.fri, productId, data.workspaceId, 'fri'))
-          : !('weeklyMeals' in data));
+            && isWeeklyMealReference(data.weeklyMeals.fri, productId, data.workspaceId, 'fri'))))
+          : (!('weeklyMeals' in data) && !('weeklyWeeks' in data)));
     }
 
     function isValidStoreProduct(data, productId) {
@@ -623,6 +642,7 @@ service cloud.firestore {
           'availableDay',
           'productType',
           'weeklyMeals',
+          'weeklyWeeks',
           'optionGroupIds',
           'createdBy',
           'createdAt',
@@ -1626,6 +1646,7 @@ service cloud.firestore {
           'availableDay',
           'productType',
           'weeklyMeals',
+          'weeklyWeeks',
           'optionGroupIds',
           'updatedAt'
         ])

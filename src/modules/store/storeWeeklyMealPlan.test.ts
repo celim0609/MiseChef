@@ -41,7 +41,7 @@ test('public and merchant UI wire weekly schedule controls and preserve legacy d
   assert.match(editor, /aria-label="Product Type"/);
   assert.match(editor, /Select Single Product/);
   assert.match(page, /store.delivery\?\.enabled/);
-  assert.match(page, /Week starting Monday/);
+  assert.match(page, /5-Day Plan dates/);
   assert.match(page, /renderWeeklyMeals\(requestedProduct\)/);
   assert.match(page, /weeklyCheckoutError/);
   assert.match(page, /placedOrder.weeklyFulfilments.map/);
@@ -77,4 +77,19 @@ test('weekly pickup excludes a Monday moved behind the cut-off', () => {
   const cutoffStore = { country: 'MY', orderDays: ['monday','tuesday','wednesday','thursday','friday'], earliestPickupDays: 1, maximumAdvanceDays: 14, unavailableDates: [], orderCutoffTime: '18:00', pickupOperatingHours: { start: '10:00', end: '18:00' } };
   assert.ok(getWeeklyPickupTimes(cutoffStore, '2026-10-12', getValidPickupDates, getPickupTimeSlots, new Date('2026-10-11T10:00:00Z')).length);
   assert.deepEqual(getWeeklyPickupTimes(cutoffStore, '2026-10-12', getValidPickupDates, getPickupTimeSlots, new Date('2026-10-11T10:00:01Z')), []);
+});
+
+test('dated weeks survive create/edit/reload without aliasing and old menus stay recurring until dated', () => {
+  const weeklyWeeks = { week1: { startMonday: '2026-10-19', meals: weeklyMeals }, week4: { startMonday: '2026-11-09', meals: { ...weeklyMeals, mon: 'other-mon' } } };
+  const draft = { ...getStoreProductEditorDraft(legacy), productType: 'weekly_meal_plan' as const, weeklyWeeks };
+  assert.equal(validateStoreProduct(draft), '');
+  const saved = buildUpdatedStoreProduct(legacy, draft, 'now');
+  const reloaded = normalizeStoreProduct(saved.id, JSON.parse(JSON.stringify(saved)));
+  const edited = getStoreProductEditorDraft(reloaded);
+  assert.deepEqual(edited.weeklyWeeks, weeklyWeeks);
+  edited.weeklyWeeks!.week1!.meals.mon = 'changed';
+  assert.equal(reloaded.weeklyWeeks!.week1!.meals.mon, weeklyMeals.mon);
+  assert.equal(buildUpdatedStoreProduct(reloaded, getStoreProductEditorDraft(legacy), 'later').weeklyWeeks, undefined);
+  assert.equal(getStoreProductEditorDraft(normalizeStoreProduct('old', { ...saved, weeklyWeeks: undefined, weeklyMeals })).weeklyWeeks, undefined);
+  assert.match(validateStoreProduct({ ...draft, productType: 'single' }), /Single Products/);
 });
