@@ -39,6 +39,15 @@ test('Order by Day lists every orderable date exactly once with an Add action an
   assert.doesNotMatch(html, /Mon, 19 Oct|mon lunch|fri lunch|Week [1-4]/);
 });
 
+test('Order by Day exposes separate Add cards for Thu, Fri and next Monday', () => {
+  const html = render('day', '', [], ['2026-10-26', '2026-10-23', '2026-10-22']);
+  assert.deepEqual([...html.matchAll(/<time dateTime="([^"]+)"/g)].map(match => match[1]), ['2026-10-22', '2026-10-23', '2026-10-26']);
+  assert.equal((html.match(/>Add</g) || []).length, 3);
+  assert.match(html, /Thu, 22 Oct/); assert.match(html, /Fri, 23 Oct/); assert.match(html, /Mon, 26 Oct/);
+  assert.ok(html.indexOf('Thu, 22 Oct') < html.indexOf('Fri, 23 Oct'));
+  assert.ok(html.indexOf('Fri, 23 Oct') < html.indexOf('Mon, 26 Oct'));
+});
+
 test('closed full weeks cannot be added while available single days still have their own Add action', () => {
   const closed = render('week', '', [], ['2026-10-21']);
   assert.match(closed, /No available dates/); assert.match(closed, /<button[^>]*disabled=""[^>]*>Add 5-Day Plan</);

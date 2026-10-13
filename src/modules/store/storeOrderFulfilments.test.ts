@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { groupFulfilmentSchedule, selectionAllowsDate, usesScheduledCheckout, commonPickupTimes, applySharedTime, checkoutDayGroups, scheduleDateLabel, deliveryFeeLabel } from './storeOrderFulfilments';
+import { addDatedHealthyLunchLine, groupFulfilmentSchedule, selectionAllowsDate, usesScheduledCheckout, commonPickupTimes, applySharedTime, checkoutDayGroups, scheduleDateLabel, deliveryFeeLabel } from './storeOrderFulfilments';
+import { resolveHealthyLunchDay } from '../../../functions/storeWeeklyMealPlan.js';
 import type { StoreProduct } from './types';
 
 test('same date meals share one fulfilment regardless of item count', () => {
@@ -77,4 +78,38 @@ test('embedded day schedule is pinned to its real date without requiring Single 
   assert.equal(selectionAllowsDate(selection, [plan], '2026-10-21'), true);
   assert.equal(selectionAllowsDate(selection, [plan], '2026-10-22'), false);
   assert.equal(selectionAllowsDate({ ...selection, healthyLunchPlanId: 'foreign' }, [plan], '2026-10-21'), false);
+});
+
+test('Thu, Fri and next Mon stay in one cart and produce three dated checkout days', () => {
+  const meals = (prefix: string) => Object.fromEntries(['mon', 'tue', 'wed', 'thu', 'fri'].map(day => [day, { name: `${prefix} ${day}`, photoUrl: 'meal.jpg', price: 12 }]));
+  const plan = { id: 'healthy', storeId: 'store', workspaceId: 'store', productType: 'weekly_meal_plan', weeklyMenuVersion: 2,
+    available: true, weeklyWeeks: { week1: { startMonday: '2026-10-19', meals: meals('first') }, week2: { startMonday: '2026-10-26', meals: meals('second') } } } as StoreProduct;
+  let cart: Array<{ key: string; productId: string; quantity: number; selectedOptions: []; healthyLunchPlanId?: string; healthyLunchDate?: string }> = [];
+  for (const date of ['2026-10-22', '2026-10-23', '2026-10-26']) {
+    const meal = resolveHealthyLunchDay(plan, [plan], date)!;
+    cart = addDatedHealthyLunchLine(cart, plan.id, meal.id, date);
+    assert.equal(selectionAllowsDate(cart.at(-1)!, [plan], date), true);
+  }
+  assert.deepEqual(cart.map(line => line.healthyLunchDate), ['2026-10-22', '2026-10-23', '2026-10-26']);
+  assert.equal(resolveHealthyLunchDay(plan, [plan], cart[0].healthyLunchDate!)!.name, 'first thu');
+  assert.equal(resolveHealthyLunchDay(plan, [plan], cart[2].healthyLunchDate!)!.name, 'second mon');
+  cart = addDatedHealthyLunchLine(cart, plan.id, plan.id, '2026-10-22');
+  assert.equal(cart.length, 3);
+  assert.equal(cart[0].quantity, 2);
+  const rows = cart.map((line, index) => ({ key: line.key, label: `${index}`, date: line.healthyLunchDate!, dates: [line.healthyLunchDate!] }));
+  const groups = checkoutDayGroups(rows);
+  assert.deepEqual(groups.map(group => group.date), ['2026-10-22', '2026-10-23', '2026-10-26']);
+  const schedule = groupFulfilmentSchedule(applySharedTime(cart.map((line, index) => ({ date: line.healthyLunchDate!, time: '', itemIndexes: [index] })), '10:00'));
+  assert.equal(schedule.length, 3);
+  assert.ok(schedule.every(day => day.time === '10:00'));
+});
+
+test('different cart lines on the same Healthy Lunch date share one service day', () => {
+  const cart = addDatedHealthyLunchLine([], 'plan-a', 'meal-a', '2026-10-22');
+  const combined = addDatedHealthyLunchLine(cart, 'plan-b', 'meal-b', '2026-10-22');
+  assert.equal(combined.length, 2);
+  const groups = checkoutDayGroups(combined.map((line, index) => ({ key: line.key, label: `${index}`, date: line.healthyLunchDate!, dates: [line.healthyLunchDate!] })));
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].rows.length, 2);
+  assert.deepEqual(groupFulfilmentSchedule(applySharedTime(combined.map((line, index) => ({ date: line.healthyLunchDate!, time: '', itemIndexes: [index] })), '10:00'))[0].itemIndexes, [0, 1]);
 });

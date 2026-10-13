@@ -1,6 +1,6 @@
 import { HealthyLunchCheckoutDates } from './HealthyLunchCheckoutDates';
 import HealthyLunchMenu, { type HealthyLunchChoice } from './HealthyLunchMenu';
-import { groupFulfilmentSchedule, selectionAllowsDate, usesScheduledCheckout, commonPickupTimes, applySharedTime, checkoutDayGroups, scheduleDateLabel, deliveryFeeLabel, type DraftFulfilment } from './storeOrderFulfilments';
+import { addDatedHealthyLunchLine, groupFulfilmentSchedule, selectionAllowsDate, usesScheduledCheckout, commonPickupTimes, applySharedTime, checkoutDayGroups, scheduleDateLabel, deliveryFeeLabel, type DraftFulfilment } from './storeOrderFulfilments';
 import { isWeeklyMealPlan, WEEKLY_DAYS, getWeeklyDates, getWeeklyPickupTimes, validateWeeklyMealPlan, weeklyCartError, datedWeeks, isDatedWeekOpen, fullWeekDateStore, weekRangeLabel, validateWeeklyStructure, resolvePlanMeal, resolveHealthyLunchDay, hasEmbeddedMenu, isFullWeekSelection } from '../../../functions/storeWeeklyMealPlan.js';
 import { cartAllowsFulfilmentDate, currentFulfilmentDate } from '../../../functions/storeProductAvailability.js';
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
@@ -1012,10 +1012,9 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
         const meal = resolveHealthyLunchDay(product, data.products, choice.date);
         const validDates = [...getValidPickupDates(data.store), ...(data.store.delivery?.fulfilment.preOrder.enabled ? getValidPickupDates(healthyDateStore('delivery')) : [])];
         if (!meal || !meal.available || !validDates.includes(choice.date) || !(hasEmbeddedMenu(product) || selectionAllowsDate({ productId: meal.id, quantity: 1, selectedOptions: [] }, data.products, choice.date))) { setCheckoutError('Choose an available lunch date.'); setIsCheckoutOpen(true); return; }
-        const key = `healthy_${product.id}_${choice.date}`;
         if (weeklyCartPlan || groupOrder) { setCheckoutError('Order Healthy Lunch separately from a 5-Day Plan or Group Order.'); setIsCheckoutOpen(true); return; }
-        setCart(current => current.some(line => line.key === key) ? current.map(line => line.key === key ? { ...line, quantity: Math.min(20, line.quantity + 1) } : line) : [...current, { key, productId: meal.id, quantity: 1, selectedOptions: [], healthyLunchPlanId: product.id, healthyLunchDate: choice.date }]);
-        setPickupDate(choice.date); setDeliveryDate(choice.date); setDeliveryMode('preorder');
+        setCart(current => addDatedHealthyLunchLine(current, product.id, meal.id, choice.date));
+        setDeliveryMode('preorder');
         setPlacedOrder(null); setPaymentSession(null); setCheckoutError(''); sessionStorage.removeItem(checkoutRecoveryKey);
         return;
       }
