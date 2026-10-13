@@ -1,4 +1,4 @@
-import { WEEKLY_DAYS, getWeeklyDates, weekRangeLabel, resolvePlanMeal, resolveHealthyLunchDay } from '../../../functions/storeWeeklyMealPlan.js';
+import { WEEKLY_DAYS, getWeeklyDates, weekRangeLabel, resolvePlanMeal, resolveHealthyLunchDay, hasDatedMenu } from '../../../functions/storeWeeklyMealPlan.js';
 import { formatRegionCurrency } from '../../regions';
 import { scheduleDateLabel } from './storeOrderFulfilments';
 import type { StoreProduct, WorkspaceStore } from './types';
@@ -20,7 +20,7 @@ interface Props {
 }
 
 export default function HealthyLunchMenu({ product, products, currency, weeks, dayDates, choice, monday = '', canOrder = true, onChange, onAdd }: Props) {
-  const dated = product.weeklyWeeks !== undefined;
+  const dated = hasDatedMenu(product);
   const date = weeks.includes(choice.date) ? choice.date : weeks[0] || '';
   const selectedMonday = dated ? date : monday || date;
   const showDays = dated && choice.mode === 'day';

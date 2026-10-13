@@ -168,3 +168,43 @@ test('embedded validation rejects incomplete meals, invalid prices, dates and ve
   assert.ok(validateWeeklyStructure({ ...optional, weeklyWeeks: { week2: { startMonday: '2026-07-28', meals: embeddedMeals() } } }));
   assert.ok(validateWeeklyStructure({ ...optional, weeklyWeeks: { week2: optional.weeklyWeeks.week2, week4: optional.weeklyWeeks.week2 } }));
 });
+
+const rotationPlan = count => ({ id: 'rotation', storeId: 's', workspaceId: 's', productType: 'weekly_meal_plan', weeklyMenuVersion: 3,
+  available: true, optionGroupIds: [], rotationStartMonday: '2026-10-19', healthyLunchBlockedDates: [],
+  rotationWeeks: Object.fromEntries(Array.from({ length: count }, (_, index) => [`week${index + 1}`, { meals: Object.fromEntries(WEEKLY_DAYS.map(day => [day, { name: `cycle${index + 1}-${day}`, photoUrl: 'meal.jpg', price: 10 + index }])) }])) });
+
+test('one to four configured weeks repeat without gaps; sparse slots compact in slot order', async () => {
+  const { resolveHealthyLunchDay, resolveWeeklyMeals } = await import('./storeWeeklyMealPlan.js');
+  for (const count of [1, 2, 3, 4]) {
+    const rotating = rotationPlan(count);
+    assert.equal(validateWeeklyMealPlan(rotating, [rotating], 's'), '');
+    for (let week = 0; week < count * 2 + 2; week++) {
+      const monday = new Date(Date.parse('2026-10-19T00:00:00Z') + week * 604800000).toISOString().slice(0, 10);
+      assert.equal(resolveWeeklyMeals(rotating, monday).mon.name, `cycle${week % count + 1}-mon`);
+      assert.equal(resolveHealthyLunchDay(rotating, [rotating], monday).name, `cycle${week % count + 1}-mon`);
+    }
+    assert.equal(resolveHealthyLunchDay(rotating, [rotating], '2026-10-16'), undefined);
+  }
+  const sparse = rotationPlan(4);
+  sparse.rotationWeeks = { week2: sparse.rotationWeeks.week2, week4: sparse.rotationWeeks.week4 };
+  assert.deepEqual(['2026-10-19', '2026-10-26', '2026-11-02'].map(date => resolveHealthyLunchDay(sparse, [sparse], date).name), ['cycle2-mon', 'cycle4-mon', 'cycle2-mon']);
+});
+
+test('blocked dates do not shift rotation and unblocking restores the same meal', async () => {
+  const { resolveHealthyLunchDay, isHealthyLunchWeekBlocked } = await import('./storeWeeklyMealPlan.js');
+  const rotating = rotationPlan(2);
+  const expected = resolveHealthyLunchDay(rotating, [rotating], '2026-10-23').name;
+  rotating.healthyLunchBlockedDates = ['2026-10-23'];
+  assert.equal(resolveHealthyLunchDay(rotating, [rotating], '2026-10-23'), undefined);
+  assert.equal(isHealthyLunchWeekBlocked(rotating, '2026-10-19'), true);
+  assert.match(validateWeeklyMealPlan(rotating, [rotating], 's', '2026-10-19'), /blocked/);
+  assert.equal(resolveHealthyLunchDay(rotating, [rotating], '2026-10-26').name, 'cycle2-mon');
+  rotating.healthyLunchBlockedDates = [];
+  assert.equal(resolveHealthyLunchDay(rotating, [rotating], '2026-10-23').name, expected);
+});
+
+test('rotation start must be Monday and blocked dates normalized, unique and real', () => {
+  const rotating = rotationPlan(1);
+  for (const invalid of ['2026-10-20', '2026-02-30', 'bad']) assert.match(validateWeeklyMealPlan({ ...rotating, rotationStartMonday: invalid }, [rotating], 's'), /Monday/);
+  for (const blocked of [['2026-02-30'], ['2026-10-23', '2026-10-23'], ['2026-10-24', '2026-10-23']]) assert.match(validateWeeklyMealPlan({ ...rotating, healthyLunchBlockedDates: blocked }, [rotating], 's'), /blocked dates/);
+});

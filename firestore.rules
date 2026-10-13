@@ -609,7 +609,36 @@ service cloud.firestore {
         && (!('week4' in weeks) || isValidDatedWeek(weeks.week4, planId, embedded));
     }
 
+    function isValidRotationWeek(week) {
+      return week is map && week.keys().hasOnly(['meals']) && week.size() == 1
+        && week.meals is map && week.meals.size() == 5
+        && week.meals.keys().hasAll(['mon', 'tue', 'wed', 'thu', 'fri'])
+        && week.meals.mon is map && week.meals.tue is map && week.meals.wed is map
+        && week.meals.thu is map && week.meals.fri is map;
+    }
+    function isValidRotationWeeks(weeks) {
+      return weeks is map && weeks.size() > 0 && weeks.keys().hasOnly(['week1', 'week2', 'week3', 'week4'])
+        && (!('week1' in weeks) || isValidRotationWeek(weeks.week1))
+        && (!('week2' in weeks) || isValidRotationWeek(weeks.week2))
+        && (!('week3' in weeks) || isValidRotationWeek(weeks.week3))
+        && (!('week4' in weeks) || isValidRotationWeek(weeks.week4));
+    }
+
+    function isValidRotationProduct(data) {
+      return data.productType == 'weekly_meal_plan'
+        && !('weeklyWeeks' in data) && !('weeklyMeals' in data)
+        && data.optionGroupIds.size() == 0
+        && (!('availableDay' in data) || data.availableDay == 'all')
+        && data.rotationStartMonday is string && data.rotationStartMonday.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && isValidRotationWeeks(data.rotationWeeks)
+        && data.healthyLunchBlockedDates is list && data.healthyLunchBlockedDates.size() <= 120
+        && data.healthyLunchBlockedDates.toSet().size() == data.healthyLunchBlockedDates.size();
+    }
     function isValidWeeklyProduct(data, productId) {
+      return ('weeklyMenuVersion' in data && data.weeklyMenuVersion == 3)
+        ? isValidRotationProduct(data) : isValidLegacyWeeklyProduct(data, productId);
+    }
+    function isValidLegacyWeeklyProduct(data, productId) {
       return (!('weeklyMenuVersion' in data) || (data.weeklyMenuVersion == 2 && data.productType == 'weekly_meal_plan' && 'weeklyWeeks' in data))
         && (!('productType' in data) || data.productType in ['single', 'weekly_meal_plan'])
         && ((('productType' in data) && data.productType == 'weekly_meal_plan')
@@ -648,6 +677,9 @@ service cloud.firestore {
           'weeklyMeals',
           'weeklyWeeks',
           'weeklyMenuVersion',
+          'rotationStartMonday',
+          'rotationWeeks',
+          'healthyLunchBlockedDates',
           'optionGroupIds',
           'createdBy',
           'createdAt',
@@ -1653,6 +1685,9 @@ service cloud.firestore {
           'weeklyMeals',
           'weeklyWeeks',
           'weeklyMenuVersion',
+          'rotationStartMonday',
+          'rotationWeeks',
+          'healthyLunchBlockedDates',
           'optionGroupIds',
           'updatedAt'
         ])

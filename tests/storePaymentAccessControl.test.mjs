@@ -760,3 +760,20 @@ test('embedded schema rejects invalid meals and version mixing without changing 
   assert.equal(saved.weeklyWeeks.week3.meals.mon.description, undefined);
   assert.equal(saved.weeklyWeeks.week3.meals.mon.calories, undefined);
 });
+
+test('rotation products save sparse weeks and blocked dates with existing merchant permissions', async () => {
+  const id = 'rotation-healthy-lunch';
+  const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+  const meals = Object.fromEntries(weeklyDays.map(day => [day, embeddedMealRecord(day)]));
+  const record = { ...createProductRecord(id), productType: 'weekly_meal_plan', weeklyMenuVersion: 3,
+    rotationStartMonday: '2026-10-19', rotationWeeks: { week2: { meals } }, healthyLunchBlockedDates: ['2026-10-23'], optionGroupIds: [], availableDay: 'all' };
+  await assertSucceeds(ref.set(record));
+  await assertSucceeds(managerA.firestore().doc(`storeProducts/${id}`).update({ healthyLunchBlockedDates: [] }));
+  await assertSucceeds(ref.set({ rotationWeeks: { week4: { meals } } }, { mergeFields: ['rotationWeeks'] }));
+  assert.deepEqual(Object.keys((await ref.get()).data().rotationWeeks), ['week4']);
+  await assertSucceeds(ref.set({ rotationWeeks: Object.fromEntries([1, 2, 3, 4].map(index => [`week${index}`, { meals }])) }, { mergeFields: ['rotationWeeks'] }));
+  for (const context of [anonymous, memberA, ownerB, customerA]) await assertFails(context.firestore().doc(`storeProducts/${id}`).update({ healthyLunchBlockedDates: ['2026-10-23'] }));
+  await assertFails(ref.update({ healthyLunchBlockedDates: ['2026-10-23', '2026-10-23'] }));
+  await assertFails(ref.update({ rotationWeeks: { week5: { meals } } }));
+  await assertFails(ref.update({ weeklyWeeks: { week1: embeddedWeekRecord('2026-10-19') } }));
+});

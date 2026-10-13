@@ -421,8 +421,11 @@ export const normalizeStoreProduct = (
     ? { estimatedCost: Number(data.estimatedCost) }
     : {}),
   ...(data.productType !== undefined ? { productType: data.productType as StoreProduct['productType'] } : {}),
-  ...(data.weeklyMenuVersion !== undefined ? { weeklyMenuVersion: data.weeklyMenuVersion as 2 } : {}),
+  ...(data.weeklyMenuVersion !== undefined ? { weeklyMenuVersion: data.weeklyMenuVersion as 2 | 3 } : {}),
   ...(data.weeklyWeeks && typeof data.weeklyWeeks === 'object' ? { weeklyWeeks: structuredClone(data.weeklyWeeks) as StoreProduct['weeklyWeeks'] } : {}),
+  ...(typeof data.rotationStartMonday === 'string' ? { rotationStartMonday: data.rotationStartMonday } : {}),
+  ...(data.rotationWeeks && typeof data.rotationWeeks === 'object' ? { rotationWeeks: structuredClone(data.rotationWeeks) as StoreProduct['rotationWeeks'] } : {}),
+  ...(Array.isArray(data.healthyLunchBlockedDates) ? { healthyLunchBlockedDates: [...data.healthyLunchBlockedDates] as string[] } : {}),
   ...(data.weeklyMeals && typeof data.weeklyMeals === 'object' ? { weeklyMeals: { ...data.weeklyMeals as NonNullable<StoreProduct['weeklyMeals']> } } : {}),
   available: readBoolean(data.available),
   availableDay: (data.availableDay ?? 'all') as StoreProduct['availableDay'],
@@ -535,7 +538,7 @@ export const validateStoreProduct = (draft: StoreProductDraft) => {
     if (draft.optionGroupIds.length || (draft.availableDay ?? 'all') !== 'all') return 'Weekly plans cannot have options or an Available day restriction.';
     const weeklyError = validateWeeklyStructure(draft);
     if (weeklyError) return weeklyError;
-  } else if (draft.weeklyMeals !== undefined || draft.weeklyWeeks !== undefined || draft.weeklyMenuVersion !== undefined) return 'Single Products cannot contain weekly meals.';
+  } else if (draft.weeklyMeals !== undefined || draft.weeklyWeeks !== undefined || draft.weeklyMenuVersion !== undefined || draft.rotationWeeks !== undefined || draft.rotationStartMonday !== undefined || draft.healthyLunchBlockedDates !== undefined) return 'Single Products cannot contain weekly meals.';
 
   if (!AVAILABLE_DAYS.includes(draft.availableDay ?? 'all')) return 'Choose a valid Available day.';
   if (!draft.photoUrl.trim()) return 'Product photo is required.';

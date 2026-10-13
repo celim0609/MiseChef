@@ -63,6 +63,9 @@ export const getStoreProductEditorDraft = (product: StoreProduct): StoreProductD
   ...(product.productType !== undefined ? { productType: product.productType } : {}),
   ...(product.weeklyMenuVersion !== undefined ? { weeklyMenuVersion: product.weeklyMenuVersion } : {}),
   ...(product.weeklyWeeks ? { weeklyWeeks: structuredClone(product.weeklyWeeks) } : {}),
+  ...(product.rotationStartMonday ? { rotationStartMonday: product.rotationStartMonday } : {}),
+  ...(product.rotationWeeks ? { rotationWeeks: structuredClone(product.rotationWeeks) } : {}),
+  ...(product.healthyLunchBlockedDates ? { healthyLunchBlockedDates: [...product.healthyLunchBlockedDates] } : {}),
   ...(product.weeklyMeals ? { weeklyMeals: { ...product.weeklyMeals } } : {}),
   available: product.available,
   availableDay: product.availableDay ?? 'all',
@@ -113,6 +116,9 @@ export const buildUpdatedStoreProduct = (
   productType: draft.productType,
   weeklyMenuVersion: draft.productType === 'weekly_meal_plan' ? draft.weeklyMenuVersion : undefined,
   weeklyWeeks: draft.productType === 'weekly_meal_plan' && draft.weeklyWeeks ? structuredClone(draft.weeklyWeeks) : undefined,
+  rotationStartMonday: draft.productType === 'weekly_meal_plan' ? draft.rotationStartMonday : undefined,
+  rotationWeeks: draft.productType === 'weekly_meal_plan' && draft.rotationWeeks ? structuredClone(draft.rotationWeeks) : undefined,
+  healthyLunchBlockedDates: draft.productType === 'weekly_meal_plan' ? draft.healthyLunchBlockedDates : undefined,
   weeklyMeals: draft.productType === 'weekly_meal_plan' && draft.weeklyMeals ? { ...draft.weeklyMeals } : undefined,
   available: draft.available,
   availableDay: draft.availableDay ?? 'all',
@@ -137,7 +143,25 @@ export const getEmbeddedHealthyLunchDraft = (product: StoreProduct, products: St
   return { ...draft, weeklyMenuVersion: 2, weeklyWeeks, weeklyMeals: undefined };
 };
 
+export const getRotatingHealthyLunchDraft = (product: StoreProduct, products: StoreProduct[]): StoreProductDraft => {
+  const embedded = getEmbeddedHealthyLunchDraft(product, products);
+  const weeks = Object.entries(embedded.weeklyWeeks || {}).filter(([, week]) => Boolean(week.startMonday)).sort((a, b) => a[1].startMonday.localeCompare(b[1].startMonday));
+  return { ...embedded, weeklyMenuVersion: 3, weeklyWeeks: undefined, weeklyMeals: undefined,
+    rotationStartMonday: weeks[0]?.[1].startMonday || '',
+    rotationWeeks: Object.fromEntries(weeks.map(([, week], index) => [`week${index + 1}`, { meals: structuredClone(week.meals) }])),
+    healthyLunchBlockedDates: [] };
+};
+
 export const prepareHealthyLunchDraft = (draft: StoreProductDraft): StoreProductDraft => {
+  if (draft.weeklyMenuVersion === 3) {
+    const rotationWeeks = Object.fromEntries(Object.entries(draft.rotationWeeks || {}).filter(([, week]) => Boolean(week)).map(([slot, week]) => [slot, {
+      meals: Object.fromEntries(Object.entries(week.meals).map(([day, meal]) => [day, { ...meal, name: meal.name.trim(), photoUrl: meal.photoUrl.trim(), ...(meal.description !== undefined ? { description: meal.description.trim() } : {}) }]))
+    }])) as StoreProductDraft['rotationWeeks'];
+    const first = Object.values(rotationWeeks || {})[0]?.meals.mon;
+    return { ...draft, weeklyWeeks: undefined, weeklyMeals: undefined, rotationWeeks,
+      healthyLunchBlockedDates: [...new Set((draft.healthyLunchBlockedDates || []).map(date => date.trim()))].sort(),
+      photoUrl: first?.photoUrl || draft.photoUrl };
+  }
   if (draft.weeklyMenuVersion !== 2) return draft;
   const weeklyWeeks = Object.fromEntries(Object.entries(draft.weeklyWeeks || {}).filter(([, week]) => Boolean(week?.startMonday)).map(([slot, week]) => [slot, {
     ...week, meals: Object.fromEntries(Object.entries(week.meals).map(([day, meal]) => [day, typeof meal === 'object' ? { ...meal,

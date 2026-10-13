@@ -504,3 +504,23 @@ test('embedded full-week and single-day Lalamove quotes share menu data but keep
   await assert.rejects(revalidateDeliveryForPayment({ ...options, now: mondayAfterCutoff + 86400000 }), /available/);
   assert.equal(fixture.quoteCount(), 2);
 });
+
+test('rotating Healthy Lunch delivery keeps per-day free delivery and excludes blocked dates', async () => {
+  const fixture = quoteFixture();
+  const start = new Date(); start.setUTCDate(start.getUTCDate() + ((8 - start.getUTCDay()) % 7 || 7));
+  const monday = start.toISOString().slice(0, 10);
+  const dates = Array.from({ length: 5 }, (_, index) => new Date(Date.parse(`${monday}T00:00:00Z`) + index * 86400000).toISOString().slice(0, 10));
+  const days = ['mon', 'tue', 'wed', 'thu', 'fri'];
+  const plan = { id: 'rotation-quote', name: 'Healthy Lunch', storeId: 's', workspaceId: 's', productType: 'weekly_meal_plan', weeklyMenuVersion: 3,
+    rotationStartMonday: monday, rotationWeeks: { week2: { meals: Object.fromEntries(days.map((day, index) => [day, { name: `${day} direct`, photoUrl: 'meal.jpg', price: 11 + index }])) } },
+    healthyLunchBlockedDates: [], available: true, price: 50, optionGroupIds: [] };
+  fixture.store.orderCutoffTime = '18:00';
+  fixture.store.delivery.freeDelivery = { enabled: true, distanceThresholdKm: 100, minimumSubtotalWithin: 13, minimumSubtotalBeyond: 30 };
+  fixture.db.documents[`storeProducts/${plan.id}`] = plan;
+  const draft = { ...fixture.draft, selections: [{ productId: plan.id, healthyLunchPlanId: plan.id, healthyLunchDate: dates[2], quantity: 1 }], fulfilments: [{ date: dates[2], time: '10:00', itemIndexes: [0] }] };
+  const quote = await createStoreDeliveryQuote({ ...fixture, slug: 'test', draft });
+  assert.equal(quote.quote.customerDeliveryFee, 0);
+  assert.equal(quote.quote.fulfilmentCount, 1);
+  plan.healthyLunchBlockedDates = [dates[2]];
+  await assert.rejects(createStoreDeliveryQuote({ ...fixture, slug: 'test', draft }), /Healthy Lunch|available/);
+});

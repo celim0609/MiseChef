@@ -377,7 +377,7 @@ export const storeService = {
     const validationError = validateStoreProduct(draft);
     if (validationError) throw new Error(validationError);
 
-    const weeklyError = validateWeeklyMealPlan({ ...draft, id }, draft.productType === 'weekly_meal_plan' && draft.weeklyMenuVersion !== 2 ? await this.listAdminProducts(workspaceId) : [], workspaceId);
+    const weeklyError = validateWeeklyMealPlan({ ...draft, id }, draft.productType === 'weekly_meal_plan' && ![2, 3].includes(draft.weeklyMenuVersion || 0) ? await this.listAdminProducts(workspaceId) : [], workspaceId);
     if (weeklyError) throw new Error(weeklyError);
     const now = new Date().toISOString();
     const product: StoreProduct = {
@@ -396,6 +396,9 @@ export const storeService = {
       productType: draft.productType,
       weeklyMenuVersion: draft.weeklyMenuVersion,
       weeklyWeeks: draft.weeklyWeeks ? structuredClone(draft.weeklyWeeks) : undefined,
+      rotationStartMonday: draft.rotationStartMonday,
+      rotationWeeks: draft.rotationWeeks ? structuredClone(draft.rotationWeeks) : undefined,
+      healthyLunchBlockedDates: draft.healthyLunchBlockedDates ? [...draft.healthyLunchBlockedDates] : undefined,
       weeklyMeals: draft.weeklyMeals ? { ...draft.weeklyMeals } : undefined,
       availableDay: draft.availableDay ?? 'all',
       optionGroupIds: [...draft.optionGroupIds],
@@ -414,7 +417,7 @@ export const storeService = {
     const validationError = validateStoreProduct(draft);
     if (validationError) throw new Error(validationError);
 
-    const weeklyError = validateWeeklyMealPlan({ ...draft, id: product.id }, draft.productType === 'weekly_meal_plan' && draft.weeklyMenuVersion !== 2 ? await this.listAdminProducts(product.workspaceId) : [], product.workspaceId);
+    const weeklyError = validateWeeklyMealPlan({ ...draft, id: product.id }, draft.productType === 'weekly_meal_plan' && ![2, 3].includes(draft.weeklyMenuVersion || 0) ? await this.listAdminProducts(product.workspaceId) : [], product.workspaceId);
     if (weeklyError) throw new Error(weeklyError);
     const updatedProduct = buildUpdatedStoreProduct(product, draft, new Date().toISOString());
 
@@ -422,6 +425,9 @@ export const storeService = {
       ...removeUndefinedFields(updatedProduct),
       ...(draft.weeklyMenuVersion === undefined ? { weeklyMenuVersion: deleteField() } : {}),
       ...(!draft.weeklyWeeks ? { weeklyWeeks: deleteField() } : {}),
+      ...(!draft.rotationStartMonday ? { rotationStartMonday: deleteField() } : {}),
+      ...(!draft.rotationWeeks ? { rotationWeeks: deleteField() } : {}),
+      ...(!draft.healthyLunchBlockedDates ? { healthyLunchBlockedDates: deleteField() } : {}),
       ...(!draft.weeklyMeals ? { weeklyMeals: deleteField() } : {}),
       ...(
         draft.calories === undefined

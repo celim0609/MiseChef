@@ -150,3 +150,26 @@ test('converting referenced menus copies meal values into a draft without modify
   assert.equal((undated.weeklyWeeks!.week1!.meals as import('./types').EmbeddedWeeklyMeals).mon.price, 12);
   assert.equal(getStoreProductEditorDraft(old).weeklyMenuVersion, undefined);
 });
+
+test('rotation draft saves one sparse slot, normalizes blocked dates, and leaves legacy dated plans intact', async () => {
+  const { getRotatingHealthyLunchDraft } = await import('./storeProductVisibility');
+  const meal = { name: 'Lunch', photoUrl: 'https://example.test/lunch.jpg', price: 12 };
+  const meals = Object.fromEntries(WEEKLY_DAYS.map(day => [day, { ...meal }])) as import('./types').EmbeddedWeeklyMeals;
+  const draft = prepareHealthyLunchDraft({ ...getStoreProductEditorDraft(legacy), productType: 'weekly_meal_plan', weeklyMenuVersion: 3,
+    rotationStartMonday: '2026-10-19', rotationWeeks: { week2: { meals } }, healthyLunchBlockedDates: ['2026-10-23', '2026-10-22', '2026-10-23'] } as import('./types').StoreProductDraft);
+  assert.deepEqual(draft.healthyLunchBlockedDates, ['2026-10-22', '2026-10-23']);
+  assert.equal(validateStoreProduct(draft), '');
+  const saved = buildUpdatedStoreProduct(legacy, draft, 'now');
+  const reloaded = normalizeStoreProduct(saved.id, JSON.parse(JSON.stringify(saved)));
+  assert.equal(reloaded.weeklyMenuVersion, 3);
+  assert.deepEqual(reloaded.rotationWeeks, draft.rotationWeeks);
+  assert.equal(reloaded.weeklyWeeks, undefined);
+  assert.match(validateStoreProduct({ ...draft, rotationStartMonday: '2026-10-20' }), /Monday/);
+  const dated = { ...legacy, productType: 'weekly_meal_plan' as const, weeklyMenuVersion: 2 as const,
+    weeklyWeeks: { week2: { startMonday: '2026-10-19', meals } } };
+  const converted = getRotatingHealthyLunchDraft(dated, []);
+  assert.equal(converted.rotationStartMonday, '2026-10-19');
+  assert.deepEqual(Object.keys(converted.rotationWeeks || {}), ['week1']);
+  assert.equal(dated.weeklyWeeks.week2.startMonday, '2026-10-19');
+  assert.equal(validateStoreProduct(getStoreProductEditorDraft(dated)), '');
+});

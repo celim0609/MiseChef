@@ -69,3 +69,17 @@ test('both views use embedded photos, kcal and descriptions without a Single Pro
   assert.match(day, /12\.00/); assert.match(day, /wed vegetables/); assert.match(day, /h-40 w-full/);
   assert.match(day, /src="https:\/\/example.test\/wed.jpg"/); assert.equal((day.match(/<li /g) || []).length, 2);
 });
+
+test('rotation shows real repeating dates and omits blocked days without exposing slots', () => {
+  const meals = (label: string) => Object.fromEntries(WEEKLY_DAYS.map(day => [day, { name: `${label} ${day}`, photoUrl: 'meal.jpg', price: 12 }]));
+  const rotating = { ...product, weeklyWeeks: undefined, weeklyMenuVersion: 3, rotationStartMonday: '2026-10-19',
+    rotationWeeks: { week2: { meals: meals('A') }, week4: { meals: meals('B') } }, healthyLunchBlockedDates: ['2026-10-23'] } as StoreProduct;
+  const view = (mode: 'week' | 'day', date: string, weeks: string[], dayDates: string[]) => renderToStaticMarkup(<HealthyLunchMenu product={rotating} products={[]} currency="MYR" choice={{ mode, date }} weeks={weeks} dayDates={dayDates} onChange={() => {}} onAdd={() => {}} />);
+  const days = view('day', '', [], ['2026-10-23', '2026-10-26', '2026-11-02']);
+  assert.match(days, /B mon/); assert.match(days, /A mon/);
+  assert.doesNotMatch(days, /Fri, 23 Oct|Week [1-4]|week[1-4]/);
+  assert.equal((days.match(/>Add</g) || []).length, 2);
+  const full = view('week', '2026-10-26', ['2026-10-26'], []);
+  assert.match(full, /B mon/); assert.match(full, /26–30 Oct/);
+  assert.doesNotMatch(full, /Week [1-4]|week[1-4]/);
+});

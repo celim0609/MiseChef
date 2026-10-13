@@ -80,6 +80,7 @@ import {
   filterAdminStoreProducts,
   getStoreProductEditorDraft,
   getEmbeddedHealthyLunchDraft,
+  getRotatingHealthyLunchDraft,
   prepareHealthyLunchDraft,
   updateHealthyLunchMeal,
   syncHealthyLunchRecipe,
@@ -269,6 +270,7 @@ export default function StorePage({
   const [sharedProductId, setSharedProductId] = useState('');
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
   const [unavailableDateDraft, setUnavailableDateDraft] = useState('');
+  const [healthyBlockedDateDraft, setHealthyBlockedDateDraft] = useState('');
   const [storeName, setStoreName] = useState(() => {
     const firstName = currentUser.displayName?.trim().split(/\s+/)[0] || 'My';
     return firstName === 'My' ? 'My Store' : `${firstName}'s Store`;
@@ -641,11 +643,13 @@ export default function StorePage({
         setMealPhotoFiles(current => ({ ...current, [key]: file }));
       }
       setProductDraft(current => {
-        const week = current.weeklyWeeks?.[slot];
+        const rotation = current.weeklyMenuVersion === 3;
+        const week = rotation ? current.rotationWeeks?.[slot] : current.weeklyWeeks?.[slot];
         if (!week) return current;
         const meals = week.meals as EmbeddedWeeklyMeals;
         const meal = syncHealthyLunchRecipe(meals[day], recipe, nutrition);
-        return { ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: { ...week, meals: { ...meals, [day]: { ...meal, ...(photoUrl ? { photoUrl } : {}) } } } } };
+        const updated = { ...week, meals: { ...meals, [day]: { ...meal, ...(photoUrl ? { photoUrl } : {}) } } };
+        return rotation ? { ...current, rotationWeeks: { ...current.rotationWeeks, [slot]: updated } } : { ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: updated } };
       });
     } catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to sync Recipe.'); }
     finally { setIsMealRecipeLoading(false); }
@@ -862,15 +866,17 @@ export default function StorePage({
         ])
         : null;
       const weeklyWeeks = configuredDraft.weeklyWeeks ? structuredClone(configuredDraft.weeklyWeeks) : undefined;
-      if (configuredDraft.weeklyMenuVersion === 2) await Promise.all((Object.entries(mealPhotoFiles) as Array<[string, File]>).map(async ([key, file]) => {
-        const [slot, day] = key.split('_'); const week = weeklyWeeks?.[slot];
+      const rotationWeeks = configuredDraft.rotationWeeks ? structuredClone(configuredDraft.rotationWeeks) : undefined;
+      if (configuredDraft.weeklyMenuVersion === 2 || configuredDraft.weeklyMenuVersion === 3) await Promise.all((Object.entries(mealPhotoFiles) as Array<[string, File]>).map(async ([key, file]) => {
+        const [slot, day] = key.split('_'); const week = configuredDraft.weeklyMenuVersion === 3 ? rotationWeeks?.[slot] : weeklyWeeks?.[slot];
         if (week) (week.meals as EmbeddedWeeklyMeals)[day].photoUrl = await uploadHealthyLunchMealPhoto({ workspaceId: workspace.id, productId, file });
       }));
-      const embeddedCover = configuredDraft.weeklyMenuVersion === 2 ? (Object.values(weeklyWeeks || {}) as Array<{ startMonday: string; meals: EmbeddedWeeklyMeals }>).sort((a, b) => a.startMonday.localeCompare(b.startMonday))[0]?.meals.mon as HealthyLunchMeal | undefined : undefined;
+      const embeddedCover = configuredDraft.weeklyMenuVersion === 3 ? rotationWeeks?.[WEEK_SLOTS.find(slot => rotationWeeks?.[slot])!]?.meals.mon : configuredDraft.weeklyMenuVersion === 2 ? (Object.values(weeklyWeeks || {}) as Array<{ startMonday: string; meals: EmbeddedWeeklyMeals }>).sort((a, b) => a.startMonday.localeCompare(b.startMonday))[0]?.meals.mon as HealthyLunchMeal | undefined : undefined;
       const photoUrl = embeddedCover?.photoUrl || uploadedImages?.[0] || configuredDraft.photoUrl;
       const nextDraft: StoreProductDraft = {
         ...configuredDraft,
         weeklyWeeks,
+        rotationWeeks,
         photoUrl,
         ...(uploadedImages ? { socialImageUrl: uploadedImages[1] } : {}),
         optionGroupIds: savedGroups.map(group => group.id)
@@ -1150,7 +1156,7 @@ export default function StorePage({
                   <span className="font-sans text-xs font-extrabold text-primary">Product Type</span>
                   <select aria-label="Product Type" value={productDraft.productType ?? 'single'} onChange={event => {
                     const productType = event.target.value as StoreProductDraft['productType'];
-                    setProductDraft(current => ({ ...current, productType, weeklyMenuVersion: productType === 'weekly_meal_plan' ? 2 : undefined, weeklyWeeks: productType === 'weekly_meal_plan' ? current.weeklyWeeks || {} : undefined, weeklyMeals: undefined, ...(productType === 'weekly_meal_plan' ? { availableDay: 'all', optionGroupIds: [] } : {}) }));
+                    setProductDraft(current => ({ ...current, productType, weeklyMenuVersion: productType === 'weekly_meal_plan' ? 3 : undefined, weeklyWeeks: undefined, rotationWeeks: productType === 'weekly_meal_plan' ? current.rotationWeeks || {} : undefined, rotationStartMonday: productType === 'weekly_meal_plan' ? current.rotationStartMonday || '' : undefined, healthyLunchBlockedDates: productType === 'weekly_meal_plan' ? current.healthyLunchBlockedDates || [] : undefined, weeklyMeals: undefined, ...(productType === 'weekly_meal_plan' ? { availableDay: 'all', optionGroupIds: [] } : {}) }));
                     clearMealPhotos();
                     if (productType === 'weekly_meal_plan') setProductOptions([]);
                   }} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 text-sm font-bold text-primary">
@@ -1158,18 +1164,25 @@ export default function StorePage({
                   </select>
                 </label>
                 {isWeeklyMealPlan(productDraft) && <fieldset disabled={isMealRecipeLoading} className="space-y-3 md:col-span-2"><legend className="font-bold text-primary">Healthy Lunch · Mon–Fri</legend>
-                  {productDraft.weeklyMenuVersion !== 2 ? <div className="rounded-xl border p-3"><p className="text-sm">This existing plan keeps its saved weekly menu.</p><button type="button" onClick={() => setProductDraft(getEmbeddedHealthyLunchDraft(editingProduct!, products))} className="mt-2 rounded-full border px-4 py-2 font-bold">Edit meals in Healthy Lunch setup</button></div> : <>
-                  <p className="text-sm text-on-surface-variant">Configure any 1–4 weeks. Enter a Monday to add a week; clear it to leave that week out.</p>
+                  {![2, 3].includes(productDraft.weeklyMenuVersion || 0) ? <div className="rounded-xl border p-3"><p className="text-sm">This existing plan keeps its saved weekly menu.</p><button type="button" onClick={() => setProductDraft(getEmbeddedHealthyLunchDraft(editingProduct!, products))} className="mt-2 rounded-full border px-4 py-2 font-bold">Edit meals in Healthy Lunch setup</button></div> : <>
+                  {productDraft.weeklyMenuVersion === 2 ? <div className="rounded-xl border p-3 text-sm"><p>This plan uses fixed dated weeks.</p><button type="button" onClick={() => { clearMealPhotos(); setProductDraft(getRotatingHealthyLunchDraft(editingProduct!, products)); }} className="mt-2 rounded-full border px-4 py-2 font-bold">Convert to repeating rotation</button></div> : <>
+                    <label className="block text-sm font-bold">Rotation start Monday<input aria-label="Rotation start Monday" type="date" value={productDraft.rotationStartMonday || ''} onChange={event => updateProduct('rotationStartMonday', event.target.value)} className="mt-1 block w-full rounded-xl border p-3" /></label>
+                    <p className="text-sm text-on-surface-variant">Configure any 1–4 weeks. Configured weeks repeat in slot order from the start Monday.</p>
+                    <label className="block text-sm font-bold">Block Healthy Lunch date<input aria-label="Block Healthy Lunch date" type="date" value={healthyBlockedDateDraft} onChange={event => setHealthyBlockedDateDraft(event.target.value)} className="mt-1 block w-full rounded-xl border p-3" /></label>
+                    <button type="button" disabled={!healthyBlockedDateDraft} onClick={() => { setProductDraft(current => ({ ...current, healthyLunchBlockedDates: [...new Set([...(current.healthyLunchBlockedDates || []), healthyBlockedDateDraft])].sort() })); setHealthyBlockedDateDraft(''); }} className="rounded-full border px-4 py-2 font-bold disabled:opacity-40">Block date</button>
+                    {(productDraft.healthyLunchBlockedDates || []).map(date => <div key={date} className="flex items-center gap-2 text-sm"><span>{date}</span><button type="button" aria-label={`Unblock Healthy Lunch ${date}`} onClick={() => setProductDraft(current => ({ ...current, healthyLunchBlockedDates: (current.healthyLunchBlockedDates || []).filter(item => item !== date) }))} className="rounded-full border px-3 py-1">Remove</button></div>)}
+                  </>}
+                  <p className="text-sm text-on-surface-variant">{productDraft.weeklyMenuVersion === 3 ? 'Add only the rotation weeks you need.' : 'Enter a Monday to add a week; clear it to leave that week out.'}</p>
                   {WEEK_SLOTS.map((slot, index) => {
-                    const week = productDraft.weeklyWeeks?.[slot];
+                    const week = productDraft.weeklyMenuVersion === 3 ? productDraft.rotationWeeks?.[slot] : productDraft.weeklyWeeks?.[slot];
                     const emptyMeals = () => Object.fromEntries(WEEKLY_DAYS.map(day => [day, { photoUrl: '', name: '', price: 0 }])) as EmbeddedWeeklyMeals;
                     const meals = (week?.meals || emptyMeals()) as EmbeddedWeeklyMeals;
                     const updateMeal = (day: string, patch: Partial<HealthyLunchMeal>) => setProductDraft(current => {
                       const nextMeal = updateHealthyLunchMeal(meals[day], patch);
-                      return { ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: { startMonday: week!.startMonday, meals: { ...meals, [day]: nextMeal } } } };
+                      return current.weeklyMenuVersion === 3 ? { ...current, rotationWeeks: { ...current.rotationWeeks, [slot]: { meals: { ...meals, [day]: nextMeal } } } } : { ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: { startMonday: current.weeklyWeeks![slot]!.startMonday, meals: { ...meals, [day]: nextMeal } } } };
                     });
                     return <details key={slot} open={Boolean(week)} className="rounded-xl border p-3"><summary className="cursor-pointer font-bold">Week {index + 1}</summary>
-                      <label className="mt-3 block text-sm font-bold">Start Monday<input aria-label={`Week ${index + 1} start Monday`} type="date" value={week?.startMonday || ''} onChange={event => {
+                      {productDraft.weeklyMenuVersion === 3 ? <button type="button" onClick={() => { if (week) { setProductDraft(current => { const rotationWeeks = { ...current.rotationWeeks }; delete rotationWeeks[slot]; return { ...current, rotationWeeks }; }); } else setProductDraft(current => ({ ...current, rotationWeeks: { ...current.rotationWeeks, [slot]: { meals: emptyMeals() } } })); }} className="mt-3 rounded-full border px-4 py-2 text-sm font-bold">{week ? 'Remove week' : 'Configure week'}</button> : <label className="mt-3 block text-sm font-bold">Start Monday<input aria-label={`Week ${index + 1} start Monday`} type="date" value={week?.startMonday || ''} onChange={event => {
                         const startMonday = event.target.value;
                         if (!startMonday) { for (const day of WEEKLY_DAYS) { const key = `${slot}_${day}`; if (mealPreviewUrls.current[key]) URL.revokeObjectURL(mealPreviewUrls.current[key]); delete mealPreviewUrls.current[key]; } setMealPhotoFiles(files => Object.fromEntries(Object.entries(files).filter(([key]) => !key.startsWith(`${slot}_`)))); }
                         setProductDraft(current => {
@@ -1177,7 +1190,7 @@ export default function StorePage({
                           if (startMonday) weeklyWeeks[slot] = { startMonday, meals: structuredClone(meals) }; else delete weeklyWeeks[slot];
                           return { ...current, weeklyWeeks, weeklyMeals: undefined };
                         });
-                      }} className="mt-1 block w-full rounded-xl border p-3" /></label>
+                      }} className="mt-1 block w-full rounded-xl border p-3" /></label>}
                       {week && WEEKLY_DAYS.map(day => <fieldset key={day} className="mt-4 space-y-2 rounded-xl bg-surface-container-low p-3"><legend className="font-bold">{({ mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday' })[day]}</legend>
                         <label className="block text-sm font-bold">Link Recipe (optional)
                           <select aria-label={`Week ${index + 1} ${day} Recipe`} disabled={isMealRecipeLoading} value={meals[day].recipeId || ''} onChange={event => {
@@ -1221,7 +1234,7 @@ export default function StorePage({
                   <span className="font-sans text-xs font-extrabold text-primary">{isWeeklyMealPlan(productDraft) ? '5-Day Plan Price' : 'Price'} ({region.currency})</span>
                   <input ref={productPriceInputRef} type="number" min="0" step="0.01" value={productDraft.price} onChange={event => updateProduct('price', Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 </label>
-                <label hidden={productDraft.weeklyMenuVersion === 2} className={productDraft.weeklyMenuVersion === 2 ? 'hidden' : 'block'}>
+                <label hidden={productDraft.weeklyMenuVersion === 2 || productDraft.weeklyMenuVersion === 3} className={productDraft.weeklyMenuVersion === 2 || productDraft.weeklyMenuVersion === 3 ? 'hidden' : 'block'}>
                   <span className="font-sans text-xs font-extrabold text-primary">Calories per serving (kcal)</span>
                   <input ref={productCaloriesInputRef} type="number" min="0" step="1" value={productDraft.calories ?? ''} onChange={event => updateProduct('calories', event.target.value === '' ? undefined : Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 </label>
@@ -1254,7 +1267,7 @@ export default function StorePage({
                   }, currentRecipeCosting);
                   return <div className="md:col-span-2 rounded-2xl border border-primary/15 bg-primary/5 p-4"><h3 className="font-display text-lg font-bold text-primary">Cost Analysis</h3><dl className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4"><div><dt className="font-bold text-outline">Estimated Cost</dt><dd className="mt-1 font-extrabold text-primary">{analysis.estimatedCost === null ? 'Cost unavailable' : formatRegionCurrency(analysis.estimatedCost, region.currency)}</dd></div><div><dt className="font-bold text-outline">{isWeeklyMealPlan(productDraft) ? '5-Day Plan Price' : 'Selling Price'}</dt><dd className="mt-1 font-extrabold text-primary">{formatRegionCurrency(analysis.sellingPrice, region.currency)}</dd></div><div><dt className="font-bold text-outline">Gross Profit</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossProfit === null ? 'Missing recipe cost' : formatRegionCurrency(analysis.grossProfit, region.currency)}</dd></div><div><dt className="font-bold text-outline">Gross Margin</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossMargin === null ? 'Missing recipe cost' : `${analysis.grossMargin.toFixed(2)}%`}</dd></div></dl></div>;
                 })()}
-                <label hidden={productDraft.weeklyMenuVersion === 2} className={productDraft.weeklyMenuVersion === 2 ? 'hidden' : 'block'}>
+                <label hidden={productDraft.weeklyMenuVersion === 2 || productDraft.weeklyMenuVersion === 3} className={productDraft.weeklyMenuVersion === 2 || productDraft.weeklyMenuVersion === 3 ? 'hidden' : 'block'}>
                   <span className="font-sans text-xs font-extrabold text-primary">Product Photo <span aria-hidden="true">*</span></span>
                   <input ref={productPhotoInputRef} type="file" accept="image/jpeg,image/png,image/webp" aria-required={!editingProduct && !productDraft.photoUrl} onChange={handleProductPhotoChange} className="mt-2 block w-full font-sans text-xs font-bold text-on-surface-variant" />
                   {productPhotoPreviewUrl && <img src={productPhotoPreviewUrl} alt="Product photo preview" className="mt-3 h-32 w-32 rounded-xl border border-surface-container-high object-cover" />}

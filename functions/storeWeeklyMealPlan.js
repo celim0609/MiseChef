@@ -9,12 +9,26 @@ export const getWeeklyDates = monday => {
 };
 
 export const WEEK_SLOTS = ['week1', 'week2', 'week3', 'week4'];
+export const hasRotationMenu = plan => plan?.weeklyMenuVersion === 3;
+export const hasDatedMenu = plan => plan?.weeklyWeeks !== undefined || hasRotationMenu(plan);
+export const rotationWeeks = plan => WEEK_SLOTS.filter(slot => plan?.rotationWeeks?.[slot]).map(slot => plan.rotationWeeks[slot]);
+export const validCalendarDate = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+  && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+export const isHealthyLunchBlocked = (plan, date) => hasRotationMenu(plan) && plan.healthyLunchBlockedDates?.includes(date);
+export const isHealthyLunchWeekBlocked = (plan, monday) => hasRotationMenu(plan) && getWeeklyDates(monday).some(date => isHealthyLunchBlocked(plan, date));
+export const rotationWeekForMonday = (plan, monday) => {
+  if (!hasRotationMenu(plan) || getWeeklyDates(monday).length !== 5 || getWeeklyDates(plan.rotationStartMonday).length !== 5) return undefined;
+  const elapsed = (Date.parse(`${monday}T00:00:00Z`) - Date.parse(`${plan.rotationStartMonday}T00:00:00Z`)) / 604800000;
+  const weeks = rotationWeeks(plan);
+  return elapsed >= 0 && Number.isInteger(elapsed) && weeks.length ? weeks[elapsed % weeks.length] : undefined;
+};
 export const datedWeeks = plan => Object.values(plan?.weeklyWeeks || {}).sort((a, b) => a.startMonday.localeCompare(b.startMonday));
-export const resolveWeeklyMeals = (plan, monday) => plan.weeklyWeeks !== undefined
-  ? datedWeeks(plan).find(week => week.startMonday === monday)?.meals : plan.weeklyMeals;
+export const resolveWeeklyMeals = (plan, monday) => hasRotationMenu(plan)
+  ? rotationWeekForMonday(plan, monday)?.meals
+  : plan.weeklyWeeks !== undefined ? datedWeeks(plan).find(week => week.startMonday === monday)?.meals : plan.weeklyMeals;
 
 // Embedded meals are catalogue values, never separate Product documents.
-export const hasEmbeddedMenu = plan => plan?.weeklyMenuVersion === 2;
+export const hasEmbeddedMenu = plan => plan?.weeklyMenuVersion === 2 || hasRotationMenu(plan);
 export const validEmbeddedMeal = meal => meal && typeof meal === 'object' && !Array.isArray(meal)
   && Object.keys(meal).every(key => ['photoUrl', 'name', 'price', 'calories', 'description', 'recipeId'].includes(key))
   && (meal.recipeId === undefined && !Object.hasOwn(meal, 'recipeId') || (typeof meal.recipeId === 'string' && Boolean(meal.recipeId.trim())))
@@ -32,6 +46,13 @@ export const resolvePlanMeal = (plan, products, monday, day) => {
     productType: 'single', available: plan.available, availableDay: day, optionGroupIds: [] };
 };
 export const resolveHealthyLunchDay = (plan, products, date) => {
+  if (hasRotationMenu(plan)) {
+    if (!validCalendarDate(date) || isHealthyLunchBlocked(plan, date)) return undefined;
+    const day = new Date(`${date}T00:00:00Z`).getUTCDay();
+    if (day < 1 || day > 5) return undefined;
+    const monday = new Date(Date.parse(`${date}T00:00:00Z`) - (day - 1) * 86400000).toISOString().slice(0, 10);
+    return resolvePlanMeal(plan, products, monday, WEEKLY_DAYS[day - 1]);
+  }
   const week = datedWeeks(plan).find(week => getWeeklyDates(week.startMonday).includes(date));
   if (!week) return undefined;
   return resolvePlanMeal(plan, products, week.startMonday, WEEKLY_DAYS[getWeeklyDates(week.startMonday).indexOf(date)]);
@@ -63,7 +84,7 @@ export const isDatedWeekOpen = (store, monday, now = new Date()) => {
 
 // Dated full weeks have their own closing rule. Keep blocked dates, Store days
 // and maximum advance window, but never derive closing from earliest days.
-export const fullWeekDateStore = (store, plan) => plan?.weeklyWeeks !== undefined
+export const fullWeekDateStore = (store, plan) => hasDatedMenu(plan)
   ? { ...store, earliestPickupDays: 0, orderCutoffTime: null, ...(store.delivery ? { delivery: { ...store.delivery, fulfilment: { ...store.delivery.fulfilment, preOrder: { ...store.delivery.fulfilment?.preOrder, earliestDays: 0 } } } } : {}) } : store;
 export const weekRangeLabel = monday => {
   const dates = getWeeklyDates(monday);
@@ -74,7 +95,16 @@ export const weekRangeLabel = monday => {
 };
 
 export const validateWeeklyStructure = product => {
-  if (product.weeklyMenuVersion !== undefined && product.weeklyMenuVersion !== 2) return 'Choose a supported Healthy Lunch menu format.';
+  if (product.weeklyMenuVersion !== undefined && ![2, 3].includes(product.weeklyMenuVersion)) return 'Choose a supported Healthy Lunch menu format.';
+  if (hasRotationMenu(product)) {
+    if (product.weeklyWeeks !== undefined || product.weeklyMeals !== undefined || getWeeklyDates(product.rotationStartMonday).length !== 5) return 'Choose a valid rotation start Monday.';
+    const weeks = product.rotationWeeks;
+    if (!weeks || typeof weeks !== 'object' || Array.isArray(weeks) || !Object.keys(weeks).length || Object.keys(weeks).some(key => !WEEK_SLOTS.includes(key))) return 'Configure at least one rotation week.';
+    if (Object.values(weeks).some(week => !week || Object.keys(week).length !== 1 || !Object.hasOwn(week, 'meals') || !week.meals || Object.keys(week.meals).length !== 5 || !WEEKLY_DAYS.every(day => validEmbeddedMeal(week.meals[day])))) return 'Each rotation week needs five meals.';
+    const blocked = product.healthyLunchBlockedDates || [];
+    if (!Array.isArray(blocked) || blocked.length > 120 || blocked.some(date => !validCalendarDate(date)) || new Set(blocked).size !== blocked.length || blocked.some((date, index) => index && blocked[index - 1] >= date)) return 'Choose unique, sorted Healthy Lunch blocked dates.';
+    return '';
+  }
   if (hasEmbeddedMenu(product) && product.weeklyWeeks === undefined) return 'Configure at least one dated week.';
   const validMeals = meals => meals && typeof meals === 'object' && !Array.isArray(meals)
     && Object.keys(meals).length === 5 && WEEKLY_DAYS.every(day => hasEmbeddedMenu(product) ? validEmbeddedMeal(meals[day]) : typeof meals[day] === 'string' && meals[day].trim());
@@ -118,7 +148,8 @@ export const validateWeeklyMealPlan = (product, products, storeId, monday) => {
   if ((product.optionGroupIds || []).length || (product.availableDay ?? 'all') !== 'all') return 'Weekly plans cannot have options or an Available day restriction.';
   const structureError = validateWeeklyStructure(product);
   if (structureError) return structureError;
-  const menus = monday ? [resolveWeeklyMeals(product, monday)] : product.weeklyWeeks !== undefined ? datedWeeks(product).map(week => week.meals) : [product.weeklyMeals];
+  if (monday && isHealthyLunchWeekBlocked(product, monday)) return 'This 5-Day Plan includes a blocked Healthy Lunch date.';
+  const menus = monday ? [resolveWeeklyMeals(product, monday)] : hasRotationMenu(product) ? rotationWeeks(product).map(week => week.meals) : product.weeklyWeeks !== undefined ? datedWeeks(product).map(week => week.meals) : [product.weeklyMeals];
   if (menus.some(meals => !meals)) return 'Choose an available dated week.';
   for (const meals of menus) for (const day of WEEKLY_DAYS) {
     if (hasEmbeddedMenu(product)) continue;
@@ -151,14 +182,14 @@ export const buildWeeklyOrderDetails = ({ store, draft, products, groupOrder, no
   const selection = draft.selections[0];
   const plan = products.find(product => product.id === selection?.productId);
   if (!isFullWeekSelection(selection, products)) return null;
-  if (plan.weeklyWeeks !== undefined) throw new Error('Choose the complete dated 5-Day Plan schedule.');
+  if (hasDatedMenu(plan)) throw new Error('Choose the complete dated 5-Day Plan schedule.');
   if (draft.fulfilmentMethod === 'delivery' || draft.deliverySnapshot || groupOrder || draft.groupShareCode) throw new Error('Weekly Meal Plans are pickup-only and cannot join a Group Order.');
   const storeId = store.workspaceId || store.id;
   if (plan.storeId !== storeId || plan.workspaceId !== storeId) throw new Error('This Weekly Meal Plan belongs to another Store.');
   const invalid = validateWeeklyMealPlan(plan, products, storeId);
   if (invalid) throw new Error(invalid);
   const selectedMeals = resolveWeeklyMeals(plan, draft.pickupDate);
-  if (!selectedMeals || (plan.weeklyWeeks !== undefined && !isDatedWeekOpen(store, draft.pickupDate, now))) throw new Error('This 5-Day Plan is closed or unavailable.');
+  if (!selectedMeals || (hasDatedMenu(plan) && (!isDatedWeekOpen(store, draft.pickupDate, now) || isHealthyLunchWeekBlocked(plan, draft.pickupDate)))) throw new Error('This 5-Day Plan is closed or unavailable.');
   if (!getWeeklyPickupTimes(fullWeekDateStore(store, plan), draft.pickupDate, getDates, getTimes, now).includes(draft.pickupTime)) throw new Error('Choose a Monday and pickup time available for all five days.');
   const dates = getWeeklyDates(draft.pickupDate);
   const location = store.pickupLocations.find(candidate => candidate.id === draft.pickupLocationId);

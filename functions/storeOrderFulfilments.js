@@ -1,5 +1,5 @@
 import { productAllowsFulfilmentDate } from './storeProductAvailability.js';
-import { isWeeklyMealPlan, WEEKLY_DAYS, getWeeklyDates, weeklyCartError, validateWeeklyMealPlan, resolveWeeklyMeals, isDatedWeekOpen, fullWeekDateStore, validateHealthyLunchDay, isFullWeekSelection, resolvePlanMeal, hasEmbeddedMenu, weeklyMealSnapshot } from './storeWeeklyMealPlan.js';
+import { isWeeklyMealPlan, WEEKLY_DAYS, getWeeklyDates, weeklyCartError, validateWeeklyMealPlan, resolveWeeklyMeals, isDatedWeekOpen, isHealthyLunchWeekBlocked, hasDatedMenu, fullWeekDateStore, validateHealthyLunchDay, isFullWeekSelection, resolvePlanMeal, hasEmbeddedMenu, weeklyMealSnapshot } from './storeWeeklyMealPlan.js';
 
 // A schedule is server-canonical: exactly one fulfilment per calendar day.
 // Quantities and financial lines are never duplicated into another order.
@@ -29,7 +29,7 @@ export const buildOrderFulfilments = ({ store, draft, products, groupOrder, getD
   const weekly = isFullWeekSelection(selections[0], products);
   const selectedMeals = weekly ? resolveWeeklyMeals(plan, schedule[0].date) : null;
   if (weekly) {
-    if (!selectedMeals || (plan.weeklyWeeks !== undefined && !isDatedWeekOpen(store, schedule[0].date, now))) throw new Error('This 5-Day Plan is closed or unavailable.');
+    if (!selectedMeals || (hasDatedMenu(plan) && (!isDatedWeekOpen(store, schedule[0].date, now) || isHealthyLunchWeekBlocked(plan, schedule[0].date)))) throw new Error('This 5-Day Plan is closed or unavailable.');
     const invalid = validateWeeklyMealPlan(plan, products, store.workspaceId || store.id, schedule[0].date);
     if (invalid) throw new Error(invalid);
     const dates = getWeeklyDates(schedule[0].date);
@@ -77,7 +77,7 @@ export const buildOrderFulfilments = ({ store, draft, products, groupOrder, getD
     const meal = resolvePlanMeal(plan, products, schedule[0].date, day);
     return weeklyMealSnapshot(meal, day, hasEmbeddedMenu(plan));
   }) : null;
-  return { fulfilments, ...(meals ? { weeklyPlanSnapshot: { meals, ...(plan.weeklyWeeks !== undefined ? { startMonday: schedule[0].date } : {}) } } : {}) };
+  return { fulfilments, ...(meals ? { weeklyPlanSnapshot: { meals, ...(hasDatedMenu(plan) ? { startMonday: schedule[0].date } : {}) } } : {}) };
 };
 
 // Safe customer projection: no product IDs, operator IDs, provider costs or tokens.

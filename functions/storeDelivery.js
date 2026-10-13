@@ -1,5 +1,5 @@
 import { calculateDeliveryDayPricing, deliveryDistanceKm as distanceKm } from './storeDeliveryPricing.js';
-import { fullWeekDateStore, isFullWeekSelection } from './storeWeeklyMealPlan.js';
+import { fullWeekDateStore, isFullWeekSelection, hasDatedMenu } from './storeWeeklyMealPlan.js';
 import { canonicalSchedule, buildOrderFulfilments } from './storeOrderFulfilments.js';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
@@ -226,7 +226,7 @@ export const revalidateDeliveryForPayment = async ({ provider, store, draft, now
   const destination = validateDestination(draft?.destination);
   if (distanceKm(pickup, destination) > Number(config.fulfilment?.preOrder?.maximumDistanceKm || Infinity)) throw deliveryError('This delivery address is outside the Store’s maximum delivery distance.');
   const plan = products.find(product => product.id === draft.selections?.[0]?.productId);
-  if (plan?.weeklyWeeks !== undefined) buildOrderFulfilments({ store, draft: { ...draft, fulfilmentMethod: 'delivery' }, products, now: new Date(now), getDates: getValidPickupDates, getTimes: getPickupTimeSlots });
+  if (hasDatedMenu(plan)) buildOrderFulfilments({ store, draft: { ...draft, fulfilmentMethod: 'delivery' }, products, now: new Date(now), getDates: getValidPickupDates, getTimes: getPickupTimeSlots });
   const scheduleStore = isFullWeekSelection(draft.selections?.[0], products) ? fullWeekDateStore(store, plan) : store;
   const scheduled = scheduledDelivery(scheduleStore, draft);
   draft = scheduled.draft;

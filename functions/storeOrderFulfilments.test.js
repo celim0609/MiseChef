@@ -257,3 +257,36 @@ test('embedded full-week and per-day deliveries keep existing per-day free-deliv
   assert.equal(single.items[0].basePrice, 15); assert.equal(single.totals.deliveryFee, 0); assert.equal(single.total, 15);
   assert.equal(single.fulfilments[0].allocations[0].componentDay, undefined);
 });
+
+test('rotation keeps multi-date orders and purchased snapshots fixed when future cycle changes', () => {
+  const plan = { id: 'rotation', name: 'Healthy Lunch', storeId: 's', workspaceId: 's', available: true, productType: 'weekly_meal_plan', weeklyMenuVersion: 3,
+    price: 50, optionGroupIds: [], rotationStartMonday: '2026-07-27', healthyLunchBlockedDates: [],
+    rotationWeeks: { week2: { meals: directMenu('A') }, week4: { meals: directMenu('B') } } };
+  const fullDraft = { ...draft, selections: [{ productId: plan.id, quantity: 1 }], fulfilments: ['27','28','29','30','31'].map(day => ({ date: `2026-07-${day}`, time: '10:00', itemIndexes: [0] })) };
+  const checkout = { products: [plan], draft: fullDraft, store: { ...store, orderCutoffTime: '18:00' }, now: new Date('2026-07-26T10:00:00Z') };
+  const purchased = financial(checkout);
+  assert.equal(purchased.items[0].weeklyPlanSnapshot.meals[0].productName, 'A mon lunch');
+  assert.equal(purchased.items[0].weeklyPlanSnapshot.startMonday, '2026-07-27');
+  assert.throws(() => financial({ ...checkout, now: new Date('2026-07-26T10:00:00.001Z') }), /closed/);
+  const dates = ['2026-07-30', '2026-07-31', '2026-08-03'];
+  const selections = dates.map(date => ({ productId: plan.id, healthyLunchPlanId: plan.id, healthyLunchDate: date, quantity: 1 }));
+  const multi = financial({ ...checkout, draft: { ...draft, selections, fulfilments: dates.map((date, index) => ({ date, time: '10:00', itemIndexes: [index] })) }, now: new Date('2026-07-26T04:00:00Z') });
+  assert.deepEqual(multi.items.map(item => item.productName), ['A thu lunch', 'A fri lunch', 'B mon lunch']);
+  assert.deepEqual(multi.fulfilments.map(day => day.date), dates);
+  plan.rotationWeeks = { week4: { meals: directMenu('Changed') } };
+  assert.equal(purchased.items[0].weeklyPlanSnapshot.meals[0].productName, 'A mon lunch');
+  assert.equal(multi.items[2].productName, 'B mon lunch');
+  assert.equal(financial({ ...checkout, products: [plan] }).items[0].weeklyPlanSnapshot.meals[0].productName, 'Changed mon lunch');
+});
+
+test('blocked rotation date refuses a full week and that individual date without shifting next week', () => {
+  const plan = { id: 'rotation', name: 'Healthy Lunch', storeId: 's', workspaceId: 's', available: true, productType: 'weekly_meal_plan', weeklyMenuVersion: 3,
+    price: 50, optionGroupIds: [], rotationStartMonday: '2026-07-27', healthyLunchBlockedDates: ['2026-07-29'],
+    rotationWeeks: { week1: { meals: directMenu('A') }, week2: { meals: directMenu('B') } } };
+  const fullDraft = { ...draft, selections: [{ productId: plan.id, quantity: 1 }], fulfilments: ['27','28','29','30','31'].map(day => ({ date: `2026-07-${day}`, time: '10:00', itemIndexes: [0] })) };
+  assert.throws(() => financial({ products: [plan], draft: fullDraft, now: new Date('2026-07-26T04:00:00Z') }), /closed|blocked/);
+  const dayDraft = { ...draft, selections: [{ productId: plan.id, healthyLunchPlanId: plan.id, healthyLunchDate: '2026-07-29', quantity: 1 }], fulfilments: [{ date: '2026-07-29', time: '10:00', itemIndexes: [0] }] };
+  assert.throws(() => financial({ products: [plan], draft: dayDraft, now: new Date('2026-07-26T04:00:00Z') }), /Healthy Lunch|available/);
+  plan.healthyLunchBlockedDates = [];
+  assert.equal(financial({ products: [plan], draft: dayDraft, now: new Date('2026-07-26T04:00:00Z') }).items[0].productName, 'A wed lunch');
+});
