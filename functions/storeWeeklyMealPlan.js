@@ -16,7 +16,8 @@ export const resolveWeeklyMeals = (plan, monday) => plan.weeklyWeeks !== undefin
 // Embedded meals are catalogue values, never separate Product documents.
 export const hasEmbeddedMenu = plan => plan?.weeklyMenuVersion === 2;
 export const validEmbeddedMeal = meal => meal && typeof meal === 'object' && !Array.isArray(meal)
-  && Object.keys(meal).every(key => ['photoUrl', 'name', 'price', 'calories', 'description'].includes(key))
+  && Object.keys(meal).every(key => ['photoUrl', 'name', 'price', 'calories', 'description', 'recipeId'].includes(key))
+  && (meal.recipeId === undefined && !Object.hasOwn(meal, 'recipeId') || (typeof meal.recipeId === 'string' && Boolean(meal.recipeId.trim())))
   && typeof meal.photoUrl === 'string' && Boolean(meal.photoUrl.trim())
   && typeof meal.name === 'string' && Boolean(meal.name.trim()) && meal.name.length <= 160
   && Number.isFinite(meal.price) && meal.price >= 0

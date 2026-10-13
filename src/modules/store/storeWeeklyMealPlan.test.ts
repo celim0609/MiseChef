@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { WEEKLY_DAYS, getWeeklyPickupTimes, weeklyCartError } from '../../../functions/storeWeeklyMealPlan.js';
 import { createDefaultWorkspaceStore, normalizeStoreProduct, validateStoreProduct, getValidPickupDates, getPickupTimeSlots } from './storeModel';
-import { buildUpdatedStoreProduct, getStoreProductEditorDraft } from './storeProductVisibility';
+import { buildUpdatedStoreProduct, getStoreProductEditorDraft, prepareHealthyLunchDraft, updateHealthyLunchMeal } from './storeProductVisibility';
 import type { WeeklyMeals } from './types';
 
 const weeklyMeals = Object.fromEntries(WEEKLY_DAYS.map(day => [day, `meal-${day}`])) as WeeklyMeals;
@@ -110,6 +110,29 @@ test('embedded drafts omit empty weeks, keep Week 2 alone, and preserve direct m
   (edited.weeklyWeeks!.week2!.meals as import('./types').EmbeddedWeeklyMeals).mon.name = 'Changed';
   assert.equal((loaded.weeklyWeeks!.week2!.meals as import('./types').EmbeddedWeeklyMeals).mon.name, 'mon direct');
   assert.match(validateStoreProduct(prepareHealthyLunchDraft({ ...draft, weeklyWeeks: { week3: { startMonday: '', meals } } })), /at least one/);
+});
+
+test('embedded meals accept manual and linked Recipes, remove cleared links, and reject invalid links', () => {
+  const meals = Object.fromEntries(WEEKLY_DAYS.map(day => [day, {
+    photoUrl: `https://example.test/${day}.jpg`, name: `${day} lunch`, price: 12
+  }])) as import('./types').EmbeddedWeeklyMeals;
+  const draft = { ...getStoreProductEditorDraft(legacy), productType: 'weekly_meal_plan' as const,
+    weeklyMenuVersion: 2 as const, weeklyWeeks: { week2: { startMonday: '2026-10-19', meals } } };
+  const validates = () => validateStoreProduct(prepareHealthyLunchDraft(draft));
+  assert.equal(validates(), '');
+
+  meals.mon = updateHealthyLunchMeal(meals.mon, { recipeId: 'recipe-1' });
+  assert.equal(validates(), '');
+  assert.equal((buildUpdatedStoreProduct(legacy, prepareHealthyLunchDraft(draft), 'now').weeklyWeeks!.week2!.meals.mon as import('./types').HealthyLunchMeal).recipeId, 'recipe-1');
+
+  meals.mon = updateHealthyLunchMeal(meals.mon, { recipeId: undefined });
+  assert.equal(Object.hasOwn(meals.mon, 'recipeId'), false);
+  assert.equal(validates(), '');
+
+  for (const invalid of ['', '  ', 123, null, undefined]) {
+    meals.mon = { ...meals.mon, recipeId: invalid } as import('./types').HealthyLunchMeal;
+    assert.match(validates(), /Each week needs a distinct Monday and five meals/);
+  }
 });
 
 test('converting referenced menus copies meal values into a draft without modifying products or old menu data', async () => {

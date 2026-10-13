@@ -81,6 +81,7 @@ import {
   getStoreProductEditorDraft,
   getEmbeddedHealthyLunchDraft,
   prepareHealthyLunchDraft,
+  updateHealthyLunchMeal,
   syncHealthyLunchRecipe,
   getStoreProductEditorPresentation,
   getReadyToSellProductDraft,
@@ -1163,7 +1164,10 @@ export default function StorePage({
                     const week = productDraft.weeklyWeeks?.[slot];
                     const emptyMeals = () => Object.fromEntries(WEEKLY_DAYS.map(day => [day, { photoUrl: '', name: '', price: 0 }])) as EmbeddedWeeklyMeals;
                     const meals = (week?.meals || emptyMeals()) as EmbeddedWeeklyMeals;
-                    const updateMeal = (day: string, patch: Partial<HealthyLunchMeal>) => setProductDraft(current => ({ ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: { startMonday: week!.startMonday, meals: { ...meals, [day]: { ...meals[day], ...patch } } } } }));
+                    const updateMeal = (day: string, patch: Partial<HealthyLunchMeal>) => setProductDraft(current => {
+                      const nextMeal = updateHealthyLunchMeal(meals[day], patch);
+                      return { ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: { startMonday: week!.startMonday, meals: { ...meals, [day]: nextMeal } } } };
+                    });
                     return <details key={slot} open={Boolean(week)} className="rounded-xl border p-3"><summary className="cursor-pointer font-bold">Week {index + 1}</summary>
                       <label className="mt-3 block text-sm font-bold">Start Monday<input aria-label={`Week ${index + 1} start Monday`} type="date" value={week?.startMonday || ''} onChange={event => {
                         const startMonday = event.target.value;

@@ -148,6 +148,12 @@ export const prepareHealthyLunchDraft = (draft: StoreProductDraft): StoreProduct
   return { ...draft, weeklyWeeks, weeklyMeals: undefined, photoUrl: typeof cover === 'object' ? cover.photoUrl : draft.photoUrl };
 };
 
+export const updateHealthyLunchMeal = (meal: import('./types').HealthyLunchMeal, patch: Partial<import('./types').HealthyLunchMeal>): import('./types').HealthyLunchMeal => {
+  const nextMeal = { ...meal, ...patch };
+  if (Object.hasOwn(patch, 'recipeId') && patch.recipeId === undefined) delete nextMeal.recipeId;
+  return nextMeal;
+};
+
 /** Recipe display data is copied into the menu; selling price and order snapshots stay independent. */
 export const syncHealthyLunchRecipe = (meal: import('./types').HealthyLunchMeal, recipe: Recipe, nutrition?: RecipeNutritionSummary): import('./types').HealthyLunchMeal => {
   const display = getReadyToSellProductDraft(recipe, nutrition);
