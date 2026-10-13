@@ -1,3 +1,4 @@
+import { HealthyLunchCheckoutDates } from './HealthyLunchCheckoutDates';
 import HealthyLunchMenu, { type HealthyLunchChoice } from './HealthyLunchMenu';
 import { groupFulfilmentSchedule, selectionAllowsDate, usesScheduledCheckout, commonPickupTimes, applySharedTime, checkoutDayGroups, scheduleDateLabel, deliveryFeeLabel, type DraftFulfilment } from './storeOrderFulfilments';
 import { isWeeklyMealPlan, WEEKLY_DAYS, getWeeklyDates, getWeeklyPickupTimes, validateWeeklyMealPlan, weeklyCartError, datedWeeks, isDatedWeekOpen, fullWeekDateStore, weekRangeLabel, validateWeeklyStructure, resolvePlanMeal, resolveHealthyLunchDay, hasEmbeddedMenu, isFullWeekSelection } from '../../../functions/storeWeeklyMealPlan.js';
@@ -1761,7 +1762,8 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
 
                 <section aria-labelledby="fulfilment-heading" className="order-1">
                   <h3 id="fulfilment-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup or delivery</h3>
-                {store.orderCutoffTime && !weeklyCartPlan && <p className="mt-2 text-xs text-on-surface-variant">Orders placed after {formatPickupTimeLabel(store.orderCutoffTime)} will start from the next available day for pickup or delivery.</p>}
+                {store.orderCutoffTime && !weeklyCartPlan && !(healthyDayCart && cartDateAllowed) && <p className="mt-2 text-xs text-on-surface-variant">Orders placed after {formatPickupTimeLabel(store.orderCutoffTime)} will start from the next available day for pickup or delivery.</p>}
+                  {(healthyDayCart || weeklyCartPlan) && cartDateAllowed && <HealthyLunchCheckoutDates dates={dayGroups.map(group => group.date)} method={fulfilmentMethod} />}
                   {!cartDateAllowed && <p role="alert" className="mt-2 font-sans text-sm font-bold text-error">{scheduleError || weeklyCheckoutError || 'Choose an available day for each meal.'}</p>}
                   <div className="mt-2 flex gap-2">
                     <button type="button" onClick={() => { setFulfilmentMethod('pickup'); setDeliveryQuote(null); setDeliveryPriceConfirmation(null); }} className={`rounded-xl px-4 py-2.5 text-sm font-bold ${fulfilmentMethod === 'pickup' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Pickup</button>

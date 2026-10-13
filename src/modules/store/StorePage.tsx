@@ -81,6 +81,7 @@ import {
   getStoreProductEditorDraft,
   getEmbeddedHealthyLunchDraft,
   prepareHealthyLunchDraft,
+  syncHealthyLunchRecipe,
   getStoreProductEditorPresentation,
   getReadyToSellProductDraft,
   getStoreProductValidationTarget
@@ -615,6 +616,40 @@ export default function StorePage({
     }
   };
 
+  const [isMealRecipeLoading, setIsMealRecipeLoading] = useState(false);
+  const syncMealRecipe = async (slot: typeof WEEK_SLOTS[number], day: typeof WEEKLY_DAYS[number], recipeId: string) => {
+    const recipe = recipes.find(entry => entry.id === recipeId);
+    if (!recipe || isMealRecipeLoading) return;
+    const transferId = productPhotoTransferIdRef.current;
+    setIsMealRecipeLoading(true);
+    try {
+      let nutrition;
+      try {
+        const profiles = await loadIngredientNutritionProfiles(recipe.ingredients.map(ingredient => ingredient.ingredientId || ''), workspace.id);
+        nutrition = calculateRecipeNutrition(recipe, profiles, recipes);
+      } catch { nutrition = undefined; }
+      const sourcePhoto = recipe.imageUrl || recipe.coverImage;
+      const file = sourcePhoto ? await loadRecipePhotoForStoreProduct({ recipeId, photoUrl: sourcePhoto }) : undefined;
+      if (transferId !== productPhotoTransferIdRef.current) return;
+      const key = `${slot}_${day}`;
+      let photoUrl: string | undefined;
+      if (file) {
+        if (mealPreviewUrls.current[key]) URL.revokeObjectURL(mealPreviewUrls.current[key]);
+        photoUrl = URL.createObjectURL(file);
+        mealPreviewUrls.current[key] = photoUrl;
+        setMealPhotoFiles(current => ({ ...current, [key]: file }));
+      }
+      setProductDraft(current => {
+        const week = current.weeklyWeeks?.[slot];
+        if (!week) return current;
+        const meals = week.meals as EmbeddedWeeklyMeals;
+        const meal = syncHealthyLunchRecipe(meals[day], recipe, nutrition);
+        return { ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: { ...week, meals: { ...meals, [day]: { ...meal, ...(photoUrl ? { photoUrl } : {}) } } } } };
+      });
+    } catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to sync Recipe.'); }
+    finally { setIsMealRecipeLoading(false); }
+  };
+
   const openNewProduct = () => {
     productPhotoTransferIdRef.current += 1;
     setEditingProduct(null);
@@ -755,6 +790,7 @@ export default function StorePage({
 
   const handleProductSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isMealRecipeLoading) return;
     if (!store || isSaving) return;
     const configuredDraft = prepareHealthyLunchDraft(productDraft);
 
@@ -1120,7 +1156,7 @@ export default function StorePage({
                     <option value="single">Single Product</option><option value="weekly_meal_plan">Weekly Meal Plan</option>
                   </select>
                 </label>
-                {isWeeklyMealPlan(productDraft) && <fieldset className="space-y-3 md:col-span-2"><legend className="font-bold text-primary">Healthy Lunch · Mon–Fri</legend>
+                {isWeeklyMealPlan(productDraft) && <fieldset disabled={isMealRecipeLoading} className="space-y-3 md:col-span-2"><legend className="font-bold text-primary">Healthy Lunch · Mon–Fri</legend>
                   {productDraft.weeklyMenuVersion !== 2 ? <div className="rounded-xl border p-3"><p className="text-sm">This existing plan keeps its saved weekly menu.</p><button type="button" onClick={() => setProductDraft(getEmbeddedHealthyLunchDraft(editingProduct!, products))} className="mt-2 rounded-full border px-4 py-2 font-bold">Edit meals in Healthy Lunch setup</button></div> : <>
                   <p className="text-sm text-on-surface-variant">Configure any 1–4 weeks. Enter a Monday to add a week; clear it to leave that week out.</p>
                   {WEEK_SLOTS.map((slot, index) => {
@@ -1139,6 +1175,20 @@ export default function StorePage({
                         });
                       }} className="mt-1 block w-full rounded-xl border p-3" /></label>
                       {week && WEEKLY_DAYS.map(day => <fieldset key={day} className="mt-4 space-y-2 rounded-xl bg-surface-container-low p-3"><legend className="font-bold">{({ mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday' })[day]}</legend>
+                        <label className="block text-sm font-bold">Link Recipe (optional)
+                          <select aria-label={`Week ${index + 1} ${day} Recipe`} disabled={isMealRecipeLoading} value={meals[day].recipeId || ''} onChange={event => {
+                            const recipeId = event.target.value;
+                            if (recipeId) void syncMealRecipe(slot, day, recipeId); else updateMeal(day, { recipeId: undefined });
+                          }} className="mt-1 block w-full rounded-xl border p-2">
+                            <option value="">No linked Recipe</option>
+                            {meals[day].recipeId && !recipes.some(recipe => recipe.id === meals[day].recipeId) && <option value={meals[day].recipeId}>Linked Recipe unavailable</option>}
+                            {recipes.map(recipe => <option key={recipe.id} value={recipe.id}>{recipe.title}</option>)}
+                          </select>
+                        </label>
+                        {meals[day].recipeId && <>
+                          <button type="button" disabled={isMealRecipeLoading} onClick={() => void syncMealRecipe(slot, day, meals[day].recipeId!)} className="rounded-full border px-3 py-2 text-sm font-bold">Sync from Recipe</button>
+                          <p className="text-xs">Recipe cost per portion: {(() => { const cost = calculateStoreProductCostAnalysis(meals[day], currentRecipeCosting).estimatedCost; return cost === null ? 'Cost unavailable' : formatRegionCurrency(cost, region.currency); })()} · Selling price stays editable.</p>
+                        </>}
                         <label className="block text-sm font-bold">Photo<input aria-label={`Week ${index + 1} ${day} photo`} type="file" accept="image/jpeg,image/png,image/webp" onChange={event => {
                           const file = event.target.files?.[0]; if (!file) return;
                           if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) { setErrorMessage('Choose a JPEG, PNG or WebP meal photo up to 10 MB.'); return; }
@@ -1353,7 +1403,7 @@ export default function StorePage({
                   </button>
                 )}
                 <button type="button" onClick={closeProductForm} className="rounded-full bg-surface-container px-5 py-3 font-sans text-xs font-extrabold text-primary">{productEditorPresentation.cancelAction}</button>
-                <button type="submit" disabled={isSaving} className="rounded-full bg-primary px-6 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : productEditorPresentation.primaryAction}</button>
+                <button type="submit" disabled={isSaving || isMealRecipeLoading} className="rounded-full bg-primary px-6 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : productEditorPresentation.primaryAction}</button>
               </div>
             </form>
           )}

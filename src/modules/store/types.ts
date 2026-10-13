@@ -237,7 +237,7 @@ export interface StoreOptionGroupDraft {
 
 export type WeeklyDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri';
 export type WeeklyMeals = Record<WeeklyDay, string>;
-export interface HealthyLunchMeal { photoUrl: string; name: string; price: number; calories?: number; description?: string }
+export interface HealthyLunchMeal { recipeId?: string; photoUrl: string; name: string; price: number; calories?: number; description?: string }
 export type EmbeddedWeeklyMeals = Record<WeeklyDay, HealthyLunchMeal>;
 export type WeeklyWeeks = Partial<Record<'week1' | 'week2' | 'week3' | 'week4', { startMonday: string; meals: WeeklyMeals | EmbeddedWeeklyMeals }>>;
 export interface WeeklyMealSnapshot { day: WeeklyDay; productId: string; productName: string; photoUrl: string; price?: number; calories?: number; description?: string }

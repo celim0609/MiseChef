@@ -147,3 +147,12 @@ export const prepareHealthyLunchDraft = (draft: StoreProductDraft): StoreProduct
   const cover = first?.meals.mon;
   return { ...draft, weeklyWeeks, weeklyMeals: undefined, photoUrl: typeof cover === 'object' ? cover.photoUrl : draft.photoUrl };
 };
+
+/** Recipe display data is copied into the menu; selling price and order snapshots stay independent. */
+export const syncHealthyLunchRecipe = (meal: import('./types').HealthyLunchMeal, recipe: Recipe, nutrition?: RecipeNutritionSummary): import('./types').HealthyLunchMeal => {
+  const display = getReadyToSellProductDraft(recipe, nutrition);
+  return { ...meal, recipeId: recipe.id, name: display.name || meal.name,
+    photoUrl: recipe.imageUrl || recipe.coverImage || meal.photoUrl,
+    calories: display.calories,
+    description: recipe.story?.trim().slice(0, 1200) || display.description || meal.description };
+};
