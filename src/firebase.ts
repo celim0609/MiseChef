@@ -6,9 +6,10 @@
 import { getApps, initializeApp, type FirebaseApp } from 'firebase/app';
 import {
   browserLocalPersistence,
+  browserPopupRedirectResolver,
   connectAuthEmulator,
   getAuth,
-  setPersistence,
+  initializeAuth,
   updateCurrentUser,
   type Auth
 } from 'firebase/auth';
@@ -63,7 +64,20 @@ export const firebaseApp: FirebaseApp | null = isFirebaseConfigured
       : initializeApp(activeFirebaseConfig))
   : null;
 
-export const auth: Auth | null = firebaseApp ? getAuth(firebaseApp) : null;
+const getOrInitializeAuth = (app: FirebaseApp): Auth => {
+  try {
+    return initializeAuth(app, {
+      persistence: browserLocalPersistence,
+      popupRedirectResolver: browserPopupRedirectResolver
+    });
+  } catch (error) {
+    // Reuse an Auth instance already created by hot reload or another entry point.
+    if ((error as { code?: string })?.code === 'auth/already-initialized') return getAuth(app);
+    throw error;
+  }
+};
+
+export const auth: Auth | null = firebaseApp ? getOrInitializeAuth(firebaseApp) : null;
 export const db: Firestore | null = firebaseApp ? getFirestore(firebaseApp) : null;
 export const functions: Functions | null = firebaseApp ? getFunctions(firebaseApp, 'us-central1') : null;
 export const storage: FirebaseStorage | null = firebaseApp ? getStorage(firebaseApp) : null;
@@ -76,7 +90,7 @@ if (useFirebaseEmulators && !existingFirebaseApp) {
 }
 
 export const authPersistenceReady = auth
-  ? setPersistence(auth, browserLocalPersistence)
+  ? auth.authStateReady()
     .then(async () => {
       const staleAuthUser = staleDefaultFirebaseApp
         ? getAuth(staleDefaultFirebaseApp).currentUser
@@ -90,6 +104,6 @@ export const authPersistenceReady = auth
       await updateCurrentUser(auth, staleAuthUser);
     })
     .catch(() => {
-      // Firebase will fall back to its default persistence if local persistence is unavailable.
+      // An emulator user migration failure must not block application startup.
     })
   : Promise.resolve();
