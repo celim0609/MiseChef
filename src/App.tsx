@@ -18,7 +18,7 @@ import SearchTab from './components/SearchTab';
 import AddRecipeTab from './components/AddRecipeTab';
 import RecipeDetailModal from './components/RecipeDetailModal';
 import RecipeShareDialog from './components/RecipeShareDialog';
-import NavigationDrawer from './components/NavigationDrawer';
+import NavigationDrawer, { NavigationLink } from './components/NavigationDrawer';
 import SettingsTab, { ImportedAppData } from './components/SettingsTab';
 import LoginTab from './components/LoginTab';
 import WorkspaceSetupScreen from './components/WorkspaceSetupScreen';
@@ -2542,6 +2542,7 @@ export default function App() {
           categoryCounts={categoryCounts}
           onClose={() => setIsNavigationDrawerOpen(false)}
           onNavigate={handleRootNavigate}
+          getNavigationHref={tab => ROOT_TAB_PATHS[tab]}
           onPublicHome={() => window.location.assign('/')}
           onRequestBusinessAccess={() => handleRootNavigate('business')}
           onSelectCategory={(categoryName) => {
@@ -2632,8 +2633,9 @@ export default function App() {
       {/* Responsive Bottom Navigation Bar Block (Mobile size, Tablet uses top) */}
       {isProtectedShellVisible && !addingRecipe && !editingRecipe && activeTab !== 'storePos' && (
         <nav className="fixed bottom-0 left-0 w-full z-45 flex justify-around items-center px-4 pb-4 pt-3 bg-surface/90 backdrop-blur-md rounded-t-2xl shadow-[0_-4px_24px_rgba(62,86,65,0.08)] md:hidden border-t border-surface-container-high transition-transform">
-          <button
-            onClick={() => {
+          <NavigationLink
+            href={ROOT_TAB_PATHS.home}
+            onNavigate={() => {
               setSelectedHomeCategory(null);
               setIsFavoritesFilterActive(false);
               handleRootNavigate('home');
@@ -2644,17 +2646,18 @@ export default function App() {
           >
             <Home className={`w-5 h-5 ${activeTab === 'home' ? 'stroke-[2.5px]' : ''}`} />
             <span className="font-sans font-semibold text-[10px] mt-1.5 uppercase tracking-wide">My MiseChef</span>
-          </button>
+          </NavigationLink>
 
-          <button
-            onClick={() => handleRootNavigate('search')}
+          <NavigationLink
+            href={ROOT_TAB_PATHS.search}
+            onNavigate={() => handleRootNavigate('search')}
             className={`flex flex-col items-center justify-center py-1 transition-all flex-1 ${
               activeTab === 'search' ? 'text-primary font-black scale-103' : 'text-outline hover:text-primary'
             }`}
           >
             <Search className={`w-5 h-5 ${activeTab === 'search' ? 'stroke-[2.5px]' : ''}`} />
             <span className="font-sans font-semibold text-[10px] mt-1.5 uppercase tracking-wide font-bold">Search</span>
-          </button>
+          </NavigationLink>
         </nav>
       )}
 

@@ -37,6 +37,26 @@ import BrandLogo from './BrandLogo';
 import { subscriptionService, type PlanFeature } from '../services/subscriptionService';
 import { FINANCE_NAVIGATION } from '../navigation/financeNavigation';
 
+export function NavigationLink({ onNavigate, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement> & { onNavigate: () => void }) {
+  return <a {...props} onClick={event => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    onNavigate();
+  }} />;
+}
+
+export function NavigationSection({ href, onNavigate, expanded, onToggle, label, className, children }: {
+  href: string; onNavigate: () => void; expanded: boolean; onToggle: () => void;
+  label: string; className: string; children: React.ReactNode;
+}) {
+  return <div className={className}>
+    <NavigationLink href={href} onNavigate={onNavigate} className="flex min-w-0 flex-1 items-center gap-3">{children}</NavigationLink>
+    <button type="button" onClick={onToggle} aria-label={`Toggle ${label}`} aria-expanded={expanded} className="shrink-0 rounded-lg p-2 hover:bg-primary/10">
+      <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+    </button>
+  </div>;
+}
+
 const PRODUCT_TAB_FEATURES: Partial<Record<RootTab, PlanFeature>> = {
   search: 'recipes',
   favorites: 'recipes',
@@ -61,6 +81,7 @@ interface NavigationDrawerProps {
   categoryCounts: Record<string, number>;
   onClose: () => void;
   onNavigate: (tab: RootTab) => void;
+  getNavigationHref: (tab: RootTab) => string;
   onPublicHome: () => void;
   onRequestBusinessAccess: () => void;
   onSelectCategory: (categoryName: string | null) => void;
@@ -85,6 +106,7 @@ export default function NavigationDrawer({
   categoryCounts,
   onClose,
   onNavigate,
+  getNavigationHref,
   onPublicHome,
   onRequestBusinessAccess,
   onSelectCategory,
@@ -370,27 +392,27 @@ export default function NavigationDrawer({
             </div>
 
             <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
-              <button
-                type="button"
-                onClick={handleHomeSelect}
+              <NavigationLink
+                href="/"
+                onNavigate={handleHomeSelect}
                 className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-sans font-extrabold text-sm transition-all ${
                   'text-primary hover:bg-surface-container'
                 }`}
               >
                 <Home className="w-5 h-5" />
                 <span>Home</span>
-              </button>
+              </NavigationLink>
 
-              <button
-                type="button"
-                onClick={() => handleNavigate('home')}
+              <NavigationLink
+                href={getNavigationHref('home')}
+                onNavigate={() => handleNavigate('home')}
                 className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-sans font-extrabold text-sm transition-all ${
                   activeTab === 'home' ? 'bg-primary text-on-primary shadow-sm' : 'text-primary hover:bg-surface-container'
                 }`}
               >
                 <BriefcaseBusiness className="w-5 h-5" />
                 <span>My MiseChef</span>
-              </button>
+              </NavigationLink>
 
               {!canAccessRecipes && currentUser && (
                 <LockedNavItem label="Recipes" icon={<BookOpen className="w-5 h-5" />} feature="recipes" />
@@ -398,20 +420,17 @@ export default function NavigationDrawer({
 
               {canAccessRecipes && (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => setRecipesOpen(prev => !prev)}
+                  <NavigationSection href={getNavigationHref('search')} onNavigate={() => handleNavigate('search')} expanded={recipesOpen} onToggle={() => setRecipesOpen(prev => !prev)} label="Recipes"
                     className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-sans font-extrabold text-sm transition-all ${
                       activeTab === 'search' || activeTab === 'favorites'
                         ? 'bg-primary/10 text-primary'
                         : 'text-primary hover:bg-surface-container'
                     }`}
-                    aria-expanded={recipesOpen}
                   >
                     <BookOpen className="w-5 h-5" />
                     <span className="flex-1">Recipes</span>
-                    <ChevronDown className={`w-4 h-4 transition-transform ${recipesOpen ? 'rotate-180' : ''}`} />
-                  </button>
+
+                  </NavigationSection>
 
                   <AnimatePresence initial={false}>
                     {recipesOpen && (
@@ -422,9 +441,9 @@ export default function NavigationDrawer({
                         transition={{ duration: 0.2, ease: 'easeOut' }}
                         className="ml-8 mr-2 mb-2 space-y-1 overflow-hidden border-l border-surface-container-high pl-3"
                       >
-                        <button
-                          type="button"
-                          onClick={() => handleCategorySelect(null)}
+                        <NavigationLink
+                          href={getNavigationHref('search')}
+                          onNavigate={() => handleCategorySelect(null)}
                           className={`w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-left font-sans text-xs font-bold transition-all ${
                             activeTab === 'search' && !selectedCategory
                               ? 'bg-primary text-on-primary shadow-sm'
@@ -433,7 +452,7 @@ export default function NavigationDrawer({
                         >
                           <BookOpen className="w-4 h-4" />
                           <span>All Recipes</span>
-                        </button>
+                        </NavigationLink>
 
                   <div className="rounded-xl overflow-hidden">
                 <button
@@ -540,9 +559,9 @@ export default function NavigationDrawer({
                   )}
                 </AnimatePresence>
               </div>
-                <button
-                  type="button"
-                  onClick={handleFavoritesSelect}
+                <NavigationLink
+                  href={getNavigationHref('favorites')}
+                  onNavigate={handleFavoritesSelect}
                 className={`w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-left font-sans text-xs font-bold transition-all ${
                   (isFavoritesFilterActive && activeTab === 'home') || activeTab === 'favorites'
                     ? 'bg-primary text-on-primary shadow-sm'
@@ -551,7 +570,7 @@ export default function NavigationDrawer({
               >
                 <Star className="w-4 h-4" />
                 <span>Favorites</span>
-                </button>
+                </NavigationLink>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -559,9 +578,9 @@ export default function NavigationDrawer({
               )}
 
               {isSuperAdmin && (
-                <button
-                  type="button"
-                  onClick={() => handleNavigate('admin')}
+                <NavigationLink
+                  href={getNavigationHref('admin')}
+                  onNavigate={() => handleNavigate('admin')}
                   className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-sans font-extrabold text-sm hover:bg-surface-container active:scale-[0.99] transition-all ${
                     activeTab === 'admin'
                       ? 'bg-primary text-on-primary shadow-sm'
@@ -570,25 +589,22 @@ export default function NavigationDrawer({
                 >
                   <ShieldCheck className="w-5 h-5" />
                   <span>Admin</span>
-                </button>
+                </NavigationLink>
               )}
 
               {financeMenuItems.length > 0 && (
                 <div className="rounded-2xl overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setFinanceOpen(prev => !prev)}
+                  <NavigationSection href={getNavigationHref(financeMenuItems[0].tab)} onNavigate={() => handleNavigate(financeMenuItems[0].tab)} expanded={financeOpen} onToggle={() => setFinanceOpen(prev => !prev)} label="Finance"
                     className={`w-full flex items-center gap-3 px-4 py-3.5 text-left font-sans font-extrabold text-sm transition-all ${
                       activeTab === FINANCE_NAVIGATION.tab
                         ? 'bg-primary/10 text-primary'
                         : 'text-primary hover:bg-surface-container'
                     }`}
-                    aria-expanded={financeOpen}
                   >
                     <WalletCards className="w-5 h-5" />
                     <span className="flex-1">{FINANCE_NAVIGATION.label}</span>
-                    <ChevronDown className={`w-4 h-4 transition-transform ${financeOpen ? 'rotate-180' : ''}`} />
-                  </button>
+
+                  </NavigationSection>
                   <AnimatePresence initial={false}>
                     {financeOpen && (
                       <motion.div
@@ -600,10 +616,10 @@ export default function NavigationDrawer({
                       >
                         <div className="ml-8 mr-2 mb-2 space-y-1 border-l border-surface-container-high pl-3">
                           {financeMenuItems.map(item => (
-                            <button
-                              type="button"
+                            <NavigationLink
+                              href={getNavigationHref(item.tab)}
                               key={item.label}
-                              onClick={() => handleNavigate(item.tab)}
+                              onNavigate={() => handleNavigate(item.tab)}
                               className={`w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-left font-sans text-xs font-bold transition-all ${
                                 activeTab === item.tab
                                   ? 'bg-primary text-on-primary shadow-sm'
@@ -612,7 +628,7 @@ export default function NavigationDrawer({
                             >
                               {item.icon}
                               <span>{item.label}</span>
-                            </button>
+                            </NavigationLink>
                           ))}
                         </div>
                       </motion.div>
@@ -635,22 +651,17 @@ export default function NavigationDrawer({
 
               {businessMenuItems.length > 0 && (
                 <div className="rounded-2xl overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setBusinessOpen(prev => !prev)}
+                  <NavigationSection href={getNavigationHref(businessMenuItems[0].tab)} onNavigate={() => handleNavigate(businessMenuItems[0].tab)} expanded={businessOpen} onToggle={() => setBusinessOpen(prev => !prev)} label="Business"
                   className={`w-full flex items-center gap-3 px-4 py-3.5 text-left font-sans font-extrabold text-sm transition-all ${
                     activeTab === 'business' || activeTab === 'businessSales'
                       ? 'bg-primary/10 text-primary'
                       : 'text-primary hover:bg-surface-container'
                   }`}
-                  aria-expanded={businessOpen}
                 >
                   <CreditCard className="w-5 h-5" />
                   <span className="flex-1">Business</span>
-                  <ChevronDown
-                    className={`w-4 h-4 transition-transform ${businessOpen ? 'rotate-180' : ''}`}
-                  />
-                </button>
+
+                </NavigationSection>
 
                 <AnimatePresence initial={false}>
                   {businessOpen && (
@@ -663,10 +674,10 @@ export default function NavigationDrawer({
                     >
                       <div className="ml-8 mr-2 mb-2 space-y-1 border-l border-surface-container-high pl-3">
                         {businessMenuItems.map(item => (
-                          <button
-                            type="button"
+                          <NavigationLink
+                            href={getNavigationHref(item.tab)}
                             key={item.label}
-                            onClick={() => handleNavigate(item.tab)}
+                            onNavigate={() => handleNavigate(item.tab)}
                             className={`w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-left font-sans text-xs font-bold transition-all ${
                               activeTab === item.tab
                                 ? 'bg-primary text-on-primary shadow-sm'
@@ -675,7 +686,7 @@ export default function NavigationDrawer({
                           >
                             {item.icon}
                             <span>{item.label}</span>
-                          </button>
+                          </NavigationLink>
                         ))}
                       </div>
                     </motion.div>
@@ -695,22 +706,17 @@ export default function NavigationDrawer({
 
               {costingMenuItems.length > 0 && (
                 <div className="rounded-2xl overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setCostingOpen(prev => !prev)}
+                  <NavigationSection href={getNavigationHref(costingMenuItems[0].tab)} onNavigate={() => handleNavigate(costingMenuItems[0].tab)} expanded={costingOpen} onToggle={() => setCostingOpen(prev => !prev)} label="Costing"
                   className={`w-full flex items-center gap-3 px-4 py-3.5 text-left font-sans font-extrabold text-sm transition-all ${
                     activeTab === 'costing' || activeTab === 'costingIngredients' || activeTab === 'costingInvoices' || activeTab === 'costingInvoiceDetail' || activeTab === 'costingReports' || activeTab === 'businessSuppliers'
                       ? 'bg-primary/10 text-primary'
                       : 'text-primary hover:bg-surface-container'
                   }`}
-                  aria-expanded={costingOpen}
                 >
                   <Calculator className="w-5 h-5" />
                   <span className="flex-1">Costing</span>
-                  <ChevronDown
-                    className={`w-4 h-4 transition-transform ${costingOpen ? 'rotate-180' : ''}`}
-                  />
-                </button>
+
+                </NavigationSection>
 
                 <AnimatePresence initial={false}>
                   {costingOpen && (
@@ -723,10 +729,10 @@ export default function NavigationDrawer({
                     >
                       <div className="ml-8 mr-2 mb-2 space-y-1 border-l border-surface-container-high pl-3">
                         {costingMenuItems.map(item => (
-                          <button
-                            type="button"
+                          <NavigationLink
+                            href={getNavigationHref(item.tab)}
                             key={item.label}
-                            onClick={() => handleNavigate(item.tab)}
+                            onNavigate={() => handleNavigate(item.tab)}
                             className={`w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-left font-sans text-xs font-bold transition-all ${
                               activeTab === item.tab
                                 ? 'bg-primary text-on-primary shadow-sm'
@@ -735,7 +741,7 @@ export default function NavigationDrawer({
                           >
                             {item.icon}
                             <span>{item.label}</span>
-                          </button>
+                          </NavigationLink>
                         ))}
                         <button
                           type="button"
@@ -753,10 +759,10 @@ export default function NavigationDrawer({
               )}
 
               {staticMenuItems.map(item => (
-                <button
-                  type="button"
+                <NavigationLink
+                  href={getNavigationHref(item.tab!)}
                   key={item.label}
-                  onClick={() => (item.tab ? handleNavigate(item.tab) : onClose())}
+                  onNavigate={() => (item.tab ? handleNavigate(item.tab) : onClose())}
                   className={`w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-sans font-extrabold text-sm hover:bg-surface-container active:scale-[0.99] transition-all ${
                     item.tab && activeTab === item.tab
                       ? 'bg-primary text-on-primary shadow-sm'
@@ -765,17 +771,16 @@ export default function NavigationDrawer({
                 >
                   <span className="leading-none">{item.icon}</span>
                   <span>{item.label}</span>
-                </button>
+                </NavigationLink>
               ))}
 
-              <button
-                type="button"
-                onClick={() => window.location.assign('/host/groups')}
+              <a
+                href="/host/groups"
                 className="w-full flex items-center gap-3 rounded-2xl px-4 py-3.5 text-left font-sans font-extrabold text-sm text-primary transition-all hover:bg-surface-container active:scale-[0.99]"
               >
                 <UsersRound className="w-5 h-5" />
                 <span>Host Center</span>
-              </button>
+              </a>
 
             </nav>
 
@@ -815,14 +820,14 @@ export default function NavigationDrawer({
                   </button>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => handleNavigate('login')}
+                <NavigationLink
+                  href={getNavigationHref('login')}
+                  onNavigate={() => handleNavigate('login')}
                   className="w-full flex items-center gap-2 rounded-xl px-4 py-3 text-left font-sans text-xs font-bold text-primary hover:bg-surface-container transition-all"
                 >
                   <LogIn className="w-4 h-4" />
                   <span>Sign In</span>
-                </button>
+                </NavigationLink>
               )}
             </div>
 
