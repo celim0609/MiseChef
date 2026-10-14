@@ -619,7 +619,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       {cancelOrder && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/65 p-4" role="presentation"><section role="dialog" aria-modal="true" aria-labelledby="cancel-order-title" className={`pos-light-surface w-full max-w-lg rounded-2xl border p-5 shadow-2xl ${isNightMode ? 'border-slate-600 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-rose-500">Preserves order record</p><h2 id="cancel-order-title" className="pos-readable-heading mt-1 text-2xl font-black">Cancel Order</h2><p className="mt-1 text-lg font-black">{cancelOrder.orderNumber}</p></div><button type="button" onClick={closeCancellation} aria-label="Close cancellation dialog" className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-400"><X className="h-5 w-5" /></button></div><p className={`mt-4 rounded-xl px-4 py-3 text-sm font-bold ${isNightMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>This removes the order from the active kitchen queue but preserves it in Order History.</p>{cancelOrder.payment.status === 'paid' && <p className="mt-3 flex gap-2 rounded-xl border border-amber-400 bg-amber-100 px-4 py-3 text-sm font-black text-amber-950"><AlertTriangle className="h-5 w-5 shrink-0" />Canceling this order does not refund the payment.</p>}<fieldset className="mt-5"><legend className="text-sm font-black">Cancellation reason</legend><div className="mt-2 grid gap-2 sm:grid-cols-2">{CANCELLATION_REASONS.map(reason => <label key={reason} className={`pos-control flex min-h-12 cursor-pointer items-center gap-2 rounded-xl border px-3 text-sm font-bold ${cancellationChoice === reason ? 'border-rose-500 bg-rose-50 text-rose-900' : isNightMode ? 'border-slate-600 bg-slate-900' : 'border-slate-300 bg-white'}`}><input type="radio" name="cancellation-reason" value={reason} checked={cancellationChoice === reason} onChange={() => setCancellationChoice(reason)} />{reason}</label>)}</div></fieldset>{cancellationChoice === 'Other' && <label className="mt-3 block text-sm font-black">Explain the reason<textarea autoFocus maxLength={233} value={otherCancellationReason} onChange={event => setOtherCancellationReason(event.target.value)} className="pos-control mt-2 min-h-24 w-full rounded-xl border border-slate-400 bg-white p-3 text-sm font-bold text-slate-950" placeholder="Required" /></label>}<div className="mt-5 grid grid-cols-2 gap-3"><button type="button" onClick={closeCancellation} disabled={Boolean(updatingOrderId)} className={`min-h-12 rounded-xl border px-4 font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-800'}`}>Keep Order</button><button type="button" onClick={() => void confirmCancellation()} disabled={!canConfirmCancellation || Boolean(updatingOrderId)} className="min-h-12 rounded-xl bg-rose-600 px-4 font-black text-white disabled:opacity-40">{updatingOrderId ? 'Cancelling…' : 'Confirm Cancellation'}</button></div></section></div>}
       {externalOpen && (
         <div className="fixed inset-0 z-[101] flex items-center justify-center bg-black/65 p-3 sm:p-4">
-          <section role="dialog" aria-modal="true" aria-labelledby="pos-order-entry-title" className="flex h-[92dvh] max-h-[900px] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white text-slate-950 shadow-2xl">
+          <section role="dialog" aria-modal="true" aria-labelledby="pos-order-entry-title" className="flex h-[92dvh] max-h-[900px] w-full md:w-[90vw] max-w-[1440px] flex-col overflow-hidden rounded-2xl bg-white text-slate-950 shadow-2xl">
             <header className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3">
               <div>
                 <h2 id="pos-order-entry-title" className="text-xl font-black">Add Order</h2>
@@ -639,8 +639,10 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               </label>
             </fieldset>
 
+            <div className="flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
             <div role="region" aria-label="Store products" className="min-h-0 flex-1 overflow-y-auto p-4">
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <h3 className="mb-3 text-sm font-black">Products</h3>
+              <div className="grid grid-cols-2 items-start gap-3 xl:grid-cols-3">
                 {externalProducts.map(product => (
                   <article key={product.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
                     <div className="aspect-[16/9] bg-slate-100">{product.photoUrl ? <img src={product.photoUrl} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs font-bold text-slate-400">No image</div>}</div>
@@ -658,9 +660,10 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               </div>}
             </div>
 
-            <section aria-label="Order cart" className="shrink-0 border-t bg-slate-50 px-4 py-3">
+            <div className="flex min-h-0 shrink-0 flex-col border-t bg-slate-50 md:border-l md:border-t-0">
+            <section aria-label="Order cart" className="min-h-0 overflow-y-auto px-4 py-3 md:flex-1">
               <h3 className="mb-2 text-sm font-black">Cart</h3>
-              <div className="max-h-[20dvh] space-y-2 overflow-y-auto">
+              <div className="max-h-[20dvh] space-y-2 overflow-y-auto md:max-h-none md:overflow-visible">
                 {externalCartLines.length === 0 && <p className="py-2 text-sm text-slate-500">Cart is empty</p>}
                 {externalCartLines.map(item => <div key={item.key} className="rounded-lg border border-slate-200 bg-white p-3">
                   <div className="flex items-center gap-3">
@@ -700,6 +703,8 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                 {creatingExternal && <LoaderCircle aria-hidden="true" className="h-5 w-5 animate-spin" />}{creatingExternal ? 'Creating…' : 'Confirm Order'}
               </button>
             </footer>
+            </div>
+            </div>
           </section>
         </div>
       )}

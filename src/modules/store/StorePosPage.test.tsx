@@ -290,7 +290,12 @@ test('POS modal keeps errors directly above the full-width action and separates 
   assert.match(modal, /flex h-\[92dvh\].*flex-col overflow-hidden/);
   assert.match(modal, /<header className="[^"]*shrink-0/);
   assert.match(modal, /aria-label="Store products" className="min-h-0 flex-1 overflow-y-auto/);
-  assert.match(modal, /aria-label="Order cart" className="shrink-0/);
+  assert.match(modal, /aria-label="Order cart" className="min-h-0 overflow-y-auto/);
+  assert.match(modal, /md:w-\[90vw\] max-w-\[1440px\]/);
+  assert.match(modal, /md:grid md:grid-cols-\[minmax\(0,1fr\)_minmax\(360px,420px\)\]/);
+  assert.match(modal, /grid grid-cols-2 items-start gap-3 xl:grid-cols-3/);
+  assert.match(modal, /md:flex-1/);
+  assert.match(modal, /md:max-h-none md:overflow-visible/);
   assert.match(modal, /Cart is empty/);
   assert.match(modal, /item\.unitPrice\.toFixed\(2\)/);
   assert.match(modal, /item\.lineTotal\.toFixed\(2\)/);
