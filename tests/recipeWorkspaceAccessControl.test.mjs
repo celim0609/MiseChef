@@ -264,3 +264,51 @@ for (const role of ['Owner', 'Manager', 'Sous Chef', 'Chef']) {
     await assertFails(setDoc(ref, { workspaceId: 'foreign' }, { merge: true }));
   });
 }
+
+for (const role of ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef', 'Purchasing', 'Finance', 'Viewer']) {
+  test(`${role}: legacy Product deletion keeps business and role checks without validating obsolete fields`, async () => {
+    const workspaceId = 'legacy-store';
+    await seedWorkspace({ workspaceId, ownerId: 'owner', members: [{ userId: 'member', role }] });
+    await testEnv.withSecurityRulesDisabled(async context => {
+      const db = context.firestore();
+      await updateDoc(doc(db, 'workspaces', workspaceId), { subscriptionPlan: 'professional', subscriptionStatus: 'active' });
+      // Deliberately invalid under the current product schema; no Store document exists.
+      await setDoc(doc(db, 'storeProducts', 'legacy'), { workspaceId, obsoleteOrderingMethod: 'old', price: 'legacy' });
+    });
+    const reference = doc(authDb(role === 'Owner' ? 'owner' : 'member'), 'storeProducts', 'legacy');
+    if (['Owner', 'Manager', 'Head Chef'].includes(role)) await assertSucceeds(deleteDoc(reference));
+    else await assertFails(deleteDoc(reference));
+  });
+}
+
+test('legacy Product delete rejects outsiders, inactive members, missing workspace identity and expired entitlement', async () => {
+  const workspaceId = 'legacy-store';
+  await seedWorkspace({ workspaceId, ownerId: 'owner', members: [{ userId: 'member', role: 'Manager', status: 'Disabled' }] });
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await updateDoc(doc(db, 'workspaces', workspaceId), { subscriptionPlan: 'professional', subscriptionStatus: 'active' });
+    await setDoc(doc(db, 'storeProducts', 'legacy'), { workspaceId, obsoleteOrderingMethod: 'old' });
+    await setDoc(doc(db, 'storeProducts', 'unscoped'), { storeId: workspaceId, createdBy: 'owner' });
+  });
+  await assertFails(deleteDoc(doc(authDb('outsider'), 'storeProducts', 'legacy')));
+  await assertFails(deleteDoc(doc(authDb('member'), 'storeProducts', 'legacy')));
+  await assertFails(deleteDoc(doc(authDb('owner'), 'storeProducts', 'unscoped')));
+  await testEnv.withSecurityRulesDisabled(context => updateDoc(doc(context.firestore(), 'workspaces', workspaceId), { subscriptionStatus: 'expired' }));
+  await assertFails(deleteDoc(doc(authDb('owner'), 'storeProducts', 'legacy')));
+});
+
+for (const role of ['Purchasing', 'Finance', 'Viewer']) {
+  test(`${role} cannot save another member's Recipe`, async () => {
+    const workspaceId = 'shared-recipes';
+    await seedWorkspace({ workspaceId, ownerId: 'owner', members: [{ userId: 'member', role }] });
+    await testEnv.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'recipes', 'shared'), recipe({ id: 'shared', workspaceId, userId: 'owner' })));
+    await assertFails(setDoc(doc(authDb('member'), 'recipes', 'shared'), { title: 'Forbidden edit' }, { merge: true }));
+  });
+}
+
+test('outsiders and inactive Recipe writers cannot save another member\'s Recipe', async () => {
+  const workspaceId = 'shared-recipes';
+  await seedWorkspace({ workspaceId, ownerId: 'owner', members: [{ userId: 'member', role: 'Chef', status: 'Disabled' }] });
+  await testEnv.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'recipes', 'shared'), recipe({ id: 'shared', workspaceId, userId: 'owner' })));
+  for (const userId of ['outsider', 'member']) await assertFails(setDoc(doc(authDb(userId), 'recipes', 'shared'), { title: 'Forbidden edit' }, { merge: true }));
+});

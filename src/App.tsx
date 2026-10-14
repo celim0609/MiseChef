@@ -48,6 +48,7 @@ import BrandLogo from './components/BrandLogo';
 import { auth, authPersistenceReady, db, storage } from './firebase';
 import { deleteRecipeCoverImage, deleteRecipeScanAttachment, isLocalImageDataUrl, uploadRecipeCoverImage, uploadRecipeScanAttachment, uploadRecipeStepImage } from './services/storage';
 import { preserveOriginalRecipeCreator } from './services/recipeCreator';
+import { getRecipeSaveDiagnostic, type RecipeSaveStage } from './services/recipeSaveDiagnostic';
 import { getImmediateMediaUrl, resolveStorageUrl, selectResolvedMediaUrl } from './services/storageReference';
 import { FALLBACK_CATEGORY_NAME, getRecipeCategories, normalizeRecipeCategories, recipeHasCategory } from './utils/categoryUtils';
 import { normalizeIngredientForDisplay } from './utils/ingredientParser';
@@ -1373,15 +1374,53 @@ export default function App() {
     }, 4500);
   };
 
+  const reportRecipeSaveFailure = async (
+    error: unknown,
+    recipe: Recipe,
+    originalRecipe: Recipe | null,
+    stage: RecipeSaveStage,
+    operation: 'create' | 'update'
+  ) => {
+    const cachedMember = currentWorkspace?.members.find(member => member.userId === currentUser?.uid);
+    let memberRole: string | null = cachedMember?.role || null;
+    let memberStatus: string | null = cachedMember?.status || null;
+    let membershipSource = 'workspace-cache';
+    let membershipLookupErrorCode: string | null = null;
+    if (db && currentUser && activeWorkspaceId && !isGuestMode) {
+      try {
+        const snapshot = await getDoc(doc(db, 'workspaceMembers', `${activeWorkspaceId}_${currentUser.uid}`));
+        const member = snapshot.data();
+        memberRole = typeof member?.role === 'string' ? member.role : null;
+        memberStatus = typeof member?.status === 'string' ? member.status : null;
+        membershipSource = snapshot.metadata.fromCache
+          ? 'firestore-cache'
+          : snapshot.exists() ? 'firestore' : 'firestore-missing';
+      } catch (lookupError) {
+        membershipSource = 'workspace-cache-lookup-failed';
+        const code = (lookupError as { code?: unknown })?.code;
+        membershipLookupErrorCode = typeof code === 'string' ? code : null;
+      }
+    }
+    console.error('[Recipe save failed]', {
+      ...getRecipeSaveDiagnostic({ recipe, originalRecipe, workspaceId: activeWorkspaceId, memberRole, memberStatus, error, stage, operation }),
+      membershipSource,
+      membershipLookupErrorCode,
+      workspaceOwner: Boolean(currentUser && currentWorkspace?.ownerId === currentUser.uid)
+    });
+  };
+
   // Add Recipe
   const handleSaveNewRecipe = async (newRecipe: Recipe) => {
     if (recipeSaveInFlightRef.current) return;
     recipeSaveInFlightRef.current = true;
     setIsRecipeSaving(true);
     setRecipeSaveError('');
+    let saveStage: RecipeSaveStage = 'prepare';
+    let diagnosticRecipe = newRecipe;
 
     try {
       if (currentUser && db && !isGuestMode) {
+        saveStage = 'usage-limit';
         const limitCheck = await usageLimitService.canCreateResource(activeWorkspaceId, 'recipe', recipes.length);
         if (!limitCheck.allowed) {
           setRecipeSaveError(limitCheck.message);
@@ -1389,11 +1428,17 @@ export default function App() {
           return;
         }
 
+        saveStage = 'upload';
         const cloudRecipe = await getCloudReadyRecipe(newRecipe, currentUser, (progress, phase) => {
           triggerNotification(`Uploading ${phase === 'scan' ? 'recipe scan' : 'cover image'}... ${progress}%`, 'info');
         });
+        saveStage = 'costing';
+        diagnosticRecipe = cloudRecipe;
         const costedRecipe = await recipeCostService.applyCosting(cloudRecipe, currentUser.uid, activeWorkspaceId);
+        diagnosticRecipe = { ...getFirestoreRecipePayload(costedRecipe, currentUser), workspaceId: activeWorkspaceId, companyId: activeWorkspaceId };
+        saveStage = 'firestore';
         await saveRecipeToFirestore(costedRecipe, currentUser, activeWorkspaceId);
+        saveStage = 'dependents';
         const dependents = await recipeCostService.recalculateDependentRecipes(costedRecipe.id, activeWorkspaceId);
         const dependentById = new Map(dependents.map(recipe => [recipe.id, recipe]));
         setRecipes(current => [costedRecipe, ...current.filter(recipe => recipe.id !== costedRecipe.id).map(recipe => dependentById.get(recipe.id) || recipe)]);
@@ -1414,6 +1459,7 @@ export default function App() {
         : 'The recipe could not be saved. Please try again.';
       setRecipeSaveError(message);
       triggerNotification('The recipe could not be saved. Your changes are still in the editor.', 'error');
+      await reportRecipeSaveFailure(err, diagnosticRecipe, null, saveStage, 'create');
     } finally {
       recipeSaveInFlightRef.current = false;
       setIsRecipeSaving(false);
@@ -1425,17 +1471,26 @@ export default function App() {
     recipeSaveInFlightRef.current = true;
     setIsRecipeSaving(true);
     setRecipeSaveError('');
+    let saveStage: RecipeSaveStage = 'prepare';
+    let diagnosticRecipe = updatedRecipe;
 
     try {
       const creatorSafeRecipe = editingRecipe
         ? preserveOriginalRecipeCreator(editingRecipe, updatedRecipe)
         : updatedRecipe;
+      diagnosticRecipe = creatorSafeRecipe;
       if (currentUser && db && !isGuestMode) {
+        saveStage = 'upload';
         const cloudRecipe = await getCloudReadyRecipe(creatorSafeRecipe, currentUser, (progress, phase) => {
           triggerNotification(`Uploading ${phase === 'scan' ? 'recipe scan' : 'cover image'}... ${progress}%`, 'info');
         });
+        saveStage = 'costing';
+        diagnosticRecipe = cloudRecipe;
         const costedRecipe = await recipeCostService.applyCosting(cloudRecipe, currentUser.uid, activeWorkspaceId);
+        diagnosticRecipe = getFirestoreRecipePayload(costedRecipe, currentUser, 'update');
+        saveStage = 'firestore';
         await saveRecipeToFirestore(costedRecipe, currentUser, activeWorkspaceId, 'update');
+        saveStage = 'dependents';
         const dependents = await recipeCostService.recalculateDependentRecipes(costedRecipe.id, activeWorkspaceId);
         const dependentById = new Map(dependents.map(recipe => [recipe.id, recipe]));
         setRecipes(current => current.map(recipe => recipe.id === costedRecipe.id
@@ -1463,6 +1518,7 @@ export default function App() {
         : 'The recipe could not be updated. Please try again.';
       setRecipeSaveError(message);
       triggerNotification('The recipe could not be updated. Your changes are still in the editor.', 'error');
+      await reportRecipeSaveFailure(err, diagnosticRecipe, editingRecipe, saveStage, 'update');
     } finally {
       recipeSaveInFlightRef.current = false;
       setIsRecipeSaving(false);

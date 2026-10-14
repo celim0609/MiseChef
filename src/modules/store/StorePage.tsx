@@ -37,6 +37,7 @@ import {
   uploadStoreProductSocialImage
 } from '../../services/storage';
 import { storeService } from './services';
+import { deleteProductWithCleanup } from './productDeletion';
 import { storeDeliveryService } from './services/deliveryService';
 import StoreOrdersPanel from './StoreOrdersPanel';
 import StoreSetsPanel from './StoreSetsPanel';
@@ -948,19 +949,23 @@ export default function StorePage({
     clearMessages();
     const productToDelete = editingProduct;
     try {
-      await storeService.deleteProduct(productToDelete.id);
-      await deleteStoreProductPhoto({
-        workspaceId: workspace.id,
-        productId: productToDelete.id,
-        photoUrl: productToDelete.photoUrl
-      });
       const sharedGroupIds = new Set(
         products
           .filter(product => product.id !== productToDelete.id)
           .flatMap(product => product.optionGroupIds)
       );
       const orphanedGroupIds = productToDelete.optionGroupIds.filter(groupId => !sharedGroupIds.has(groupId));
-      await Promise.allSettled(orphanedGroupIds.map(groupId => storeService.deleteOptionGroup(groupId)));
+      const cleanupFailed = await deleteProductWithCleanup(
+        () => storeService.deleteProduct(productToDelete.id),
+        [
+          () => deleteStoreProductPhoto({
+            workspaceId: workspace.id,
+            productId: productToDelete.id,
+            photoUrl: productToDelete.photoUrl
+          }),
+          ...orphanedGroupIds.map(groupId => () => storeService.deleteOptionGroup(groupId))
+        ]
+      );
       setProducts(current => current.filter(product => product.id !== productToDelete.id));
       setOptionGroups(current => current.filter(group => !orphanedGroupIds.includes(group.id)));
       setEditingProduct(null);
@@ -968,7 +973,9 @@ export default function StorePage({
       setProductOptions([]);
       setProductPhotoFile(null);
       setIsProductFormOpen(false);
-      setMessage('Product deleted.');
+      setMessage(cleanupFailed
+        ? 'Product deleted. Some unused photos or options could not be removed.'
+        : 'Product deleted.');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to delete this product.');
     } finally {
