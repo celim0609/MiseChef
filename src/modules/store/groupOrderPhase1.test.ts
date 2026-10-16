@@ -215,7 +215,7 @@ test('Store login return is strict and the existing Host groups destination reso
   assert.match(publicLayout, /publicDiscoverStores\.length === 1/);
   assert.match(publicLayout, /<HostProgramPage slug=\{publicDiscoverStores\[0\]\.slug\} currentUser=\{currentUser\}/);
   assert.match(publicLayout, /Host \/ My Groups/);
-  assert.match(navigationDrawer, /window\.location\.assign\('\/host\/groups'\)/);
+  assert.match(navigationDrawer, /<a\s+href="\/host\/groups"[^>]*>[\s\S]*?<span>Host Center<\/span>\s*<\/a>/);
 });
 
 test('Host Center is the single compact dashboard with Create, summaries, Share and Manage', () => {
