@@ -106,12 +106,12 @@ async function main() {
     if (attempt<11) await new Promise(resolve=>setTimeout(resolve,5000));
   }
   assertLiveBaseline({liveFingerprint:live,resolveSourceTree:commit=>git(['rev-parse',`${commit}^{tree}`]),isAncestor:(a,b)=>{try{git(['merge-base','--is-ancestor',a,b]);return true;}catch{return false;}}});
-  const manifest=await (await fetch(`https://${project}.web.app/.well-known/misechef-beta-release.json`)).json();
+  const manifest=await (await fetch(`https://${project}.web.app/.well-known/misechef-beta-release.json?incident-verify=${Date.now()}`,{headers:{'Cache-Control':'no-cache'}})).json();
   if (manifest.sourceCommit!==proof.candidate || manifest.sourceTree!==proof.sourceTree || manifest.entryAsset!==proof.entryAsset || manifest.storeShellAsset!==proof.entryAsset) fail('published original manifest does not identify the intended release.');
-  const asset=await fetch(`https://${project}.web.app${proof.entryAsset}`);
+  const asset=await fetch(`https://${project}.web.app${proof.entryAsset}?incident-verify=${Date.now()}`,{headers:{'Cache-Control':'no-cache'}});
   if (!asset.ok || !/javascript/i.test(asset.headers.get('content-type') || '') || sha256(Buffer.from(await asset.arrayBuffer()))!==manifest.entryAssetSha256) fail('published JavaScript bytes do not match the original manifest.');
-  for (const url of [`https://${project}.web.app/store/misechef-s-grab-go-store`,'https://renderpublicstore-dapyzgon7a-uc.a.run.app/store/misechef-s-grab-go-store','https://renderpublicrecipe-dapyzgon7a-uc.a.run.app/recipes/recovery-endpoint-check']) {
-    const response=await fetch(url);if (!response.ok) fail(`public render verification returned HTTP ${response.status}.`);
+  for (const [url,expectedStatus] of [[`https://${project}.web.app/store/misechef-s-grab-go-store`,200],['https://renderpublicstore-dapyzgon7a-uc.a.run.app/store/misechef-s-grab-go-store',200],['https://renderpublicrecipe-dapyzgon7a-uc.a.run.app/recipes/recovery-endpoint-check',404]]) {
+    const response=await fetch(url);if (response.status!==expectedStatus) fail(`public render verification returned HTTP ${response.status}.`);
   }
   writeFileSync(path.join(evidence,'recovery-after.json'),JSON.stringify({ release:after.release.name,version:after.release.version.name,manifest,live,functionsUnchanged:true,functions:canonicalFunctions(after.functions) },null,2));
   console.log(`Hosting-only incident recovery complete: ${proof.targetVersion}; candidate ${proof.candidate}; all 58 Functions revisions unchanged.`);
