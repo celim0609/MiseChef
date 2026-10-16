@@ -28,11 +28,21 @@ export const calculateDeliveryDayPricing = ({ config, providerFee, items, fulfil
   const lines = promotionSnapshot.lineAdjustments;
   if (entries.length > 1 && (lines.length !== items.length || lines.reduce((sum, line) => sum + minor(line.finalLineTotal), 0) !== discountedTotalMinor)) throw new Error('Discounted merchandise allocations do not match the order total.');
   // Allocate canonical discounted lines, including a weekly plan across its five days.
-  items.forEach((_, itemIndex) => {
+  items.forEach((item, itemIndex) => {
     const indexes = entries.flatMap((entry, index) => entry.allocations.some(allocation => allocation.itemIndex === itemIndex) ? [index] : []);
     if (!indexes.length) throw new Error('Delivery item has no service day.');
     const total = entries.length === 1 ? 0 : minor(lines[itemIndex].finalLineTotal);
     if (!Number.isSafeInteger(total) || total < 0) throw new Error('Invalid service-day merchandise subtotal.');
+    if (item.mealOptionDays?.length) {
+      const extras = indexes.map(index => (item.mealOptionDays.find(day => day.serviceDate === entries[index].date)?.optionSurchargeUnitMinor || 0) * item.quantity);
+      // Promotion V1 discounts only the base price. Keep that discount on the
+      // existing equal base allocation; a day's options stay on that day.
+      const discountedBase = total - extras.reduce((sum, amount) => sum + amount, 0);
+      if (!Number.isSafeInteger(discountedBase) || discountedBase < 0) throw new Error('Invalid service-day base total.');
+      const share = Math.floor(discountedBase / indexes.length);
+      indexes.forEach((index, offset) => { subtotalMinor[index] += share + (offset < discountedBase % indexes.length ? 1 : 0) + extras[offset]; });
+      return;
+    }
     const share = Math.floor(total / indexes.length);
     indexes.forEach((index, offset) => { subtotalMinor[index] += share + (offset < total % indexes.length ? 1 : 0); });
   });

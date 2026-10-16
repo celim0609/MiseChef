@@ -1,13 +1,13 @@
 import { hasEmbeddedMenu, resolveHealthyLunchDay } from '../../../functions/storeWeeklyMealPlan.js';
 import { productAllowsFulfilmentDate } from '../../../functions/storeProductAvailability.js';
-import type { CartSelection, StoreProduct } from './types';
+import type { CartSelection, StoreProduct, MealOptionChoice } from './types';
 
 export interface DraftFulfilment { date: string; time: string; itemIndexes: number[] }
-export const addDatedHealthyLunchLine = <T extends CartSelection & { key: string }>(cart: T[], planId: string, mealId: string, date: string): T[] => {
-  const key = `healthy_${planId}_${date}`;
+export const addDatedHealthyLunchLine = <T extends CartSelection & { key: string }>(cart: T[], planId: string, mealId: string, date: string, selectedMealOptions: MealOptionChoice[] = []): T[] => {
+  const key = `healthy_${planId}_${date}${selectedMealOptions.length ? '_' + selectedMealOptions.map(choice => `${choice.optionGroupId}:${choice.optionId}`).sort().join('|') : ''}`;
   return cart.some(line => line.key === key)
     ? cart.map(line => line.key === key ? { ...line, quantity: Math.min(20, line.quantity + 1) } : line)
-    : [...cart, { key, productId: mealId, quantity: 1, selectedOptions: [], healthyLunchPlanId: planId, healthyLunchDate: date } as T];
+    : [...cart, { key, productId: mealId, quantity: 1, selectedOptions: [], healthyLunchPlanId: planId, healthyLunchDate: date, ...(selectedMealOptions.length ? { selectedMealOptions } : {}) } as T];
 };
 export const groupFulfilmentSchedule = (entries: DraftFulfilment[]): DraftFulfilment[] => {
   const days = new Map<string, DraftFulfilment>();

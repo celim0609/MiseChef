@@ -27,14 +27,30 @@ export const resolveWeeklyMeals = (plan, monday) => hasRotationMenu(plan)
   ? rotationWeekForMonday(plan, monday)?.meals
   : plan.weeklyWeeks !== undefined ? datedWeeks(plan).find(week => week.startMonday === monday)?.meals : plan.weeklyMeals;
 
+const text = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 160;
+export const validMealOptionGroups = groups => groups === undefined || (Array.isArray(groups)
+  && groups.length <= 20 && new Set(groups.map(group => group?.id)).size === groups.length
+  && groups.every(group => group && Object.keys(group).every(key => ['id', 'name', 'type', 'required', 'selection', 'options'].includes(key))
+    && text(group.id) && text(group.name) && ['choose', 'add_side', 'exchange'].includes(group.type)
+    && typeof group.required === 'boolean' && ['single', 'multi'].includes(group.selection)
+    && Array.isArray(group.options) && group.options.length <= 50
+    && new Set(group.options.map(option => option?.id)).size === group.options.length
+    && (!group.required || group.options.some(option => option?.active !== false))
+    && group.options.every(option => option && Object.keys(option).every(key => ['id', 'name', 'priceAdjustmentMinor', 'active'].includes(key))
+      && text(option.id) && text(option.name) && Number.isSafeInteger(option.priceAdjustmentMinor)
+      && option.priceAdjustmentMinor >= 0 && option.priceAdjustmentMinor <= 10000000
+      && (option.active === undefined || typeof option.active === 'boolean'))));
+
+
 // Embedded meals are catalogue values, never separate Product documents.
 export const hasEmbeddedMenu = plan => plan?.weeklyMenuVersion === 2 || hasRotationMenu(plan);
 export const validEmbeddedMeal = meal => meal && typeof meal === 'object' && !Array.isArray(meal)
-  && Object.keys(meal).every(key => ['photoUrl', 'name', 'price', 'calories', 'description', 'recipeId'].includes(key))
+  && Object.keys(meal).every(key => ['photoUrl', 'name', 'price', 'calories', 'description', 'recipeId', 'optionGroups'].includes(key))
   && (meal.recipeId === undefined && !Object.hasOwn(meal, 'recipeId') || (typeof meal.recipeId === 'string' && Boolean(meal.recipeId.trim())))
   && typeof meal.photoUrl === 'string' && Boolean(meal.photoUrl.trim())
   && typeof meal.name === 'string' && Boolean(meal.name.trim()) && meal.name.length <= 160
   && Number.isFinite(meal.price) && meal.price >= 0
+  && validMealOptionGroups(meal.optionGroups)
   && (meal.calories === undefined || (Number.isInteger(meal.calories) && meal.calories >= 0))
   && (meal.description === undefined || (typeof meal.description === 'string' && meal.description.length <= 1200));
 
@@ -102,6 +118,7 @@ export const weekRangeLabel = monday => {
 };
 
 export const validateWeeklyStructure = product => {
+  if (hasEmbeddedMenu(product) && Object.values(product.rotationWeeks || product.weeklyWeeks || {}).some(week => Object.values(week?.meals || {}).some(meal => meal?.optionGroups !== undefined && !validMealOptionGroups(meal.optionGroups)))) return 'Each meal option group needs a name, valid choices and prices, and an active option when required.';
   if (product.weeklyMenuVersion !== undefined && ![2, 3].includes(product.weeklyMenuVersion)) return 'Choose a supported Healthy Lunch menu format.';
   if (hasRotationMenu(product)) {
     if (product.weeklyWeeks !== undefined || product.weeklyMeals !== undefined || getWeeklyDates(product.rotationStartMonday).length !== 5) return 'Choose a valid rotation start Monday.';

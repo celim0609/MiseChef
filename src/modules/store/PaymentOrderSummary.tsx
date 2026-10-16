@@ -1,3 +1,4 @@
+import MealOptionSummary from './MealOptionSummary';
 import { deliveryFeeLabel } from './storeOrderFulfilments';
 import { formatRegionCurrency } from '../../regions';
 import type { StorePaymentOrderSummary } from './types';
@@ -10,6 +11,7 @@ export default function PaymentOrderSummary({ summary }: { summary: StorePayment
         {summary.items.map((item, index) => (
           <div key={`${item.productName}_${index}`} className="border-b border-surface-container-high pb-3 last:border-0 last:pb-0">
             <div className="flex justify-between gap-3 font-sans text-sm font-extrabold text-primary"><span>{item.quantity} × {item.productName}</span><span>{formatRegionCurrency(item.lineTotal, summary.totals.currency)}</span></div>
+            {item.serviceDate && <p className="mt-1 text-sm">{item.serviceDate}</p>}<MealOptionSummary snapshot={item} />
             {item.setSnapshot?.selectedGroups.map((selection, selectionIndex) => <p key={`${selection.groupName}_${selectionIndex}`} className="mt-1 font-sans text-xs font-bold text-on-surface-variant">{selection.groupName}: {selection.productName}{selection.priceAdjustment > 0 ? ` (+${formatRegionCurrency(selection.priceAdjustment, summary.totals.currency)})` : ''}</p>)}
             {item.selectedOptions.map((option, optionIndex) => <p key={`${option.groupName}_${optionIndex}`} className="mt-1 font-sans text-xs font-bold text-on-surface-variant">{option.groupName}: {option.optionName}{option.quantity && option.quantity > 1 ? ` x${option.quantity}` : ''}{option.priceAdjustment !== 0 ? ` (${option.priceAdjustment > 0 ? '+' : '−'}${formatRegionCurrency(Math.abs(option.priceAdjustment) * (option.quantity || 1), summary.totals.currency)})` : ''}</p>)}
           </div>

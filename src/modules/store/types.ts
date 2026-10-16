@@ -7,7 +7,7 @@ export interface OrderFulfilment {
 export interface PublicOrderFulfilment {
   id: string; method: 'pickup' | 'delivery'; date: string; time: string;
   pickupLocationName: string; completed: boolean;
-  meals: Array<{ productName: string; quantity: number }>;
+  meals: Array<{ productName: string; quantity: number } & MealOptionSnapshot>;
 }
 export interface FulfilmentOperation {
   kitchenStatus?: string;
@@ -237,11 +237,18 @@ export interface StoreOptionGroupDraft {
 
 export type WeeklyDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri';
 export type WeeklyMeals = Record<WeeklyDay, string>;
-export interface HealthyLunchMeal { recipeId?: string; photoUrl: string; name: string; price: number; calories?: number; description?: string }
+export interface MealOptionGroup {
+  id: string; name: string; type: 'choose' | 'add_side' | 'exchange'; required: boolean; selection: 'single' | 'multi';
+  options: Array<{ id: string; name: string; priceAdjustmentMinor: number; active?: boolean }>;
+}
+export interface MealOptionChoice { optionGroupId: string; optionId: string; serviceDate: string }
+export interface SelectedMealOption extends MealOptionChoice { optionGroupName: string; optionGroupType: MealOptionGroup['type']; optionName: string; priceAdjustmentMinor: number }
+export interface MealOptionSnapshot { serviceDate?: string; selectedMealOptions?: SelectedMealOption[]; optionSurchargeUnitMinor?: number }
+export interface HealthyLunchMeal { optionGroups?: MealOptionGroup[]; recipeId?: string; photoUrl: string; name: string; price: number; calories?: number; description?: string }
 export type EmbeddedWeeklyMeals = Record<WeeklyDay, HealthyLunchMeal>;
 export type WeeklyWeeks = Partial<Record<'week1' | 'week2' | 'week3' | 'week4', { startMonday: string; meals: WeeklyMeals | EmbeddedWeeklyMeals }>>;
 export type RotationWeeks = Partial<Record<'week1' | 'week2' | 'week3' | 'week4', { meals: EmbeddedWeeklyMeals }>>;
-export interface WeeklyMealSnapshot { day: WeeklyDay; productId: string; productName: string; photoUrl: string; price?: number; calories?: number; description?: string }
+export interface WeeklyMealSnapshot extends MealOptionSnapshot { day: WeeklyDay; productId: string; productName: string; photoUrl: string; price?: number; calories?: number; description?: string }
 export interface WeeklyFulfilment extends WeeklyMealSnapshot {
   date: string; pickupTime: string; pickupLocationId: string; pickupLocationName: string;
   pickupLocationAddress: string; quantity: number;
@@ -400,6 +407,8 @@ export interface PublicStoreData {
 }
 
 export interface CartSelection {
+  selectedMealOptions?: MealOptionChoice[];
+  healthyLunchWeekMonday?: string;
   healthyLunchPlanId?: string;
   healthyLunchDate?: string;
   productId: string;
@@ -450,7 +459,7 @@ export interface StoreOrderItemOption {
 export interface StoreOrderItem {
   calories?: number;
   description?: string;
-  healthyLunchSnapshot?: { planId: string; date: string };
+  healthyLunchSnapshot?: { planId: string; date: string } & MealOptionSnapshot;
   weeklyPlanSnapshot?: { meals: WeeklyMealSnapshot[]; startMonday?: string };
   itemType?: 'product' | 'set';
   productId: string;
@@ -624,6 +633,7 @@ export interface CustomerStoreOrderSummary {
     lineTotal?: number;
     promotionAdjustment?: { discountAmount: number; finalLineTotal: number };
     setSelections: Array<{ groupName: string; productName: string }>;
+    serviceDate?: string; selectedMealOptions?: SelectedMealOption[]; optionSurchargeUnitMinor?: number;
     selectedOptions: Array<{ groupName: string; optionName: string }>;
   }>;
   remarks: string;
@@ -723,6 +733,7 @@ export interface StorePaymentOrderSummary {
     productName: string;
     quantity: number;
     lineTotal: number;
+    serviceDate?: string; selectedMealOptions?: SelectedMealOption[]; optionSurchargeUnitMinor?: number;
     selectedOptions: Array<{ groupName: string; optionName: string; priceAdjustment: number; quantity?: number }>;
     setSnapshot?: { setName: string; selectedGroups: Array<{ groupName: string; productName: string; priceAdjustment: number }> };
   }>;

@@ -1,3 +1,4 @@
+import { publicMealOptionSnapshot } from './healthyLunchOptions.js';
 import { productAllowsFulfilmentDate } from './storeProductAvailability.js';
 import { isWeeklyMealPlan, WEEKLY_DAYS, getWeeklyDates, weeklyCartError, validateWeeklyMealPlan, resolveWeeklyMeals, isDatedWeekOpen, isHealthyLunchWeekBlocked, hasDatedMenu, fullWeekDateStore, fullWeekServiceDatesAvailable, validateHealthyLunchDay, isFullWeekSelection, resolvePlanMeal, hasEmbeddedMenu, weeklyMealSnapshot } from './storeWeeklyMealPlan.js';
 
@@ -90,6 +91,6 @@ export const publicOrderFulfilments = order => Array.isArray(order.fulfilments) 
   meals: entry.allocations.map(allocation => {
     const item = order.items?.[allocation.itemIndex];
     const meal = allocation.componentDay ? item?.weeklyPlanSnapshot?.meals?.find(meal => meal.day === allocation.componentDay) : item;
-    return { productName: meal?.productName || '', quantity: allocation.quantity, ...(meal?.photoUrl ? { photoUrl: meal.photoUrl } : {}), ...(meal?.calories !== undefined ? { calories: meal.calories } : {}), ...(meal?.description !== undefined ? { description: meal.description } : {}) };
+    return { ...publicMealOptionSnapshot(allocation.componentDay ? meal : item?.healthyLunchSnapshot), productName: meal?.productName || '', quantity: allocation.quantity, ...(meal?.photoUrl ? { photoUrl: meal.photoUrl } : {}), ...(meal?.calories !== undefined ? { calories: meal.calories } : {}), ...(meal?.description !== undefined ? { description: meal.description } : {}) };
   })
 })) : undefined;

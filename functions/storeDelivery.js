@@ -182,7 +182,7 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
   draft = scheduled.draft;
   const schedule = assertFutureLalamoveSchedule(validateDeliverySchedule(scheduleStore, deliveryConfig(scheduleStore), draft));
   // Rebuild cart on the server. The browser does not send prices or service type.
-  const items = buildOrderItems(draft?.selections || [], checkout.products, checkout.optionGroups, checkout.sets);
+  const items = buildOrderItems(draft?.selections || [], checkout.products, checkout.optionGroups, checkout.sets, fulfilments?.fulfilments[0]?.date || draft.deliveryDate);
   if (!items.length) throw deliveryError('Your cart is empty.');
   const quotation = await provider.createQuote(buildLalamoveQuoteRequest({ config, pickup, destination, schedule }));
   const quote = quoteSnapshot(quotation);

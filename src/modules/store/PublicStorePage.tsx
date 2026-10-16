@@ -1,3 +1,5 @@
+import { resolveSelectionMealOptions, mealOptionSurcharge } from '../../../functions/healthyLunchOptions.js';
+import MealOptionSummary from './MealOptionSummary';
 import { HealthyLunchCheckoutDates } from './HealthyLunchCheckoutDates';
 import HealthyLunchMenu, { type HealthyLunchChoice } from './HealthyLunchMenu';
 import { addDatedHealthyLunchLine, groupFulfilmentSchedule, selectionAllowsDate, usesScheduledCheckout, commonPickupTimes, applySharedTime, checkoutDayGroups, scheduleDateLabel, deliveryFeeLabel, type DraftFulfilment } from './storeOrderFulfilments';
@@ -678,17 +680,21 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     });
     const setSelections = line.selectedSetItems || [];
     const setAnalysis = set ? calculateStoreSetAnalysis(set, data?.products || [], setSelections) : null;
-    const unitPrice = setAnalysis?.sellingPrice ?? calculateStoreOptionAdjustedPrice(
+    let mealOptionDays = [];
+    let mealOptionError = '';
+    try { mealOptionDays = resolveSelectionMealOptions(line, data?.products || [], line.healthyLunchWeekMonday || (fulfilmentMethod === 'delivery' ? deliveryDate : pickupDate)); } catch (error) { mealOptionError = (error as Error).message; }
+    const baseUnitPrice = setAnalysis?.sellingPrice ?? calculateStoreOptionAdjustedPrice(
       product?.price || 0, options.flatMap(item => Array(item.selection.quantity || 1).fill(item.option?.priceAdjustment || 0))
     );
+    const unitPrice = mealOptionDays.length ? (Math.round(baseUnitPrice * 100) + mealOptionSurcharge(mealOptionDays)) / 100 : baseUnitPrice;
     const setItems = setSelections.map(selection => ({
       group: set?.groups.find(group => group.id === selection.groupId),
       product: data?.products.find(candidate => candidate.id === selection.productId),
       adjustment: set?.groups.find(group => group.id === selection.groupId)
         ?.options.find(option => option.productId === selection.productId)?.priceAdjustment || 0
     }));
-    return { line, product, set, options, setItems, unitPrice, lineTotal: unitPrice * line.quantity };
-  }), [cart, data, optionGroupsById]);
+    return { line, product, set, options, setItems, mealOptionDays, mealOptionError, unitPrice, lineTotal: mealOptionDays.length ? Math.round(unitPrice * 100) * line.quantity / 100 : unitPrice * line.quantity };
+  }), [cart, data, optionGroupsById, fulfilmentMethod, deliveryDate, pickupDate]);
 
   const configuredProductPrice = useMemo(() => {
     if (!configuringProduct) return 0;
@@ -894,6 +900,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
         fulfilmentMethod === 'delivery' ? deliveryTime : pickupTime
       ));
       if (fulfilmentMethod === 'pickup' && !sharedPickupTimes.includes(pickupTime)) throw new Error('Choose a pickup time available on every selected day.');
+      if (weeklyCartPlan && cart[0]?.selectedMealOptions?.length && cart[0].healthyLunchWeekMonday !== selectedWeekMonday) throw new Error('The service week changed. Remove the plan and select its meal options again.');
       if (weeklyCartPlan && hasDatedMenu(weeklyCartPlan) && (!isDatedWeekOpen(data!.store, selectedWeekMonday, pickupClock) || isHealthyLunchWeekBlocked(weeklyCartPlan, selectedWeekMonday))) throw new Error('This 5-Day Plan is closed.');
       if (weeklyCartPlan && (hasDatedMenu(weeklyCartPlan) ? !scheduleDateStore || !fullWeekServiceDatesAvailable(scheduleDateStore, selectedWeekMonday, getValidPickupDates, pickupClock) : proposedFulfilments.some(entry => !scheduleDates.includes(entry.date)))) throw new Error('Choose an available Monday–Friday week.');
       if (weeklyCartPlan && proposedFulfilments.length !== 5) throw new Error('Choose an available Monday–Friday week.');
@@ -913,8 +920,9 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     method => method.id === paymentMethodId && method.enabled && method.id !== 'cash_on_pickup'
   );
 
-  const addConfiguredProduct = (product: StoreProduct, selectedOptions: CartSelection['selectedOptions']) => {
-    const key = selectionKey(product.id, selectedOptions);
+  const addConfiguredProduct = (product: StoreProduct, selectedOptions: CartSelection['selectedOptions'], mealChoice?: HealthyLunchChoice) => {
+    const selectedMealOptions = mealChoice?.selectedMealOptions || [];
+    const key = selectionKey(product.id, selectedOptions) + (mealChoice ? `_${mealChoice.date}_${selectedMealOptions.map(choice => `${choice.serviceDate}:${choice.optionGroupId}:${choice.optionId}`).sort().join('|')}` : '');
     if (data && (weeklyCartError([...cart.filter(line => line.key !== key), { productId: product.id, selectedOptions }], data.products) || (isWeeklyMealPlan(product) && groupOrder))) {
       setCheckoutError('A Weekly Meal Plan must be purchased alone, without Sets, options or Group Orders.'); setIsCheckoutOpen(true); return;
     }
@@ -926,7 +934,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
           ? { ...line, quantity: Math.min(20, line.quantity + 1) }
           : line);
       }
-      return [...current, { key, productId: product.id, quantity: 1, selectedOptions }];
+      return [...current, { key, productId: product.id, quantity: 1, selectedOptions, ...(mealChoice ? { healthyLunchWeekMonday: mealChoice.date, selectedMealOptions } : {}) }];
     });
     setConfiguringProduct(null);
     setConfiguredOptions({});
@@ -1014,7 +1022,8 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
         const validDates = [...getValidPickupDates(data.store), ...(data.store.delivery?.fulfilment.preOrder.enabled ? getValidPickupDates(healthyDateStore('delivery')) : [])];
         if (!meal || !meal.available || !validDates.includes(choice.date) || !(hasEmbeddedMenu(product) || selectionAllowsDate({ productId: meal.id, quantity: 1, selectedOptions: [] }, data.products, choice.date))) { setCheckoutError('Choose an available lunch date.'); setIsCheckoutOpen(true); return; }
         if (weeklyCartPlan || groupOrder) { setCheckoutError('Order Healthy Lunch separately from a 5-Day Plan or Group Order.'); setIsCheckoutOpen(true); return; }
-        setCart(current => addDatedHealthyLunchLine(current, product.id, meal.id, choice.date));
+        try { resolveSelectionMealOptions({ productId: meal.id, healthyLunchPlanId: product.id, healthyLunchDate: choice.date, selectedMealOptions: choice.selectedMealOptions }, data.products); } catch (error) { setCheckoutError((error as Error).message); setIsCheckoutOpen(true); return; }
+        setCart(current => addDatedHealthyLunchLine(current, product.id, meal.id, choice.date, choice.selectedMealOptions));
         setDeliveryMode('preorder');
         setPlacedOrder(null); setPaymentSession(null); setCheckoutError(''); sessionStorage.removeItem(checkoutRecoveryKey);
         return;
@@ -1022,8 +1031,10 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
       const available = [...availablePlanMondays(product, 'pickup'), ...availablePlanMondays(product, 'delivery')];
       const monday = available.includes(choice.date) ? choice.date : available[0];
       if (!monday) { setCheckoutError('No 5-Day Plans are currently available.'); setIsCheckoutOpen(true); return; }
+      try { resolveSelectionMealOptions({ productId: product.id, selectedMealOptions: choice.selectedMealOptions }, data.products, monday); } catch (error) { setCheckoutError((error as Error).message); setIsCheckoutOpen(true); return; }
       setPickupDate(monday); setDeliveryDate(monday); setDeliveryMode('preorder');
-      addConfiguredProduct(product, []);
+      const hasMealOptions = getWeeklyDates(monday).some(date => resolveHealthyLunchDay(product, data.products, date)?.optionGroups?.length);
+      addConfiguredProduct(product, [], hasMealOptions ? { ...choice, date: monday } : undefined);
       return;
     }
     if (isWeeklyMealPlan(product) && data) {
@@ -1056,6 +1067,8 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const startPayment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!data || isPlacingOrder || paymentStartRef.current) return;
+    if (cartDetails.some(detail => detail.mealOptionError)) { setCheckoutError('Review your Healthy Lunch options before checkout.'); return; }
+    if (weeklyCartPlan && cart[0]?.selectedMealOptions?.length && cart[0].healthyLunchWeekMonday !== (fulfilmentMethod === 'delivery' ? deliveryDate : pickupDate)) { setCheckoutError('The service week changed. Remove the plan and select its meal options again.'); return; }
     // This synchronous guard closes the interval before React can render the
     // disabled button, while the server-side checkout attempt remains the
     // authoritative idempotency boundary.
@@ -1096,9 +1109,9 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
         ...(checkoutFulfilments ? { fulfilments: checkoutFulfilments } : {}),
         ...(fulfilmentMethod === 'delivery' && quoteForPayment ? { deliveryQuoteId: quoteForPayment.quote.quotationId, deliveryPricingSnapshotId: quoteForPayment.pricingSnapshotId, fulfilmentMode: deliveryMode, ...(deliveryMode === 'preorder' ? { deliveryDate: proposedFulfilments?.[0]?.date || deliveryDate, deliveryTime: proposedFulfilments?.[0]?.time || deliveryTime } : {}), destination: { formattedAddress: quoteForPayment.destination.address, latitude: quoteForPayment.destination.latitude, longitude: quoteForPayment.destination.longitude, deliveryInstructions: deliveryRemarks } } : {}),
         notes,
-        selections: cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems, healthyLunchPlanId, healthyLunchDate }) => ({
+        selections: cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems, healthyLunchPlanId, healthyLunchDate, selectedMealOptions }) => ({
           productId,
-          ...(healthyLunchPlanId ? { healthyLunchPlanId, healthyLunchDate } : {}),
+          ...(healthyLunchPlanId ? { healthyLunchPlanId, healthyLunchDate } : {}), ...(selectedMealOptions?.length ? { selectedMealOptions } : {}),
           ...(setId ? { setId } : {}),
           quantity,
           selectedOptions,
@@ -1174,7 +1187,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     setIsRefreshingDeliveryQuote(refresh);
     setCheckoutError('');
     try {
-      const quote = await storeDeliveryService.quote(slug, cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems, healthyLunchPlanId, healthyLunchDate }) => ({ productId, ...(healthyLunchPlanId ? { healthyLunchPlanId, healthyLunchDate } : {}), ...(setId ? { setId } : {}), quantity, selectedOptions, ...(selectedSetItems ? { selectedSetItems } : {}) })), { ...destination, deliveryInstructions: deliveryRemarks }, proposedFulfilments?.[0]?.date || deliveryDate, proposedFulfilments?.[0]?.time || deliveryTime, deliveryMode, checkoutFulfilments);
+      const quote = await storeDeliveryService.quote(slug, cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems, healthyLunchPlanId, healthyLunchDate, selectedMealOptions }) => ({ productId, ...(healthyLunchPlanId ? { healthyLunchPlanId, healthyLunchDate } : {}), ...(selectedMealOptions?.length ? { selectedMealOptions } : {}), ...(setId ? { setId } : {}), quantity, selectedOptions, ...(selectedSetItems ? { selectedSetItems } : {}) })), { ...destination, deliveryInstructions: deliveryRemarks }, proposedFulfilments?.[0]?.date || deliveryDate, proposedFulfilments?.[0]?.time || deliveryTime, deliveryMode, checkoutFulfilments);
       if (requestId === deliveryQuoteRequestRef.current) {
         setDeliveryQuote(quote);
         return quote;
@@ -1576,7 +1589,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
               <dl className="mt-4 grid gap-3 rounded-2xl bg-white/70 p-4">
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Order Number</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.orderNumber}</dd></div>
                 {placedOrder.pickupCode && <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Code</dt><dd className="mt-0.5 font-display text-2xl font-bold tracking-[0.18em]">{placedOrder.pickupCode}</dd></div>}
-                {placedOrder.fulfilments && <div className="col-span-2"><dt className="font-bold">Scheduled meals</dt><dd><ul>{placedOrder.fulfilments.map(day => <li key={day.id}>{day.date} · {day.time} · {day.method} · {day.pickupLocationName}{day.meals.map((meal, index) => <p key={index}>{meal.quantity} × {meal.productName}</p>)}</li>)}</ul></dd></div>}
+                {placedOrder.fulfilments && <div className="col-span-2"><dt className="font-bold">Scheduled meals</dt><dd><ul>{placedOrder.fulfilments.map(day => <li key={day.id}>{day.date} · {day.time} · {day.method} · {day.pickupLocationName}{day.meals.map((meal, index) => <div key={index}><p>{meal.quantity} × {meal.productName}</p><MealOptionSummary snapshot={meal} /></div>)}</li>)}</ul></dd></div>}
                 {placedOrder.weeklyFulfilments && <div className="col-span-2"><dt className="font-bold">Weekly Meal Plan · Mon–Fri</dt><dd><ul>{placedOrder.weeklyFulfilments.map(day => <li key={day.day} className="mt-2 text-sm font-bold">{day.day.toUpperCase()} · {day.date} · {day.pickupTime} · {day.pickupLocationName} · {day.quantity} × {day.productName}</li>)}</ul></dd></div>}
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Date</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{formatPickupDateLabel(placedOrder.pickupDate, store.country)}</dd></div>
                 <div><dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-green-700">Pickup Location</dt><dd className="mt-0.5 font-sans text-sm font-extrabold">{placedOrder.pickupLocationName}</dd></div>
@@ -1624,7 +1637,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
               )}
               <h3 id="payment-stage-heading" className="mb-3 font-display text-xl font-bold text-primary">Payment</h3>
               {checkoutError && <p role="alert" className="mb-3 rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
-              {paymentSession.orderSummary?.fulfilments && <ul aria-label="Paid order schedule" className="mb-4 space-y-2">{paymentSession.orderSummary.fulfilments.map(day => <li key={day.id} className="rounded-xl bg-surface-container-low p-3 font-bold">{day.date} · {day.time} · {day.method}{day.meals.map((meal, index) => <p key={index}>{meal.quantity} × {meal.productName}</p>)}</li>)}</ul>}
+              {paymentSession.orderSummary?.fulfilments && <ul aria-label="Paid order schedule" className="mb-4 space-y-2">{paymentSession.orderSummary.fulfilments.map(day => <li key={day.id} className="rounded-xl bg-surface-container-low p-3 font-bold">{day.date} · {day.time} · {day.method}{day.meals.map((meal, index) => <div key={index}><p>{meal.quantity} × {meal.productName}</p><MealOptionSummary snapshot={meal} /></div>)}</li>)}</ul>}
               <StorePaymentCheckout
                 session={paymentSession}
                 customerName={customerName}
@@ -1668,11 +1681,13 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
               <section aria-labelledby="checkout-order-summary-heading">
                 <h3 id="checkout-order-summary-heading" className="mt-5 font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Order Summary</h3>
               <div className="mt-5 space-y-4">
-                {cartDetails.map(({ line, product, set, options, setItems, lineTotal }) => (product || set) && (
+                {cartDetails.map(({ line, product, set, options, setItems, mealOptionDays, mealOptionError, lineTotal }) => (product || set) && (
                   <div key={line.key} className="border-b border-surface-container-high pb-4">
                     <div className="flex justify-between gap-3">
                       <div>
                         <p className="font-sans text-sm font-extrabold text-primary">{line.quantity} × {set?.name || product?.name}</p>{line.healthyLunchDate && <p className="text-sm font-bold text-primary">{scheduleDateLabel(line.healthyLunchDate)}</p>}
+                        {mealOptionDays.filter(day => day.selectedMealOptions?.length).map((day, index) => <div key={index}><p className="mt-1 text-xs font-bold">{day.serviceDate && scheduleDateLabel(day.serviceDate)}</p><MealOptionSummary snapshot={day} /></div>)}
+                        {mealOptionError && <p role="alert">{mealOptionError} Remove this line and select again.</p>}
                         {setItems.map(({ group, product: selectedProduct, adjustment }, index) => group && selectedProduct && (
                           <p key={`${group.id}-${selectedProduct.id}-${index}`} className="mt-0.5 font-sans text-[11px] font-bold text-on-surface-variant">
                             {group.name}: {selectedProduct.name}

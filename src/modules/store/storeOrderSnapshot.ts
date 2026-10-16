@@ -1,3 +1,4 @@
+import type { MealOptionSnapshot, SelectedMealOption } from './types';
 import type {
   StoreOrderItem,
   WeeklyFulfilment,
@@ -14,6 +15,18 @@ const readString = (value: unknown, fallback = '') => (
 const readNumber = (value: unknown) => (
   Number.isFinite(Number(value)) ? Number(value) : 0
 );
+
+export const normalizeMealOptionSnapshot = (value: unknown): MealOptionSnapshot => {
+  if (!value || typeof value !== 'object') return {};
+  const day = value as Record<string, unknown>;
+  if (!Array.isArray(day.selectedMealOptions)) return {};
+  return { serviceDate: readString(day.serviceDate), optionSurchargeUnitMinor: readNumber(day.optionSurchargeUnitMinor),
+    selectedMealOptions: day.selectedMealOptions.map((option): SelectedMealOption => ({
+      optionGroupId: readString(option.optionGroupId), optionGroupName: readString(option.optionGroupName),
+      optionGroupType: option.optionGroupType, optionId: readString(option.optionId), optionName: readString(option.optionName),
+      priceAdjustmentMinor: readNumber(option.priceAdjustmentMinor), serviceDate: readString(option.serviceDate)
+    })) };
+};
 
 const normalizeSelectedOption = (value: unknown): StoreOrderItemOption => {
   const option = value && typeof value === 'object' ? value as Record<string, unknown> : {};
@@ -74,7 +87,7 @@ export const normalizeStoreOrderItem = (value: unknown): StoreOrderItem => {
       ? item.selectedOptions.map(normalizeSelectedOption)
       : [],
     ...(setSnapshot ? { setSnapshot } : {}),
-    ...(item.healthyLunchSnapshot && typeof item.healthyLunchSnapshot === 'object' ? { healthyLunchSnapshot: { planId: readString((item.healthyLunchSnapshot as { planId?: string }).planId), date: readString((item.healthyLunchSnapshot as { date?: string }).date) } } : {}),
+    ...(item.healthyLunchSnapshot && typeof item.healthyLunchSnapshot === 'object' ? { healthyLunchSnapshot: { planId: readString((item.healthyLunchSnapshot as { planId?: string }).planId), date: readString((item.healthyLunchSnapshot as { date?: string }).date), ...normalizeMealOptionSnapshot(item.healthyLunchSnapshot) } } : {}),
     ...(item.weeklyPlanSnapshot && typeof item.weeklyPlanSnapshot === 'object' && Array.isArray((item.weeklyPlanSnapshot as { meals?: unknown }).meals) ? { weeklyPlanSnapshot: { ...((item.weeklyPlanSnapshot as { startMonday?: string }).startMonday ? { startMonday: readString((item.weeklyPlanSnapshot as { startMonday?: string }).startMonday) } : {}), meals: ((item.weeklyPlanSnapshot as { meals: unknown[] }).meals).map(normalizeWeeklyMeal) } } : {})
   };
 };
@@ -90,7 +103,7 @@ export const formatStoreOrderSetSelection = (
 
 const normalizeWeeklyMeal = (value: unknown): WeeklyMealSnapshot => {
   const meal = value && typeof value === 'object' ? value as Record<string, unknown> : {};
-  return { day: readString(meal.day) as WeeklyMealSnapshot['day'], productId: readString(meal.productId), productName: readString(meal.productName), photoUrl: readString(meal.photoUrl), ...(meal.price !== undefined ? { price: readNumber(meal.price) } : {}), ...(meal.calories !== undefined ? { calories: readNumber(meal.calories) } : {}), ...(meal.description !== undefined ? { description: readString(meal.description) } : {}) };
+  return { ...normalizeMealOptionSnapshot(meal), day: readString(meal.day) as WeeklyMealSnapshot['day'], productId: readString(meal.productId), productName: readString(meal.productName), photoUrl: readString(meal.photoUrl), ...(meal.price !== undefined ? { price: readNumber(meal.price) } : {}), ...(meal.calories !== undefined ? { calories: readNumber(meal.calories) } : {}), ...(meal.description !== undefined ? { description: readString(meal.description) } : {}) };
 };
 
 export const normalizeWeeklyFulfilments = (value: unknown): WeeklyFulfilment[] | undefined => Array.isArray(value) ? value.map(entry => ({

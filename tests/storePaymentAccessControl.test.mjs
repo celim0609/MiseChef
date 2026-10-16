@@ -777,3 +777,31 @@ test('rotation products save sparse weeks and blocked dates with existing mercha
   await assertFails(ref.update({ rotationWeeks: { week5: { meals } } }));
   await assertFails(ref.update({ weeklyWeeks: { week1: embeddedWeekRecord('2026-10-19') } }));
 });
+
+test('per-meal option groups save/reload in v2/v3 with existing merchant permissions and no global option documents', async () => {
+  const optionGroups = [{ id: 'egg-choice', name: 'Egg Choice', type: 'choose', required: true, selection: 'single', options: [
+    { id: 'boiled', name: 'Hard Boiled Egg', priceAdjustmentMinor: 0 },
+    { id: 'omega', name: 'Omega Onsen Egg', priceAdjustmentMinor: 120 },
+    { id: 'kangori', name: 'Kangori Onsen Egg', priceAdjustmentMinor: 220 }
+  ] }];
+  for (const version of [2,3]) {
+    const id = `healthy-options-v${version}`;
+    const meals = Object.fromEntries(weeklyDays.map(day => [day, { ...embeddedMealRecord(day), ...(day === 'mon' ? { optionGroups } : {}) }]));
+    const menuKey = version === 3 ? 'rotationWeeks' : 'weeklyWeeks';
+    const menu = { week1: { meals, ...(version === 2 ? { startMonday: '2026-10-19' } : {}) } };
+    const record = { ...createProductRecord(id), productType: 'weekly_meal_plan', weeklyMenuVersion: version, optionGroupIds: [], availableDay: 'all', [menuKey]: menu,
+      ...(version === 3 ? { rotationStartMonday: '2026-10-19', healthyLunchBlockedDates: [] } : {}) };
+    const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+    await assertSucceeds(ref.set(record));
+    assert.deepEqual((await ref.get()).data()[menuKey].week1.meals.mon.optionGroups,optionGroups);
+    assert.equal((await anonymous.firestore().doc(`storeProducts/${id}`).get()).data()[menuKey].week1.meals.tue.optionGroups,undefined);
+    const edited = structuredClone(menu);
+    edited.week1.meals.mon.optionGroups[0].name = 'Edited Egg Choice';
+    await assertSucceeds(managerA.firestore().doc(`storeProducts/${id}`).update({ [menuKey]: edited }));
+    assert.equal((await ref.get()).data()[menuKey].week1.meals.mon.optionGroups[0].id,'egg-choice');
+    for (const context of [anonymous, memberA, ownerB, customerA]) await assertFails(context.firestore().doc(`storeProducts/${id}`).update({ [menuKey]: menu }));
+    delete edited.week1.meals.mon.optionGroups;
+    await assertSucceeds(ref.update({ [menuKey]: edited }));
+    assert.equal((await ref.get()).data()[menuKey].week1.meals.mon.optionGroups,undefined);
+  }
+});

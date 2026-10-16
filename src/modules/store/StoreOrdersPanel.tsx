@@ -1,3 +1,4 @@
+import MealOptionSummary from './MealOptionSummary';
 import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
@@ -382,7 +383,7 @@ export default function StoreOrdersPanel({
                 <div key={`${selectedOrder.id}_${item.productId}_${itemIndex}`} className="rounded-2xl border border-surface-container-high p-4">
                   <div className="flex justify-between gap-4">
                     <div>
-                      <h3 className="font-sans text-sm font-extrabold text-primary">{item.quantity} × {item.productName}</h3>
+                      <h3 className="font-sans text-sm font-extrabold text-primary">{item.quantity} × {item.productName}</h3><MealOptionSummary snapshot={item.healthyLunchSnapshot} />
                       <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Base {formatRegionCurrency(item.basePrice, currency)}</p>
                     </div>
                     <p className="font-sans text-sm font-extrabold text-primary">{formatRegionCurrency(item.lineTotal, currency)}</p>
@@ -463,7 +464,7 @@ export default function StoreOrdersPanel({
                 const complete = Boolean(selectedOrder.fulfilmentCompletion?.[day.id]);
                 const dispatchStatus = operation?.dispatch?.status || 'not_requested';
                 const canAct = canProcessOrders && selectedOrder.payment.status === 'paid' && !['Completed', 'Cancelled'].includes(selectedOrder.fulfilmentStatus);
-                return <div key={day.id} className="rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>{day.date} · {day.time} · {day.method} · {day.pickupLocationName}</p>{day.allocations.map((allocation, index) => { const item = selectedOrder.items[allocation.itemIndex]; const meal = allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(meal => meal.day === allocation.componentDay) : item; return <p key={index}>{allocation.quantity} × {meal?.productName}</p>; })}
+                return <div key={day.id} className="rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>{day.date} · {day.time} · {day.method} · {day.pickupLocationName}</p>{day.allocations.map((allocation, index) => { const item = selectedOrder.items[allocation.itemIndex]; const meal = allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(meal => meal.day === allocation.componentDay) : item; return <div key={index}><p>{allocation.quantity} × {meal?.productName}</p><MealOptionSummary snapshot={allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(meal => meal.day === allocation.componentDay) : item?.healthyLunchSnapshot} /></div>; })}
                   {complete ? <span>Completed</span> : canAct && (day.method === 'pickup' ? <button type="button" disabled={isUpdating} onClick={() => updateStatus('Completed', undefined, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">Complete {day.date}</button> : <div><p>{operation?.kitchenStatus || 'Scheduled'} · {dispatchStatus} · {operation?.lifecycle?.state || ''}</p>{operation?.providerOrder?.orderId && <p>Lalamove: {operation.providerOrder.orderId}</p>}
                     {operation?.kitchenStatus !== 'Ready' && <button type="button" disabled={isUpdating} onClick={() => updateStatus('Ready', undefined, day.id)} className="m-2 rounded-full border px-4 py-2">Mark ready</button>}
                     {operation?.kitchenStatus === 'Ready' && ['not_requested', 'failed'].includes(dispatchStatus) && <button type="button" disabled={isUpdating} onClick={() => dispatchDelivery(selectedOrder.id, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">Request Lalamove</button>}

@@ -1,3 +1,4 @@
+import { resolveSelectionMealOptions, mealOptionSurcharge, mergeMealOptionSnapshots, publicMealOptionSnapshot } from './healthyLunchOptions.js';
 import { calculateDeliveryDayPricing } from './storeDeliveryPricing.js';
 import { buildOrderFulfilments, publicOrderFulfilments } from './storeOrderFulfilments.js';
 import { buildWeeklyOrderDetails, isWeeklyMealPlan, publicWeeklyFulfilments, validateHealthyLunchDay, hasEmbeddedMenu } from './storeWeeklyMealPlan.js';
@@ -318,8 +319,13 @@ const buildSetOrderItem = (selection, sets, products) => {
   };
 };
 
-export const buildOrderItems = (selections, products, optionGroups, sets = []) => selections.map(selection => {
-  if (readString(selection.setId)) return buildSetOrderItem(selection, sets, products);
+export const buildOrderItems = (selections, products, optionGroups, sets = [], serviceMonday) => selections.map(selection => {
+  if (readString(selection.setId)) {
+    if (selection.selectedMealOptions?.length) throw new Error('Sets cannot contain meal options.');
+    return buildSetOrderItem(selection, sets, products);
+  }
+  const mealOptionDays = resolveSelectionMealOptions(selection, products, serviceMonday);
+  const surchargeMinor = mealOptionSurcharge(mealOptionDays);
   let product = products.find(candidate => (
     candidate.id === readString(selection.productId) && candidate.available === true
   ));
@@ -384,13 +390,16 @@ export const buildOrderItems = (selections, products, optionGroups, sets = []) =
   }
 
   const basePrice = roundMoney(Math.max(0, readNumber(product.price)));
-  const unitPrice = roundMoney(Math.max(
+  const legacyUnitPrice = roundMoney(Math.max(
     0,
     basePrice + selectedOptions.reduce((sum, option) => sum + option.priceAdjustment * (option.quantity || 1), 0)
   ));
+  const unitMinor = Math.round(legacyUnitPrice * 100) + surchargeMinor;
+  const unitPrice = mealOptionDays.length ? unitMinor / 100 : legacyUnitPrice;
+  if (mealOptionDays.length && !Number.isSafeInteger(unitMinor * selection.quantity)) throw new Error('Invalid meal total.');
   return {
     itemType: 'product',
-    ...(selection.healthyLunchPlanId ? { healthyLunchSnapshot: { planId: selection.healthyLunchPlanId, date: selection.healthyLunchDate } } : {}),
+    ...(selection.healthyLunchPlanId ? { healthyLunchSnapshot: { planId: selection.healthyLunchPlanId, date: selection.healthyLunchDate, ...mealOptionDays[0] } } : {}),
     productId: product.id,
     productName: readString(product.name),
     photoUrl: readString(product.photoUrl),
@@ -398,8 +407,10 @@ export const buildOrderItems = (selections, products, optionGroups, sets = []) =
     quantity: selection.quantity,
     basePrice,
     unitPrice,
-    lineTotal: roundMoney(unitPrice * selection.quantity),
-    selectedOptions
+    lineTotal: mealOptionDays.length ? unitMinor * selection.quantity / 100 : roundMoney(unitPrice * selection.quantity),
+    selectedOptions,
+    // Transient pricing input; removed before persisting the purchased order.
+    ...(mealOptionDays.some(day => day.selectedMealOptions?.length) && !selection.healthyLunchDate ? { mealOptionDays } : {})
   };
 });
 
@@ -437,8 +448,8 @@ export const buildPendingOrder = ({
     name: 'Secure online payment'
   };
   const weekly = scheduled ? null : buildWeeklyOrderDetails({ store, draft, products, groupOrder, now, getDates: getValidPickupDates, getTimes: getPickupTimeSlots });
-  const items = buildOrderItems(draft.selections, products, optionGroups, sets);
-  if (weekly || scheduled?.weeklyPlanSnapshot) items[0].weeklyPlanSnapshot = weekly?.weeklyPlanSnapshot || scheduled.weeklyPlanSnapshot;
+  const items = buildOrderItems(draft.selections, products, optionGroups, sets, scheduled?.fulfilments[0]?.date || draft.pickupDate);
+  if (weekly || scheduled?.weeklyPlanSnapshot) items[0].weeklyPlanSnapshot = mergeMealOptionSnapshots(weekly?.weeklyPlanSnapshot || scheduled.weeklyPlanSnapshot, resolveSelectionMealOptions(draft.selections[0], products, scheduled?.fulfilments[0]?.date || draft.pickupDate));
   const fulfilmentDate = draft.deliverySnapshot
     ? (draft.deliverySnapshot?.fulfilmentMode === 'instant'
       ? currentFulfilmentDate(region.timeZone, now)
@@ -467,6 +478,7 @@ export const buildPendingOrder = ({
   if (dayPricing) { deliveryFee = dayPricing.customerDeliveryFee; firstDayFee = dayPricing.days[0].customerDeliveryFee; }
   const storeAbsorbedDeliveryFee = roundMoney(Math.max(providerDeliveryFee * (dayPricing ? fulfilmentCount : 1) - deliveryFee, 0));
   const total = roundMoney(discountedMerchandiseTotal + deliveryFee);
+  items.forEach(item => { delete item.mealOptionDays; });
   const amountMinor = Math.round(total * 100);
   if (amountMinor < 1) throw new Error('Order total must be greater than zero.');
   const createdAt = now.toISOString();
@@ -585,6 +597,7 @@ export const toPublicPaymentOrderSummary = order => {
     )) : [];
     return {
       productName: readString(item.productName), quantity, lineTotal, selectedOptions,
+      ...publicMealOptionSnapshot(item.healthyLunchSnapshot),
       ...(readString(item?.setSnapshot?.setName) && selectedGroups.length
         ? { setSnapshot: { setName: readString(item.setSnapshot.setName), selectedGroups } }
         : {})

@@ -1,3 +1,4 @@
+import HealthyLunchOptionsEditor from './HealthyLunchOptionsEditor';
 import type { HealthyLunchMeal, EmbeddedWeeklyMeals } from './types';
 import { isWeeklyMealPlan, WEEKLY_DAYS, WEEK_SLOTS, validateWeeklyMealPlan } from '../../../functions/storeWeeklyMealPlan.js';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
@@ -1226,6 +1227,7 @@ export default function StorePage({
                         <label className="block text-sm font-bold">Single-day price<input aria-label={`Week ${index + 1} ${day} price`} required type="number" min="0" step="0.01" value={meals[day].price} onChange={event => updateMeal(day, { price: event.target.value === '' ? NaN : Number(event.target.value) })} className="mt-1 block w-full rounded-xl border p-2" /></label>
                         <label className="block text-sm font-bold">Kcal (optional)<input aria-label={`Week ${index + 1} ${day} kcal`} type="number" min="0" step="1" value={meals[day].calories ?? ''} onChange={event => updateMeal(day, { calories: event.target.value === '' ? undefined : Number(event.target.value) })} className="mt-1 block w-full rounded-xl border p-2" /></label>
                         <label className="block text-sm font-bold">Description (optional)<textarea aria-label={`Week ${index + 1} ${day} description`} maxLength={1200} value={meals[day].description || ''} onChange={event => updateMeal(day, { description: event.target.value || undefined })} className="mt-1 block w-full rounded-xl border p-2" /></label>
+                        <HealthyLunchOptionsEditor groups={meals[day].optionGroups} onChange={optionGroups => updateMeal(day, { optionGroups })} />
                       </fieldset>)}
                     </details>;
                   })}</>}
