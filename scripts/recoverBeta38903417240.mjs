@@ -27,7 +27,19 @@ export function assertMode(env) {
     || env.EXPECTED_CANDIDATE_SHA !== proof.candidate || env.EXPECTED_CONTROLLER_SHA !== env.GITHUB_SHA
     || !/^[0-9a-f]{40}$/.test(env.EXPECTED_CONTROLLER_SHA || '')) fail('protected main workflow, exact authorization, candidate and controller SHA are required.');
 }
+export function assertServices(services) {
+  if (!Array.isArray(services) || services.length!==proof.functions.length) fail('Cloud Run service inventory differs.');
+  const byName=new Map(services.map(service=>[service.name,service]));
+  for (const fn of proof.functions) {
+    const service=byName.get(fn.name.replace('/functions/','/services/').replace(/[^/]+$/,name=>name.toLowerCase()));
+    const short=value=>String(value || '').split('/').at(-1);
+    const traffic=service?.trafficStatuses || [];
+    if (!service || short(service.latestCreatedRevision)!==fn.revision || short(service.latestReadyRevision)!==fn.revision || service.terminalCondition?.state!=='CONDITION_SUCCEEDED'
+      || !traffic.length || traffic.reduce((sum,item)=>sum+Number(item.percent || 0),0)!==100 || !traffic.every(item=>short(item.revision)===fn.revision)) fail(`Cloud Run ready revision or actual traffic differs for ${fn.name}.`);
+  }
+}
 export function assertState(state, finalized = false) {
+  assertServices(state.services);
   if (state.release?.version?.name !== proof.beforeVersion) fail('live Hosting changed or incident already completed.');
   if (state.target?.name !== proof.targetVersion || state.target.status !== (finalized ? 'FINALIZED' : 'CREATED')) fail('uploaded incident version is unavailable or already consumed.');
   if (state.target.createTime !== '2026-10-16T12:57:34.630996Z' || state.target.createUser?.email !== `github-beta-deployer@${project}.iam.gserviceaccount.com`) fail('uploaded version provenance differs.');
@@ -81,12 +93,13 @@ async function main() {
   };
   const get = async (url,params) => (await request({ method:'GET',url,...(params ? {params} : {}) })).data;
   const readState = async () => {
-    const [releases,target,files,functions] = await Promise.all([
+    const [releases,target,files,functions,services] = await Promise.all([
       get(`${hosting}sites/${project}/releases`,{pageSize:1}),get(hosting+proof.targetVersion),get(`${hosting}${proof.targetVersion}/files`,{pageSize:1000}),
-      get(`https://cloudfunctions.googleapis.com/v2/projects/${project}/locations/us-central1/functions`,{pageSize:1000})
+      get(`https://cloudfunctions.googleapis.com/v2/projects/${project}/locations/us-central1/functions`,{pageSize:1000}),
+      get(`https://run.googleapis.com/v2/projects/${project}/locations/us-central1/services`,{pageSize:1000})
     ]);
-    if (files.nextPageToken || functions.nextPageToken) fail('proof requires a complete unpaginated inventory.');
-    return { release:releases.releases?.[0],target,files:files.files || [],functions:functions.functions || [] };
+    if (files.nextPageToken || functions.nextPageToken || services.nextPageToken) fail('proof requires a complete unpaginated inventory.');
+    return { release:releases.releases?.[0],target,files:files.files || [],functions:functions.functions || [],services:services.services || [] };
   };
   const before = await readState(); assertState(before);
   // These immutable source generations were byte-verified against all 102 tracked
@@ -96,7 +109,7 @@ async function main() {
   writeFileSync(path.join(evidence,'recovery-before.json'),JSON.stringify({ incidentRun:proof.incidentRun,targetVersion:proof.targetVersion,liveVersion:before.release.version.name,functions:canonicalFunctions(before.functions) },null,2));
   if (process.argv.includes('--dry-run')) { console.log('Exact incident proof passed; no writes performed.');return; }
   await recover({readState,request});
-  const after = await readState();
+  const after = await readState(); assertServices(after.services);
   if (after.release?.version?.name !== proof.targetVersion || !same(canonicalFunctions(after.functions),canonicalFunctions(before.functions))) fail('post-recovery Hosting version or unchanged Functions proof failed.');
   if (!same(canonicalFiles(after.files),canonicalFiles(proof.files))) fail('published file hashes changed.');
   let live;

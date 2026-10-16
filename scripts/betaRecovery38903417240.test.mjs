@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { proof,assertMode,assertState,assertWrite,assertCandidateHostingConfig,recover } from './recoverBeta38903417240.mjs';
+import { proof,assertMode,assertServices,assertState,assertWrite,assertCandidateHostingConfig,recover } from './recoverBeta38903417240.mjs';
 const env={ GITHUB_ACTIONS:'true',GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_REF:'refs/heads/main',GITHUB_WORKFLOW_REF:'celim0609/MiseChef/.github/workflows/recover-beta-38903417240.yml@refs/heads/main',GITHUB_RUN_ATTEMPT:'1',MISECHEF_BETA_CI_LOCK_ID:'misechef-beta-deployment',RECOVERY_CONFIRMATION:'RECOVER BETA INCIDENT 38903417240 HOSTING ONLY',EXPECTED_CANDIDATE_SHA:proof.candidate,EXPECTED_CONTROLLER_SHA:'a'.repeat(40),GITHUB_SHA:'a'.repeat(40) };
-const state=()=>({ release:{version:{name:proof.beforeVersion,config:structuredClone(proof.hostingConfig)}},target:{name:proof.targetVersion,status:'CREATED',createTime:'2026-10-16T12:57:34.630996Z',createUser:{email:'github-beta-deployer@misechef-beta-fa4bf.iam.gserviceaccount.com'}},files:structuredClone(proof.files),functions:proof.functions.map(f=>({name:f.name,state:f.state,serviceConfig:{revision:f.revision,allTrafficOnLatestRevision:f.allTrafficOnLatestRevision},buildConfig:{sourceProvenance:{resolvedStorageSource:f.source}}})),objects:proof.functions.map(f=>({name:f.source.object,generation:f.source.generation,md5Hash:proof.sourceArchiveMd5,size:'317077'})) });
+const state=()=>({ services:proof.functions.map(f=>({name:f.name.replace('/functions/','/services/').replace(/[^/]+$/,name=>name.toLowerCase()),latestCreatedRevision:f.revision,latestReadyRevision:f.revision,terminalCondition:{state:'CONDITION_SUCCEEDED'},trafficStatuses:[{revision:f.revision,percent:100}]})),release:{version:{name:proof.beforeVersion,config:structuredClone(proof.hostingConfig)}},target:{name:proof.targetVersion,status:'CREATED',createTime:'2026-10-16T12:57:34.630996Z',createUser:{email:'github-beta-deployer@misechef-beta-fa4bf.iam.gserviceaccount.com'}},files:structuredClone(proof.files),functions:proof.functions.map(f=>({name:f.name,state:f.state,serviceConfig:{revision:f.revision,allTrafficOnLatestRevision:f.allTrafficOnLatestRevision},buildConfig:{sourceProvenance:{resolvedStorageSource:f.source}}})),objects:proof.functions.map(f=>({name:f.source.object,generation:f.source.generation,md5Hash:proof.sourceArchiveMd5,size:'317077'})) });
 
 test('only exact protected main workflow, incident, candidate, controller, lock and first attempt are accepted',()=>{
  assert.doesNotThrow(()=>assertMode(env));
@@ -39,4 +39,9 @@ test('pinned Hosting routing matches the reviewed candidate configuration and re
  const config=JSON.parse(readFileSync(new URL('../firebase.json',import.meta.url))).hosting;
  assert.doesNotThrow(()=>assertCandidateHostingConfig(config));
  config.rewrites[0].function.functionId='other';assert.throws(()=>assertCandidateHostingConfig(config),/refused/);
+});
+
+test('checks actual Cloud Run ready revisions and 100% traffic, not just cached Functions configuration',()=>{
+ assert.doesNotThrow(()=>assertServices(state().services));
+ for(const change of [s=>s.pop(),s=>s[0].latestReadyRevision='other',s=>s[0].latestCreatedRevision='other',s=>s[0].trafficStatuses[0].revision='other',s=>s[0].trafficStatuses[0].percent=50,s=>s[0].terminalCondition.state='CONDITION_FAILED']){const services=state().services;change(services);assert.throws(()=>assertServices(services),/refused/);}
 });
