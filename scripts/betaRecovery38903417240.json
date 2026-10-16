@@ -1,0 +1,808 @@
+{
+  "incidentRun": "38903417240",
+  "candidate": "8a3a3294026822ac505c674bd8d1a4ea184d9e3c",
+  "sourceTree": "f342c88500a803a1f39f8172469143fe9f3aab8a",
+  "baseline": "06a37c0d30c47e037994454119a0461955df4ee3",
+  "beforeVersion": "sites/misechef-beta-fa4bf/versions/085e195923189a27",
+  "targetVersion": "sites/misechef-beta-fa4bf/versions/14fe4e47319d8004",
+  "entryAsset": "/assets/index-lhVnLCX5.js",
+  "sourceArchiveSha256": "ffca90b3f97835cf5f716878ea66598fddcf5ad0a028fee913b062f2dc5ddd63",
+  "sourceArchiveMd5": "KpV/SBbsqOrezQE/0esTWQ==",
+  "indexSha256": "25697e3633427dbf338f172c192f82f0c051974d00e12cd3b8eaf406e409c6a6",
+  "hostingConfig": {
+    "headers": [
+      {
+        "headers": {
+          "Cache-Control": "no-cache, no-store, must-revalidate"
+        },
+        "glob": "/app"
+      },
+      {
+        "headers": {
+          "Cache-Control": "no-cache, no-store, must-revalidate"
+        },
+        "glob": "/app/**"
+      },
+      {
+        "headers": {
+          "Cache-Control": "no-cache, no-store, must-revalidate"
+        },
+        "regex": "^/(?:|features/?|pricing/?|book-demo/?|contact/?|login/?|recipes(?:/.*)?|chefs/?|chef(?:/.*)?|@.*|orders/?|host(?:/.*)?|group(?:/.*)?)$"
+      }
+    ],
+    "rewrites": [
+      {
+        "glob": "/store/**",
+        "run": {
+          "serviceId": "renderpublicstore",
+          "region": "us-central1"
+        }
+      },
+      {
+        "regex": "^/recipes/[^/]+/?$",
+        "run": {
+          "serviceId": "renderpublicrecipe",
+          "region": "us-central1"
+        }
+      },
+      {
+        "glob": "/go/recipes/**",
+        "run": {
+          "serviceId": "trackpublicproductclick",
+          "region": "us-central1"
+        }
+      },
+      {
+        "glob": "**",
+        "path": "/index.html"
+      }
+    ]
+  },
+  "files": [
+    {
+      "path": "/.well-known/misechef-beta-release.json",
+      "hash": "5678acd7f9d741344f710959695ccc2a84ea0409804666d2115c1bd3e26a3450",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/__/firebase/init.js",
+      "hash": "50a264f6fc1e4b0bb5d85f20ae44bcca28cbbdf7d54fc4986007192dd490d186",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/__/firebase/init.json",
+      "hash": "5edfef6c0dcd4c18080bf46176a8d2c10e7bdf0cf5e2870676cf8336b60d2be1",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/assets/index-ZpzuW7Tj.css",
+      "hash": "11f88b0fa64f023b8e38b2d5aa9feb44902efd76a6f98758c14af204f2b0d62e",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/assets/index-lhVnLCX5.js",
+      "hash": "95b533152936b3c242b04b79cb298b6e74379994633358def46ac317593ba552",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/assets/logo/logo-black.png",
+      "hash": "194e79a648664c99e21240f9a51ec51930ec96255b3a59c21c93cb6bad38a319",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/assets/logo/logo-black.svg",
+      "hash": "872337e49528aa8e6b55664f879fa1fd28d229bbfdd4c9dc1046439654881ae0",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/assets/logo/logo-white.png",
+      "hash": "6047a1f179b6b6facb302bbaa660cf3900573f0562866d962706cca87f79ca81",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/assets/logo/logo-white.svg",
+      "hash": "95e2c4c35ba6966e9376ad418ec1d34c510d7dd825320a850f804f09024e2432",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/assets/pdf-CJRVEglZ.js",
+      "hash": "e9bcd117e56c5814d7ffddfb49c5750950de8802e9eaebf04ea03d4d2c892689",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/assets/pdf-NkhGRooA.js",
+      "hash": "5dd01878f358db8e03ec4febd87cb130434bc34abd7a40892e51ef05608cf6a8",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/assets/pdf.worker.min-CFOIyuof.js",
+      "hash": "76a6828fffa5165bada5ac9e817703245396bee888cb634f365c364a5649e517",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/assets/pdf.worker.min-CrMmvqMo.mjs",
+      "hash": "73ef3299e9aea3a644b3543632fe238c5fe6470136e20c9ca41bb564b353db29",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/assets/products/redman-bread-flour-1kg.jpg",
+      "hash": "d7c2c6b1ea31b828c388aa8e5f643381c119092ef47238f2c775c7c9f5823d45",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/assets/store-share-default.png",
+      "hash": "f603da603079e97caa9d4f7b791ffb27615c42f950f4fb08e9d4e201f7dfe599",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/images/about/ce-lim-chef.jpg",
+      "hash": "a50fbd68da78bff0371a84cc24e9575189423856b99167c0738641dc3bef7f45",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/images/about/kitchen-team.jpg",
+      "hash": "34b8350da8881afc5a8e493a1056ffff89f981bffda22fcdf54b538b6abda481",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/images/about/kitchen-work-01.jpg",
+      "hash": "6c903f9452a64259ba49af6142f5084c754e3957f71bb697acda17b732ff04c1",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/images/about/kitchen-work-02.jpg",
+      "hash": "62db4c4694cc26ba260561bdb1f7ee14cc0ac2726c4c75fcfb3ee3ebf46ec7db",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/images/about/recipe-notebook.jpg",
+      "hash": "ca47df7e641efef8b6d05399163c0e69204d7eaafd049615a3ca738624dfabd0",
+      "status": "ACTIVE"
+    },
+    {
+      "path": "/index.html",
+      "hash": "3f3ff792b6b31b5a95fd2611cb680b3bf5767c8ccd6d9c24f11373b5ba10d5a7",
+      "status": "ACTIVE"
+    }
+  ],
+  "functions": [
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/activateMiseChefHost",
+      "state": "ACTIVE",
+      "revision": "activatemisechefhost-00190-dah",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "activateMiseChefHost/function-source.zip",
+        "generation": "1792155465572294"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/authorizeWorkspaceFeature",
+      "state": "ACTIVE",
+      "revision": "authorizeworkspacefeature-00193-wom",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "authorizeWorkspaceFeature/function-source.zip",
+        "generation": "1792155513981870"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/calculateWorkspaceRecipeCosting",
+      "state": "ACTIVE",
+      "revision": "calculateworkspacerecipecosting-00030-wel",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "calculateWorkspaceRecipeCosting/function-source.zip",
+        "generation": "1792155513984286"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/cancelInvoiceUpload",
+      "state": "ACTIVE",
+      "revision": "cancelinvoiceupload-00193-liw",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "cancelInvoiceUpload/function-source.zip",
+        "generation": "1792155514104583"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/cancelPublicStorePayment",
+      "state": "ACTIVE",
+      "revision": "cancelpublicstorepayment-00196-ned",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "cancelPublicStorePayment/function-source.zip",
+        "generation": "1792155463396632"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/cancelStoreLalamoveDelivery",
+      "state": "ACTIVE",
+      "revision": "cancelstorelalamovedelivery-00141-yun",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "cancelStoreLalamoveDelivery/function-source.zip",
+        "generation": "1792155511193756"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/claimPublicStoreGuestOrder",
+      "state": "ACTIVE",
+      "revision": "claimpublicstoreguestorder-00068-fop",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "claimPublicStoreGuestOrder/function-source.zip",
+        "generation": "1792155511200291"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/cleanupMyMiseChefGroupOrder",
+      "state": "ACTIVE",
+      "revision": "cleanupmymisechefgrouporder-00176-xos",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "cleanupMyMiseChefGroupOrder/function-source.zip",
+        "generation": "1792155513970788"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/confirmUsdaIngredientNutrition",
+      "state": "ACTIVE",
+      "revision": "confirmusdaingredientnutrition-00052-ner",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "confirmUsdaIngredientNutrition/function-source.zip",
+        "generation": "1792155514015972"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/createInvoiceUpload",
+      "state": "ACTIVE",
+      "revision": "createinvoiceupload-00193-yit",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "createInvoiceUpload/function-source.zip",
+        "generation": "1792155514813572"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/createMiseChefGroupOrder",
+      "state": "ACTIVE",
+      "revision": "createmisechefgrouporder-00191-vid",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "createMiseChefGroupOrder/function-source.zip",
+        "generation": "1792155514097574"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/createPublicStoreDeliveryQuote",
+      "state": "ACTIVE",
+      "revision": "createpublicstoredeliveryquote-00140-mah",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "createPublicStoreDeliveryQuote/function-source.zip",
+        "generation": "1792155511240816"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/createPublicStorePayment",
+      "state": "ACTIVE",
+      "revision": "createpublicstorepayment-00204-wuc",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "createPublicStorePayment/function-source.zip",
+        "generation": "1792155511216649"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/createStoreExternalPosOrder",
+      "state": "ACTIVE",
+      "revision": "createstoreexternalposorder-00112-wud",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "createStoreExternalPosOrder/function-source.zip",
+        "generation": "1792155511244434"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/curlecStorePaymentWebhook",
+      "state": "ACTIVE",
+      "revision": "curlecstorepaymentwebhook-00155-gej",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "curlecStorePaymentWebhook/function-source.zip",
+        "generation": "1792155511121254"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/dispatchStoreLalamoveDelivery",
+      "state": "ACTIVE",
+      "revision": "dispatchstorelalamovedelivery-00141-xum",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "dispatchStoreLalamoveDelivery/function-source.zip",
+        "generation": "1792155511316559"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/expireWorkspaceTrials",
+      "state": "ACTIVE",
+      "revision": "expireworkspacetrials-00194-xav",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "expireWorkspaceTrials/function-source.zip",
+        "generation": "1792155514130705"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/extractPersonalExpenseReceipt",
+      "state": "ACTIVE",
+      "revision": "extractpersonalexpensereceipt-00195-duv",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "extractPersonalExpenseReceipt/function-source.zip",
+        "generation": "1792155540985639"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/generateRecipeSteps",
+      "state": "ACTIVE",
+      "revision": "generaterecipesteps-00195-rec",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "generateRecipeSteps/function-source.zip",
+        "generation": "1792155511299829"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/getDashboardAiUsage",
+      "state": "ACTIVE",
+      "revision": "getdashboardaiusage-00193-laq",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "getDashboardAiUsage/function-source.zip",
+        "generation": "1792155514006611"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/getMyMiseChefGroupOrder",
+      "state": "ACTIVE",
+      "revision": "getmymisechefgrouporder-00180-mev",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "getMyMiseChefGroupOrder/function-source.zip",
+        "generation": "1792155514040490"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/getPublicDiscoverContent",
+      "state": "ACTIVE",
+      "revision": "getpublicdiscovercontent-00190-loz",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "getPublicDiscoverContent/function-source.zip",
+        "generation": "1792155511218321"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/getPublicMiseChefGroupOrder",
+      "state": "ACTIVE",
+      "revision": "getpublicmisechefgrouporder-00191-hik",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "getPublicMiseChefGroupOrder/function-source.zip",
+        "generation": "1792155513970878"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/getPublicStorePaymentResult",
+      "state": "ACTIVE",
+      "revision": "getpublicstorepaymentresult-00199-pob",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "getPublicStorePaymentResult/function-source.zip",
+        "generation": "1792155524022087"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/getPublicStorePromotions",
+      "state": "ACTIVE",
+      "revision": "getpublicstorepromotions-00117-jow",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "getPublicStorePromotions/function-source.zip",
+        "generation": "1792155514019946"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/getStoreLalamoveSandboxCityInfo",
+      "state": "ACTIVE",
+      "revision": "getstorelalamovesandboxcityinfo-00141-vot",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "getStoreLalamoveSandboxCityInfo/function-source.zip",
+        "generation": "1792155528164725"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/getWorkspaceNutritionProfiles",
+      "state": "ACTIVE",
+      "revision": "getworkspacenutritionprofiles-00030-zij",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "getWorkspaceNutritionProfiles/function-source.zip",
+        "generation": "1792155513943064"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/getWorkspaceSubscription",
+      "state": "ACTIVE",
+      "revision": "getworkspacesubscription-00194-qok",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "getWorkspaceSubscription/function-source.zip",
+        "generation": "1792155514076550"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/listApprovedProducts",
+      "state": "ACTIVE",
+      "revision": "listapprovedproducts-00193-tav",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "listApprovedProducts/function-source.zip",
+        "generation": "1792155514044510"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/listMyMiseChefGroupOrders",
+      "state": "ACTIVE",
+      "revision": "listmymisechefgrouporders-00191-kev",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "listMyMiseChefGroupOrders/function-source.zip",
+        "generation": "1792155514077792"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/listMyMiseChefStoreOrders",
+      "state": "ACTIVE",
+      "revision": "listmymisechefstoreorders-00177-lub",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "listMyMiseChefStoreOrders/function-source.zip",
+        "generation": "1792155528418999"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/parseInvoiceToJson",
+      "state": "ACTIVE",
+      "revision": "parseinvoicetojson-00195-yod",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "parseInvoiceToJson/function-source.zip",
+        "generation": "1792155588509629"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/parseResumeToPortfolio",
+      "state": "ACTIVE",
+      "revision": "parseresumetoportfolio-00198-jaj",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "parseResumeToPortfolio/function-source.zip",
+        "generation": "1792155528675160"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/processResumeImportJob",
+      "state": "ACTIVE",
+      "revision": "processresumeimportjob-00193-pub",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "processResumeImportJob/function-source.zip",
+        "generation": "1792155531341611"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/provisionNewUserWorkspace",
+      "state": "ACTIVE",
+      "revision": "provisionnewuserworkspace-00195-god",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "provisionNewUserWorkspace/function-source.zip",
+        "generation": "1792155514015838"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/reconcileLalamoveSandboxDeliveries",
+      "state": "ACTIVE",
+      "revision": "reconcilelalamovesandboxdeliveries-00141-sag",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "reconcileLalamoveSandboxDeliveries/function-source.zip",
+        "generation": "1792155513962510"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/recordPersonalExpenseSettlement",
+      "state": "ACTIVE",
+      "revision": "recordpersonalexpensesettlement-00193-qos",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "recordPersonalExpenseSettlement/function-source.zip",
+        "generation": "1792155530943688"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/refreshStoreLalamoveDelivery",
+      "state": "ACTIVE",
+      "revision": "refreshstorelalamovedelivery-00141-won",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "refreshStoreLalamoveDelivery/function-source.zip",
+        "generation": "1792155530905004"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/renderPublicRecipe",
+      "state": "ACTIVE",
+      "revision": "renderpublicrecipe-00105-tep",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "renderPublicRecipe/function-source.zip",
+        "generation": "1792155530953962"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/renderPublicStore",
+      "state": "ACTIVE",
+      "revision": "renderpublicstore-00202-jem",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "renderPublicStore/function-source.zip",
+        "generation": "1792155531334457"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/resolveRecipeIngredientEnrichment",
+      "state": "ACTIVE",
+      "revision": "resolverecipeingredientenrichment-00044-haf",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "resolveRecipeIngredientEnrichment/function-source.zip",
+        "generation": "1792155513949557"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/reviewStoreManualPayment",
+      "state": "ACTIVE",
+      "revision": "reviewstoremanualpayment-00195-nis",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "reviewStoreManualPayment/function-source.zip",
+        "generation": "1792155531570987"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/saveChefIngredientNutrition",
+      "state": "ACTIVE",
+      "revision": "savechefingredientnutrition-00030-vox",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "saveChefIngredientNutrition/function-source.zip",
+        "generation": "1792155513984300"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/scanRecipeImage",
+      "state": "ACTIVE",
+      "revision": "scanrecipeimage-00195-cit",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "scanRecipeImage/function-source.zip",
+        "generation": "1792155588458833"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/searchUsdaNutritionCatalog",
+      "state": "ACTIVE",
+      "revision": "searchusdanutritioncatalog-00052-kin",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "searchUsdaNutritionCatalog/function-source.zip",
+        "generation": "1792155513938171"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/startMiseChefBusinessTrial",
+      "state": "ACTIVE",
+      "revision": "startmisechefbusinesstrial-00171-wul",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "startMiseChefBusinessTrial/function-source.zip",
+        "generation": "1792155513986561"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/stripeStorePaymentWebhook",
+      "state": "ACTIVE",
+      "revision": "stripestorepaymentwebhook-00197-pup",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "stripeStorePaymentWebhook/function-source.zip",
+        "generation": "1792155531825276"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/submitPublicStoreManualPayment",
+      "state": "ACTIVE",
+      "revision": "submitpublicstoremanualpayment-00195-tev",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "submitPublicStoreManualPayment/function-source.zip",
+        "generation": "1792155533271534"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/syncApprovedProductRecipes",
+      "state": "ACTIVE",
+      "revision": "syncapprovedproductrecipes-00193-tac",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "syncApprovedProductRecipes/function-source.zip",
+        "generation": "1792155514490408"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/syncCanonicalChefProfile",
+      "state": "ACTIVE",
+      "revision": "synccanonicalchefprofile-00193-xox",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "syncCanonicalChefProfile/function-source.zip",
+        "generation": "1792155515239134"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/syncMiseChefGroupReward",
+      "state": "ACTIVE",
+      "revision": "syncmisechefgroupreward-00190-tar",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "syncMiseChefGroupReward/function-source.zip",
+        "generation": "1792155514659754"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/syncPublicChefProfile",
+      "state": "ACTIVE",
+      "revision": "syncpublicchefprofile-00194-kih",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "syncPublicChefProfile/function-source.zip",
+        "generation": "1792155514781704"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/syncPublicRecipe",
+      "state": "ACTIVE",
+      "revision": "syncpublicrecipe-00194-pox",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "syncPublicRecipe/function-source.zip",
+        "generation": "1792155515364857"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/trackPublicProductClick",
+      "state": "ACTIVE",
+      "revision": "trackpublicproductclick-00193-coh",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "trackPublicProductClick/function-source.zip",
+        "generation": "1792155514844179"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/updateMyMiseChefGroupOrderStatus",
+      "state": "ACTIVE",
+      "revision": "updatemymisechefgrouporderstatus-00180-wef",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "updateMyMiseChefGroupOrderStatus/function-source.zip",
+        "generation": "1792155514075727"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/updateStoreGroupOrderBatchStatus",
+      "state": "ACTIVE",
+      "revision": "updatestoregrouporderbatchstatus-00173-buz",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "updateStoreGroupOrderBatchStatus/function-source.zip",
+        "generation": "1792155538306521"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/updateStoreOrderStatus",
+      "state": "ACTIVE",
+      "revision": "updatestoreorderstatus-00196-xox",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "updateStoreOrderStatus/function-source.zip",
+        "generation": "1792155538458238"
+      }
+    },
+    {
+      "name": "projects/misechef-beta-fa4bf/locations/us-central1/functions/uploadPublicStorePaymentReceipt",
+      "state": "ACTIVE",
+      "revision": "uploadpublicstorepaymentreceipt-00195-deg",
+      "allTrafficOnLatestRevision": true,
+      "source": {
+        "bucket": "gcf-v2-sources-16155495480-us-central1",
+        "object": "uploadPublicStorePaymentReceipt/function-source.zip",
+        "generation": "1792155538446981"
+      }
+    }
+  ]
+}

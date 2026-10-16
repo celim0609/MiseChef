@@ -1,0 +1,83 @@
+name: Beta Incident 38903417240 Hosting Recovery
+on:
+  workflow_dispatch:
+    inputs:
+      recovery_confirmation:
+        description: Type RECOVER BETA INCIDENT 38903417240 HOSTING ONLY
+        required: true
+        type: string
+      expected_controller_sha:
+        description: Exact reviewed main commit containing this recovery controller
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: misechef-beta-deployment
+  cancel-in-progress: false
+jobs:
+  recover-hosting-only:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.recovery_confirmation == 'RECOVER BETA INCIDENT 38903417240 HOSTING ONLY' && inputs.expected_controller_sha == github.sha }}
+    environment: beta
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      FIREBASE_DEPLOY_TARGET: beta
+      MISECHEF_BETA_PROTECTED_BASELINE: ${{ vars.MISECHEF_BETA_PROTECTED_BASELINE }}
+      MISECHEF_BETA_CI_LOCK_ID: misechef-beta-deployment
+      RECOVERY_CONFIRMATION: ${{ inputs.recovery_confirmation }}
+      EXPECTED_CONTROLLER_SHA: ${{ inputs.expected_controller_sha }}
+      EXPECTED_CANDIDATE_SHA: 8a3a3294026822ac505c674bd8d1a4ea184d9e3c
+      VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+      VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+      VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
+      VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+      VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+      VITE_STRIPE_PUBLISHABLE_KEY: ${{ vars.VITE_STRIPE_PUBLISHABLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ github.sha }}', path: recovery-gate, fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with: { ref: 9c2173b9f9ae42b1fc09826c57cef46697759452, path: trusted-gate, fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with: { ref: 8a3a3294026822ac505c674bd8d1a4ea184d9e3c, path: candidate, fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - name: Install immutable trusted gate and exact candidate dependencies
+        run: |
+          npm --prefix trusted-gate ci
+          npm --prefix candidate ci
+          npm --prefix candidate/functions ci
+          npm install --global firebase-tools@14.22.0
+      - name: Verify exact controller and candidate
+        run: |
+          test "$(git -C recovery-gate rev-parse HEAD)" = "$EXPECTED_CONTROLLER_SHA"
+          test "$(git -C candidate rev-parse HEAD)" = "$EXPECTED_CANDIDATE_SHA"
+          test "$(git -C candidate rev-parse HEAD^{tree})" = f342c88500a803a1f39f8172469143fe9f3aab8a
+      - name: Run immutable candidate validation and complete protected regression gate
+        run: |
+          node trusted-gate/scripts/validateBetaReleaseBaseline.mjs --trusted-root "$GITHUB_WORKSPACE/trusted-gate" --candidate-root "$GITHUB_WORKSPACE/candidate"
+          node trusted-gate/scripts/runBetaProtectedTests.mjs --trusted-root "$GITHUB_WORKSPACE/trusted-gate" --candidate-root "$GITHUB_WORKSPACE/candidate"
+          npm --prefix candidate run test:store-sets:rules
+      - name: Verify incident controller fail-closed behavior and unchanged normal release gates
+        run: |
+          node --test recovery-gate/scripts/betaRecovery38903417240.test.mjs
+          node --test candidate/scripts/betaDeploymentSafety.test.mjs
+          git -C recovery-gate diff --exit-code origin/main -- scripts/betaDeploymentSafety.mjs scripts/deployBeta.mjs scripts/validateBetaPredeploy.mjs
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA }}
+      - name: Prove exact uploaded artifact and all Functions revisions without writes
+        run: node recovery-gate/scripts/recoverBeta38903417240.mjs --candidate-root "$GITHUB_WORKSPACE/candidate" --dry-run
+      - name: Finalize and publish only the existing incident Hosting version
+        run: node recovery-gate/scripts/recoverBeta38903417240.mjs --candidate-root "$GITHUB_WORKSPACE/candidate"
+      - name: Preserve before/after recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: beta-incident-38903417240-evidence
+          path: ${{ runner.temp }}/beta-incident-38903417240/recovery-*.json
+          if-no-files-found: ignore
