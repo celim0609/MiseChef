@@ -25,7 +25,7 @@ export default function WhatsAppCustomerButton({
     customerName: order.customerName,
     orderNumber: order.orderNumber,
     pickupDate: order.pickupDate ? formatPickupDateLabel(order.pickupDate, country) : '',
-    pickupTime: order.pickupSession,
+    pickupTime: order.pickupTime || order.pickupSession,
     pickupLocation: order.pickupLocationName,
     fulfilmentMethod: order.fulfilmentMethod === 'delivery' ? 'delivery' : 'pickup',
     fullAddress: order.fulfilmentMethod === 'delivery' ? order.delivery?.recipient?.address || '' : order.pickupLocationAddress || order.pickupLocationName,
