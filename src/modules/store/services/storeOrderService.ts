@@ -19,7 +19,7 @@ import { httpsCallable } from 'firebase/functions';
 import { getBlob, ref } from 'firebase/storage';
 import { db, functions, storage } from '../../../firebase';
 import { getOrderPickupCode } from '../selling';
-import { normalizeStoreOrderItem } from '../storeOrderSnapshot';
+import { normalizeStoreOrderItem, normalizeOrderFulfilments } from '../storeOrderSnapshot';
 import {
   getOrderCompletionTimestamp,
   isOrderOperationallyEligible,
@@ -114,6 +114,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     fulfilmentMethod: data.fulfilmentMethod === 'delivery' ? 'delivery' : 'pickup',
     totals: data.totals && typeof data.totals === 'object' ? data.totals as StoreOrder['totals'] : undefined,
     delivery: data.delivery && typeof data.delivery === 'object' ? data.delivery as StoreOrder['delivery'] : undefined,
+    fulfilments: normalizeOrderFulfilments(data.fulfilments),
     pickupDate: readString(data.pickupDate),
     pickupTime: readString(data.pickupTime),
     pickupSession: readString(data.pickupSession),

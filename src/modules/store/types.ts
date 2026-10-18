@@ -453,7 +453,14 @@ export interface StoreNotification {
   createdAt: string;
 }
 
+export interface OrderFulfilment {
+  id: string; method: 'pickup' | 'delivery'; date: string; time: string;
+  pickupLocationId: string; pickupLocationName: string; pickupLocationAddress: string;
+  allocations: Array<{ itemIndex: number; quantity: number }>;
+}
+
 export interface StoreOrder {
+  fulfilments?: OrderFulfilment[];
   id: string;
   orderNumber: string;
   pickupCode?: string;

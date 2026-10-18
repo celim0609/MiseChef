@@ -81,3 +81,13 @@ export const formatStoreOrderSetSelection = (
     ? ` (+${currency} ${selection.priceAdjustment.toFixed(2)})`
     : ''
 }`;
+
+// Read the server-created per-day snapshots; never infer a date range from items.
+export const normalizeOrderFulfilments = (value: unknown): import('./types').OrderFulfilment[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  return value.filter(entry => entry && typeof entry.id === 'string' && Array.isArray(entry.allocations)).map(entry => ({
+    id: readString(entry.id), method: entry.method === 'delivery' ? 'delivery' : 'pickup', date: readString(entry.date), time: readString(entry.time),
+    pickupLocationId: readString(entry.pickupLocationId), pickupLocationName: readString(entry.pickupLocationName), pickupLocationAddress: readString(entry.pickupLocationAddress),
+    allocations: entry.allocations.filter(allocation => allocation && typeof allocation === 'object').map(allocation => ({ itemIndex: readNumber(allocation.itemIndex), quantity: readNumber(allocation.quantity) }))
+  }));
+};
