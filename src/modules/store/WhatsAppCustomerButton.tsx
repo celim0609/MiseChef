@@ -27,6 +27,14 @@ export default function WhatsAppCustomerButton({
     pickupDate: order.pickupDate ? formatPickupDateLabel(order.pickupDate, country) : '',
     pickupTime: order.pickupSession,
     pickupLocation: order.pickupLocationName,
+    fulfilmentMethod: order.fulfilmentMethod === 'delivery' ? 'delivery' : 'pickup',
+    fullAddress: order.fulfilmentMethod === 'delivery' ? order.delivery?.recipient?.address || '' : order.pickupLocationAddress || order.pickupLocationName,
+    paymentAmount: order.totals?.grandTotal ?? order.total,
+    currency: order.currency,
+    ...(order.fulfilmentMethod === 'delivery' ? {
+      pickupDate: order.delivery?.schedule?.date ? formatPickupDateLabel(order.delivery.schedule.date, country) : '',
+      pickupTime: order.delivery?.schedule?.time || order.delivery?.schedule?.session || ''
+    } : {}),
     pickupCode: order.pickupCode,
     storeName
   });
