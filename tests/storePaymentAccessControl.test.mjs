@@ -612,3 +612,196 @@ test('promotion rules reject invalid type terms and cross-workspace records', as
     ...createPromotionRecord('promo-cross'), workspaceId: WORKSPACE_B, storeId: WORKSPACE_B
   }));
 });
+
+
+test('Store Product Available day is optional, constrained, editable and preserved on reload', async () => {
+  const legacy = ownerA.firestore().doc('storeProducts/day-legacy');
+  await assertSucceeds(legacy.set(createProductRecord('day-legacy')));
+  assert.equal((await legacy.get()).data().availableDay, undefined);
+  for (const availableDay of ['all', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
+    const id = `day-${availableDay}`;
+    const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+    await assertSucceeds(ref.set({ ...createProductRecord(id), availableDay }));
+    assert.equal((await ref.get()).data().availableDay, availableDay);
+    await assertSucceeds(managerA.firestore().doc(`storeProducts/${id}`).update({ availableDay: 'tue' }));
+    assert.equal((await ref.get()).data().availableDay, 'tue');
+    await assertSucceeds(anonymous.firestore().doc(`storeProducts/${id}`).get());
+  }
+  for (const [index, availableDay] of ['', 'monday', 'MON', null, 1, true, ['mon'], { day: 'mon' }].entries()) {
+    const id = `day-invalid-${index}`;
+    await assertFails(ownerA.firestore().doc(`storeProducts/${id}`).set({ ...createProductRecord(id), availableDay }));
+    await assertFails(legacy.update({ availableDay }));
+  }
+});
+
+test('Available day does not widen Store Product permissions or unrelated field validation', async () => {
+  const id = 'day-security';
+  const record = { ...createProductRecord(id), availableDay: 'mon' };
+  const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+  await assertSucceeds(ref.set(record));
+  for (const context of [anonymous, memberA, ownerB, customerA]) {
+    await assertFails(context.firestore().doc(`storeProducts/${id}`).update({ availableDay: 'tue' }));
+    await assertFails(context.firestore().doc('storeProducts/day-unauthorized').set({ ...createProductRecord('day-unauthorized'), availableDay: 'mon' }));
+  }
+  await assertFails(ref.update({ availableDay: 'tue', price: -1 }));
+  await assertFails(ref.update({ availableDay: 'tue', unexpected: true }));
+  await assertFails(ref.update({ availableDay: 'tue', workspaceId: WORKSPACE_B }));
+  await assertSucceeds(ref.update({ available: false }));
+  await assertFails(anonymous.firestore().doc(`storeProducts/${id}`).get());
+});
+
+const weeklyDays = ['mon','tue','wed','thu','fri'];
+const weeklyRecord = id => ({ ...createProductRecord(id), productType: 'weekly_meal_plan', availableDay: 'all', weeklyMeals: Object.fromEntries(weeklyDays.map(day => [day, `weekly-meal-${day}`])) });
+
+test('Weekly Meal Plan schema permits five same-Store singles, persists edits, and preserves optional Single defaults', async () => {
+  for (const day of weeklyDays) {
+    const id = `weekly-meal-${day}`;
+    await assertSucceeds(ownerA.firestore().doc(`storeProducts/${id}`).set({ ...createProductRecord(id), availableDay: day }));
+  }
+  const id = 'weekly-plan-valid';
+  const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+  await assertSucceeds(ref.set(weeklyRecord(id)));
+  const saved = (await ref.get()).data();
+  assert.equal(saved.productType, 'weekly_meal_plan');
+  assert.deepEqual(saved.weeklyMeals, weeklyRecord(id).weeklyMeals);
+  await assertSucceeds(managerA.firestore().doc(`storeProducts/${id}`).update({ price: 45, name: 'Weekly lunch' }));
+  assert.equal((await ref.get()).data().price, 45);
+  await assertSucceeds(anonymous.firestore().doc(`storeProducts/${id}`).get());
+  await assertSucceeds(ownerA.firestore().doc('storeProducts/explicit-single').set({ ...createProductRecord('explicit-single'), productType: 'single' }));
+});
+
+test('Weekly schema rejects invalid references, nesting, options and unknown fields without broadening permissions', async () => {
+  const optionId = 'weekly-option-meal';
+  await assertSucceeds(ownerA.firestore().doc(`storeProducts/${optionId}`).set({ ...createProductRecord(optionId), optionGroupIds: ['options'] }));
+  const hiddenId = 'weekly-hidden-meal';
+  await assertSucceeds(ownerA.firestore().doc(`storeProducts/${hiddenId}`).set({ ...createProductRecord(hiddenId), available: false }));
+  await environment.withSecurityRulesDisabled(async context => {
+    await context.firestore().doc('storeProducts/weekly-foreign-meal').set({ ...createProductRecord('weekly-foreign-meal'), workspaceId: WORKSPACE_B, storeId: WORKSPACE_B });
+  });
+  const invalid = [
+    { productType: 'subscription' }, { productType: null }, { weeklyMeals: {} }, { weeklyMeals: null },
+    { weeklyMeals: { ...weeklyRecord('x').weeklyMeals, sat: 'weekly-meal-mon' } },
+    { optionGroupIds: ['g'] }, { availableDay: 'mon' }, { unexpected: true }, { price: -1 },
+    ...['missing-meal', 'weekly-plan-valid', optionId, hiddenId, 'weekly-foreign-meal', 'weekly-meal-tue'].map(mon => ({ weeklyMeals: { ...weeklyRecord('x').weeklyMeals, mon } }))
+  ];
+  for (const [index, change] of invalid.entries()) {
+    const id = `weekly-invalid-${index}`;
+    await assertFails(ownerA.firestore().doc(`storeProducts/${id}`).set({ ...weeklyRecord(id), ...change }));
+  }
+  await assertFails(ownerA.firestore().doc('storeProducts/weekly-self').set({ ...weeklyRecord('weekly-self'), weeklyMeals: { ...weeklyRecord('x').weeklyMeals, mon: 'weekly-self' } }));
+  for (const context of [anonymous, memberA, ownerB, customerA]) {
+    await assertFails(context.firestore().doc('storeProducts/weekly-plan-valid').update({ price: 50 }));
+    await assertFails(context.firestore().doc('storeProducts/weekly-unauthorized').set(weeklyRecord('weekly-unauthorized')));
+  }
+  await assertFails(ownerA.firestore().doc('storeProducts/explicit-single').update({ weeklyMeals: weeklyRecord('x').weeklyMeals }));
+  await assertFails(ownerA.firestore().doc('storeOrders/order-payment-a').update({ weeklyFulfilments: [], weeklyCompletion: { mon: { completedBy: 'owner-a' } } }));
+});
+
+test('multi-fulfilment snapshots, dispatch claims and frozen pricing remain server-owned', async () => {
+  for (const context of [ownerA, memberA, customerA]) {
+    for (const patch of [
+      { fulfilments: [{ id: 'day_20261012', date: '2026-10-12', time: '10:00', allocations: [{ itemIndex: 0, quantity: 1 }] }] },
+      { fulfilmentCompletion: { day_20261012: { completedBy: 'forged', completedAt: 'now' } } },
+      { fulfilmentOperations: { day_20261012: { dispatch: { status: 'created' }, providerOrder: { orderId: 'forged' } } } },
+      { deliveryPricingSnapshot: { firstDayFee: 0, fulfilmentCount: 0, finalDeliveryTotal: 0 } },
+      { activeFulfilmentDeliveries: false }
+    ]) await assertFails(context.firestore().doc(`storeOrders/${ORDER_A}`).update(patch));
+  }
+});
+
+test('dated four-week schema saves twenty distinct meals within Rules budget and keeps product permissions', async () => {
+  const id = 'dated-healthy-lunch';
+  const weeklyWeeks = Object.fromEntries(['2026-10-19','2026-10-26','2026-11-02','2026-11-09'].map((startMonday, index) => [`week${index + 1}`, { startMonday, meals: Object.fromEntries(weeklyDays.map(day => [day, `dated-${index}-${day}`])) }]));
+  for (const week of Object.values(weeklyWeeks)) for (const [day, mealId] of Object.entries(week.meals)) await assertSucceeds(ownerA.firestore().doc(`storeProducts/${mealId}`).set({ ...createProductRecord(mealId), availableDay: day }));
+  const record = { ...createProductRecord(id), productType: 'weekly_meal_plan', weeklyWeeks };
+  const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+  await assertSucceeds(ref.set(record));
+  assert.deepEqual((await ref.get()).data().weeklyWeeks, weeklyWeeks);
+  await assertSucceeds(managerA.firestore().doc(`storeProducts/${id}`).update({ weeklyWeeks: { week2: weeklyWeeks.week2 } }));
+  for (const context of [anonymous, memberA, ownerB, customerA]) {
+    await assertFails(context.firestore().doc(`storeProducts/${id}`).update({ weeklyWeeks }));
+    await assertFails(context.firestore().doc('storeProducts/dated-unauthorized').set({ ...record, id: 'dated-unauthorized' }));
+  }
+  for (const invalid of [{}, { week5: weeklyWeeks.week1 }, { week1: { ...weeklyWeeks.week1, unknown: true } }, { week1: { ...weeklyWeeks.week1, startMonday: 'Monday' } }, { week1: { ...weeklyWeeks.week1, meals: { mon: 'meal' } } }, { week1: { ...weeklyWeeks.week1, meals: { ...weeklyWeeks.week1.meals, mon: id } } }]) await assertFails(ref.update({ weeklyWeeks: invalid }));
+  await assertFails(ref.update({ productType: 'single' }));
+});
+
+const embeddedMealRecord = day => ({ photoUrl: `https://example.test/embedded-${day}.jpg`, name: `${day} lunch`, price: 12.5, calories: 450, description: 'Healthy lunch' });
+const embeddedWeekRecord = startMonday => ({ startMonday, meals: Object.fromEntries(weeklyDays.map(day => [day, embeddedMealRecord(day)])) });
+
+test('embedded menus save any one to four slots, including Week 2 alone, without Single Products', async () => {
+  const id = 'embedded-healthy-lunch';
+  const weeklyWeeks = { week1: embeddedWeekRecord('2026-10-19'), week2: embeddedWeekRecord('2026-10-26'), week3: embeddedWeekRecord('2026-11-02'), week4: embeddedWeekRecord('2026-11-09') };
+  const record = { ...createProductRecord(id), productType: 'weekly_meal_plan', weeklyMenuVersion: 2, weeklyWeeks };
+  const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+  await assertSucceeds(ref.set(record));
+  for (const slots of [['week2'], ['week1','week3'], ['week1','week2'], ['week1','week2','week3','week4']]) {
+    const selected = Object.fromEntries(slots.map(slot => [slot, weeklyWeeks[slot]]));
+    await assertSucceeds(ref.update({ weeklyWeeks: selected }));
+    assert.deepEqual((await ref.get()).data().weeklyWeeks, selected);
+  }
+  await assertSucceeds(managerA.firestore().doc(`storeProducts/${id}`).update({ price: 50 }));
+  await assertSucceeds(anonymous.firestore().doc(`storeProducts/${id}`).get());
+  for (const context of [anonymous, memberA, ownerB, customerA]) await assertFails(context.firestore().doc(`storeProducts/${id}`).update({ weeklyWeeks: { week2: weeklyWeeks.week2 } }));
+});
+
+test('embedded schema rejects invalid meals and version mixing without changing old weekly schema', async () => {
+  const id = 'embedded-healthy-lunch';
+  const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+  const week = embeddedWeekRecord('2026-10-26');
+  for (const invalid of ['old-product-id', null, []]) await assertFails(ref.update({ weeklyWeeks: { week2: { ...week, meals: { ...week.meals, mon: invalid } } } }));
+  for (const weeklyWeeks of [{}, { week5: week }, { week2: { ...week, meals: { mon: embeddedMealRecord('mon') } } }]) await assertFails(ref.update({ weeklyWeeks }));
+  await assertFails(ref.update({ weeklyMenuVersion: 3 }));
+  await assertFails(ref.update({ weeklyWeeks: { week2: { ...week, meals: weeklyRecord('x').weeklyMeals } } }));
+  const simple = { ...week, meals: Object.fromEntries(weeklyDays.map(day => [day, { photoUrl: 'https://example.test/meal.jpg', name: `${day} simple`, price: 0 }])) };
+  await assertSucceeds(ref.set({ weeklyWeeks: { week3: simple } }, { mergeFields: ['weeklyWeeks'] }));
+  const saved = (await ref.get()).data();
+  assert.deepEqual(Object.keys(saved.weeklyWeeks), ['week3']);
+  assert.equal(saved.weeklyWeeks.week3.meals.mon.description, undefined);
+  assert.equal(saved.weeklyWeeks.week3.meals.mon.calories, undefined);
+});
+
+test('rotation products save sparse weeks and blocked dates with existing merchant permissions', async () => {
+  const id = 'rotation-healthy-lunch';
+  const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+  const meals = Object.fromEntries(weeklyDays.map(day => [day, embeddedMealRecord(day)]));
+  const record = { ...createProductRecord(id), productType: 'weekly_meal_plan', weeklyMenuVersion: 3,
+    rotationStartMonday: '2026-10-19', rotationWeeks: { week2: { meals } }, healthyLunchBlockedDates: ['2026-10-23'], optionGroupIds: [], availableDay: 'all' };
+  await assertSucceeds(ref.set(record));
+  await assertSucceeds(managerA.firestore().doc(`storeProducts/${id}`).update({ healthyLunchBlockedDates: [] }));
+  await assertSucceeds(ref.set({ rotationWeeks: { week4: { meals } } }, { mergeFields: ['rotationWeeks'] }));
+  assert.deepEqual(Object.keys((await ref.get()).data().rotationWeeks), ['week4']);
+  await assertSucceeds(ref.set({ rotationWeeks: Object.fromEntries([1, 2, 3, 4].map(index => [`week${index}`, { meals }])) }, { mergeFields: ['rotationWeeks'] }));
+  for (const context of [anonymous, memberA, ownerB, customerA]) await assertFails(context.firestore().doc(`storeProducts/${id}`).update({ healthyLunchBlockedDates: ['2026-10-23'] }));
+  await assertFails(ref.update({ healthyLunchBlockedDates: ['2026-10-23', '2026-10-23'] }));
+  await assertFails(ref.update({ rotationWeeks: { week5: { meals } } }));
+  await assertFails(ref.update({ weeklyWeeks: { week1: embeddedWeekRecord('2026-10-19') } }));
+});
+
+test('per-meal option groups save/reload in v2/v3 with existing merchant permissions and no global option documents', async () => {
+  const optionGroups = [{ id: 'egg-choice', name: 'Egg Choice', type: 'choose', required: true, selection: 'single', options: [
+    { id: 'boiled', name: 'Hard Boiled Egg', priceAdjustmentMinor: 0 },
+    { id: 'omega', name: 'Omega Onsen Egg', priceAdjustmentMinor: 120 },
+    { id: 'kangori', name: 'Kangori Onsen Egg', priceAdjustmentMinor: 220 }
+  ] }];
+  for (const version of [2,3]) {
+    const id = `healthy-options-v${version}`;
+    const meals = Object.fromEntries(weeklyDays.map(day => [day, { ...embeddedMealRecord(day), ...(day === 'mon' ? { optionGroups } : {}) }]));
+    const menuKey = version === 3 ? 'rotationWeeks' : 'weeklyWeeks';
+    const menu = { week1: { meals, ...(version === 2 ? { startMonday: '2026-10-19' } : {}) } };
+    const record = { ...createProductRecord(id), productType: 'weekly_meal_plan', weeklyMenuVersion: version, optionGroupIds: [], availableDay: 'all', [menuKey]: menu,
+      ...(version === 3 ? { rotationStartMonday: '2026-10-19', healthyLunchBlockedDates: [] } : {}) };
+    const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+    await assertSucceeds(ref.set(record));
+    assert.deepEqual((await ref.get()).data()[menuKey].week1.meals.mon.optionGroups,optionGroups);
+    assert.equal((await anonymous.firestore().doc(`storeProducts/${id}`).get()).data()[menuKey].week1.meals.tue.optionGroups,undefined);
+    const edited = structuredClone(menu);
+    edited.week1.meals.mon.optionGroups[0].name = 'Edited Egg Choice';
+    await assertSucceeds(managerA.firestore().doc(`storeProducts/${id}`).update({ [menuKey]: edited }));
+    assert.equal((await ref.get()).data()[menuKey].week1.meals.mon.optionGroups[0].id,'egg-choice');
+    for (const context of [anonymous, memberA, ownerB, customerA]) await assertFails(context.firestore().doc(`storeProducts/${id}`).update({ [menuKey]: menu }));
+    delete edited.week1.meals.mon.optionGroups;
+    await assertSucceeds(ref.update({ [menuKey]: edited }));
+    assert.equal((await ref.get()).data()[menuKey].week1.meals.mon.optionGroups,undefined);
+  }
+});

@@ -1,3 +1,9 @@
+import { RecipeYieldInput } from './RecipeYieldInput';
+import { parseMeasuredRecipeYield, resolveRecipeYieldDenominator } from '../modules/nutrition/services/recipeYield';
+import { getDefaultLinkedRecipeUnit } from '../modules/costing/services/linkedRecipeUsage';
+import { LinkedRecipeCostSummary } from './LinkedRecipeCostSummary';
+import { calculateRecipeCosting } from '../modules/costing/services/recipeCostCalculator';
+import { RecipeNutritionResult } from './RecipeNutritionResult';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -24,9 +30,7 @@ import RecipeCostAnalysis from './RecipeCostAnalysis';
 import { calculateRecipeEditorCostPreview } from '../modules/costing/services/recipeEditorCostPreview';
 import IngredientLibraryPicker from './IngredientLibraryPicker';
 import { validateRecipeDependencies } from '../modules/costing/services/recipeDependencyModel';
-import { loadIngredientNutritionProfiles } from '../modules/nutrition/services/ingredientNutritionProfileService';
-import { calculateRecipeNutrition } from '../modules/nutrition/services/recipeNutritionCalculator';
-import type { IngredientNutritionProfile } from '../types';
+import { useRecipeNutrition } from '../modules/nutrition/hooks/useRecipeNutrition';
 import { resolveRecipeIngredientEnrichment, type RecipeIngredientResolution } from '../modules/recipe-enrichment/services/recipeIngredientEnrichmentService';
 import {
   getPendingRecipeIngredientEnrichmentTargets,
@@ -680,10 +684,14 @@ export default function AddRecipeTab({
       ? initialRecipe.ingredients
       : [{ id: 'ing_1', name: '', qty: '', unit: '' }]
   );
+  const [yieldChefEdited, setYieldChefEdited] = useState(false);
+  const [yieldConfirmed, setYieldConfirmed] = useState(false);
+  const nutritionYield = resolveRecipeYieldDenominator({ text: recipeYield, originalText: initialRecipe?.yield || (initialRecipe ? `${initialRecipe.servings} servings` : ''), previous: initialRecipe?.nutritionYield, chefEdited: yieldChefEdited, confirmed: yieldConfirmed });
+  const yieldNeedsConfirmation = Boolean(parseMeasuredRecipeYield(recipeYield)) && getDefaultLinkedRecipeUnit({ servings: Number(servings), nutritionYield }) === 'portion';
   const [linkedRecipes, setLinkedRecipes] = useState<LinkedRecipeComponent[]>(initialRecipe?.linkedRecipes || []);
   const [libraryIngredients, setLibraryIngredients] = useState<CostingIngredient[]>([]);
+  const [isIngredientLibraryAvailable, setIsIngredientLibraryAvailable] = useState(false);
   const [ingredientResolutions, setIngredientResolutions] = useState<Record<string, RecipeIngredientResolution>>({});
-  const [nutritionProfiles, setNutritionProfiles] = useState<Record<string, IngredientNutritionProfile | undefined>>({});
   const [importedIngredientIds, setImportedIngredientIds] = useState<string[]>([]);
   const ingredientsRef = useRef(ingredients);
   const pendingAutoEnrichmentRowIdsRef = useRef(new Set<string>());
@@ -764,24 +772,17 @@ export default function AddRecipeTab({
     ingredientsRef.current = ingredients;
   }, [ingredients]);
 
-  useEffect(() => {
-    let active = true;
-    void loadIngredientNutritionProfiles(ingredients.map(ingredient => ingredient.ingredientId || ''))
-      .then(profiles => { if (active) setNutritionProfiles(profiles); })
-      .catch(error => console.warn('Ingredient nutrition profiles were unavailable.', error));
-    return () => { active = false; };
-  }, [ingredients]);
-
-  const recipeNutrition = useMemo(() => calculateRecipeNutrition({
-    ingredients,
-    servings: Number(servings)
-  }, nutritionProfiles), [ingredients, nutritionProfiles, servings]);
+  const nutritionDraft = useMemo(() => ({
+    id: initialRecipe?.id, workspaceId: workspaceId || userId,
+    ingredients, servings: Number(servings), linkedRecipes
+  }), [initialRecipe?.id, workspaceId, userId, ingredients, servings, linkedRecipes]);
+  const recipeNutrition = useRecipeNutrition(nutritionDraft, recipes, workspaceId || userId);
 
   if (!initialEditorSnapshotRef.current) {
     initialEditorSnapshotRef.current = editorSnapshot;
   }
 
-  const isDirty = editorSnapshot !== initialEditorSnapshotRef.current;
+  const isDirty = editorSnapshot !== initialEditorSnapshotRef.current || JSON.stringify(nutritionYield) !== JSON.stringify(initialRecipe?.nutritionYield);
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -815,16 +816,19 @@ export default function AddRecipeTab({
 
     if (!workspaceId && !userId) {
       setLibraryIngredients([]);
+      setIsIngredientLibraryAvailable(false);
       return () => {
         isMounted = false;
       };
     }
 
     setLibraryIngredients([]);
+    setIsIngredientLibraryAvailable(false);
     loadRecipeIngredientLibrary(workspaceId, userId, ingredientService.listIngredients)
       .then(loadedIngredients => {
         if (isMounted) {
           setLibraryIngredients(loadedIngredients);
+          setIsIngredientLibraryAvailable(true);
         }
       })
       .catch(error => {
@@ -983,7 +987,7 @@ export default function AddRecipeTab({
       recipeId: available.id,
       recipeTitle: available.title,
       quantity: 1,
-      unit: 'portion'
+      unit: getDefaultLinkedRecipeUnit(available)
     }]);
     clearValidationError('linkedRecipes');
   };
@@ -1223,6 +1227,8 @@ export default function AddRecipeTab({
     setTitle(recipe.title);
     if (recipe.description) setStory(recipe.description);
     setRecipeYield(recipe.yield || recipeYield);
+    setYieldChefEdited(false);
+    setYieldConfirmed(false);
     if (recipe.servings) setServings(String(recipe.servings));
     if (recipe.prepTime) setPrepTime(String(recipe.prepTime));
     if (recipe.cookTime !== null && recipe.cookTime !== undefined) setCookTime(String(recipe.cookTime));
@@ -1481,6 +1487,7 @@ export default function AddRecipeTab({
       prepTime: validatedPrepTime as number,
       cookTime: (validatedCookTime as number) || undefined,
       servings: savedServings,
+      nutritionYield,
       yield: recipeYield.trim() || `${savedServings} servings`,
       difficulty,
       story: story.trim() || 'A homemade culinary masterpiece baked with fresh herbs and careful attention.',
@@ -1904,26 +1911,11 @@ export default function AddRecipeTab({
           </div>
         </div>
 
-        <div className="space-y-1.5">
-          <label className="font-sans font-bold text-xs text-on-surface-variant/90 px-1">Yield</label>
-          <input
-            type="text"
-            value={recipeYield}
-            onChange={e => setRecipeYield(e.target.value)}
-            placeholder="e.g. 12 pcs, 20 servings, 1 loaf"
-            className="w-full bg-surface-container border-none rounded-xl font-sans text-xs sm:text-sm text-on-surface px-4 py-3.5 focus:ring-1 focus:ring-primary font-bold"
-          />
-        </div>
+        <RecipeYieldInput value={recipeYield} needsConfirmation={yieldNeedsConfirmation} onChange={value => { setRecipeYield(value); setYieldChefEdited(true); setYieldConfirmed(false); }} onConfirm={() => setYieldConfirmed(true)} />
 
         <div className="space-y-1.5 rounded-xl bg-surface-container-low p-4">
           <p className="font-sans font-bold text-xs text-on-surface-variant/90">Nutrition (automatic)</p>
-          {recipeNutrition.status === 'COMPLETE' ? (
-            <p className="font-sans text-sm font-bold text-primary">
-              Total: {Math.round(recipeNutrition.totalKcal || 0)} kcal · {Math.round(recipeNutrition.kcalPerServing || 0)} kcal per serving
-            </p>
-          ) : (
-            <p className="font-sans text-xs font-bold text-error">INCOMPLETE — {recipeNutrition.incompleteReasons[0] || 'Link approved Ingredient nutrition profiles.'}</p>
-          )}
+          <RecipeNutritionResult nutrition={recipeNutrition} />
         </div>
 
         {!isEditing && (
@@ -2103,7 +2095,7 @@ export default function AddRecipeTab({
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 className="font-display text-2xl font-bold tracking-tight text-primary">Linked Recipes</h3>
-            <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Use an existing recipe as a costed component. Cost follows its current per-portion calculation.</p>
+            <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Enter how much you use. Saved measured yield is reused automatically; portion links use child servings.</p>
           </div>
           <button
             type="button"
@@ -2117,7 +2109,10 @@ export default function AddRecipeTab({
         {validationErrors.linkedRecipes && <p role="alert" className="font-sans text-xs font-bold text-error">{validationErrors.linkedRecipes}</p>}
         {linkedRecipes.map(component => {
           const selectedRecipe = recipes.find(recipe => recipe.id === component.recipeId);
-          const unitCost = Number(selectedRecipe?.costing?.costPerPortion || 0);
+          let calculatedChild: Recipe | undefined;
+          try {
+            calculatedChild = selectedRecipe ? (isIngredientLibraryAvailable ? calculateRecipeCosting(selectedRecipe, libraryIngredients, new Date().toISOString(), recipes) : selectedRecipe) : undefined;
+          } catch { /* Invalid dependencies are reported as unavailable in the summary. */ }
           return (
             <div key={component.id} className="grid gap-3 rounded-2xl border border-surface-container-high bg-surface-container-low p-4 sm:grid-cols-[minmax(0,1fr)_120px_110px_44px] sm:items-end">
               <label className="block">
@@ -2129,7 +2124,10 @@ export default function AddRecipeTab({
                     setLinkedRecipes(current => current.map(item => item.id === component.id ? {
                       ...item,
                       recipeId: event.target.value,
-                      recipeTitle: selected?.title || ''
+                      recipeTitle: selected?.title || '',
+                      unit: selected ? getDefaultLinkedRecipeUnit(selected) : 'portion',
+                      nutritionUseAssociatedQuantity: false,
+                      associatedIngredientId: undefined
                     } : item));
                     clearValidationError('linkedRecipes');
                   }}
@@ -2139,7 +2137,7 @@ export default function AddRecipeTab({
                 </select>
               </label>
               <label className="block">
-                <span className="font-sans text-[11px] font-extrabold text-on-surface-variant">Quantity</span>
+                <span className="font-sans text-[11px] font-extrabold text-on-surface-variant">{!component.unit || component.unit === 'portion' ? 'Child portions used per parent batch' : 'Child quantity used per parent batch'}</span>
                 <input
                   type="number"
                   min="0.000001"
@@ -2149,10 +2147,23 @@ export default function AddRecipeTab({
                   className="mt-1 w-full rounded-xl border border-surface-container-high bg-background px-3 py-3 font-sans text-sm font-bold text-primary"
                 />
               </label>
-              <div>
-                <span className="font-sans text-[11px] font-extrabold text-on-surface-variant">Cost / portion</span>
-                <p className="mt-1 rounded-xl bg-background px-3 py-3 font-sans text-sm font-extrabold text-primary">{unitCost.toFixed(2)}</p>
-              </div>
+              <label className="block">
+                <span className="font-sans text-[11px] font-extrabold">Quantity unit</span>
+                <select aria-label={`Quantity unit for ${component.recipeTitle || 'linked recipe'}`} value={component.unit || 'portion'} onChange={event => setLinkedRecipes(current => current.map(item => item.id === component.id ? { ...item, unit: event.target.value as LinkedRecipeComponent['unit'], nutritionUseAssociatedQuantity: false } : item))} className="mt-1 w-full rounded-xl border p-2 text-sm">
+                  <option value="portion">Child portion</option><option value="g">g</option><option value="kg">kg</option><option value="ml">ml</option><option value="l">l</option><option value="pcs">pcs</option>
+                </select>
+              </label>
+              <div className="sm:col-span-4"><LinkedRecipeCostSummary child={calculatedChild} quantity={component.quantity} unit={component.unit} /></div>
+              <label className="block sm:col-span-3">
+                <span className="font-sans text-[11px] font-extrabold">Ingredient cost replaced by this link (optional)</span>
+                <select aria-label={`Ingredient cost replaced by ${component.recipeTitle || 'linked recipe'}`} value={component.associatedIngredientId || ''}
+                  onChange={event => setLinkedRecipes(current => current.map(item => item.id === component.id ? { ...item, associatedIngredientId: event.target.value || undefined, nutritionUseAssociatedQuantity: false } : item))}
+                  className="mt-1 w-full rounded-xl border border-surface-container-high bg-background px-3 py-2 text-sm">
+                  <option value="">None — cost ingredients separately</option>
+                  {ingredients.filter(ingredient => !linkedRecipes.some(other => other.id !== component.id && other.associatedIngredientId === ingredient.id)).map(ingredient => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}
+                </select>
+              </label>
+              {component.associatedIngredientId && (!component.unit || component.unit === 'portion') && <details className="text-xs sm:col-span-3"><summary>Advanced nutrition option</summary><label><input type="checkbox" checked={Boolean(component.nutritionUseAssociatedQuantity)} onChange={event => setLinkedRecipes(current => current.map(item => item.id === component.id ? { ...item, nutritionUseAssociatedQuantity: event.target.checked } : item))} /> Calculate nutrition from associated ingredient quantity using child's verified batch yield. Otherwise use the saved child portions.</label></details>}
               <button type="button" aria-label={`Remove ${component.recipeTitle || 'linked recipe'}`} onClick={() => setLinkedRecipes(current => current.filter(item => item.id !== component.id))} className="flex h-11 items-center justify-center rounded-xl bg-background text-error"><Trash2 className="h-4 w-4" /></button>
             </div>
           );
@@ -2160,6 +2171,8 @@ export default function AddRecipeTab({
       </section>
 
       {/* Instructions Section */}
+
+
       <section className="space-y-4" id="method-section">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h3 className="font-display text-2xl font-bold text-primary tracking-tight">Instructions</h3>

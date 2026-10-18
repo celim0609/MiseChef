@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import type { Recipe } from '../../types';
-import { getReadyToSellProductDraft } from './storeProductVisibility';
+import { getReadyToSellProductDraft, getStoreProductEditorDraft, buildUpdatedStoreProduct } from './storeProductVisibility';
 
 const recipe: Pick<Recipe, 'id' | 'title' | 'sellingPrice' | 'costing'> = {
   id: 'recipe-laksa',
@@ -60,4 +60,42 @@ test('Ready to Sell sends a carried Recipe photo through the existing Store Prod
   assert.match(source, /uploadStoreProductPhoto\(\{ workspaceId: workspace\.id, productId, file: productPhotoFile \}\)/);
   assert.match(source, /uploadStoreProductSocialImage\(\{ workspaceId: workspace\.id, productId, file: productPhotoFile \}\)/);
   assert.doesNotMatch(source, /photoUrl: recipe\.(?:imageUrl|coverImage)/);
+});
+
+test('Ready to Sell remains available with estimated nutrition', () => {
+  const draft = getReadyToSellProductDraft(recipe, {
+    status: 'ESTIMATED', totalKcal: 800, kcalPerServing: 400,
+    calculatedIngredientCount: 8, totalIngredientCount: 9,
+    incompleteReasons: ['Ginger nutrition data unavailable']
+  });
+  assert.equal(draft.recipeId, recipe.id);
+  assert.equal(draft.price, 12.5);
+  assert.equal(draft.available, true);
+});
+
+test('manual photos invalidate pending transfers and stale nutrition cannot reset another draft', () => {
+  const source = readFileSync(new URL('./StorePage.tsx', import.meta.url), 'utf8');
+  const manual = source.slice(source.indexOf('const handleProductPhotoChange'), source.indexOf('const handleSetUpStore'));
+  assert.match(manual, /productPhotoTransferIdRef.current \+= 1/);
+  assert.match(manual, /readImageFile\(event, setProductPhotoFile\)/);
+  assert.match(source, /if \(productPhotoTransferIdRef.current !== transferId\) return;\s*setProductDraft/);
+  assert.match(source, /if \(productPhotoTransferIdRef.current === transferId\) setProductPhotoFile\(photo\)/);
+});
+
+test('estimated calories remain absent rather than becoming a complete Product value', () => {
+  assert.equal(getReadyToSellProductDraft(recipe, { status: 'ESTIMATED', totalKcal: 800, kcalPerServing: 400, incompleteReasons: ['Missing data'] }).calories, undefined);
+});
+
+test('Ready to Sell carries Partial kcal as clearly labelled editable public description', () => {
+  const draft = getReadyToSellProductDraft(recipe, { status: 'ESTIMATED', totalKcal: 80, kcalPerServing: 8.275862, incompleteReasons: ['Missing food'] });
+  assert.match(draft.description, /Partial nutrition \(estimated\): 8.3 kcal per serving/);
+  assert.equal(draft.calories, undefined);
+  assert.equal(draft.photoUrl, '');
+  const saved = buildUpdatedStoreProduct({ ...draft, id: 'product', workspaceId: 'workspace', storeId: 'store', createdAt: '', updatedAt: '' } as import('./types').StoreProduct, { ...draft, description: 'My manual product description', calories: 100 }, 'now');
+  const reopened = getStoreProductEditorDraft(saved);
+  assert.equal(reopened.description, 'My manual product description');
+  assert.equal(reopened.calories, 100);
+  for (const value of [undefined, NaN, Infinity, -1]) {
+    assert.equal(getReadyToSellProductDraft(recipe, { status: 'ESTIMATED', kcalPerServing: value, incompleteReasons: [] }).description, '');
+  }
 });

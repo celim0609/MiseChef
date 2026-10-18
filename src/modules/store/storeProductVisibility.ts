@@ -1,3 +1,4 @@
+import { WEEKLY_DAYS, resolvePlanMeal, datedWeeks } from '../../../functions/storeWeeklyMealPlan.js';
 import type { Recipe, RecipeNutritionSummary } from '../../types';
 import { getSnapshotCalories } from '../nutrition/services/recipeNutritionCalculator';
 import type { StoreProduct, StoreProductDraft } from './types';
@@ -12,7 +13,9 @@ export const getReadyToSellProductDraft = (
   return {
     photoUrl: '',
     name: recipe.title.trim(),
-    description: '',
+    description: nutrition?.status === 'ESTIMATED' && typeof nutrition.kcalPerServing === 'number' && Number.isFinite(nutrition.kcalPerServing) && nutrition.kcalPerServing >= 0
+      ? `Partial nutrition (estimated): ${Math.round(nutrition.kcalPerServing * 10) / 10} kcal per serving. Some ingredient nutrition is unavailable.`
+      : '',
     price,
     ...(getSnapshotCalories(nutrition) !== undefined ? { calories: getSnapshotCalories(nutrition) } : {}),
     recipeId: recipe.id,
@@ -57,7 +60,15 @@ export const getStoreProductEditorDraft = (product: StoreProduct): StoreProductD
   price: product.price,
   ...(product.calories !== undefined ? { calories: product.calories } : {}),
   ...(product.recipeId ? { recipeId: product.recipeId } : {}),
+  ...(product.productType !== undefined ? { productType: product.productType } : {}),
+  ...(product.weeklyMenuVersion !== undefined ? { weeklyMenuVersion: product.weeklyMenuVersion } : {}),
+  ...(product.weeklyWeeks ? { weeklyWeeks: structuredClone(product.weeklyWeeks) } : {}),
+  ...(product.rotationStartMonday ? { rotationStartMonday: product.rotationStartMonday } : {}),
+  ...(product.rotationWeeks ? { rotationWeeks: structuredClone(product.rotationWeeks) } : {}),
+  ...(product.healthyLunchBlockedDates ? { healthyLunchBlockedDates: [...product.healthyLunchBlockedDates] } : {}),
+  ...(product.weeklyMeals ? { weeklyMeals: { ...product.weeklyMeals } } : {}),
   available: product.available,
+  availableDay: product.availableDay ?? 'all',
   optionGroupIds: [...product.optionGroupIds]
 });
 
@@ -102,7 +113,76 @@ export const buildUpdatedStoreProduct = (
   price: draft.price,
   calories: draft.calories,
   recipeId: draft.recipeId,
+  productType: draft.productType,
+  weeklyMenuVersion: draft.productType === 'weekly_meal_plan' ? draft.weeklyMenuVersion : undefined,
+  weeklyWeeks: draft.productType === 'weekly_meal_plan' && draft.weeklyWeeks ? structuredClone(draft.weeklyWeeks) : undefined,
+  rotationStartMonday: draft.productType === 'weekly_meal_plan' ? draft.rotationStartMonday : undefined,
+  rotationWeeks: draft.productType === 'weekly_meal_plan' && draft.rotationWeeks ? structuredClone(draft.rotationWeeks) : undefined,
+  healthyLunchBlockedDates: draft.productType === 'weekly_meal_plan' ? draft.healthyLunchBlockedDates : undefined,
+  weeklyMeals: draft.productType === 'weekly_meal_plan' && draft.weeklyMeals ? { ...draft.weeklyMeals } : undefined,
   available: draft.available,
+  availableDay: draft.availableDay ?? 'all',
   optionGroupIds: [...draft.optionGroupIds],
   updatedAt
 });
+
+// Conversion is a draft-only operation; purchased orders and Single Products
+// are untouched. Undated legacy menus need a Monday before conversion saves.
+export const getEmbeddedHealthyLunchDraft = (product: StoreProduct, products: StoreProduct[]): StoreProductDraft => {
+  const draft = getStoreProductEditorDraft(product);
+  if (product.weeklyMenuVersion === 2) return draft;
+  const menus = product.weeklyWeeks ? Object.entries(product.weeklyWeeks) : [['week1', { startMonday: '', meals: product.weeklyMeals }]];
+  const weeklyWeeks = Object.fromEntries(menus.map(([slot, week]) => [slot, {
+    startMonday: week.startMonday,
+    meals: Object.fromEntries(WEEKLY_DAYS.map(day => {
+      const meal = resolvePlanMeal(product, products, week.startMonday, day);
+      return [day, { photoUrl: meal?.photoUrl || '', name: meal?.name || '', price: meal?.price ?? 0,
+        ...(meal?.calories !== undefined ? { calories: meal.calories } : {}), ...(meal?.description ? { description: meal.description } : {}) }];
+    }))
+  }]));
+  return { ...draft, weeklyMenuVersion: 2, weeklyWeeks, weeklyMeals: undefined };
+};
+
+export const getRotatingHealthyLunchDraft = (product: StoreProduct, products: StoreProduct[]): StoreProductDraft => {
+  const embedded = getEmbeddedHealthyLunchDraft(product, products);
+  const weeks = Object.entries(embedded.weeklyWeeks || {}).filter(([, week]) => Boolean(week.startMonday)).sort((a, b) => a[1].startMonday.localeCompare(b[1].startMonday));
+  return { ...embedded, weeklyMenuVersion: 3, weeklyWeeks: undefined, weeklyMeals: undefined,
+    rotationStartMonday: weeks[0]?.[1].startMonday || '',
+    rotationWeeks: Object.fromEntries(weeks.map(([, week], index) => [`week${index + 1}`, { meals: structuredClone(week.meals) }])),
+    healthyLunchBlockedDates: [] };
+};
+
+export const prepareHealthyLunchDraft = (draft: StoreProductDraft): StoreProductDraft => {
+  if (draft.weeklyMenuVersion === 3) {
+    const rotationWeeks = Object.fromEntries(Object.entries(draft.rotationWeeks || {}).filter(([, week]) => Boolean(week)).map(([slot, week]) => [slot, {
+      meals: Object.fromEntries(Object.entries(week.meals).map(([day, meal]) => [day, { ...meal, name: meal.name.trim(), photoUrl: meal.photoUrl.trim(), ...(meal.description !== undefined ? { description: meal.description.trim() } : {}) }]))
+    }])) as StoreProductDraft['rotationWeeks'];
+    const first = Object.values(rotationWeeks || {})[0]?.meals.mon;
+    return { ...draft, weeklyWeeks: undefined, weeklyMeals: undefined, rotationWeeks,
+      healthyLunchBlockedDates: [...new Set((draft.healthyLunchBlockedDates || []).map(date => date.trim()))].sort(),
+      photoUrl: first?.photoUrl || draft.photoUrl };
+  }
+  if (draft.weeklyMenuVersion !== 2) return draft;
+  const weeklyWeeks = Object.fromEntries(Object.entries(draft.weeklyWeeks || {}).filter(([, week]) => Boolean(week?.startMonday)).map(([slot, week]) => [slot, {
+    ...week, meals: Object.fromEntries(Object.entries(week.meals).map(([day, meal]) => [day, typeof meal === 'object' ? { ...meal,
+      name: meal.name.trim(), photoUrl: meal.photoUrl.trim(), ...(meal.description !== undefined ? { description: meal.description.trim() } : {}) } : meal]))
+  }])) as StoreProductDraft['weeklyWeeks'];
+  const first = Object.values(weeklyWeeks).sort((a, b) => a.startMonday.localeCompare(b.startMonday))[0];
+  const cover = first?.meals.mon;
+  return { ...draft, weeklyWeeks, weeklyMeals: undefined, photoUrl: typeof cover === 'object' ? cover.photoUrl : draft.photoUrl };
+};
+
+export const updateHealthyLunchMeal = (meal: import('./types').HealthyLunchMeal, patch: Partial<import('./types').HealthyLunchMeal>): import('./types').HealthyLunchMeal => {
+  const nextMeal = { ...meal, ...patch };
+  if (Object.hasOwn(patch, 'recipeId') && patch.recipeId === undefined) delete nextMeal.recipeId;
+  return nextMeal;
+};
+
+/** Recipe display data is copied into the menu; selling price and order snapshots stay independent. */
+export const syncHealthyLunchRecipe = (meal: import('./types').HealthyLunchMeal, recipe: Recipe, nutrition?: RecipeNutritionSummary): import('./types').HealthyLunchMeal => {
+  const display = getReadyToSellProductDraft(recipe, nutrition);
+  return { ...meal, recipeId: recipe.id, name: display.name || meal.name,
+    photoUrl: recipe.imageUrl || recipe.coverImage || meal.photoUrl,
+    calories: display.calories,
+    description: recipe.story?.trim().slice(0, 1200) || display.description || meal.description };
+};

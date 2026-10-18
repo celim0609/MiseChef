@@ -146,6 +146,9 @@ export default function RecipeCostAnalysis({
             </div>
           </div>
 
+          {recipeCosting?.linkedRecipeWarnings?.map(warning => (
+            <p role="alert" key={warning} className="font-sans text-xs font-bold text-amber-800">{warning}</p>
+          ))}
           {costingWarnings.length > 0 && (
             <div className="space-y-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
               <p className="font-sans text-xs font-extrabold uppercase tracking-wider text-amber-800 dark:text-amber-200">Costing warnings</p>

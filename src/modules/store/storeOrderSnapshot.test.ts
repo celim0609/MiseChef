@@ -101,3 +101,40 @@ test('historical orders without setSnapshot remain compatible', () => {
   assert.deepEqual(historical.selectedOptions, []);
   assert.equal(historical.productName, 'Legacy Product');
 });
+
+test('weekly item snapshots retain all five purchased meals without live catalogue lookup', () => {
+  const meals = ['mon','tue','wed','thu','fri'].map(day => ({ day, productId: `meal-${day}`, productName: `${day} lunch`, photoUrl: `${day}.jpg` }));
+  const input = { ...configuredSetItem, setSnapshot: undefined, weeklyPlanSnapshot: { meals } };
+  const item = normalizeStoreOrderItem(JSON.parse(JSON.stringify(input)));
+  assert.deepEqual(item.weeklyPlanSnapshot?.meals, meals);
+  assert.notEqual(item.weeklyPlanSnapshot?.meals, meals);
+  assert.equal(item.quantity, 1);
+});
+
+test('multi-fulfilment schedule reload preserves allocations, dates, times and methods', async () => {
+  const { normalizeOrderFulfilments } = await import('./storeOrderSnapshot');
+  const fulfilments = [{ id: 'day_20261012', method: 'delivery', date: '2026-10-12', time: '10:00', pickupLocationId: '', pickupLocationName: 'Kitchen', pickupLocationAddress: 'Kitchen address', allocations: [{ itemIndex: 0, quantity: 2, componentDay: 'mon' }] }];
+  const normalized = normalizeOrderFulfilments(JSON.parse(JSON.stringify(fulfilments)));
+  assert.deepEqual(normalized, fulfilments); assert.notEqual(normalized, fulfilments);
+  assert.equal(normalizeOrderFulfilments(undefined), undefined);
+});
+
+test('dated plan and single-day association survive normalization without changing existing snapshots', () => {
+  const dated = normalizeStoreOrderItem({ productName: 'Healthy Lunch', weeklyPlanSnapshot: { startMonday: '2026-10-19', meals: [{ day: 'mon', productId: 'meal', productName: 'Monday lunch', photoUrl: '' }] } });
+  assert.equal(dated.weeklyPlanSnapshot?.startMonday, '2026-10-19');
+  const day = normalizeStoreOrderItem({ productName: 'Wednesday lunch', healthyLunchSnapshot: { planId: 'healthy', date: '2026-10-21' } });
+  assert.deepEqual(day.healthyLunchSnapshot, { planId: 'healthy', date: '2026-10-21' });
+  assert.equal(normalizeStoreOrderItem({ productName: 'Old Single' }).healthyLunchSnapshot, undefined);
+  assert.equal(normalizeStoreOrderItem({ weeklyPlanSnapshot: { meals: [] } }).weeklyPlanSnapshot?.startMonday, undefined);
+});
+
+test('embedded order snapshots preserve purchased photos, kcal, descriptions and day prices', () => {
+  const original = { productName: 'Healthy Lunch', weeklyPlanSnapshot: { startMonday: '2026-10-19', meals: [{ day: 'mon', productId: 'plan', productName: 'Purchased lunch', photoUrl: 'https://example.test/frozen.jpg', price: 12, calories: 450, description: 'Purchased vegetables' }] } };
+  const item = normalizeStoreOrderItem(original);
+  original.weeklyPlanSnapshot.meals[0].productName = 'Edited menu';
+  assert.equal(item.weeklyPlanSnapshot!.meals[0].productName, 'Purchased lunch');
+  assert.equal(item.weeklyPlanSnapshot!.meals[0].photoUrl, 'https://example.test/frozen.jpg');
+  assert.equal(item.weeklyPlanSnapshot!.meals[0].calories, 450); assert.equal(item.weeklyPlanSnapshot!.meals[0].price, 12);
+  const day = normalizeStoreOrderItem({ productName: 'Lunch', calories: 0, description: 'Purchased recipe', basePrice: 12, unitPrice: 12 });
+  assert.equal(day.calories, 0); assert.equal(day.description, 'Purchased recipe'); assert.equal(day.basePrice, 12);
+});

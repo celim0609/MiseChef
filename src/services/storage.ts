@@ -204,6 +204,17 @@ export const uploadStoreProductPhoto = async ({
   }
 };
 
+// A new URL per upload keeps already-purchased meal photos immutable.
+export const uploadHealthyLunchMealPhoto = async ({ workspaceId, productId, file }: {
+  workspaceId: string; productId: string; file: File;
+}) => {
+  const extension = requireSupportedImageExtension(file);
+  try {
+    return await uploadFile({ path: `stores/${workspaceId}/products/${productId}/meal-${crypto.randomUUID()}.${extension}`,
+      file, cacheControl: 'public,max-age=31536000' });
+  } catch (error) { throw new Error(getStorageUploadErrorMessage(error, 'Meal photo')); }
+};
+
 export const uploadStoreProductSocialImage = async ({
   workspaceId,
   productId,
@@ -294,6 +305,7 @@ export const deleteStoreProductPhoto = async ({
   if (!objectPath.startsWith(expectedPrefix)) {
     throw new Error('This product photo does not belong to the selected Store.');
   }
+  if (objectPath.slice(expectedPrefix.length).startsWith('meal-')) return;
   try {
     await deleteObject(ref(storage, objectPath));
   } catch (error) {

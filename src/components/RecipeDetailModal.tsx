@@ -1,3 +1,7 @@
+import { RecipeMeasuredYieldStatus } from './RecipeMeasuredYieldStatus';
+import { LinkedRecipeCostSummary } from './LinkedRecipeCostSummary';
+import { scaleLinkedRecipeQuantities } from '../modules/costing/services/linkedRecipePresentation';
+import { RecipeNutritionResult } from './RecipeNutritionResult';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -10,7 +14,7 @@ import { formatRecipeCreatorLine } from '../services/recipeCreator';
 import { motion } from 'motion/react';
 import { getRecipeCategories } from '../utils/categoryUtils';
 import RecipeCostAnalysis from './RecipeCostAnalysis';
-import { calculateRecipeNutrition } from '../modules/nutrition/services/recipeNutritionCalculator';
+import { useRecipeNutrition } from '../modules/nutrition/hooks/useRecipeNutrition';
 import type { RecipeNutritionSummary } from '../types';
 
 const normalizeUnit = (unit = '') => {
@@ -74,6 +78,7 @@ const scaleQuantity = (quantity: string, ratio: number) => {
 
 interface RecipeDetailModalProps {
   recipe: Recipe;
+  recipes?: Recipe[];
   onClose: () => void;
   onEdit: (recipe: Recipe) => void;
   onDuplicate: (recipe: Recipe) => void;
@@ -93,7 +98,8 @@ export default function RecipeDetailModal({
   onShare,
   onDelete,
   onToggleFavorite,
-  workspaceMembers = []
+  workspaceMembers = [],
+  recipes = []
 }: RecipeDetailModalProps) {
   const [checkedIngredients, setCheckedIngredients] = useState<string[]>([]);
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
@@ -104,16 +110,6 @@ export default function RecipeDetailModal({
   const [targetYield, setTargetYield] = useState('');
   const [recipeView, setRecipeView] = useState<'original' | 'scaled'>('original');
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
-  const [nutrition, setNutrition] = useState<RecipeNutritionSummary | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    void import('../modules/nutrition/services/ingredientNutritionProfileService')
-      .then(({ loadIngredientNutritionProfiles }) => loadIngredientNutritionProfiles(recipe.ingredients.map(ingredient => ingredient.ingredientId || '')))
-      .then(profiles => { if (active) setNutrition(calculateRecipeNutrition(recipe, profiles)); })
-      .catch(() => { if (active) setNutrition({ status: 'INCOMPLETE', incompleteReasons: ['Nutrition profiles are unavailable.'] }); });
-    return () => { active = false; };
-  }, [recipe]);
 
   const originalYield = recipe.yield || `${recipe.servings} servings`;
   const originalParsedYield = parseYield(originalYield);
@@ -133,6 +129,7 @@ export default function RecipeDetailModal({
     return {
       ...recipe,
       yield: targetYield.trim(),
+      nutritionYield: recipe.nutritionYield ? { ...recipe.nutritionYield, quantity: recipe.nutritionYield.quantity * scaleRatio } : undefined,
       servings: targetParsedYield.unit === 'servings'
         ? Math.round(targetParsedYield.amount)
         : recipe.servings,
@@ -140,10 +137,12 @@ export default function RecipeDetailModal({
         ...ingredient,
         qty: scaleQuantity(ingredient.qty, scaleRatio)
       })),
+      linkedRecipes: scaleLinkedRecipeQuantities(recipe.linkedRecipes, scaleRatio),
       method: recipe.method
     };
   }, [canScale, recipe, scaleRatio, targetParsedYield, targetYield]);
   const displayedRecipe = isScaledView ? scaledRecipe : recipe;
+  const nutrition = useRecipeNutrition(displayedRecipe, recipes);
   const displayedYield = displayedRecipe.yield || `${displayedRecipe.servings} servings`;
 
   useEffect(() => {
@@ -323,13 +322,8 @@ export default function RecipeDetailModal({
                 <span>{recipe.difficulty}</span>
               </div>
 
-              {nutrition && (
-                <p className={`font-sans text-xs font-bold ${nutrition.status === 'COMPLETE' ? 'text-primary' : 'text-error'}`}>
-                  {nutrition.status === 'COMPLETE'
-                    ? `${Math.round(nutrition.kcalPerServing || 0)} kcal per serving · ${Math.round(nutrition.totalKcal || 0)} kcal total`
-                    : `Nutrition INCOMPLETE — ${nutrition.incompleteReasons[0]}`}
-                </p>
-              )}
+              <RecipeMeasuredYieldStatus recipe={displayedRecipe} measuredLinkNeedsYield={recipes.some(parent => parent.workspaceId === recipe.workspaceId && parent.linkedRecipes?.some(link => link.recipeId === recipe.id && (Boolean(link.nutritionUseAssociatedQuantity) || Boolean(link.unit && link.unit !== 'portion'))))} />
+              {nutrition && <RecipeNutritionResult nutrition={nutrition} />}
 
               {recipe.story && (
                 <div className="bg-surface-container-low/60 p-4 rounded-xl border border-surface-container text-xs sm:text-sm text-on-surface-variant italic leading-relaxed font-semibold">
@@ -454,6 +448,13 @@ export default function RecipeDetailModal({
               </ul>
             </section>
 
+            {Boolean(displayedRecipe.linkedRecipes?.length) && <section className="space-y-2">
+              <h3 className="font-display text-2xl font-bold text-primary">Linked Recipes</h3>
+              {displayedRecipe.linkedRecipes?.map(component => <div key={component.id} className="rounded-xl bg-surface-container-low p-3">
+                <p className="font-sans text-sm">{component.recipeTitle || 'Linked recipe'} · {component.quantity} {!component.unit || component.unit === 'portion' ? 'child portions' : component.unit} used per parent batch</p>
+                <LinkedRecipeCostSummary child={recipes.find(child => child.id === component.recipeId)} quantity={component.quantity} unit={component.unit} />
+              </div>)}
+            </section>}
             <RecipeCostAnalysis recipe={recipe} />
 
             <section className="space-y-5">

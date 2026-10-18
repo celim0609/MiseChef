@@ -1,3 +1,8 @@
+import { resolveSelectionMealOptions, mealOptionSurcharge, mergeMealOptionSnapshots, publicMealOptionSnapshot } from './healthyLunchOptions.js';
+import { calculateDeliveryDayPricing } from './storeDeliveryPricing.js';
+import { buildOrderFulfilments, publicOrderFulfilments } from './storeOrderFulfilments.js';
+import { buildWeeklyOrderDetails, isWeeklyMealPlan, publicWeeklyFulfilments, validateHealthyLunchDay, hasEmbeddedMenu } from './storeWeeklyMealPlan.js';
+import { cartAllowsFulfilmentDate, currentFulfilmentDate } from './storeProductAvailability.js';
 import { randomBytes } from 'node:crypto';
 import { calculatePromotionPricing } from './storePromotionPricing.js';
 
@@ -178,12 +183,24 @@ export const createAvailableOrderReference = async ({
   throw new Error('A customer order reference could not be allocated. Please try again.');
 };
 
+export const isAfterOrderCutoff = (store, currentDate = new Date()) => {
+  const cutoff = Object.prototype.hasOwnProperty.call(store, 'orderCutoffTime') ? store.orderCutoffTime : store.pickupOrderCutoffTime;
+  if (typeof cutoff !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(cutoff)) return false;
+  const region = REGIONS[readString(store.country)] || REGIONS.MY;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en', {
+    timeZone: region.timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  }).formatToParts(currentDate).map(part => [part.type, part.value]));
+  const seconds = Number(parts.hour) * 3600 + Number(parts.minute) * 60 + Number(parts.second) + currentDate.getUTCMilliseconds() / 1000;
+  return seconds > timeMinutes(cutoff) * 60;
+};
+
 export const getValidPickupDates = (store, currentDate = new Date()) => {
   const region = REGIONS[readString(store.country)] || REGIONS.MY;
   const today = toRegionDateCursor(currentDate, region.timeZone);
   const enabledDays = new Set(Array.isArray(store.orderDays) ? store.orderDays : ORDER_DAY_BY_INDEX);
   const blockedDates = new Set(Array.isArray(store.unavailableDates) ? store.unavailableDates : []);
-  const earliest = store.earliestPickupDays === 1 ? 1 : 0;
+  const afterCutoff = isAfterOrderCutoff(store, currentDate);
+  const earliest = (store.earliestPickupDays === 1 ? 1 : 0) + (afterCutoff ? 1 : 0);
   const maximum = [7, 14, 30].includes(store.maximumAdvanceDays) ? store.maximumAdvanceDays : 14;
   const dates = [];
 
@@ -197,8 +214,9 @@ export const getValidPickupDates = (store, currentDate = new Date()) => {
   return dates;
 };
 
-const validateDraft = (store, draft, currentDate, isLegacyGroupOrder = false) => {
+const validateDraft = (store, draft, currentDate, isLegacyGroupOrder = false, validatedSchedule = false) => {
   const isDelivery = readString(draft.fulfilmentMethod) === 'delivery';
+  if (isDelivery && draft.fulfilmentMode === 'instant' && isAfterOrderCutoff(store, currentDate)) throw new Error('Orders placed after the cut-off require a future delivery date.');
   if (!isDelivery && store.pickupEnabled !== true) throw new Error('Pickup ordering is not available.');
   if (!readString(draft.customerName)) throw new Error('Name is required.');
   if (readString(draft.customerName).length > 120) throw new Error('Name must be 120 characters or fewer.');
@@ -208,10 +226,10 @@ const validateDraft = (store, draft, currentDate, isLegacyGroupOrder = false) =>
   if (customerEmail && (customerEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail))) {
     throw new Error('Enter a valid email address.');
   }
-  if (!isDelivery && !getValidPickupDates(store, currentDate).includes(readString(draft.pickupDate))) {
+  if (!isDelivery && !validatedSchedule && !getValidPickupDates(store, currentDate).includes(readString(draft.pickupDate))) {
     throw new Error('Choose an available pickup date.');
   }
-  if (!isDelivery && !isLegacyGroupOrder && !getPickupTimeSlots(store, readString(draft.pickupDate), currentDate).includes(readString(draft.pickupTime))) {
+  if (!isDelivery && !validatedSchedule && !isLegacyGroupOrder && !getPickupTimeSlots(store, readString(draft.pickupDate), currentDate).includes(readString(draft.pickupTime))) {
     throw new Error('Choose a valid pickup time.');
   }
   if (!isDelivery && isLegacyGroupOrder && (!Array.isArray(store.pickupSessions) || !store.pickupSessions.includes(readString(draft.pickupSession)))) {
@@ -257,6 +275,7 @@ const buildSetOrderItem = (selection, sets, products) => {
       const productId = readString(choice.productId);
       const option = options.find(candidate => readString(candidate.productId) === productId);
       const product = products.find(candidate => candidate.id === productId && candidate.available === true);
+      if (isWeeklyMealPlan(product)) throw new Error('Weekly Meal Plans cannot be included in Sets.');
       if (!option || !product) throw new Error(`Choose an available ${groupName} option for ${readString(set.name) || 'this set'}.`);
       selectedGroups.push({
         groupId,
@@ -300,12 +319,21 @@ const buildSetOrderItem = (selection, sets, products) => {
   };
 };
 
-export const buildOrderItems = (selections, products, optionGroups, sets = []) => selections.map(selection => {
-  if (readString(selection.setId)) return buildSetOrderItem(selection, sets, products);
-  const product = products.find(candidate => (
+export const buildOrderItems = (selections, products, optionGroups, sets = [], serviceMonday) => selections.map(selection => {
+  if (readString(selection.setId)) {
+    if (selection.selectedMealOptions?.length) throw new Error('Sets cannot contain meal options.');
+    return buildSetOrderItem(selection, sets, products);
+  }
+  const mealOptionDays = resolveSelectionMealOptions(selection, products, serviceMonday);
+  const surchargeMinor = mealOptionSurcharge(mealOptionDays);
+  let product = products.find(candidate => (
     candidate.id === readString(selection.productId) && candidate.available === true
   ));
   if (!product) throw new Error('A product in your cart is no longer available.');
+  if (hasEmbeddedMenu(product) && selection.healthyLunchDate !== undefined) {
+    product = validateHealthyLunchDay(selection, products, selection.healthyLunchDate, product.storeId);
+    if (!product) throw new Error('Choose a valid Healthy Lunch meal.');
+  }
 
   const productGroupIds = Array.isArray(product.optionGroupIds) ? product.optionGroupIds : [];
   const choices = Array.isArray(selection.selectedOptions) ? selection.selectedOptions : [];
@@ -362,20 +390,27 @@ export const buildOrderItems = (selections, products, optionGroups, sets = []) =
   }
 
   const basePrice = roundMoney(Math.max(0, readNumber(product.price)));
-  const unitPrice = roundMoney(Math.max(
+  const legacyUnitPrice = roundMoney(Math.max(
     0,
     basePrice + selectedOptions.reduce((sum, option) => sum + option.priceAdjustment * (option.quantity || 1), 0)
   ));
+  const unitMinor = Math.round(legacyUnitPrice * 100) + surchargeMinor;
+  const unitPrice = mealOptionDays.length ? unitMinor / 100 : legacyUnitPrice;
+  if (mealOptionDays.length && !Number.isSafeInteger(unitMinor * selection.quantity)) throw new Error('Invalid meal total.');
   return {
     itemType: 'product',
+    ...(selection.healthyLunchPlanId ? { healthyLunchSnapshot: { planId: selection.healthyLunchPlanId, date: selection.healthyLunchDate, ...mealOptionDays[0] } } : {}),
     productId: product.id,
     productName: readString(product.name),
     photoUrl: readString(product.photoUrl),
+    ...(selection.healthyLunchPlanId && hasEmbeddedMenu(products.find(plan => plan.id === selection.healthyLunchPlanId)) ? { ...(product.calories !== undefined ? { calories: product.calories } : {}), ...(product.description !== undefined ? { description: product.description } : {}) } : {}),
     quantity: selection.quantity,
     basePrice,
     unitPrice,
-    lineTotal: roundMoney(unitPrice * selection.quantity),
-    selectedOptions
+    lineTotal: mealOptionDays.length ? unitMinor * selection.quantity / 100 : roundMoney(unitPrice * selection.quantity),
+    selectedOptions,
+    // Transient pricing input; removed before persisting the purchased order.
+    ...(mealOptionDays.some(day => day.selectedMealOptions?.length) && !selection.healthyLunchDate ? { mealOptionDays } : {})
   };
 });
 
@@ -396,7 +431,11 @@ export const buildPendingOrder = ({
   draft,
   now = new Date()
 }) => {
-  validateDraft(store, draft, now, Boolean(groupOrder));
+  const scheduled = buildOrderFulfilments({ store, draft, products, groupOrder, getDates: getValidPickupDates, getTimes: getPickupTimeSlots, now });
+  if (scheduled) draft = { ...draft, pickupDate: scheduled.fulfilments[0].date, pickupTime: scheduled.fulfilments[0].time };
+  validateDraft(store, draft, now, Boolean(groupOrder), Boolean(scheduled));
+  if (draft.selections?.some(selection => selection.healthyLunchPlanId) && (groupOrder || draft.groupShareCode || draft.fulfilmentMode === 'instant')) throw new Error('Healthy Lunch dates require scheduled ordering.');
+  if (!scheduled) for (const selection of draft.selections || []) validateHealthyLunchDay(selection, products, draft.fulfilmentMethod === 'delivery' ? (draft.deliveryDate || draft.deliverySnapshot?.schedule?.date) : draft.pickupDate, store.workspaceId || store.id);
   const region = REGIONS[readString(store.country)];
   if (!region || readString(store.currency) !== region.currency) {
     throw new Error('This Store currency is not supported.');
@@ -408,7 +447,18 @@ export const buildPendingOrder = ({
     id: 'stripe',
     name: 'Secure online payment'
   };
-  const items = buildOrderItems(draft.selections, products, optionGroups, sets);
+  const weekly = scheduled ? null : buildWeeklyOrderDetails({ store, draft, products, groupOrder, now, getDates: getValidPickupDates, getTimes: getPickupTimeSlots });
+  const items = buildOrderItems(draft.selections, products, optionGroups, sets, scheduled?.fulfilments[0]?.date || draft.pickupDate);
+  if (weekly || scheduled?.weeklyPlanSnapshot) items[0].weeklyPlanSnapshot = mergeMealOptionSnapshots(weekly?.weeklyPlanSnapshot || scheduled.weeklyPlanSnapshot, resolveSelectionMealOptions(draft.selections[0], products, scheduled?.fulfilments[0]?.date || draft.pickupDate));
+  const fulfilmentDate = draft.deliverySnapshot
+    ? (draft.deliverySnapshot?.fulfilmentMode === 'instant'
+      ? currentFulfilmentDate(region.timeZone, now)
+      : readString(draft.deliverySnapshot?.schedule?.date))
+    : readString(draft.pickupDate);
+  if (!scheduled && (!cartAllowsFulfilmentDate(draft.selections, products, fulfilmentDate)
+    || (draft.deliverySnapshot?.schedule && !cartAllowsFulfilmentDate(draft.selections, products, readString(draft.deliverySnapshot.schedule.date))))) {
+    throw new Error('Choose a fulfilment date matching the Available day of every meal in your cart.');
+  }
   const pickupLocation = store.pickupLocations.find(
     location => readString(location.id) === readString(draft.pickupLocationId)
   );
@@ -418,11 +468,17 @@ export const buildPendingOrder = ({
   const { merchandiseSubtotal, discountTotal, discountedMerchandiseTotal, promotionSnapshot } = promotionPricing;
   const providerDeliveryFee = draft.deliverySnapshot ? roundMoney(Math.max(0, readNumber(draft.deliverySnapshot.quote?.fee))) : 0;
   const subsidy = store.delivery?.subsidy || {};
-  const subsidyApplied = Boolean(draft.deliverySnapshot && subsidy.enabled === true && discountedMerchandiseTotal >= Math.max(0, readNumber(subsidy.minimumMerchandiseSpend)));
+  const subsidyApplied = Boolean(draft.deliverySnapshot && !(scheduled && scheduled.fulfilments.length > 1) && subsidy.enabled === true && discountedMerchandiseTotal >= Math.max(0, readNumber(subsidy.minimumMerchandiseSpend)));
   const deliveryFeeCap = roundMoney(Math.max(0, readNumber(subsidy.maximumCustomerDeliveryCharge)));
-  const deliveryFee = draft.deliverySnapshot ? (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee) : 0;
-  const storeAbsorbedDeliveryFee = roundMoney(Math.max(providerDeliveryFee - deliveryFee, 0));
+  const fulfilmentCount = scheduled?.fulfilments.length || 1;
+  let firstDayFee = draft.deliverySnapshot ? (scheduled && fulfilmentCount > 1 ? providerDeliveryFee : (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee)) : 0;
+  let deliveryFee = scheduled ? roundMoney(firstDayFee * fulfilmentCount) : draft.deliverySnapshot ? (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee) : 0;
+  const dayPricing = draft.deliverySnapshot && store.delivery?.freeDelivery?.enabled === true
+    ? calculateDeliveryDayPricing({ config: store.delivery, providerFee: providerDeliveryFee, items, fulfilments: scheduled?.fulfilments, pickup: draft.deliverySnapshot.pickup, destination: draft.deliverySnapshot.recipient, promotionPricing, date: fulfilmentDate }) : null;
+  if (dayPricing) { deliveryFee = dayPricing.customerDeliveryFee; firstDayFee = dayPricing.days[0].customerDeliveryFee; }
+  const storeAbsorbedDeliveryFee = roundMoney(Math.max(providerDeliveryFee * (dayPricing ? fulfilmentCount : 1) - deliveryFee, 0));
   const total = roundMoney(discountedMerchandiseTotal + deliveryFee);
+  items.forEach(item => { delete item.mealOptionDays; });
   const amountMinor = Math.round(total * 100);
   if (amountMinor < 1) throw new Error('Order total must be greater than zero.');
   const createdAt = now.toISOString();
@@ -462,10 +518,12 @@ export const buildPendingOrder = ({
     pickupLocationNotes: readString(pickupLocation?.notes),
     notes: readString(draft.notes),
     items,
+    ...(scheduled ? { fulfilments: scheduled.fulfilments, fulfilmentCompletion: {}, fulfilmentOperations: {}, ...(draft.deliverySnapshot ? { deliveryPricingSnapshot: { firstQuote: draft.deliverySnapshot.quote, fulfilmentCount, firstDayFee, finalDeliveryTotal: deliveryFee, ...(dayPricing ? { days: dayPricing.days, distanceKm: dayPricing.distanceKm } : {}) } } : {}) } : {}),
+    ...(weekly ? { weeklyFulfilments: weekly.weeklyFulfilments, weeklyCompletion: weekly.weeklyCompletion } : {}),
     itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
     totals: { merchandiseSubtotal, discountTotal, discountedMerchandiseTotal, deliveryFee, grandTotal: total, currency: region.currency },
     ...(promotionSnapshot.appliedPromotions.length ? { promotionSnapshot } : {}),
-    ...(draft.deliverySnapshot ? { delivery: { ...draft.deliverySnapshot, pricing: { providerDeliveryFee, customerDeliveryFee: deliveryFee, storeAbsorbedDeliveryFee, subsidyEnabled: subsidy.enabled === true, subsidyApplied, minimumMerchandiseSpend: roundMoney(Math.max(0, readNumber(subsidy.minimumMerchandiseSpend))), deliveryFeeCap, currency: region.currency } } } : {}),
+    ...(draft.deliverySnapshot ? { delivery: { ...draft.deliverySnapshot, pricing: { providerDeliveryFee, customerDeliveryFee: deliveryFee, storeAbsorbedDeliveryFee, subsidyEnabled: subsidy.enabled === true, subsidyApplied, ...(dayPricing ? { freeDeliveryEnabled: true, days: dayPricing.days, distanceKm: dayPricing.distanceKm } : {}), minimumMerchandiseSpend: roundMoney(Math.max(0, readNumber(subsidy.minimumMerchandiseSpend))), deliveryFeeCap, currency: region.currency } } } : {}),
     total,
     status: 'Awaiting Payment',
     fulfilmentStatus: 'New',
@@ -539,6 +597,7 @@ export const toPublicPaymentOrderSummary = order => {
     )) : [];
     return {
       productName: readString(item.productName), quantity, lineTotal, selectedOptions,
+      ...publicMealOptionSnapshot(item.healthyLunchSnapshot),
       ...(readString(item?.setSnapshot?.setName) && selectedGroups.length
         ? { setSnapshot: { setName: readString(item.setSnapshot.setName), selectedGroups } }
         : {})
@@ -546,6 +605,7 @@ export const toPublicPaymentOrderSummary = order => {
   });
   if (items.some(item => item === null)) return null;
   return {
+    ...(order.fulfilments ? { fulfilments: publicOrderFulfilments(order) } : {}),
     fulfilmentMethod,
     ...(fulfilmentMethod === 'pickup' ? {
       pickupDetails: {
@@ -567,6 +627,8 @@ export const toPublicPaymentOrderSummary = order => {
 };
 
 export const toPublicOrderResult = order => ({
+  ...(order.fulfilments ? { fulfilments: publicOrderFulfilments(order) } : {}),
+  ...(order.weeklyFulfilments ? { weeklyFulfilments: publicWeeklyFulfilments(order) } : {}),
   orderNumber: readString(order.orderNumber),
   pickupCode: readString(order.pickupCode),
   storeName: readString(order.storeName),

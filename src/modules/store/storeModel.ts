@@ -1,3 +1,5 @@
+import { isWeeklyMealPlan, WEEKLY_DAYS, validateWeeklyStructure } from '../../../functions/storeWeeklyMealPlan.js';
+import { AVAILABLE_DAYS } from '../../../functions/storeProductAvailability.js';
 import type { Workspace } from '../../types';
 import { getWorkspaceRegionConfiguration, normalizeRegionCode } from '../../regions';
 import { isValidBusinessWhatsApp } from './selling';
@@ -49,6 +51,7 @@ export const resolveStoreDeliveryEnvironment = (projectId = currentFirebaseProje
 export const createDefaultStoreDelivery = (environment = resolveStoreDeliveryEnvironment()): import('./types').StoreDeliveryConfig => ({
   enabled: false, provider: 'lalamove', environment, market: 'MY', pickupLocationId: '', serviceType: '',
   pickup: { name: '', address: '', latitude: '', longitude: '', contactName: '', contactPhoneE164: '' },
+  freeDelivery: { enabled: false, distanceThresholdKm: 8, minimumSubtotalWithin: 60, minimumSubtotalBeyond: 120 },
   subsidy: { enabled: false, minimumMerchandiseSpend: 0, maximumCustomerDeliveryCharge: 0 },
   fulfilment: { preOrder: { enabled: true, orderDays: [...DEFAULT_STORE_ORDER_DAYS], earliestDays: 0, maximumAdvanceDays: 14, unavailableDates: [], deliveryHours: { from: '09:00', to: '21:00' }, maximumDistanceKm: 20, sessions: [] }, instant: { enabled: false, operatingHours: { start: '09:00', end: '21:00' }, preparationMinutes: 20 } }
 });
@@ -206,9 +209,23 @@ const addRegionDays = (date: Date, days: number) => {
   return next;
 };
 
+export const isAfterOrderCutoff = (
+  store: Partial<Pick<WorkspaceStore, 'country' | 'orderCutoffTime'>>,
+  now: Date
+) => {
+  const cutoff = store.orderCutoffTime;
+  if (!cutoff || !/^([01]\d|2[0-3]):[0-5]\d$/.test(cutoff)) return false;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en', {
+    timeZone: getWorkspaceRegionConfiguration(store).timeZone,
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  }).formatToParts(now).map(part => [part.type, part.value]));
+  const seconds = Number(parts.hour) * 3600 + Number(parts.minute) * 60 + Number(parts.second) + now.getUTCMilliseconds() / 1000;
+  return seconds > pickupMinutes(cutoff) * 60;
+};
+
 export const getValidPickupDates = (
   store: Pick<WorkspaceStore, 'orderDays' | 'earliestPickupDays' | 'maximumAdvanceDays' | 'unavailableDates'>
-    & Partial<Pick<WorkspaceStore, 'country'>>,
+    & Partial<Pick<WorkspaceStore, 'country' | 'orderCutoffTime'>>,
   currentDate = new Date()
 ) => {
   const region = getWorkspaceRegionConfiguration(store);
@@ -219,7 +236,7 @@ export const getValidPickupDates = (
   const dates: string[] = [];
 
   for (
-    let offset = store.earliestPickupDays;
+    let offset = store.earliestPickupDays + (isAfterOrderCutoff(store, currentDate) ? 1 : 0);
     offset <= store.maximumAdvanceDays;
     offset += 1
   ) {
@@ -323,6 +340,8 @@ export const normalizeWorkspaceStore = (
     delivery: (() => {
       const raw = data.delivery && typeof data.delivery === 'object' ? data.delivery as Record<string, unknown> : {};
       const pickup = raw.pickup && typeof raw.pickup === 'object' ? raw.pickup as Record<string, unknown> : {};
+      const freeDelivery = raw.freeDelivery && typeof raw.freeDelivery === 'object' ? raw.freeDelivery as Record<string, unknown> : {};
+      const freeAmount = (key: string, fallback: number) => typeof freeDelivery[key] === 'number' && Number.isFinite(freeDelivery[key]) ? freeDelivery[key] as number : fallback;
       const subsidy = raw.subsidy && typeof raw.subsidy === 'object' ? raw.subsidy as Record<string, unknown> : {};
       const fulfilment = raw.fulfilment && typeof raw.fulfilment === 'object' ? raw.fulfilment as Record<string, unknown> : {};
       const preOrder = fulfilment.preOrder && typeof fulfilment.preOrder === 'object' ? fulfilment.preOrder as Record<string, unknown> : {};
@@ -330,7 +349,7 @@ export const normalizeWorkspaceStore = (
       const instant = fulfilment.instant && typeof fulfilment.instant === 'object' ? fulfilment.instant as Record<string, unknown> : {};
       const validTime = (value: unknown, fallback: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(readString(value)) ? readString(value) : fallback;
       const deliveryHours = preOrder.deliveryHours && typeof preOrder.deliveryHours === 'object' ? preOrder.deliveryHours as Record<string, unknown> : {};
-      return { ...defaults, enabled: readBoolean(raw.enabled), pickupLocationId: readString(raw.pickupLocationId), serviceType: readString(raw.serviceType), pickup: { name: readString(pickup.name), address: readString(pickup.address), latitude: readString(pickup.latitude), longitude: readString(pickup.longitude), contactName: readString(pickup.contactName), contactPhoneE164: readString(pickup.contactPhoneE164) }, subsidy: { enabled: readBoolean(subsidy.enabled), minimumMerchandiseSpend: Math.max(0, readPrice(subsidy.minimumMerchandiseSpend)), maximumCustomerDeliveryCharge: Math.max(0, readPrice(subsidy.maximumCustomerDeliveryCharge)) }, fulfilment: { preOrder: { enabled: preOrder.enabled !== false, orderDays: Array.isArray(preOrder.orderDays) ? preOrder.orderDays.filter((day): day is StoreOrderDay => DEFAULT_STORE_ORDER_DAYS.includes(day as StoreOrderDay)) : (rawOrderDays ? rawOrderDays.filter((day): day is StoreOrderDay => DEFAULT_STORE_ORDER_DAYS.includes(day as StoreOrderDay)) : defaults.fulfilment.preOrder.orderDays), earliestDays: preOrder.earliestDays === 1 ? 1 : readEarliestPickupDays(data.earliestPickupDays), maximumAdvanceDays: [7, 14, 30].includes(readPrice(preOrder.maximumAdvanceDays)) ? readPrice(preOrder.maximumAdvanceDays) as StoreMaximumAdvanceDays : readMaximumAdvanceDays(data.maximumAdvanceDays), unavailableDates: Array.isArray(preOrder.unavailableDates) ? preOrder.unavailableDates.filter((date): date is string => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) : (Array.isArray(data.unavailableDates) ? data.unavailableDates.filter((date): date is string => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) : []), deliveryHours: { from: validTime(deliveryHours.from, '09:00'), to: validTime(deliveryHours.to, '21:00') }, maximumDistanceKm: Math.min(500, Math.max(1, readPrice(preOrder.maximumDistanceKm) || 20)), sessions: Array.isArray(preOrder.sessions) ? [...new Set(preOrder.sessions.filter((session): session is string => typeof session === 'string' && Boolean(session.trim())).map(session => session.trim()))] : (Array.isArray(data.pickupSessions) ? data.pickupSessions.filter((session): session is string => typeof session === 'string' && Boolean(session.trim())).map(session => session.trim()) : []) }, instant: { enabled: readBoolean(instant.enabled), operatingHours: { start: validTime(instant.operatingHours && (instant.operatingHours as Record<string, unknown>).start, '09:00'), end: validTime(instant.operatingHours && (instant.operatingHours as Record<string, unknown>).end, '21:00') }, preparationMinutes: Math.min(180, Math.max(0, readPrice(instant.preparationMinutes) || 20)) } } };
+      return { ...defaults, enabled: readBoolean(raw.enabled), pickupLocationId: readString(raw.pickupLocationId), serviceType: readString(raw.serviceType), pickup: { name: readString(pickup.name), address: readString(pickup.address), latitude: readString(pickup.latitude), longitude: readString(pickup.longitude), contactName: readString(pickup.contactName), contactPhoneE164: readString(pickup.contactPhoneE164) }, freeDelivery: { enabled: freeDelivery.enabled === true, distanceThresholdKm: freeAmount('distanceThresholdKm', 8), minimumSubtotalWithin: freeAmount('minimumSubtotalWithin', 60), minimumSubtotalBeyond: freeAmount('minimumSubtotalBeyond', 120) }, subsidy: { enabled: readBoolean(subsidy.enabled), minimumMerchandiseSpend: Math.max(0, readPrice(subsidy.minimumMerchandiseSpend)), maximumCustomerDeliveryCharge: Math.max(0, readPrice(subsidy.maximumCustomerDeliveryCharge)) }, fulfilment: { preOrder: { enabled: preOrder.enabled !== false, orderDays: Array.isArray(preOrder.orderDays) ? preOrder.orderDays.filter((day): day is StoreOrderDay => DEFAULT_STORE_ORDER_DAYS.includes(day as StoreOrderDay)) : (rawOrderDays ? rawOrderDays.filter((day): day is StoreOrderDay => DEFAULT_STORE_ORDER_DAYS.includes(day as StoreOrderDay)) : defaults.fulfilment.preOrder.orderDays), earliestDays: preOrder.earliestDays === 1 ? 1 : readEarliestPickupDays(data.earliestPickupDays), maximumAdvanceDays: [7, 14, 30].includes(readPrice(preOrder.maximumAdvanceDays)) ? readPrice(preOrder.maximumAdvanceDays) as StoreMaximumAdvanceDays : readMaximumAdvanceDays(data.maximumAdvanceDays), unavailableDates: Array.isArray(preOrder.unavailableDates) ? preOrder.unavailableDates.filter((date): date is string => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) : (Array.isArray(data.unavailableDates) ? data.unavailableDates.filter((date): date is string => typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) : []), deliveryHours: { from: validTime(deliveryHours.from, '09:00'), to: validTime(deliveryHours.to, '21:00') }, maximumDistanceKm: Math.min(500, Math.max(1, readPrice(preOrder.maximumDistanceKm) || 20)), sessions: Array.isArray(preOrder.sessions) ? [...new Set(preOrder.sessions.filter((session): session is string => typeof session === 'string' && Boolean(session.trim())).map(session => session.trim()))] : (Array.isArray(data.pickupSessions) ? data.pickupSessions.filter((session): session is string => typeof session === 'string' && Boolean(session.trim())).map(session => session.trim()) : []) }, instant: { enabled: readBoolean(instant.enabled), operatingHours: { start: validTime(instant.operatingHours && (instant.operatingHours as Record<string, unknown>).start, '09:00'), end: validTime(instant.operatingHours && (instant.operatingHours as Record<string, unknown>).end, '21:00') }, preparationMinutes: Math.min(180, Math.max(0, readPrice(instant.preparationMinutes) || 20)) } } };
     })(),
     pickupSessions: Array.isArray(data.pickupSessions)
       ? [...new Set(data.pickupSessions.filter((session): session is string => typeof session === 'string' && Boolean(session.trim())).map(session => session.trim()))]
@@ -354,6 +373,7 @@ export const normalizeWorkspaceStore = (
         .map(day => day.id)
         .filter(day => rawOrderDays.includes(day))
       : [...DEFAULT_STORE_ORDER_DAYS],
+    orderCutoffTime: validTime(Object.prototype.hasOwnProperty.call(data, 'orderCutoffTime') ? data.orderCutoffTime : data.pickupOrderCutoffTime, '') || null,
     earliestPickupDays: readEarliestPickupDays(data.earliestPickupDays),
     maximumAdvanceDays: readMaximumAdvanceDays(data.maximumAdvanceDays),
     unavailableDates: Array.isArray(data.unavailableDates)
@@ -393,14 +413,22 @@ export const normalizeStoreProduct = (
   name: readString(data.name, 'Product'),
   description: readString(data.description),
   price: readPrice(data.price),
-  ...(Number.isInteger(Number(data.calories)) && Number(data.calories) >= 0
+  ...((typeof data.calories === 'number' || (typeof data.calories === 'string' && data.calories.trim() !== '')) && Number.isInteger(Number(data.calories)) && Number(data.calories) >= 0
     ? { calories: Number(data.calories) }
     : {}),
   recipeId: readString(data.recipeId) || readString(data.linkedRecipeId) || undefined,
   ...(Number.isFinite(Number(data.estimatedCost)) && Number(data.estimatedCost) >= 0
     ? { estimatedCost: Number(data.estimatedCost) }
     : {}),
+  ...(data.productType !== undefined ? { productType: data.productType as StoreProduct['productType'] } : {}),
+  ...(data.weeklyMenuVersion !== undefined ? { weeklyMenuVersion: data.weeklyMenuVersion as 2 | 3 } : {}),
+  ...(data.weeklyWeeks && typeof data.weeklyWeeks === 'object' ? { weeklyWeeks: structuredClone(data.weeklyWeeks) as StoreProduct['weeklyWeeks'] } : {}),
+  ...(typeof data.rotationStartMonday === 'string' ? { rotationStartMonday: data.rotationStartMonday } : {}),
+  ...(data.rotationWeeks && typeof data.rotationWeeks === 'object' ? { rotationWeeks: structuredClone(data.rotationWeeks) as StoreProduct['rotationWeeks'] } : {}),
+  ...(Array.isArray(data.healthyLunchBlockedDates) ? { healthyLunchBlockedDates: [...data.healthyLunchBlockedDates] as string[] } : {}),
+  ...(data.weeklyMeals && typeof data.weeklyMeals === 'object' ? { weeklyMeals: { ...data.weeklyMeals as NonNullable<StoreProduct['weeklyMeals']> } } : {}),
   available: readBoolean(data.available),
+  availableDay: (data.availableDay ?? 'all') as StoreProduct['availableDay'],
   optionGroupIds: Array.isArray(data.optionGroupIds)
     ? [...new Set(data.optionGroupIds.filter((groupId): groupId is string => typeof groupId === 'string' && Boolean(groupId.trim())).map(groupId => groupId.trim()))]
     : [],
@@ -419,6 +447,8 @@ export const validateStoreSettings = (
     if (delivery.provider !== 'lalamove' || delivery.environment !== resolveStoreDeliveryEnvironment() || delivery.market !== 'MY') return 'Delivery environment does not match this MiseChef project.';
     if (!delivery.pickupLocationId || !delivery.serviceType.trim() || !delivery.pickup.address.trim() || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180 || !delivery.pickup.contactName.trim() || !/^\+[1-9]\d{1,14}$/.test(delivery.pickup.contactPhoneE164.trim())) return 'Complete the delivery pickup, coordinates, sender contact, and service type.';
     if (!delivery.fulfilment.preOrder.enabled || delivery.fulfilment.preOrder.deliveryHours.from >= delivery.fulfilment.preOrder.deliveryHours.to || delivery.fulfilment.preOrder.maximumDistanceKm <= 0) return 'Enable pre-order delivery and set valid delivery hours and maximum distance.';
+    const free = delivery.freeDelivery;
+    if (free && (!Number.isFinite(free.distanceThresholdKm) || free.distanceThresholdKm <= 0 || free.distanceThresholdKm > 500 || [free.minimumSubtotalWithin, free.minimumSubtotalBeyond].some(value => !Number.isFinite(value) || value < 0 || value > 100000))) return 'Choose valid free delivery distance and minimum order amounts.';
     if (delivery.subsidy.minimumMerchandiseSpend < 0 || delivery.subsidy.maximumCustomerDeliveryCharge < 0) return 'Delivery subsidy values cannot be negative.';
   }
   const pickupSessions = draft.pickupSessions.map(session => session.trim()).filter(Boolean);
@@ -468,6 +498,7 @@ export const validateStoreSettings = (
   if (draft.orderDays.length === 0) return 'Choose at least one order day.';
   if (new Set(draft.orderDays).size !== draft.orderDays.length) return 'Order days must be unique.';
   if (draft.orderDays.some(day => !DEFAULT_STORE_ORDER_DAYS.includes(day))) return 'Choose valid order days.';
+  if (draft.orderCutoffTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(draft.orderCutoffTime)) return 'Choose a valid order cut-off time.';
   if (draft.earliestPickupDays !== 0 && draft.earliestPickupDays !== 1) return 'Choose a valid earliest pickup option.';
   if (![7, 14, 30].includes(draft.maximumAdvanceDays)) return 'Choose a valid advance booking window.';
   if (draft.unavailableDates.length > 60) return 'Use 60 unavailable dates or fewer.';
@@ -502,6 +533,14 @@ export const validateStoreSettings = (
 };
 
 export const validateStoreProduct = (draft: StoreProductDraft) => {
+  if (!['single', 'weekly_meal_plan'].includes(draft.productType ?? 'single')) return 'Choose a valid Product Type.';
+  if (isWeeklyMealPlan(draft)) {
+    if (draft.optionGroupIds.length || (draft.availableDay ?? 'all') !== 'all') return 'Weekly plans cannot have options or an Available day restriction.';
+    const weeklyError = validateWeeklyStructure(draft);
+    if (weeklyError) return weeklyError;
+  } else if (draft.weeklyMeals !== undefined || draft.weeklyWeeks !== undefined || draft.weeklyMenuVersion !== undefined || draft.rotationWeeks !== undefined || draft.rotationStartMonday !== undefined || draft.healthyLunchBlockedDates !== undefined) return 'Single Products cannot contain weekly meals.';
+
+  if (!AVAILABLE_DAYS.includes(draft.availableDay ?? 'all')) return 'Choose a valid Available day.';
   if (!draft.photoUrl.trim()) return 'Product photo is required.';
   if (!draft.name.trim()) return 'Product name is required.';
   if (draft.name.trim().length > 160) return 'Product name must be 160 characters or fewer.';

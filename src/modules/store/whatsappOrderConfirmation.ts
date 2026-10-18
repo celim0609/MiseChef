@@ -12,6 +12,7 @@ export interface WhatsAppOrderConfirmationInput {
   fulfilmentMethod?: 'pickup' | 'delivery';
   fullAddress?: string;
   paymentAmount?: number;
+  paymentStatus?: StoreOrder['payment']['status'];
   currency?: string;
   schedule?: Array<{ date: string; time: string; address?: string }>;
   pickupCode?: string;
@@ -63,6 +64,7 @@ export const buildWhatsAppOrderConfirmationMessage = ({
   fulfilmentMethod = 'pickup',
   fullAddress = '',
   paymentAmount,
+  paymentStatus,
   currency = 'MYR',
   schedule = []
 }: Omit<WhatsAppOrderConfirmationInput, 'phone' | 'country'>) => {
@@ -73,30 +75,31 @@ export const buildWhatsAppOrderConfirmationMessage = ({
     : pickupDate.trim() || pickupTime.trim()
       ? [{ date: pickupDate, time: pickupTime, address: fullAddress }]
       : [];
-  const address = fullAddress.trim() || (!delivery ? pickupLocation.trim() : '');
+  const addresses = [...new Set(entries.map(entry => entry.address?.trim()).filter(Boolean))];
+  const address = addresses.length === 1 ? addresses[0] : fullAddress.trim() || (!delivery ? pickupLocation.trim() : '');
+  const paid = paymentStatus === 'paid';
   const amount = typeof paymentAmount === 'number' && Number.isFinite(paymentAmount)
-    ? `${currency === 'MYR' ? 'RM' : currency === 'SGD' ? 'SGD ' : currency + ' '}${paymentAmount.toFixed(2)} · Paid`
-    : 'Paid';
+    ? `${currency === 'MYR' ? 'RM' : currency === 'SGD' ? 'SGD ' : currency + ' '}${paymentAmount.toFixed(2)}`
+    : 'Unavailable';
   const lines = [
-    '*Order Confirmed* ✅💚',
+    paid ? '*Order Confirmed* ✅' : '*Order Details*',
     '',
     name ? `Hi ${name}! Thank you for your order! 🥰` : 'Thank you for your order! 🥰',
     '',
     orderNumber.trim() ? `🧾 Order: *${orderNumber.trim()}*` : '',
-    `💳 Payment: *${amount}*`,
+    `💳 Total Paid: *${paid ? amount : 'Unavailable'}*`,
+    `Payment Status: *${paid ? 'Paid' : paymentStatus ? paymentStatus.replaceAll('_', ' ') : 'Not confirmed'}*`,
     !delivery && pickupCode.trim() ? `🔑 Pickup Code: *${pickupCode.trim()}*` : '',
     '',
     delivery ? '🚚 *Delivery Schedule*' : '📅 *Pickup Schedule*',
     ...entries.map(entry => [entry.date.trim(), entry.time.trim()].filter(Boolean).join(' · ')),
     '',
-    address ? `📍 *${delivery ? 'Delivery' : 'Pickup'} Address*\n${address}` : '',
-    ...((new Set(entries.map(entry => entry.address?.trim()).filter(Boolean))).size > 1
+    addresses.length <= 1 && address ? `📍 *${delivery ? 'Delivery' : 'Pickup'} Address*\n${address}` : '',
+    ...(addresses.length > 1
       ? ['', '*Addresses by date*', ...entries.filter(entry => entry.address?.trim()).map(entry => `${entry.date}: ${entry.address}`)]
       : []),
     '',
-    entries.length > 1 ? '💚 Please follow your selected dates & times.' : 'Freshly prepared for you! 💚',
-    '',
-    'Thank you!',
+    'Thank you! 💚',
     storeName.trim() ? `*${storeName.trim()}*` : ''
   ];
   return lines.filter((line, index) => line !== '' || (index > 0 && lines[index - 1] !== '')).join('\n').trim();

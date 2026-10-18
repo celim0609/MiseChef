@@ -8,6 +8,7 @@ import {
   getMalaysiaBusinessDateKey,
   getPickupCodeFromOrderNumber,
   getPickupTimeSlots,
+  getValidPickupDates,
   PAYMENT_STATUS,
   toPublicOrderResult
 } from './storePaymentsCore.js';
@@ -622,4 +623,105 @@ test('customer order reference collision regenerates before returning', async ()
     pickupCode: 'EFGH',
     businessDateKey: '20260822'
   });
+});
+
+const weekdayOrder = (availableDay, overrides = {}) => buildPendingOrder({
+  id: 'weekday-order', orderNumber: 'MC-260726-ABCDEF', store,
+  products: [{ ...products[0], ...(availableDay === undefined ? {} : { availableDay }) }],
+  optionGroups, paymentProvider: STRIPE_PROVIDER_ID, paymentProviderMode: STRIPE_PROVIDER_MODE,
+  draft: { ...draft, ...overrides }, now: new Date('2026-07-26T04:00:00Z')
+});
+
+test('Monday and Tuesday meals reject forged pickup dates and retain the existing order date', () => {
+  assert.equal(weekdayOrder('mon').pickupDate, '2026-07-27');
+  assert.throws(() => weekdayOrder('mon', { pickupDate: '2026-07-28' }), /Available day/);
+  assert.equal(weekdayOrder('tue', { pickupDate: '2026-07-28' }).pickupDate, '2026-07-28');
+  assert.throws(() => weekdayOrder('tue'), /Available day/);
+  assert.equal(weekdayOrder(undefined).pickupDate, '2026-07-27');
+  assert.equal(weekdayOrder(undefined, { pickupDate: '2026-07-28' }).pickupDate, '2026-07-28');
+  assert.equal(weekdayOrder('all', { pickupDate: '2026-07-28' }).pickupDate, '2026-07-28');
+});
+
+test('delivery checks the authoritative schedule rather than a forged client delivery date', () => {
+  const delivery = date => ({ fulfilmentMethod: 'delivery', deliveryDate: '2026-07-27',
+    deliverySnapshot: { fulfilmentMode: 'preorder', schedule: { mode: 'preorder', date, time: '12:00', timeZone: 'Asia/Kuala_Lumpur' } } });
+  const order = weekdayOrder('mon', delivery('2026-07-27'));
+  assert.equal(order.delivery.schedule.date, '2026-07-27');
+  assert.throws(() => weekdayOrder('mon', delivery('2026-07-28')), /Available day/);
+  assert.equal(weekdayOrder('tue', delivery('2026-07-28')).delivery.schedule.date, '2026-07-28');
+  assert.throws(() => weekdayOrder('tue', delivery('2026-07-27')), /Available day/);
+  assert.throws(() => weekdayOrder('mon', { fulfilmentMethod: 'delivery', deliverySnapshot: { fulfilmentMode: 'preorder' } }), /Available day/);
+});
+
+test('instant delivery cannot bypass meal weekdays by sending a matching date', () => {
+  const instant = { fulfilmentMethod: 'delivery', deliveryDate: '2026-07-27', deliverySnapshot: { fulfilmentMode: 'instant' } };
+  assert.throws(() => weekdayOrder('mon', instant), /Available day/);
+  assert.equal(weekdayOrder('sun', instant).delivery.fulfilmentMode, 'instant');
+  assert.equal(weekdayOrder(undefined, instant).delivery.fulfilmentMode, 'instant');
+});
+
+
+test('injected delivery snapshots cannot smuggle a mismatching stored date through pickup checkout', () => {
+  assert.throws(() => weekdayOrder('mon', { deliverySnapshot: { fulfilmentMode: 'preorder', schedule: { date: '2026-07-28' } } }), /Available day/);
+  assert.throws(() => weekdayOrder('sun', { deliverySnapshot: { fulfilmentMode: 'instant', schedule: { date: '2026-07-27' } } }), /Available day/);
+});
+
+test('Weekly Meal Plan creates one priced item/payment and five immutable daily pickups', () => {
+  const days = ['mon','tue','wed','thu','fri'];
+  const meals = days.map(day => ({ id: day, storeId: store.id, workspaceId: store.id, name: `${day} lunch`, available: true, availableDay: day, photoUrl: `${day}.jpg`, price: 10, optionGroupIds: [] }));
+  const plan = { id: 'weekly', storeId: store.id, workspaceId: store.id, name: 'Weekly lunch', photoUrl: 'weekly.jpg', price: 45, available: true, productType: 'weekly_meal_plan', weeklyMeals: Object.fromEntries(days.map(day => [day, day])), optionGroupIds: [] };
+  const args = { id: 'weekly-order', orderNumber: 'MC-260726-WEEKLY', store, products: [...meals, plan], optionGroups: [], paymentProvider: STRIPE_PROVIDER_ID, paymentProviderMode: STRIPE_PROVIDER_MODE, draft: { ...draft, selections: [{ productId: 'weekly', quantity: 2, selectedOptions: [] }] }, now: new Date('2026-07-26T04:00:00Z') };
+  const order = buildPendingOrder(args);
+  assert.equal(order.items.length, 1); assert.equal(order.items[0].quantity, 2);
+  assert.equal(order.items[0].lineTotal, 90); assert.equal(order.payment.amountMinor, 9000);
+  assert.equal(order.total, 90); assert.equal(order.weeklyFulfilments.length, 5);
+  assert.equal(order.items[0].weeklyPlanSnapshot.meals.length, 5);
+  assert.equal(order.weeklyFulfilments[4].date, '2026-07-31');
+  assert.equal(order.fulfilmentMethod, 'pickup'); assert.equal('delivery' in order, false);
+  const before = JSON.stringify(order.weeklyFulfilments);
+  meals[0].name = 'Later edit'; plan.weeklyMeals.mon = 'tue';
+  assert.equal(JSON.stringify(order.weeklyFulfilments), before);
+  plan.weeklyMeals.mon = 'mon';
+  assert.throws(() => buildPendingOrder({ ...args, draft: { ...args.draft, selections: [...args.draft.selections, { productId: 'mon', quantity: 1, selectedOptions: [] }] } }), /alone/);
+  assert.throws(() => buildPendingOrder({ ...args, store: { ...store, unavailableDates: ['2026-07-29'] } }), /all five days/);
+  assert.throws(() => buildPendingOrder({ ...args, draft: { ...args.draft, pickupDate: '2026-07-28' } }), /Monday/);
+  assert.throws(() => buildPendingOrder({ ...args, draft: { ...args.draft, fulfilmentMethod: 'delivery', deliverySnapshot: { fulfilmentMode: 'instant' } } }), /pickup-only/);
+  const publicOrder = toPublicOrderResult(order);
+  assert.equal(publicOrder.weeklyFulfilments[0].productName, 'mon lunch');
+  assert.equal(JSON.stringify(publicOrder).includes('productId'), false);
+});
+
+
+test('pickup cut-off uses store clock, strict boundary, calendar offset and unchanged horizon', () => {
+  const store = { country: 'MY', orderDays: ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'], earliestPickupDays: 1, maximumAdvanceDays: 7, unavailableDates: [], orderCutoffTime: '18:00' };
+  assert.equal(getValidPickupDates(store, new Date('2026-10-12T09:59:59Z'))[0], '2026-10-13');
+  assert.equal(getValidPickupDates({ ...store, orderCutoffTime: '19:00' }, new Date('2026-10-12T10:30:00Z'))[0], '2026-10-13');
+  const at = new Date('2026-10-12T10:00:00.000Z');
+  assert.equal(getValidPickupDates(store, at)[0], '2026-10-13');
+  const after = new Date('2026-10-12T10:00:00.001Z');
+  assert.equal(getValidPickupDates(store, after)[0], '2026-10-14');
+  assert.equal(getValidPickupDates(store, after).at(-1), '2026-10-19');
+  for (const disabled of [undefined, null, '']) assert.equal(getValidPickupDates({ ...store, orderCutoffTime: disabled }, after)[0], '2026-10-13');
+  assert.equal(getValidPickupDates(store, new Date('2026-10-12T16:00:00Z'))[0], '2026-10-14');
+  assert.equal(getValidPickupDates({ ...store, earliestPickupDays: 0, orderCutoffTime: '00:00' }, new Date('2026-10-12T16:00:00Z'))[0], '2026-10-13');
+  assert.equal(getValidPickupDates({ ...store, unavailableDates: ['2026-10-14'], orderDays: ['friday'] }, after)[0], '2026-10-16');
+  assert.deepEqual(getValidPickupDates({ ...store, orderDays: [] }, after), []);
+});
+
+
+test('raw Beta cut-off fallback applies until migrated and explicit null takes precedence', () => {
+  const legacy = { ...store, earliestPickupDays: 1, pickupOrderCutoffTime: '18:00' };
+  const after = new Date('2026-10-12T10:00:01Z');
+  assert.equal(getValidPickupDates(legacy, after)[0], '2026-10-14');
+  assert.equal(getValidPickupDates({ ...legacy, orderCutoffTime: null }, after)[0], '2026-10-13');
+});
+
+test('embedded day financial lines ignore client meal details and reject missing or mismatched plan identity', async () => {
+  const { buildOrderItems } = await import('./storePaymentsCore.js');
+  const plan = { id: 'direct', storeId: 's', workspaceId: 's', available: true, productType: 'weekly_meal_plan', weeklyMenuVersion: 2, optionGroupIds: [], price: 60, weeklyWeeks: { week4: { startMonday: '2026-10-19', meals: Object.fromEntries(['mon','tue','wed','thu','fri'].map(day => [day, { name: `${day} saved meal`, photoUrl: 'https://example.test/saved.jpg', price: 12.5, calories: 450, description: 'Saved description' }])) } } };
+  const selection = { productId: plan.id, healthyLunchPlanId: plan.id, healthyLunchDate: '2026-10-21', quantity: 2, selectedOptions: [], name: 'Forged name', price: 0, calories: 0, photoUrl: 'forged.jpg' };
+  const item = buildOrderItems([selection], [plan], [])[0];
+  assert.equal(item.unitPrice, 12.5); assert.equal(item.lineTotal, 25); assert.equal(item.productName, 'wed saved meal'); assert.equal(item.calories, 450); assert.equal(item.photoUrl, 'https://example.test/saved.jpg');
+  assert.throws(() => buildOrderItems([{ ...selection, healthyLunchPlanId: undefined }], [plan], []), /Healthy Lunch/);
+  assert.throws(() => buildOrderItems([{ ...selection, healthyLunchDate: '2026-10-26' }], [plan], []), /does not match/);
 });

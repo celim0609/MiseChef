@@ -22,7 +22,7 @@ test('delivery quote expiry is refreshed only when the customer starts payment',
   assert.match(checkout, /if \(!deliveryQuoteHasSufficientLifetime\)/);
   assert.match(checkout, /await refreshDeliveryQuoteForPayment\(\)/);
   assert.doesNotMatch(checkout, /deliveryQuoteRefreshAttemptsRef|scheduleDeliveryQuoteRefresh/);
-  assert.match(checkout, /disabled=\{isPlacingOrder \|\| !deliveryQuoteReady\}/);
+  assert.match(checkout, /disabled=\{isPlacingOrder \|\| !deliveryQuoteReady \|\| !cartDateAllowed\}/);
 });
 
 test('active delivery has a manual and bounded live server refresh path', () => {

@@ -87,9 +87,21 @@ test('Store Contact fields are schema-bounded and remain under existing Store te
 
   assert.match(firestoreRules, /function isValidStoreContact\(contact\)/);
   assert.match(firestoreRules, /contact\.keys\(\)\.hasOnly/);
-  assert.match(storeRules, /allow update: if hasActiveBusinessEntitlement\(workspaceId\)[\s\S]*isWorkspaceOwnerOrManager\(workspaceId\)/);
-  assert.match(storeRules, /isValidStoreSettings\(request\.resource\.data, workspaceId, true\)/);
-  assert.match(storeRules, /isValidStoreSettings\(\s*request\.resource\.data,\s*workspaceId,\s*request\.resource\.data\.diff\(resource\.data\)\.affectedKeys\(\)\.hasAny\(\['paymentMethods'\]\)\s*\)/);
+  const updateGuard = storeRules.match(/function canUpdateStoreSettings\(\) \{([\s\S]*?)\n      \}/)?.[1];
+  const changedGroups = storeRules.match(/function isValidChangedStoreGroups\(data, changedKeys\) \{([\s\S]*?)\n      \}/)?.[1];
+  const contactUpdate = storeRules.match(/function isValidStoreContactUpdate\(data\) \{([\s\S]*?)\n      \}/)?.[1];
+  const createRule = storeRules.match(/allow create: if ([\s\S]*?);/)?.[1];
+  assert.ok(updateGuard, 'Store update authorization helper must exist');
+  assert.ok(changedGroups, 'Store changed-group validator must exist');
+  assert.ok(contactUpdate, 'Store Contact update validator must exist');
+  assert.ok(createRule, 'Store creation rule must exist');
+  assert.match(storeRules, /allow update: if canUpdateStoreSettings\(\);/);
+  assert.match(updateGuard.replace(/\/\/[^\n]*/g, ''), /return canManageActiveStore\(\)\s*&& changedKeys\.hasOnly\(/);
+  assert.match(updateGuard, /isValidIsolatedStoreUpdate\(data, changedKeys\)\s*\? true : isValidChangedStoreGroups\(data, changedKeys\)/);
+  assert.match(changedGroups, /&& \(changedKeys\.hasAny\(\['contactInformation', 'businessWhatsApp', 'storeContact', 'businessHours'\]\)\s*\? isValidStoreContactUpdate\(data\) : true\)/);
+  assert.match(contactUpdate, /return data\.contactInformation is string && data\.contactInformation\.size\(\) <= 500\s*&& data\.businessWhatsApp is string && data\.businessWhatsApp\.size\(\) <= 30\s*&& isValidStoreContact\(data\.storeContact\)\s*&& data\.businessHours is string && data\.businessHours\.size\(\) <= 300;/);
+  // Creation still requires the complete validator, independently of update groups.
+  assert.match(createRule, /hasActiveBusinessEntitlement\(workspaceId\)\s*&& isWorkspaceOwnerOrManager\(workspaceId\)\s*&& hasValidStoreSettingsKeys\(request\.resource\.data\)\s*&& isValidStoreSettings\(request\.resource\.data, workspaceId, true\)\s*&& storeMatchesWorkspaceCountry\(request\.resource\.data, workspaceId\)/);
   assert.doesNotMatch(storeRules, /allow (create|update|delete): if true/);
 });
 

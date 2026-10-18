@@ -127,12 +127,12 @@ test('delivery confirmation uses recipient address and delivery schedule, withou
   const message = buildWhatsAppOrderConfirmationMessage({
     customerName: 'Py', orderNumber: 'MC-1018-5RPA', storeName: 'GG Grab&Go',
     fulfilmentMethod: 'delivery', fullAddress: '12 Jalan Example, Ipoh',
-    pickupDate: '19 Oct 2026', pickupTime: '12:30 PM', pickupCode: '5RPA', paymentAmount: 60
+    pickupDate: '19 Oct 2026', pickupTime: '12:30 PM', pickupCode: '5RPA', paymentAmount: 60, paymentStatus: 'paid'
   });
   assert.match(message, /Delivery Schedule/);
   assert.match(message, /19 Oct 2026 · 12:30 PM/);
   assert.match(message, /Delivery Address\*\n12 Jalan Example, Ipoh/);
-  assert.match(message, /RM60.00 · Paid/);
+  assert.match(message, /Total Paid: \*RM60.00\*/);
   assert.doesNotMatch(message, /Pickup Code/);
 });
 
@@ -142,4 +142,65 @@ test('multiple dates are listed in the selected schedule order', () => {
     schedule: [{date:'Mon 19 Oct',time:'12:30 PM'}, {date:'Tue 20 Oct',time:'1:00 PM'}]
   });
   assert.ok(message.indexOf('Mon 19 Oct') < message.indexOf('Tue 20 Oct'));
+});
+
+test('persisted per-day fulfilments survive normalization and reach the customer link', async () => {
+  const { normalizeOrderFulfilments } = await import('./storeOrderSnapshot');
+  const fulfilments = normalizeOrderFulfilments([
+    { id: 'day_a', method: 'pickup', date: '2026-10-19', time: '15:30', pickupLocationAddress: '44 Example Road, Ipoh', allocations: [{ itemIndex: 0, quantity: 1 }] },
+    { id: 'day_b', method: 'pickup', date: '2026-10-20', time: '16:00', pickupLocationAddress: '44 Example Road, Ipoh', allocations: [{ itemIndex: 1, quantity: 2 }] },
+    { id: 'day_c', method: 'pickup', date: '2026-10-21', time: '15:30', pickupLocationAddress: '44 Example Road, Ipoh', allocations: [{ itemIndex: 2, quantity: 2 }] },
+    { id: 'day_d', method: 'pickup', date: '2026-10-22', time: '15:30', pickupLocationAddress: '44 Example Road, Ipoh', allocations: [{ itemIndex: 3, quantity: 2 }] }
+  ]);
+  const order = createOrder('paid', { fulfilments, storeName: 'Snapshot Store', total: 999, payment: { status: 'paid', refundStatus: 'none', amountMinor: 9230, currency: 'MYR' } as StoreOrder['payment'] });
+  const before = structuredClone(order);
+  const html = renderToStaticMarkup(<WhatsAppCustomerButton order={order} country="MY" storeName="Renamed Store" />);
+  const message = decodeURIComponent(html.match(/text=([^" ]+)/)![1]);
+  for (const day of [19, 20, 21, 22]) assert.match(message, new RegExp(`${day} Oct 2026`));
+  assert.match(message, /16:00/);
+  assert.match(message, /15:30/);
+  assert.match(message, /RM92.30/);
+  assert.match(message, /Payment Status: \*Paid\*/);
+  assert.match(message, /44 Example Road, Ipoh/);
+  assert.match(message, /Snapshot Store/);
+  assert.doesNotMatch(message, /999|Renamed Store|22 Aug/);
+  assert.deepEqual(order, before);
+});
+
+test('single-day pickup uses exact time and confirmed payment amount', () => {
+  const order = createOrder('paid', { pickupTime: '15:45', payment: { status: 'paid', refundStatus: 'none', amountMinor: 1200, currency: 'MYR' } as StoreOrder['payment'] });
+  const message = decodeURIComponent(renderToStaticMarkup(<WhatsAppCustomerButton order={order} country="MY" storeName="Shop" />));
+  assert.match(message, /15:45/);
+  assert.doesNotMatch(message, /2:00 PM/);
+  assert.match(message, /RM12.00/);
+});
+
+test('multi-day delivery uses all fulfilments and recipient address without pickup details', () => {
+  const order = createOrder('paid', {
+    fulfilmentMethod: 'delivery',
+    delivery: { fulfilmentMethod: 'delivery', recipient: { address: '88 Recipient Street, Singapore' }, schedule: { date: '2026-10-19', time: '10:00' } },
+    fulfilments: [19, 22].map(day => ({ id: `day_${day}`, method: 'delivery', date: `2026-10-${day}`, time: day === 19 ? '10:00' : '11:45', pickupLocationId: '', pickupLocationName: 'Wrong pickup', pickupLocationAddress: 'Wrong address', allocations: [] }))
+  });
+  const message = decodeURIComponent(renderToStaticMarkup(<WhatsAppCustomerButton order={order} country="MY" storeName="Shop" />));
+  assert.match(message, /19 Oct 2026 · 10:00/);
+  assert.match(message, /22 Oct 2026 · 11:45/);
+  assert.match(message, /88 Recipient Street, Singapore/);
+  assert.doesNotMatch(message, /Wrong|Pickup Code|20 Oct|21 Oct/);
+});
+
+test('per-day pickup locations remain associated with their dates', () => {
+  const message = buildWhatsAppOrderConfirmationMessage({ schedule: [{ date: '19 Oct', time: '09:00', address: 'Counter A, Full Address A' }, { date: '22 Oct', time: '10:00', address: 'Counter B, Full Address B' }], fullAddress: 'Stale Address' });
+  assert.match(message, /19 Oct: Counter A, Full Address A/);
+  assert.match(message, /22 Oct: Counter B, Full Address B/);
+  assert.doesNotMatch(message, /Stale Address/);
+});
+
+test('unconfirmed payments and missing amounts never fabricate Paid or a total', () => {
+  for (const paymentStatus of [undefined, 'pending', 'pending_verification', 'processing', 'failed', 'cancelled', 'rejected'] as const) {
+    const message = buildWhatsAppOrderConfirmationMessage({ paymentAmount: 99, paymentStatus });
+    assert.doesNotMatch(message, /\*Paid\*|RM99|Order Confirmed/);
+  }
+  const message = buildWhatsAppOrderConfirmationMessage({ paymentStatus: 'paid' });
+  assert.match(message, /Total Paid: \*Unavailable\*/);
+  assert.doesNotMatch(message, /RM0/);
 });

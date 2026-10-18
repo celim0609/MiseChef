@@ -1,3 +1,5 @@
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../../../firebase';
 import { collection, doc, getDocs, query, updateDoc, where } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import type { Recipe } from '../../../types';
@@ -27,17 +29,10 @@ export const recipeCostService = {
   },
 
   async applyCosting(recipe: Recipe, userId: string, workspaceId = userId): Promise<Recipe> {
-    const [ingredients, recipesSnapshot] = await Promise.all([
-      ingredientService.listIngredients(workspaceId),
-      db ? getDocs(query(collection(db, 'recipes'), where('workspaceId', '==', workspaceId))) : Promise.resolve(null)
-    ]);
-    const recipes = recipesSnapshot
-      ? recipesSnapshot.docs.map(recipeDoc => ({ id: recipeDoc.id, ...recipeDoc.data() } as Recipe))
-      : [];
-    return calculateRecipeCosting(recipe, ingredients, new Date().toISOString(), [
-      ...recipes.filter(candidate => candidate.id !== recipe.id),
-      recipe
-    ]);
+    if (!functions) throw new Error('Recipe calculation service is unavailable.');
+    const call = httpsCallable<{ workspaceId: string; recipe: Recipe }, { recipes: Recipe[] }>(functions, 'calculateWorkspaceRecipeCosting');
+    const result = await call({ workspaceId, recipe: JSON.parse(JSON.stringify(recipe)) });
+    return result.data.recipes[0];
   },
 
   async resolveCurrentWorkspaceRecipeCosting(workspaceId: string): Promise<Recipe[]> {
@@ -53,23 +48,11 @@ export const recipeCostService = {
 
   async recalculateDependentRecipes(changedRecipeId: string, workspaceId: string) {
     if (!db || !changedRecipeId || !workspaceId) return [];
-    const [ingredients, recipesSnapshot] = await Promise.all([
-      ingredientService.listIngredients(workspaceId),
-      getDocs(query(collection(db, 'recipes'), where('workspaceId', '==', workspaceId)))
-    ]);
-    const recipes = recipesSnapshot.docs.map(recipeDoc => ({ id: recipeDoc.id, ...recipeDoc.data() } as Recipe));
-    const byId = new Map(recipes.map(recipe => [recipe.id, recipe]));
-    const dependsOn = (recipe: Recipe, targetId: string, visited = new Set<string>()): boolean => {
-      if (visited.has(recipe.id)) return false;
-      visited.add(recipe.id);
-      return (recipe.linkedRecipes || []).some(component => (
-        component.recipeId === targetId
-        || (byId.get(component.recipeId) ? dependsOn(byId.get(component.recipeId)!, targetId, visited) : false)
-      ));
-    };
-    const dependents = recipes.filter(recipe => recipe.id !== changedRecipeId && dependsOn(recipe, changedRecipeId));
+    if (!functions) throw new Error('Recipe calculation service is unavailable.');
+    const call = httpsCallable<{ workspaceId: string; changedRecipeId: string }, { recipes: Recipe[] }>(functions, 'calculateWorkspaceRecipeCosting');
+    const recipes = (await call({ workspaceId, changedRecipeId })).data.recipes;
     const calculatedAt = new Date().toISOString();
-    const updated = dependents.map(recipe => calculateRecipeCosting(recipe, ingredients, calculatedAt, recipes));
+    const updated = recipes;
     await Promise.all(updated.map(recipe => updateDoc(doc(db, 'recipes', recipe.id), removeUndefinedFields({
       ingredients: recipe.ingredients,
       linkedRecipes: recipe.linkedRecipes,

@@ -1,3 +1,4 @@
+import { isKnownOperationalIngredient } from '../services/recipeNutritionIdentity';
 import { useEffect, useState } from 'react';
 import type { IngredientNutritionProfile } from '../../../types';
 import type { IngredientNutritionSelection, UsdaNutritionCandidate } from '../services/ingredientNutritionProfileService';
@@ -30,9 +31,10 @@ export const withUsdaPieceWeight = (selection: IngredientNutritionSelection, val
 };
 
 export default function IngredientNutritionSetup({ ingredientName, workspaceId, profile, value, disabled = false, embedded = false, showPieceWeight = false, onChange }: IngredientNutritionSetupProps) {
+  const knownPackaging = !profile && isKnownOperationalIngredient(ingredientName);
   const initialOverride = value.source === 'chef_override' ? value : null;
   const selectedPieceWeight = value.source === 'usda_fdc' ? value.gramsPerPiece : undefined;
-  const [kind, setKind] = useState(value.source === 'chef_non_food' || profile?.kind === 'non_food' ? 'non_food' : 'food');
+  const [kind, setKind] = useState(knownPackaging || value.source === 'chef_non_food' || profile?.kind === 'non_food' ? 'non_food' : 'food');
   const [kcalPer100g, setKcalPer100g] = useState(initialOverride?.kcalPer100g === undefined ? String(profile?.kcalPer100g ?? '') : String(initialOverride.kcalPer100g));
   const [kcalPer100ml, setKcalPer100ml] = useState(initialOverride?.kcalPer100ml === undefined ? String(profile?.kcalPer100ml ?? '') : String(initialOverride.kcalPer100ml));
   const [gramsPerPiece, setGramsPerPiece] = useState(selectedPieceWeight === undefined ? (initialOverride?.gramsPerPiece === undefined ? String(profile?.gramsPerPiece ?? '') : String(initialOverride.gramsPerPiece)) : String(selectedPieceWeight));
@@ -42,7 +44,7 @@ export default function IngredientNutritionSetup({ ingredientName, workspaceId, 
   const [isManualSetupOpen, setIsManualSetupOpen] = useState(value.source === 'chef_override');
 
   useEffect(() => {
-    setKind(value.source === 'chef_non_food' || profile?.kind === 'non_food' ? 'non_food' : 'food');
+    setKind(knownPackaging || value.source === 'chef_non_food' || profile?.kind === 'non_food' ? 'non_food' : 'food');
     if (value.source === 'chef_override') {
       setIsManualSetupOpen(true);
       setKcalPer100g(value.kcalPer100g === undefined ? '' : String(value.kcalPer100g));
@@ -51,7 +53,7 @@ export default function IngredientNutritionSetup({ ingredientName, workspaceId, 
     } else if (value.source === 'usda_fdc') {
       setGramsPerPiece(value.gramsPerPiece === undefined ? String(profile?.gramsPerPiece ?? '') : String(value.gramsPerPiece));
     }
-  }, [profile?.id, value]);
+  }, [profile?.id, value, knownPackaging]);
 
   const selectChefOverride = () => {
     const nextKcalPer100g = numberValue(kcalPer100g);
@@ -70,6 +72,7 @@ export default function IngredientNutritionSetup({ ingredientName, workspaceId, 
   };
 
   const findUsda = async () => {
+    if (knownPackaging || kind === 'non_food') return;
     if (!workspaceId || !ingredientName.trim()) {
       setError('Enter an Ingredient name before searching USDA nutrition.');
       return;
@@ -117,6 +120,8 @@ export default function IngredientNutritionSetup({ ingredientName, workspaceId, 
       </> : <button type="button" onClick={() => { setError(''); onChange({ source: 'chef_non_food' }); }} disabled={disabled} className="rounded-full border border-primary/30 px-4 py-2 font-sans text-xs font-extrabold text-primary disabled:opacity-50">Mark as non-food</button>}
       {candidates.map(candidate => <button key={candidate.fdcId} type="button" onClick={() => { setError(''); onChange({ source: 'usda_fdc', fdcId: candidate.fdcId, description: candidate.description }); setCandidates([]); }} disabled={disabled} className="block w-full rounded-xl border border-surface-container-high bg-white px-3 py-2 text-left font-sans text-xs font-bold text-primary"><span>{candidate.description}</span><span className="ml-2 text-on-surface-variant">{candidate.kcalPer100g} kcal/100 g · Select</span></button>)}
       {value.source !== 'none' && <div className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2"><p className="font-sans text-xs font-bold text-primary">{value.source === 'usda_fdc' ? `USDA selected: ${value.description || value.fdcId}` : value.source === 'chef_non_food' ? 'Non-food selected' : 'Chef-confirmed nutrition selected'}</p><button type="button" onClick={() => { setError(''); onChange({ source: 'none' }); }} disabled={disabled} className="font-sans text-xs font-extrabold text-secondary disabled:opacity-50">Clear</button></div>}
+      {profile?.foodDescription && <p className="text-xs font-bold">USDA food: {profile.foodDescription}</p>}
+      {profile?.reviewWarnings?.map((warning, index) => <p key={index} role="status" className="text-xs text-amber-800">Review: {warning}</p>)}
       {profile && <p className="font-sans text-xs font-bold text-primary">Currently approved: {profile.source.replace(/_/g, ' ')}</p>}
       {!profile && value.source === 'none' && <p className="font-sans text-xs font-bold text-on-surface-variant">Not configured. You can save the Ingredient without Nutrition and configure it later.</p>}
       {error && <p className="font-sans text-xs font-bold text-error">{error}</p>}
