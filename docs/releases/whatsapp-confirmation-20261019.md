@@ -14,6 +14,7 @@ Messages now use every saved fulfilment, retain non-consecutive dates and exact 
 - All frontend/model tests: 694 passed (including 14 WhatsApp regressions).
 - Store payment/order history Firestore and Storage rules tests: 41 passed.
 - Beta deployment safety tests: 53 passed.
+- Complete immutable trusted candidate gate: passed, including all mandatory Rules emulator suites, with no skips.
 - Beta-mode Vite build and Store shell preparation: passed, using published Beta configuration locally.
 - Functions tests: all 437 passed after the user authorized fixing only two existing wall-clock-dependent test fixtures. Both fixtures now use a fixed Date clock; delivery/payment implementation files are unchanged relative to deployed Beta.
 
@@ -25,4 +26,4 @@ Messages now use every saved fulfilment, retain non-consecutive dates and exact 
 4. Only after Beta passes, set the production environment `MISECHEF_PRODUCTION_APPROVED_SHA` to that exact tested SHA, preserving its protected baseline and other authority. The candidate includes the currently live Production ancestor.
 5. Dispatch Production Release from main with the exact SHA and `RELEASE PRODUCTION`; obtain the production environment release approval, then verify the Production fingerprint and live UI.
 
-Current status: neither environment has received this fix. Production approved SHA remains the existing live release. PR #154's prior Beta run 39143487111 is still waiting for beta review and represents a stale candidate; do not approve it as this fix. Seven missing Beta build variables were restored from the currently published Beta Firebase configuration and Stripe test publishable key; no key was invented or replaced. No deployment gates were bypassed.
+Current status: neither environment has received this fix. Production approved SHA remains the existing live release. PR #154's prior Beta run 39143487111 is still waiting for beta review and represents a stale candidate; do not approve it as this fix. Seven Beta build variables were aligned to the currently published Beta Firebase configuration and Stripe test publishable key. An initial API read was paginated and did not establish that variables were missing; the complete variable listing has now been verified. The published Beta disabled Stripe test marker is preserved. No deployment gates were bypassed.
