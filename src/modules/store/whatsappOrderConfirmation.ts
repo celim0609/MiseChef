@@ -9,6 +9,11 @@ export interface WhatsAppOrderConfirmationInput {
   pickupDate?: string;
   pickupTime?: string;
   pickupLocation?: string;
+  fulfilmentMethod?: 'pickup' | 'delivery';
+  fullAddress?: string;
+  paymentAmount?: number;
+  currency?: string;
+  schedule?: Array<{ date: string; time: string; address?: string }>;
   pickupCode?: string;
   storeName?: string;
 }
@@ -54,28 +59,47 @@ export const buildWhatsAppOrderConfirmationMessage = ({
   pickupTime = '',
   pickupLocation = '',
   pickupCode = '',
-  storeName = ''
+  storeName = '',
+  fulfilmentMethod = 'pickup',
+  fullAddress = '',
+  paymentAmount,
+  currency = 'MYR',
+  schedule = []
 }: Omit<WhatsAppOrderConfirmationInput, 'phone' | 'country'>) => {
-  const greeting = customerName.trim()
-    ? `Hi ${customerName.trim()}, your order has been confirmed.`
-    : 'Your order has been confirmed.';
-  const details = [
-    orderNumber.trim() ? `Order: *${orderNumber.trim()}*` : '',
-    pickupDate.trim() ? `Pickup: *${pickupDate.trim()}*` : '',
-    pickupTime.trim() ? `Time: *${pickupTime.trim()}*` : '',
-    pickupLocation.trim() ? `Location: *${pickupLocation.trim()}*` : ''
-  ].filter(Boolean);
-  const pickupCodeLine = pickupCode.trim() ? [`Pickup Code: *${pickupCode.trim()}*`] : [];
-  const signOff = ['Thank you!', storeName.trim() ? `*${storeName.trim()}*` : ''].filter(Boolean);
-  return [
-    '✅ *Order Confirmed*',
+  const delivery = fulfilmentMethod === 'delivery';
+  const name = customerName.trim();
+  const entries = schedule.length
+    ? schedule
+    : pickupDate.trim() || pickupTime.trim()
+      ? [{ date: pickupDate, time: pickupTime, address: fullAddress }]
+      : [];
+  const address = fullAddress.trim() || (!delivery ? pickupLocation.trim() : '');
+  const amount = typeof paymentAmount === 'number' && Number.isFinite(paymentAmount)
+    ? `${currency === 'MYR' ? 'RM' : currency === 'SGD' ? 'SGD ' : currency + ' '}${paymentAmount.toFixed(2)} · Paid`
+    : 'Paid';
+  const lines = [
+    '*Order Confirmed* ✅💚',
     '',
-    greeting,
-    ...(details.length ? ['', ...details] : []),
-    ...(pickupCodeLine.length ? ['', ...pickupCodeLine] : []),
+    name ? `Hi ${name}! Thank you for your order! 🥰` : 'Thank you for your order! 🥰',
     '',
-    ...signOff
-  ].join('\n');
+    orderNumber.trim() ? `🧾 Order: *${orderNumber.trim()}*` : '',
+    `💳 Payment: *${amount}*`,
+    !delivery && pickupCode.trim() ? `🔑 Pickup Code: *${pickupCode.trim()}*` : '',
+    '',
+    delivery ? '🚚 *Delivery Schedule*' : '📅 *Pickup Schedule*',
+    ...entries.map(entry => [entry.date.trim(), entry.time.trim()].filter(Boolean).join(' · ')),
+    '',
+    address ? `📍 *${delivery ? 'Delivery' : 'Pickup'} Address*\n${address}` : '',
+    ...((new Set(entries.map(entry => entry.address?.trim()).filter(Boolean))).size > 1
+      ? ['', '*Addresses by date*', ...entries.filter(entry => entry.address?.trim()).map(entry => `${entry.date}: ${entry.address}`)]
+      : []),
+    '',
+    entries.length > 1 ? '💚 Please follow your selected dates & times.' : 'Freshly prepared for you! 💚',
+    '',
+    'Thank you!',
+    storeName.trim() ? `*${storeName.trim()}*` : ''
+  ];
+  return lines.filter((line, index) => line !== '' || (index > 0 && lines[index - 1] !== '')).join('\n').trim();
 };
 
 export const getWhatsAppOrderConfirmation = (input: WhatsAppOrderConfirmationInput) => {
