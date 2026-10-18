@@ -50,11 +50,10 @@ test('confirmation message inserts every actual order field', () => {
     pickupCode: 'A7K2',
     storeName: 'MiseChef Test Store'
   });
-  assert.match(message, /Hi Aina, your order has been confirmed\./);
+  assert.match(message, /Hi Aina! Thank you for your order!/);
   assert.match(message, /Order: \*MC-0822-A7K2\*/);
-  assert.match(message, /Pickup: \*22 Aug 2026\*/);
-  assert.match(message, /Time: \*2:00 PM – 3:00 PM\*/);
-  assert.match(message, /Location: \*Main Counter\*/);
+  assert.match(message, /22 Aug 2026 · 2:00 PM – 3:00 PM/);
+  assert.match(message, /Pickup Address\*\nMain Counter/);
   assert.match(message, /Pickup Code: \*A7K2\*/);
   assert.match(message, /\*MiseChef Test Store\*/);
 });
@@ -121,4 +120,26 @@ test('staff action performs no order/payment writes and customer Store keeps onl
   assert.match(publicStoreSource, /> WhatsApp Us</);
   assert.match(posSource, /<WhatsAppCustomerButton/);
   assert.match(ownerSource, /<WhatsAppCustomerButton/);
+});
+
+
+test('delivery confirmation uses recipient address and delivery schedule, without pickup code', () => {
+  const message = buildWhatsAppOrderConfirmationMessage({
+    customerName: 'Py', orderNumber: 'MC-1018-5RPA', storeName: 'GG Grab&Go',
+    fulfilmentMethod: 'delivery', fullAddress: '12 Jalan Example, Ipoh',
+    pickupDate: '19 Oct 2026', pickupTime: '12:30 PM', pickupCode: '5RPA', paymentAmount: 60
+  });
+  assert.match(message, /Delivery Schedule/);
+  assert.match(message, /19 Oct 2026 · 12:30 PM/);
+  assert.match(message, /Delivery Address\*\n12 Jalan Example, Ipoh/);
+  assert.match(message, /RM60.00 · Paid/);
+  assert.doesNotMatch(message, /Pickup Code/);
+});
+
+test('multiple dates are listed in the selected schedule order', () => {
+  const message = buildWhatsAppOrderConfirmationMessage({
+    fulfilmentMethod: 'delivery', storeName: 'GG Grab&Go',
+    schedule: [{date:'Mon 19 Oct',time:'12:30 PM'}, {date:'Tue 20 Oct',time:'1:00 PM'}]
+  });
+  assert.ok(message.indexOf('Mon 19 Oct') < message.indexOf('Tue 20 Oct'));
 });
