@@ -1,17 +1,9 @@
+import { normalizeIngredient } from './normalizeCostingIngredient';
 import { collection, doc, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { db } from '../../../firebase';
 import type { CostingIngredient } from '../types';
 
-const normalizeIngredient = (ingredient: CostingIngredient): CostingIngredient => ({
-  ...ingredient,
-  ...(ingredient.packQuantity !== undefined ? { packQuantity: Number(ingredient.packQuantity) } : {}),
-  ...(ingredient.packPrice !== undefined ? { packPrice: Number(ingredient.packPrice) } : {}),
-  conversionFactor: Number(ingredient.conversionFactor || 1),
-  currentPrice: Number(ingredient.currentPrice || 0),
-  yieldPercentage: Number(ingredient.yieldPercentage || 100),
-  wastePercentage: Number(ingredient.wastePercentage || 0),
-  status: ingredient.status || 'Active'
-});
+
 
 const removeUndefinedFields = <T,>(value: T): T => {
   if (Array.isArray(value)) return value.map(item => removeUndefinedFields(item)) as T;

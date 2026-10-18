@@ -22,3 +22,13 @@ test('unexpected upload failures still identify the failed action', () => {
     'Product photo upload failed. Network unavailable.'
   );
 });
+
+test('embedded meal uploads keep immutable filenames within the existing Store product permission path', async () => {
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(new URL('./storage.ts', import.meta.url), 'utf8');
+  const upload = source.slice(source.indexOf('export const uploadHealthyLunchMealPhoto'), source.indexOf('export const uploadStoreProductSocialImage'));
+  assert.match(upload, /stores\/\$\{workspaceId\}\/products\/\$\{productId\}\/meal-\$\{crypto.randomUUID\(\)\}/);
+  const deletion = source.slice(source.indexOf('export const deleteStoreProductPhoto'), source.indexOf('export const uploadRecipeCoverImage'));
+  assert.ok(deletion.indexOf("startsWith('meal-')") < deletion.indexOf('await deleteObject'));
+  assert.match(deletion, /objectPath.startsWith\(expectedPrefix\)/);
+});

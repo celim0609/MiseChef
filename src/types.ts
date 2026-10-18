@@ -41,7 +41,9 @@ export interface LinkedRecipeComponent {
   recipeId: string;
   recipeTitle?: string;
   quantity: number;
-  unit: 'portion';
+  unit: 'portion' | 'g' | 'kg' | 'ml' | 'l' | 'pcs';
+  associatedIngredientId?: string;
+  nutritionUseAssociatedQuantity?: boolean;
 }
 
 export interface RecipeCosting {
@@ -51,6 +53,7 @@ export interface RecipeCosting {
   foodCostPercentage: number;
   grossProfitPercentage: number;
   breakdown: RecipeCostBreakdownItem[];
+  linkedRecipeWarnings?: string[];
   lastCalculatedAt: string;
 }
 
@@ -64,6 +67,8 @@ export interface IngredientNutritionProfile {
   status: 'approved';
   source: 'usda_fdc' | 'chef_override' | 'chef_non_food';
   catalogProfileId?: string;
+  foodDescription?: string;
+  reviewWarnings?: string[];
   kcalPer100g?: number;
   kcalPer100ml?: number;
   gramsPerPiece?: number;
@@ -84,13 +89,27 @@ export interface IngredientNutritionProfile {
   };
 }
 
-export type RecipeNutritionStatus = 'COMPLETE' | 'INCOMPLETE';
+export type RecipeNutritionStatus = 'COMPLETE' | 'ESTIMATED' | 'INCOMPLETE';
+
+export interface RecipeIngredientNutrition {
+  id: string;
+  name: string;
+  quantity: string;
+  unit: string;
+  kcal?: number;
+  foodDescription?: string;
+  reviewWarnings?: string[];
+}
 
 export interface RecipeNutritionSummary {
   status: RecipeNutritionStatus;
+  ingredientBreakdown?: RecipeIngredientNutrition[];
   totalKcal?: number;
   kcalPerServing?: number;
   incompleteReasons: string[];
+  reviewWarnings?: string[];
+  calculatedIngredientCount?: number;
+  totalIngredientCount?: number;
 }
 
 export interface MethodStep {
@@ -153,6 +172,9 @@ export interface Recipe {
   chefNotes?: string;
   ingredients: Ingredient[];
   linkedRecipes?: LinkedRecipeComponent[];
+  // Explicitly confirmed finished edible batch output, independent of servings.
+  // Shared by measured links for nutrition and costing; never inferred from Yield.
+  nutritionYield?: { quantity: number; unit: 'g' | 'ml' | 'pcs' } | null;
   method: MethodStep[];
   recommendedProducts?: RecommendedProduct[];
   recommendedProductIds?: string[];

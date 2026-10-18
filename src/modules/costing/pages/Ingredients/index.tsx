@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
+import { isKnownOperationalIngredient } from '../../../nutrition/services/recipeNutritionIdentity';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import { Archive, ChevronDown, ChevronLeft, ChevronRight, Edit3, Plus, Search, X } from 'lucide-react';
 import { ingredientService, recipeCostService } from '../../services';
-import { getCustomerFriendlyErrorMessage } from '../../../../utils/customerErrorMessages';
+import { getCustomerFriendlyErrorMessage, isPermissionError } from '../../../../utils/customerErrorMessages';
 import { usageLimitService } from '../../../../services/usageLimitService';
 import type { CostingIngredient } from '../../types';
 import { formatRegionCurrency, useWorkspaceRegion } from '../../../../regions';
@@ -21,6 +22,7 @@ import {
 import type { IngredientNutritionProfile } from '../../../../types';
 
 interface CostingIngredientsPageProps {
+  canEditIngredients?: boolean;
   userId?: string;
   workspaceId?: string;
   openCreateRequest?: number;
@@ -149,7 +151,7 @@ function IngredientFormDisclosure({ title, summary, optional = false, isOpen, on
   );
 }
 
-export default function CostingIngredientsPage({ userId, workspaceId, openCreateRequest, onQuickAddHandled }: CostingIngredientsPageProps) {
+export default function CostingIngredientsPage({ canEditIngredients = false, userId, workspaceId, openCreateRequest, onQuickAddHandled }: CostingIngredientsPageProps) {
   const region = useWorkspaceRegion();
   const [ingredients, setIngredients] = useState<CostingIngredient[]>([]);
   const [selectedIngredient, setSelectedIngredient] = useState<CostingIngredient | null>(null);
@@ -159,16 +161,20 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [page, setPage] = useState(1);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const canEdit = canEditIngredients && !isLoading && !loadFailed;
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const nutritionRequestRef = useRef(0);
   const [nutritionProfile, setNutritionProfile] = useState<IngredientNutritionProfile | null>(null);
   const [nutritionSelection, setNutritionSelection] = useState<IngredientNutritionSelection>({ source: 'none' });
   const [isNutritionDirty, setIsNutritionDirty] = useState(false);
   const [openSections, setOpenSections] = useState<Record<IngredientFormSection, boolean>>({ purchase: false, nutrition: false, supplier: false, yieldWaste: false });
 
   useEffect(() => {
+    nutritionRequestRef.current += 1;
     setSelectedIngredient(null);
     setIsDrawerOpen(false);
     setFormState(getEmptyForm(region.currency));
@@ -177,12 +183,18 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
 
     const loadIngredients = async () => {
       setIsLoading(true);
+      setLoadFailed(false);
+      setIngredients([]);
       setErrorMessage('');
       try {
         const loadedIngredients = await ingredientService.listIngredients(workspaceId || userId);
         if (!isCancelled) setIngredients(loadedIngredients);
       } catch (err) {
-        if (!isCancelled) setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to load ingredients.'));
+        if (!isCancelled) {
+          setLoadFailed(true);
+          setIngredients([]);
+          setErrorMessage(isPermissionError(err) ? 'Access denied: you cannot access ingredients in this workspace.' : 'Ingredient Library service is unavailable. Please refresh to retry.');
+        }
       } finally {
         if (!isCancelled) setIsLoading(false);
       }
@@ -226,6 +238,8 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
   }, [categoryFilter, searchQuery, sortKey]);
 
   const openCreateDrawer = () => {
+    if (!canEdit) return;
+    nutritionRequestRef.current += 1;
     setSelectedIngredient(null);
     setFormState(getEmptyForm(region.currency));
     setErrorMessage('');
@@ -238,23 +252,37 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
   };
 
   useEffect(() => {
-    if (!openCreateRequest) return;
+    if (!openCreateRequest || !canEdit) return;
     openCreateDrawer();
     onQuickAddHandled?.(openCreateRequest);
-  }, [onQuickAddHandled, openCreateRequest]);
+  }, [onQuickAddHandled, openCreateRequest, canEdit]);
 
   const openEditDrawer = (ingredient: CostingIngredient) => {
+    if (!canEdit) return;
     setSelectedIngredient(ingredient);
     setFormState(toFormState(ingredient, region.currency));
     setErrorMessage('');
     setMessage('');
     setOpenSections({ purchase: false, nutrition: false, supplier: false, yieldWaste: false });
     setIsDrawerOpen(true);
-    void loadIngredientNutritionProfiles([ingredient.id]).then(profiles => {
+    const requestId = ++nutritionRequestRef.current;
+    setNutritionProfile(null);
+    setNutritionSelection({ source: 'none' });
+    setIsNutritionDirty(false);
+    if (isKnownOperationalIngredient(ingredient.name)) {
+      setNutritionSelection({ source: 'chef_non_food' });
+      setIsNutritionDirty(true);
+      return;
+    }
+    void loadIngredientNutritionProfiles([ingredient.id], workspaceId || userId).then(profiles => {
+      if (nutritionRequestRef.current !== requestId) return;
       const profile = profiles[ingredient.id] || null;
       setNutritionProfile(profile);
       setNutritionSelection(selectionFromProfile(profile));
       setIsNutritionDirty(false);
+    }).catch(error => {
+      if (nutritionRequestRef.current !== requestId) return;
+      setErrorMessage(isPermissionError(error) ? 'Access to Nutrition was denied. Ingredient costing can still be saved.' : 'Nutrition service is unavailable. Ingredient costing can still be saved.');
     });
   };
 
@@ -282,6 +310,10 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    if (!canEdit) {
+      setErrorMessage('Access denied: you cannot edit ingredients in this workspace.');
+      return;
+    }
     if (!userId) {
       setErrorMessage('Sign in to manage ingredients.');
       return;
@@ -335,7 +367,7 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
         savedIngredient = updatedIngredient;
         const previousCost = Number(selectedIngredient.currentPrice || 0);
         const nextCost = Number(updatedIngredient.currentPrice || 0);
-        const packPricingChanged = ['packQuantity', 'packUnit', 'packPrice', 'recipeUnit'].some(field => (
+        const packPricingChanged = ['packQuantity', 'packUnit', 'packPrice', 'recipeUnit', 'conversionFactor', 'yieldPercentage', 'wastePercentage'].some(field => (
           selectedIngredient[field as keyof CostingIngredient] !== updatedIngredient[field as keyof CostingIngredient]
         ));
         if (previousCost !== nextCost || packPricingChanged) {
@@ -371,33 +403,34 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
         setMessage('Ingredient created.');
       }
 
-      if (isNutritionDirty) {
+      const packaging = isKnownOperationalIngredient(savedIngredient.name);
+      if (isNutritionDirty || packaging) {
         try {
           const profile = await applyIngredientNutritionSelection({
             workspaceId: workspaceId || userId,
             ingredientId: savedIngredient.id,
             confirmedBy: userId,
-            selection: nutritionSelection
+            selection: packaging ? { source: 'chef_non_food' } : nutritionSelection
           });
           setNutritionProfile(profile);
           setIsNutritionDirty(false);
         } catch (nutritionError) {
           setSelectedIngredient(savedIngredient);
           setNutritionProfile(null);
-          setErrorMessage(getCustomerFriendlyErrorMessage(nutritionError, 'Ingredient saved, but Nutrition is not configured. Update it and retry Save Ingredient.'));
+          setErrorMessage(isPermissionError(nutritionError) ? 'Ingredient saved, but access to Nutrition was denied.' : getCustomerFriendlyErrorMessage(nutritionError, 'Ingredient saved, but the Nutrition service is unavailable. Retry later.'));
           return;
         }
       }
       setIsDrawerOpen(false);
     } catch (err) {
-      setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to save ingredient.'));
+      setErrorMessage(isPermissionError(err) ? 'Access denied: you cannot save this ingredient.' : getCustomerFriendlyErrorMessage(err, 'Ingredient service is unavailable. Please retry later.'));
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleArchive = async () => {
-    if (!selectedIngredient) return;
+    if (!canEdit || !selectedIngredient) return;
 
     setIsSaving(true);
     setErrorMessage('');
@@ -409,7 +442,7 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
       setIsDrawerOpen(false);
       setMessage('Ingredient archived.');
     } catch (err) {
-      setErrorMessage(getCustomerFriendlyErrorMessage(err, 'Unable to archive ingredient.'));
+      setErrorMessage(isPermissionError(err) ? 'Access denied: you cannot archive this ingredient.' : getCustomerFriendlyErrorMessage(err, 'Ingredient service is unavailable. Please retry later.'));
     } finally {
       setIsSaving(false);
     }
@@ -424,7 +457,7 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
             <h2 className="font-display text-3xl sm:text-4xl font-bold text-primary tracking-tight mt-1">Ingredient Library</h2>
             <p className="mt-3 font-sans text-sm font-bold text-on-surface-variant">Manage the master ingredient records that will power invoices, recipes, and costing.</p>
           </div>
-          <button type="button" onClick={openCreateDrawer} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary shadow-sm active:scale-95 transition-all">
+          <button type="button" disabled={!canEdit} onClick={openCreateDrawer} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary shadow-sm active:scale-95 transition-all">
             <Plus className="h-4 w-4" />
             Add Ingredient
           </button>
@@ -476,7 +509,7 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
                   <td className="px-4 py-3 font-bold text-on-surface-variant">{ingredient.wastePercentage}%</td>
                   <td className="px-4 py-3"><span className={`rounded-full px-3 py-1 font-sans text-[10px] font-extrabold ${statusClassName[ingredient.status]}`}>{ingredient.status}</span></td>
                   <td className="px-4 py-3">
-                    <button type="button" onClick={() => openEditDrawer(ingredient)} className="inline-flex items-center gap-2 rounded-full border border-surface-container-high px-4 py-2 font-sans text-xs font-extrabold text-primary">
+                    <button type="button" disabled={!canEdit} onClick={() => openEditDrawer(ingredient)} className="inline-flex items-center gap-2 rounded-full border border-surface-container-high px-4 py-2 font-sans text-xs font-extrabold text-primary">
                       <Edit3 className="h-4 w-4" />
                       Edit
                     </button>
@@ -487,7 +520,7 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
                   <td colSpan={8} className="px-4 py-12 text-center">
                     <p className="font-display text-xl font-bold text-primary">No ingredients found</p>
                     <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Create your first ingredient manually. Invoice-driven ingredient creation comes next.</p>
-                    <button type="button" onClick={openCreateDrawer} className="mt-5 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">Add Ingredient</button>
+                    <button type="button" disabled={!canEdit} onClick={openCreateDrawer} className="mt-5 rounded-full bg-primary px-5 py-3 font-sans text-xs font-extrabold text-on-primary">Add Ingredient</button>
                   </td>
                 </tr>
               )}
@@ -544,7 +577,7 @@ export default function CostingIngredientsPage({ userId, workspaceId, openCreate
               </IngredientFormDisclosure>
 
               <IngredientFormDisclosure title="Nutrition" summary={getNutritionSummary(nutritionProfile, nutritionSelection, isNutritionDirty)} optional isOpen={openSections.nutrition} onToggle={() => setOpenSections(current => ({ ...current, nutrition: !current.nutrition }))}>
-                <IngredientNutritionSetup ingredientName={formState.name} workspaceId={workspaceId || userId} profile={nutritionProfile} value={nutritionSelection} disabled={isSaving} embedded showPieceWeight={['pcs', 'nos'].includes(formState.recipeUnit.trim().toLowerCase())} onChange={selection => { setNutritionSelection(selection); setIsNutritionDirty(true); }} />
+                <IngredientNutritionSetup ingredientName={formState.name} workspaceId={workspaceId || userId} profile={nutritionProfile} value={nutritionSelection} disabled={isSaving} embedded showPieceWeight={['pcs', 'nos'].includes(formState.recipeUnit.trim().toLowerCase())} onChange={selection => { nutritionRequestRef.current += 1; setNutritionSelection(selection); setIsNutritionDirty(true); }} />
               </IngredientFormDisclosure>
 
               <IngredientFormDisclosure title="Supplier" summary={formState.supplierId || 'Not configured'} isOpen={openSections.supplier} onToggle={() => setOpenSections(current => ({ ...current, supplier: !current.supplier }))}>

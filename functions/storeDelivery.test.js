@@ -1,7 +1,8 @@
 import test from 'node:test';
+import { buildPendingOrder } from './storePaymentsCore.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { providerRoutingDestination, quoteMatchesDestination, sameDeliveryCoordinates } from './storeDelivery.js';
+import { validatePreOrderSchedule, validateInstantSchedule, assertFutureLalamoveSchedule, buildLalamoveQuoteRequest, providerRoutingDestination, quoteMatchesDestination, sameDeliveryCoordinates } from './storeDelivery.js';
 
 const source = readFileSync(new URL('./storeDelivery.js', import.meta.url), 'utf8');
 const payments = readFileSync(new URL('./storePayments.js', import.meta.url), 'utf8');
@@ -29,11 +30,67 @@ test('delivery operational calls cannot cross the persisted provider environment
   assert.match(source, /assertDeliveryEnvironment\(\{ delivery: order\.delivery \|\| \{\}, provider \}\)/);
 });
 test('provider numeric coordinates and equivalent customer strings do not create a false destination mismatch', () => {
-  assert.match(source, /String\(Number\(raw\)\)/);
+  assert.match(source, /Number\.isFinite\(numeric\)/);
   assert.match(source, /sameDeliveryCoordinates/);
   assert.equal(sameDeliveryCoordinates(4.6569255, '4.65692550'), true);
   assert.equal(sameDeliveryCoordinates(101.1172608, '101.1172608'), true);
+  assert.equal(sameDeliveryCoordinates(4.1234567890123456, '4.1234567890123456'), true);
   assert.equal(sameDeliveryCoordinates(4.6569255, '4.6569256'), false);
+});
+test('pre-order quotations include the validated Malaysia delivery slot as UTC scheduleAt', () => {
+  const request = buildLalamoveQuoteRequest({
+    config: { serviceType: 'MOTORCYCLE' },
+    pickup: { latitude: '4.641333', longitude: '101.1420132', address: 'Pickup address' },
+    destination: { latitude: '4.6569255', longitude: '101.1172608', address: 'Delivery address' },
+    schedule: { mode: 'preorder', date: '2026-10-06', time: '09:00', timeZone: 'Asia/Kuala_Lumpur' }
+  });
+  assert.deepEqual(request, {
+    market: 'MY',
+    data: {
+      serviceType: 'MOTORCYCLE',
+      language: 'en_MY',
+      scheduleAt: '2026-10-06T01:00:00.000Z',
+      stops: [
+        { coordinates: { lat: '4.641333', lng: '101.1420132' }, address: 'Pickup address' },
+        { coordinates: { lat: '4.6569255', lng: '101.1172608' }, address: 'Delivery address' }
+      ]
+    }
+  });
+});
+test('instant quotations omit scheduleAt', () => {
+  const request = buildLalamoveQuoteRequest({
+    config: { serviceType: 'MOTORCYCLE' },
+    pickup: { latitude: '4.641333', longitude: '101.1420132', address: 'Pickup address' },
+    destination: { latitude: '4.6569255', longitude: '101.1172608', address: 'Delivery address' },
+    schedule: { mode: 'instant' }
+  });
+  assert.equal('scheduleAt' in request.data, false);
+});
+test('quotation coordinates are serialized to Lalamove’s maximum 15 fractional digits', () => {
+  const request = buildLalamoveQuoteRequest({
+    config: { serviceType: 'MOTORCYCLE' },
+    pickup: { latitude: '4.5974811234567891', longitude: '101.0788491234567891', address: 'Pickup address' },
+    destination: { latitude: '4.6095571234567891', longitude: '101.0958211234567891', address: 'Delivery address' },
+    schedule: { mode: 'instant' }
+  });
+  assert.deepEqual(request.data.stops.map(stop => stop.coordinates), [
+    { lat: '4.597481123456789', lng: '101.078849123456789' },
+    { lat: '4.609557123456789', lng: '101.095821123456789' }
+  ]);
+  for (const stop of request.data.stops) for (const coordinate of Object.values(stop.coordinates)) {
+    assert.match(coordinate, /^[-+]?\d+(?:\.\d{1,15})?$/);
+  }
+});
+test('pre-order quotations reject a scheduleAt that has already passed in Malaysia time', () => {
+  const schedule = { mode: 'preorder', date: '2026-10-06', time: '21:00', timeZone: 'Asia/Kuala_Lumpur' };
+  assert.throws(
+    () => assertFutureLalamoveSchedule(schedule, Date.parse('2026-10-06T13:00:00.000Z')),
+    /Choose a future delivery time/
+  );
+  assert.deepEqual(
+    assertFutureLalamoveSchedule(schedule, Date.parse('2026-10-06T12:59:59.999Z')),
+    schedule
+  );
 });
 test('a quote returns Lalamove canonical routing coordinates while retaining the Google Places address', () => {
   const googleDestination = {
@@ -122,4 +179,348 @@ test('instant checkout is Store-configured and server-time validated without a p
   assert.match(source, /Instant delivery is unavailable/);
   assert.match(source, /fulfilmentMode: schedule\.mode/);
   assert.match(source, /schedule\.mode === 'preorder'/);
+});
+
+// Behavioural tests exercise the same transaction claims and external effects
+// as callable handlers; a serialized fake transaction models Firestore retries.
+const multiDb = documents => {
+  let serial = Promise.resolve(); const writes = [];
+  const dataAt = (data, field) => field.split('.').reduce((value, key) => value?.[key], data);
+  const apply = (key, patch) => {
+    if (db.failWrite?.(key, patch)) throw new Error('database persistence unavailable');
+    const document = documents[key] ||= {};
+    for (const [field, value] of Object.entries(patch)) {
+      const parts = field.split('.'); const last = parts.pop();
+      let target = document; for (const part of parts) target = target[part] ||= {};
+      target[last] = value;
+    }
+    writes.push({ key, patch });
+  };
+  const snapshot = (key, ref) => ({ id: key.split('/').at(-1), ref, exists: documents[key] !== undefined, data: () => structuredClone(documents[key]) });
+  const reference = key => ({ key, id: key.split('/').at(-1), get: async () => snapshot(key, reference(key)),
+    update: async patch => apply(key, patch), create: async value => { if (documents[key]) throw new Error('already exists'); apply(key, value); },
+    collection: name => collection(`${key}/${name}`) });
+  const collection = (name, filters = [], max = Infinity) => ({
+    doc: id => reference(`${name}/${id}`),
+    where: (field, operator, value) => collection(name, [...filters, { field, operator, value }], max),
+    limit: limit => collection(name, filters, limit),
+    get: async () => {
+      const docs = Object.keys(documents).filter(key => key.startsWith(`${name}/`) && key.slice(name.length + 1).indexOf('/') === -1
+        && filters.every(filter => filter.operator === 'in' ? filter.value.includes(dataAt(documents[key], filter.field)) : dataAt(documents[key], filter.field) === filter.value))
+        .slice(0, max).map(key => snapshot(key, reference(key)));
+      return { docs, empty: !docs.length };
+    }
+  });
+  const db = { documents, writes, collection,
+    runTransaction: handler => {
+      const result = serial.then(async () => {
+        const pending = [];
+        const value = await handler({ get: ref => ref.get(), update: (ref, patch) => pending.push(() => apply(ref.key, patch)), create: (ref, patch) => pending.push(() => apply(ref.key, patch)) });
+        pending.forEach(write => write()); return value;
+      });
+      serial = result.catch(() => undefined); return result;
+    }
+  };
+  return db;
+};
+
+const multiOrder = () => ({ id: 'multi', orderNumber: 'MC-MULTI', workspaceId: 's', storeId: 's', fulfilmentMethod: 'delivery', fulfilmentStatus: 'New',
+  payment: { status: 'paid', amountMinor: 10000 }, total: 100, totals: { deliveryFee: 14, grandTotal: 100 },
+  deliveryPricingSnapshot: { firstDayFee: 7, fulfilmentCount: 2, finalDeliveryTotal: 14 },
+  fulfilments: ['2026-10-12','2026-10-16'].map((date, index) => ({ id: `day_${index}`, method: 'delivery', date, time: '10:00', allocations: [{ itemIndex: index, quantity: 1 }] })),
+  fulfilmentOperations: { day_0: { kitchenStatus: 'Ready' }, day_1: { kitchenStatus: 'Ready' } }, fulfilmentCompletion: {},
+  delivery: { environment: 'sandbox', fulfilmentMethod: 'delivery', quote: { fee: 7, serviceType: 'MOTORCYCLE' },
+    pickup: { address: 'Kitchen', latitude: '4.6', longitude: '101.1', contactName: 'Chef', contactPhoneE164: '+60123456789' },
+    recipient: { address: 'Customer', latitude: '4.7', longitude: '101.2', name: 'Guest', phoneE164: '+60123456789', instructions: '' } }
+});
+const dispatchFixture = () => {
+  const db = multiDb({ 'workspaces/s': { ownerId: 'owner' }, 'storeOrders/multi': multiOrder() });
+  let creations = 0; let quotes = 0;
+  const provider = { environment: 'sandbox',
+    createQuote: async request => { quotes++; return { quotationId: 'dispatch-quote', serviceType: 'MOTORCYCLE', priceBreakdown: { total: 40, currency: 'MYR' }, stops: request.data.stops.map((stop, index) => ({ ...stop, stopId: `stop-${index}` })) }; },
+    createOrder: async request => { creations++; return { orderId: `provider-${request.data.metadata.misechefFulfilmentId}`, status: 'ASSIGNING_DRIVER' }; },
+    retrieveOrder: async ({ orderId }) => ({ orderId, status: 'COMPLETED', priceBreakdown: { total: 45, currency: 'MYR' } }),
+    cancelOrder: async () => undefined
+  };
+  return { db, provider, counts: () => ({ creations, quotes }), args: { db, provider, uid: 'owner', orderId: 'multi', fulfilmentId: 'day_0' } };
+};
+
+const { dispatchStoreDelivery, refreshStoreDelivery, cancelStoreDelivery, createStoreDeliveryQuote, revalidateDeliveryForPayment, reconcileActiveDeliveries } = await import('./storeDelivery.js');
+
+test('per-fulfilment transactional claim prevents concurrent and retried provider submissions', async () => {
+  const fixture = dispatchFixture();
+  await Promise.all(Array.from({ length: 6 }, () => dispatchStoreDelivery(fixture.args)));
+  await dispatchStoreDelivery(fixture.args);
+  assert.deepEqual(fixture.counts(), { creations: 1, quotes: 1 });
+  const first = fixture.db.documents['storeOrders/multi'];
+  assert.equal(first.fulfilmentOperations.day_0.dispatch.identity, 'multi:day_0');
+  assert.equal(first.fulfilmentOperations.day_0.providerOrder.orderId, 'provider-day_0');
+  await dispatchStoreDelivery({ ...fixture.args, fulfilmentId: 'day_1' });
+  assert.equal(fixture.counts().creations, 2);
+  assert.equal(first.fulfilmentOperations.day_1.providerOrder.orderId, 'provider-day_1');
+  assert.equal(first.total, 100); assert.equal(first.totals.deliveryFee, 14);
+  assert.equal(first.deliveryPricingSnapshot.finalDeliveryTotal, 14);
+  assert.equal(first.fulfilmentOperations.day_0.dispatch.operationalQuote.fee, 40);
+});
+
+test('provider submission timeout locks outcome_unknown and never automatically resubmits', async () => {
+  const fixture = dispatchFixture(); let calls = 0;
+  fixture.provider.createOrder = async () => { calls++; throw new Error('response lost after provider accepted'); };
+  await assert.rejects(dispatchStoreDelivery(fixture.args), /response lost/);
+  assert.equal(fixture.db.documents['storeOrders/multi'].fulfilmentOperations.day_0.dispatch.status, 'outcome_unknown');
+  await dispatchStoreDelivery(fixture.args); await dispatchStoreDelivery(fixture.args);
+  assert.equal(calls, 1);
+});
+
+test('provider success followed by DB failure preserves ID when possible and reconciles without another dispatch', async () => {
+  const fixture = dispatchFixture(); let failed = false;
+  fixture.db.failWrite = (_key, patch) => {
+    if (!failed && patch['fulfilmentOperations.day_0.dispatch.status'] === 'created') { failed = true; return true; }
+    return false;
+  };
+  await assert.rejects(dispatchStoreDelivery(fixture.args), /database/);
+  assert.equal(fixture.db.documents['storeOrders/multi'].fulfilmentOperations.day_0.dispatch.status, 'outcome_unknown');
+  assert.equal(fixture.db.documents['storeOrders/multi'].fulfilmentOperations.day_0.providerOrder.orderId, 'provider-day_0');
+  await refreshStoreDelivery(fixture.args); await dispatchStoreDelivery(fixture.args);
+  assert.equal(fixture.counts().creations, 1);
+  assert.equal(fixture.db.documents['storeOrders/multi'].fulfilmentCompletion.day_0.completedBy, 'lalamove');
+});
+
+test('persistent DB outage retains creating lock; stale reconciliation marks unknown without resubmission', async () => {
+  const fixture = dispatchFixture();
+  fixture.db.failWrite = (_key, patch) => ['created', 'outcome_unknown'].includes(patch['fulfilmentOperations.day_0.dispatch.status']);
+  await assert.rejects(dispatchStoreDelivery(fixture.args));
+  fixture.db.failWrite = undefined;
+  const operation = fixture.db.documents['storeOrders/multi'].fulfilmentOperations.day_0;
+  assert.equal(operation.dispatch.status, 'creating');
+  operation.dispatch.requestedAt = '2020-01-01T00:00:00Z';
+  await refreshStoreDelivery(fixture.args);
+  assert.equal(operation.dispatch.status, 'outcome_unknown');
+  await dispatchStoreDelivery(fixture.args); assert.equal(fixture.counts().creations, 1);
+});
+
+test('failure before provider submission may safely retry; wrong tenant/environment/day/payment cannot dispatch', async () => {
+  const fixture = dispatchFixture(); const original = fixture.provider.createQuote;
+  fixture.provider.createQuote = async () => { throw new Error('quote unavailable'); };
+  await assert.rejects(dispatchStoreDelivery(fixture.args), /quote unavailable/);
+  assert.equal(fixture.db.documents['storeOrders/multi'].fulfilmentOperations.day_0.dispatch.status, 'failed');
+  fixture.provider.createQuote = original;
+  await assert.rejects(dispatchStoreDelivery({ ...fixture.args, uid: 'intruder' }), /role/);
+  await assert.rejects(dispatchStoreDelivery({ ...fixture.args, fulfilmentId: 'other' }), /fulfilment/);
+  await assert.rejects(dispatchStoreDelivery({ ...fixture.args, provider: { ...fixture.provider, environment: 'production' } }), /environment/);
+  fixture.db.documents['storeOrders/multi'].payment.status = 'pending';
+  await assert.rejects(dispatchStoreDelivery(fixture.args), /paid/);
+  fixture.db.documents['storeOrders/multi'].payment.status = 'paid';
+  await dispatchStoreDelivery(fixture.args); assert.equal(fixture.counts().creations, 1);
+  await assert.rejects(dispatchStoreDelivery({ ...fixture.args, fulfilmentId: undefined }), /fulfilment/);
+});
+
+test('duplicate and delayed provider completions do not complete parent early or overwrite terminal state', async () => {
+  const fixture = dispatchFixture();
+  await dispatchStoreDelivery(fixture.args);
+  await Promise.all([refreshStoreDelivery(fixture.args), refreshStoreDelivery(fixture.args)]);
+  let order = fixture.db.documents['storeOrders/multi'];
+  assert.equal(order.fulfilmentStatus, 'New'); assert.equal(Object.keys(order.fulfilmentCompletion).length, 1);
+  const completedAt = order.fulfilmentCompletion.day_0.completedAt;
+  fixture.provider.retrieveOrder = async () => ({ status: 'ON_GOING' });
+  await refreshStoreDelivery(fixture.args);
+  assert.equal(order.fulfilmentOperations.day_0.lifecycle.state, 'completed');
+  assert.equal(order.fulfilmentCompletion.day_0.completedAt, completedAt);
+  await dispatchStoreDelivery({ ...fixture.args, fulfilmentId: 'day_1' });
+  fixture.provider.retrieveOrder = async () => ({ status: 'COMPLETED' });
+  await refreshStoreDelivery({ ...fixture.args, fulfilmentId: 'day_1' });
+  assert.equal(order.fulfilmentStatus, 'Completed'); assert.equal(order.payment.amountMinor, 10000);
+  assert.equal(order.total, 100); assert.equal(order.totals.deliveryFee, 14);
+});
+
+test('scheduled reconciliation resolves independent provider records and retires unknown-without-ID polling', async () => {
+  const fixture = dispatchFixture();
+  await dispatchStoreDelivery(fixture.args);
+  await reconcileActiveDeliveries({ db: fixture.db, provider: fixture.provider });
+  assert.equal(fixture.db.documents['storeOrders/multi'].fulfilmentCompletion.day_0.completedBy, 'lalamove');
+  assert.equal(fixture.db.documents['storeOrders/multi'].activeFulfilmentDeliveries, false);
+});
+
+test('cancel targets only its fulfilment and never refunds or cancels the financial order', async () => {
+  const fixture = dispatchFixture(); await dispatchStoreDelivery(fixture.args);
+  fixture.provider.retrieveOrder = async () => ({ status: 'CANCELED' });
+  let cancellationId; fixture.provider.cancelOrder = async ({ orderId }) => { cancellationId = orderId; };
+  await cancelStoreDelivery(fixture.args);
+  const order = fixture.db.documents['storeOrders/multi'];
+  assert.equal(cancellationId, 'provider-day_0'); assert.equal(order.fulfilmentStatus, 'New');
+  assert.equal(order.payment.status, 'paid'); assert.equal(order.total, 100);
+  assert.equal((await dispatchStoreDelivery(fixture.args)).status, 'provider_terminal');
+});
+
+const quoteFixture = (actualFee = 7, dayCount = 5) => {
+  const store = { id: 's', workspaceId: 's', slug: 'test', name: 'Kitchen', country: 'MY', currency: 'MYR',
+    delivery: { enabled: true, provider: 'lalamove', environment: 'sandbox', market: 'MY', serviceType: 'MOTORCYCLE',
+      pickup: multiOrder().delivery.pickup,
+      fulfilment: { preOrder: { enabled: true, orderDays: ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'], earliestDays: 1, maximumAdvanceDays: 14, unavailableDates: [], deliveryHours: { from: '09:00', to: '18:00' } } } } };
+  const now = new Date(); const dates = Array.from({ length: dayCount }, (_, index) => new Date(now.getTime() + (index + 2) * 86400000).toISOString().slice(0, 10));
+  const products = dates.map((date, index) => ({ id: `meal-${index}`, storeId: 's', available: true, price: 10, name: 'Meal', optionGroupIds: [] }));
+  const db = multiDb({ 'stores/s': store, ...Object.fromEntries(products.map(product => [`storeProducts/${product.id}`, product])) });
+  let quotes = 0; let firstQuote;
+  const provider = { environment: 'sandbox', createQuote: async request => {
+    quotes++; firstQuote = { quotationId: 'checkout-quote', expiresAt: new Date(Date.now() + 300000).toISOString(), serviceType: 'MOTORCYCLE', priceBreakdown: { total: actualFee, currency: 'MYR' }, stops: request.data.stops, scheduleAt: request.data.scheduleAt }; return firstQuote;
+  }, retrieveQuote: async () => firstQuote };
+  const draft = { selections: products.map(product => ({ productId: product.id, quantity: 2 })), fulfilments: dates.map((date, index) => ({ date, time: '10:00', itemIndexes: [index] })), fulfilmentMode: 'preorder', destination: { formattedAddress: 'Customer', latitude: '4.7', longitude: '101.2' } };
+  return { store, db, provider, draft, dates, quoteCount: () => quotes };
+};
+
+test('five-day checkout quotes earliest day exactly once, persists ×5 and binds all dates/address/cart', async () => {
+  const fixture = quoteFixture();
+  const result = await createStoreDeliveryQuote({ ...fixture, slug: 'test', draft: { ...fixture.draft, fulfilments: [...fixture.draft.fulfilments].reverse(), fulfilmentCount: 999, deliveryFee: 0 } });
+  assert.equal(fixture.quoteCount(), 1); assert.equal(result.quote.customerDeliveryFee, 35); assert.equal(result.quote.fulfilmentCount, 5);
+  assert.equal(result.schedule.date, fixture.dates[0]);
+  const draft = { ...fixture.draft, deliveryQuoteId: result.quote.quotationId, deliveryPricingSnapshotId: result.pricingSnapshotId };
+  const snapshot = fixture.db.documents[`storeDeliveryQuoteSnapshots/${result.pricingSnapshotId}`];
+  assert.equal(snapshot.firstQuote.fee, 7); assert.equal(snapshot.finalDeliveryTotal, 35);
+  await revalidateDeliveryForPayment({ ...fixture, draft });
+  assert.equal(fixture.quoteCount(), 1);
+  await assert.rejects(revalidateDeliveryForPayment({ ...fixture, draft: { ...draft, fulfilments: draft.fulfilments.map((entry, index) => index === 4 ? { ...entry, time: '11:00' } : entry) } }), /schedule or delivery pricing/);
+  await assert.rejects(revalidateDeliveryForPayment({ ...fixture, draft: { ...draft, selections: draft.selections.map(selection => ({ ...selection, quantity: 3 })) } }), /schedule or delivery pricing/);
+  await assert.rejects(revalidateDeliveryForPayment({ ...fixture, draft: { ...draft, destination: { ...draft.destination, formattedAddress: 'Other' } } }), /schedule or delivery pricing/);
+});
+
+for (const [dayCount, expectedTotal] of [[3, 25.2], [5, 42]]) {
+  test(`${dayCount}-day checkout uses the actual RM8.40 address quote and freezes RM${expectedTotal}`, async () => {
+    const fixture = quoteFixture(8.4, dayCount);
+    const createQuote = fixture.provider.createQuote;
+    fixture.provider.createQuote = async request => {
+      assert.equal(request.data.stops[1].address, fixture.draft.destination.formattedAddress);
+      return createQuote(request);
+    };
+    const result = await createStoreDeliveryQuote({ ...fixture, slug: 'test', draft: fixture.draft });
+    assert.equal(fixture.quoteCount(), 1);
+    assert.equal(result.schedule.date, fixture.dates[0]);
+    assert.equal(result.quote.customerDeliveryFee, expectedTotal);
+    const snapshot = fixture.db.documents[`storeDeliveryQuoteSnapshots/${result.pricingSnapshotId}`];
+    assert.equal(snapshot.firstQuote.fee, 8.4);
+    assert.equal(snapshot.fulfilmentCount, dayCount);
+    assert.equal(snapshot.finalDeliveryTotal, expectedTotal);
+    await revalidateDeliveryForPayment({ ...fixture, draft: { ...fixture.draft, deliveryQuoteId: result.quote.quotationId, deliveryPricingSnapshotId: result.pricingSnapshotId } });
+    assert.equal(fixture.quoteCount(), 1);
+    assert.equal(snapshot.finalDeliveryTotal, expectedTotal);
+  });
+}
+
+test('single-day delivery retains original subsidy and pricing without new schedule fields', async () => {
+  const fixture = quoteFixture();
+  fixture.db.documents['stores/s'].delivery.subsidy = { enabled: true, minimumMerchandiseSpend: 1, maximumCustomerDeliveryCharge: 2 };
+  const result = await createStoreDeliveryQuote({ ...fixture, slug: 'test', draft: { ...fixture.draft, fulfilments: undefined, deliveryDate: fixture.dates[0], deliveryTime: '10:00' } });
+  assert.equal(fixture.quoteCount(), 1); assert.equal(result.quote.customerDeliveryFee, 2);
+  assert.equal(result.quote.fulfilmentCount, undefined);
+});
+
+test('an immediate terminal provider response still records daily completion transactionally', async () => {
+  const fixture = dispatchFixture();
+  fixture.provider.createOrder = async () => ({ orderId: 'immediately-completed', status: 'COMPLETED' });
+  await dispatchStoreDelivery(fixture.args);
+  const order = fixture.db.documents['storeOrders/multi'];
+  assert.equal(order.fulfilmentCompletion.day_0.completedBy, 'lalamove');
+  assert.equal(order.fulfilmentStatus, 'New');
+  assert.equal(order.fulfilmentOperations.day_0.dispatch.status, 'completed');
+});
+
+
+test('delivery scheduling enforces shared cut-off, calendar filters and fixed horizon', () => {
+  const config = { fulfilment: { preOrder: { enabled: true, orderDays: ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'], earliestDays: 1, maximumAdvanceDays: 7, unavailableDates: ['2026-10-14'], deliveryHours: { from: '09:00', to: '21:00' } }, instant: { enabled: true, operatingHours: { start: '09:00', end: '21:00' } } } };
+  const store = { country: 'MY', orderCutoffTime: '18:00' };
+  const draft = { deliveryDate: '2026-10-13', deliveryTime: '12:00' };
+  const at = new Date('2026-10-12T10:00:00Z');
+  const after = new Date('2026-10-12T10:00:00.001Z');
+  assert.equal(validatePreOrderSchedule(store, config, draft, at).date, draft.deliveryDate);
+  assert.throws(() => validatePreOrderSchedule(store, config, draft, after), /available delivery date/);
+  assert.throws(() => validatePreOrderSchedule(store, config, { ...draft, deliveryDate: '2026-10-14' }, after), /available delivery date/);
+  assert.equal(validatePreOrderSchedule(store, config, { ...draft, deliveryDate: '2026-10-15' }, after).date, '2026-10-15');
+  assert.throws(() => validatePreOrderSchedule(store, config, { ...draft, deliveryDate: '2026-10-20' }, after), /available delivery date/);
+  assert.deepEqual(validateInstantSchedule(store, config, at), { mode: 'instant' });
+  assert.throws(() => validateInstantSchedule(store, config, after), /future delivery date/);
+  assert.deepEqual(validateInstantSchedule({ ...store, orderCutoffTime: null }, config, after), { mode: 'instant' });
+});
+
+test('quote and submission agree on free delivery per day without changing actual Lalamove quote', async () => {
+  const fixture = quoteFixture(8.4, 3);
+  fixture.db.documents['stores/s'].delivery.freeDelivery = { enabled: true, distanceThresholdKm: 500, minimumSubtotalWithin: 15, minimumSubtotalBeyond: 120 };
+  fixture.draft.selections.forEach((selection, index) => { selection.quantity = index === 0 ? 2 : 1; });
+  const result = await createStoreDeliveryQuote({ ...fixture, slug: 'test', draft: { ...fixture.draft, deliveryFee: 0, distanceKm: 0 } });
+  assert.equal(fixture.quoteCount(), 1);
+  assert.deepEqual(result.quote.days.map(day => day.customerDeliveryFee), [0,8.4,8.4]);
+  assert.equal(result.quote.customerDeliveryFee, 16.8);
+  const deliverySnapshot = await revalidateDeliveryForPayment({ ...fixture, draft: { ...fixture.draft, deliveryQuoteId: result.quote.quotationId, deliveryPricingSnapshotId: result.pricingSnapshotId } });
+  assert.equal(deliverySnapshot.quote.fee, 8.4);
+  const order = buildPendingOrder({ id: 'free-order', orderNumber: 'MC-free', store: { ...fixture.store, pickupLocations: [] }, draft: { ...fixture.draft, customerName: 'Guest', phone: '+60123456789', fulfilmentMethod: 'delivery', deliverySnapshot }, products: Object.entries(fixture.db.documents).filter(([path]) => path.startsWith('storeProducts/')).map(([, product]) => product), optionGroups: [], paymentProvider: 'stripe', paymentProviderMode: 'single_merchant' });
+  assert.equal(order.totals.deliveryFee, result.quote.customerDeliveryFee);
+  assert.deepEqual(order.deliveryPricingSnapshot.days.map(day => day.customerDeliveryFee), [0,8.4,8.4]);
+});
+
+test('dated full-week quote and payment revalidation use Sunday cutoff instead of earliest days', async () => {
+  const fixture = quoteFixture();
+  const start = new Date(); start.setUTCDate(start.getUTCDate() + ((8 - start.getUTCDay()) % 7 || 7));
+  const monday = start.toISOString().slice(0, 10);
+  const dates = Array.from({ length: 5 }, (_, index) => new Date(Date.parse(`${monday}T00:00:00Z`) + index * 86400000).toISOString().slice(0, 10));
+  const days = ['mon','tue','wed','thu','fri'];
+  fixture.store.orderCutoffTime = '18:00';
+  fixture.store.delivery.fulfilment.preOrder.earliestDays = 1;
+  const meals = days.map((day, index) => ({ id: `dated-${day}`, name: `${day} lunch`, storeId: 's', workspaceId: 's', price: 12, available: true, optionGroupIds: [], availableDay: day }));
+  const plan = { id: 'healthy', name: 'Healthy Lunch', storeId: 's', workspaceId: 's', productType: 'weekly_meal_plan', available: true, price: 55, optionGroupIds: [], weeklyWeeks: { week1: { startMonday: monday, meals: Object.fromEntries(meals.map((meal, index) => [days[index], meal.id])) } } };
+  for (const product of [...meals, plan]) fixture.db.documents[`storeProducts/${product.id}`] = product;
+  const draft = { ...fixture.draft, selections: [{ productId: plan.id, quantity: 1 }], fulfilments: dates.map(date => ({ date, time: '10:00', itemIndexes: [0] })) };
+  const result = await createStoreDeliveryQuote({ ...fixture, slug: 'test', draft });
+  assert.equal(result.quote.customerDeliveryFee, 35);
+  assert.equal(result.quote.fulfilmentCount, 5);
+  const paymentDraft = { ...draft, deliveryQuoteId: result.quote.quotationId, deliveryPricingSnapshotId: result.pricingSnapshotId };
+  const cutoff = Date.parse(`${monday}T00:00:00+08:00`) - 6 * 3600000;
+  // Keep the mocked provider quote valid at the deterministic payment test time.
+  const quoteProvider = { ...fixture.provider, retrieveQuote: async () => ({ ...(await fixture.provider.retrieveQuote()), expiresAt: new Date(cutoff + 86400000).toISOString() }) };
+  const options = { db: fixture.db, provider: quoteProvider, store: fixture.store, products: [...meals, plan], draft: paymentDraft };
+  const atCutoff = await revalidateDeliveryForPayment({ ...options, now: cutoff });
+  assert.equal(atCutoff.schedule.date, monday);
+  await assert.rejects(revalidateDeliveryForPayment({ ...options, now: cutoff + 1 }), /closed/);
+  assert.equal(fixture.quoteCount(), 1);
+});
+
+test('embedded full-week and single-day Lalamove quotes share menu data but keep distinct cutoff and fee rules', async () => {
+  const fixture = quoteFixture();
+  const start = new Date(); start.setUTCDate(start.getUTCDate() + ((8 - start.getUTCDay()) % 7 || 7));
+  const monday = start.toISOString().slice(0, 10);
+  const dates = Array.from({ length: 5 }, (_, index) => new Date(Date.parse(`${monday}T00:00:00Z`) + index * 86400000).toISOString().slice(0, 10));
+  const days = ['mon','tue','wed','thu','fri'];
+  const plan = { id: 'embedded-quote', name: 'Healthy Lunch', storeId: 's', workspaceId: 's', productType: 'weekly_meal_plan', weeklyMenuVersion: 2, available: true, price: 50, optionGroupIds: [], weeklyWeeks: { week3: { startMonday: monday, meals: Object.fromEntries(days.map((day, index) => [day, { name: `${day} direct`, photoUrl: `https://example.test/${day}.jpg`, price: 11 + index, calories: 400 }])) } } };
+  fixture.store.orderCutoffTime = '18:00';
+  fixture.store.delivery.freeDelivery = { enabled: true, distanceThresholdKm: 100, minimumSubtotalWithin: 13, minimumSubtotalBeyond: 30 };
+  fixture.db.documents[`storeProducts/${plan.id}`] = plan;
+  const fullDraft = { ...fixture.draft, selections: [{ productId: plan.id, quantity: 1 }], fulfilments: dates.map(date => ({ date, time: '10:00', itemIndexes: [0] })) };
+  const full = await createStoreDeliveryQuote({ ...fixture, slug: 'test', draft: fullDraft });
+  assert.equal(full.merchandiseSubtotal, 50); assert.equal(full.quote.customerDeliveryFee, 35); assert.equal(full.quote.fulfilmentCount, 5);
+  const singleDraft = { ...fullDraft, selections: [{ productId: plan.id, healthyLunchPlanId: plan.id, healthyLunchDate: dates[2], quantity: 1, price: 0 }], fulfilments: [{ date: dates[2], time: '10:00', itemIndexes: [0] }] };
+  const single = await createStoreDeliveryQuote({ ...fixture, slug: 'test', draft: singleDraft });
+  assert.equal(single.merchandiseSubtotal, 13); assert.equal(single.quote.customerDeliveryFee, 0); assert.equal(single.quote.fulfilmentCount, 1);
+  const mondayAfterCutoff = Date.parse(`${dates[0]}T18:00:00+08:00`) + 1;
+  const provider = { ...fixture.provider, retrieveQuote: async () => ({ ...(await fixture.provider.retrieveQuote()), expiresAt: new Date(mondayAfterCutoff + 3 * 86400000).toISOString() }) };
+  const options = { db: fixture.db, provider, store: fixture.store, products: [plan], draft: { ...singleDraft, deliveryQuoteId: single.quote.quotationId, deliveryPricingSnapshotId: single.pricingSnapshotId } };
+  assert.equal((await revalidateDeliveryForPayment({ ...options, now: mondayAfterCutoff })).schedule.date, dates[2]);
+  await assert.rejects(revalidateDeliveryForPayment({ ...options, now: mondayAfterCutoff + 86400000 }), /available/);
+  assert.equal(fixture.quoteCount(), 2);
+});
+
+test('rotating Healthy Lunch delivery keeps per-day free delivery and excludes blocked dates', async () => {
+  const fixture = quoteFixture();
+  const start = new Date(); start.setUTCDate(start.getUTCDate() + ((8 - start.getUTCDay()) % 7 || 7));
+  const monday = start.toISOString().slice(0, 10);
+  const dates = Array.from({ length: 5 }, (_, index) => new Date(Date.parse(`${monday}T00:00:00Z`) + index * 86400000).toISOString().slice(0, 10));
+  const days = ['mon', 'tue', 'wed', 'thu', 'fri'];
+  const plan = { id: 'rotation-quote', name: 'Healthy Lunch', storeId: 's', workspaceId: 's', productType: 'weekly_meal_plan', weeklyMenuVersion: 3,
+    rotationStartMonday: monday, rotationWeeks: { week2: { meals: Object.fromEntries(days.map((day, index) => [day, { name: `${day} direct`, photoUrl: 'meal.jpg', price: 11 + index }])) } },
+    healthyLunchBlockedDates: [], available: true, price: 50, optionGroupIds: [] };
+  fixture.store.orderCutoffTime = '18:00';
+  fixture.store.delivery.freeDelivery = { enabled: true, distanceThresholdKm: 100, minimumSubtotalWithin: 13, minimumSubtotalBeyond: 30 };
+  fixture.db.documents[`storeProducts/${plan.id}`] = plan;
+  const draft = { ...fixture.draft, selections: [{ productId: plan.id, healthyLunchPlanId: plan.id, healthyLunchDate: dates[2], quantity: 1 }], fulfilments: [{ date: dates[2], time: '10:00', itemIndexes: [0] }] };
+  const quote = await createStoreDeliveryQuote({ ...fixture, slug: 'test', draft });
+  assert.equal(quote.quote.customerDeliveryFee, 0);
+  assert.equal(quote.quote.fulfilmentCount, 1);
+  plan.healthyLunchBlockedDates = [dates[2]];
+  await assert.rejects(createStoreDeliveryQuote({ ...fixture, slug: 'test', draft }), /Healthy Lunch|available/);
 });

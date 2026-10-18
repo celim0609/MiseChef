@@ -1,3 +1,6 @@
+import HealthyLunchOptionsEditor from './HealthyLunchOptionsEditor';
+import type { HealthyLunchMeal, EmbeddedWeeklyMeals } from './types';
+import { isWeeklyMealPlan, WEEKLY_DAYS, WEEK_SLOTS, validateWeeklyMealPlan } from '../../../functions/storeWeeklyMealPlan.js';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import {
   ArrowDown,
@@ -31,9 +34,11 @@ import {
   uploadStoreBrandImage,
   uploadStorePaymentQr,
   uploadStoreProductPhoto,
+  uploadHealthyLunchMealPhoto,
   uploadStoreProductSocialImage
 } from '../../services/storage';
 import { storeService } from './services';
+import { deleteProductWithCleanup } from './productDeletion';
 import { storeDeliveryService } from './services/deliveryService';
 import StoreOrdersPanel from './StoreOrdersPanel';
 import StoreSetsPanel from './StoreSetsPanel';
@@ -50,6 +55,7 @@ import {
 import {
   createDefaultStoreDelivery,
   formatPickupDateLabel,
+  formatPickupTimeLabel,
   formatStoreOptionSelectionRequirement,
   STORE_PAYMENT_METHODS,
   STORE_ORDER_DAYS,
@@ -75,6 +81,11 @@ import {
 import {
   filterAdminStoreProducts,
   getStoreProductEditorDraft,
+  getEmbeddedHealthyLunchDraft,
+  getRotatingHealthyLunchDraft,
+  prepareHealthyLunchDraft,
+  updateHealthyLunchMeal,
+  syncHealthyLunchRecipe,
   getStoreProductEditorPresentation,
   getReadyToSellProductDraft,
   getStoreProductValidationTarget
@@ -119,6 +130,7 @@ const emptyProductDraft = (): StoreProductDraft => ({
   description: '',
   price: 0,
   available: true,
+  availableDay: 'all',
   optionGroupIds: []
 });
 
@@ -138,6 +150,7 @@ const toSettingsDraft = (store: WorkspaceStore): StoreSettingsDraft => ({
   pickupSessions: [...store.pickupSessions],
   pickupLocations: store.pickupLocations.map(location => ({ ...location })),
   orderDays: [...store.orderDays],
+  orderCutoffTime: store.orderCutoffTime || null,
   earliestPickupDays: store.earliestPickupDays,
   maximumAdvanceDays: store.maximumAdvanceDays,
   unavailableDates: [...store.unavailableDates],
@@ -225,6 +238,10 @@ export default function StorePage({
   const [productDraft, setProductDraft] = useState<StoreProductDraft>(emptyProductDraft);
   const [productOptions, setProductOptions] = useState<ProductOptionEditor[]>([]);
   const [savedOptionGroupId, setSavedOptionGroupId] = useState('');
+  const [mealPhotoFiles, setMealPhotoFiles] = useState<Record<string, File>>({});
+  const mealPreviewUrls = useRef<Record<string, string>>({});
+  const clearMealPhotos = () => { Object.values(mealPreviewUrls.current).forEach(URL.revokeObjectURL); mealPreviewUrls.current = {}; setMealPhotoFiles({}); };
+  useEffect(() => () => { Object.values(mealPreviewUrls.current).forEach(URL.revokeObjectURL); }, []);
   const [productPhotoFile, setProductPhotoFile] = useState<File | null>(null);
   const [productPhotoPreviewUrl, setProductPhotoPreviewUrl] = useState('');
   const [isRecipePhotoLoading, setIsRecipePhotoLoading] = useState(false);
@@ -255,6 +272,7 @@ export default function StorePage({
   const [sharedProductId, setSharedProductId] = useState('');
   const [isGeneratingQr, setIsGeneratingQr] = useState(false);
   const [unavailableDateDraft, setUnavailableDateDraft] = useState('');
+  const [healthyBlockedDateDraft, setHealthyBlockedDateDraft] = useState('');
   const [storeName, setStoreName] = useState(() => {
     const firstName = currentUser.displayName?.trim().split(/\s+/)[0] || 'My';
     return firstName === 'My' ? 'My Store' : `${firstName}'s Store`;
@@ -603,6 +621,42 @@ export default function StorePage({
     }
   };
 
+  const [isMealRecipeLoading, setIsMealRecipeLoading] = useState(false);
+  const syncMealRecipe = async (slot: typeof WEEK_SLOTS[number], day: typeof WEEKLY_DAYS[number], recipeId: string) => {
+    const recipe = recipes.find(entry => entry.id === recipeId);
+    if (!recipe || isMealRecipeLoading) return;
+    const transferId = productPhotoTransferIdRef.current;
+    setIsMealRecipeLoading(true);
+    try {
+      let nutrition;
+      try {
+        const profiles = await loadIngredientNutritionProfiles(recipe.ingredients.map(ingredient => ingredient.ingredientId || ''), workspace.id);
+        nutrition = calculateRecipeNutrition(recipe, profiles, recipes);
+      } catch { nutrition = undefined; }
+      const sourcePhoto = recipe.imageUrl || recipe.coverImage;
+      const file = sourcePhoto ? await loadRecipePhotoForStoreProduct({ recipeId, photoUrl: sourcePhoto }) : undefined;
+      if (transferId !== productPhotoTransferIdRef.current) return;
+      const key = `${slot}_${day}`;
+      let photoUrl: string | undefined;
+      if (file) {
+        if (mealPreviewUrls.current[key]) URL.revokeObjectURL(mealPreviewUrls.current[key]);
+        photoUrl = URL.createObjectURL(file);
+        mealPreviewUrls.current[key] = photoUrl;
+        setMealPhotoFiles(current => ({ ...current, [key]: file }));
+      }
+      setProductDraft(current => {
+        const rotation = current.weeklyMenuVersion === 3;
+        const week = rotation ? current.rotationWeeks?.[slot] : current.weeklyWeeks?.[slot];
+        if (!week) return current;
+        const meals = week.meals as EmbeddedWeeklyMeals;
+        const meal = syncHealthyLunchRecipe(meals[day], recipe, nutrition);
+        const updated = { ...week, meals: { ...meals, [day]: { ...meal, ...(photoUrl ? { photoUrl } : {}) } } };
+        return rotation ? { ...current, rotationWeeks: { ...current.rotationWeeks, [slot]: updated } } : { ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: updated } };
+      });
+    } catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to sync Recipe.'); }
+    finally { setIsMealRecipeLoading(false); }
+  };
+
   const openNewProduct = () => {
     productPhotoTransferIdRef.current += 1;
     setEditingProduct(null);
@@ -623,12 +677,13 @@ export default function StorePage({
     setEditingProduct(null);
     let nutrition;
     try {
-      const profiles = await loadIngredientNutritionProfiles(recipe.ingredients.map(ingredient => ingredient.ingredientId || ''));
-      nutrition = calculateRecipeNutrition(recipe, profiles);
+      const profiles = await loadIngredientNutritionProfiles(recipe.ingredients.map(ingredient => ingredient.ingredientId || ''), workspace.id);
+      nutrition = calculateRecipeNutrition(recipe, profiles, recipes);
     } catch (error) {
       console.warn('Recipe nutrition was unavailable for Ready to Sell.', error);
       nutrition = { status: 'INCOMPLETE' as const, incompleteReasons: ['Nutrition profiles are unavailable.'] };
     }
+    if (productPhotoTransferIdRef.current !== transferId) return;
     setProductDraft(getReadyToSellProductDraft(recipe, nutrition));
     setProductOptions([]);
     setSavedOptionGroupId('');
@@ -660,6 +715,7 @@ export default function StorePage({
   }, [readyToSellRecipe, onReadyToSellHandled]);
 
   const closeProductForm = () => {
+    clearMealPhotos();
     productPhotoTransferIdRef.current += 1;
     setEditingProduct(null);
     setProductDraft(emptyProductDraft());
@@ -675,7 +731,9 @@ export default function StorePage({
   const openProductEditor = (product: StoreProduct) => {
     productPhotoTransferIdRef.current += 1;
     setEditingProduct(product);
-    setProductDraft(getStoreProductEditorDraft(product));
+    clearMealPhotos();
+    if (product.weeklyWeeks) setProductDraft(getEmbeddedHealthyLunchDraft(product, products));
+    else setProductDraft(getStoreProductEditorDraft(product));
     setProductOptions(product.optionGroupIds.flatMap(groupId => {
       const group = optionGroups.find(candidate => candidate.id === groupId);
       return group ? [toProductOptionEditor(group, product.optionGroupIds.indexOf(groupId))] : [];
@@ -739,13 +797,15 @@ export default function StorePage({
 
   const handleProductSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (isMealRecipeLoading) return;
     if (!store || isSaving) return;
+    const configuredDraft = prepareHealthyLunchDraft(productDraft);
 
     const preflightError = validateStoreProduct({
-      ...productDraft,
-      photoUrl: productPhotoFile ? 'pending-upload' : productDraft.photoUrl,
+      ...configuredDraft,
+      photoUrl: productPhotoFile ? 'pending-upload' : configuredDraft.photoUrl,
       optionGroupIds: productOptions.map(group => group.id)
-    });
+    }) || validateWeeklyMealPlan({ ...configuredDraft, id: editingProduct?.id || '' }, products, workspace.id);
     const optionError = productOptions
       .map((group, groupIndex) => validateStoreOptionGroup({
         ...group,
@@ -807,9 +867,18 @@ export default function StorePage({
           uploadStoreProductSocialImage({ workspaceId: workspace.id, productId, file: productPhotoFile })
         ])
         : null;
-      const photoUrl = uploadedImages?.[0] || productDraft.photoUrl;
+      const weeklyWeeks = configuredDraft.weeklyWeeks ? structuredClone(configuredDraft.weeklyWeeks) : undefined;
+      const rotationWeeks = configuredDraft.rotationWeeks ? structuredClone(configuredDraft.rotationWeeks) : undefined;
+      if (configuredDraft.weeklyMenuVersion === 2 || configuredDraft.weeklyMenuVersion === 3) await Promise.all((Object.entries(mealPhotoFiles) as Array<[string, File]>).map(async ([key, file]) => {
+        const [slot, day] = key.split('_'); const week = configuredDraft.weeklyMenuVersion === 3 ? rotationWeeks?.[slot] : weeklyWeeks?.[slot];
+        if (week) (week.meals as EmbeddedWeeklyMeals)[day].photoUrl = await uploadHealthyLunchMealPhoto({ workspaceId: workspace.id, productId, file });
+      }));
+      const embeddedCover = configuredDraft.weeklyMenuVersion === 3 ? rotationWeeks?.[WEEK_SLOTS.find(slot => rotationWeeks?.[slot])!]?.meals.mon : configuredDraft.weeklyMenuVersion === 2 ? (Object.values(weeklyWeeks || {}) as Array<{ startMonday: string; meals: EmbeddedWeeklyMeals }>).sort((a, b) => a.startMonday.localeCompare(b.startMonday))[0]?.meals.mon as HealthyLunchMeal | undefined : undefined;
+      const photoUrl = embeddedCover?.photoUrl || uploadedImages?.[0] || configuredDraft.photoUrl;
       const nextDraft: StoreProductDraft = {
-        ...productDraft,
+        ...configuredDraft,
+        weeklyWeeks,
+        rotationWeeks,
         photoUrl,
         ...(uploadedImages ? { socialImageUrl: uploadedImages[1] } : {}),
         optionGroupIds: savedGroups.map(group => group.id)
@@ -854,6 +923,7 @@ export default function StorePage({
       setProductOptions([]);
       setProductPhotoFile(null);
       setIsProductFormOpen(false);
+      clearMealPhotos();
       setRecentlySavedProductId(savedProduct.id);
       setMessage(groupDeletionFailed
         ? 'Product saved. One unused option group could not be deleted; please try again.'
@@ -880,19 +950,23 @@ export default function StorePage({
     clearMessages();
     const productToDelete = editingProduct;
     try {
-      await storeService.deleteProduct(productToDelete.id);
-      await deleteStoreProductPhoto({
-        workspaceId: workspace.id,
-        productId: productToDelete.id,
-        photoUrl: productToDelete.photoUrl
-      });
       const sharedGroupIds = new Set(
         products
           .filter(product => product.id !== productToDelete.id)
           .flatMap(product => product.optionGroupIds)
       );
       const orphanedGroupIds = productToDelete.optionGroupIds.filter(groupId => !sharedGroupIds.has(groupId));
-      await Promise.allSettled(orphanedGroupIds.map(groupId => storeService.deleteOptionGroup(groupId)));
+      const cleanupFailed = await deleteProductWithCleanup(
+        () => storeService.deleteProduct(productToDelete.id),
+        [
+          () => deleteStoreProductPhoto({
+            workspaceId: workspace.id,
+            productId: productToDelete.id,
+            photoUrl: productToDelete.photoUrl
+          }),
+          ...orphanedGroupIds.map(groupId => () => storeService.deleteOptionGroup(groupId))
+        ]
+      );
       setProducts(current => current.filter(product => product.id !== productToDelete.id));
       setOptionGroups(current => current.filter(group => !orphanedGroupIds.includes(group.id)));
       setEditingProduct(null);
@@ -900,7 +974,9 @@ export default function StorePage({
       setProductOptions([]);
       setProductPhotoFile(null);
       setIsProductFormOpen(false);
-      setMessage('Product deleted.');
+      setMessage(cleanupFailed
+        ? 'Product deleted. Some unused photos or options could not be removed.'
+        : 'Product deleted.');
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Unable to delete this product.');
     } finally {
@@ -1085,10 +1161,89 @@ export default function StorePage({
                   <input ref={productNameInputRef} value={productDraft.name} onChange={event => updateProduct('name', event.target.value)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 </label>
                 <label className="block">
-                  <span className="font-sans text-xs font-extrabold text-primary">Price ({region.currency})</span>
-                  <input ref={productPriceInputRef} type="number" min="0" step="0.01" value={productDraft.price} onChange={event => updateProduct('price', Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                  <span className="font-sans text-xs font-extrabold text-primary">Product Type</span>
+                  <select aria-label="Product Type" value={productDraft.productType ?? 'single'} onChange={event => {
+                    const productType = event.target.value as StoreProductDraft['productType'];
+                    setProductDraft(current => ({ ...current, productType, weeklyMenuVersion: productType === 'weekly_meal_plan' ? 3 : undefined, weeklyWeeks: undefined, rotationWeeks: productType === 'weekly_meal_plan' ? current.rotationWeeks || {} : undefined, rotationStartMonday: productType === 'weekly_meal_plan' ? current.rotationStartMonday || '' : undefined, healthyLunchBlockedDates: productType === 'weekly_meal_plan' ? current.healthyLunchBlockedDates || [] : undefined, weeklyMeals: undefined, ...(productType === 'weekly_meal_plan' ? { availableDay: 'all', optionGroupIds: [] } : {}) }));
+                    clearMealPhotos();
+                    if (productType === 'weekly_meal_plan') setProductOptions([]);
+                  }} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 text-sm font-bold text-primary">
+                    <option value="single">Single Product</option><option value="weekly_meal_plan">Weekly Meal Plan</option>
+                  </select>
+                </label>
+                {isWeeklyMealPlan(productDraft) && <fieldset disabled={isMealRecipeLoading} className="space-y-3 md:col-span-2"><legend className="font-bold text-primary">Healthy Lunch · Mon–Fri</legend>
+                  {![2, 3].includes(productDraft.weeklyMenuVersion || 0) ? <div className="rounded-xl border p-3"><p className="text-sm">This existing plan keeps its saved weekly menu.</p><button type="button" onClick={() => setProductDraft(getEmbeddedHealthyLunchDraft(editingProduct!, products))} className="mt-2 rounded-full border px-4 py-2 font-bold">Edit meals in Healthy Lunch setup</button></div> : <>
+                  {productDraft.weeklyMenuVersion === 2 ? <div className="rounded-xl border p-3 text-sm"><p>This plan uses fixed dated weeks.</p><button type="button" onClick={() => { clearMealPhotos(); setProductDraft(getRotatingHealthyLunchDraft(editingProduct!, products)); }} className="mt-2 rounded-full border px-4 py-2 font-bold">Convert to repeating rotation</button></div> : <>
+                    <label className="block text-sm font-bold">Rotation start Monday<input aria-label="Rotation start Monday" type="date" value={productDraft.rotationStartMonday || ''} onChange={event => updateProduct('rotationStartMonday', event.target.value)} className="mt-1 block w-full rounded-xl border p-3" /></label>
+                    <p className="text-sm text-on-surface-variant">Configure any 1–4 weeks. Configured weeks repeat in slot order from the start Monday.</p>
+                    <label className="block text-sm font-bold">Block Healthy Lunch date<input aria-label="Block Healthy Lunch date" type="date" value={healthyBlockedDateDraft} onChange={event => setHealthyBlockedDateDraft(event.target.value)} className="mt-1 block w-full rounded-xl border p-3" /></label>
+                    <button type="button" disabled={!healthyBlockedDateDraft} onClick={() => { setProductDraft(current => ({ ...current, healthyLunchBlockedDates: [...new Set([...(current.healthyLunchBlockedDates || []), healthyBlockedDateDraft])].sort() })); setHealthyBlockedDateDraft(''); }} className="rounded-full border px-4 py-2 font-bold disabled:opacity-40">Block date</button>
+                    {(productDraft.healthyLunchBlockedDates || []).map(date => <div key={date} className="flex items-center gap-2 text-sm"><span>{date}</span><button type="button" aria-label={`Unblock Healthy Lunch ${date}`} onClick={() => setProductDraft(current => ({ ...current, healthyLunchBlockedDates: (current.healthyLunchBlockedDates || []).filter(item => item !== date) }))} className="rounded-full border px-3 py-1">Remove</button></div>)}
+                  </>}
+                  <p className="text-sm text-on-surface-variant">{productDraft.weeklyMenuVersion === 3 ? 'Add only the rotation weeks you need.' : 'Enter a Monday to add a week; clear it to leave that week out.'}</p>
+                  {WEEK_SLOTS.map((slot, index) => {
+                    const week = productDraft.weeklyMenuVersion === 3 ? productDraft.rotationWeeks?.[slot] : productDraft.weeklyWeeks?.[slot];
+                    const emptyMeals = () => Object.fromEntries(WEEKLY_DAYS.map(day => [day, { photoUrl: '', name: '', price: 0 }])) as EmbeddedWeeklyMeals;
+                    const meals = (week?.meals || emptyMeals()) as EmbeddedWeeklyMeals;
+                    const updateMeal = (day: string, patch: Partial<HealthyLunchMeal>) => setProductDraft(current => {
+                      const nextMeal = updateHealthyLunchMeal(meals[day], patch);
+                      return current.weeklyMenuVersion === 3 ? { ...current, rotationWeeks: { ...current.rotationWeeks, [slot]: { meals: { ...meals, [day]: nextMeal } } } } : { ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: { startMonday: current.weeklyWeeks![slot]!.startMonday, meals: { ...meals, [day]: nextMeal } } } };
+                    });
+                    return <details key={slot} open={Boolean(week)} className="rounded-xl border p-3"><summary className="cursor-pointer font-bold">Week {index + 1}</summary>
+                      {productDraft.weeklyMenuVersion === 3 ? <button type="button" onClick={() => { if (week) { setProductDraft(current => { const rotationWeeks = { ...current.rotationWeeks }; delete rotationWeeks[slot]; return { ...current, rotationWeeks }; }); } else setProductDraft(current => ({ ...current, rotationWeeks: { ...current.rotationWeeks, [slot]: { meals: emptyMeals() } } })); }} className="mt-3 rounded-full border px-4 py-2 text-sm font-bold">{week ? 'Remove week' : 'Configure week'}</button> : <label className="mt-3 block text-sm font-bold">Start Monday<input aria-label={`Week ${index + 1} start Monday`} type="date" value={week?.startMonday || ''} onChange={event => {
+                        const startMonday = event.target.value;
+                        if (!startMonday) { for (const day of WEEKLY_DAYS) { const key = `${slot}_${day}`; if (mealPreviewUrls.current[key]) URL.revokeObjectURL(mealPreviewUrls.current[key]); delete mealPreviewUrls.current[key]; } setMealPhotoFiles(files => Object.fromEntries(Object.entries(files).filter(([key]) => !key.startsWith(`${slot}_`)))); }
+                        setProductDraft(current => {
+                          const weeklyWeeks = { ...current.weeklyWeeks };
+                          if (startMonday) weeklyWeeks[slot] = { startMonday, meals: structuredClone(meals) }; else delete weeklyWeeks[slot];
+                          return { ...current, weeklyWeeks, weeklyMeals: undefined };
+                        });
+                      }} className="mt-1 block w-full rounded-xl border p-3" /></label>}
+                      {week && WEEKLY_DAYS.map(day => <fieldset key={day} className="mt-4 space-y-2 rounded-xl bg-surface-container-low p-3"><legend className="font-bold">{({ mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday' })[day]}</legend>
+                        <label className="block text-sm font-bold">Link Recipe (optional)
+                          <select aria-label={`Week ${index + 1} ${day} Recipe`} disabled={isMealRecipeLoading} value={meals[day].recipeId || ''} onChange={event => {
+                            const recipeId = event.target.value;
+                            if (recipeId) void syncMealRecipe(slot, day, recipeId); else updateMeal(day, { recipeId: undefined });
+                          }} className="mt-1 block w-full rounded-xl border p-2">
+                            <option value="">No linked Recipe</option>
+                            {meals[day].recipeId && !recipes.some(recipe => recipe.id === meals[day].recipeId) && <option value={meals[day].recipeId}>Linked Recipe unavailable</option>}
+                            {recipes.map(recipe => <option key={recipe.id} value={recipe.id}>{recipe.title}</option>)}
+                          </select>
+                        </label>
+                        {meals[day].recipeId && <>
+                          <button type="button" disabled={isMealRecipeLoading} onClick={() => void syncMealRecipe(slot, day, meals[day].recipeId!)} className="rounded-full border px-3 py-2 text-sm font-bold">Sync from Recipe</button>
+                          <p className="text-xs">Recipe cost per portion: {(() => { const cost = calculateStoreProductCostAnalysis(meals[day], currentRecipeCosting).estimatedCost; return cost === null ? 'Cost unavailable' : formatRegionCurrency(cost, region.currency); })()} · Selling price stays editable.</p>
+                        </>}
+                        <label className="block text-sm font-bold">Photo<input aria-label={`Week ${index + 1} ${day} photo`} type="file" accept="image/jpeg,image/png,image/webp" onChange={event => {
+                          const file = event.target.files?.[0]; if (!file) return;
+                          if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) { setErrorMessage('Choose a JPEG, PNG or WebP meal photo up to 10 MB.'); return; }
+                          const key = `${slot}_${day}`;
+                          if (mealPreviewUrls.current[key]) URL.revokeObjectURL(mealPreviewUrls.current[key]);
+                          const photoUrl = URL.createObjectURL(file); mealPreviewUrls.current[key] = photoUrl;
+                          setMealPhotoFiles(current => ({ ...current, [key]: file })); updateMeal(day, { photoUrl });
+                        }} className="mt-1 block w-full" /></label>
+                        {meals[day].photoUrl && <img src={meals[day].photoUrl} alt={`${day} meal preview`} className="h-24 w-24 rounded-xl object-cover" />}
+                        <label className="block text-sm font-bold">Meal name<input aria-label={`Week ${index + 1} ${day} name`} required value={meals[day].name} maxLength={160} onChange={event => updateMeal(day, { name: event.target.value })} className="mt-1 block w-full rounded-xl border p-2" /></label>
+                        <label className="block text-sm font-bold">Single-day price<input aria-label={`Week ${index + 1} ${day} price`} required type="number" min="0" step="0.01" value={meals[day].price} onChange={event => updateMeal(day, { price: event.target.value === '' ? NaN : Number(event.target.value) })} className="mt-1 block w-full rounded-xl border p-2" /></label>
+                        <label className="block text-sm font-bold">Kcal (optional)<input aria-label={`Week ${index + 1} ${day} kcal`} type="number" min="0" step="1" value={meals[day].calories ?? ''} onChange={event => updateMeal(day, { calories: event.target.value === '' ? undefined : Number(event.target.value) })} className="mt-1 block w-full rounded-xl border p-2" /></label>
+                        <label className="block text-sm font-bold">Description (optional)<textarea aria-label={`Week ${index + 1} ${day} description`} maxLength={1200} value={meals[day].description || ''} onChange={event => updateMeal(day, { description: event.target.value || undefined })} className="mt-1 block w-full rounded-xl border p-2" /></label>
+                        <HealthyLunchOptionsEditor groups={meals[day].optionGroups} onChange={optionGroups => updateMeal(day, { optionGroups })} />
+                      </fieldset>)}
+                    </details>;
+                  })}</>}
+                </fieldset>}
+                <label className="block">
+                  <span className="font-sans text-xs font-extrabold text-primary">Available day</span>
+                  <select aria-label="Available day" disabled={isWeeklyMealPlan(productDraft)} value={productDraft.availableDay ?? 'all'} onChange={event => updateProduct('availableDay', event.target.value as StoreProductDraft['availableDay'])} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">
+                    <option value="all">All days</option>
+                    {(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const).map(day => <option key={day} value={day}>{day.charAt(0).toUpperCase() + day.slice(1)}</option>)}
+                  </select>
                 </label>
                 <label className="block">
+                  <span className="font-sans text-xs font-extrabold text-primary">{isWeeklyMealPlan(productDraft) ? '5-Day Plan Price' : 'Price'} ({region.currency})</span>
+                  <input ref={productPriceInputRef} type="number" min="0" step="0.01" value={productDraft.price} onChange={event => updateProduct('price', Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
+                </label>
+                <label hidden={productDraft.weeklyMenuVersion === 2 || productDraft.weeklyMenuVersion === 3} className={productDraft.weeklyMenuVersion === 2 || productDraft.weeklyMenuVersion === 3 ? 'hidden' : 'block'}>
                   <span className="font-sans text-xs font-extrabold text-primary">Calories per serving (kcal)</span>
                   <input ref={productCaloriesInputRef} type="number" min="0" step="1" value={productDraft.calories ?? ''} onChange={event => updateProduct('calories', event.target.value === '' ? undefined : Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 </label>
@@ -1119,9 +1274,9 @@ export default function StorePage({
                     price: productDraft.price,
                     recipeId: productDraft.recipeId
                   }, currentRecipeCosting);
-                  return <div className="md:col-span-2 rounded-2xl border border-primary/15 bg-primary/5 p-4"><h3 className="font-display text-lg font-bold text-primary">Cost Analysis</h3><dl className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4"><div><dt className="font-bold text-outline">Estimated Cost</dt><dd className="mt-1 font-extrabold text-primary">{analysis.estimatedCost === null ? 'Cost unavailable' : formatRegionCurrency(analysis.estimatedCost, region.currency)}</dd></div><div><dt className="font-bold text-outline">Selling Price</dt><dd className="mt-1 font-extrabold text-primary">{formatRegionCurrency(analysis.sellingPrice, region.currency)}</dd></div><div><dt className="font-bold text-outline">Gross Profit</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossProfit === null ? 'Missing recipe cost' : formatRegionCurrency(analysis.grossProfit, region.currency)}</dd></div><div><dt className="font-bold text-outline">Gross Margin</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossMargin === null ? 'Missing recipe cost' : `${analysis.grossMargin.toFixed(2)}%`}</dd></div></dl></div>;
+                  return <div className="md:col-span-2 rounded-2xl border border-primary/15 bg-primary/5 p-4"><h3 className="font-display text-lg font-bold text-primary">Cost Analysis</h3><dl className="mt-3 grid grid-cols-2 gap-3 text-xs sm:grid-cols-4"><div><dt className="font-bold text-outline">Estimated Cost</dt><dd className="mt-1 font-extrabold text-primary">{analysis.estimatedCost === null ? 'Cost unavailable' : formatRegionCurrency(analysis.estimatedCost, region.currency)}</dd></div><div><dt className="font-bold text-outline">{isWeeklyMealPlan(productDraft) ? '5-Day Plan Price' : 'Selling Price'}</dt><dd className="mt-1 font-extrabold text-primary">{formatRegionCurrency(analysis.sellingPrice, region.currency)}</dd></div><div><dt className="font-bold text-outline">Gross Profit</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossProfit === null ? 'Missing recipe cost' : formatRegionCurrency(analysis.grossProfit, region.currency)}</dd></div><div><dt className="font-bold text-outline">Gross Margin</dt><dd className="mt-1 font-extrabold text-primary">{analysis.grossMargin === null ? 'Missing recipe cost' : `${analysis.grossMargin.toFixed(2)}%`}</dd></div></dl></div>;
                 })()}
-                <label className="block">
+                <label hidden={productDraft.weeklyMenuVersion === 2 || productDraft.weeklyMenuVersion === 3} className={productDraft.weeklyMenuVersion === 2 || productDraft.weeklyMenuVersion === 3 ? 'hidden' : 'block'}>
                   <span className="font-sans text-xs font-extrabold text-primary">Product Photo <span aria-hidden="true">*</span></span>
                   <input ref={productPhotoInputRef} type="file" accept="image/jpeg,image/png,image/webp" aria-required={!editingProduct && !productDraft.photoUrl} onChange={handleProductPhotoChange} className="mt-2 block w-full font-sans text-xs font-bold text-on-surface-variant" />
                   {productPhotoPreviewUrl && <img src={productPhotoPreviewUrl} alt="Product photo preview" className="mt-3 h-32 w-32 rounded-xl border border-surface-container-high object-cover" />}
@@ -1136,7 +1291,7 @@ export default function StorePage({
                 </label>
               </div>
 
-              <div ref={productOptionsRef} className="mt-8 border-t border-surface-container-high pt-6">
+              <div hidden={isWeeklyMealPlan(productDraft)} ref={productOptionsRef} className="mt-8 border-t border-surface-container-high pt-6">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                   <div>
                     <h3 className="font-display text-xl font-bold text-primary">Options</h3>
@@ -1274,7 +1429,7 @@ export default function StorePage({
                   </button>
                 )}
                 <button type="button" onClick={closeProductForm} className="rounded-full bg-surface-container px-5 py-3 font-sans text-xs font-extrabold text-primary">{productEditorPresentation.cancelAction}</button>
-                <button type="submit" disabled={isSaving} className="rounded-full bg-primary px-6 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : productEditorPresentation.primaryAction}</button>
+                <button type="submit" disabled={isSaving || isMealRecipeLoading} className="rounded-full bg-primary px-6 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : productEditorPresentation.primaryAction}</button>
               </div>
             </form>
           )}
@@ -1304,6 +1459,7 @@ export default function StorePage({
                       {product.available ? 'Available' : 'Unavailable'}
                     </span>
                   </div>
+                  {product.calories !== undefined && <p className="mt-2 font-sans text-xs font-bold text-on-surface-variant">{product.calories} kcal per serving</p>}
                   {product.description && <p className="mt-3 line-clamp-2 font-sans text-xs font-bold leading-relaxed text-on-surface-variant">{product.description}</p>}
                   {product.recipeId && (() => {
                     const recipe = recipes.find(candidate => candidate.id === product.recipeId);
@@ -1400,6 +1556,16 @@ export default function StorePage({
 
       {activeView === 'settings' && (
         <form onSubmit={handlePickupSave} role="tabpanel" id="store-settings-panel-pickup-delivery" aria-labelledby="store-settings-tab-pickup-delivery" hidden={settingsTab !== 'pickup-delivery'} className="space-y-8">
+          <section aria-labelledby="order-timing-heading" className="rounded-3xl bg-white p-5 shadow-sm sm:p-6">
+            <h2 id="order-timing-heading" className="font-display text-2xl font-bold text-primary">Order timing</h2>
+              <label className="block">
+                <span className="font-sans text-xs font-extrabold text-primary">Order cut-off time</span>
+                <input type="time" aria-label="Order cut-off time" value={settingsDraft.orderCutoffTime || ''} onChange={event => updateSettings('orderCutoffTime', event.target.value || null)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
+                <button type="button" onClick={() => updateSettings('orderCutoffTime', null)} className="mt-2 text-xs font-bold text-primary">Clear cut-off time</button>
+              </label>
+            {settingsDraft.orderCutoffTime && <p className="mt-2 text-xs text-on-surface-variant">Orders placed after {formatPickupTimeLabel(settingsDraft.orderCutoffTime)} will start from the next available day for pickup or delivery.</p>}
+          </section>
+
           <section>
             <div>
               <h2 className="font-display text-2xl font-bold text-primary">Pickup operating hours</h2>
@@ -1443,7 +1609,7 @@ export default function StorePage({
             <div className="flex items-end justify-between gap-4">
               <div>
                 <h2 className="font-display text-2xl font-bold text-primary">Pickup Sessions</h2>
-                <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">When can customers collect?</p>
+                <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Optional labels for group order pickup times.</p>
               </div>
               <button type="button" onClick={() => updateSettings('pickupSessions', [...settingsDraft.pickupSessions, ''])} className="inline-flex shrink-0 items-center gap-2 rounded-full bg-white px-4 py-2.5 font-sans text-xs font-extrabold text-primary shadow-sm">
                 <Plus className="h-3.5 w-3.5" /> Add
@@ -1467,7 +1633,7 @@ export default function StorePage({
             </div>
             <div className="mt-5 space-y-6 rounded-3xl bg-white p-5 shadow-sm sm:p-6">
               <fieldset>
-                <legend className="font-sans text-xs font-extrabold text-primary">Order Days</legend>
+                <legend className="font-sans text-xs font-extrabold text-primary">Pickup days</legend>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {STORE_ORDER_DAYS.map(day => {
                     const isSelected = settingsDraft.orderDays.includes(day.id);
@@ -1488,21 +1654,23 @@ export default function StorePage({
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
-                  <span className="font-sans text-xs font-extrabold text-primary">Earliest Pickup</span>
-                  <select aria-label="Earliest pickup" value={settingsDraft.earliestPickupDays} onChange={event => updateSettings('earliestPickupDays', Number(event.target.value) as 0 | 1)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                  <span className="font-sans text-xs font-extrabold text-primary">Earliest pickup date</span>
+                  <select aria-label="Earliest pickup date" value={settingsDraft.earliestPickupDays} onChange={event => updateSettings('earliestPickupDays', Number(event.target.value) as 0 | 1)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
                     <option value={0}>Same Day</option>
                     <option value={1}>Next Day</option>
                   </select>
                 </label>
                 <label className="block">
-                  <span className="font-sans text-xs font-extrabold text-primary">Maximum Advance Booking</span>
-                  <select aria-label="Maximum advance booking" value={settingsDraft.maximumAdvanceDays} onChange={event => updateSettings('maximumAdvanceDays', Number(event.target.value) as 7 | 14 | 30)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
+                  <span className="font-sans text-xs font-extrabold text-primary">Customers can book pickup up to</span>
+                  <select aria-label="Customers can book pickup up to" value={settingsDraft.maximumAdvanceDays} onChange={event => updateSettings('maximumAdvanceDays', Number(event.target.value) as 7 | 14 | 30)} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary">
                     <option value={7}>7 Days</option>
                     <option value={14}>14 Days</option>
                     <option value={30}>30 Days</option>
                   </select>
                 </label>
               </div>
+
+
 
               <div>
                 <span className="font-sans text-xs font-extrabold text-primary">Unavailable Dates</span>
@@ -1675,24 +1843,40 @@ export default function StorePage({
           </fieldset>
           <section aria-label="Delivery settings" hidden={settingsTab !== 'pickup-delivery'} className="mt-8 rounded-3xl bg-surface-container-low p-5">
             <h2 className="font-display text-2xl font-bold text-primary">Delivery</h2>
-            <p className="mt-1 text-sm font-bold text-on-surface-variant">Lalamove configuration for this MiseChef environment. Credentials remain on the server.</p>
+            <p className="mt-1 text-sm font-bold text-on-surface-variant">Choose how customers receive their orders.</p>
             {(() => { const environment = resolveStoreDeliveryEnvironment(); const delivery = { ...(settingsDraft.delivery || createDefaultStoreDelivery(environment)), environment }; const environmentLabel = environment === 'production' ? 'Production only' : 'Sandbox only'; const update = (next: typeof delivery) => updateSettings('delivery', { ...next, environment }); return <div className="mt-4 grid gap-3 md:grid-cols-2">
               <label className="flex items-center gap-2 md:col-span-2"><input type="checkbox" checked={delivery.enabled} onChange={event => update({ ...delivery, enabled: event.target.checked })} /><span className="font-bold">Enable delivery</span></label>
-              <label><span className="text-xs font-bold">Provider</span><input disabled value="Lalamove" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
-              <label><span className="text-xs font-bold">Environment</span><input disabled value={environmentLabel} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <fieldset className="grid gap-3 md:col-span-2 md:grid-cols-2"><legend className="mb-3 text-sm font-bold">Delivery setup</legend>
               <label><span className="text-xs font-bold">Pickup location</span><select value={delivery.pickupLocationId} onChange={event => { const location = settingsDraft.pickupLocations.find(item => item.id === event.target.value); update({ ...delivery, pickupLocationId: event.target.value, pickup: { ...delivery.pickup, name: location?.name || delivery.pickup.name, address: location?.address || delivery.pickup.address } }); }} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold"><option value="">Choose existing location</option>{settingsDraft.pickupLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
-              <label><span className="text-xs font-bold">Lalamove service type</span><input value={delivery.serviceType} onChange={event => update({ ...delivery, serviceType: event.target.value })} placeholder="Select after City Info" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
-              <label className="md:col-span-2"><span className="text-xs font-bold">Pickup address</span><input value={delivery.pickup.address} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, address: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
-              <label><span className="text-xs font-bold">Latitude</span><input inputMode="decimal" value={delivery.pickup.latitude} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, latitude: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Longitude</span><input inputMode="decimal" value={delivery.pickup.longitude} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, longitude: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
-              <label><span className="text-xs font-bold">Sender name</span><input value={delivery.pickup.contactName} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, contactName: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Sender phone (E.164)</span><input value={delivery.pickup.contactPhoneE164} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, contactPhoneE164: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
-              <label className="flex items-center gap-2 md:col-span-2"><input type="checkbox" checked={delivery.subsidy.enabled} onChange={event => update({ ...delivery, subsidy: { ...delivery.subsidy, enabled: event.target.checked } })} /><span className="font-bold">Enable delivery subsidy</span></label>
-              <label><span className="text-xs font-bold">Minimum merchandise spend (MYR)</span><input type="number" min="0" step="0.01" value={delivery.subsidy.minimumMerchandiseSpend} onChange={event => update({ ...delivery, subsidy: { ...delivery.subsidy, minimumMerchandiseSpend: Number(event.target.value) } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Maximum customer delivery charge (MYR)</span><input type="number" min="0" step="0.01" value={delivery.subsidy.maximumCustomerDeliveryCharge} onChange={event => update({ ...delivery, subsidy: { ...delivery.subsidy, maximumCustomerDeliveryCharge: Number(event.target.value) } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              </fieldset>
+              <fieldset className="grid gap-3 md:col-span-2 md:grid-cols-2"><legend className="mb-3 text-sm font-bold">Customer delivery fee</legend>
+              {(() => { const free = delivery.freeDelivery || { enabled: false, distanceThresholdKm: 8, minimumSubtotalWithin: 60, minimumSubtotalBeyond: 120 }; const setFree = (next: typeof free) => update({ ...delivery, freeDelivery: next }); return <div className="space-y-3 rounded-xl bg-white p-4 md:col-span-2">
+                <label className="flex items-center gap-2"><input type="checkbox" checked={free.enabled} onChange={event => setFree({ ...free, enabled: event.target.checked })} /><span className="font-bold">Enable free delivery</span></label>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <label><span className="text-xs font-bold">Distance threshold (km)</span><input aria-label="Free delivery distance threshold" type="number" min="0.01" max="500" step="0.01" value={free.distanceThresholdKm} onChange={event => setFree({ ...free, distanceThresholdKm: Number(event.target.value) })} className="mt-1 w-full rounded-xl bg-surface-container-low px-3 py-2" /></label>
+                  <label><span className="text-xs font-bold">Minimum order within {free.distanceThresholdKm} km (MYR)</span><input aria-label="Free delivery minimum within threshold" type="number" min="0" max="100000" step="0.01" value={free.minimumSubtotalWithin} onChange={event => setFree({ ...free, minimumSubtotalWithin: Number(event.target.value) })} className="mt-1 w-full rounded-xl bg-surface-container-low px-3 py-2" /></label>
+                  <label><span className="text-xs font-bold">Minimum order beyond {free.distanceThresholdKm} km (MYR)</span><input aria-label="Free delivery minimum beyond threshold" type="number" min="0" max="100000" step="0.01" value={free.minimumSubtotalBeyond} onChange={event => setFree({ ...free, minimumSubtotalBeyond: Number(event.target.value) })} className="mt-1 w-full rounded-xl bg-surface-container-low px-3 py-2" /></label>
+                </div><p className="text-xs text-on-surface-variant">Each delivery day qualifies separately based on that day's merchandise subtotal.</p>
+              </div>; })()}
+              <label className="flex items-center gap-2 md:col-span-2"><input type="checkbox" checked={delivery.subsidy.enabled} onChange={event => update({ ...delivery, subsidy: { ...delivery.subsidy, enabled: event.target.checked } })} /><span className="font-bold">Help customers pay for delivery</span></label>
+              <label><span className="text-xs font-bold">Minimum order total (MYR)</span><input type="number" min="0" step="0.01" value={delivery.subsidy.minimumMerchandiseSpend} onChange={event => update({ ...delivery, subsidy: { ...delivery.subsidy, minimumMerchandiseSpend: Number(event.target.value) } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Customer pays up to (MYR)</span><input type="number" min="0" step="0.01" value={delivery.subsidy.maximumCustomerDeliveryCharge} onChange={event => update({ ...delivery, subsidy: { ...delivery.subsidy, maximumCustomerDeliveryCharge: Number(event.target.value) } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              </fieldset>
+              <fieldset className="grid gap-3 md:col-span-2 md:grid-cols-2"><legend className="mb-3 text-sm font-bold">Delivery schedule</legend>
               <div className="rounded-xl bg-white p-3 text-sm font-bold md:col-span-2"><p>Pre-order delivery</p><label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={delivery.fulfilment.preOrder.enabled} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, enabled: event.target.checked } } })} />Enabled</label><p className="mt-3">Instant Delivery</p><label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={delivery.fulfilment.instant.enabled} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, instant: { ...delivery.fulfilment.instant, enabled: event.target.checked } } })} />Enabled</label>{delivery.fulfilment.instant.enabled && <div className="mt-3 grid gap-2 sm:grid-cols-3"><label><span className="text-xs">Starts</span><input type="time" value={delivery.fulfilment.instant.operatingHours.start} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, instant: { ...delivery.fulfilment.instant, operatingHours: { ...delivery.fulfilment.instant.operatingHours, start: event.target.value } } } })} className="mt-1 w-full rounded-lg bg-surface-container-low p-2" /></label><label><span className="text-xs">Ends</span><input type="time" value={delivery.fulfilment.instant.operatingHours.end} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, instant: { ...delivery.fulfilment.instant, operatingHours: { ...delivery.fulfilment.instant.operatingHours, end: event.target.value } } } })} className="mt-1 w-full rounded-lg bg-surface-container-low p-2" /></label><label><span className="text-xs">Preparation minutes</span><input type="number" min="0" max="180" value={delivery.fulfilment.instant.preparationMinutes} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, instant: { ...delivery.fulfilment.instant, preparationMinutes: Number(event.target.value) } } })} className="mt-1 w-full rounded-lg bg-surface-container-low p-2" /></label></div>}</div>
               <label><span className="text-xs font-bold">Delivery Hours — From</span><input type="time" value={delivery.fulfilment.preOrder.deliveryHours.from} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, deliveryHours: { ...delivery.fulfilment.preOrder.deliveryHours, from: event.target.value } } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Delivery Hours — To</span><input type="time" value={delivery.fulfilment.preOrder.deliveryHours.to} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, deliveryHours: { ...delivery.fulfilment.preOrder.deliveryHours, to: event.target.value } } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
               <label><span className="text-xs font-bold">Maximum Delivery Distance (km)</span><input type="number" min="1" max="500" value={delivery.fulfilment.preOrder.maximumDistanceKm} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, maximumDistanceKm: Number(event.target.value) } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
               <label><span className="text-xs font-bold">Earliest delivery</span><select value={delivery.fulfilment.preOrder.earliestDays} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, earliestDays: Number(event.target.value) as 0 | 1 } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold"><option value={0}>Same day allowed</option><option value={1}>From tomorrow</option></select></label><label><span className="text-xs font-bold">Maximum advance booking</span><select value={delivery.fulfilment.preOrder.maximumAdvanceDays} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, maximumAdvanceDays: Number(event.target.value) as 7 | 14 | 30 } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold"><option value={7}>7 days</option><option value={14}>14 days</option><option value={30}>30 days</option></select></label>
               <label className="md:col-span-2"><span className="text-xs font-bold">Unavailable delivery dates</span><input value={delivery.fulfilment.preOrder.unavailableDates.join(', ')} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, unavailableDates: event.target.value.split(',').map(value => value.trim()).filter(Boolean) } } })} placeholder="YYYY-MM-DD, YYYY-MM-DD" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              </fieldset>
+              <details className="md:col-span-2 rounded-xl bg-white p-4"><summary className="cursor-pointer text-sm font-bold">Advanced settings</summary><div className="mt-3 grid gap-3 md:grid-cols-2">
+              <label><span className="text-xs font-bold">Provider</span><input disabled value="Lalamove" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <label><span className="text-xs font-bold">Environment</span><input disabled value={environmentLabel} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <label><span className="text-xs font-bold">Lalamove service type</span><input value={delivery.serviceType} onChange={event => update({ ...delivery, serviceType: event.target.value })} placeholder="Select after City Info" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <label className="md:col-span-2"><span className="text-xs font-bold">Pickup address</span><input value={delivery.pickup.address} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, address: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <label><span className="text-xs font-bold">Latitude</span><input inputMode="decimal" value={delivery.pickup.latitude} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, latitude: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Longitude</span><input inputMode="decimal" value={delivery.pickup.longitude} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, longitude: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <label><span className="text-xs font-bold">Sender name</span><input value={delivery.pickup.contactName} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, contactName: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Sender phone (E.164)</span><input value={delivery.pickup.contactPhoneE164} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, contactPhoneE164: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
               <button type="button" onClick={() => storeDeliveryService.cityInfo(workspace.id).then(data => setDeliveryServiceKeys(data)).catch(error => setErrorMessage(error instanceof Error ? error.message : 'Unable to load City Info.'))} className="rounded-full bg-white px-4 py-2 text-xs font-bold text-primary">Load {environment === 'production' ? 'Production' : 'Sandbox'} City Info</button>{deliveryServiceKeys.length > 0 && <p className="self-center text-xs font-bold">Available keys: {deliveryServiceKeys.join(', ')}</p>}
+              </div></details>
             </div>; })()}
           </section>
           <div className="mt-7 flex justify-end">

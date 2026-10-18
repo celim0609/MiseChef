@@ -1,3 +1,4 @@
+import MealOptionSummary from '../store/MealOptionSummary';
 import { useEffect, useState } from 'react';
 import type { User } from 'firebase/auth';
 import { ReceiptText, UsersRound } from 'lucide-react';
@@ -89,7 +90,7 @@ export default function PublicOrdersPage({ currentUser }: { currentUser: User | 
                       {item.setSelections.map((selection, selectionIndex) => (
                         <p key={`${order.orderNumber}-set-${itemIndex}-${selectionIndex}`} className="mt-1 font-sans text-xs font-bold text-on-surface-variant">{selection.groupName && `${selection.groupName}: `}{selection.productName}</p>
                       ))}
-                      {item.selectedOptions.map((option, optionIndex) => (
+                      <MealOptionSummary snapshot={item} />{item.selectedOptions.map((option, optionIndex) => (
                         <p key={`${order.orderNumber}-option-${itemIndex}-${optionIndex}`} className="mt-1 font-sans text-xs font-bold text-on-surface-variant">{option.groupName && `${option.groupName}: `}{option.optionName}</p>
                       ))}
                     </div>
@@ -97,6 +98,8 @@ export default function PublicOrdersPage({ currentUser }: { currentUser: User | 
                 ) : (
                   <p className="mt-2 font-sans text-xs font-bold text-on-surface-variant">Item details are unavailable for this order{order.itemCount > 0 ? ` · ${order.itemCount} item${order.itemCount === 1 ? '' : 's'}` : ''}.</p>
                 )}
+                {order.fulfilments && <ul aria-label="Fulfilment schedule" className="mt-4 space-y-2">{order.fulfilments.map(day => <li key={day.id} className="rounded-xl bg-white p-3 text-sm font-bold text-primary">{day.date} · {day.time} · {day.method} · {day.pickupLocationName}{day.meals.map((meal, index) => <div key={index}><p>{meal.quantity} × {meal.productName}</p><MealOptionSummary snapshot={meal} /></div>)}<span>{day.completed ? 'Completed' : 'Scheduled'}</span></li>)}</ul>}
+                {order.weeklyFulfilments && <ul aria-label="Weekly Meal Plan schedule" className="mt-4 space-y-2">{order.weeklyFulfilments.map(day => <li key={day.day} className="rounded-xl bg-white p-3 text-sm font-bold text-primary">{day.day.toUpperCase()} · {day.date} · {day.pickupTime} · {day.pickupLocationName}<span className="block">{day.quantity} × {day.productName} · {day.completed ? 'Completed' : 'Scheduled'}</span></li>)}</ul>}
                 {order.remarks && <p className="mt-4 rounded-xl bg-white px-3 py-2 font-sans text-xs font-bold text-on-surface-variant"><span className="font-extrabold text-primary">Remark:</span> {order.remarks}</p>}
               </section>
               {order.totals ? <dl aria-label={`Order total for ${order.orderNumber}`} className="mt-5 space-y-2 border-t border-surface-container-high pt-4 font-sans text-sm font-bold text-on-surface-variant">

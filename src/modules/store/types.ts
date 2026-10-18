@@ -1,3 +1,20 @@
+export interface DraftFulfilment { date: string; time: string; itemIndexes: number[] }
+export interface OrderFulfilment {
+  id: string; method: 'pickup' | 'delivery'; date: string; time: string;
+  pickupLocationId: string; pickupLocationName: string; pickupLocationAddress: string;
+  allocations: Array<{ itemIndex: number; quantity: number; componentDay?: WeeklyDay }>;
+}
+export interface PublicOrderFulfilment {
+  id: string; method: 'pickup' | 'delivery'; date: string; time: string;
+  pickupLocationName: string; completed: boolean;
+  meals: Array<{ productName: string; quantity: number } & MealOptionSnapshot>;
+}
+export interface FulfilmentOperation {
+  kitchenStatus?: string;
+  dispatch?: { status?: string; errorCode?: string; identity?: string };
+  lifecycle?: { state?: string; providerStatus?: string };
+  providerOrder?: { orderId?: string; status?: string; priceBreakdown?: Record<string, unknown> };
+}
 import type { RegionCode, RegionCurrency } from '../../regions';
 
 export type StorePaymentProviderId = string;
@@ -35,6 +52,7 @@ export interface StoreDeliveryConfig {
   pickupLocationId: string;
   serviceType: string;
   pickup: { name: string; address: string; latitude: string; longitude: string; contactName: string; contactPhoneE164: string };
+  freeDelivery?: { enabled: boolean; distanceThresholdKm: number; minimumSubtotalWithin: number; minimumSubtotalBeyond: number };
   subsidy: { enabled: boolean; minimumMerchandiseSpend: number; maximumCustomerDeliveryCharge: number };
   fulfilment: {
     preOrder: { enabled: boolean; orderDays: StoreOrderDay[]; earliestDays: StoreEarliestPickupDays; maximumAdvanceDays: StoreMaximumAdvanceDays; unavailableDates: string[]; deliveryHours: { from: string; to: string }; maximumDistanceKm: number; sessions?: string[] };
@@ -79,6 +97,7 @@ export interface WorkspaceStore {
   pickupSessions: string[];
   pickupLocations: StorePickupLocation[];
   orderDays: StoreOrderDay[];
+  orderCutoffTime?: string | null;
   earliestPickupDays: StoreEarliestPickupDays;
   maximumAdvanceDays: StoreMaximumAdvanceDays;
   unavailableDates: string[];
@@ -107,6 +126,7 @@ export interface StoreSettingsDraft {
   pickupSessions: string[];
   pickupLocations: StorePickupLocation[];
   orderDays: StoreOrderDay[];
+  orderCutoffTime?: string | null;
   earliestPickupDays: StoreEarliestPickupDays;
   maximumAdvanceDays: StoreMaximumAdvanceDays;
   unavailableDates: string[];
@@ -215,6 +235,29 @@ export interface StoreOptionGroupDraft {
   options: StoreOption[];
 }
 
+export type WeeklyDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri';
+export type WeeklyMeals = Record<WeeklyDay, string>;
+export interface MealOptionGroup {
+  id: string; name: string; type: 'choose' | 'add_side' | 'exchange'; required: boolean; selection: 'single' | 'multi';
+  options: Array<{ id: string; name: string; priceAdjustmentMinor: number; active?: boolean }>;
+}
+export interface MealOptionChoice { optionGroupId: string; optionId: string; serviceDate: string }
+export interface SelectedMealOption extends MealOptionChoice { optionGroupName: string; optionGroupType: MealOptionGroup['type']; optionName: string; priceAdjustmentMinor: number }
+export interface MealOptionSnapshot { serviceDate?: string; selectedMealOptions?: SelectedMealOption[]; optionSurchargeUnitMinor?: number }
+export interface HealthyLunchMeal { optionGroups?: MealOptionGroup[]; recipeId?: string; photoUrl: string; name: string; price: number; calories?: number; description?: string }
+export type EmbeddedWeeklyMeals = Record<WeeklyDay, HealthyLunchMeal>;
+export type WeeklyWeeks = Partial<Record<'week1' | 'week2' | 'week3' | 'week4', { startMonday: string; meals: WeeklyMeals | EmbeddedWeeklyMeals }>>;
+export type RotationWeeks = Partial<Record<'week1' | 'week2' | 'week3' | 'week4', { meals: EmbeddedWeeklyMeals }>>;
+export interface WeeklyMealSnapshot extends MealOptionSnapshot { day: WeeklyDay; productId: string; productName: string; photoUrl: string; price?: number; calories?: number; description?: string }
+export interface WeeklyFulfilment extends WeeklyMealSnapshot {
+  date: string; pickupTime: string; pickupLocationId: string; pickupLocationName: string;
+  pickupLocationAddress: string; quantity: number;
+}
+export interface PublicWeeklyFulfilment {
+  day: WeeklyDay; date: string; productName: string; photoUrl: string;
+  pickupTime: string; pickupLocationName: string; quantity: number; completed: boolean;
+}
+
 export interface StoreProduct {
   id: string;
   /** Immutable, Store-scoped public URL segment. Legacy products may not have one yet. */
@@ -233,6 +276,14 @@ export interface StoreProduct {
   /** Legacy field retained only for existing order/data compatibility. */
   estimatedCost?: number;
   available: boolean;
+  availableDay?: 'all' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+  productType?: 'single' | 'weekly_meal_plan';
+  weeklyMeals?: WeeklyMeals;
+  weeklyWeeks?: WeeklyWeeks;
+  weeklyMenuVersion?: 2 | 3;
+  rotationStartMonday?: string;
+  rotationWeeks?: RotationWeeks;
+  healthyLunchBlockedDates?: string[];
   optionGroupIds: string[];
   createdBy: string;
   createdAt: string;
@@ -249,6 +300,14 @@ export interface StoreProductDraft {
   calories?: number;
   recipeId?: string;
   available: boolean;
+  availableDay?: 'all' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+  productType?: 'single' | 'weekly_meal_plan';
+  weeklyMeals?: WeeklyMeals;
+  weeklyWeeks?: WeeklyWeeks;
+  weeklyMenuVersion?: 2 | 3;
+  rotationStartMonday?: string;
+  rotationWeeks?: RotationWeeks;
+  healthyLunchBlockedDates?: string[];
   optionGroupIds: string[];
 }
 
@@ -348,6 +407,10 @@ export interface PublicStoreData {
 }
 
 export interface CartSelection {
+  selectedMealOptions?: MealOptionChoice[];
+  healthyLunchWeekMonday?: string;
+  healthyLunchPlanId?: string;
+  healthyLunchDate?: string;
   productId: string;
   setId?: string;
   quantity: number;
@@ -394,6 +457,10 @@ export interface StoreOrderItemOption {
 }
 
 export interface StoreOrderItem {
+  calories?: number;
+  description?: string;
+  healthyLunchSnapshot?: { planId: string; date: string } & MealOptionSnapshot;
+  weeklyPlanSnapshot?: { meals: WeeklyMealSnapshot[]; startMonday?: string };
   itemType?: 'product' | 'set';
   productId: string;
   productName: string;
@@ -453,14 +520,12 @@ export interface StoreNotification {
   createdAt: string;
 }
 
-export interface OrderFulfilment {
-  id: string; method: 'pickup' | 'delivery'; date: string; time: string;
-  pickupLocationId: string; pickupLocationName: string; pickupLocationAddress: string;
-  allocations: Array<{ itemIndex: number; quantity: number }>;
-}
-
 export interface StoreOrder {
   fulfilments?: OrderFulfilment[];
+  fulfilmentCompletion?: Record<string, { completedAt: string; completedBy: string }>;
+  fulfilmentOperations?: Record<string, FulfilmentOperation>;
+  weeklyFulfilments?: WeeklyFulfilment[];
+  weeklyCompletion?: Partial<Record<WeeklyDay, { completedAt: string; completedBy: string }>>;
   id: string;
   orderNumber: string;
   pickupCode?: string;
@@ -556,6 +621,8 @@ export interface StoreOrder {
 }
 
 export interface CustomerStoreOrderSummary {
+  fulfilments?: PublicOrderFulfilment[];
+  weeklyFulfilments?: PublicWeeklyFulfilment[];
   orderNumber: string;
   orderDate: string;
   storeName: string;
@@ -566,6 +633,7 @@ export interface CustomerStoreOrderSummary {
     lineTotal?: number;
     promotionAdjustment?: { discountAmount: number; finalLineTotal: number };
     setSelections: Array<{ groupName: string; productName: string }>;
+    serviceDate?: string; selectedMealOptions?: SelectedMealOption[]; optionSurchargeUnitMinor?: number;
     selectedOptions: Array<{ groupName: string; optionName: string }>;
   }>;
   remarks: string;
@@ -579,6 +647,7 @@ export interface CustomerStoreOrderSummary {
 }
 
 export interface StoreOrderDraft {
+  fulfilments?: DraftFulfilment[];
   /** Opaque client-generated idempotency key for one checkout submission. */
   checkoutAttemptId?: string;
   /** Meta in-app-browser hint; the server permits this POC only on Beta. */
@@ -652,6 +721,7 @@ export interface PublicOrderGroupContext {
 }
 
 export interface StorePaymentOrderSummary {
+  fulfilments?: PublicOrderFulfilment[];
   fulfilmentMethod: 'pickup' | 'delivery';
   /** Fulfilment values from the server-created pending-order snapshot. */
   pickupDetails?: {
@@ -663,6 +733,7 @@ export interface StorePaymentOrderSummary {
     productName: string;
     quantity: number;
     lineTotal: number;
+    serviceDate?: string; selectedMealOptions?: SelectedMealOption[]; optionSurchargeUnitMinor?: number;
     selectedOptions: Array<{ groupName: string; optionName: string; priceAdjustment: number; quantity?: number }>;
     setSnapshot?: { setName: string; selectedGroups: Array<{ groupName: string; productName: string; priceAdjustment: number }> };
   }>;
@@ -681,6 +752,8 @@ export interface StorePaymentSession {
 }
 
 export interface PublicStoreOrderResult {
+  fulfilments?: PublicOrderFulfilment[];
+  weeklyFulfilments?: PublicWeeklyFulfilment[];
   orderNumber: string;
   pickupCode: string;
   storeName: string;

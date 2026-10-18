@@ -45,6 +45,15 @@ export const buildStoreSettingsUpdate = (
     if (!valuesEqual(value, persisted[key])) changes[key] = value;
   }
 
+  if (Object.prototype.hasOwnProperty.call(persisted, 'pickupOrderCutoffTime')) {
+    // Copy the legacy fallback only when the raw document has no shared setting.
+    // An unchanged form must not overwrite a concurrently saved shared cut-off.
+    if (!Object.prototype.hasOwnProperty.call(persisted, 'orderCutoffTime')) {
+      changes.orderCutoffTime = updated.orderCutoffTime || null;
+    }
+    changes.updatedAt = updated.updatedAt;
+  }
+
   if (Object.keys(changes).length > 0) changes.updatedAt = updated.updatedAt;
   return changes;
 };

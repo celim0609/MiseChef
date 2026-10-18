@@ -669,3 +669,47 @@ test('Store visibility and POS access remain distinct role permissions', () => {
   assert.equal(canAccessRootTab('storePos', 'Finance'), false);
   assert.equal(canAccessRootTab('storePos', 'Viewer'), false);
 });
+
+
+test('pickup cut-off uses store clock, strict boundary, calendar offset and unchanged horizon', () => {
+  const store = { country: 'MY' as const, orderDays: ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'] as import('./types').StoreOrderDay[], earliestPickupDays: 1 as const, maximumAdvanceDays: 7 as const, unavailableDates: [], orderCutoffTime: '18:00' };
+  assert.equal(getValidPickupDates(store, new Date('2026-10-12T09:59:59Z'))[0], '2026-10-13');
+  assert.equal(getValidPickupDates({ ...store, orderCutoffTime: '19:00' }, new Date('2026-10-12T10:30:00Z'))[0], '2026-10-13');
+  const at = new Date('2026-10-12T10:00:00.000Z');
+  assert.equal(getValidPickupDates(store, at)[0], '2026-10-13');
+  const after = new Date('2026-10-12T10:00:00.001Z');
+  assert.equal(getValidPickupDates(store, after)[0], '2026-10-14');
+  assert.equal(getValidPickupDates(store, after).at(-1), '2026-10-19');
+  for (const disabled of [undefined, null, '']) assert.equal(getValidPickupDates({ ...store, orderCutoffTime: disabled }, after)[0], '2026-10-13');
+  assert.equal(getValidPickupDates(store, new Date('2026-10-12T16:00:00Z'))[0], '2026-10-14');
+  assert.equal(getValidPickupDates({ ...store, earliestPickupDays: 0, orderCutoffTime: '00:00' }, new Date('2026-10-12T16:00:00Z'))[0], '2026-10-13');
+  assert.equal(getValidPickupDates({ ...store, unavailableDates: ['2026-10-14'], orderDays: ['friday'] }, after)[0], '2026-10-16');
+  assert.deepEqual(getValidPickupDates({ ...store, orderDays: [] }, after), []);
+});
+
+
+test('legacy Beta cut-off normalizes to the shared field; explicit null disables it', () => {
+  const raw = { country: 'MY', pickupOrderCutoffTime: '18:00' };
+  const migrated = normalizeWorkspaceStore('s', raw);
+  assert.equal(migrated.orderCutoffTime, '18:00');
+  assert.equal('pickupOrderCutoffTime' in migrated, false);
+  assert.equal(normalizeWorkspaceStore('s', { ...raw, orderCutoffTime: null }).orderCutoffTime, null);
+  assert.equal(normalizeWorkspaceStore('s', { ...raw, orderCutoffTime: '19:00' }).orderCutoffTime, '19:00');
+  assert.equal(buildStoreSettingsUpdate(raw, migrated, migrated).orderCutoffTime, '18:00');
+  assert.equal(buildStoreSettingsUpdate({ ...raw, orderCutoffTime: '19:00' }, migrated, migrated).orderCutoffTime, undefined);
+  assert.equal(buildStoreSettingsUpdate(raw, migrated, { ...migrated, orderCutoffTime: null }).orderCutoffTime, null);
+});
+
+test('free delivery defaults stay disabled and merchant policy round-trips without changing other delivery settings', () => {
+  const baseline = createDefaultWorkspaceStore({ id: 'free-delivery', name: 'Store', country: 'MY' }, 'owner', '2026-10-13T00:00:00.000Z');
+  assert.deepEqual(baseline.delivery?.freeDelivery, { enabled: false, distanceThresholdKm: 8, minimumSubtotalWithin: 60, minimumSubtotalBeyond: 120 });
+  const legacy = { ...baseline, delivery: { ...baseline.delivery } };
+  delete legacy.delivery.freeDelivery;
+  assert.equal(normalizeWorkspaceStore(baseline.id, legacy).delivery?.freeDelivery?.enabled, false);
+  const policy = { enabled: true, distanceThresholdKm: 12.5, minimumSubtotalWithin: 75, minimumSubtotalBeyond: 150 };
+  const normalized = normalizeWorkspaceStore(baseline.id, { ...baseline, delivery: { ...baseline.delivery, freeDelivery: policy } });
+  assert.deepEqual(normalized.delivery?.freeDelivery, policy);
+  assert.deepEqual(normalized.delivery?.subsidy, baseline.delivery?.subsidy);
+  assert.deepEqual(normalized.delivery?.fulfilment, baseline.delivery?.fulfilment);
+  assert.deepEqual(buildStoreSettingsUpdate({ ...baseline }, baseline, normalized).delivery, normalized.delivery);
+});

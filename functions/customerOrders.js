@@ -1,3 +1,6 @@
+import { publicMealOptionSnapshot } from './healthyLunchOptions.js';
+import { publicOrderFulfilments } from './storeOrderFulfilments.js';
+import { publicWeeklyFulfilments } from './storeWeeklyMealPlan.js';
 import { HttpsError } from 'firebase-functions/v2/https';
 
 const readString = value => typeof value === 'string' ? value.trim() : '';
@@ -15,6 +18,7 @@ const customerOrderItem = value => {
   const adjustment = value?.promotionAdjustment && typeof value.promotionAdjustment === 'object' ? value.promotionAdjustment : null;
   return {
     productName,
+    ...publicMealOptionSnapshot(item.healthyLunchSnapshot),
     quantity,
     ...(hasNumber(item.lineTotal) ? { lineTotal: Math.max(0, readNumber(item.lineTotal)) } : {}),
     ...(adjustment && hasNumber(adjustment.discountAmount) ? { promotionAdjustment: {
@@ -46,6 +50,8 @@ const customerOrder = document => {
     promotionAdjustment: adjustments[index]
   })).filter(Boolean);
   return {
+    ...(data.fulfilments ? { fulfilments: publicOrderFulfilments(data) } : {}),
+    ...(data.weeklyFulfilments ? { weeklyFulfilments: publicWeeklyFulfilments(data) } : {}),
     orderNumber: readString(data.orderNumber),
     orderDate: toIso(data.createdAt),
     storeName: readString(data.storeName) || 'Store',
