@@ -9,6 +9,12 @@ export interface WhatsAppOrderConfirmationInput {
   pickupDate?: string;
   pickupTime?: string;
   pickupLocation?: string;
+  fulfilmentMethod?: 'pickup' | 'delivery';
+  fullAddress?: string;
+  paymentAmount?: number;
+  paymentStatus?: StoreOrder['payment']['status'];
+  currency?: string;
+  schedule?: Array<{ date: string; time: string; address?: string }>;
   pickupCode?: string;
   storeName?: string;
 }
@@ -54,28 +60,49 @@ export const buildWhatsAppOrderConfirmationMessage = ({
   pickupTime = '',
   pickupLocation = '',
   pickupCode = '',
-  storeName = ''
+  storeName = '',
+  fulfilmentMethod = 'pickup',
+  fullAddress = '',
+  paymentAmount,
+  paymentStatus,
+  currency = 'MYR',
+  schedule = []
 }: Omit<WhatsAppOrderConfirmationInput, 'phone' | 'country'>) => {
-  const greeting = customerName.trim()
-    ? `Hi ${customerName.trim()}, your order has been confirmed.`
-    : 'Your order has been confirmed.';
-  const details = [
-    orderNumber.trim() ? `Order: *${orderNumber.trim()}*` : '',
-    pickupDate.trim() ? `Pickup: *${pickupDate.trim()}*` : '',
-    pickupTime.trim() ? `Time: *${pickupTime.trim()}*` : '',
-    pickupLocation.trim() ? `Location: *${pickupLocation.trim()}*` : ''
-  ].filter(Boolean);
-  const pickupCodeLine = pickupCode.trim() ? [`Pickup Code: *${pickupCode.trim()}*`] : [];
-  const signOff = ['Thank you!', storeName.trim() ? `*${storeName.trim()}*` : ''].filter(Boolean);
-  return [
-    '✅ *Order Confirmed*',
+  const delivery = fulfilmentMethod === 'delivery';
+  const name = customerName.trim();
+  const entries = schedule.length
+    ? schedule
+    : pickupDate.trim() || pickupTime.trim()
+      ? [{ date: pickupDate, time: pickupTime, address: fullAddress }]
+      : [];
+  const addresses = [...new Set(entries.map(entry => entry.address?.trim()).filter(Boolean))];
+  const address = addresses.length === 1 ? addresses[0] : fullAddress.trim() || (!delivery ? pickupLocation.trim() : '');
+  const paid = paymentStatus === 'paid';
+  const amount = typeof paymentAmount === 'number' && Number.isFinite(paymentAmount)
+    ? `${currency === 'MYR' ? 'RM' : currency === 'SGD' ? 'SGD ' : currency + ' '}${paymentAmount.toFixed(2)}`
+    : 'Unavailable';
+  const lines = [
+    paid ? '*Order Confirmed* ✅' : '*Order Details*',
     '',
-    greeting,
-    ...(details.length ? ['', ...details] : []),
-    ...(pickupCodeLine.length ? ['', ...pickupCodeLine] : []),
+    name ? `Hi ${name}! Thank you for your order! 🥰` : 'Thank you for your order! 🥰',
     '',
-    ...signOff
-  ].join('\n');
+    orderNumber.trim() ? `🧾 Order: *${orderNumber.trim()}*` : '',
+    `💳 Total Paid: *${paid ? amount : 'Unavailable'}*`,
+    `Payment Status: *${paid ? 'Paid' : paymentStatus ? paymentStatus.replaceAll('_', ' ') : 'Not confirmed'}*`,
+    !delivery && pickupCode.trim() ? `🔑 Pickup Code: *${pickupCode.trim()}*` : '',
+    '',
+    delivery ? '🚚 *Delivery Schedule*' : '📅 *Pickup Schedule*',
+    ...entries.map(entry => [entry.date.trim(), entry.time.trim()].filter(Boolean).join(' · ')),
+    '',
+    addresses.length <= 1 && address ? `📍 *${delivery ? 'Delivery' : 'Pickup'} Address*\n${address}` : '',
+    ...(addresses.length > 1
+      ? ['', '*Addresses by date*', ...entries.filter(entry => entry.address?.trim()).map(entry => `${entry.date}: ${entry.address}`)]
+      : []),
+    '',
+    'Thank you! 💚',
+    storeName.trim() ? `*${storeName.trim()}*` : ''
+  ];
+  return lines.filter((line, index) => line !== '' || (index > 0 && lines[index - 1] !== '')).join('\n').trim();
 };
 
 export const getWhatsAppOrderConfirmation = (input: WhatsAppOrderConfirmationInput) => {
