@@ -455,7 +455,8 @@ test('quote and submission agree on free delivery per day without changing actua
   assert.deepEqual(order.deliveryPricingSnapshot.days.map(day => day.customerDeliveryFee), [0,8.4,8.4]);
 });
 
-test('dated full-week quote and payment revalidation use Sunday cutoff instead of earliest days', async () => {
+test('dated full-week quote and payment revalidation use Sunday cutoff instead of earliest days', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-16T04:00:00Z') });
   const fixture = quoteFixture();
   const start = new Date(); start.setUTCDate(start.getUTCDate() + ((8 - start.getUTCDay()) % 7 || 7));
   const monday = start.toISOString().slice(0, 10);
@@ -481,7 +482,8 @@ test('dated full-week quote and payment revalidation use Sunday cutoff instead o
   assert.equal(fixture.quoteCount(), 1);
 });
 
-test('embedded full-week and single-day Lalamove quotes share menu data but keep distinct cutoff and fee rules', async () => {
+test('embedded full-week and single-day Lalamove quotes share menu data but keep distinct cutoff and fee rules', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-16T04:00:00Z') });
   const fixture = quoteFixture();
   const start = new Date(); start.setUTCDate(start.getUTCDate() + ((8 - start.getUTCDay()) % 7 || 7));
   const monday = start.toISOString().slice(0, 10);

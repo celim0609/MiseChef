@@ -15,14 +15,14 @@ Messages now use every saved fulfilment, retain non-consecutive dates and exact 
 - Store payment/order history Firestore and Storage rules tests: 41 passed.
 - Beta deployment safety tests: 53 passed.
 - Beta-mode Vite build and Store shell preparation: passed, using published Beta configuration locally.
-- Functions tests: 435 passed, two existing wall-clock-dependent delivery fixtures failed at Sunday cutoff. Their implementation files are unchanged relative to deployed Beta. Fixing only fixture clocks requires scope confirmation.
+- Functions tests: all 437 passed after the user authorized fixing only two existing wall-clock-dependent test fixtures. Both fixtures now use a fixed Date clock; delivery/payment implementation files are unchanged relative to deployed Beta.
 
 ## Protected release sequence
 
-1. Complete mandatory candidate CI and resolve the two test-fixture failures.
+1. Complete mandatory candidate CI.
 2. Use only protected Beta Release on main with the exact candidate SHA; obtain the beta environment reviewer approval. Do not approve the environment on the user's behalf.
 3. Verify all resource deployment results, live release manifest/asset hashes and logged-in pickup/delivery single-/multi-day UI QA. Do not treat local rendering as deployed Beta QA.
 4. Only after Beta passes, set the production environment `MISECHEF_PRODUCTION_APPROVED_SHA` to that exact tested SHA, preserving its protected baseline and other authority. The candidate includes the currently live Production ancestor.
 5. Dispatch Production Release from main with the exact SHA and `RELEASE PRODUCTION`; obtain the production environment release approval, then verify the Production fingerprint and live UI.
 
-Current status: neither environment has received this fix. Production approved SHA remains the existing live release. PR #154's prior Beta run 39143487111 is still waiting for beta review and represents a stale candidate; do not approve it as this fix. Beta environment build variables are absent and must be restored from verified published Beta configuration before deploying. No deployment gates were bypassed.
+Current status: neither environment has received this fix. Production approved SHA remains the existing live release. PR #154's prior Beta run 39143487111 is still waiting for beta review and represents a stale candidate; do not approve it as this fix. Seven missing Beta build variables were restored from the currently published Beta Firebase configuration and Stripe test publishable key; no key was invented or replaced. No deployment gates were bypassed.
