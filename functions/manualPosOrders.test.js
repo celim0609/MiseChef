@@ -375,3 +375,18 @@ test('embedded order-by-day menu selections retain each meal and server-priced m
  const week=buildManualOrder({...input(),lines:[full,tuesday]},{...checkout,products:[plan]},now);
  assert.equal(week.total,87);assert.equal(week.items[0].weeklyPlanSnapshot.meals[0].selectedMealOptions[0].optionName,'Omega');
 });
+
+test('FPX receipt recording uses exact saved amount, revision, acknowledgment and one audit event', async () => {
+  const { db, docs, writes } = database({ 'workspaces/s': workspace });
+  const saved = await saveManualPosOrder({db,uid:'owner',input:input(),now,loadCheckout:async()=>checkout});
+  const confirmation = {orderId:saved.orderId,expectedRevision:1,amountMinor:5100,received:true,method:'fpx',reference:'QA-FPX-received'};
+  for (const change of [{expectedRevision:0},{amountMinor:5000},{received:false},{reference:''},{method:'card_capture'}]) {
+    await assert.rejects(confirmManualPosPayment({db,uid:'owner',input:{...confirmation,...change},now}));
+    assert.equal(docs[`storeOrders/${saved.orderId}`].payment.status,'pending');
+  }
+  await confirmManualPosPayment({db,uid:'owner',input:confirmation,now});
+  const count=writes.length;
+  assert.equal((await confirmManualPosPayment({db,uid:'owner',input:confirmation,now})).duplicate,true);
+  assert.equal(writes.length,count);
+  assert.equal(docs[`storeOrders/${saved.orderId}`].payment.providerPaymentMethod,'fpx');
+});

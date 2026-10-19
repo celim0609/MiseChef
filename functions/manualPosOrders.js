@@ -437,7 +437,7 @@ export async function confirmManualPosPayment({
       input.amountMinor !== order.payment.amountMinor ||
       input.expectedRevision !== order.manualOrder.revision ||
       input.received !== true ||
-      !["cash", "bank_transfer", "tng", "other"].includes(input.method)
+      !["cash", "bank_transfer", "tng", "fpx", "other"].includes(input.method)
     )
       fail("Verify the received payment, exact amount and current revision.");
     const reference = text(input.reference, 120, true);

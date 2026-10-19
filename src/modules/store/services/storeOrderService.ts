@@ -183,9 +183,9 @@ export const storeOrderService = {
     if (!db) return [];
     return (await getDocs(query(collection(db, 'storePrivatePosItems'), where('workspaceId', '==', workspaceId)))).docs.map(doc => ({id: doc.id, ...doc.data()})) as Array<{id: string; name: string; unitPrice: number; notes: string}>;
   },
-  subscribePendingManualOrders(storeId: string, workspaceId: string, onData: (orders: StoreOrder[]) => void, onError: (error: Error) => void) {
+  subscribePendingManualOrders(storeId: string, workspaceId: string, onData: (orders: StoreOrder[]) => void, onError: (error: Error) => void, includePaid = false) {
     if (!db || !storeId || !workspaceId) return () => undefined;
-    return onSnapshot(query(collection(db, 'storeOrders'), where('storeId','==',storeId), where('workspaceId','==',workspaceId), where('fulfilmentStatus','in',ACTIVE_FULFILMENT_STATUSES), orderBy('createdAt','desc')), snapshot => onData(snapshot.docs.map(normalizeOrder).filter(order => order.manualOrder && order.payment.status === 'pending')), onError);
+    return onSnapshot(query(collection(db, 'storeOrders'), where('storeId','==',storeId), where('workspaceId','==',workspaceId), where('fulfilmentStatus','in',ACTIVE_FULFILMENT_STATUSES), orderBy('createdAt','desc')), snapshot => onData(snapshot.docs.map(normalizeOrder).filter(order => order.manualOrder && (order.payment.status === 'pending' || (includePaid && order.payment.status === 'paid')))), onError);
   },
   async createExternalPosOrder(order: Record<string, unknown>) {
     if (!functions) throw new Error('Store ordering is unavailable.');

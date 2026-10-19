@@ -348,6 +348,14 @@ export const storeService = {
     await deleteDoc(doc(db, 'storeOptionGroups', groupId));
   },
 
+  // POS must see the complete available catalog, not the admin list's first 50 documents.
+  async listManualPosProducts(workspaceId: string, storeId: string): Promise<StoreProduct[]> {
+    if (!db || !workspaceId || !storeId) return [];
+    const snapshot = await getDocs(query(collection(db, 'storeProducts'), where('workspaceId', '==', workspaceId), where('storeId', '==', storeId)));
+    return snapshot.docs.map(doc => normalizeStoreProduct(doc.id, doc.data() as Record<string, unknown>))
+      .filter(product => product.available).sort((a, b) => a.name.localeCompare(b.name));
+  },
+
   async listAdminProducts(workspaceId: string): Promise<StoreProduct[]> {
     if (!db || !workspaceId) return [];
     const productsQuery = query(

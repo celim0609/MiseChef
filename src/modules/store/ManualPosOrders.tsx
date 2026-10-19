@@ -1,3 +1,5 @@
+import "./manualPosOrders.css";
+import { previewManualLines, type ManualLine } from "./manualPosPreview";
 import {
   resolveHealthyLunchDay,
   resolvePlanMeal,
@@ -17,16 +19,7 @@ import { shiftDateKey, toMalaysiaDateKey } from "./posOrderModel";
 import { getDefaultStoreSetSelections } from "./storeSetModel";
 import { printManualReceipt } from "./posWalkIn";
 
-type Line = {
-  quantity: number;
-  date: string;
-  time: string;
-  method: string;
-  deliveryAddress: string;
-  notes: string;
-  selection?: Partial<CartSelection>;
-  custom?: { name: string; unitPrice: number; savePrivate?: boolean };
-};
+type Line = ManualLine;
 type Draft = {
   source: string;
   customerName: string;
@@ -56,8 +49,20 @@ export default function ManualPosOrders({
   const [privateItems, setPrivateItems] = useState<
     Array<{ name: string; unitPrice: number; notes: string }>
   >([]);
+  const [currency, setCurrency] = useState("MYR");
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [defaultDate, setDefaultDate] = useState(
+    shiftDateKey(toMalaysiaDateKey(), 1),
+  );
+  const [defaultTime, setDefaultTime] = useState("12:00");
+  const [manualOrders, setManualOrders] = useState<StoreOrder[]>([]);
+  const pending = manualOrders.filter(
+    (order) => order.payment.status === "pending",
+  );
+  const paid = manualOrders.filter((order) => order.payment.status === "paid");
+  const preview = previewManualLines(draft.lines, products, sets, groups);
+  const money = (minor: number) => `${currency} ${(minor / 100).toFixed(2)}`;
   const [slug, setSlug] = useState("");
-  const [pending, setPending] = useState<StoreOrder[]>([]);
   const [saved, setSaved] = useState<StoreOrder | null>(null);
   const [editing, setEditing] = useState<StoreOrder | null>(null);
   const [error, setError] = useState("");
@@ -68,30 +73,50 @@ export default function ManualPosOrders({
   const [received, setReceived] = useState(false);
   const requestId = useRef(crypto.randomUUID());
   const inFlight = useRef(false);
+  useEffect(() => {
+    requestId.current = crypto.randomUUID();
+  }, [draft]);
   useEffect(
     () =>
       storeOrderService.subscribePendingManualOrders(
         storeId,
         workspaceId,
-        setPending,
+        setManualOrders,
         (e) => setError(e.message),
+        true,
       ),
     [storeId, workspaceId],
   );
   const load = async (order?: StoreOrder) => {
     setError("");
     setBusy(true);
+    setCatalogLoading(true);
+    setOpen(true);
+    setDraft(
+      order ? (structuredClone(order.manualOrder!.draft) as Draft) : empty(),
+    );
+    setEditing(order || null);
+    setProducts([]);
+    setSets([]);
+    setGroups([]);
+    setPrivateItems([]);
+    setSlug("");
     try {
       const [store, products, sets, groups, privateItems] = await Promise.all([
         storeService.getWorkspaceStore(workspaceId),
-        storeService.listAdminProducts(workspaceId),
+        storeService.listManualPosProducts(workspaceId, storeId),
         storeService.listSets(workspaceId),
         storeService.listOptionGroups(workspaceId),
         storeOrderService.listPrivatePosItems(workspaceId),
       ]);
-      setSlug(store?.slug || "");
-      setProducts(products.filter((p) => p.available));
-      setSets(sets.filter((s) => s.available));
+      if (!store || store.id !== storeId || !store.slug)
+        throw new Error(
+          "This Store is unavailable. Close and retry loading the catalog.",
+        );
+      setSlug(store.slug);
+      setCurrency(store.currency);
+      setProducts(products.filter((p) => p.available && p.storeId === storeId));
+      setSets(sets.filter((s) => s.available && s.storeId === storeId));
       setGroups(groups);
       setPrivateItems(privateItems);
       setDraft(
@@ -104,6 +129,7 @@ export default function ManualPosOrders({
       setError(e instanceof Error ? e.message : "Unable to load catalog.");
     } finally {
       setBusy(false);
+      setCatalogLoading(false);
     }
   };
   const add = (
@@ -117,8 +143,8 @@ export default function ManualPosOrders({
         ...d.lines,
         {
           quantity: 1,
-          date: shiftDateKey(toMalaysiaDateKey(), 1),
-          time: "12:00",
+          date: defaultDate,
+          time: defaultTime,
           method: "pickup",
           deliveryAddress: "",
           notes,
@@ -190,7 +216,7 @@ export default function ManualPosOrders({
   const input = "rounded border p-2 text-slate-950 bg-white";
   return (
     <section
-      className="m-4 rounded-xl border p-4"
+      className="manual-pos m-4 rounded-xl border p-4"
       aria-label="Manual POS orders"
     >
       <button
@@ -202,77 +228,169 @@ export default function ManualPosOrders({
       </button>
       {error && <p role="alert">{error}</p>}
       <h3 className="mt-3 font-bold">
-        Pending manual payments ({pending.length})
+        Pending Manual Payments ({pending.length})
       </h3>
+      <p className="manual-muted">
+        Saved unpaid orders stay here until an Owner or Manager confirms
+        receipt. They do not enter the kitchen queue.
+      </p>
+      {!pending.length && (
+        <p className="manual-muted">No manual orders awaiting payment.</p>
+      )}
       {pending.map((order) => (
         <article key={order.id} className="my-2 rounded border p-3">
           <b>
             {order.orderNumber} · {order.customerName}
           </b>
           <p>
-            Pending Payment · {order.currency} {order.total.toFixed(2)}
+            <span className="manual-badge">Pending Payment</span> ·{" "}
+            {order.currency} {order.total.toFixed(2)}
           </p>
-          <button
-            disabled={busy}
-            className="mr-4 underline"
-            onClick={() => void load(order)}
-          >
-            Edit before payment
-          </button>
-          <button
-            disabled={busy}
-            className="underline"
-            onClick={() => {
-              setPay(order);
-              setReceived(false);
-              setReference("");
-              setError("");
-            }}
-          >
-            Confirm received payment
-          </button>
-        </article>
-      ))}
-      {saved && (
-        <p role="status">
-          {saved.orderNumber}:{" "}
-          {saved.payment.status === "paid"
-            ? "Paid · Confirmed"
-            : "Pending Payment"}{" "}
-          {saved.payment.status === "paid" && (
+          <p className="manual-muted">
+            {order.fulfilments
+              ?.map((day) => `${day.date} ${day.time || ""}`)
+              .join(" · ")}
+          </p>
+          <div className="manual-actions">
             <button
-              className="underline"
+              disabled={busy}
+              className="manual-secondary"
+              onClick={() => void load(order)}
+            >
+              Edit before payment
+            </button>
+            <button
+              disabled={busy}
+              className="manual-primary"
               onClick={() => {
-                try {
-                  printManualReceipt(saved);
-                } catch (e) {
-                  setError(String(e));
-                }
+                setPay(order);
+                setMethod("bank_transfer");
+                setReceived(false);
+                setReference("");
+                setError("");
               }}
             >
-              Print full payment receipt
+              Confirm Payment
             </button>
-          )}
-        </p>
+            <button
+              className="manual-secondary"
+              onClick={() => setSaved(order)}
+            >
+              View details
+            </button>
+          </div>
+        </article>
+      ))}
+      {paid.length > 0 && (
+        <details className="manual-section">
+          <summary>Paid / Confirmed manual orders ({paid.length})</summary>
+          {paid.map((order) => (
+            <article key={order.id} className="manual-day">
+              <strong>
+                {order.orderNumber} · {order.customerName}
+              </strong>{" "}
+              <span className="manual-badge manual-paid">Paid / Confirmed</span>
+              <p>
+                {order.currency} {order.total.toFixed(2)}
+              </p>
+              <button
+                className="manual-secondary"
+                onClick={() => setSaved(order)}
+              >
+                View details
+              </button>
+            </article>
+          ))}
+        </details>
+      )}
+      {saved && (
+        <section className="manual-section" aria-label="Manual order details">
+          <h3>
+            {saved.orderNumber} · {saved.customerName}
+          </h3>
+          <p role="status">
+            <span
+              className={`manual-badge ${saved.payment.status === "paid" ? "manual-paid" : ""}`}
+            >
+              {saved.payment.status === "paid"
+                ? "Paid / Confirmed"
+                : "Pending Payment"}
+            </span>{" "}
+            · {saved.currency} {saved.total.toFixed(2)}
+          </p>
+          <p className="manual-muted">
+            {saved.payment.status === "paid"
+              ? "Payment received. Each day's fulfilment can now be prepared independently in the daily queue."
+              : "Find this order in Pending Manual Payments above. Confirm receipt of funds before preparation or kitchen printing."}
+          </p>
+          {saved.fulfilments?.map((day) => (
+            <div className="manual-day" key={day.id}>
+              <strong>
+                {day.date} · {day.time} ·{" "}
+                {day.method === "delivery" ? "Delivery" : "Pickup"}
+              </strong>
+              {day.allocations.map((allocation, index) => (
+                <p key={index}>
+                  {allocation.quantity} ×{" "}
+                  {saved.items[allocation.itemIndex]?.productName}
+                </p>
+              ))}
+            </div>
+          ))}
+          <div className="manual-actions">
+            {saved.payment.status === "paid" ? (
+              <button
+                className="manual-secondary"
+                onClick={() => {
+                  try {
+                    printManualReceipt(saved);
+                  } catch (e) {
+                    setError(String(e));
+                  }
+                }}
+              >
+                Print full payment receipt
+              </button>
+            ) : (
+              <button
+                className="manual-primary"
+                onClick={() => {
+                  setPay(saved);
+                  setMethod("bank_transfer");
+                  setReceived(false);
+                  setReference("");
+                  setError("");
+                }}
+              >
+                Confirm Payment
+              </button>
+            )}
+            <button className="manual-secondary" onClick={() => setSaved(null)}>
+              Close details
+            </button>
+          </div>
+        </section>
       )}
       {open && (
-        <div className="fixed inset-0 z-[110] overflow-auto bg-black/60 p-4">
+        <div className="manual-overlay">
           <section
             role="dialog"
             aria-modal="true"
             aria-label="Create Manual Order"
-            className="mx-auto max-w-4xl rounded-xl bg-white p-5 text-slate-950"
+            className="manual-dialog"
           >
             <h2 className="text-xl font-bold">
               {editing ? `Edit ${editing.orderNumber}` : "Create Manual Order"}
             </h2>
-            <p>
+            <span className="manual-badge">Pending Payment</span>
+            <p className="manual-muted">
               Save as Pending Payment. Confirm only after payment is actually
               received. Preorders start tomorrow; immediate Walk-in stays
               available under Add Order. Delivery here is arranged by the
               customer.
             </p>
-            <fieldset disabled={busy} className="my-3 flex flex-wrap gap-3">
+            <fieldset disabled={busy} className="manual-section manual-grid">
+              <legend>1. Customer</legend>
               <label>
                 Source{" "}
                 <select
@@ -322,76 +440,134 @@ export default function ManualPosOrders({
                 />
               </label>
             </fieldset>
-            <fieldset disabled={busy} className="my-3 flex flex-wrap gap-2">
-              <legend className="font-bold">Menu and private items</legend>
-              <select
-                aria-label="Add menu item"
-                className={input}
-                value=""
-                onChange={(e) => {
-                  const p = products.find((p) => p.id === e.target.value);
-                  if (p) add({ productId: p.id, selectedOptions: [] });
-                }}
-              >
-                <option value="">Add menu / weekly plan…</option>
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} · {p.price.toFixed(2)}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="Add set"
-                className={input}
-                value=""
-                onChange={(e) => {
-                  const s = sets.find((s) => s.id === e.target.value);
-                  if (s)
-                    add({
-                      setId: s.id,
-                      selectedOptions: [],
-                      selectedSetItems: getDefaultStoreSetSelections(
-                        s,
-                        products,
-                      ),
-                    });
-                }}
-              >
-                <option value="">Add set…</option>
-                {sets.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                className={input}
-                onClick={() => add(undefined, { name: "", unitPrice: 0 })}
-              >
-                Add Custom Item
-              </button>
-              <select
-                aria-label="Add saved private item"
-                className={input}
-                value=""
-                onChange={(e) => {
-                  const p = privateItems[Number(e.target.value)];
-                  if (p)
-                    add(
-                      undefined,
-                      { name: p.name, unitPrice: p.unitPrice },
-                      p.notes,
-                    );
-                }}
-              >
-                <option value="">Saved private POS items…</option>
-                {privateItems.map((p, i) => (
-                  <option key={i} value={i}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </fieldset>
+            <section className="manual-section">
+              <h3>2. Schedule &amp; items</h3>
+              <p className="manual-muted">
+                All dates and times are Malaysia time (UTC+8). Set defaults for
+                new items, then adjust each item below. Changing defaults does
+                not move existing items.
+              </p>
+              <div className="manual-grid">
+                <label>
+                  Default fulfilment date
+                  <input
+                    type="date"
+                    min={shiftDateKey(toMalaysiaDateKey(), 1)}
+                    value={defaultDate}
+                    onChange={(e) => setDefaultDate(e.target.value)}
+                  />
+                </label>
+                <label>
+                  Default pickup / delivery time
+                  <input
+                    type="time"
+                    step="1800"
+                    value={defaultTime}
+                    onChange={(e) => setDefaultTime(e.target.value)}
+                  />
+                </label>
+              </div>
+              {catalogLoading && (
+                <p role="status">Loading this Store’s catalog…</p>
+              )}
+              {!catalogLoading && slug && (
+                <p className="manual-muted">
+                  {products.length} menu items · {sets.length} sets ·{" "}
+                  {privateItems.length} private items available
+                </p>
+              )}
+              {!catalogLoading && slug && !products.length && !sets.length && (
+                <p role="status">
+                  No available menu items for this Store. Add a Custom Item or
+                  make products available in Store management.
+                </p>
+              )}
+              <fieldset disabled={busy || !slug} className="manual-grid mt-4">
+                <legend className="font-bold">Choose an item to add</legend>
+                <label>
+                  Menu / weekly plan
+                  <select
+                    aria-label="Add menu item"
+                    className={input}
+                    value=""
+                    onChange={(e) => {
+                      const p = products.find((p) => p.id === e.target.value);
+                      if (p) add({ productId: p.id, selectedOptions: [] });
+                    }}
+                  >
+                    <option value="">Add menu / weekly plan…</option>
+                    {products.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} · {p.price.toFixed(2)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Meal set
+                  <select
+                    aria-label="Add set"
+                    className={input}
+                    value=""
+                    onChange={(e) => {
+                      const s = sets.find((s) => s.id === e.target.value);
+                      if (s)
+                        add({
+                          setId: s.id,
+                          selectedOptions: [],
+                          selectedSetItems: getDefaultStoreSetSelections(
+                            s,
+                            products,
+                          ),
+                        });
+                    }}
+                  >
+                    <option value="">Add set…</option>
+                    {sets.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  className="manual-secondary"
+                  onClick={() => add(undefined, { name: "", unitPrice: 0 })}
+                >
+                  Add Custom Item
+                </button>
+                <label>
+                  Saved private items
+                  <select
+                    aria-label="Add saved private item"
+                    className={input}
+                    value=""
+                    onChange={(e) => {
+                      const p = privateItems[Number(e.target.value)];
+                      if (p)
+                        add(
+                          undefined,
+                          { name: p.name, unitPrice: p.unitPrice },
+                          p.notes,
+                        );
+                    }}
+                  >
+                    <option value="">Saved private POS items…</option>
+                    {privateItems.map((p, i) => (
+                      <option key={i} value={i}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </fieldset>
+            </section>
+            {!draft.lines.length && (
+              <p className="manual-section">
+                Your order is empty. Choose a menu item, set or Custom Item
+                above. Each item gets its own date, time, quantity and notes.
+              </p>
+            )}
             {draft.lines.map((line, i) => {
               const product = products.find(
                 (p) => p.id === line.selection?.productId,
@@ -428,13 +604,19 @@ export default function ManualPosOrders({
                 <fieldset
                   key={i}
                   disabled={busy}
-                  className="my-3 flex flex-wrap gap-3 rounded border p-3"
+                  className="manual-section manual-fields"
                 >
                   <legend className="font-bold">
                     {line.custom
                       ? "Custom Item"
                       : product?.name || set?.name || "Item"}
                   </legend>
+                  <p className="manual-muted">
+                    Unit: {money(preview.rows[i].unitMinor)} · Subtotal:{" "}
+                    {preview.rows[i].totalMinor === null
+                      ? "Complete item"
+                      : money(preview.rows[i].totalMinor!)}
+                  </p>
                   {line.custom && (
                     <>
                       <label>
@@ -615,7 +797,7 @@ export default function ManualPosOrders({
                       onChange={(e) => update(i, { notes: e.target.value })}
                     />
                   </label>
-                  {product?.optionGroupIds.map((id) => {
+                  {product?.optionGroupIds?.map((id) => {
                     const g = groups.find((g) => g.id === id);
                     return (
                       g && (
@@ -764,7 +946,7 @@ export default function ManualPosOrders({
                           })
                         }
                       >
-                        {g.productIds.map((id) => (
+                        {g.options.map(({ productId: id }) => (
                           <option key={id} value={id}>
                             {products.find((p) => p.id === id)?.name || id}
                           </option>
@@ -772,8 +954,11 @@ export default function ManualPosOrders({
                       </select>
                     </label>
                   ))}
+                  {preview.rows[i].error && (
+                    <p role="alert">{preview.rows[i].error}</p>
+                  )}
                   <button
-                    className="underline"
+                    className="manual-secondary"
                     onClick={() =>
                       setDraft({
                         ...draft,
@@ -786,36 +971,102 @@ export default function ManualPosOrders({
                 </fieldset>
               );
             })}
-            {error && <p role="alert">{error}</p>}
-            <button
-              disabled={
-                busy || !draft.lines.length || !draft.customerName.trim()
-              }
-              onClick={() => void save()}
-              className="mr-4 rounded bg-blue-700 p-3 text-white"
+            <section
+              className="manual-summary"
+              aria-label="Daily order summary"
             >
-              {busy ? "Saving…" : "Save Pending Order"}
-            </button>
-            <button disabled={busy} onClick={() => setOpen(false)}>
-              Close
-            </button>
+              <h3>3. Daily summary &amp; payment</h3>
+              {!preview.days.length && (
+                <p className="manual-muted">
+                  Your daily allocations and subtotals will appear here.
+                </p>
+              )}
+              {preview.days.map((day) => (
+                <div className="manual-day" key={day.date}>
+                  <strong>{day.date} · Malaysia time</strong>
+                  {day.entries.map((entry) => (
+                    <div className="manual-summary-row" key={entry.index}>
+                      <span>
+                        {entry.time} ·{" "}
+                        {entry.method === "pickup" ? "Pickup" : "Delivery"} ·{" "}
+                        {entry.quantity} × {entry.name}
+                        {entry.package ? " (weekly package allocation)" : ""}
+                      </span>
+                      <span>
+                        {entry.amountMinor === null
+                          ? "Incomplete"
+                          : money(entry.amountMinor)}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="manual-summary-row">
+                    <strong>Day subtotal</strong>
+                    <strong>
+                      {day.entries.some((e) => e.amountMinor === null)
+                        ? "Incomplete"
+                        : money(day.totalMinor)}
+                    </strong>
+                  </div>
+                </div>
+              ))}
+              <div className="manual-total">
+                <span>Grand total</span>
+                <span>
+                  {preview.totalMinor === null
+                    ? "Complete item options"
+                    : money(preview.totalMinor)}
+                </span>
+              </div>
+              <p className="manual-muted">
+                Preview uses current catalog prices. The server validates the
+                final saved amount. Weekly package prices are allocated across
+                five days for this summary.
+              </p>
+              <span className="manual-badge">Pending Payment</span>
+              <p className="manual-muted">
+                Saving does not confirm payment. After saving, use Pending
+                Manual Payments → Confirm Payment. Paid / Confirmed means funds
+                received and eligible for preparation.
+              </p>
+            </section>
+            {error && <p role="alert">{error}</p>}
+            <div className="manual-actions">
+              <button
+                disabled={
+                  busy ||
+                  !slug ||
+                  !draft.lines.length ||
+                  !draft.customerName.trim() ||
+                  preview.totalMinor === null ||
+                  preview.totalMinor <= 0
+                }
+                onClick={() => void save()}
+                className="manual-primary"
+              >
+                {busy ? "Saving…" : "Save · Pending Payment"}
+              </button>
+              <button disabled={busy} onClick={() => setOpen(false)}>
+                Close
+              </button>
+            </div>
           </section>
         </div>
       )}
       {pay && (
-        <div className="fixed inset-0 z-[120] bg-black/60 p-5">
+        <div className="manual-overlay" style={{ zIndex: 120 }}>
           <section
             role="dialog"
             aria-modal="true"
             aria-label="Confirm received payment"
-            className="mx-auto max-w-lg rounded-xl bg-white p-5 text-slate-950"
+            className="manual-dialog"
+            style={{ maxWidth: 560 }}
           >
             <h2 className="text-xl font-bold">
-              Confirm received payment · {pay.orderNumber}
+              Confirm Payment · {pay.orderNumber}
             </h2>
             <p>
-              {pay.currency} {pay.total.toFixed(2)} · One payment for all
-              fulfilment days
+              {pay.currency} {(pay.payment.amountMinor / 100).toFixed(2)} · One
+              payment for all fulfilment days
             </p>
             <label>
               Method{" "}
@@ -824,8 +1075,16 @@ export default function ManualPosOrders({
                 value={method}
                 onChange={(e) => setMethod(e.target.value)}
               >
-                {["bank_transfer", "cash", "tng", "other"].map((m) => (
-                  <option key={m}>{m}</option>
+                {[
+                  ["bank_transfer", "Bank transfer"],
+                  ["cash", "Cash"],
+                  ["tng", "TNG transfer / QR"],
+                  ["fpx", "FPX (already received)"],
+                  ["other", "Other"],
+                ].map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
                 ))}
               </select>
             </label>
@@ -845,14 +1104,18 @@ export default function ManualPosOrders({
               />{" "}
               I verified the full payment was actually received.
             </label>
-            <p>Only Workspace Owner / Manager can confirm.</p>
+            <p className="manual-muted">
+              Only Workspace Owner / Manager can confirm. This records an
+              existing payment; it does not charge the customer. The saved
+              amount and revision are verified securely.
+            </p>
             {error && <p role="alert">{error}</p>}
             <button
               disabled={busy || !received || !reference.trim()}
-              className="mr-4 rounded bg-blue-700 p-3 text-white"
+              className="manual-primary"
               onClick={() => void confirm()}
             >
-              Confirm Paid
+              {busy ? "Confirming…" : "Confirm Payment · Mark Paid / Confirmed"}
             </button>
             <button disabled={busy} onClick={() => setPay(null)}>
               Close
