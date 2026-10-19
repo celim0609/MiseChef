@@ -47,3 +47,24 @@ test('customer bag ticket includes reorder contacts but kitchen ticket does not'
    assert.ok(!kitchen.includes(value), value);
  }
 });
+
+test('Py Monday prawn and Tuesday burrito remain separate customer and kitchen tickets', () => {
+ const py = { ...order, id: 'py-order', orderNumber: 'MC-1018-5RPA', customerName: 'Py', pickupCode: '5RPA',
+   items: [{productName:'Vietnam Prawn Noodle Salad',quantity:1,selectedOptions:[]},{productName:'Chicken Burrito Bowl',quantity:2,selectedOptions:[]}],
+   fulfilments: [
+     {id:'monday',date:'2026-10-19',time:'15:30',method:'pickup',allocations:[{itemIndex:0,quantity:1}]},
+     {id:'tuesday',date:'2026-10-20',time:'15:30',method:'pickup',allocations:[{itemIndex:1,quantity:2}]}
+   ] } as StoreOrder;
+ const tickets = getOrderTickets(py);
+ assert.equal(tickets.length,2);
+ for (const kind of ['customer','kitchen'] as const) {
+   const monday = buildTicketDocument([tickets[0]],kind);
+   const tuesday = buildTicketDocument([tickets[1]],kind);
+   assert.ok(monday.includes('1 × Vietnam Prawn Noodle Salad'));
+   assert.ok(!monday.includes('Chicken Burrito Bowl'));
+   assert.ok(tuesday.includes('2 × Chicken Burrito Bowl'));
+   assert.ok(!tuesday.includes('Vietnam Prawn Noodle Salad'));
+   assert.ok(monday.includes('2026-10-19 15:30'));
+   assert.ok(tuesday.includes('2026-10-20 15:30'));
+ }
+});
