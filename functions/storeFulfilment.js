@@ -168,11 +168,12 @@ export const updateStoreOrderFulfilment = async ({
       if (!entry || order.payment?.status !== 'paid' || currentStatus === 'Cancelled') throw new HttpsError('failed-precondition', 'Choose an active, paid fulfilment.');
       const operation = order.fulfilmentOperations?.[entry.id] || {};
       if (order.fulfilmentCompletion?.[entry.id]) return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
-      if (entry.method === 'delivery' && normalizedNextStatus !== 'Ready') throw new HttpsError('failed-precondition', 'Delivery completion must be confirmed by Lalamove.');
-      if (entry.method === 'pickup' && normalizedNextStatus !== 'Completed') throw new HttpsError('failed-precondition', 'Complete each pickup independently.');
-      if (entry.method === 'delivery') {
-        if (operation.kitchenStatus === 'Ready') return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
-        transaction.update(orderReference, { [`fulfilmentOperations.${entry.id}.kitchenStatus`]: 'Ready', updatedAt: FieldValue.serverTimestamp() });
+      if (entry.method === 'delivery' && !['Preparing', 'Ready'].includes(normalizedNextStatus)) throw new HttpsError('failed-precondition', 'Delivery completion must be confirmed by Lalamove.');
+      if (entry.method === 'pickup' && !['Preparing', 'Ready', 'Completed'].includes(normalizedNextStatus)) throw new HttpsError('failed-precondition', 'Complete each pickup independently.');
+      if (normalizedNextStatus !== 'Completed') {
+        if (operation.kitchenStatus === normalizedNextStatus) return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
+        if (operation.kitchenStatus === 'Ready' && normalizedNextStatus === 'Preparing') throw new HttpsError('failed-precondition', 'A ready fulfilment cannot return to preparing.');
+        transaction.update(orderReference, { [`fulfilmentOperations.${entry.id}.kitchenStatus`]: normalizedNextStatus, fulfilmentUpdatedAt: FieldValue.serverTimestamp(), fulfilmentUpdatedBy: uid, updatedAt: FieldValue.serverTimestamp() });
       } else {
         const completion = { ...(order.fulfilmentCompletion || {}), [entry.id]: { completedAt: new Date().toISOString(), completedBy: uid } };
         const complete = order.fulfilments.every(day => Boolean(completion[day.id]));
@@ -180,13 +181,15 @@ export const updateStoreOrderFulfilment = async ({
           ...(complete ? { fulfilmentStatus: 'Completed', completedAt: FieldValue.serverTimestamp() } : {}),
           fulfilmentUpdatedAt: FieldValue.serverTimestamp(), fulfilmentUpdatedBy: uid, updatedAt: FieldValue.serverTimestamp() });
       }
+      const dayEvent = db.collection('storeOrderTimeline').doc(`${normalizedOrderId}_fulfilment_${entry.id}_${normalizedNextStatus.toLowerCase()}`);
+      transaction.create(dayEvent, { id: dayEvent.id, orderId: normalizedOrderId, workspaceId, storeId: readString(order.storeId) || workspaceId, type: 'fulfilment_status', label: `${entry.date || entry.id} ${normalizedNextStatus}`, previousStatus: operation.kitchenStatus || 'New', newStatus: normalizedNextStatus, actingUserId: uid, createdAt: FieldValue.serverTimestamp() });
       return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: normalizedNextStatus === 'Completed' && order.fulfilments.every(day => day.id === entry.id || order.fulfilmentCompletion?.[day.id]) ? 'Completed' : currentStatus, cancellationReason: '' };
     }
     if (fulfilmentId !== undefined) throw new HttpsError('invalid-argument', 'This order has no separate fulfilments.');
     if (Array.isArray(order.weeklyFulfilments)) {
       const day = readString(weeklyDay);
       const days = order.weeklyFulfilments;
-      if (normalizedNextStatus !== STORE_FULFILMENT_STATUS.completed || !day
+      if (!['Preparing', 'Ready', 'Completed'].includes(normalizedNextStatus) || !day
         || days.length !== 5 || !days.some(entry => entry.day === day)) {
         throw new HttpsError('failed-precondition', 'Complete each day of this Weekly Meal Plan independently.');
       }
@@ -195,6 +198,15 @@ export const updateStoreOrderFulfilment = async ({
       }
       const completion = order.weeklyCompletion || {};
       if (completion[day]) return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
+      if (normalizedNextStatus !== 'Completed') {
+        const status = order.fulfilmentOperations?.[day]?.kitchenStatus;
+        if (status === normalizedNextStatus) return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
+        if (status === 'Ready' && normalizedNextStatus === 'Preparing') throw new HttpsError('failed-precondition', 'A ready fulfilment cannot return to preparing.');
+        transaction.update(orderReference, { [`fulfilmentOperations.${day}.kitchenStatus`]: normalizedNextStatus, fulfilmentUpdatedAt: FieldValue.serverTimestamp(), fulfilmentUpdatedBy: uid, updatedAt: FieldValue.serverTimestamp() });
+        const dayEvent = db.collection('storeOrderTimeline').doc(`${normalizedOrderId}_weekly_${day}_${normalizedNextStatus.toLowerCase()}`);
+        transaction.create(dayEvent, { id: dayEvent.id, orderId: normalizedOrderId, workspaceId, storeId: readString(order.storeId) || workspaceId, type: 'fulfilment_status', label: `${day.toUpperCase()} ${normalizedNextStatus}`, previousStatus: status || 'New', newStatus: normalizedNextStatus, actingUserId: uid, createdAt: FieldValue.serverTimestamp() });
+        return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
+      }
       const nextCompletion = { ...completion, [day]: { completedAt: new Date().toISOString(), completedBy: uid } };
       const complete = days.every(entry => Boolean(nextCompletion[entry.day]));
       transaction.update(orderReference, {

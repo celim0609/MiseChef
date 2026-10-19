@@ -148,7 +148,7 @@ test('footer reads the Store document and labels the exact active-online definit
 });
 
 test('Group Kitchen cards use exact Group ids and one server-authorized batch action', () => {
-  assert.match(pageSource, /buildGroupKitchenEntries\(orders, column\.status, storePickupSessions\)/);
+  assert.match(pageSource, /buildGroupKitchenEntries\(orders\.filter\([\s\S]*?column\.status, storePickupSessions\)/);
   assert.match(pageSource, /data-group-order-id=\{entry\.groupId\}/);
   assert.match(pageSource, /data-store-order-id=\{order\.id\}/);
   assert.match(pageSource, /member\.position.*member\.total.*order\.customerName/s);

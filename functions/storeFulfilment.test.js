@@ -519,7 +519,7 @@ test('daily Complete preserves snapshots and payment; parent completes only afte
 });
 
 test('weekly completion rejects generic parent/POS completion, invalid day, cancellation, unpaid and unauthorized attempts', async () => {
-  for (const change of [{}, { weeklyDay: 'sat' }, { weeklyDay: 'mon', nextStatus: 'Preparing' }, { nextStatus: 'Cancelled', cancellationReason: 'Customer request' }]) {
+  for (const change of [{}, { weeklyDay: 'sat' }, { weeklyDay: 'mon', nextStatus: 'New' }, { nextStatus: 'Cancelled', cancellationReason: 'Customer request' }]) {
     const db = createFakeDb({ 'storeOrders/order-a': weeklyOrder(), 'workspaces/workspace-a': { ownerId: 'owner-a' } });
     await assert.rejects(updateStoreOrderFulfilment({ db, uid: 'owner-a', orderId: 'order-a', nextStatus: 'Completed', ...change }));
     assert.equal(db.writes.length, 0);
@@ -562,4 +562,23 @@ test('new daily delivery ready action cannot manually complete parent or change 
   assert.equal('fulfilmentStatus' in db.writes[0].data, false);
   await assert.rejects(updateStoreOrderFulfilment({ db: make(), uid: 'owner-a', orderId: 'order-a', nextStatus: 'Completed', fulfilmentId: 'monday' }));
   await assert.rejects(updateStoreOrderFulfilment({ db: make(), uid: 'foreign', orderId: 'order-a', nextStatus: 'Ready', fulfilmentId: 'monday' }));
+});
+
+test('daily Preparing and Ready update only the selected operation and preserve sibling and financial snapshots', async () => {
+ for (const method of ['pickup','delivery']) for (const nextStatus of ['Preparing','Ready']) {
+  const order = { ...weeklyOrder(), weeklyFulfilments: undefined, fulfilments: [{id:'monday',method},{id:'friday',method}], fulfilmentCompletion:{}, fulfilmentOperations:{friday:{kitchenStatus:'Ready'}} };
+  const original=JSON.stringify(order);
+  const db=createFakeDb({'storeOrders/order-a':order,'workspaces/workspace-a':{ownerId:'owner-a'}});
+  await updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus,fulfilmentId:'monday'});
+  const patch=db.writes[0].data;
+  assert.equal(patch['fulfilmentOperations.monday.kitchenStatus'],nextStatus);
+  for(const key of ['payment','total','fulfilments','fulfilmentStatus','fulfilmentCompletion','fulfilmentOperations.friday.kitchenStatus']) assert.equal(key in patch,false);
+  assert.equal(JSON.stringify(order),original);
+ }
+});
+test('daily kitchen updates reject cancelled and unpaid parents', async()=>{
+ for(const change of [{fulfilmentStatus:'Cancelled'},{payment:{status:'pending'}}]) {
+  const db=createFakeDb({'storeOrders/order-a':{...weeklyOrder(),weeklyFulfilments:undefined,fulfilments:[{id:'monday',method:'pickup'}],...change},'workspaces/workspace-a':{ownerId:'owner-a'}});
+  await assert.rejects(updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus:'Preparing',fulfilmentId:'monday'}));assert.equal(db.writes.length,0);
+ }
 });
