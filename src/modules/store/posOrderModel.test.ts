@@ -5,6 +5,7 @@ import {
   filterHistoryOrders,
   getMalaysiaDateRange,
   getOrderCompletionTimestamp,
+  isOrderOperationallyEligible,
   isOrderCompletedOnMalaysiaDate,
   shiftDateKey,
   toActivePosStatus,
@@ -114,4 +115,16 @@ test('history filters status and order ID within the already date-scoped result'
   assert.deepEqual(filterHistoryOrders(orders, 'paid', '').map(value => value.id), ['completed', 'cancelled']);
   assert.deepEqual(filterHistoryOrders(orders, 'pending', '').map(value => value.id), ['pending']);
   assert.deepEqual(filterHistoryOrders(orders, 'all', 'MC-CANCEL').map(value => value.id), ['cancelled']);
+});
+
+test('POS orders require recorded payment before entering the kitchen', () => {
+ const pending = { ...order('manual', 'New', 'pending', 'pos'), paymentMethodId: 'other_paid' } as StoreOrder;
+ assert.equal(isOrderOperationallyEligible(pending), false);
+ assert.equal(isOrderOperationallyEligible({ ...pending, payment: { ...pending.payment, status: 'paid' } }), true);
+ assert.equal(isOrderOperationallyEligible({ ...pending, paymentMethodId: 'cash_on_pickup' }), false);
+});
+
+test('legacy online cash-on-pickup remains eligible', () => {
+ const onlineCash = { ...order('online-cash', 'New', 'pending', 'online'), paymentMethodId: 'cash_on_pickup' } as StoreOrder;
+ assert.equal(isOrderOperationallyEligible(onlineCash), true);
 });
