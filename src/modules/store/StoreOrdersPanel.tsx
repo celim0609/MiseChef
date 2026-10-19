@@ -1,5 +1,6 @@
+import { getOrderTickets } from './orderTickets';
 import OrderTicketPanel from './OrderTicketPanel';
-import { orderInPeriod } from './dailyOrderModel';
+import { orderInPeriod, sortOrdersForPeriod, nextDailyStatus } from './dailyOrderModel';
 import { toMalaysiaDateKey } from './posOrderModel';
 import MealOptionSummary from './MealOptionSummary';
 import { useEffect, useMemo, useState } from 'react';
@@ -172,7 +173,7 @@ export default function StoreOrdersPanel({
     );
   }, [selectedOrderId, workspaceId]);
 
-  const visibleOrders = useMemo(() => orders.filter(order => {
+  const visibleOrders = useMemo(() => sortOrdersForPeriod(orders.filter(order => {
     if (!orderInPeriod(order, period, toMalaysiaDateKey())) return false;
     if (activeFilter === 'All') return true;
     if (activeFilter === 'Payment Review') return order.payment.status === 'pending_verification';
@@ -181,7 +182,7 @@ export default function StoreOrdersPanel({
       return order.payment.status === 'paid' && order.fulfilmentStatus === 'New';
     }
     return order.fulfilmentStatus === activeFilter;
-  }), [activeFilter, orders, period]);
+  }), period, toMalaysiaDateKey()), [activeFilter, orders, period]);
 
   const updateStatus = async (nextStatus: StoreFulfilmentStatus, weeklyDay?: string, fulfilmentId?: string) => {
     if (!selectedOrder || isUpdating) return;
@@ -469,21 +470,29 @@ export default function StoreOrdersPanel({
               {selectedOrder.fulfilments && <section aria-label="Fulfilment schedule" className="w-full space-y-3">{selectedOrder.fulfilments.map(day => {
                 const operation = selectedOrder.fulfilmentOperations?.[day.id];
                 const complete = Boolean(selectedOrder.fulfilmentCompletion?.[day.id]);
+                const ticket = getOrderTickets(selectedOrder).find(ticket => ticket.fulfilmentId === day.id);
+                const next = ticket ? nextDailyStatus(selectedOrder,ticket) : null;
                 const dispatchStatus = operation?.dispatch?.status || 'not_requested';
                 const canAct = canProcessOrders && selectedOrder.payment.status === 'paid' && !['Completed', 'Cancelled'].includes(selectedOrder.fulfilmentStatus);
                 return <div key={day.id} className="rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>{day.date} · {day.time} · {day.method} · {day.pickupLocationName}</p>{day.allocations.map((allocation, index) => { const item = selectedOrder.items[allocation.itemIndex]; const meal = allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(meal => meal.day === allocation.componentDay) : item; return <div key={index}><p>{allocation.quantity} × {meal?.productName}</p><MealOptionSummary snapshot={allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(meal => meal.day === allocation.componentDay) : item?.healthyLunchSnapshot} /></div>; })}
-                  {complete ? <span>Completed</span> : canAct && (day.method === 'pickup' ? <button type="button" disabled={isUpdating} onClick={() => updateStatus('Completed', undefined, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">Complete {day.date}</button> : <div><p>{operation?.kitchenStatus || 'Scheduled'} · {dispatchStatus} · {operation?.lifecycle?.state || ''}</p>{operation?.providerOrder?.orderId && <p>Lalamove: {operation.providerOrder.orderId}</p>}
-                    {operation?.kitchenStatus !== 'Ready' && <button type="button" disabled={isUpdating} onClick={() => updateStatus('Ready', undefined, day.id)} className="m-2 rounded-full border px-4 py-2">Mark ready</button>}
+                  {complete ? <span>Completed</span> : canAct && <><p>{operation?.kitchenStatus || 'New'}</p>{next && <button type="button" disabled={isUpdating} onClick={() => updateStatus(next, undefined, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">{next === 'Preparing' ? 'Prepare' : `Mark ${next}`} {day.date}</button>}{day.method === 'delivery' && !selectedOrder.manualOrder && <div><p>{operation?.kitchenStatus || 'Scheduled'} · {dispatchStatus} · {operation?.lifecycle?.state || ''}</p>{operation?.providerOrder?.orderId && <p>Lalamove: {operation.providerOrder.orderId}</p>}
                     {operation?.kitchenStatus === 'Ready' && ['not_requested', 'failed'].includes(dispatchStatus) && <button type="button" disabled={isUpdating} onClick={() => dispatchDelivery(selectedOrder.id, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">Request Lalamove</button>}
                     {['creating', 'created', 'outcome_unknown', 'cancel_requested'].includes(dispatchStatus) && <button type="button" disabled={isUpdating} onClick={() => refreshDelivery(selectedOrder.id, day.id)} className="m-2 rounded-full border px-4 py-2">Refresh dispatch</button>}
                     {dispatchStatus === 'created' && <button type="button" disabled={isUpdating} onClick={() => cancelDelivery(selectedOrder.id, day.id)} className="m-2 rounded-full border px-4 py-2">Cancel dispatch</button>}
                     {dispatchStatus === 'outcome_unknown' && <p role="alert">Provider submission outcome is uncertain. Reconcile the existing request before any replacement dispatch.</p>}
-                  </div>)}
+                  </div>}</>}
                 </div>;
               })}</section>}
-              {selectedOrder.weeklyFulfilments && <section aria-label="Weekly Meal Plan schedule" className="w-full space-y-2">{selectedOrder.weeklyFulfilments.map(day => <div key={day.day} className="rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>{day.day.toUpperCase()} · {day.date} · {day.pickupTime} · {day.pickupLocationName}</p><p>{day.quantity} × {day.productName}</p>{selectedOrder.weeklyCompletion?.[day.day] ? <span>Completed</span> : canProcessOrders && selectedOrder.payment.status === 'paid' && !['Completed', 'Cancelled'].includes(selectedOrder.fulfilmentStatus) && <button type="button" disabled={isUpdating} onClick={() => updateStatus('Completed', day.day)} className="mt-2 rounded-full bg-primary px-4 py-2 text-on-primary disabled:opacity-50">Complete {day.day.toUpperCase()}</button>}</div>)}</section>}
+              {!selectedOrder.fulfilments && getOrderTickets(selectedOrder).some(ticket => ticket.weeklyDay || ticket.fulfilmentId) && <section aria-label="Legacy daily schedule" className="w-full space-y-2">{getOrderTickets(selectedOrder).map(ticket => {
+                const complete = Boolean(ticket.fulfilmentId ? selectedOrder.fulfilmentCompletion?.[ticket.fulfilmentId] : selectedOrder.weeklyCompletion?.[ticket.weeklyDay as NonNullable<typeof ticket.weeklyDay>]);
+                const status = selectedOrder.fulfilmentOperations?.[ticket.fulfilmentId || ticket.weeklyDay || '']?.kitchenStatus || 'New';
+                const next = nextDailyStatus(selectedOrder,ticket);
+                return <div key={ticket.key} className="rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>{ticket.date} · {ticket.time} · {ticket.method} · {complete ? 'Completed' : status}</p>{ticket.items.map((item,index) => <p key={index}>{item.quantity} × {item.name}</p>)}{!complete && canProcessOrders && selectedOrder.payment.status === 'paid' && !['Completed','Cancelled'].includes(selectedOrder.fulfilmentStatus) && next && <button type="button" disabled={isUpdating} onClick={() => updateStatus(next,ticket.weeklyDay,ticket.fulfilmentId)} className="mt-2 rounded-full bg-primary px-4 py-2 text-on-primary">{next === 'Preparing' ? 'Prepare' : `Mark ${next}`} {ticket.date}</button>}</div>;
+              })}</section>}
+              {!getOrderTickets(selectedOrder).length && <p role="status">Schedule review required. Purchased item dates are missing or inconsistent.</p>}
               {canProcessOrders
                 && !selectedOrder.weeklyFulfilments && !selectedOrder.fulfilments
+                && getOrderTickets(selectedOrder).length > 0 && !getOrderTickets(selectedOrder).some(ticket => ticket.fulfilmentId)
                 && isOrderOperationallyEligible(selectedOrder)
                 && NEXT_STATUS[selectedOrder.fulfilmentStatus as StoreFulfilmentStatus] && (
                 <button

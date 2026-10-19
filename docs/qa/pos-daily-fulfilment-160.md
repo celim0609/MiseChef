@@ -10,14 +10,14 @@ Continues `fix/pos-daily-fulfilment-160` from `8efd7d6`; existing changes were r
 - Save always creates Pending Payment. Pending orders can be edited with optimistic revision checks; identity and order-number reservation remain stable, and edit audit entries retain prior item/schedule/total snapshots. Only Owner/Manager can confirm actually received payment, matching the saved amount and revision, with method/reference and explicit receipt acknowledgment. Transactional request deduplication and payment confirmation prevent duplicate parents/payments/audit events. Role/entitlement checks are repeated inside the transaction.
 - Pending manual orders cannot enter preparation or ticket selection. Paid parents retain one payment and financial total. Daily Prepare → Preparing → Ready → Completed is strictly ordered, authorized and transactional. Other days remain independent; the parent completes only after all days. Online provider deliveries retain provider-confirmed completion. Manual customer-arranged deliveries use authorized daily completion without a provider booking.
 - Legacy item snapshots with explicit dates receive deterministic independent fulfilment identities. Prepare materializes only those recorded allocations. Mixed dated/undated or unscheduled weekly data is held for schedule review, never assigned a guessed date. Parent cancellation retains completion history and financial records.
-- POS includes Today, Tomorrow, Upcoming and daily History. Existing parent history/actions remain. Load older fulfilments uses existing paginated terminal history for daily history and reprints. Finishing a daily action refreshes the completion history.
+- POS includes Today, Tomorrow, Upcoming and daily History. Store Orders uses the same ordered daily actions (including legacy weekly orders), sorts each period by its actual daily schedule and retains unresolved legacy parents in History. Existing parent history/actions remain. Load older fulfilments uses existing paginated terminal history for daily history and reprints. Finishing a daily action refreshes the completion history.
 - Customer tickets include Paid when actually paid, actual Store identity, customer/code/date/time/mode, quantities/options/item/order notes, branded thank-you, contact/footer and a self-contained QR to `https://misechef.ai/store/misechef-s-grab-go-store`. No price or parent total enters the ticket projection. Kitchen tickets remain separate, date-selected and price-free. REPRINT is explicit on request or a second print from the same popup. A separate full-payment receipt retains the parent total once.
 
 ## Local verification
 
 - `npm run lint` — passed.
 - `npm --prefix functions run lint` — passed.
-- `npm run test:store-payments:model` — 368 passed.
+- `npm run test:store-payments:model` — 370 passed.
 - `npm --prefix functions test` — 450 passed.
 - `npm run test:store-payments:rules` — includes actual Firestore transaction concurrency, online multi-day pickup/provider delivery, manual/custom/payment gating, ShopeeFood/Walk-in and private-catalog security. 44 passed.
 - Beta environment validation, `vite build --mode beta`, and `npm run prepare:store-social-template` — passed using existing Beta public configuration. No deployment was performed by these commands.
