@@ -6,6 +6,7 @@ import {
   getMalaysiaDateRange,
   getOrderCompletionTimestamp,
   isOrderOperationallyEligible,
+  isAdvancePreorderDate,
   isOrderCompletedOnMalaysiaDate,
   shiftDateKey,
   toActivePosStatus,
@@ -127,4 +128,13 @@ test('POS orders require recorded payment before entering the kitchen', () => {
 test('legacy online cash-on-pickup remains eligible', () => {
  const onlineCash = { ...order('online-cash', 'New', 'pending', 'online'), paymentMethodId: 'cash_on_pickup' } as StoreOrder;
  assert.equal(isOrderOperationallyEligible(onlineCash), true);
+});
+
+test('one-day advance preorder follows Malaysia calendar at UTC boundary', () => {
+ const now = '2026-10-18T16:30:00.000Z'; // Already 19 October in Malaysia
+ assert.equal(isAdvancePreorderDate('2026-10-19',now),false);
+ assert.equal(isAdvancePreorderDate('2026-10-20',now),true);
+ assert.equal(isAdvancePreorderDate('2026-10-21',now),true);
+ assert.equal(isAdvancePreorderDate('2026-10-18',now),false);
+ assert.equal(isAdvancePreorderDate('not-a-date',now),false);
 });
