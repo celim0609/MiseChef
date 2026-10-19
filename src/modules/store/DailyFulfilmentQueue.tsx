@@ -8,7 +8,7 @@ import { storeOrderService } from './services';
 export default function DailyFulfilmentQueue({ orders }: { orders: StoreOrder[] }) {
   const [busy, setBusy] = useState(''); const [error, setError] = useState('');
   const today = toMalaysiaDateKey();
-  const entries = orders.filter(order => (order.fulfilments?.length || order.weeklyFulfilments?.length) && order.fulfilmentStatus !== 'Cancelled' && isOrderOperationallyEligible(order)).flatMap(order => getOrderTickets(order).filter(ticket => ticket.date === today && dailyStatus(order, ticket) !== 'Completed').map(ticket => ({order,ticket})));
+  const entries = orders.filter(order => (order.fulfilments?.length || order.weeklyFulfilments?.length) && order.fulfilmentStatus !== 'Cancelled' && isOrderOperationallyEligible(order)).flatMap(order => getOrderTickets(order).filter(ticket => ticket.date === today && dailyStatus(order, ticket) !== 'Completed').map(ticket => ({order,ticket}))).sort((a, b) => a.ticket.time.localeCompare(b.ticket.time) || a.ticket.orderNumber.localeCompare(b.ticket.orderNumber));
   if (!entries.length) return null;
   return <section className="m-4" aria-label="Today’s fulfilments"><h2 className="text-xl font-bold">Today’s fulfilments</h2>{error && <p role="alert">{error}</p>}<div className="grid gap-4 md:grid-cols-3">{entries.map(({order,ticket}) => {
     const status = dailyStatus(order,ticket); const next = status === 'Ready' ? 'Completed' : status === 'Preparing' ? 'Ready' : 'Preparing';
