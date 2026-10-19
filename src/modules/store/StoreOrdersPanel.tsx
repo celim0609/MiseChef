@@ -1,3 +1,6 @@
+import OrderTicketPanel from './OrderTicketPanel';
+import { orderInPeriod } from './dailyOrderModel';
+import { toMalaysiaDateKey } from './posOrderModel';
 import MealOptionSummary from './MealOptionSummary';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -106,6 +109,7 @@ export default function StoreOrdersPanel({
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [timeline, setTimeline] = useState<StoreOrderTimelineEvent[]>([]);
+  const [period, setPeriod] = useState<'Today' | 'Upcoming' | 'History'>('Today');
   const [activeFilter, setActiveFilter] = useState<(typeof FILTERS)[number]>('All');
   const [isUpdating, setIsUpdating] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -169,6 +173,7 @@ export default function StoreOrdersPanel({
   }, [selectedOrderId, workspaceId]);
 
   const visibleOrders = useMemo(() => orders.filter(order => {
+    if (!orderInPeriod(order, period, toMalaysiaDateKey())) return false;
     if (activeFilter === 'All') return true;
     if (activeFilter === 'Payment Review') return order.payment.status === 'pending_verification';
     if (activeFilter === 'Paid') return order.payment.status === 'paid';
@@ -176,7 +181,7 @@ export default function StoreOrdersPanel({
       return order.payment.status === 'paid' && order.fulfilmentStatus === 'New';
     }
     return order.fulfilmentStatus === activeFilter;
-  }), [activeFilter, orders]);
+  }), [activeFilter, orders, period]);
 
   const updateStatus = async (nextStatus: StoreFulfilmentStatus, weeklyDay?: string, fulfilmentId?: string) => {
     if (!selectedOrder || isUpdating) return;
@@ -282,7 +287,9 @@ export default function StoreOrdersPanel({
         </p>
       )}
 
+      <OrderTicketPanel orders={orders} />
       <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Order filters">
+        {(['Today', 'Upcoming', 'History'] as const).map(value => <button type="button" key={value} aria-pressed={period === value} onClick={() => setPeriod(value)} className="rounded-full border px-5 py-3 font-bold">{value}</button>)}
         {FILTERS.map(filter => (
           <button
             key={filter}
@@ -343,7 +350,7 @@ export default function StoreOrdersPanel({
               <p className="mt-2 font-sans text-sm font-bold text-on-surface-variant">Paid customer orders will appear here.</p>
             </div>
           )}
-          {hasMoreHistory && ['All', 'Paid', 'Completed', 'Cancelled'].includes(activeFilter) && (
+          {hasMoreHistory && period === 'History' && (
             <button
               type="button"
               disabled={isHistoryLoading}
