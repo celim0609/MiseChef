@@ -16,9 +16,10 @@ export const toActivePosStatus = (
 export const isOrderOperationallyEligible = (
   order: Pick<StoreOrder, 'orderSource' | 'paymentMethodId' | 'payment'>
 ) => (
-  order.orderSource === 'pos'
-  || order.payment.status === 'paid'
-  || order.paymentMethodId === 'cash_on_pickup'
+  // POS-created orders are only kitchen-ready once payment is recorded.
+  // Preserve the existing cash-on-pickup exception for online orders.
+  order.payment.status === 'paid'
+  || (order.orderSource !== 'pos' && order.paymentMethodId === 'cash_on_pickup')
 );
 
 export const countActiveOnlineOrders = (orders: StoreOrder[]) => orders.filter(
