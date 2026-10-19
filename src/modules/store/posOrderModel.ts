@@ -76,7 +76,7 @@ export const shiftDateKey = (dateKey: string, days: number) => {
 export const isAdvancePreorderDate = (fulfilmentDate: string, now: Date | string | number = new Date()) => (
   /^\\d{4}-\\d{2}-\\d{2}$/.test(fulfilmentDate)
   && fulfilmentDate >= shiftDateKey(toMalaysiaDateKey(now), 1)
-  && !Number.isNaN(new Date(`${fulfilmentDate}T00:00:00.000Z`).getTime())
+  && new Date(`${fulfilmentDate}T00:00:00.000Z`).toISOString().slice(0, 10) === fulfilmentDate
 );
 
 export const getMalaysiaDateRange = (dateKey: string) => ({
