@@ -137,4 +137,6 @@ test('one-day advance preorder follows Malaysia calendar at UTC boundary', () =>
  assert.equal(isAdvancePreorderDate('2026-10-21',now),true);
  assert.equal(isAdvancePreorderDate('2026-10-18',now),false);
  assert.equal(isAdvancePreorderDate('not-a-date',now),false);
+ assert.equal(isAdvancePreorderDate('2026-02-30',now),false);
+ assert.equal(isAdvancePreorderDate('2026-13-01',now),false);
 });
