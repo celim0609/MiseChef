@@ -37,3 +37,13 @@ test('kitchen ticket uses selected preparation snapshot without financial fields
  const html=buildTicketDocument([getOrderTickets(order)[0]],'kitchen');assert.ok(html.includes('Kitchen Ticket'));assert.ok(html.includes('No chilli'));assert.ok(!html.includes('98765'));
 });
 test('empty batches fail before opening a print window', () => {assert.throws(()=>buildTicketDocument([]),/Select/);});
+
+test('customer bag ticket includes reorder contacts but kitchen ticket does not', () => {
+ const ticket = getOrderTickets(order)[0];
+ const customer = buildTicketDocument([ticket], 'customer');
+ const kitchen = buildTicketDocument([ticket], 'kitchen');
+ for (const value of ['Thank you for your order!', 'Freshly prepared with care.', 'misechef.ai/store/misechef-s-grab-go-store', '016-4209116', '@misechef.ai', 'Powered by MiseChef']) {
+   assert.ok(customer.includes(value), value);
+   assert.ok(!kitchen.includes(value), value);
+ }
+});
