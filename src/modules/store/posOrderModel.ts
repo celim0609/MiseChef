@@ -74,8 +74,9 @@ export const shiftDateKey = (dateKey: string, days: number) => {
 // Customer preorders must be placed at least one Malaysia calendar day ahead.
 // Compare ISO date keys, not UTC timestamps, to avoid midnight timezone errors.
 export const isAdvancePreorderDate = (fulfilmentDate: string, now: Date | string | number = new Date()) => (
-  /^\\d{4}-\\d{2}-\\d{2}$/.test(fulfilmentDate)
+  /^\d{4}-\d{2}-\d{2}$/.test(fulfilmentDate)
   && fulfilmentDate >= shiftDateKey(toMalaysiaDateKey(now), 1)
+  && Number.isFinite(Date.parse(`${fulfilmentDate}T00:00:00.000Z`))
   && new Date(`${fulfilmentDate}T00:00:00.000Z`).toISOString().slice(0, 10) === fulfilmentDate
 );
 

@@ -1763,6 +1763,12 @@ service cloud.firestore {
       allow delete: if canManageStoreProducts(resource.data.workspaceId);
     }
 
+    // Private off-menu POS items are never part of the public Store catalog.
+    match /storePrivatePosItems/{itemId} {
+      allow read: if canViewStoreOrders(resource.data.workspaceId);
+      allow write: if false;
+    }
+
     match /storeOrders/{orderId} {
       // Guest checkout is created by the trusted payment function after it
       // re-prices the cart from current Store data. Clients can never write an

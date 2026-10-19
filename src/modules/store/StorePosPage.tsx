@@ -1,3 +1,4 @@
+import ManualPosOrders from './ManualPosOrders';
 import { getOrderTickets } from './orderTickets';
 import DailyFulfilmentQueue from './DailyFulfilmentQueue';
 import OrderTicketPanel from './OrderTicketPanel';
@@ -206,6 +207,17 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const [cancelOrder, setCancelOrder] = useState<StoreOrder | null>(null);
   const [cancellationChoice, setCancellationChoice] = useState('');
   const [otherCancellationReason, setOtherCancellationReason] = useState('');
+  const [dailyHistory, setDailyHistory] = useState<Awaited<ReturnType<typeof storeOrderService.getTerminalOrderHistoryPage>> | null>(null);
+  const [loadingDailyHistory, setLoadingDailyHistory] = useState(false);
+  const loadDailyHistory = async () => {
+    setLoadingDailyHistory(true);
+    try {
+      const page = await storeOrderService.getTerminalOrderHistoryPage(storeId, workspaceId, dailyHistory?.cursor);
+      setDailyHistory(previous => ({...page, orders: [...(previous?.orders || []), ...page.orders]}));
+    } catch(error) {setErrorMessage(error instanceof Error ? error.message : 'Unable to load fulfilment history.');}
+    finally {setLoadingDailyHistory(false);}
+  };
+  useEffect(() => {setDailyHistory(null);}, [storeId, workspaceId]);
   const [externalOpen, setExternalOpen] = useState(false);
   const [externalProducts, setExternalProducts] = useState<StoreProduct[]>([]);
   const [externalSets, setExternalSets] = useState<StoreSet[]>([]);
@@ -345,7 +357,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
 
   const groupedOrders = useMemo(() => ACTIVE_COLUMNS.reduce<Record<ActivePosStatus, ReturnType<typeof buildGroupKitchenEntries>>>(
     (groups, column) => {
-      groups[column.status] = buildGroupKitchenEntries(orders.filter(order => !order.fulfilments?.length && !order.weeklyFulfilments?.length && getOrderTickets(order).some(ticket => ticket.date === todayKey)), column.status, storePickupSessions);
+      groups[column.status] = buildGroupKitchenEntries(orders.filter(order => !order.fulfilments?.length && !order.weeklyFulfilments?.length && !getOrderTickets(order).some(ticket => ticket.fulfilmentId) && getOrderTickets(order).some(ticket => ticket.date === todayKey)), column.status, storePickupSessions);
       return groups;
     },
     { New: [], Preparing: [], Ready: [] }
@@ -537,8 +549,10 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
 
   return (
     <section data-pos-theme={isNightMode ? 'dark' : 'light'} className={`pos-screen flex min-h-screen flex-col transition-colors ${isNightMode ? 'bg-[#07111f] text-white' : 'bg-slate-100 text-slate-950'}`}>
-      <OrderTicketPanel orders={[...new Map([...completedOrders, ...orders].map(order => [order.id, order])).values()]} />
-      {activeView === 'live' && <DailyFulfilmentQueue orders={orders} />}
+      <ManualPosOrders workspaceId={workspaceId} storeId={storeId} />
+      {(!dailyHistory || dailyHistory.hasMore) && <button className="mx-4 underline" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()}>{loadingDailyHistory ? 'Loading history…' : 'Load older fulfilments for history and ticket reprints'}</button>}
+      <OrderTicketPanel orders={[...new Map([...(dailyHistory?.orders || []), ...completedOrders, ...orders].map(order => [order.id, order])).values()]} />
+      {activeView === 'live' && <DailyFulfilmentQueue onUpdated={() => setHistoryRefreshKey(value => value + 1)} orders={[...new Map([...(dailyHistory?.orders || []), ...completedOrders, ...orders].map(order => [order.id, order])).values()]} />}
       <audio ref={audioRef} preload="auto" aria-hidden="true" />
 
       <header className={`pos-light-surface flex flex-col gap-3 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:px-6 ${isNightMode ? 'border-white/10 bg-[#0b1727]' : 'border-slate-300 bg-white'}`}>

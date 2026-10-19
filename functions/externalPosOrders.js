@@ -11,15 +11,16 @@ const money = value => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 const idempotencyId = ({ storeId, source, externalOrderNumber }) => createHash('sha256')
   .update(`${storeId}:${source}:${externalOrderNumber}`).digest('hex');
 
-const assertOperator = async ({ db, uid, workspaceId }) => {
+export const assertOperator = async ({ db, uid, workspaceId, financial = false, transaction }) => {
   if (!uid) throw new HttpsError('unauthenticated', 'Sign in to add an external order.');
+  const read = ref => transaction ? transaction.get(ref) : ref.get();
   const [workspaceSnapshot, memberSnapshot] = await Promise.all([
-    db.collection('workspaces').doc(workspaceId).get(),
-    db.collection('workspaceMembers').doc(`${workspaceId}_${uid}`).get()
+    read(db.collection('workspaces').doc(workspaceId)),
+    read(db.collection('workspaceMembers').doc(`${workspaceId}_${uid}`))
   ]);
   const workspace = workspaceSnapshot.data() || {}; const member = memberSnapshot.data() || {};
   if (!hasActiveBusinessEntitlement(workspace)) throw new HttpsError('permission-denied', 'An active Workspace Business subscription is required.');
-  if (readString(workspace.ownerId) !== uid && !(member.userId === uid && member.workspaceId === workspaceId && member.status === 'Active' && OPERATOR_ROLES.has(readString(member.role)))) {
+  if (readString(workspace.ownerId) !== uid && !(member.userId === uid && member.workspaceId === workspaceId && member.status === 'Active' && (financial ? ['Owner', 'Manager'].includes(readString(member.role)) : OPERATOR_ROLES.has(readString(member.role))))) {
     throw new HttpsError('permission-denied', 'Your Workspace role cannot add Store orders.');
   }
 };

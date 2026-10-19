@@ -495,7 +495,7 @@ const weeklyOrder = () => ({
   ...paidOrder, orderSource: 'online', fulfilmentMethod: 'pickup', fulfilmentStatus: 'New',
   payment: { status: 'paid', refundStatus: 'none' },
   weeklyFulfilments: ['mon','tue','wed','thu','fri'].map((day, index) => ({ day, date: `2026-07-${27 + index}`, productName: `${day} meal`, pickupTime: '10:00', pickupLocationId: 'counter', quantity: 2 })),
-  weeklyCompletion: {}
+  weeklyCompletion: {}, fulfilmentOperations: Object.fromEntries(['mon','tue','wed','thu','fri'].map(day=>[day,{kitchenStatus:'Ready'}]))
 });
 
 test('daily Complete preserves snapshots and payment; parent completes only after five independent days', async () => {
@@ -538,7 +538,7 @@ test('weekly completion rejects generic parent/POS completion, invalid day, canc
 
 test('generic pickup completions are independent, idempotent and cannot bypass the parent', async () => {
   const order = { ...weeklyOrder(), weeklyFulfilments: undefined, weeklyCompletion: undefined,
-    fulfilments: [{ id: 'monday', method: 'pickup' }, { id: 'friday', method: 'pickup' }], fulfilmentCompletion: {}, total: 42 };
+    fulfilments: [{ id: 'monday', method: 'pickup' }, { id: 'friday', method: 'pickup' }], fulfilmentCompletion: {}, fulfilmentOperations:{monday:{kitchenStatus:'Ready'},friday:{kitchenStatus:'Ready'}}, total: 42 };
   const make = () => createFakeDb({ 'storeOrders/order-a': structuredClone(order), 'workspaces/workspace-a': { ownerId: 'owner-a' } });
   await assert.rejects(updateStoreOrderFulfilment({ db: make(), uid: 'owner-a', orderId: 'order-a', nextStatus: 'Completed' }), /fulfilment/);
   for (const [index, fulfilmentId] of ['friday','monday'].entries()) {
@@ -555,7 +555,7 @@ test('generic pickup completions are independent, idempotent and cannot bypass t
 
 test('new daily delivery ready action cannot manually complete parent or change paid financial data', async () => {
   const order = { ...weeklyOrder(), fulfilmentMethod: 'delivery', weeklyFulfilments: undefined,
-    fulfilments: [{ id: 'monday', method: 'delivery' }], fulfilmentCompletion: {}, fulfilmentOperations: {} };
+    fulfilments: [{ id: 'monday', method: 'delivery' }], fulfilmentCompletion: {}, fulfilmentOperations: {monday:{kitchenStatus:'Preparing'}} };
   const make = () => createFakeDb({ 'storeOrders/order-a': order, 'workspaces/workspace-a': { ownerId: 'owner-a' } });
   const db = make(); await updateStoreOrderFulfilment({ db, uid: 'owner-a', orderId: 'order-a', nextStatus: 'Ready', fulfilmentId: 'monday' });
   assert.equal(db.writes[0].data['fulfilmentOperations.monday.kitchenStatus'], 'Ready');
@@ -566,7 +566,7 @@ test('new daily delivery ready action cannot manually complete parent or change 
 
 test('daily Preparing and Ready update only the selected operation and preserve sibling and financial snapshots', async () => {
  for (const method of ['pickup','delivery']) for (const nextStatus of ['Preparing','Ready']) {
-  const order = { ...weeklyOrder(), weeklyFulfilments: undefined, fulfilments: [{id:'monday',method},{id:'friday',method}], fulfilmentCompletion:{}, fulfilmentOperations:{friday:{kitchenStatus:'Ready'}} };
+  const order = { ...weeklyOrder(), weeklyFulfilments: undefined, fulfilments: [{id:'monday',method},{id:'friday',method}], fulfilmentCompletion:{}, fulfilmentOperations:{monday:{kitchenStatus:nextStatus === 'Ready' ? 'Preparing' : 'New'},friday:{kitchenStatus:'Ready'}} };
   const original=JSON.stringify(order);
   const db=createFakeDb({'storeOrders/order-a':order,'workspaces/workspace-a':{ownerId:'owner-a'}});
   await updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus,fulfilmentId:'monday'});
@@ -581,4 +581,24 @@ test('daily kitchen updates reject cancelled and unpaid parents', async()=>{
   const db=createFakeDb({'storeOrders/order-a':{...weeklyOrder(),weeklyFulfilments:undefined,fulfilments:[{id:'monday',method:'pickup'}],...change},'workspaces/workspace-a':{ownerId:'owner-a'}});
   await assert.rejects(updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus:'Preparing',fulfilmentId:'monday'}));assert.equal(db.writes.length,0);
  }
+});
+
+test('daily Prepare rejects status skips and cancelled/unpaid POS without financial writes',async()=>{
+ for(const nextStatus of ['Ready','Completed']){
+ const db=createFakeDb({'storeOrders/order-a':{...weeklyOrder(),weeklyFulfilments:undefined,fulfilments:[{id:'monday',method:'pickup'}],fulfilmentOperations:{}},'workspaces/workspace-a':{ownerId:'owner-a'}});
+ await assert.rejects(updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus,fulfilmentId:'monday'}),/Follow Prepare/);assert.equal(db.writes.length,0);
+ }
+ const db=createFakeDb({'storeOrders/order-a':{...paidOrder,orderSource:'pos',fulfilmentStatus:'New',payment:{status:'pending'}},'workspaces/workspace-a':{ownerId:'owner-a'}});
+ await assert.rejects(updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus:'Preparing'}),/Confirm payment/);assert.equal(db.writes.length,0);
+});
+test('legacy Py Prepare materializes only recorded item-date allocations and preserves payment and Tuesday',async()=>{
+ const db=createFakeDb({'storeOrders/order-a':{...paidOrder,orderSource:'online',fulfilmentStatus:'New',payment:{status:'paid'},items:[{quantity:1,productName:'Vietnam Prawn Noodle Salad',healthyLunchSnapshot:{date:'2026-10-19'}},{quantity:2,productName:'Chicken Burrito Bowl',healthyLunchSnapshot:{date:'2026-10-20'}}]},'workspaces/workspace-a':{ownerId:'owner-a'}});
+ await updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus:'Preparing',fulfilmentId:'legacy_20261019'});
+ const patch=db.writes[0].data;assert.equal(patch['fulfilmentOperations.legacy_20261019.kitchenStatus'],'Preparing');assert.deepEqual(patch.fulfilments[0].allocations,[{itemIndex:0,quantity:1}]);assert.deepEqual(patch.fulfilments[1].allocations,[{itemIndex:1,quantity:2}]);assert.equal('payment' in patch,false);assert.equal('items' in patch,false);
+});
+test('multi-day parent cancellation preserves completion history and removes active work',async()=>{
+ const order={...weeklyOrder(),weeklyFulfilments:undefined,fulfilments:[{id:'monday',method:'pickup'},{id:'tuesday',method:'pickup'}],fulfilmentCompletion:{monday:{completedBy:'owner-a'}}};
+ const db=createFakeDb({'storeOrders/order-a':order,'workspaces/workspace-a':{ownerId:'owner-a'}});
+ await updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus:'Cancelled',cancellationReason:'Customer requested cancellation'});
+ const patch=db.writes[0].data;assert.equal(patch.fulfilmentStatus,'Cancelled');assert.equal('fulfilmentCompletion' in patch,false);assert.equal('payment' in patch,false);
 });

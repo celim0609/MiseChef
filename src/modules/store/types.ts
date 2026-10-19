@@ -1,5 +1,6 @@
 export interface DraftFulfilment { date: string; time: string; itemIndexes: number[] }
 export interface OrderFulfilment {
+  notes?: string;
   id: string; method: 'pickup' | 'delivery'; date: string; time: string;
   pickupLocationId: string; pickupLocationName: string; pickupLocationAddress: string;
   allocations: Array<{ itemIndex: number; quantity: number; componentDay?: WeeklyDay }>;
@@ -461,7 +462,8 @@ export interface StoreOrderItem {
   description?: string;
   healthyLunchSnapshot?: { planId: string; date: string } & MealOptionSnapshot;
   weeklyPlanSnapshot?: { meals: WeeklyMealSnapshot[]; startMonday?: string };
-  itemType?: 'product' | 'set';
+  itemType?: 'product' | 'set' | 'custom';
+  notes?: string;
   productId: string;
   productName: string;
   photoUrl: string;
@@ -476,7 +478,7 @@ export interface StoreOrderItem {
 export type StoreOrderSource = 'online' | 'pos';
 
 export interface StoreExternalOrder {
-  source: 'shopeefood' | 'walk_in' | 'other';
+  source: 'shopeefood' | 'walk_in' | 'other' | 'whatsapp' | 'phone';
   externalOrderNumber?: string;
 }
 
@@ -533,6 +535,7 @@ export interface StoreOrder {
   workspaceId: string;
   orderSource: StoreOrderSource;
   externalOrder?: StoreExternalOrder;
+  manualOrder?: { revision: number; draft: Record<string, unknown>; createdBy: string };
   fulfilmentMethod?: 'pickup' | 'delivery';
   totals?: { merchandiseSubtotal: number; discountTotal: number; discountedMerchandiseTotal: number; deliveryFee: number; grandTotal: number; currency: RegionCurrency };
   promotionSnapshot?: StoreOrderPromotionSnapshot;

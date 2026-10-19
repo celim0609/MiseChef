@@ -68,3 +68,20 @@ test('Py Monday prawn and Tuesday burrito remain separate customer and kitchen t
    assert.ok(tuesday.includes('2026-10-20 15:30'));
  }
 });
+
+test('QR is a self-contained vector with quiet zone, Paid is explicit, reprint label is opt-in',()=>{
+ const ticket=getOrderTickets(order)[0];const html=buildTicketDocument([ticket]);
+ assert.match(html,/<svg class="qr"/);assert.match(html,/aria-label="Scan to order again"/);assert.match(html,/> · Paid</);
+ assert.ok(!html.includes('REPRINT OK'));assert.ok(!html.includes('class="reprint"> · REPRINT'));
+ assert.ok(buildTicketDocument([ticket],'kitchen',true).includes('class="reprint"> · REPRINT'));
+ assert.ok(!buildTicketDocument([ticket],'kitchen').includes('<svg'));
+});
+test('legacy Py per-item dates get independent fulfilment identities; ambiguous mixed dates fail closed',()=>{
+ const py={...order,orderNumber:'MC-1018-5RPA',items:[{...order.items[0],productName:'Vietnam Prawn Noodle Salad',quantity:1,healthyLunchSnapshot:{planId:'plan',date:'2026-10-19'}},{...order.items[1],productName:'Chicken Burrito Bowl',quantity:2,healthyLunchSnapshot:{planId:'plan',date:'2026-10-20'}}]} as StoreOrder;
+ const tickets=getOrderTickets(py);assert.equal(tickets.length,2);assert.equal(tickets[0].fulfilmentId,'legacy_20261019');assert.equal(tickets[1].items[0].quantity,2);assert.equal(tickets[0].items.length,1);
+ assert.deepEqual(getOrderTickets({...py,items:[py.items[0],order.items[1]]}),[]);
+ assert.deepEqual(getOrderTickets({...py,items:[{...py.items[0],healthyLunchSnapshot:{planId:'plan',date:'2026-02-30'}}]}),[]);
+});
+test('one, three, eight and nine tickets paginate with no trailing page break',()=>{
+ for(const count of [1,3,8,9]){const html=buildTicketDocument(Array(count).fill(getOrderTickets(order)[0]));assert.equal((html.match(/class="sheet"/g)||[]).length,Math.ceil(count/8));assert.ok(html.includes('.sheet:last-of-type{break-after:auto}'));}
+});

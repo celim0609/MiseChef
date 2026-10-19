@@ -1,3 +1,5 @@
+import { createExternalPosOrder } from '../functions/externalPosOrders.js';
+import { saveManualPosOrder, confirmManualPosPayment } from '../functions/manualPosOrders.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { deleteApp, initializeApp } from '../functions/node_modules/firebase-admin/lib/esm/app/index.js';
@@ -245,8 +247,10 @@ test('multi-day pickup creates one financial order/payment and checkout retries 
     assert.equal(orders.size, 1); const ref = orders.docs[0].ref; const order = orders.docs[0].data();
     assert.equal(order.total, 50); assert.equal(order.items.length, 2); assert.equal(order.fulfilments.length, 2);
     await ref.update({ 'payment.status': 'paid', status: 'Paid' });
+    for (const nextStatus of ['Preparing', 'Ready']) await updateStoreOrderFulfilment({db, uid: ownerId, orderId: ref.id, nextStatus, fulfilmentId: order.fulfilments[0].id});
     await updateStoreOrderFulfilment({ db, uid: ownerId, orderId: ref.id, nextStatus: 'Completed', fulfilmentId: order.fulfilments[0].id });
     assert.equal((await ref.get()).data().fulfilmentStatus, 'New');
+    for (const nextStatus of ['Preparing', 'Ready']) await updateStoreOrderFulfilment({db, uid: ownerId, orderId: ref.id, nextStatus, fulfilmentId: order.fulfilments[1].id});
     await updateStoreOrderFulfilment({ db, uid: ownerId, orderId: ref.id, nextStatus: 'Completed', fulfilmentId: order.fulfilments[1].id });
     const completed = (await ref.get()).data();
     assert.equal(completed.fulfilmentStatus, 'Completed'); assert.deepEqual(completed.fulfilments, order.fulfilments); assert.equal(completed.total, 50);
@@ -305,6 +309,7 @@ test('Weekly delivery persists one payment, five fulfilments and immutable first
     assert.equal(initial.deliveryPricingSnapshot.fulfilmentCount, 5); assert.equal(initial.deliveryPricingSnapshot.finalDeliveryTotal, 44.5);
     await ref.update({ 'payment.status': 'paid', status: 'Paid' });
     for (const [index, day] of initial.fulfilments.entries()) {
+      await updateStoreOrderFulfilment({ db, uid: ownerId, orderId: ref.id, nextStatus: 'Preparing', fulfilmentId: day.id });
       await updateStoreOrderFulfilment({ db, uid: ownerId, orderId: ref.id, nextStatus: 'Ready', fulfilmentId: day.id });
       await Promise.all([dispatchStoreDelivery({ db, provider, uid: ownerId, orderId: ref.id, fulfilmentId: day.id }), dispatchStoreDelivery({ db, provider, uid: ownerId, orderId: ref.id, fulfilmentId: day.id })]);
       await refreshStoreDelivery({ db, provider, uid: ownerId, orderId: ref.id, fulfilmentId: day.id });
@@ -315,4 +320,55 @@ test('Weekly delivery persists one payment, five fulfilments and immutable first
     }
     assert.equal(dispatchCount, 5); assert.equal(paymentCount, 1); assert.equal(quoteCount, 6); // One checkout quote plus five operational dispatch quotes.
   } finally { await deleteApp(app); }
+});
+
+test('manual multi-day order transactions serialize duplicate saves, edits, payment confirmations and daily Prepare', async () => {
+  const app = initializeApp({projectId:'demo-misechef-store-payment-rules'},`manual-pos-${process.pid}`); const db=getFirestore(app);
+  const workspaceId=`manual-pos-${process.pid}`, uid=`${workspaceId}-owner`, now=new Date('2026-10-18T04:00:00Z');
+  const store={id:workspaceId,workspaceId,name:'GG Grab&Go',currency:'MYR',country:'MY',orderDays:['monday','tuesday','wednesday','thursday','friday'],maximumAdvanceDays:30,earliestPickupDays:0,pickupOperatingHours:{start:'09:00',end:'18:00'}};
+  const products=[{id:'prawn',storeId:workspaceId,workspaceId,name:'Vietnam Prawn Noodle Salad',price:15,available:true,optionGroupIds:[]},{id:'burrito',storeId:workspaceId,workspaceId,name:'Chicken Burrito Bowl',price:18,available:true,optionGroupIds:[]}];
+  const input={workspaceId,storeId:workspaceId,slug:'qa',requestId:'integration-request-123456',source:'phone',customerName:'Py',phone:'0164209116',lines:[
+    {selection:{productId:'prawn',selectedOptions:[]},quantity:1,date:'2026-10-19',time:'12:00',method:'pickup'},
+    {selection:{productId:'burrito',selectedOptions:[]},quantity:2,date:'2026-10-20',time:'12:00',method:'pickup'},
+    {custom:{name:'Off-menu soup',unitPrice:5,savePrivate:true},quantity:1,date:'2026-10-20',time:'12:00',method:'pickup',notes:'No salt'}]};
+  await db.collection('workspaces').doc(workspaceId).set({ownerId:uid,subscriptionPlan:'professional',subscriptionStatus:'active'});
+  try {
+    const args={db,uid,input,now,loadCheckout:async()=>({store,products,optionGroups:[],sets:[]})};
+    const results=await Promise.all([saveManualPosOrder(args),saveManualPosOrder(args)]);
+    assert.equal(results[0].orderId,results[1].orderId);
+    const ref=db.collection('storeOrders').doc(results[0].orderId), before=(await ref.get()).data();
+    assert.equal((await db.collection('storeOrders').where('storeId','==',workspaceId).get()).size,1);
+    assert.equal(before.total,56);assert.equal(before.payment.status,'pending');assert.equal(before.fulfilments.length,2);
+    await assert.rejects(updateStoreOrderFulfilment({db,uid,orderId:ref.id,nextStatus:'Preparing',fulfilmentId:before.fulfilments[0].id}));
+    const confirmation={orderId:ref.id,expectedRevision:1,amountMinor:5600,method:'cash',reference:'QA cash received',received:true};
+    const payments=await Promise.all([confirmManualPosPayment({db,uid,input:confirmation,now}),confirmManualPosPayment({db,uid,input:confirmation,now})]);
+    assert.equal(payments.filter(r=>r.duplicate).length,1);
+    assert.equal((await db.collection('storeOrderTimeline').where('orderId','==',ref.id).where('type','==','payment_received').get()).size,1);
+    const first=before.fulfilments[0].id,second=before.fulfilments[1].id;
+    await assert.rejects(updateStoreOrderFulfilment({db,uid,orderId:ref.id,nextStatus:'Completed',fulfilmentId:first}));
+    await Promise.all([updateStoreOrderFulfilment({db,uid,orderId:ref.id,nextStatus:'Preparing',fulfilmentId:first}),updateStoreOrderFulfilment({db,uid,orderId:ref.id,nextStatus:'Preparing',fulfilmentId:first})]);
+    for(const nextStatus of ['Ready','Completed']) await updateStoreOrderFulfilment({db,uid,orderId:ref.id,nextStatus,fulfilmentId:first});
+    const after=(await ref.get()).data();
+    assert.equal(after.fulfilmentStatus,'New');assert.equal(after.fulfilmentOperations[second],undefined);assert.equal(after.fulfilmentCompletion[second],undefined);
+    assert.deepEqual(after.items,before.items);assert.deepEqual(after.totals,before.totals);assert.equal(after.payment.amountMinor,5600);
+    await assert.rejects(saveManualPosOrder({...args,input:{...input,orderId:ref.id,expectedRevision:1,requestId:'edit-after-paid-123456'}}));
+    assert.equal((await db.collection('storePrivatePosItems').where('workspaceId','==',workspaceId).get()).size,1);
+    assert.equal((await db.collection('storeProducts').where('workspaceId','==',workspaceId).get()).size,0);
+  } finally {await deleteApp(app);}
+});
+
+test('ShopeeFood platform-paid and immediate Walk-in remain server-priced and operational',async()=>{
+ const app=initializeApp({projectId:'demo-misechef-store-payment-rules'},`external-pos-${process.pid}`),db=getFirestore(app);
+ const workspaceId=`external-pos-${process.pid}`,uid=`${workspaceId}-owner`,slug=workspaceId;
+ try {
+ await db.collection('workspaces').doc(workspaceId).set({ownerId:uid,subscriptionPlan:'professional',subscriptionStatus:'active'});
+ await db.collection('stores').doc(workspaceId).set({workspaceId,slug,name:'GG Grab&Go',currency:'MYR'});
+ await db.collection('storeProducts').doc(`${workspaceId}-rice`).set({workspaceId,storeId:workspaceId,name:'Rice',price:10,available:true,optionGroupIds:[]});
+ for(const [source,paymentLabel] of [['shopeefood','shopeefood_platform_paid'],['walk_in','walk_in_paid']]) {
+  const input={workspaceId,storeId:workspaceId,slug,source,paymentLabel,externalOrderNumber:`${source}-QA`,customerName:'QA',phone:'0164209116',selections:[{productId:`${workspaceId}-rice`,quantity:2,selectedOptions:[],unitPrice:1}]};
+  const result=await createExternalPosOrder({db,uid,input});const duplicate=await createExternalPosOrder({db,uid,input});assert.equal(result.orderId,duplicate.orderId);
+  const ref=db.collection('storeOrders').doc(result.orderId),order=(await ref.get()).data();assert.equal(order.payment.status,'paid');assert.equal(order.total,20);assert.equal(order.fulfilments,undefined);
+  await updateStoreOrderFulfilment({db,uid,orderId:ref.id,nextStatus:'Preparing'});assert.equal((await ref.get()).data().fulfilmentStatus,'Preparing');
+ }
+ } finally {await deleteApp(app);}
 });

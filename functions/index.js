@@ -1,3 +1,4 @@
+import { saveManualPosOrder, confirmManualPosPayment } from './manualPosOrders.js';
 import { createRecipePipelineService } from './recipePipelineService.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import { readFileSync } from 'node:fs';
@@ -2525,3 +2526,6 @@ export const processResumeImportJob = onDocumentCreated({
     await logRequest({ requesterId, companyId, action, status: 'failed', attempts, errorCode, responseTime: Date.now() - startedAt, model: RESUME_MODEL }).catch(() => undefined);
   }
 });
+
+export const saveStoreManualPosOrder = onCall({ region: REGION, timeoutSeconds: 30 }, request => saveManualPosOrder({ db, uid: request.auth?.uid, input: request.data?.order }));
+export const confirmStoreManualPosPayment = onCall({ region: REGION, timeoutSeconds: 30 }, request => confirmManualPosPayment({ db, uid: request.auth?.uid, input: request.data }));
