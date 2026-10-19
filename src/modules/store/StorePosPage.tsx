@@ -1,3 +1,6 @@
+import { getOrderTickets } from './orderTickets';
+import DailyFulfilmentQueue from './DailyFulfilmentQueue';
+import OrderTicketPanel from './OrderTicketPanel';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
@@ -341,11 +344,11 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
 
   const groupedOrders = useMemo(() => ACTIVE_COLUMNS.reduce<Record<ActivePosStatus, ReturnType<typeof buildGroupKitchenEntries>>>(
     (groups, column) => {
-      groups[column.status] = buildGroupKitchenEntries(orders, column.status, storePickupSessions);
+      groups[column.status] = buildGroupKitchenEntries(orders.filter(order => !order.fulfilments?.length && !order.weeklyFulfilments?.length && getOrderTickets(order).some(ticket => ticket.date === todayKey)), column.status, storePickupSessions);
       return groups;
     },
     { New: [], Preparing: [], Ready: [] }
-  ), [orders, storePickupSessions]);
+  ), [orders, storePickupSessions, todayKey]);
 
   const completedTodayOrders = completedOrders.filter(order => isOrderCompletedOnMalaysiaDate(order, todayKey));
   const completedTodayCount = completedTodayOrders.length;
@@ -533,6 +536,8 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
 
   return (
     <section data-pos-theme={isNightMode ? 'dark' : 'light'} className={`pos-screen flex min-h-screen flex-col transition-colors ${isNightMode ? 'bg-[#07111f] text-white' : 'bg-slate-100 text-slate-950'}`}>
+      <OrderTicketPanel orders={[...new Map([...completedOrders, ...orders].map(order => [order.id, order])).values()]} />
+      {activeView === 'live' && <DailyFulfilmentQueue orders={orders} />}
       <audio ref={audioRef} preload="auto" aria-hidden="true" />
 
       <header className={`pos-light-surface flex flex-col gap-3 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:px-6 ${isNightMode ? 'border-white/10 bg-[#0b1727]' : 'border-slate-300 bg-white'}`}>
