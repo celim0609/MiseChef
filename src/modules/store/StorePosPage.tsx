@@ -571,6 +571,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       )}
       <audio ref={audioRef} preload="auto" aria-hidden="true" />
 
+      <div className={posSection === 'tickets' ? 'hidden' : 'contents'}>
       <header className={`pos-light-surface flex flex-col gap-3 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:px-6 ${isNightMode ? 'border-white/10 bg-[#0b1727]' : 'border-slate-300 bg-white'}`}>
         <div className="flex min-w-0 items-center gap-3">
           <button type="button" onClick={onBack} aria-label="Back to Store" className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border ${isNightMode ? 'border-white/15 bg-white/5 text-white' : 'border-slate-300 bg-slate-100 text-slate-900'}`}><ArrowLeft className="h-6 w-6" /></button>
@@ -749,6 +750,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
           </section>
         </div>
       )}
+      </div>
     </section>
   );
 }
