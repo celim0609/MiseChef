@@ -1,4 +1,3 @@
-import { printManualReceipt } from './posWalkIn';
 import React, { useState } from 'react';
 import type { StoreOrder } from './types';
 import { getOrderTickets, type OrderTicket } from './orderTickets';
@@ -10,7 +9,6 @@ export function DailyFulfilmentCard({order,ticket,onUpdated}: {order:StoreOrder;
  const [busy,setBusy]=useState(false); const [error,setError]=useState('');
  const status=dailyStatus(order,ticket);const actions=dailyActions(order,ticket);
  return <article data-fulfilment-key={ticket.key} className="rounded-xl border p-4"><h3 className="text-xl font-bold">{ticket.orderNumber} · {ticket.pickupCode}</h3><p>{ticket.customerName} · {ticket.date} {ticket.time} · {ticket.method}</p><p className="font-bold">{status}</p><ul>{ticket.items.map((item,index)=><li key={index}>{item.quantity} × {item.name}{item.modifiers.map((modifier,i)=><small key={i} className="block">{modifier}</small>)}</li>)}</ul>{ticket.method === 'delivery' && <p className="font-bold">Delivery address: {ticket.address?.trim() || 'ADDRESS MISSING — VERIFY BEFORE DISPATCH'}</p>}{ticket.notes && <p>Notes: {ticket.notes}</p>}
- {order.manualOrder && order.payment.status==='paid' && <button className="mr-3 underline" onClick={()=>{try{printManualReceipt(order);}catch(e){setError(String(e));}}}>Print full payment receipt</button>}
  <div className="flex flex-wrap gap-2">{actions.map(next=><button key={next} disabled={busy} className="mt-3 rounded-xl bg-blue-600 p-3 font-bold text-white disabled:opacity-50" onClick={async()=>{setBusy(true);setError('');try{await storeOrderService.updateFulfilment(order.id,next,'',ticket.weeklyDay,ticket.fulfilmentId);onUpdated?.();}catch(e){setError(e instanceof Error?e.message:'Unable to update fulfilment.');}finally{setBusy(false);}}}>{busy?'Updating…':`Mark ${next}`}</button>)}</div>
  {status==='Ready' && !actions.length && <p>Ready · Manage delivery in Store Orders</p>}{error && <p role="alert">{error}</p>}</article>;
 }
