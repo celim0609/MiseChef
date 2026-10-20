@@ -548,7 +548,7 @@ export interface StoreOrder {
     dispatch?: { status?: string; errorCode?: string; attempt?: number };
     lifecycle?: { state?: 'not_started' | 'assigning_driver' | 'driver_assigned' | 'picked_up' | 'completed' | 'canceled' | 'expired' | 'rejected'; providerStatus?: string; changedAt?: string; history?: Array<{ state: string; providerStatus: string; source: string; occurredAt: string }> };
     providerOrder?: { orderId?: string; status?: string; driverId?: string; shareLink?: string; driver?: { name?: string; phone?: string; plateNumber?: string; photo?: string; coordinates?: { lat?: string; lng?: string; updatedAt?: string } } };
-    recipient?: { address?: string };
+    recipient?: { address?: string; instructions?: string };
     quote?: { fee?: number; expiresAt?: string };
   };
   customerUid?: string;

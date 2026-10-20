@@ -116,3 +116,26 @@ test('document type classes cannot collide with customer row flex layout',()=>{
  assert.ok(buildTicketDocument(getOrderTickets(order)).includes('<body class="ticket-customer">'));
  assert.ok(buildTicketDocument(getOrderTickets(order),'kitchen').includes('<body class="ticket-kitchen">'));
 });
+
+
+test('manual per-day delivery addresses survive snapshots and never fall back to an unrelated destination', async () => {
+ const { normalizeOrderFulfilments } = await import('./storeOrderSnapshot');
+ const manual = {...order, manualOrder: {revision:1,draft:{},createdBy:'owner'}, delivery: {recipient:{address:'Wrong neighbourhood'}}, fulfilments: normalizeOrderFulfilments([
+  {id:'one',date:'2026-10-19',time:'12:00',method:'delivery',notes:'Unit 10, 25 Jalan Full, 31400 Ipoh',allocations:[{itemIndex:0,quantity:1}]},
+  {id:'two',date:'2026-10-20',time:'12:00',method:'delivery',notes:'',allocations:[{itemIndex:1,quantity:1}]}
+ ])} as StoreOrder;
+ const tickets = getOrderTickets(manual);
+ assert.equal(tickets[0].address,'Unit 10, 25 Jalan Full, 31400 Ipoh');
+ assert.equal(tickets[1].address,'');
+ const html=buildTicketDocument(tickets);
+ assert.ok(html.includes('ADDRESS MISSING — VERIFY BEFORE DISPATCH'));
+ assert.ok(!html.includes('Wrong neighbourhood'));
+});
+
+test('online delivery preserves full recipient address and unit instructions on both ticket types', () => {
+ const delivery = {...order,fulfilmentMethod:'delivery',delivery:{recipient:{address:'25 Jalan Full, 31400 Ipoh, Perak',instructions:'Unit / Floor: B-12-3\nInstructions: Ring bell'}}} as StoreOrder;
+ for(const kind of ['customer','kitchen'] as const) {
+  const html=buildTicketDocument(getOrderTickets(delivery),kind);
+  for(const value of ['25 Jalan Full, 31400 Ipoh, Perak','B-12-3','Ring bell']) assert.ok(html.includes(value));
+ }
+});
