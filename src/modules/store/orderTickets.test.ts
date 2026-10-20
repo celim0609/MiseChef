@@ -34,7 +34,7 @@ test('legacy weekly fulfilments retain day snapshots and missing weekly schedule
  assert.deepEqual(getOrderTickets({...order,items:[{...order.items[0],weeklyPlanSnapshot:{meals:[]}}]}),[]);
 });
 test('kitchen ticket uses selected preparation snapshot without financial fields', () => {
- const html=buildTicketDocument([getOrderTickets(order)[0]],'kitchen');assert.ok(html.includes('Kitchen Ticket'));assert.ok(html.includes('No chilli'));assert.ok(!html.includes('98765'));
+ const html=buildTicketDocument([getOrderTickets(order)[0]],'kitchen');assert.ok(html.includes('KITCHEN TICKET'));assert.ok(html.includes('No chilli'));assert.ok(!html.includes('98765'));
 });
 test('empty batches fail before opening a print window', () => {assert.throws(()=>buildTicketDocument([]),/Select/);});
 
@@ -42,7 +42,7 @@ test('customer bag ticket includes reorder contacts but kitchen ticket does not'
  const ticket = getOrderTickets(order)[0];
  const customer = buildTicketDocument([ticket], 'customer');
  const kitchen = buildTicketDocument([ticket], 'kitchen');
- for (const value of ['Thank you for your order!', 'Freshly prepared with care.', 'misechef.ai/store/misechef-s-grab-go-store', '016-4209116', '@misechef.ai', 'Powered by MiseChef']) {
+ for (const value of ['Thank You!', 'Enjoy Your Healthy Lunch!', 'Scan to Order Again', '016-4209116', '@misechef.ai', 'by MiseChef']) {
    assert.ok(customer.includes(value), value);
    assert.ok(!kitchen.includes(value), value);
  }
@@ -71,7 +71,7 @@ test('Py Monday prawn and Tuesday burrito remain separate customer and kitchen t
 
 test('QR is a self-contained vector with quiet zone, Paid is explicit, reprint label is opt-in',()=>{
  const ticket=getOrderTickets(order)[0];const html=buildTicketDocument([ticket]);
- assert.match(html,/<svg class="qr"/);assert.match(html,/aria-label="Scan to order again"/);assert.match(html,/> · Paid</);
+ assert.match(html,/<svg class="qr"/);assert.match(html,/aria-label="Scan to order again"/);assert.match(html,/>PAID</);
  assert.ok(!html.includes('REPRINT OK'));assert.ok(!html.includes('class="reprint"> · REPRINT'));
  assert.ok(buildTicketDocument([ticket],'kitchen',true).includes('class="reprint"> · REPRINT'));
  assert.ok(!buildTicketDocument([ticket],'kitchen').includes('<svg'));
@@ -84,4 +84,35 @@ test('legacy Py per-item dates get independent fulfilment identities; ambiguous 
 });
 test('one, three, eight and nine tickets paginate with no trailing page break',()=>{
  for(const count of [1,3,8,9]){const html=buildTicketDocument(Array(count).fill(getOrderTickets(order)[0]));assert.equal((html.match(/class="sheet"/g)||[]).length,Math.ceil(count/8));assert.ok(html.includes('.sheet:last-of-type{break-after:auto}'));}
+});
+
+
+test('pending and all unconfirmed payment states are visibly unpaid, never green Paid', () => {
+ for (const status of ['pending','processing','failed','cancelled','pending_verification','rejected']) {
+  const ticket = getOrderTickets({...order,payment:{...order.payment,status}} as StoreOrder)[0];
+  for (const kind of ['customer','kitchen'] as const) { const html=buildTicketDocument([ticket],kind);assert.match(html,/class="payment unpaid">PENDING \/ UNPAID/);assert.ok(!html.includes('class="payment paid"')); }
+ }
+ assert.ok(buildTicketDocument(getOrderTickets(order)).includes('class="payment paid">PAID'));
+});
+test('source is projected and escaped while unknown orders default to Online Store', () => {
+ assert.equal(getOrderTickets({...order,externalOrder:{source:'whatsapp'}} as StoreOrder)[0].source,'WhatsApp');
+ assert.equal(getOrderTickets(order)[0].source,'Online Store');
+ assert.ok(buildTicketDocument([{...getOrderTickets(order)[0],source:'<script>'}]).includes('&lt;script&gt;'));
+});
+test('official logo remains byte-identical and QR encodes the exact direct store URL', async () => {
+ const { readFileSync } = await import('node:fs');
+ const { officialTicketLogo } = await import('./officialTicketLogo');
+ const { REORDER_URL, reorderQrSvg } = await import('./orderTickets');
+ const QRCode = (await import('qrcode')).default;
+ assert.equal(officialTicketLogo,readFileSync(new URL('../../../public/assets/logo/logo-black.svg',import.meta.url),'utf8'));
+ assert.equal(REORDER_URL,'https://misechef.ai/store/misechef-s-grab-go-store');
+ const qr=QRCode.create(REORDER_URL,{errorCorrectionLevel:'M'});const cells:string[]=[];
+ for(let y=0;y<qr.modules.size;y++)for(let x=0;x<qr.modules.size;x++)if(qr.modules.get(y,x))cells.push(`M${x+4},${y+4}h1v1h-1z`);
+ assert.ok(reorderQrSvg().includes(`d="${cells.join('')}"`));
+ const kitchen=buildTicketDocument(getOrderTickets(order),'kitchen');assert.ok(!kitchen.includes('<svg'));assert.ok(!kitchen.includes('Scan to Order Again'));
+});
+
+test('document type classes cannot collide with customer row flex layout',()=>{
+ assert.ok(buildTicketDocument(getOrderTickets(order)).includes('<body class="ticket-customer">'));
+ assert.ok(buildTicketDocument(getOrderTickets(order),'kitchen').includes('<body class="ticket-kitchen">'));
 });
