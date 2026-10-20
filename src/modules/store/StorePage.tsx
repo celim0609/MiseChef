@@ -88,6 +88,7 @@ import {
   syncHealthyLunchRecipe,
   getStoreProductEditorPresentation,
   getReadyToSellProductDraft,
+  applyReadyToSellNutrition,
   getStoreProductValidationTarget
 } from './storeProductVisibility';
 import { calculateStoreProductCostAnalysis, resolveStoreProductEstimatedCost } from './storeCostModel';
@@ -245,6 +246,7 @@ export default function StorePage({
   const [productPhotoFile, setProductPhotoFile] = useState<File | null>(null);
   const [productPhotoPreviewUrl, setProductPhotoPreviewUrl] = useState('');
   const [isRecipePhotoLoading, setIsRecipePhotoLoading] = useState(false);
+  const [isRecipeNutritionLoading, setIsRecipeNutritionLoading] = useState(false);
   const [recipePhotoError, setRecipePhotoError] = useState('');
   const [editingProduct, setEditingProduct] = useState<StoreProduct | null>(null);
   const [isProductFormOpen, setIsProductFormOpen] = useState(false);
@@ -259,6 +261,11 @@ export default function StorePage({
   const productOptionsRef = useRef<HTMLDivElement | null>(null);
   const productCardRefs = useRef(new Map<string, HTMLElement>());
   const productPhotoTransferIdRef = useRef(0);
+  const productDraftRequestIdRef = useRef(0);
+  useEffect(() => () => {
+    productDraftRequestIdRef.current += 1;
+    productPhotoTransferIdRef.current += 1;
+  }, [workspace.id]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -658,6 +665,8 @@ export default function StorePage({
   };
 
   const openNewProduct = () => {
+    productDraftRequestIdRef.current += 1;
+    setIsRecipeNutritionLoading(false);
     productPhotoTransferIdRef.current += 1;
     setEditingProduct(null);
     setProductDraft(emptyProductDraft());
@@ -673,28 +682,20 @@ export default function StorePage({
   const openReadyToSellProduct = async (recipe: Recipe) => {
     const photoUrl = recipe.imageUrl || recipe.coverImage;
     const transferId = ++productPhotoTransferIdRef.current;
+    const requestId = ++productDraftRequestIdRef.current;
     setActiveView('products');
     setEditingProduct(null);
-    let nutrition;
-    try {
-      const profiles = await loadIngredientNutritionProfiles(recipe.ingredients.map(ingredient => ingredient.ingredientId || ''), workspace.id);
-      nutrition = calculateRecipeNutrition(recipe, profiles, recipes);
-    } catch (error) {
-      console.warn('Recipe nutrition was unavailable for Ready to Sell.', error);
-      nutrition = { status: 'INCOMPLETE' as const, incompleteReasons: ['Nutrition profiles are unavailable.'] };
-    }
-    if (productPhotoTransferIdRef.current !== transferId) return;
-    setProductDraft(getReadyToSellProductDraft(recipe, nutrition));
+    setProductDraft(getReadyToSellProductDraft(recipe));
     setProductOptions([]);
     setSavedOptionGroupId('');
     setProductPhotoFile(null);
     setRecipePhotoError('');
     setIsRecipePhotoLoading(Boolean(photoUrl));
+    setIsRecipeNutritionLoading(true);
     setIsProductFormOpen(true);
     clearMessages();
 
-    if (!photoUrl) return;
-    void loadRecipePhotoForStoreProduct({ recipeId: recipe.id, photoUrl })
+    if (photoUrl) void loadRecipePhotoForStoreProduct({ recipeId: recipe.id, photoUrl })
       .then(photo => {
         if (productPhotoTransferIdRef.current === transferId) setProductPhotoFile(photo);
       })
@@ -706,6 +707,19 @@ export default function StorePage({
       .finally(() => {
         if (productPhotoTransferIdRef.current === transferId) setIsRecipePhotoLoading(false);
       });
+
+    let nutrition;
+    try {
+      const profiles = await loadIngredientNutritionProfiles(recipe.ingredients.map(ingredient => ingredient.ingredientId || ''), workspace.id);
+      nutrition = calculateRecipeNutrition(recipe, profiles, recipes);
+    } catch (error) {
+      console.warn('Recipe nutrition was unavailable for Ready to Sell.', error);
+      nutrition = { status: 'INCOMPLETE' as const, incompleteReasons: ['Nutrition profiles are unavailable.'] };
+    } finally {
+      if (productDraftRequestIdRef.current === requestId) setIsRecipeNutritionLoading(false);
+    }
+    if (productDraftRequestIdRef.current !== requestId) return;
+    setProductDraft(current => applyReadyToSellNutrition(current, recipe, nutrition));
   };
 
   useEffect(() => {
@@ -715,6 +729,8 @@ export default function StorePage({
   }, [readyToSellRecipe, onReadyToSellHandled]);
 
   const closeProductForm = () => {
+    productDraftRequestIdRef.current += 1;
+    setIsRecipeNutritionLoading(false);
     clearMealPhotos();
     productPhotoTransferIdRef.current += 1;
     setEditingProduct(null);
@@ -729,6 +745,8 @@ export default function StorePage({
   };
 
   const openProductEditor = (product: StoreProduct) => {
+    productDraftRequestIdRef.current += 1;
+    setIsRecipeNutritionLoading(false);
     productPhotoTransferIdRef.current += 1;
     setEditingProduct(product);
     clearMealPhotos();
@@ -797,7 +815,7 @@ export default function StorePage({
 
   const handleProductSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (isMealRecipeLoading) return;
+    if (isMealRecipeLoading || isRecipeNutritionLoading || isRecipePhotoLoading) return;
     if (!store || isSaving) return;
     const configuredDraft = prepareHealthyLunchDraft(productDraft);
 
@@ -1245,6 +1263,7 @@ export default function StorePage({
                 </label>
                 <label hidden={productDraft.weeklyMenuVersion === 2 || productDraft.weeklyMenuVersion === 3} className={productDraft.weeklyMenuVersion === 2 || productDraft.weeklyMenuVersion === 3 ? 'hidden' : 'block'}>
                   <span className="font-sans text-xs font-extrabold text-primary">Calories per serving (kcal)</span>
+                  {isRecipeNutritionLoading && <span role="status" className="block text-xs">Calculating Recipe nutrition…</span>}
                   <input ref={productCaloriesInputRef} type="number" min="0" step="1" value={productDraft.calories ?? ''} onChange={event => updateProduct('calories', event.target.value === '' ? undefined : Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 </label>
                 <label className="block md:col-span-2">
@@ -1279,7 +1298,7 @@ export default function StorePage({
                 <label hidden={productDraft.weeklyMenuVersion === 2 || productDraft.weeklyMenuVersion === 3} className={productDraft.weeklyMenuVersion === 2 || productDraft.weeklyMenuVersion === 3 ? 'hidden' : 'block'}>
                   <span className="font-sans text-xs font-extrabold text-primary">Product Photo <span aria-hidden="true">*</span></span>
                   <input ref={productPhotoInputRef} type="file" accept="image/jpeg,image/png,image/webp" aria-required={!editingProduct && !productDraft.photoUrl} onChange={handleProductPhotoChange} className="mt-2 block w-full font-sans text-xs font-bold text-on-surface-variant" />
-                  {productPhotoPreviewUrl && <img src={productPhotoPreviewUrl} alt="Product photo preview" className="mt-3 h-32 w-32 rounded-xl border border-surface-container-high object-cover" />}
+                  {(productPhotoPreviewUrl || productDraft.photoUrl) && <img src={productPhotoPreviewUrl || productDraft.photoUrl} alt="Product photo preview" className="mt-3 h-32 w-32 rounded-xl border border-surface-container-high object-cover" />}
                   <span className="mt-1 block font-sans text-[11px] font-bold text-outline">
                     {isRecipePhotoLoading ? 'Loading Recipe photo…' : productPhotoFile?.name || (productDraft.photoUrl ? 'Existing photo retained' : 'Photo required')}
                   </span>
@@ -1429,7 +1448,7 @@ export default function StorePage({
                   </button>
                 )}
                 <button type="button" onClick={closeProductForm} className="rounded-full bg-surface-container px-5 py-3 font-sans text-xs font-extrabold text-primary">{productEditorPresentation.cancelAction}</button>
-                <button type="submit" disabled={isSaving || isMealRecipeLoading} className="rounded-full bg-primary px-6 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : productEditorPresentation.primaryAction}</button>
+                <button type="submit" disabled={isSaving || isMealRecipeLoading || isRecipeNutritionLoading || isRecipePhotoLoading} className="rounded-full bg-primary px-6 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : productEditorPresentation.primaryAction}</button>
               </div>
             </form>
           )}

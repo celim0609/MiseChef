@@ -53,3 +53,17 @@ test('shared board/list projection isolates today, future, completed and cancell
  assert.equal(dailyEntries([{...ready,payment:{...ready.payment,status:'pending'}}],'Today','2026-10-19').length,0);
  assert.equal(dailyEntries([ready],'Today','2026-10-20')[0].ticket.fulfilmentId,'future');
 });
+
+test('period and status intersect on the same fulfilment rather than the parent or sibling day', async () => {
+ const {orderMatchesStatusInPeriod}=await import('./dailyOrderModel');
+ const mixed={...order,fulfilmentStatus:'New',fulfilmentOperations:{today:{kitchenStatus:'Ready'}}} as StoreOrder;
+ assert.equal(orderMatchesStatusInPeriod(mixed,'Today','Ready','2026-10-19'),true);
+ assert.equal(orderMatchesStatusInPeriod(mixed,'Upcoming','Ready','2026-10-19'),false);
+ assert.equal(orderMatchesStatusInPeriod(mixed,'Upcoming','New','2026-10-19'),true);
+ assert.equal(orderMatchesStatusInPeriod(mixed,'Today','New','2026-10-19'),false);
+ assert.equal(orderMatchesStatusInPeriod(mixed,'History','All','2026-10-19'),false);
+ const completed={...mixed,fulfilmentCompletion:{today:{completedAt:'now',completedBy:'owner'}}};
+ assert.equal(orderMatchesStatusInPeriod(completed,'History','Completed','2026-10-19'),true);
+ assert.equal(orderMatchesStatusInPeriod(completed,'Upcoming','Completed','2026-10-19'),false);
+ assert.equal(orderMatchesStatusInPeriod(completed,'Upcoming','Paid','2026-10-19'),true);
+});

@@ -360,8 +360,7 @@ export const storeService = {
     if (!db || !workspaceId) return [];
     const productsQuery = query(
       collection(db, 'storeProducts'),
-      where('workspaceId', '==', workspaceId),
-      limit(50)
+      where('workspaceId', '==', workspaceId)
     );
     const snapshot = await getDocs(productsQuery);
     return snapshot.docs

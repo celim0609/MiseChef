@@ -49,3 +49,20 @@ export function dailyActions(order: StoreOrder, ticket: OrderTicket): Exclude<St
  const next = nextDailyStatus(order,ticket);
  return next === 'Preparing' ? ['Preparing','Ready'] : next ? [next] : [];
 }
+
+export function orderMatchesStatusInPeriod(order: StoreOrder, period: 'Today' | 'Upcoming' | 'History', filter: string, today: string) {
+  if (!orderInPeriod(order, period, today)) return false;
+  if (filter === 'All') return true;
+  if (filter === 'Paid') return order.payment.status === 'paid';
+  if (filter === 'Payment Review') return order.payment.status === 'pending_verification';
+  if (filter === 'New' && order.payment.status !== 'paid') return false;
+  const tickets = getOrderTickets(order);
+  if (!tickets.length) return order.fulfilmentStatus === filter;
+  return tickets.some(ticket => {
+    const status = dailyStatus(order, ticket);
+    const terminal = ['Completed', 'Cancelled'].includes(status);
+    const inPeriod = period === 'History' ? terminal || ticket.date < today
+      : !terminal && (period === 'Today' ? ticket.date === today : ticket.date > today);
+    return inPeriod && status === filter;
+  });
+}

@@ -1,9 +1,9 @@
 import { getOrderTickets } from './orderTickets';
 import OrderTicketPanel from './OrderTicketPanel';
-import { orderInPeriod, sortOrdersForPeriod, nextDailyStatus } from './dailyOrderModel';
+import { orderInPeriod, sortOrdersForPeriod, nextDailyStatus, orderMatchesStatusInPeriod } from './dailyOrderModel';
 import { toMalaysiaDateKey } from './posOrderModel';
 import MealOptionSummary from './MealOptionSummary';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import {
   CheckCircle2,
   ChevronRight,
@@ -110,10 +110,16 @@ export default function StoreOrdersPanel({
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [timeline, setTimeline] = useState<StoreOrderTimelineEvent[]>([]);
+  const handledFocusRef = useRef('');
   const [period, setPeriod] = useState<'Today' | 'Upcoming' | 'History'>('Today');
   const [activeFilter, setActiveFilter] = useState<(typeof FILTERS)[number]>('All');
   const [isUpdating, setIsUpdating] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => {
+    setPeriod('Today'); setActiveFilter('All'); setSelectedOrderId('');
+    setOperationalOrders([]); handledFocusRef.current = '';
+  }, [storeId, workspaceId]);
 
   useEffect(() => storeOrderService.subscribeOperationalOrders(
     storeId,
@@ -153,7 +159,12 @@ export default function StoreOrdersPanel({
   }, [historyOrders, operationalOrders]);
 
   useEffect(() => {
-    if (focusOrderId && orders.some(order => order.id === focusOrderId)) {
+    const order = orders.find(order => order.id === focusOrderId);
+    if (order && handledFocusRef.current !== focusOrderId) {
+      handledFocusRef.current = focusOrderId;
+      const today = toMalaysiaDateKey();
+      setPeriod(orderInPeriod(order, 'Today', today) ? 'Today' : orderInPeriod(order, 'Upcoming', today) ? 'Upcoming' : 'History');
+      setActiveFilter('All');
       setSelectedOrderId(focusOrderId);
     }
   }, [focusOrderId, orders]);
@@ -173,16 +184,13 @@ export default function StoreOrdersPanel({
     );
   }, [selectedOrderId, workspaceId]);
 
-  const visibleOrders = useMemo(() => sortOrdersForPeriod(orders.filter(order => {
-    if (!orderInPeriod(order, period, toMalaysiaDateKey())) return false;
-    if (activeFilter === 'All') return true;
-    if (activeFilter === 'Payment Review') return order.payment.status === 'pending_verification';
-    if (activeFilter === 'Paid') return order.payment.status === 'paid';
-    if (activeFilter === 'New') {
-      return order.payment.status === 'paid' && order.fulfilmentStatus === 'New';
-    }
-    return order.fulfilmentStatus === activeFilter;
-  }), period, toMalaysiaDateKey()), [activeFilter, orders, period]);
+  const visibleOrders = useMemo(() => sortOrdersForPeriod(orders.filter(order =>
+    orderMatchesStatusInPeriod(order, period, activeFilter, toMalaysiaDateKey())
+  ), period, toMalaysiaDateKey()), [activeFilter, orders, period]);
+
+  useEffect(() => {
+    if (selectedOrderId && !visibleOrders.some(order => order.id === selectedOrderId)) setSelectedOrderId('');
+  }, [selectedOrderId, visibleOrders]);
 
   const updateStatus = async (nextStatus: StoreFulfilmentStatus, weeklyDay?: string, fulfilmentId?: string) => {
     if (!selectedOrder || isUpdating) return;
@@ -507,7 +515,8 @@ export default function StoreOrdersPanel({
                   Mark {NEXT_STATUS[selectedOrder.fulfilmentStatus as StoreFulfilmentStatus]}
                 </button>
               )}
-              {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && selectedOrder.delivery?.lifecycle?.state !== 'completed' && !['created', 'creating', 'provider_terminal', 'cancelled'].includes(selectedOrder.delivery?.dispatch?.status || '') && ((selectedOrder.delivery?.fulfilmentMode === 'instant' && ['Preparing', 'Ready'].includes(selectedOrder.fulfilmentStatus)) || (selectedOrder.delivery?.fulfilmentMode !== 'instant' && selectedOrder.fulfilmentStatus === 'Ready')) && (
+              {selectedOrder.delivery?.dispatch?.status === 'outcome_unknown' && <p role="alert">Delivery submission outcome is uncertain. Reconcile the existing request before requesting a replacement.</p>}
+              {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && selectedOrder.delivery?.lifecycle?.state !== 'completed' && !['created', 'creating', 'outcome_unknown', 'cancel_requested', 'provider_terminal', 'cancelled'].includes(selectedOrder.delivery?.dispatch?.status || '') && ((selectedOrder.delivery?.fulfilmentMode === 'instant' && ['Preparing', 'Ready'].includes(selectedOrder.fulfilmentStatus)) || (selectedOrder.delivery?.fulfilmentMode !== 'instant' && selectedOrder.fulfilmentStatus === 'Ready')) && (
                 <button type="button" disabled={isUpdating} onClick={() => dispatchDelivery(selectedOrder.id)} className="mt-3 w-full rounded-full bg-secondary px-5 py-3 font-sans text-xs font-extrabold text-on-secondary disabled:opacity-50">{selectedOrder.delivery?.fulfilmentMode === 'instant' ? 'Find Driver' : 'Request Lalamove delivery'}</button>
               )}
               {selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && <div className="mt-3 rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>Delivery: {deliveryLifecycleLabel(selectedOrder.delivery?.lifecycle?.state)}</p>{selectedOrder.delivery?.lifecycle?.state === 'assigning_driver' && deliveryElapsed(selectedOrder.delivery.lifecycle.history) && <p className="mt-1 text-xs">Searching for {deliveryElapsed(selectedOrder.delivery.lifecycle.history)}</p>}{selectedOrder.delivery?.providerOrder?.driver?.name && <p className="mt-1 text-xs">Driver: {selectedOrder.delivery.providerOrder.driver.name}{selectedOrder.delivery.providerOrder.driver.plateNumber ? ` · ${selectedOrder.delivery.providerOrder.driver.plateNumber}` : ''}</p>}{selectedOrder.delivery?.providerOrder?.driver?.phone && <p className="mt-1 text-xs">{selectedOrder.delivery.providerOrder.driver.phone}</p>}{selectedOrder.delivery?.providerOrder?.shareLink && <a className="mt-2 inline-block text-xs underline" href={selectedOrder.delivery.providerOrder.shareLink} target="_blank" rel="noreferrer">Track delivery</a>}{['expired', 'rejected', 'canceled'].includes(selectedOrder.delivery?.lifecycle?.state || '') && <p className="mt-2 text-xs">Merchant review required. A replacement is never created automatically.</p>}</div>}
