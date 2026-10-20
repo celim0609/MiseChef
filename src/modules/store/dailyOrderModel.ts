@@ -1,9 +1,11 @@
+import { isOrderOperationallyEligible, shiftDateKey } from './posOrderModel';
 import type { StoreOrder } from './types';
 import { getOrderTickets, type OrderTicket } from './orderTickets';
-export function dailyStatus(order: StoreOrder, ticket: OrderTicket) {
+export function dailyStatus(order: StoreOrder, ticket: OrderTicket): StoreOrder['fulfilmentStatus'] {
   if (order.fulfilmentStatus === 'Cancelled') return 'Cancelled';
   if (order.fulfilmentStatus === 'Completed' || (ticket.fulfilmentId ? order.fulfilmentCompletion?.[ticket.fulfilmentId] : ticket.weeklyDay ? order.weeklyCompletion?.[ticket.weeklyDay] : false)) return 'Completed';
-  return order.fulfilmentOperations?.[ticket.fulfilmentId || ticket.weeklyDay || '']?.kitchenStatus || (ticket.fulfilmentId || ticket.weeklyDay ? 'New' : order.fulfilmentStatus);
+  const operation = order.fulfilmentOperations?.[ticket.fulfilmentId || ticket.weeklyDay || '']?.kitchenStatus;
+  return operation === 'Preparing' || operation === 'Ready' ? operation : (ticket.fulfilmentId || ticket.weeklyDay ? 'New' : order.fulfilmentStatus);
 }
 export function orderInPeriod(order: StoreOrder, period: 'Today' | 'Upcoming' | 'History', today: string) {
   if (['Cancelled', 'Completed'].includes(order.fulfilmentStatus)) return period === 'History';
@@ -30,4 +32,20 @@ export function nextDailyStatus(order: StoreOrder, ticket: OrderTicket): StoreOr
   if (status === 'Preparing') return 'Ready';
   if (status === 'Ready' && (ticket.method === 'pickup' || order.manualOrder)) return 'Completed';
   return null;
+}
+
+export type DailyView = 'Today' | 'Tomorrow' | 'Upcoming' | 'History';
+export function ticketInDailyView(date: string, view: DailyView, today: string) {
+  return view === 'Upcoming' ? date > today : view === 'Tomorrow' ? date === shiftDateKey(today,1) : view === 'History' ? date < today : date === today;
+}
+export function dailyEntries(orders: StoreOrder[], view: DailyView, today: string) {
+  return [...new Map(orders.map(order => [order.id,order])).values()].filter(isOrderOperationallyEligible).flatMap(order => getOrderTickets(order).filter(ticket => {
+    if (!ticket.fulfilmentId && !ticket.weeklyDay) return false;
+    const terminal = ['Completed','Cancelled'].includes(dailyStatus(order,ticket));
+    return view === 'History' ? terminal || ticket.date < today : !terminal && ticketInDailyView(ticket.date,view,today);
+  }).map(ticket => ({order,ticket,status:dailyStatus(order,ticket)}))).sort((a,b) => `${a.ticket.date} ${a.ticket.time}`.localeCompare(`${b.ticket.date} ${b.ticket.time}`) || a.ticket.key.localeCompare(b.ticket.key));
+}
+export function dailyActions(order: StoreOrder, ticket: OrderTicket): Exclude<StoreOrder['fulfilmentStatus'], ''>[] {
+ const next = nextDailyStatus(order,ticket);
+ return next === 'Preparing' ? ['Preparing','Ready'] : next ? [next] : [];
 }

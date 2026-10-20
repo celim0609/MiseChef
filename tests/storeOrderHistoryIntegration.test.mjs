@@ -351,6 +351,13 @@ test('manual multi-day order transactions serialize duplicate saves, edits, paym
     const after=(await ref.get()).data();
     assert.equal(after.fulfilmentStatus,'New');assert.equal(after.fulfilmentOperations[second],undefined);assert.equal(after.fulfilmentCompletion[second],undefined);
     assert.deepEqual(after.items,before.items);assert.deepEqual(after.totals,before.totals);assert.equal(after.payment.amountMinor,5600);
+    await assert.rejects(updateStoreOrderFulfilment({db,uid:'foreign',orderId:ref.id,nextStatus:'Ready',fulfilmentId:second}));
+    await Promise.all([1,2].map(()=>updateStoreOrderFulfilment({db,uid,orderId:ref.id,nextStatus:'Ready',fulfilmentId:second})));
+    const directReady=(await ref.get()).data();
+    assert.equal(directReady.fulfilmentOperations[second].kitchenStatus,'Ready');
+    assert.deepEqual(directReady.fulfilmentOperations[first],after.fulfilmentOperations[first]);
+    assert.deepEqual(directReady.fulfilmentCompletion,after.fulfilmentCompletion);
+    assert.deepEqual(directReady.payment,after.payment);assert.deepEqual(directReady.items,after.items);assert.deepEqual(directReady.totals,after.totals);
     await assert.rejects(saveManualPosOrder({...args,input:{...input,orderId:ref.id,expectedRevision:1,requestId:'edit-after-paid-123456'}}));
     assert.equal((await db.collection('storePrivatePosItems').where('workspaceId','==',workspaceId).get()).size,1);
     assert.equal((await db.collection('storeProducts').where('workspaceId','==',workspaceId).get()).size,0);

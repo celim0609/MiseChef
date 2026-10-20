@@ -21,14 +21,17 @@ export const STORE_FULFILMENT_STATUS = Object.freeze({
 const ALLOWED_TRANSITIONS = Object.freeze({
   [STORE_FULFILMENT_STATUS.new]: new Set([
     STORE_FULFILMENT_STATUS.preparing,
+    STORE_FULFILMENT_STATUS.ready,
     STORE_FULFILMENT_STATUS.cancelled
   ]),
   [STORE_FULFILMENT_STATUS.confirmed]: new Set([
     STORE_FULFILMENT_STATUS.preparing,
+    STORE_FULFILMENT_STATUS.ready,
     STORE_FULFILMENT_STATUS.cancelled
   ]),
   [STORE_FULFILMENT_STATUS.paid]: new Set([
     STORE_FULFILMENT_STATUS.preparing,
+    STORE_FULFILMENT_STATUS.ready,
     STORE_FULFILMENT_STATUS.cancelled
   ]),
   [STORE_FULFILMENT_STATUS.preparing]: new Set([
@@ -174,7 +177,7 @@ export const updateStoreOrderFulfilment = async ({
       if (order.fulfilmentCompletion?.[entry.id]) return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
       if (!order.manualOrder && entry.method === 'delivery' && !['Preparing', 'Ready'].includes(normalizedNextStatus)) throw new HttpsError('failed-precondition', 'Delivery completion must be confirmed by Lalamove.');
       if (entry.method === 'pickup' && !['Preparing', 'Ready', 'Completed'].includes(normalizedNextStatus)) throw new HttpsError('failed-precondition', 'Complete each pickup independently.');
-      if (operation.kitchenStatus !== normalizedNextStatus && !canTransitionStoreFulfilment({ currentStatus: operation.kitchenStatus || 'New', nextStatus: normalizedNextStatus })) throw new HttpsError('failed-precondition', 'Follow Prepare, Ready, then Completed for this day.');
+      if (operation.kitchenStatus !== normalizedNextStatus && !canTransitionStoreFulfilment({ currentStatus: operation.kitchenStatus || 'New', nextStatus: normalizedNextStatus })) throw new HttpsError('failed-precondition', 'Mark this day Preparing or Ready before completing it.');
       if (normalizedNextStatus !== 'Completed') {
         if (operation.kitchenStatus === normalizedNextStatus) return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
         if (operation.kitchenStatus === 'Ready' && normalizedNextStatus === 'Preparing') throw new HttpsError('failed-precondition', 'A ready fulfilment cannot return to preparing.');
@@ -204,7 +207,7 @@ export const updateStoreOrderFulfilment = async ({
       const completion = order.weeklyCompletion || {};
       if (completion[day]) return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
       const status = order.fulfilmentOperations?.[day]?.kitchenStatus;
-      if (status !== normalizedNextStatus && !canTransitionStoreFulfilment({ currentStatus: status || 'New', nextStatus: normalizedNextStatus })) throw new HttpsError('failed-precondition', 'Follow Prepare, Ready, then Completed for this day.');
+      if (status !== normalizedNextStatus && !canTransitionStoreFulfilment({ currentStatus: status || 'New', nextStatus: normalizedNextStatus })) throw new HttpsError('failed-precondition', 'Mark this day Preparing or Ready before completing it.');
       if (normalizedNextStatus !== 'Completed') {
         if (status === normalizedNextStatus) return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
         if (status === 'Ready' && normalizedNextStatus === 'Preparing') throw new HttpsError('failed-precondition', 'A ready fulfilment cannot return to preparing.');

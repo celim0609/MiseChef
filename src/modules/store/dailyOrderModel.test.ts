@@ -34,3 +34,22 @@ test('ambiguous legacy parents remain accessible in History and period ordering 
  const earlier={...order,id:'earlier',createdAt:'2026-10-18',fulfilments:order.fulfilments!.map(day=>({...day,date:'2026-10-20'}))};
  assert.deepEqual(sortOrdersForPeriod([later,earlier],'Upcoming','2026-10-19').map(order=>order.id),['earlier','later']);
 });
+
+test('direct Ready and Preparing are both available only for paid New days',async()=>{
+ const {dailyActions}=await import('./dailyOrderModel');const ticket=getOrderTickets(order)[0];
+ assert.deepEqual(dailyActions(order,ticket),['Preparing','Ready']);
+ assert.deepEqual(dailyActions({...order,payment:{...order.payment,status:'pending'}},ticket),[]);
+ assert.deepEqual(dailyActions({...order,fulfilmentOperations:{today:{kitchenStatus:'Preparing'}}},ticket),['Ready']);
+ assert.deepEqual(dailyActions({...order,fulfilmentOperations:{today:{kitchenStatus:'Ready'}}},ticket),['Completed']);
+});
+test('shared board/list projection isolates today, future, completed and cancelled without duplicate parents',async()=>{
+ const {dailyEntries}=await import('./dailyOrderModel');
+ const ready={...order,fulfilmentOperations:{today:{kitchenStatus:'Ready'},future:{kitchenStatus:'Ready'}}};
+ assert.deepEqual(dailyEntries([ready,ready],'Today','2026-10-19').map(e=>[e.ticket.fulfilmentId,e.status]),[['today','Ready']]);
+ assert.deepEqual(dailyEntries([ready],'Upcoming','2026-10-19').map(e=>[e.ticket.fulfilmentId,e.status]),[['future','Ready']]);
+ assert.equal(dailyEntries([ready],'Tomorrow','2026-10-19').length,1);
+ assert.equal(dailyEntries([{...ready,fulfilmentCompletion:{today:{completedAt:'now',completedBy:'owner'}}}],'Today','2026-10-19').length,0);
+ assert.equal(dailyEntries([{...ready,fulfilmentStatus:'Cancelled'}],'Upcoming','2026-10-19').length,0);
+ assert.equal(dailyEntries([{...ready,payment:{...ready.payment,status:'pending'}}],'Today','2026-10-19').length,0);
+ assert.equal(dailyEntries([ready],'Today','2026-10-20')[0].ticket.fulfilmentId,'future');
+});
