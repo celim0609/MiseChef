@@ -180,6 +180,7 @@ interface StorePosPageProps {
 }
 
 export default function StorePosPage({ storeId, workspaceId, workspaceName, onBack, notificationAction }: StorePosPageProps) {
+  const [posSection, setPosSection] = useState<'orders' | 'tickets'>('orders');
   const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [completedOrders, setCompletedOrders] = useState<StoreOrder[]>([]);
   const [storeDisplayName, setStoreDisplayName] = useState('Loading Store…');
@@ -553,10 +554,21 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
 
   return (
     <section data-pos-theme={isNightMode ? 'dark' : 'light'} className={`pos-screen flex min-h-screen flex-col transition-colors ${isNightMode ? 'bg-[#07111f] text-white' : 'bg-slate-100 text-slate-950'}`}>
-      <ManualPosOrders workspaceId={workspaceId} storeId={storeId} />
-      {(!dailyHistory || dailyHistory.hasMore) && <button className="mx-4 underline" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()}>{loadingDailyHistory ? 'Loading history…' : 'Load older fulfilments for history and ticket reprints'}</button>}
-      <OrderTicketPanel orders={[...new Map([...(dailyHistory?.orders || []), ...completedOrders, ...orders].map(order => [order.id, order])).values()]} />
-      {activeView === 'live' && <DailyFulfilmentQueue view={dailyView} onViewChange={setDailyView} onUpdated={() => setHistoryRefreshKey(value => value + 1)} orders={dailyOrders} />}
+      <nav aria-label="POS sections" className="sticky top-0 z-30 flex gap-2 border-b bg-white p-3 text-slate-950">
+        <button type="button" aria-current={posSection === 'orders' ? 'page' : undefined} onClick={() => setPosSection('orders')} className={`rounded-lg px-5 py-3 font-bold ${posSection === 'orders' ? 'bg-slate-900 text-white' : 'bg-slate-100'}`}>POS · Orders</button>
+        <button type="button" aria-current={posSection === 'tickets' ? 'page' : undefined} onClick={() => setPosSection('tickets')} className={`rounded-lg px-5 py-3 font-bold ${posSection === 'tickets' ? 'bg-slate-900 text-white' : 'bg-slate-100'}`}>Print Tickets</button>
+      </nav>
+      {posSection === 'tickets' ? (
+        <main className="mx-auto w-full max-w-5xl p-3">
+          <OrderTicketPanel orders={[...new Map([...(dailyHistory?.orders || []), ...completedOrders, ...orders].map(order => [order.id, order])).values()]} />
+          {(!dailyHistory || dailyHistory.hasMore) && <button type="button" className="mt-3 rounded border px-4 py-2 underline" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()}>{loadingDailyHistory ? 'Loading…' : 'Load older orders for reprint'}</button>}
+        </main>
+      ) : (
+        <>
+          <ManualPosOrders workspaceId={workspaceId} storeId={storeId} />
+          {activeView === 'live' && <DailyFulfilmentQueue view={dailyView} onViewChange={setDailyView} onUpdated={() => setHistoryRefreshKey(value => value + 1)} orders={dailyOrders} />}
+        </>
+      )}
       <audio ref={audioRef} preload="auto" aria-hidden="true" />
 
       <header className={`pos-light-surface flex flex-col gap-3 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:px-6 ${isNightMode ? 'border-white/10 bg-[#0b1727]' : 'border-slate-300 bg-white'}`}>
