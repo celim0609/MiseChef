@@ -1,5 +1,4 @@
 import { getOrderTickets } from './orderTickets';
-import OrderTicketPanel from './OrderTicketPanel';
 import { orderInPeriod, sortOrdersForPeriod, nextDailyStatus, orderMatchesStatusInPeriod } from './dailyOrderModel';
 import { toMalaysiaDateKey } from './posOrderModel';
 import MealOptionSummary from './MealOptionSummary';
@@ -296,7 +295,6 @@ export default function StoreOrdersPanel({
         </p>
       )}
 
-      <OrderTicketPanel orders={orders} />
       <div className="flex flex-wrap items-center gap-2" aria-label="Order periods">
         {(['Today', 'Upcoming', 'History'] as const).map(value => <button type="button" key={value} aria-pressed={period === value} onClick={() => { setPeriod(value); setActiveFilter('All'); setSelectedOrderId(''); }} className={`rounded-full border px-5 py-3 font-bold ${period === value ? 'border-primary bg-primary text-on-primary' : 'border-surface-container-high bg-white text-primary'}`}>{value}</button>)}
       </div>
