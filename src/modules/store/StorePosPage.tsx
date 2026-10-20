@@ -565,7 +565,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
         </main>
       ) : (
         <>
-          <ManualPosOrders workspaceId={workspaceId} storeId={storeId} />
+          {activeView === 'history' && <ManualPosOrders workspaceId={workspaceId} storeId={storeId} />}
           {activeView === 'live' && <DailyFulfilmentQueue view={dailyView} onViewChange={setDailyView} onUpdated={() => setHistoryRefreshKey(value => value + 1)} orders={dailyOrders} />}
         </>
       )}
