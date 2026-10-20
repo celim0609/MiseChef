@@ -555,7 +555,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   return (
     <section data-pos-theme={isNightMode ? 'dark' : 'light'} className={`pos-screen flex min-h-screen flex-col transition-colors ${isNightMode ? 'bg-[#07111f] text-white' : 'bg-slate-100 text-slate-950'}`}>
       <nav aria-label="POS sections" className="sticky top-0 z-30 flex gap-2 border-b bg-white p-3 text-slate-950">
-        <button type="button" aria-current={posSection === 'orders' ? 'page' : undefined} onClick={() => setPosSection('orders')} className={`rounded-lg px-5 py-3 font-bold ${posSection === 'orders' ? 'bg-slate-900 text-white' : 'bg-slate-100'}`}>POS · Orders</button>
+        <button type="button" aria-current={posSection === 'orders' ? 'page' : undefined} onClick={() => setPosSection('orders')} className={`rounded-lg px-5 py-3 font-bold ${posSection === 'orders' ? 'bg-slate-900 text-white' : 'bg-slate-100'}`}>POS · Live</button>
         <button type="button" aria-current={posSection === 'tickets' ? 'page' : undefined} onClick={() => setPosSection('tickets')} className={`rounded-lg px-5 py-3 font-bold ${posSection === 'tickets' ? 'bg-slate-900 text-white' : 'bg-slate-100'}`}>Print Tickets</button>
       </nav>
       {posSection === 'tickets' ? (
