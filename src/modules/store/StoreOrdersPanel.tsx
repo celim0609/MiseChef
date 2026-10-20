@@ -289,8 +289,10 @@ export default function StoreOrdersPanel({
       )}
 
       <OrderTicketPanel orders={orders} />
-      <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Order filters">
-        {(['Today', 'Upcoming', 'History'] as const).map(value => <button type="button" key={value} aria-pressed={period === value} onClick={() => setPeriod(value)} className="rounded-full border px-5 py-3 font-bold">{value}</button>)}
+      <div className="flex flex-wrap items-center gap-2" aria-label="Order periods">
+        {(['Today', 'Upcoming', 'History'] as const).map(value => <button type="button" key={value} aria-pressed={period === value} onClick={() => { setPeriod(value); setActiveFilter('All'); setSelectedOrderId(''); }} className={`rounded-full border px-5 py-3 font-bold ${period === value ? 'border-primary bg-primary text-on-primary' : 'border-surface-container-high bg-white text-primary'}`}>{value}</button>)}
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Order status filters">
         {FILTERS.map(filter => (
           <button
             key={filter}
