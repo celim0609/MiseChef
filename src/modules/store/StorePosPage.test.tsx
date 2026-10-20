@@ -31,7 +31,7 @@ test('Walk-in POS uses canonical external-order metadata, option selections, and
   assert.match(pageSource, /createExternalPosOrder/);
   assert.match(pageSource, /selectedOptions/);
   assert.match(pageSource, /hasRequiredExternalOptions/);
-  assert.match(pageSource, /externalSource !== 'walk_in' && \(!externalName \|\| !externalPhone\)/);
+  assert.doesNotMatch(pageSource, /externalSource !== 'walk_in' && \(!externalName/);
   assert.match(pageSource, /isWalkInOrder\(order\) && order\.payment\.status === "paid"/);
   assert.match(pageSource, /printWalkInReceipt\(createdOrder\)/);
   assert.match(pageSource, /catch \{\s*\/\/ The persisted order remains available for POS-card reprint/s);
@@ -186,6 +186,7 @@ const makeExternalOrderHarness = (overrides: Record<string, unknown> = {}) => {
   const requests: Record<string, unknown>[] = [];
   const scope = {
     externalSubmitInFlightRef: lock,
+    externalRequestIdRef: {current: 'request-1234567890'},
     externalCart: state.cart,
     creatingExternal: false,
     externalSource: 'walk_in', externalName: '', externalPhone: '', externalNotes: '', externalNumber: '',
@@ -260,11 +261,12 @@ test('empty carts never acquire the submission lock or call the API', async () =
 
 for (const [source, paymentLabel] of [['walk_in', 'walk_in_paid'], ['shopeefood', 'shopeefood_platform_paid'], ['other', 'other_paid']]) {
   test(`${source} keeps its existing payload and payment label`, async () => {
-    const customerName = source === 'walk_in' ? '' : 'POS QA';
-    const phone = source === 'walk_in' ? '' : '60123456789';
+    const customerName = '';
+    const phone = '';
     const harness = makeExternalOrderHarness({ externalSource: source, externalName: customerName, externalPhone: phone });
     await harness.submit();
     assert.equal(harness.requests.length, 1);
+    assert.equal(harness.requests[0].requestId, 'request-1234567890');
     assert.equal(harness.requests[0].source, source);
     assert.equal(harness.requests[0].paymentLabel, paymentLabel);
     assert.equal(harness.requests[0].customerName, customerName);
@@ -290,12 +292,12 @@ test('POS modal keeps errors directly above the full-width action and separates 
   assert.match(modal, /flex h-\[92dvh\].*flex-col overflow-hidden/);
   assert.match(modal, /<header className="[^"]*shrink-0/);
   assert.match(modal, /aria-label="Store products" className="min-h-0 flex-1 overflow-y-auto/);
-  assert.match(modal, /aria-label="Order cart" className="min-h-0 overflow-y-auto/);
+  assert.match(modal, /aria-label="Order cart" className="min-h-0 flex-1 overflow-y-auto/);
   assert.match(modal, /md:w-\[90vw\] max-w-\[1440px\]/);
-  assert.match(modal, /md:grid md:grid-cols-\[minmax\(0,1fr\)_minmax\(360px,420px\)\]/);
+  assert.match(modal, /md:grid-cols-\[minmax\(0,1fr\)_minmax\(320px,420px\)\]/);
   assert.match(modal, /grid grid-cols-2 items-start gap-3 xl:grid-cols-3/);
-  assert.match(modal, /md:flex-1/);
-  assert.match(modal, /md:max-h-none md:overflow-visible/);
+  assert.match(modal, /Search POS products and sets/);
+  assert.match(modal, /grid-rows-\[minmax\(0,1fr\)_minmax\(0,1fr\)\]/);
   assert.match(modal, /Cart is empty/);
   assert.match(modal, /item\.unitPrice\.toFixed\(2\)/);
   assert.match(modal, /item\.lineTotal\.toFixed\(2\)/);
@@ -310,7 +312,7 @@ test('POS modal keeps errors directly above the full-width action and separates 
 
 test('cart preview preserves option adjustments, Set upgrades, quantities and rounded subtotal', () => {
   const pricingSource = pageSource.slice(pageSource.indexOf('  const externalCartLines ='), pageSource.indexOf('\n  const advanceGroup ='));
-  const calculate = new Function('externalCart', 'externalProducts', 'externalOptionGroups', 'externalSets', 'calculateStoreOptionAdjustedPrice', 'calculateStoreSetAnalysis', `${pricingSource}\nreturn { externalCartLines, externalSubtotal };`);
+  const calculate = new Function('externalCart', 'externalProducts', 'externalOptionGroups', 'externalSets', 'calculateStoreOptionAdjustedPrice', 'calculateStoreSetAnalysis', 'externalStore', `${pricingSource}\nreturn { externalCartLines, externalSubtotal };`);
   const products = [{ id: 'tea', name: 'Tea', available: true, price: 10 }];
   const groups = [{ id: 'flavour', available: true, options: [{ id: 'milk', available: true, priceAdjustment: 2.5 }] }];
   const sets = [{ id: 'set-a', price: 20, groups: [{ id: 'drink', options: [{ productId: 'tea', priceAdjustment: 3 }] }] }];

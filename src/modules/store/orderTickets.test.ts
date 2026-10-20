@@ -139,3 +139,17 @@ test('online delivery preserves full recipient address and unit instructions on 
   for(const value of ['25 Jalan Full, 31400 Ipoh, Perak','B-12-3','Ring bell']) assert.ok(html.includes(value));
  }
 });
+
+test('external five-day menus print actual allocated dishes and quantities without duplicating package price',async()=>{
+ const {buildExternalOrderItems}=await import('../../../functions/externalPosOrderModel.js');
+ const days=['mon','tue','wed','thu','fri'];
+ const dishes=days.map(day=>({id:day,storeId:'s',workspaceId:'s',name:`${day} actual dish`,price:12,available:true,optionGroupIds:[]}));
+ const plan={...dishes[0],id:'plan',name:'Weekly package',price:65,productType:'weekly_meal_plan',weeklyMeals:Object.fromEntries(days.map(day=>[day,day]))};
+ const built=buildExternalOrderItems({selections:[{productId:'plan',quantity:3,selectedOptions:[]}],lineSchedules:[{date:'2026-10-19',time:'12:00'}]},{products:[...dishes,plan],sets:[],optionGroups:[],store:{id:'s',workspaceId:'s',country:'MY',orderDays:['monday','tuesday','wednesday','thursday','friday'],earliestPickupDays:0,maximumAdvanceDays:30,pickupOperatingHours:{start:'09:00',end:'18:00'},pickupLocations:[{id:'loc',name:'Kitchen'}]}},new Date('2026-10-18T04:00:00Z'));
+ const tickets=getOrderTickets({...order,...built,externalOrder:{source:'shopeefood'}} as StoreOrder);
+ assert.equal(tickets.length,5);
+ for(const [i,ticket] of tickets.entries()) {
+  const html=buildTicketDocument([ticket],'kitchen');assert.ok(html.includes(`3 × ${days[i]} actual dish`));
+  assert.ok(!html.includes('Weekly package'));assert.equal(ticket.items.length,1);
+ }
+});

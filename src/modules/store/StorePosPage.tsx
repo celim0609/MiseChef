@@ -1,3 +1,8 @@
+import {productAllowsFulfilmentDate} from '../../../functions/storeProductAvailability.js';
+import PosWeeklyMenu from './PosWeeklyMenu';
+import type {HealthyLunchChoice} from './HealthyLunchMenu';
+import {previewManualLines} from './manualPosPreview';
+import {getWeeklyDates,resolveHealthyLunchDay} from '../../../functions/storeWeeklyMealPlan.js';
 import ManualPosOrders from './ManualPosOrders';
 import { getOrderTickets } from './orderTickets';
 import DailyFulfilmentQueue, { DailyFulfilmentCard } from './DailyFulfilmentQueue';
@@ -43,17 +48,22 @@ import {
   type OrderHistoryFilter
 } from './posOrderModel';
 import type { StoreFulfilmentStatus, StoreOrder } from './types';
-import type { StoreOptionGroup, StoreProduct, StoreSet } from './types';
+import type { StoreOptionGroup, StoreProduct, StoreSet, WorkspaceStore, MealOptionChoice } from './types';
 import { getPosSourceLabel, isWalkInOrder, printWalkInReceipt } from './posWalkIn';
-import { calculateStoreSetAnalysis, getDefaultStoreSetSelections, getStoreSetUnavailableReason } from './storeSetModel';
-import { calculateStoreOptionAdjustedPrice } from './storeModel';
+import { calculateStoreSetAnalysis, getDefaultStoreSetSelections, getStoreSetUnavailableReason, validateStoreSetSelections } from './storeSetModel';
+import { calculateStoreOptionAdjustedPrice, getPickupTimeSlots, getValidPickupDates } from './storeModel';
 
 type ExternalCartItem = {
   key: string;
   label: string;
   quantity: number;
+  date?: string;
+  time?: string;
   selection: {
     productId?: string;
+    healthyLunchPlanId?: string;
+    healthyLunchDate?: string;
+    selectedMealOptions?: MealOptionChoice[];
     setId?: string;
     selectedOptions: Array<{ groupId: string; optionId: string }>;
     selectedSetItems?: Array<{ groupId: string; productId: string }>;
@@ -221,6 +231,11 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   };
   useEffect(() => {setDailyHistory(null);}, [storeId, workspaceId]);
   const [externalOpen, setExternalOpen] = useState(false);
+  const [externalStore, setExternalStore] = useState<WorkspaceStore | null>(null);
+  const [externalSearch, setExternalSearch] = useState('');
+  const [externalCategory, setExternalCategory] = useState<'all'|'products'|'sets'|'weekly'>('all');
+  const [externalLoading, setExternalLoading] = useState(false);
+  const externalRequestIdRef = useRef(crypto.randomUUID());
   const [externalProducts, setExternalProducts] = useState<StoreProduct[]>([]);
   const [externalSets, setExternalSets] = useState<StoreSet[]>([]);
   const [externalOptionGroups, setExternalOptionGroups] = useState<StoreOptionGroup[]>([]);
@@ -401,18 +416,21 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     setErrorMessage('');
     setExternalError('');
     setExternalOpen(true);
+    setExternalLoading(true);
     try {
-      const [products, optionGroups, sets] = await Promise.all([
+      const [products, optionGroups, sets, loadedStore] = await Promise.all([
         storeService.listAdminProducts(workspaceId),
         storeService.listOptionGroups(workspaceId),
-        storeService.listSets(workspaceId)
+        storeService.listSets(workspaceId),
+        storeService.getWorkspaceStore(workspaceId)
       ]);
+      setExternalStore(loadedStore);
       setExternalProducts(products.filter(product => product.available));
       setExternalOptionGroups(optionGroups);
       setExternalSets(sets.filter(set => set.available && !getStoreSetUnavailableReason(set, products)));
     } catch (error) {
       setExternalError(error instanceof Error ? error.message : 'Unable to load Store products.');
-    }
+    } finally { setExternalLoading(false); }
   };
 
   const createExternalOrder = async () => {
@@ -422,7 +440,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     setExternalError('');
     try {
       const paymentLabel = externalSource === 'shopeefood' ? 'shopeefood_platform_paid' : externalSource === 'walk_in' ? 'walk_in_paid' : 'other_paid';
-      const result = await storeOrderService.createExternalPosOrder({ workspaceId, storeId, slug: (await storeService.getWorkspaceStore(workspaceId))?.slug || '', source: externalSource, externalOrderNumber: externalNumber, paymentLabel, customerName: externalName, phone: externalPhone, notes: externalNotes, selections: externalCart.map(item => ({ ...item.selection, quantity: item.quantity })) });
+      const result = await storeOrderService.createExternalPosOrder({ requestId: externalRequestIdRef.current, workspaceId, storeId, slug: (await storeService.getWorkspaceStore(workspaceId))?.slug || '', source: externalSource, externalOrderNumber: externalNumber, paymentLabel, customerName: externalName, phone: externalPhone, notes: externalNotes, selections: externalCart.map(item => ({ ...item.selection, quantity: item.quantity })), lineSchedules: externalCart.map(item=>({date:item.date || '',time:item.time || ''})) });
       if (externalSource === 'walk_in') {
         try {
           const createdOrder = await storeOrderService.getOrder(result.orderId);
@@ -431,6 +449,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
           // The persisted order remains available for POS-card reprint.
         }
       }
+      externalRequestIdRef.current = crypto.randomUUID();
       setExternalOpen(false); setExternalNumber(''); setExternalName(''); setExternalPhone(''); setExternalNotes(''); setExternalCart([]);
     } catch (error) {
       setExternalError(error instanceof Error ? error.message : 'Unable to create external order.');
@@ -440,13 +459,28 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     }
   };
   const addExternalProduct = (product: StoreProduct) => setExternalCart(current => {
+    const date = externalStore && product.availableDay && product.availableDay !== 'all' && !productAllowsFulfilmentDate(product,toMalaysiaDateKey()) ? getValidPickupDates(externalStore).find(date=>productAllowsFulfilmentDate(product,date)) || '' : '';
+    const time = date && externalStore ? getPickupTimeSlots(externalStore,date)[0] || '' : '';
     const existing = current.find(item => item.key === `product:${product.id}`);
-    return existing ? current.map(item => item === existing ? { ...item, quantity: Math.min(20, item.quantity + 1) } : item) : [...current, { key: `product:${product.id}`, label: product.name, quantity: 1, selection: { productId: product.id, selectedOptions: [] } }];
+    return existing ? current.map(item => item === existing ? { ...item, quantity: Math.min(20, item.quantity + 1) } : item) : [...current, { key: `product:${product.id}`, label: product.name, quantity: 1, date, time, selection: { productId: product.id, selectedOptions: [] } }];
   });
   const addExternalSet = (set: StoreSet) => setExternalCart(current => {
     const existing = current.find(item => item.key === `set:${set.id}`);
     return existing ? current.map(item => item === existing ? { ...item, quantity: Math.min(20, item.quantity + 1) } : item) : [...current, { key: `set:${set.id}`, label: set.name, quantity: 1, selection: { setId: set.id, selectedOptions: [], selectedSetItems: getDefaultStoreSetSelections(set, externalProducts) } }];
   });
+  const addExternalMenu = (product: StoreProduct, choice: HealthyLunchChoice, time: string) => {
+    const meal = choice.mode === 'day' ? resolveHealthyLunchDay(product, externalProducts, choice.date) : product;
+    if (!meal) return;
+    const selection = {productId:meal.id,selectedOptions:[],selectedMealOptions:choice.selectedMealOptions || [],...(choice.mode === 'day'?{healthyLunchPlanId:product.id,healthyLunchDate:choice.date}:{})};
+    const key = `menu:${product.id}:${choice.mode}:${choice.date}:${time}:${JSON.stringify(selection.selectedMealOptions)}`;
+    setExternalCart(current=>current.some(item=>item.key===key)?current.map(item=>item.key===key?{...item,quantity:Math.min(20,item.quantity+1)}:item):[...current,{key,label:meal.name,quantity:1,date:choice.date,time,selection}]);
+  };
+  const updateExternalSetChoice = (key:string,groupId:string,productId:string,maximum:number) => setExternalCart(current=>current.map(item=>{
+    if(item.key!==key)return item;
+    const choices=item.selection.selectedSetItems || [], selected=choices.filter(choice=>choice.groupId===groupId), others=choices.filter(choice=>choice.groupId!==groupId);
+    const next=selected.some(choice=>choice.productId===productId)?selected.filter(choice=>choice.productId!==productId):maximum===1?[{groupId,productId}]:[...selected,{groupId,productId}];
+    return {...item,selection:{...item.selection,selectedSetItems:[...others,...next]}};
+  }));
   const updateExternalCartQuantity = (key: string, change: number) => setExternalCart(current => current.flatMap(item => item.key !== key ? [item] : item.quantity + change < 1 ? [] : [{ ...item, quantity: Math.min(20, item.quantity + change) }]));
   const toggleExternalOption = (key: string, group: StoreOptionGroup, optionId: string) => setExternalCart(current => current.map(item => {
     if (item.key !== key) return item;
@@ -456,9 +490,14 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     return { ...item, selection: { ...item.selection, selectedOptions: [...otherGroups, ...next] } };
   }));
   const hasRequiredExternalOptions = externalCart.every(item => {
+    const set = externalSets.find(candidate=>candidate.id===item.selection.setId);
+    if (set && validateStoreSetSelections(set,externalProducts,item.selection.selectedSetItems || [])) return false;
     const product = externalProducts.find(candidate => candidate.id === item.selection.productId);
     return !product || product.optionGroupIds.every(groupId => {
       const group = externalOptionGroups.find(candidate => candidate.id === groupId);
+      if (!group || !group.available) return !item.selection.selectedOptions.some(choice=>choice.groupId===groupId);
+      const selected = item.selection.selectedOptions.filter(choice=>choice.groupId===groupId);
+      if (selected.length > (group.selectionType==='single'?1:group.maximumSelections) || selected.some(choice=>!group.options.some(option=>option.id===choice.optionId&&option.available))) return false;
       return !group?.required || item.selection.selectedOptions.filter(choice => choice.groupId === groupId).length >= Math.max(1, group.minimumSelections || 1);
     });
   });
@@ -470,10 +509,12 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       const option = group?.options.find(candidate => candidate.id === choice.optionId && candidate.available);
       return option ? [option.priceAdjustment] : [];
     });
-    const unitPrice = set
+    const menuPreview = product?.productType === 'weekly_meal_plan' || item.selection.healthyLunchPlanId ? previewManualLines([{quantity:item.quantity,date:item.date || '',time:item.time || '',method:'pickup',deliveryAddress:'',notes:'',selection:item.selection}],externalProducts,externalSets,externalOptionGroups).rows[0] : null;
+    const scheduleError = externalStore && !(product?.productType==='weekly_meal_plan' && !item.selection.healthyLunchDate) ? item.date ? (!getValidPickupDates(externalStore).includes(item.date) || !getPickupTimeSlots(externalStore,item.date).includes(item.time || '') ? 'Choose an available fulfilment date and time.' : '') : [product,...(item.selection.selectedSetItems || []).map(choice=>externalProducts.find(product=>product.id===choice.productId))].filter(Boolean).some(product=>!productAllowsFulfilmentDate(product,toMalaysiaDateKey())) ? 'Choose a fulfilment date matching the selected dish’s Available day.' : '' : '';
+    const unitPrice = menuPreview ? (menuPreview.unitMinor || 0)/100 : set
       ? calculateStoreSetAnalysis(set, externalProducts, item.selection.selectedSetItems || []).sellingPrice
       : calculateStoreOptionAdjustedPrice(product?.price || 0, adjustments);
-    return { ...item, unitPrice, lineTotal: Math.round((unitPrice * item.quantity + Number.EPSILON) * 100) / 100 };
+    return { ...item, previewError:menuPreview?.error || scheduleError, unitPrice, lineTotal: Math.round((unitPrice * item.quantity + Number.EPSILON) * 100) / 100 };
   });
   const externalSubtotal = Math.round((externalCartLines.reduce((sum, item) => sum + item.lineTotal, 0) + Number.EPSILON) * 100) / 100;
 
@@ -681,11 +722,17 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               </label>
             </fieldset>
 
-            <div className="flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
+            <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] md:grid-rows-1 md:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
             <div role="region" aria-label="Store products" className="min-h-0 flex-1 overflow-y-auto p-4">
-              <h3 className="mb-3 text-sm font-black">Products</h3>
+              <div className="sticky top-0 z-10 mb-3 space-y-2 bg-white pb-2">
+                <label className="block text-sm font-bold">Search catalog<input type="search" aria-label="Search POS products and sets" value={externalSearch} onChange={event=>setExternalSearch(event.target.value)} placeholder="Search products or sets…" className="mt-1 w-full rounded-xl border p-3"/></label>
+                <div className="flex flex-wrap gap-2">{(['all','products','sets','weekly'] as const).map(category=><button key={category} type="button" aria-pressed={externalCategory===category} onClick={()=>setExternalCategory(category)} className={`rounded-lg border px-3 py-2 text-sm font-bold ${externalCategory===category?'bg-blue-700 text-white':'bg-white'}`}>{category==='all'?'All':category==='weekly'?'Weekly menus':category==='sets'?'Sets':'Products'}</button>)}</div>
+              </div>
+              {externalLoading && <p role="status">Loading Store catalog…</p>}
+              {!externalLoading && !externalProducts.length && !externalSets.length && <p>No available products. Review Store products.</p>}
+              {(externalCategory==='all'||externalCategory==='weekly') && externalStore && externalProducts.filter(product=>product.productType==='weekly_meal_plan' && product.name.toLowerCase().includes(externalSearch.toLowerCase())).map(product=><div key={product.id} className="mb-4"><PosWeeklyMenu disabled={creatingExternal || externalLoading} product={product} products={externalProducts} store={externalStore} onAdd={(choice,time)=>addExternalMenu(product,choice,time)}/></div>)}
               <div className="grid grid-cols-2 items-start gap-3 xl:grid-cols-3">
-                {externalProducts.map(product => (
+                {(externalCategory==='all'||externalCategory==='products') && externalProducts.filter(product=>product.productType!=='weekly_meal_plan' && product.name.toLowerCase().includes(externalSearch.toLowerCase())).map(product => (
                   <article key={product.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
                     <div className="aspect-[16/9] bg-slate-100">{product.photoUrl ? <img src={product.photoUrl} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs font-bold text-slate-400">No image</div>}</div>
                     <div className="space-y-2 p-3">
@@ -696,16 +743,16 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                   </article>
                 ))}
               </div>
-              {externalSets.length > 0 && <div className="mt-4 border-t pt-3">
+              {(externalCategory==='all'||externalCategory==='sets') && externalSets.length > 0 && <div className="mt-4 border-t pt-3">
                 <p className="mb-2 text-sm font-black">Sets</p>
-                <div className="grid gap-2 sm:grid-cols-2">{externalSets.map(set => <button key={set.id} type="button" onClick={() => addExternalSet(set)} disabled={creatingExternal} className="rounded-xl border border-violet-300 bg-violet-50 p-3 text-left disabled:opacity-40"><span className="block font-black">Set · {set.name}</span><span className="text-sm font-bold text-slate-600">MYR {set.price.toFixed(2)} · Add</span></button>)}</div>
+                <div className="grid gap-2 sm:grid-cols-2">{externalSets.filter(set=>set.name.toLowerCase().includes(externalSearch.toLowerCase())).map(set => <button key={set.id} type="button" onClick={() => addExternalSet(set)} disabled={creatingExternal} className="rounded-xl border border-violet-300 bg-violet-50 p-3 text-left disabled:opacity-40"><span className="block font-black">Set · {set.name}</span><span className="text-sm font-bold text-slate-600">MYR {set.price.toFixed(2)} · Add</span></button>)}</div>
               </div>}
             </div>
 
             <div className="flex min-h-0 shrink-0 flex-col border-t bg-slate-50 md:border-l md:border-t-0">
-            <section aria-label="Order cart" className="min-h-0 overflow-y-auto px-4 py-3 md:flex-1">
-              <h3 className="mb-2 text-sm font-black">Cart</h3>
-              <div className="max-h-[20dvh] space-y-2 overflow-y-auto md:max-h-none md:overflow-visible">
+            <section aria-label="Order cart" className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+              <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-black">Cart</h3><button type="button" disabled={creatingExternal || !externalCart.length} onClick={()=>{if(!window.confirm('Clear this draft? Check View Orders first if a previous submission had a connection error.'))return;setExternalCart([]);setExternalNumber('');setExternalName('');setExternalPhone('');setExternalNotes('');setExternalError('');externalRequestIdRef.current=crypto.randomUUID();}} className="text-xs underline">Clear draft</button></div>
+              <div className="space-y-2">
                 {externalCartLines.length === 0 && <p className="py-2 text-sm text-slate-500">Cart is empty</p>}
                 {externalCartLines.map(item => <div key={item.key} className="rounded-lg border border-slate-200 bg-white p-3">
                   <div className="flex items-center gap-3">
@@ -717,6 +764,11 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                     </div>
                     <span className="min-w-20 text-right text-sm font-black">MYR {item.lineTotal.toFixed(2)}</span>
                   </div>
+                  {item.date && <p className="mt-2 text-xs font-bold">{item.selection.healthyLunchDate ? item.date : externalProducts.find(product=>product.id===item.selection.productId)?.productType==='weekly_meal_plan' ? getWeeklyDates(item.date).join(' · ') : item.date} · {item.time}</p>}
+                  {item.previewError && <p role="alert" className="text-sm text-red-700">{item.previewError}</p>}
+                  {!item.selection.healthyLunchPlanId && externalProducts.find(product=>product.id===item.selection.productId)?.productType!=='weekly_meal_plan' && <div className="mt-2 flex flex-wrap gap-2 text-xs"><label>Fulfilment date (blank = now)<input type="date" disabled={creatingExternal} aria-label={`${item.label} fulfilment date`} value={item.date || ''} onChange={event=>setExternalCart(current=>current.map(line=>line.key===item.key?{...line,date:event.target.value,time:event.target.value?(externalStore ? getPickupTimeSlots(externalStore,event.target.value)[0] || '' : ''):''}:line))} className="block rounded border p-2"/></label></div>}
+                  {item.date && externalProducts.find(product=>product.id===item.selection.productId)?.productType!=='weekly_meal_plan' && <label className="block text-xs">Fulfilment time<input type="time" disabled={creatingExternal} value={item.time || ''} onChange={event=>setExternalCart(current=>current.map(line=>line.key===item.key?{...line,time:event.target.value}:line))} className="ml-2 rounded border p-2"/></label>}
+                  {item.selection.setId && externalSets.find(set=>set.id===item.selection.setId)?.groups.map(group=><fieldset key={group.id} disabled={creatingExternal} className="mt-2 border-t pt-2 text-xs"><legend className="font-bold">{group.name} · choose {group.selectionCount}{group.required?' (required)':''}</legend>{group.options.map(option=>{const product=externalProducts.find(product=>product.id===option.productId);return product && <label key={option.productId} className="mr-3 inline-flex items-center gap-1 py-1"><input type={group.selectionCount===1?'radio':'checkbox'} name={`${item.key}-${group.id}`} checked={item.selection.selectedSetItems?.some(choice=>choice.groupId===group.id&&choice.productId===option.productId)||false} onChange={()=>updateExternalSetChoice(item.key,group.id,option.productId,group.selectionCount)}/>{product.name}{option.priceAdjustment?` (+${option.priceAdjustment.toFixed(2)})`:''}</label>})}</fieldset>)}
                   {item.selection.productId && externalProducts.find(product => product.id === item.selection.productId)?.optionGroupIds.map(groupId => {
                     const group = externalOptionGroups.find(candidate => candidate.id === groupId);
                     return group && <fieldset key={group.id} disabled={creatingExternal} className="mt-2 border-t pt-2 text-xs disabled:opacity-60"><legend className="font-bold">{group.name}{group.required ? ' (required)' : ''}</legend><div className="flex flex-wrap gap-3">{group.options.filter(option => option.available).map(option => <label key={option.id} className="flex items-center gap-1"><input type={group.selectionType === 'single' ? 'radio' : 'checkbox'} name={`${item.key}-${group.id}`} checked={item.selection.selectedOptions.some(choice => choice.groupId === group.id && choice.optionId === option.id)} onChange={() => toggleExternalOption(item.key, group, option.id)} />{option.name}</label>)}</div></fieldset>;
@@ -724,11 +776,11 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                 </div>)}
               </div>
               <fieldset disabled={creatingExternal} className="mt-3 grid grid-cols-2 gap-2 disabled:opacity-60">
-                <label className="text-xs font-bold text-slate-600">Customer name{externalSource === 'walk_in' ? ' (optional)' : ' (required)'}
-                  <input value={externalName} onChange={event => setExternalName(event.target.value)} placeholder="Customer name (optional for Walk-in)" className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
+                <label className="text-xs font-bold text-slate-600">Customer name (optional)
+                  <input value={externalName} onChange={event => setExternalName(event.target.value)} placeholder="Customer name (optional)" className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
                 </label>
-                <label className="text-xs font-bold text-slate-600">Phone{externalSource === 'walk_in' ? ' (optional)' : ' (required)'}
-                  <input type="tel" value={externalPhone} onChange={event => setExternalPhone(event.target.value)} placeholder="Phone (optional for Walk-in)" className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
+                <label className="text-xs font-bold text-slate-600">Phone (optional)
+                  <input type="tel" value={externalPhone} onChange={event => setExternalPhone(event.target.value)} placeholder="Phone (optional)" className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
                 </label>
                 <label className="col-span-2 text-xs font-bold text-slate-600">Notes (optional)
                   <textarea rows={1} value={externalNotes} onChange={event => setExternalNotes(event.target.value)} placeholder="Notes (optional)" className="mt-1 block w-full resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
@@ -739,9 +791,8 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
             <footer className="shrink-0 border-t bg-white px-4 py-3">
               <div className="mb-2 flex justify-between text-base font-black"><span>Subtotal</span><span>MYR {externalSubtotal.toFixed(2)}</span></div>
               {!hasRequiredExternalOptions && <p className="mb-2 text-sm text-amber-800">Choose the required product options to continue.</p>}
-              {externalSource !== 'walk_in' && (!externalName || !externalPhone) && <p className="mb-2 text-sm text-slate-600">Customer name and phone are required for this source.</p>}
               {externalError && <p id="pos-order-entry-error" role="alert" className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-800">{externalError}</p>}
-              <button type="button" onClick={() => void createExternalOrder()} disabled={creatingExternal || !externalCart.length || !hasRequiredExternalOptions || (externalSource !== 'walk_in' && (!externalName || !externalPhone))} aria-busy={creatingExternal} aria-describedby={externalError ? 'pos-order-entry-error' : undefined} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-base font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
+              <button type="button" onClick={() => void createExternalOrder()} disabled={creatingExternal || !externalCart.length || !hasRequiredExternalOptions || externalLoading || externalCartLines.some(item=>Boolean(item.previewError))} aria-busy={creatingExternal} aria-describedby={externalError ? 'pos-order-entry-error' : undefined} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-base font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
                 {creatingExternal && <LoaderCircle aria-hidden="true" className="h-5 w-5 animate-spin" />}{creatingExternal ? 'Creating…' : 'Confirm Order'}
               </button>
             </footer>

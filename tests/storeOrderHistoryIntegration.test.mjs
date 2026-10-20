@@ -371,11 +371,28 @@ test('ShopeeFood platform-paid and immediate Walk-in remain server-priced and op
  await db.collection('workspaces').doc(workspaceId).set({ownerId:uid,subscriptionPlan:'professional',subscriptionStatus:'active'});
  await db.collection('stores').doc(workspaceId).set({workspaceId,slug,name:'GG Grab&Go',currency:'MYR'});
  await db.collection('storeProducts').doc(`${workspaceId}-rice`).set({workspaceId,storeId:workspaceId,name:'Rice',price:10,available:true,optionGroupIds:[]});
- for(const [source,paymentLabel] of [['shopeefood','shopeefood_platform_paid'],['walk_in','walk_in_paid']]) {
-  const input={workspaceId,storeId:workspaceId,slug,source,paymentLabel,externalOrderNumber:`${source}-QA`,customerName:'QA',phone:'0164209116',selections:[{productId:`${workspaceId}-rice`,quantity:2,selectedOptions:[],unitPrice:1}]};
+ for(const [source,paymentLabel] of [['shopeefood','shopeefood_platform_paid'],['walk_in','walk_in_paid'],['other','other_paid']]) {
+  const input={workspaceId,storeId:workspaceId,slug,source,paymentLabel,externalOrderNumber:`${source}-QA`,customerName:'',phone:'',selections:[{productId:`${workspaceId}-rice`,quantity:2,selectedOptions:[],unitPrice:1}]};
   const result=await createExternalPosOrder({db,uid,input});const duplicate=await createExternalPosOrder({db,uid,input});assert.equal(result.orderId,duplicate.orderId);
-  const ref=db.collection('storeOrders').doc(result.orderId),order=(await ref.get()).data();assert.equal(order.payment.status,'paid');assert.equal(order.total,20);assert.equal(order.fulfilments,undefined);
+  const ref=db.collection('storeOrders').doc(result.orderId),order=(await ref.get()).data();assert.equal(order.payment.status,'paid');assert.equal(order.phone,'');assert.equal(order.externalOrder.externalOrderNumber,`${source}-QA`);assert.equal(order.paymentMethodId,paymentLabel);assert.equal(order.total,20);assert.equal(order.fulfilments,undefined);
   await updateStoreOrderFulfilment({db,uid,orderId:ref.id,nextStatus:'Preparing'});assert.equal((await ref.get()).data().fulfilmentStatus,'Preparing');
  }
+ } finally {await deleteApp(app);}
+});
+
+test('external orders without a platform reference deduplicate concurrent retries and reject changed payload reuse',async()=>{
+ const app=initializeApp({projectId:'demo-misechef-store-payment-rules'},`external-retry-${process.pid}`),db=getFirestore(app);
+ const workspaceId=`external-retry-${process.pid}`,uid=`${workspaceId}-owner`,slug=workspaceId;
+ try {
+  await db.collection('workspaces').doc(workspaceId).set({ownerId:uid,subscriptionPlan:'professional',subscriptionStatus:'active'});
+  await db.collection('stores').doc(workspaceId).set({workspaceId,slug,name:'QA Store',currency:'MYR'});
+  await db.collection('storeProducts').doc(`${workspaceId}-rice`).set({workspaceId,storeId:workspaceId,name:'Rice',price:11,available:true,optionGroupIds:[]});
+  const input={workspaceId,storeId:workspaceId,slug,source:'shopeefood',paymentLabel:'shopeefood_platform_paid',requestId:'external-retry-request-12345',customerName:'',phone:'',selections:[{productId:`${workspaceId}-rice`,quantity:2,selectedOptions:[]}]};
+  const results=await Promise.all([1,2,3].map(()=>createExternalPosOrder({db,uid,input})));
+  assert.equal(new Set(results.map(result=>result.orderId)).size,1);
+  const orders=await db.collection('storeOrders').where('workspaceId','==',workspaceId).get();assert.equal(orders.size,1);
+  const order=orders.docs[0].data();assert.equal(order.total,22);assert.equal(order.payment.status,'paid');assert.equal(order.phone,'');
+  await assert.rejects(createExternalPosOrder({db,uid,input:{...input,selections:[{...input.selections[0],quantity:3}]}}),/different order details/);
+  await assert.rejects(createExternalPosOrder({db,uid:'unauthorized-operator',input}),/role cannot/);
  } finally {await deleteApp(app);}
 });
