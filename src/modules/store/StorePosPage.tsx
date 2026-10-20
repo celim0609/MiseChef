@@ -597,7 +597,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
         <div className="flex-1 overflow-x-auto p-3 lg:p-4">
           <h2 className="text-xl font-bold">POS board · {dailyView} fulfilments {dailyView === 'Today' ? `(${todayKey}, Malaysia)` : ''}</h2>
           <p>Counts reflect this fulfilment period, not the parent order status. Future Ready meals are available under Upcoming.</p>
-          <div className="my-3 flex gap-2">{(['Today','Tomorrow','Upcoming'] as const).map(period=><button key={period} aria-pressed={dailyView===period} className="rounded border px-3 py-2" onClick={()=>setDailyView(period)}>{period}</button>)}</div>
+          <p className="mt-2 text-sm text-slate-500">Use the Daily fulfilments tabs above to change the date or view history.</p>
           <div className="grid min-h-full min-w-[1040px] grid-cols-[minmax(0,1fr)_220px] gap-4">
             <div className="grid grid-cols-[1.1fr_1.1fr_0.9fr] gap-4">
               {ACTIVE_COLUMNS.map(column => {
