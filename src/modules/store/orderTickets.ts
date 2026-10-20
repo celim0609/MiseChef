@@ -8,7 +8,7 @@ import { toMalaysiaDateKey } from './posOrderModel';
 export interface OrderTicket {
   key: string; orderId: string; fulfilmentId?: string; weeklyDay?: string;
   storeName: string; orderNumber: string; pickupCode: string; customerName: string;
-  date: string; time: string; method: string; notes: string; paid?: boolean; source?: string;
+  date: string; time: string; method: string; notes: string; address?: string; paid?: boolean; source?: string;
   items: Array<{ name: string; quantity: number; modifiers: string[] }>;
 }
 const mealOptions = (snapshot?: MealOptionSnapshot) => (snapshot?.selectedMealOptions || []).map(option => `${option.optionGroupName}: ${option.optionName}`);
@@ -21,7 +21,7 @@ const ticketItem = (item: StoreOrderItem, quantity = item.quantity) => ({
 export function getOrderTickets(order: StoreOrder): OrderTicket[] {
   const base = { orderId: order.id, storeName: order.storeName, orderNumber: order.orderNumber, pickupCode: order.pickupCode || '', customerName: order.customerName, notes: order.notes || '', source: ({whatsapp:'WhatsApp',phone:'Phone',walk_in:'Walk-in',shopeefood:'ShopeeFood',other:'Other'} as Record<string,string>)[order.externalOrder?.source || ''] || 'Online Store', paid: order.payment?.status === 'paid' };
   if (order.fulfilments?.some(day => !validCalendarDate(day.date) || !day.allocations?.length || day.allocations.some(allocation => !Number.isInteger(allocation.itemIndex) || !order.items[allocation.itemIndex] || !(allocation.quantity > 0) || (allocation.componentDay && !order.items[allocation.itemIndex].weeklyPlanSnapshot?.meals.some(meal => meal.day === allocation.componentDay))))) return [];
-  if (order.fulfilments?.length) return order.fulfilments.map(day => ({ ...base, key: `${order.id}:${day.id}`, fulfilmentId: day.id, date: day.date, time: day.time, method: day.method, notes: [order.notes, (day as typeof day & {notes?: string}).notes].filter(Boolean).join(' · '),
+  if (order.fulfilments?.length) return order.fulfilments.map(day => ({ ...base, key: `${order.id}:${day.id}`, fulfilmentId: day.id, date: day.date, time: day.time, method: day.method, address: day.method === 'delivery' ? (order.delivery?.recipient?.address || '') : (day.pickupLocationAddress || order.pickupLocationAddress || ''), notes: [order.notes, (day as typeof day & {notes?: string}).notes].filter(Boolean).join(' · '),
     items: day.allocations.map(allocation => {
       const item = order.items[allocation.itemIndex];
       if (!item) throw new Error('This fulfilment has a missing item snapshot.');
@@ -30,14 +30,14 @@ export function getOrderTickets(order: StoreOrder): OrderTicket[] {
       if (!meal) throw new Error('This fulfilment has a missing meal snapshot.');
       return { name: meal.productName, quantity: allocation.quantity, modifiers: [...mealOptions(meal), ...(item.notes ? [`Notes: ${item.notes}`] : [])] };
     }) }));
-  if (order.weeklyFulfilments?.length) return order.weeklyFulfilments.map(day => ({ ...base, key: `${order.id}:weekly:${day.date}:${day.day}`, weeklyDay: day.day, date: day.date, time: day.pickupTime, method: order.fulfilmentMethod || 'pickup', items: [{ name: day.productName, quantity: day.quantity, modifiers: mealOptions(day) }] }));
+  if (order.weeklyFulfilments?.length) return order.weeklyFulfilments.map(day => ({ ...base, key: `${order.id}:weekly:${day.date}:${day.day}`, weeklyDay: day.day, date: day.date, time: day.pickupTime, method: order.fulfilmentMethod || 'pickup', address: order.fulfilmentMethod === 'delivery' ? (order.delivery?.recipient?.address || '') : (order.pickupLocationAddress || ''), items: [{ name: day.productName, quantity: day.quantity, modifiers: mealOptions(day) }] }));
   const legacy = legacyDailyFulfilments(order);
   if (legacy) return getOrderTickets({...order, fulfilments: legacy});
   if (order.items.some(item => item.healthyLunchSnapshot?.date)) return [];
   // Do not accidentally print an unscheduled weekly parent as a single-day order.
   if (order.items.some(item => item.weeklyPlanSnapshot)) return [];
   if (!order.delivery?.schedule?.date && !order.pickupDate && !order.externalOrder && order.delivery?.fulfilmentMode !== 'instant') return [];
-  return [{ ...base, key: `${order.id}:single`, date: order.delivery?.schedule?.date || order.pickupDate || toMalaysiaDateKey(order.createdAt), time: order.delivery?.schedule?.time || order.pickupTime || ((order.externalOrder?.source === 'walk_in' || order.delivery?.fulfilmentMode === 'instant') ? new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit' }).format(new Date(order.createdAt)) : ''), method: order.fulfilmentMethod || 'pickup', items: order.items.map(item => ticketItem(item)) }];
+  return [{ ...base, key: `${order.id}:single`, date: order.delivery?.schedule?.date || order.pickupDate || toMalaysiaDateKey(order.createdAt), time: order.delivery?.schedule?.time || order.pickupTime || ((order.externalOrder?.source === 'walk_in' || order.delivery?.fulfilmentMode === 'instant') ? new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit' }).format(new Date(order.createdAt)) : ''), method: order.fulfilmentMethod || (order.delivery ? 'delivery' : 'pickup'), address: (order.fulfilmentMethod === 'delivery' || !!order.delivery) ? (order.delivery?.recipient?.address || '') : (order.pickupLocationAddress || ''), items: order.items.map(item => ticketItem(item)) }];
 }
 const esc = (value: string | number) => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 export const REORDER_URL = 'https://misechef.ai/store/misechef-s-grab-go-store';
@@ -55,6 +55,7 @@ export function buildTicketDocument(tickets: OrderTicket[], kind: 'customer' | '
     <div class="identity"><h2>${esc(ticket.orderNumber)}</h2><div class="pickup-code"><small>Pickup code</small><b>${esc(ticket.pickupCode || '—')}</b></div></div>
     <div class="schedule"><b>${esc(ticket.date)} ${esc(ticket.time)}</b><span>${ticket.method === 'delivery' ? 'Delivery' : 'Pickup'}</span></div>
     <div class="customer"><strong>${esc(ticket.customerName)}</strong><span>${esc(ticket.source || 'Online Store')}</span></div>
+    <div class="instructions"><b>${ticket.method === 'delivery' ? 'DELIVERY ADDRESS' : 'PICKUP LOCATION'}</b><p>${esc(ticket.address?.trim() || (ticket.method === 'delivery' ? 'ADDRESS MISSING — VERIFY BEFORE DISPATCH' : 'Location not specified'))}</p></div>
     <ul>${ticket.items.map(item => `<li><b>${esc(item.quantity)} × ${esc(item.name)}</b>${item.modifiers.map(modifier => `<small class="modifier">${esc(modifier)}</small>`).join('')}</li>`).join('')}</ul>
     ${ticket.notes ? `<div class="instructions"><b>SPECIAL INSTRUCTIONS</b><p>${esc(ticket.notes)}</p></div>` : ''}
     ${kind === 'customer' ? `<footer><div class="thanks"><b>Thank You!</b><small>Enjoy Your Healthy Lunch!</small><small class="contact">WhatsApp: 016-4209116 · @misechef.ai</small></div><div class="reorder">${reorderQrSvg()}<small>Scan to Order Again</small></div></footer>` : ''}
