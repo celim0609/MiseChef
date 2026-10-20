@@ -6,7 +6,9 @@ The existing `f4993ac` Orders controls and `0696317` single POS period navigatio
 are retained. Orders status filtering now intersects each daily fulfilment's status
 with the selected period instead of testing the parent status. Filter changes remove
 hidden selections; notification focus selects a matching period once rather than
-continually restoring stale selection. Workspace changes reset the view.
+continually restoring stale selection. Workspace changes reset the view. The single
+POS period navigation controls the board; History displays historical daily cards
+without an empty active-status board underneath.
 
 Lalamove Beta credentials, fixed Sandbox host, authentication, MOTORCYCLE service,
 Google Places selection and public Checkout quotation were exercised successfully.

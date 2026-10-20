@@ -594,7 +594,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       {errorMessage && <p role="alert" className="mx-4 mt-3 rounded-xl border border-red-400 bg-red-950 px-5 py-3 text-sm font-black text-red-100 lg:mx-6">{errorMessage}</p>}
 
       {activeView === 'live' ? (
-        <div className="flex-1 overflow-x-auto p-3 lg:p-4">
+        <div hidden={dailyView === 'History'} className="flex-1 overflow-x-auto p-3 lg:p-4">
           <h2 className="text-xl font-bold">POS board · {dailyView} fulfilments {dailyView === 'Today' ? `(${todayKey}, Malaysia)` : ''}</h2>
           <p>Counts reflect this fulfilment period, not the parent order status. Future Ready meals are available under Upcoming.</p>
           <p className="mt-2 text-sm text-slate-500">Use the Daily fulfilments tabs above to change the date or view history.</p>
