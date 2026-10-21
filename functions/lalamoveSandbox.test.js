@@ -42,3 +42,17 @@ test('provider rejects caller-selected hosts and unknown environments', () => {
   assert.throws(() => createLalamoveProvider({ environment: 'https://rest.lalamove.com', apiKey: 'key', apiSecret: 'secret' }), /environment is not configured/);
   assert.throws(() => createLalamoveProvider({ environment: 'unknown', apiKey: 'key', apiSecret: 'secret' }), /environment is not configured/);
 });
+
+test('provider errors cross callable boundaries with safe actionable messages and diagnostic IDs', async () => {
+ const previous=globalThis.fetch;
+ try {
+  for(const [status,providerCode,code,message] of [[401,'invalid api key','failed-precondition','authentication failed'],[422,'ERR_INVALID_SCHEDULE_TIME','invalid-argument','future delivery time'],[422,'ERR_OUT_OF_SERVICE_AREA','invalid-argument','does not serve'],[429,'ERR_RATE_LIMIT_EXCEEDED','unavailable','temporarily unavailable']]){
+   globalThis.fetch=async()=>new Response(JSON.stringify({message:providerCode,meta:{requestId:'safe-request-id'}}),{status});
+   await assert.rejects(createLalamoveSandboxProvider({apiKey:'private-key',apiSecret:'private-secret'}).getCityInfo('MY'),error=>{
+    assert.equal(error.code,code);assert.ok(error.message.includes(message));assert.equal(error.details.providerCode,providerCode);assert.equal(error.requestId,'safe-request-id');assert.ok(!error.message.includes('private-key'));return true;
+   });
+  }
+  globalThis.fetch=async()=>{throw new Error('network down');};
+  await assert.rejects(createLalamoveSandboxProvider({apiKey:'key',apiSecret:'secret'}).getCityInfo('MY'),error=>error.code==='unavailable');
+ } finally {globalThis.fetch=previous;}
+});

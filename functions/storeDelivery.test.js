@@ -146,10 +146,10 @@ test('promotion delivery pricing is bound to an opaque server snapshot and must 
 test('dispatch is tenant guarded, idempotent, recovers provider failures, and applies exact RM5 limit', () => {
   assert.match(source, /assertWorkspaceOperator/);
   assert.match(source, /delivery\.dispatch\?\.status === 'created'/);
-  assert.match(source, /delivery\.dispatch\?\.status === 'creating'/);
+  assert.match(source, /\['creating', 'outcome_unknown', 'cancel_requested'\]\.includes/);
   assert.match(source, /difference > 5/);
   assert.match(source, /dispatch_blocked_requote/);
-  assert.match(source, /delivery\.dispatch\.status': 'failed'/);
+  assert.match(source, /submitted \? 'outcome_unknown' : 'failed'/);
 });
 test('refresh, cancellation, reconciliation, and completion remain server-authoritative', () => {
   assert.match(source, /cancelStoreDelivery/);
@@ -525,4 +525,46 @@ test('rotating Healthy Lunch delivery keeps per-day free delivery and excludes b
   assert.equal(quote.quote.fulfilmentCount, 1);
   plan.healthyLunchBlockedDates = [dates[2]];
   await assert.rejects(createStoreDeliveryQuote({ ...fixture, slug: 'test', draft }), /Healthy Lunch|available/);
+});
+
+const legacyDispatchFixture = () => {
+  const fixture = dispatchFixture();
+  const order = fixture.db.documents['storeOrders/multi'];
+  delete order.fulfilments;
+  order.fulfilmentStatus = 'Ready';
+  order.delivery.fulfilmentMode = 'preorder';
+  order.delivery.schedule = { mode: 'preorder', date: new Date(Date.now() + 86400000).toISOString().slice(0,10), time: '12:00' };
+  order.delivery.quote.fee = 40;
+  order.delivery.quote.stops = [order.delivery.pickup, order.delivery.recipient].map((stop,index) => ({stopId:`old-${index}`,address:stop.address,coordinates:{lat:stop.latitude,lng:stop.longitude}}));
+  return {...fixture,args:{db:fixture.db,provider:fixture.provider,uid:'owner',orderId:'multi'}};
+};
+
+test('legacy preorder dispatch retains UTC schedule and paid totals while refreshing its quote', async () => {
+ const f=legacyDispatchFixture();const original=structuredClone(f.db.documents['storeOrders/multi']);let request;
+ const quote=f.provider.createQuote;f.provider.createQuote=async input=>{request=input;return quote(input);};
+ await dispatchStoreDelivery(f.args);
+ assert.equal(request.data.scheduleAt,`${original.delivery.schedule.date}T04:00:00.000Z`);
+ const saved=f.db.documents['storeOrders/multi'];
+ assert.deepEqual(saved.payment,original.payment);assert.deepEqual(saved.totals,original.totals);assert.equal(saved.total,original.total);
+ await dispatchStoreDelivery(f.args);assert.equal(f.counts().creations,1);
+});
+
+test('legacy uncertain provider submission stays locked instead of creating a duplicate booking on retry', async () => {
+ const f=legacyDispatchFixture();let calls=0;
+ f.provider.createOrder=async()=>{calls++;throw new Error('response lost after acceptance');};
+ await assert.rejects(dispatchStoreDelivery(f.args),/response lost/);
+ assert.equal(f.db.documents['storeOrders/multi'].delivery.dispatch.status,'outcome_unknown');
+ assert.equal((await dispatchStoreDelivery(f.args)).status,'outcome_unknown');assert.equal(calls,1);
+});
+
+test('legacy environment mismatch fails before changing order state or calling the provider', async () => {
+ const f=legacyDispatchFixture();f.provider.environment='production';const before=structuredClone(f.db.documents);
+ await assert.rejects(dispatchStoreDelivery(f.args),/environment does not match/);
+ assert.deepEqual(f.db.documents,before);assert.deepEqual(f.counts(),{creations:0,quotes:0});
+});
+
+test('legacy malformed requotation never submits an order and can safely retry the quotation', async () => {
+ const f=legacyDispatchFixture();f.provider.createQuote=async()=>({quotationId:'bad',priceBreakdown:{total:40,currency:'MYR'},stops:[]});
+ await assert.rejects(dispatchStoreDelivery(f.args),/Invalid dispatch quotation/);
+ assert.equal(f.counts().creations,0);assert.equal(f.db.documents['storeOrders/multi'].delivery.dispatch.status,'failed');
 });

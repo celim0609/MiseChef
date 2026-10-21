@@ -1805,7 +1805,17 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                         </button>)}
                         <p className="px-4 py-2 text-[10px] font-bold text-on-surface-variant">Powered by Google</p>
                       </div>}
-                      {deliveryDestination && <p className="mt-2 text-xs font-bold text-emerald-800">Selected: {deliveryDestination.formattedAddress}</p>}
+                      {deliveryDestination && <label className="block text-sm font-bold">Full delivery address
+                        <textarea aria-label="Full delivery address" maxLength={500} rows={3} value={deliveryDestination.formattedAddress} onChange={event => {
+                          invalidateDeliveryQuoteRequest();
+                          const formattedAddress = event.target.value;
+                          setDeliveryDestination(current => current ? {...current, formattedAddress} : null);
+                          setDeliveryAddressQuery(formattedAddress);
+                          setDeliveryQuote(null);
+                          setDeliveryPriceConfirmation(null);
+                        }} className="mt-2 w-full rounded-2xl border border-surface-container-high p-3" />
+                        <span className="block text-xs font-normal">Check the street, building and postcode. The selected map location stays unchanged; choose another search result to change the location.</span>
+                      </label>}
                       {deliveryAddressError && <p role="alert" className="mt-2 text-xs font-bold text-error">{deliveryAddressError}</p>}
                     </div>
                     <input aria-label="Unit or floor" placeholder="Unit / Floor (optional)" value={deliveryUnit} onChange={event => setDeliveryUnit(event.target.value)} className="min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" />
