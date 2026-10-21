@@ -672,10 +672,11 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               })}
             </div>
 
-            <details className={`pos-light-surface rounded-xl border px-3 py-2 ${isNightMode ? 'border-slate-700 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}>
+            <details onToggle={event => {if(event.currentTarget.open && !dailyHistory && !loadingDailyHistory) void loadDailyHistory();}} className={`pos-light-surface rounded-xl border px-3 py-2 ${isNightMode ? 'border-slate-700 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}>
               <summary className="min-h-11 cursor-pointer content-center text-sm font-black">Completed · {completedPeriodEntries.length} fulfilments · {dailyView}</summary>
               <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{completedPeriodEntries.map(({order,ticket}) => <div key={ticket.key}><DailyFulfilmentCard order={order} ticket={ticket} /></div>)}</div>
               {!completedPeriodEntries.length && <p className="py-2 text-sm">No completed fulfilments for this period.</p>}
+              {(!dailyHistory || dailyHistory.hasMore) && <button type="button" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()} className="mr-2 mt-2 min-h-11 rounded-lg border px-3 text-sm font-bold">{loadingDailyHistory ? 'Loading…' : 'Load older completed fulfilments'}</button>}
               <button type="button" onClick={openCompletedHistory} className="mt-2 min-h-11 rounded-lg border px-3 text-sm font-bold">View Completed Orders</button>
             </details>
           </div>

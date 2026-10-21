@@ -370,7 +370,9 @@ test('kitchen Kanban keeps compact single stacks and a collapsed Completed secti
   assert.match(board, /No orders/);
   assert.match(board, /order.customerName/);
   assert.match(board, /ticket.date.*ticket.time/);
-  assert.match(pageSource, /<details className=[\s\S]*<summary[^>]*>Completed · \{completedPeriodEntries.length\}/);
+  assert.match(pageSource, /<details onToggle=[\s\S]*<summary[^>]*>Completed · \{completedPeriodEntries.length\}/);
   assert.doesNotMatch(pageSource, /<details[^>]* open/);
+  assert.match(pageSource, /event.currentTarget.open && !dailyHistory && !loadingDailyHistory/);
+  assert.match(pageSource, /Load older completed fulfilments/);
   assert.equal((pageSource.match(/aria-label="Fulfilment period"/g) || []).length, 1);
 });
