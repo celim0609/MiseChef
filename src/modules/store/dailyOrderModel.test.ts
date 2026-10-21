@@ -78,3 +78,17 @@ test('fulfilment History includes completed ordinary tickets and completed days 
  assert.deepEqual(entries.filter(entry=>entry.order.id==='a').map(entry=>entry.ticket.fulfilmentId),['today']);
  assert.equal(dailyEntries([completed],'Today','2026-10-19').length,0);
 });
+
+
+test('Completed summary follows the selected day while preserving future active meals and payment gating', async () => {
+ const {completedEntriesForPeriod,dailyEntries}=await import('./dailyOrderModel');
+ const partial={...order,fulfilmentCompletion:{today:{completedAt:'now',completedBy:'owner'}}};
+ const completedFuture={...order,id:'future-parent',fulfilmentStatus:'Completed'} as StoreOrder;
+ assert.deepEqual(completedEntriesForPeriod([partial,partial],'Today','2026-10-19').map(entry=>entry.ticket.fulfilmentId),['today']);
+ assert.equal(completedEntriesForPeriod([partial],'Tomorrow','2026-10-19').length,0);
+ assert.equal(completedEntriesForPeriod([completedFuture],'Tomorrow','2026-10-19').length,1);
+ assert.equal(completedEntriesForPeriod([completedFuture],'Upcoming','2026-10-19').length,1);
+ assert.equal(completedEntriesForPeriod([{...completedFuture,payment:{status:'pending'}} as StoreOrder],'Today','2026-10-19').length,0);
+ assert.equal(dailyEntries([partial],'Upcoming','2026-10-19').length,1);
+ assert.equal(completedEntriesForPeriod([{...completedFuture,fulfilmentStatus:'Cancelled'}],'Today','2026-10-19').length,0);
+});

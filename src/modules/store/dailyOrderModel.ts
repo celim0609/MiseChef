@@ -66,3 +66,9 @@ export function orderMatchesStatusInPeriod(order: StoreOrder, period: 'Today' | 
     return inPeriod && status === filter;
   });
 }
+
+
+// Completed is a fulfilment-period summary, including completed days of active parents.
+export function completedEntriesForPeriod(orders: StoreOrder[], view: DailyView, today: string) {
+  return dailyEntries(orders, 'History', today).filter(entry => entry.status === 'Completed' && ticketInDailyView(entry.ticket.date, view, today));
+}

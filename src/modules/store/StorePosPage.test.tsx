@@ -19,10 +19,10 @@ test('POS groups three active kitchen statuses and moves Completed to a compact 
     assert.match(pageSource, new RegExp(`label: '${label}'`));
   }
   assert.doesNotMatch(pageSource, /status: 'Completed', label: 'Completed'/);
-  assert.match(pageSource, /completedTodayCount/);
+  assert.match(pageSource, /completedPeriodEntries/);
   assert.match(pageSource, /View Completed/);
   assert.match(pageSource, /<audio ref=\{audioRef\}/);
-  assert.match(pageSource, /sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4/);
+  assert.match(pageSource, /grid-cols-1 items-start gap-3 lg:grid-cols-3/);
 });
 
 test('Walk-in POS uses canonical external-order metadata, option selections, and paid-only receipt actions', () => {
@@ -348,7 +348,7 @@ test('POS puts one header and unified section navigation before its content', ()
   assert.match(layout, /id:'live',label:'POS Live'.*id:'history',label:'View Orders'.*id:'tickets',label:'Print Tickets'/);
   assert.equal((layout.match(/<OrderTicketPanel /g) || []).length, 1);
   assert.doesNotMatch(layout, /min-w-\[1040px\]|min-h-\[65vh\]|Live Queue/);
-  assert.match(layout, /sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4/);
+  assert.match(layout, /grid-cols-1 items-start gap-3 lg:grid-cols-3/);
 });
 
 test('fulfilment history renders its grid instead of mounting empty live columns', () => {
@@ -358,4 +358,19 @@ test('fulfilment history renders its grid instead of mounting empty live columns
   const queue = readFileSync(new URL('./DailyFulfilmentQueue.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(queue, /onViewChange|aria-pressed/);
   assert.match(queue, /sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4/);
+});
+
+
+test('kitchen Kanban keeps compact single stacks and a collapsed Completed section below active statuses', () => {
+  const board = pageSource.slice(pageSource.indexOf('<div aria-label="Active kitchen board"'), pageSource.indexOf('<details'));
+  assert.match(board, /grid-cols-1 items-start gap-3 lg:grid-cols-3/);
+  assert.match(board, /grid min-w-0 grid-cols-1 items-start gap-2/);
+  assert.doesNotMatch(board, /min-h-\[|min-w-\[|sm:grid-cols|2xl:grid-cols/);
+  assert.match(board, /columnOrders.length === 0 && dailyColumn.length === 0/);
+  assert.match(board, /No orders/);
+  assert.match(board, /order.customerName/);
+  assert.match(board, /ticket.date.*ticket.time/);
+  assert.match(pageSource, /<details className=[\s\S]*<summary[^>]*>Completed · \{completedPeriodEntries.length\}/);
+  assert.doesNotMatch(pageSource, /<details[^>]* open/);
+  assert.equal((pageSource.match(/aria-label="Fulfilment period"/g) || []).length, 1);
 });
