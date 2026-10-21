@@ -14,7 +14,7 @@ const firestoreIndexes = JSON.parse(readFileSync(new URL('../../../firestore.ind
   indexes: Array<{ collectionGroup: string; fields: Array<{ fieldPath: string; order: string }> }>;
 };
 
-test('POS prioritizes three active kitchen columns and moves Completed to a compact summary', () => {
+test('POS groups three active kitchen statuses and moves Completed to a compact summary', () => {
   for (const label of ['New', 'Preparing', 'Ready']) {
     assert.match(pageSource, new RegExp(`label: '${label}'`));
   }
@@ -22,7 +22,7 @@ test('POS prioritizes three active kitchen columns and moves Completed to a comp
   assert.match(pageSource, /completedTodayCount/);
   assert.match(pageSource, /View Completed/);
   assert.match(pageSource, /<audio ref=\{audioRef\}/);
-  assert.match(pageSource, /grid-cols-\[1\.1fr_1\.1fr_0\.9fr\]/);
+  assert.match(pageSource, /sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4/);
 });
 
 test('Walk-in POS uses canonical external-order metadata, option selections, and paid-only receipt actions', () => {
@@ -337,4 +337,25 @@ test('a Store lookup failure is displayed in the modal and releases the submit l
   assert.equal(harness.state.open, true);
   assert.equal(harness.state.loading, false);
   assert.equal(harness.lock.current, false);
+});
+
+
+test('POS puts one header and unified section navigation before its content', () => {
+  const layout = pageSource.slice(pageSource.indexOf('  return (\n    <section data-pos-theme'));
+  assert.ok(layout.indexOf('<header') < layout.indexOf('aria-label="POS sections"'));
+  assert.ok(layout.indexOf('aria-label="POS sections"') < layout.indexOf('aria-label="Fulfilment period"'));
+  assert.ok(layout.indexOf('aria-label="Fulfilment period"') < layout.indexOf('<main'));
+  assert.match(layout, /id:'live',label:'POS Live'.*id:'history',label:'View Orders'.*id:'tickets',label:'Print Tickets'/);
+  assert.equal((layout.match(/<OrderTicketPanel /g) || []).length, 1);
+  assert.doesNotMatch(layout, /min-w-\[1040px\]|min-h-\[65vh\]|Live Queue/);
+  assert.match(layout, /sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4/);
+});
+
+test('fulfilment history renders its grid instead of mounting empty live columns', () => {
+  assert.match(pageSource, /activeView === 'live' \? dailyView === 'History' \? \(/);
+  assert.match(pageSource, /view=\{dailyView\}.*orders=\{dailyOrders\}/);
+  assert.match(pageSource, /if\(view === 'History' && !dailyHistory\) void loadDailyHistory/);
+  const queue = readFileSync(new URL('./DailyFulfilmentQueue.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(queue, /onViewChange|aria-pressed/);
+  assert.match(queue, /sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4/);
 });

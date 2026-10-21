@@ -67,3 +67,14 @@ test('period and status intersect on the same fulfilment rather than the parent 
  assert.equal(orderMatchesStatusInPeriod(completed,'Upcoming','Completed','2026-10-19'),false);
  assert.equal(orderMatchesStatusInPeriod(completed,'Upcoming','Paid','2026-10-19'),true);
 });
+
+
+test('fulfilment History includes completed ordinary tickets and completed days of active multi-date orders', async () => {
+ const {dailyEntries}=await import('./dailyOrderModel');
+ const completed={...order,id:'completed',createdAt:'2026-10-19T02:00:00Z',fulfilments:undefined,fulfilmentStatus:'Completed',fulfilmentMethod:'pickup',pickupDate:'2026-10-19',pickupTime:'12:00'} as StoreOrder;
+ const partial={...order,fulfilmentCompletion:{today:{completedAt:'now',completedBy:'owner'}}};
+ const entries=dailyEntries([completed,partial],'History','2026-10-19');
+ assert.ok(entries.some(entry=>entry.order.id==='completed'));
+ assert.deepEqual(entries.filter(entry=>entry.order.id==='a').map(entry=>entry.ticket.fulfilmentId),['today']);
+ assert.equal(dailyEntries([completed],'Today','2026-10-19').length,0);
+});

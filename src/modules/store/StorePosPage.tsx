@@ -40,6 +40,7 @@ import {
   getMalaysiaDateRange,
   getOrderCompletionTimestamp,
   isOrderCompletedOnMalaysiaDate,
+  isOrderOperationallyEligible,
   shiftDateKey,
   sortOrdersByDeliverySchedule,
   toActivePosStatus,
@@ -595,24 +596,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
 
   return (
     <section data-pos-theme={isNightMode ? 'dark' : 'light'} className={`pos-screen flex min-h-screen flex-col transition-colors ${isNightMode ? 'bg-[#07111f] text-white' : 'bg-slate-100 text-slate-950'}`}>
-      <nav aria-label="POS sections" className="sticky top-0 z-30 flex gap-2 border-b bg-white p-3 text-slate-950">
-        <button type="button" aria-current={posSection === 'orders' ? 'page' : undefined} onClick={() => setPosSection('orders')} className={`rounded-lg px-5 py-3 font-bold ${posSection === 'orders' ? 'bg-slate-900 text-white' : 'bg-slate-100'}`}>POS · Live</button>
-        <button type="button" aria-current={posSection === 'tickets' ? 'page' : undefined} onClick={() => setPosSection('tickets')} className={`rounded-lg px-5 py-3 font-bold ${posSection === 'tickets' ? 'bg-slate-900 text-white' : 'bg-slate-100'}`}>Print Tickets</button>
-      </nav>
-      {posSection === 'tickets' ? (
-        <main className="mx-auto w-full max-w-5xl p-3">
-          <OrderTicketPanel orders={[...new Map([...(dailyHistory?.orders || []), ...completedOrders, ...orders].map(order => [order.id, order])).values()]} />
-          {(!dailyHistory || dailyHistory.hasMore) && <button type="button" className="mt-3 rounded border px-4 py-2 underline" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()}>{loadingDailyHistory ? 'Loading…' : 'Load older orders for reprint'}</button>}
-        </main>
-      ) : (
-        <>
-          {activeView === 'history' && <ManualPosOrders workspaceId={workspaceId} storeId={storeId} />}
-          {activeView === 'live' && <DailyFulfilmentQueue view={dailyView} onViewChange={setDailyView} onUpdated={() => setHistoryRefreshKey(value => value + 1)} orders={dailyOrders} />}
-        </>
-      )}
       <audio ref={audioRef} preload="auto" aria-hidden="true" />
-
-      <div className={posSection === 'tickets' ? 'hidden' : 'contents'}>
       <header className={`pos-light-surface flex flex-col gap-3 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:px-6 ${isNightMode ? 'border-white/10 bg-[#0b1727]' : 'border-slate-300 bg-white'}`}>
         <div className="flex min-w-0 items-center gap-3">
           <button type="button" onClick={onBack} aria-label="Back to Store" className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border ${isNightMode ? 'border-white/15 bg-white/5 text-white' : 'border-slate-300 bg-slate-100 text-slate-900'}`}><ArrowLeft className="h-6 w-6" /></button>
@@ -624,31 +608,44 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
 
         <div className="flex flex-wrap items-center gap-2">
           {audioBlocked && <p className="text-sm font-bold text-amber-300">Tap Sound to enable alerts.</p>}
-          {activeView === 'history' && <button type="button" onClick={openExternalOrder} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-black text-white">+ Add Order</button>}
-          <button type="button" onClick={() => activeView === 'live' ? openHistory() : setActiveView('live')} className={`inline-flex min-h-12 items-center gap-2 rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-white/15 bg-white/5 text-white' : 'border-slate-300 bg-slate-100 text-slate-900'}`}>{activeView === 'live' ? <History className="h-5 w-5" /> : <BellRing className="h-5 w-5" />}{activeView === 'live' ? 'View Orders' : 'Live Queue'}</button>
+          {posSection === 'orders' && activeView === 'history' && <button type="button" onClick={openExternalOrder} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-black text-white">+ Add Order</button>}
           <button type="button" onClick={() => setIsNightMode(current => !current)} aria-pressed={isNightMode} className={`inline-flex min-h-12 items-center gap-2 rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-blue-400/60 bg-blue-500/10 text-white' : 'border-slate-300 bg-slate-100 text-slate-900'}`}><Moon className="h-5 w-5" /><span>Night Mode</span><span className={`relative h-6 w-11 rounded-full transition-colors ${isNightMode ? 'bg-blue-500' : 'bg-slate-300'}`} aria-hidden="true"><span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-transform ${isNightMode ? 'translate-x-6' : 'translate-x-1'}`} /></span></button>
           <button type="button" onClick={toggleSound} aria-pressed={soundEnabled} className={`inline-flex min-h-12 items-center gap-2 rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-blue-500/40 bg-blue-500/10 text-blue-200' : 'border-blue-300 bg-blue-50 text-blue-800'}`}>{soundEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}Sound {soundEnabled ? 'On' : 'Off'}</button>
           {notificationAction}
         </div>
       </header>
 
+      <nav aria-label="POS sections" className={`flex flex-wrap gap-2 border-b px-4 py-3 ${isNightMode ? 'border-slate-700 bg-[#0b1727]' : 'border-slate-300 bg-white'}`}>
+        {([{id:'live',label:'POS Live'},{id:'history',label:'View Orders'},{id:'tickets',label:'Print Tickets'}] as const).map(section => {
+          const selected = section.id === 'tickets' ? posSection === 'tickets' : posSection === 'orders' && activeView === section.id;
+          return <button key={section.id} type="button" aria-current={selected ? 'page' : undefined} onClick={() => {setPosSection(section.id === 'tickets' ? 'tickets' : 'orders'); if(section.id === 'history') openHistory(); else if(section.id === 'live') setActiveView('live');}} className={`min-h-11 rounded-xl px-5 py-2 font-bold ${selected ? 'bg-blue-600 text-white' : isNightMode ? 'bg-slate-800 text-slate-100' : 'bg-slate-100 text-slate-800'}`}>{section.label}</button>;
+        })}
+      </nav>
+      {posSection === 'orders' && activeView === 'live' && <nav aria-label="Fulfilment period" className="flex flex-wrap gap-2 px-4 py-3">{(['Today','Tomorrow','Upcoming','History'] as const).map(view => <button key={view} type="button" aria-pressed={dailyView === view} onClick={() => {setDailyView(view); if(view === 'History' && !dailyHistory) void loadDailyHistory();}} className={`min-h-11 rounded-full border px-5 py-2 font-bold ${dailyView === view ? 'border-blue-600 bg-blue-600 text-white' : isNightMode ? 'border-slate-600 bg-slate-800' : 'border-slate-300 bg-white'}`}>{view}</button>)}</nav>}
+      {posSection === 'tickets' ? <main className="w-full p-4 lg:p-6">
+        <OrderTicketPanel orders={dailyOrders} />
+        {(!dailyHistory || dailyHistory.hasMore) && <button type="button" className="mt-3 rounded border px-4 py-2 underline" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()}>{loadingDailyHistory ? 'Loading…' : 'Load older orders for reprint'}</button>}
+      </main> : <main className="flex-1 min-w-0">
+      {activeView === 'history' && <ManualPosOrders workspaceId={workspaceId} storeId={storeId} />}
       {errorMessage && <p role="alert" className="mx-4 mt-3 rounded-xl border border-red-400 bg-red-950 px-5 py-3 text-sm font-black text-red-100 lg:mx-6">{errorMessage}</p>}
 
-      {activeView === 'live' ? (
-        <div hidden={dailyView === 'History'} className="flex-1 overflow-x-auto p-3 lg:p-4">
-          <h2 className="text-xl font-bold">POS board · {dailyView} fulfilments {dailyView === 'Today' ? `(${todayKey}, Malaysia)` : ''}</h2>
+      {activeView === 'live' ? dailyView === 'History' ? (
+        <div className="p-4 lg:p-6"><DailyFulfilmentQueue view={dailyView} onUpdated={() => setHistoryRefreshKey(value => value + 1)} orders={dailyOrders} />{(!dailyHistory || dailyHistory.hasMore) && <button type="button" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()} className="mt-4 min-h-11 rounded-xl border px-4 py-2 font-bold">{loadingDailyHistory ? 'Loading…' : 'Load older fulfilments'}</button>}</div>
+      ) : (
+        <div className="p-4 lg:p-6" aria-label="Daily fulfilments">
+          <h2 className="text-xl font-bold">Daily fulfilments · {dailyView} {dailyView === 'Today' ? `(${todayKey}, Malaysia)` : ''}</h2>
+          {dailyOrders.some(order => isOrderOperationallyEligible(order) && !['Completed','Cancelled'].includes(order.fulfilmentStatus) && !getOrderTickets(order).length) && <p role="status" className="mt-3 rounded-xl border border-amber-400 bg-amber-50 p-3 font-bold text-amber-950">Schedule review required: some orders have missing or inconsistent item dates. Review them in View Orders before preparation or printing.</p>}
           <p>Counts reflect this fulfilment period, not the parent order status. Future Ready meals are available under Upcoming.</p>
-          <p className="mt-2 text-sm text-slate-500">Use the Daily fulfilments tabs above to change the date or view history.</p>
-          <div className="grid min-h-full min-w-[1040px] grid-cols-[minmax(0,1fr)_220px] gap-4">
-            <div className="grid grid-cols-[1.1fr_1.1fr_0.9fr] gap-4">
+          <div className="mt-4 grid items-start gap-4">
+            <div className="grid items-start gap-4">
               {ACTIVE_COLUMNS.map(column => {
                 const Icon = column.icon;
                 const columnOrders = groupedOrders[column.status];
                 const dailyColumn = boardDailyEntries.filter(entry => toActivePosStatus(entry.status) === column.status);
                 return (
-                  <section key={column.status} aria-labelledby={`pos-column-${column.status}`} className={`flex min-h-[65vh] flex-col rounded-2xl border border-t-4 ${column.border} ${isNightMode ? 'bg-[#0b1727]/90 text-white' : `${column.tint} text-slate-950`} p-3 shadow-lg`}>
+                  <section key={column.status} aria-labelledby={`pos-column-${column.status}`} className={`flex min-w-0 flex-col rounded-2xl border border-t-4 ${column.border} ${isNightMode ? 'bg-[#0b1727]/90 text-white' : `${column.tint} text-slate-950`} p-3 shadow-lg`}>
                     <div className="mb-3 flex items-center justify-between gap-3 px-1"><h2 data-status={column.status.toLowerCase()} id={`pos-column-${column.status}`} className="pos-status-heading flex items-center gap-2 text-xl font-black tracking-tight"><Icon className="h-6 w-6" /> {column.label}</h2><span className={`flex h-9 min-w-9 items-center justify-center rounded-full px-2.5 text-base font-black ${column.badge}`}>{columnOrders.length + dailyColumn.length}</span></div>
-                    <div className="flex-1 space-y-3">
+                    <div className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
                       {dailyColumn.map(({order,ticket}) => <div key={ticket.key}><DailyFulfilmentCard order={order} ticket={ticket} onUpdated={()=>setHistoryRefreshKey(value=>value+1)} /></div>)}
                       {columnOrders.map(entry => entry.kind === 'group' ? (
                         <article key={entry.key} data-group-order-id={entry.groupId} className={`pos-light-surface rounded-2xl border-2 p-4 shadow-md ${isNightMode ? 'border-blue-500/60 bg-[#081321]' : 'border-blue-300 bg-white'}`}>
@@ -696,6 +693,8 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
           </section>
         </div>
       )}
+
+      </main>}
 
       <footer className={`pos-light-surface mx-3 mb-3 grid gap-2 rounded-xl border px-4 py-2 sm:grid-cols-3 lg:mx-4 ${isNightMode ? 'border-slate-700 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}><div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /><span><span className="block text-[10px] font-bold text-slate-400">Last Updated</span><span className="text-xs font-black">{lastUpdated ? lastUpdated.toLocaleTimeString() : 'Connecting…'}</span></span></div><div className="flex items-center gap-2"><Store className="h-5 w-5 text-slate-400" /><span><span className="block text-[10px] font-bold text-slate-400">Store</span><span className="text-xs font-black">{storeDisplayName}</span></span></div><div className="flex items-center gap-2"><BellRing className="h-5 w-5 text-emerald-500" /><span><span className="block text-[10px] font-bold text-slate-400">Active Online Orders</span><span className="text-xs font-black">{activeOnlineOrderCount}</span></span></div></footer>
 
@@ -801,7 +800,6 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
           </section>
         </div>
       )}
-      </div>
     </section>
   );
 }

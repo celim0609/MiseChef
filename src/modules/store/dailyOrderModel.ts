@@ -40,7 +40,7 @@ export function ticketInDailyView(date: string, view: DailyView, today: string) 
 }
 export function dailyEntries(orders: StoreOrder[], view: DailyView, today: string) {
   return [...new Map(orders.map(order => [order.id,order])).values()].filter(isOrderOperationallyEligible).flatMap(order => getOrderTickets(order).filter(ticket => {
-    if (!ticket.fulfilmentId && !ticket.weeklyDay) return false;
+    if (view !== 'History' && !ticket.fulfilmentId && !ticket.weeklyDay) return false;
     const terminal = ['Completed','Cancelled'].includes(dailyStatus(order,ticket));
     return view === 'History' ? terminal || ticket.date < today : !terminal && ticketInDailyView(ticket.date,view,today);
   }).map(ticket => ({order,ticket,status:dailyStatus(order,ticket)}))).sort((a,b) => `${a.ticket.date} ${a.ticket.time}`.localeCompare(`${b.ticket.date} ${b.ticket.time}`) || a.ticket.key.localeCompare(b.ticket.key));
