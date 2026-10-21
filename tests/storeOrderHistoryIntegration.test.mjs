@@ -260,7 +260,7 @@ test('multi-day pickup creates one financial order/payment and checkout retries 
   } finally { await deleteApp(app); }
 });
 
-test('Weekly delivery persists one payment, five fulfilments and immutable first quote ×5 through dispatch completion', async () => {
+test('Weekly delivery persists one payment, five fulfilments and immutable per-day quote sum through dispatch completion', async () => {
   const { createStoreDeliveryQuote, dispatchStoreDelivery, refreshStoreDelivery } = await import('../functions/storeDelivery.js');
   // The unchanged payment boundary uses the Functions default Firestore app.
   const app = initializeApp({ projectId: 'demo-misechef-store-payment-rules' });
@@ -281,12 +281,12 @@ test('Weekly delivery persists one payment, five fulfilments and immutable first
   for (const day of days) await db.collection('storeProducts').doc(`${workspaceId}-${day}`).set({ storeId: workspaceId, workspaceId, name: `${day} meal`, available: true, availableDay: day === 'thu' ? 'tue' : day, price: 10, optionGroupIds: [] });
   const planId = `${workspaceId}-plan`;
   await db.collection('storeProducts').doc(planId).set({ storeId: workspaceId, workspaceId, name: 'Weekly Plan', productType: 'weekly_meal_plan', weeklyMeals: Object.fromEntries(days.map(day => [day, `${workspaceId}-${day}`])), available: true, price: 45, optionGroupIds: [] });
-  let quoteCount = 0; let dispatchCount = 0; let firstQuote;
+  let quoteCount = 0; let dispatchCount = 0; let firstQuote; const checkoutQuotes = new Map();
   const provider = { environment: 'sandbox', createQuote: async request => {
     quoteCount++;
-    const quote = { quotationId: `quote-${quoteCount}`, expiresAt: new Date(Date.now()+300000).toISOString(), serviceType: 'MOTORCYCLE', priceBreakdown: { total: quoteCount === 1 ? 8.9 : 35, currency: 'MYR' }, stops: request.data.stops.map((stop,index) => ({ ...stop, stopId: `stop-${index}` })) };
-    firstQuote ||= quote; return quote;
-  }, retrieveQuote: async () => firstQuote,
+    const quote = { quotationId: `quote-${quoteCount}`, expiresAt: new Date(Date.now()+300000).toISOString(), serviceType: 'MOTORCYCLE', priceBreakdown: { total: quoteCount <= 5 ? 8.9 : 11, currency: 'MYR' }, stops: request.data.stops.map((stop,index) => ({ ...stop, stopId: `stop-${index}` })) };
+    firstQuote ||= quote; checkoutQuotes.set(quote.quotationId, quote); return quote;
+  }, retrieveQuote: async ({ quotationId }) => checkoutQuotes.get(quotationId),
     createOrder: async request => { dispatchCount++; return { orderId: `provider-${request.data.metadata.misechefFulfilmentId}`, status: 'ASSIGNING_DRIVER' }; },
     retrieveOrder: async ({ orderId }) => ({ orderId, status: 'COMPLETED', priceBreakdown: { total: 39, currency: 'MYR' } }) };
   const draft = { checkoutAttemptId: '53b3c233-9fe4-4f03-9677-2774106b5202', paymentMethodId: paymentMethod.id, customerName: 'Guest', phone: '+60123456789', pickupLocationId: 'counter', fulfilmentMethod: 'delivery', fulfilmentMode: 'preorder',
@@ -296,11 +296,11 @@ test('Weekly delivery persists one payment, five fulfilments and immutable first
   adapter.createPayment = async (...args) => { paymentCount++; return originalCreate(...args); };
   try {
     const quote = await createStoreDeliveryQuote({ db, provider, slug: workspaceId, draft });
-    assert.equal(quoteCount, 1); assert.equal(quote.quote.customerDeliveryFee, 44.5);
+    assert.equal(quoteCount, 5); assert.equal(quote.quote.customerDeliveryFee, 44.5);
     const checkoutDraft = { ...draft, deliveryQuoteId: quote.quote.quotationId, deliveryPricingSnapshotId: quote.pricingSnapshotId };
     const result = await createStorePayment({ db, adapter, deliveryProvider: provider, slug: workspaceId, draft: checkoutDraft, now });
     const retry = await createStorePayment({ db, adapter, deliveryProvider: provider, slug: workspaceId, draft: checkoutDraft, now });
-    assert.equal(result.orderNumber, retry.orderNumber); assert.equal(paymentCount, 1); assert.equal(quoteCount, 1);
+    assert.equal(result.orderNumber, retry.orderNumber); assert.equal(paymentCount, 1); assert.equal(quoteCount, 5);
     const orders = await db.collection('storeOrders').where('storeId', '==', workspaceId).get(); assert.equal(orders.size, 1);
     const ref = orders.docs[0].ref; const initial = orders.docs[0].data();
     assert.equal(initial.items.length, 1); assert.equal(initial.fulfilments.length, 5); assert.equal(initial.total, 134.5);
@@ -318,7 +318,7 @@ test('Weekly delivery persists one payment, five fulfilments and immutable first
       assert.equal(order.total, initial.total); assert.deepEqual(order.totals, initial.totals); assert.deepEqual(order.deliveryPricingSnapshot, initial.deliveryPricingSnapshot);
       assert.equal(order.payment.amountMinor, initial.payment.amountMinor);
     }
-    assert.equal(dispatchCount, 5); assert.equal(paymentCount, 1); assert.equal(quoteCount, 6); // One checkout quote plus five operational dispatch quotes.
+    assert.equal(dispatchCount, 5); assert.equal(paymentCount, 1); assert.equal(quoteCount, 10); // Five checkout quotes plus five operational dispatch quotes.
   } finally { await deleteApp(app); }
 });
 

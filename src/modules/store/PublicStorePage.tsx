@@ -35,6 +35,7 @@ import { customerContactService, storePaymentService, storeService } from './ser
 import { publicPromotionService, type PublicPromotion } from './services/publicPromotionService';
 import { getPromotionOfferLabel, getPromotionSavingsEstimate } from './promotionCheckoutPreview';
 import { storeDeliveryService, type DeliveryQuote } from './services/deliveryService';
+import DeliveryDayAddress from './DeliveryDayAddress';
 import { getSelectedPlace, searchMalaysiaPlaces, type PlaceSuggestion } from './services/googlePlaces';
 import { customerDeliveryFeeChanged, quoteHasSufficientLifetime } from './deliveryQuoteFreshness';
 import {
@@ -189,6 +190,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const [fulfilmentMethod, setFulfilmentMethod] = useState<'pickup' | 'delivery'>('pickup');
   const [deliveryDate, setDeliveryDate] = useState('');
   const [deliveryTime, setDeliveryTime] = useState('');
+  const [deliveryDays, setDeliveryDays] = useState<Record<string, { time?: string; destination?: import('./services/deliveryService').DeliveryDestination }>>({});
   const [deliveryMode, setDeliveryMode] = useState<'preorder' | 'instant'>('preorder');
   const [deliveryAddressQuery, setDeliveryAddressQuery] = useState('');
   const [deliveryDestination, setDeliveryDestination] = useState<SelectedDeliveryDestination | null>(null);
@@ -309,7 +311,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
         setPickupSession(groupOrder?.pickupSession || storeData?.store.pickupSessions[0] || '');
         setPickupLocationId(groupOrder?.pickupLocationId || storeData?.store.pickupLocations[0]?.id || '');
         const preOrder = storeData?.store.delivery?.fulfilment.preOrder;
-        setDeliveryDate(storeData && preOrder ? getValidPickupDates({ ...storeData.store, orderDays: preOrder.orderDays, earliestPickupDays: preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates })[0] || '' : '');
+        setDeliveryDate(storeData && preOrder ? getValidPickupDates({ ...storeData.store, orderDays: preOrder.orderDays, earliestPickupDays: Math.max(1, preOrder.earliestDays) as typeof preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates })[0] || '' : '');
         setDeliveryTime(preOrder?.deliveryHours.from || '');
         setPaymentMethodId(storeData?.store.paymentMethods.find(
           method => method.enabled && method.id !== 'cash_on_pickup'
@@ -795,7 +797,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const healthyDateStore = (method: string) => {
     const store = data!.store;
     const preOrder = store.delivery?.fulfilment.preOrder;
-    return method === 'delivery' && preOrder ? { ...store, orderDays: preOrder.orderDays, earliestPickupDays: preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates } : store;
+    return method === 'delivery' && preOrder ? { ...store, orderDays: preOrder.orderDays, earliestPickupDays: Math.max(1, preOrder.earliestDays) as typeof preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates } : store;
   };
   const availableHealthyDays = (plan: StoreProduct, now = new Date()): string[] => {
     const store = data!.store;
@@ -849,7 +851,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   }, [afterOrderCutoff, deliveryMode, data?.store.delivery?.fulfilment.preOrder.enabled]);
   const validDeliveryDates = useMemo(() => {
     const preOrder = data?.store.delivery?.fulfilment.preOrder;
-    return data && preOrder ? (weeklyCartPlan ? availablePlanMondays(weeklyCartPlan, 'delivery', pickupClock) : getValidPickupDates({ ...data.store, orderDays: preOrder.orderDays, earliestPickupDays: preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates }, pickupClock))
+    return data && preOrder ? (weeklyCartPlan ? availablePlanMondays(weeklyCartPlan, 'delivery', pickupClock) : getValidPickupDates({ ...data.store, orderDays: preOrder.orderDays, earliestPickupDays: Math.max(1, preOrder.earliestDays) as typeof preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates }, pickupClock))
       .filter(date => (multiScheduleEnabled || cartAllowsFulfilmentDate(cart, data.products, date)) && (!weeklyCartPlan || getWeeklyDates(date).length === 5)) : [];
   }, [data, cart, multiScheduleEnabled, pickupClock]);
   useEffect(() => {
@@ -884,7 +886,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const rowValue = (row: typeof scheduleRows[number]) => {
     const selected = lineSchedule[row.key];
     const date = row.dates.includes(selected?.date) ? selected.date : row.dates[0] || '';
-    return { date, time: fulfilmentMethod === 'delivery' ? deliveryTime : pickupTime };
+    return { date, time: fulfilmentMethod === 'delivery' ? (deliveryDays[date]?.time || deliveryTime) : pickupTime };
   };
   const dayGroups = checkoutDayGroups(scheduleRows.map(row => ({ ...row, date: rowValue(row).date })));
   const sharedPickupTimes = commonPickupTimes(dayGroups.map(group => group.date), date => data ? getPickupTimeSlots(data.store, date) : []);
@@ -895,21 +897,22 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   let scheduleError = '';
   if (multiScheduleEnabled) {
     try {
-      proposedFulfilments = groupFulfilmentSchedule(applySharedTime(
-        scheduleRows.map(row => ({ date: rowValue(row).date, time: '', itemIndexes: [row.itemIndex] })),
-        fulfilmentMethod === 'delivery' ? deliveryTime : pickupTime
-      ));
+      proposedFulfilments = groupFulfilmentSchedule(scheduleRows.map(row => {
+        const value = rowValue(row);
+        return { date: value.date, time: value.time, itemIndexes: [row.itemIndex], ...(fulfilmentMethod === 'delivery' && deliveryDays[value.date]?.destination ? { destination: deliveryDays[value.date].destination } : {}) };
+      }));
       if (fulfilmentMethod === 'pickup' && !sharedPickupTimes.includes(pickupTime)) throw new Error('Choose a pickup time available on every selected day.');
       if (weeklyCartPlan && cart[0]?.selectedMealOptions?.length && cart[0].healthyLunchWeekMonday !== selectedWeekMonday) throw new Error('The service week changed. Remove the plan and select its meal options again.');
       if (weeklyCartPlan && hasDatedMenu(weeklyCartPlan) && (!isDatedWeekOpen(data!.store, selectedWeekMonday, pickupClock) || isHealthyLunchWeekBlocked(weeklyCartPlan, selectedWeekMonday))) throw new Error('This 5-Day Plan is closed.');
       if (weeklyCartPlan && (hasDatedMenu(weeklyCartPlan) ? !scheduleDateStore || !fullWeekServiceDatesAvailable(scheduleDateStore, selectedWeekMonday, getValidPickupDates, pickupClock) : proposedFulfilments.some(entry => !scheduleDates.includes(entry.date)))) throw new Error('Choose an available Monday–Friday week.');
       if (weeklyCartPlan && proposedFulfilments.length !== 5) throw new Error('Choose an available Monday–Friday week.');
       if (fulfilmentMethod === 'delivery' && deliveryMode !== 'preorder') throw new Error('Choose Pre-order delivery for scheduled meals.');
+      if (fulfilmentMethod === 'delivery' && proposedFulfilments.some(entry => entry.destination && (!entry.destination.formattedAddress.trim() || !entry.destination.latitude || !entry.destination.longitude))) throw new Error('Select a delivery location and full address for every day.');
       const hours = data?.store.delivery?.fulfilment.preOrder.deliveryHours;
-      if (fulfilmentMethod === 'delivery' && proposedFulfilments.some(entry => !/^([01]\d|2[0-3]):[0-5]\d$/.test(entry.time) || (hours && (entry.time < hours.from || entry.time > hours.to)) || Date.parse(`${entry.date}T${entry.time}:00+08:00`) <= Date.now())) throw new Error('Choose delivery times within Store hours.');
+      if (fulfilmentMethod === 'delivery' && proposedFulfilments.some(entry => !/^([01]\d|2[0-3]):[0-5]\d$/.test(entry.time) || (hours && (entry.time < hours.from || entry.time > hours.to)) || entry.date <= new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).format(new Date()))) throw new Error('Choose delivery times within Store hours.');
     } catch (error) { scheduleError = error instanceof Error ? error.message : 'Choose available days and a time.'; }
   }
-  const checkoutFulfilments = proposedFulfilments && (proposedFulfilments.length > 1 || weeklyCartPlan || healthyDayCart) ? proposedFulfilments : undefined;
+  const checkoutFulfilments = proposedFulfilments && (proposedFulfilments.length > 1 || weeklyCartPlan || healthyDayCart || fulfilmentMethod === 'delivery') ? proposedFulfilments : fulfilmentMethod === 'delivery' ? [{ date: deliveryDate, time: deliveryTime, itemIndexes: cart.map((_, index) => index) }] : undefined;
   const scheduleKey = JSON.stringify(proposedFulfilments);
   const cartDateAllowed = Boolean(data && !weeklyCheckoutError && (multiScheduleEnabled ? !scheduleError : cartAllowsFulfilmentDate(cart, data.products, selectedFulfilmentDate)));
 
@@ -1107,7 +1110,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
         pickupLocationId,
         ...(proposedFulfilments ? { pickupDate: proposedFulfilments[0].date, pickupTime: proposedFulfilments[0].time } : {}),
         ...(checkoutFulfilments ? { fulfilments: checkoutFulfilments } : {}),
-        ...(fulfilmentMethod === 'delivery' && quoteForPayment ? { deliveryQuoteId: quoteForPayment.quote.quotationId, deliveryPricingSnapshotId: quoteForPayment.pricingSnapshotId, fulfilmentMode: deliveryMode, ...(deliveryMode === 'preorder' ? { deliveryDate: proposedFulfilments?.[0]?.date || deliveryDate, deliveryTime: proposedFulfilments?.[0]?.time || deliveryTime } : {}), destination: { formattedAddress: quoteForPayment.destination.address, latitude: quoteForPayment.destination.latitude, longitude: quoteForPayment.destination.longitude, deliveryInstructions: deliveryRemarks } } : {}),
+        ...(fulfilmentMethod === 'delivery' && quoteForPayment ? { deliveryQuoteId: quoteForPayment.quote.quotationId, deliveryPricingSnapshotId: quoteForPayment.pricingSnapshotId, fulfilmentMode: deliveryMode, ...(deliveryMode === 'preorder' ? { deliveryDate: proposedFulfilments?.[0]?.date || deliveryDate, deliveryTime: proposedFulfilments?.[0]?.time || deliveryTime } : {}), destination: checkoutFulfilments && deliveryDestination ? { ...deliveryDestination, deliveryInstructions: deliveryRemarks } : { formattedAddress: quoteForPayment.destination.address, latitude: quoteForPayment.destination.latitude, longitude: quoteForPayment.destination.longitude, deliveryInstructions: deliveryRemarks } } : {}),
         notes,
         selections: cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems, healthyLunchPlanId, healthyLunchDate, selectedMealOptions }) => ({
           productId,
@@ -1180,7 +1183,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
 
   const requestDeliveryQuote = async ({ refresh = false }: { refresh?: boolean } = {}): Promise<DeliveryQuote | null> => {
     const destination = deliveryDestination;
-    if (!destination || (deliveryMode === 'preorder' && (!deliveryDate || !deliveryTime))) return null;
+    if (!destination || (deliveryMode === 'preorder' && (!deliveryDate || (!deliveryTime && !proposedFulfilments?.every(entry => entry.time))))) return null;
     if (scheduleError) return null;
     const requestId = ++deliveryQuoteRequestRef.current;
     setIsCalculatingDelivery(true);
@@ -1213,11 +1216,13 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   };
 
   useEffect(() => {
-    if (fulfilmentMethod !== 'delivery' || !deliveryDestination || (deliveryMode === 'preorder' && (!deliveryDate || !deliveryTime))) return;
+    invalidateDeliveryQuoteRequest();
+    setDeliveryQuote(null);
+    if (fulfilmentMethod !== 'delivery' || !deliveryDestination || (deliveryMode === 'preorder' && (!deliveryDate || (!deliveryTime && !proposedFulfilments?.every(entry => entry.time))))) return;
     setDeliveryQuote(null);
     setDeliveryPriceConfirmation(null);
     void requestDeliveryQuote();
-  // Provider quotations do not include the preorder slot. Unit and instructions are intentionally excluded.
+  // Every date, time and destination is bound to its provider quotation.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fulfilmentMethod, deliveryMode, deliveryDestination, cart, scheduleKey, deliveryDate, deliveryTime, scheduleError]);
 
@@ -1789,7 +1794,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                 {fulfilmentMethod === 'delivery' && <section aria-labelledby="delivery-details-heading" className="order-2">
                   <h3 id="delivery-details-heading" className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Delivery Details</h3>
                   <div className="mt-2 space-y-2">
-                    {!requiresMultipleDays && store.delivery.fulfilment.preOrder.enabled && store.delivery.fulfilment.instant.enabled && <div className="flex gap-2"><button type="button" disabled={afterOrderCutoff} onClick={() => { setDeliveryMode('instant'); setDeliveryQuote(null); setDeliveryPriceConfirmation(null); }} className={`rounded-xl px-4 py-2 text-sm font-bold ${deliveryMode === 'instant' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Deliver now</button><button type="button" onClick={() => { setDeliveryMode('preorder'); setDeliveryQuote(null); setDeliveryPriceConfirmation(null); }} className={`rounded-xl px-4 py-2 text-sm font-bold ${deliveryMode === 'preorder' ? 'bg-primary text-on-primary' : 'bg-surface-container text-primary'}`}>Pre-order</button></div>}
+                    <p className="text-sm font-bold">Order delivery at least one day in advance.</p>
                     {deliveryMode === 'preorder' && (!multiScheduleEnabled || weeklyCartPlan) && <><label className="block"><span className="font-sans text-xs font-extrabold text-primary">{weeklyCartPlan ? '5-Day Plan dates' : 'Delivery date'}</span><select aria-label="Delivery date" value={deliveryDate} onChange={event => setDeliveryDate(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary">{!validDeliveryDates.length && <option value="">No matching dates available</option>}{validDeliveryDates.map(date => <option key={date} value={date}>{weeklyCartPlan ? weekRangeLabel(date) : formatPickupDateLabel(date, store.country)}</option>)}</select></label>{!multiScheduleEnabled && <label className="block"><span className="font-sans text-xs font-extrabold text-primary">Delivery time</span><input aria-label="Delivery time" type="time" min={store.delivery.fulfilment.preOrder.deliveryHours.from} max={store.delivery.fulfilment.preOrder.deliveryHours.to} value={deliveryTime} onChange={event => setDeliveryTime(event.target.value)} className="mt-1.5 min-h-12 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary" /></label>}</>}
                     {!multiScheduleEnabled && store.delivery.subsidy.enabled && <p className="text-xs font-bold text-on-surface-variant">Spend {formatRegionCurrency(store.delivery.subsidy.minimumMerchandiseSpend, store.currency)} to enjoy delivery capped at {formatRegionCurrency(store.delivery.subsidy.maximumCustomerDeliveryCharge, store.currency)}.</p>}
                     <div className="relative">
@@ -1876,9 +1881,10 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                         setLineSchedule(current => ({ ...current, ...Object.fromEntries(group.rows.map(row => [row.key, { date, time: '' }])) }));
                       }} className="m-2 rounded-lg p-2">{group.dates.map(date => <option key={date} value={date}>{scheduleDateLabel(date)}</option>)}</select>
                     </label>}
+                    {fulfilmentMethod === 'delivery' && <><label className="block mt-2">Delivery time for {group.date}<input aria-label={`Delivery time for ${group.date}`} type="time" required value={deliveryDays[group.date]?.time || deliveryTime} min={store.delivery.fulfilment.preOrder.deliveryHours.from} max={store.delivery.fulfilment.preOrder.deliveryHours.to} onChange={event => { const time = event.target.value; setDeliveryDays(current => ({ ...current, [group.date]: { ...current[group.date], time } })); }} className="m-2 rounded border p-2" /></label><DeliveryDayAddress date={group.date} value={deliveryDays[group.date]?.destination} onChange={destination => setDeliveryDays(current => ({ ...current, [group.date]: { ...current[group.date], destination } }))} /></>}
                   </div>)}
                   {fulfilmentMethod === 'delivery' ? <label className="block">Delivery time
-                    <input aria-label="Delivery time" type="time" required value={deliveryTime} min={store.delivery.fulfilment.preOrder.deliveryHours.from} max={store.delivery.fulfilment.preOrder.deliveryHours.to} onChange={event => setDeliveryTime(event.target.value)} className="m-2 rounded-lg p-2" />
+                    <input aria-label="Delivery time" type="time" value={deliveryTime} min={store.delivery.fulfilment.preOrder.deliveryHours.from} max={store.delivery.fulfilment.preOrder.deliveryHours.to} onChange={event => setDeliveryTime(event.target.value)} className="m-2 rounded-lg p-2" />
                   </label> : <label className="block">Pickup time
                     <select aria-label="Pickup time" required value={pickupTime} onChange={event => setPickupTime(event.target.value)} className="m-2 rounded-lg p-2">
                       <option value="">Choose a pickup time</option>

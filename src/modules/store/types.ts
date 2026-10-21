@@ -1,5 +1,6 @@
-export interface DraftFulfilment { date: string; time: string; itemIndexes: number[] }
+export interface DraftFulfilment { destination?: import('./services/deliveryService').DeliveryDestination; date: string; time: string; itemIndexes: number[] }
 export interface OrderFulfilment {
+  destination?: import('./services/deliveryService').DeliveryDestination;
   notes?: string;
   id: string; method: 'pickup' | 'delivery'; date: string; time: string;
   pickupLocationId: string; pickupLocationName: string; pickupLocationAddress: string;
@@ -14,7 +15,7 @@ export interface FulfilmentOperation {
   kitchenStatus?: string;
   dispatch?: { status?: string; errorCode?: string; identity?: string };
   lifecycle?: { state?: string; providerStatus?: string };
-  providerOrder?: { orderId?: string; status?: string; priceBreakdown?: Record<string, unknown> };
+  providerOrder?: { shareLink?: string; driverId?: string; driver?: { name?: string; phone?: string; plateNumber?: string }; orderId?: string; status?: string; priceBreakdown?: Record<string, unknown> };
 }
 import type { RegionCode, RegionCurrency } from '../../regions';
 

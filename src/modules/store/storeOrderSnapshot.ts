@@ -119,6 +119,7 @@ export const normalizeOrderFulfilments = (value: unknown): import('./types').Ord
   if (!Array.isArray(value)) return undefined;
   return value.filter(entry => entry && typeof entry.id === 'string' && Array.isArray(entry.allocations)).map(entry => ({
     ...(readString(entry.notes) ? {notes: readString(entry.notes)} : {}),
+    ...(entry.destination ? { destination: { formattedAddress: readString(entry.destination.formattedAddress), latitude: readString(entry.destination.latitude), longitude: readString(entry.destination.longitude), deliveryInstructions: readString(entry.destination.deliveryInstructions) } } : {}),
     id: readString(entry.id), method: entry.method === 'delivery' ? 'delivery' : 'pickup', date: readString(entry.date), time: readString(entry.time),
     pickupLocationId: readString(entry.pickupLocationId), pickupLocationName: readString(entry.pickupLocationName), pickupLocationAddress: readString(entry.pickupLocationAddress),
     allocations: entry.allocations.map(allocation => ({ itemIndex: readNumber(allocation.itemIndex), quantity: readNumber(allocation.quantity), ...(allocation.componentDay ? { componentDay: allocation.componentDay } : {}) }))

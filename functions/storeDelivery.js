@@ -21,7 +21,7 @@ const coord = (value, maximum = 180) => {
 export const sameDeliveryCoordinates = (left, right) => coord(left) !== '' && coord(left) === coord(right);
 const deliveryError = message => new HttpsError('failed-precondition', message);
 const deliveryConfig = store => store?.delivery && typeof store.delivery === 'object' ? store.delivery : {};
-const validateDestination = destination => {
+export const validateDestination = destination => {
   const address = readString(destination?.formattedAddress);
   const latitude = coord(destination?.latitude, 90);
   const longitude = coord(destination?.longitude, 180);
@@ -46,6 +46,7 @@ export const validatePreOrderSchedule = (store, config, draft, now = new Date())
   if (preOrder.enabled !== true) throw deliveryError('Pre-order delivery is unavailable for this Store.');
   const deliveryDate = readString(draft?.deliveryDate);
   const deliveryTime = readString(draft?.deliveryTime);
+  if (deliveryDate <= new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).format(now)) throw deliveryError('Place delivery orders at least one day in advance.');
   const dates = getValidPickupDates({ ...store, country: store.country, orderDays: preOrder.orderDays, earliestPickupDays: preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates }, now);
   if (!dates.includes(deliveryDate)) throw deliveryError('Choose an available delivery date.');
   const hours = preOrder.deliveryHours || { from: '00:00', to: '23:59' };
@@ -65,7 +66,17 @@ export const validateInstantSchedule = (store, config, now = new Date()) => {
   if (!open) throw deliveryError('Instant delivery is currently unavailable. Choose Pre-order delivery.');
   return { mode: 'instant' };
 };
-const validateDeliverySchedule = (store, config, draft) => readString(draft?.fulfilmentMode) === 'instant' ? validateInstantSchedule(store, config) : validatePreOrderSchedule(store, config, draft);
+const validateDeliverySchedule = (store, config, draft) => {
+  if (draft?.fulfilmentMode === 'instant') throw deliveryError('Place delivery orders at least one day in advance.');
+  return validatePreOrderSchedule(store, config, draft);
+};
+export const assertDeliveryDistance = (config, pickup, destination) => {
+  const configured = config.fulfilment?.preOrder?.maximumDistanceKm;
+  if (configured === undefined || configured === null) return;
+  const limit = Number(configured);
+  if (!Number.isFinite(limit) || limit <= 0) throw deliveryError('Configure a valid maximum delivery distance.');
+  if (distanceKm(pickup, destination) > limit) throw deliveryError('This delivery address is outside the Store’s maximum delivery distance.');
+};
 export const malaysiaPreorderScheduleAt = schedule => new Date(`${schedule.date}T${schedule.time}:00+08:00`).toISOString();
 export const assertFutureLalamoveSchedule = (schedule, now = Date.now()) => {
   if (schedule.mode !== 'preorder') return schedule;
@@ -105,7 +116,7 @@ const quoteSnapshot = quote => ({ quotationId: readString(quote.quotationId), ex
 // bind payment revalidation to the coordinates Lalamove attached to its quote.
 export const providerRoutingDestination = ({ quote, destination }) => {
   const dropoff = quote?.stops?.[1] || {};
-  const latitude = coord(dropoff.coordinates?.lat);
+  const latitude = coord(dropoff.coordinates?.lat, 90);
   const longitude = coord(dropoff.coordinates?.lng);
   if (!latitude || !longitude) throw new Error('Lalamove returned an invalid quotation.');
   return { ...destination, latitude, longitude };
@@ -115,6 +126,7 @@ export const quoteMatchesDestination = ({ quote, destination }) => {
   return sameDeliveryCoordinates(dropoff.coordinates?.lat, destination?.latitude)
     && sameDeliveryCoordinates(dropoff.coordinates?.lng, destination?.longitude);
 };
+const sameQuoteRoute = (left, right) => left.stops.length === 2 && right.stops.length === 2 && left.stops.every((stop, index) => sameDeliveryCoordinates(stop.coordinates?.lat, right.stops[index].coordinates?.lat) && sameDeliveryCoordinates(stop.coordinates?.lng, right.stops[index].coordinates?.lng));
 const ACTIVE_OPERATOR_ROLES = new Set(['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef']);
 const assertWorkspaceOperator = async ({ db, uid, order }) => {
   const workspaceId = readString(order.workspaceId);
@@ -160,8 +172,8 @@ const canReplaceProviderState = ({ existingState, nextState }) => {
 };
 
 const deliveryScheduleBinding = draft => createHash('sha256').update(JSON.stringify({
-  schedule: canonicalSchedule(draft), selections: draft.selections,
-  address: validateDestination(draft.destination).address
+  schedule: canonicalSchedule(draft), selections: draft.selections, destination: (({ instructions, ...route }) => route)(validateDestination(draft.destination)),
+  address: validateDestination(canonicalSchedule(draft)?.[0]?.destination || draft.destination).address
 })).digest('hex');
 const scheduledDelivery = (store, draft, datedFullWeek = false) => {
   const entries = canonicalSchedule(draft);
@@ -174,8 +186,8 @@ const scheduledDelivery = (store, draft, datedFullWeek = false) => {
 export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) => {
   const checkout = await loadStoreCheckoutData(db, slug);
   const { config, pickup } = validateStoreDelivery(checkout.store, provider);
-  const destination = validateDestination(draft?.destination);
-  if (distanceKm(pickup, destination) > Number(config.fulfilment?.preOrder?.maximumDistanceKm || Infinity)) throw deliveryError('This delivery address is outside the Store’s maximum delivery distance.');
+  const destination = validateDestination(canonicalSchedule(draft)?.[0]?.destination || draft?.destination);
+  assertDeliveryDistance(config, pickup, destination);
   const fulfilments = buildOrderFulfilments({ store: checkout.store, draft: { ...draft, fulfilmentMethod: 'delivery' }, products: checkout.products, getDates: getValidPickupDates, getTimes: getPickupTimeSlots });
   const scheduleStore = fulfilments?.weeklyPlanSnapshot ? fullWeekDateStore(checkout.store, checkout.products.find(product => product.id === draft.selections?.[0]?.productId)) : checkout.store;
   const scheduled = scheduledDelivery(scheduleStore, draft, Boolean(fulfilments?.weeklyPlanSnapshot && hasDatedMenu(checkout.products.find(product => product.id === draft.selections?.[0]?.productId))));
@@ -184,20 +196,31 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
   // Rebuild cart on the server. The browser does not send prices or service type.
   const items = buildOrderItems(draft?.selections || [], checkout.products, checkout.optionGroups, checkout.sets, fulfilments?.fulfilments[0]?.date || draft.deliveryDate);
   if (!items.length) throw deliveryError('Your cart is empty.');
-  const quotation = await provider.createQuote(buildLalamoveQuoteRequest({ config, pickup, destination, schedule }));
+  const dayQuotes = [];
+  await Promise.all((scheduled.entries || []).map(async entry => {
+    const target = validateDestination(entry.destination || draft.destination);
+    assertDeliveryDistance(config, pickup, target);
+    const dayQuote = quoteSnapshot(await provider.createQuote(buildLalamoveQuoteRequest({ config, pickup, destination: target, schedule: { mode: 'preorder', date: entry.date, time: entry.time } })));
+    providerRoutingDestination({ quote: dayQuote, destination: target });
+    if (dayQuote.stops.length !== 2 || dayQuote.serviceType !== config.serviceType || Date.parse(dayQuote.expiresAt) <= Date.now() + DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS || !dayQuote.quotationId || dayQuote.currency !== 'MYR' || !Number.isFinite(dayQuote.fee) || dayQuote.fee < 0 || !Number.isFinite(Date.parse(dayQuote.expiresAt))) throw deliveryError('Invalid delivery quotation.');
+    dayQuotes.push({ date: entry.date, quote: dayQuote, destination: target });
+  }));
+  dayQuotes.sort((a, b) => a.date.localeCompare(b.date));
+  const quotation = dayQuotes[0] ? { ...dayQuotes[0].quote, priceBreakdown: dayQuotes[0].quote.priceBreakdown } : await provider.createQuote(buildLalamoveQuoteRequest({ config, pickup, destination, schedule }));
   const quote = quoteSnapshot(quotation);
-  if (!quote.quotationId || quote.currency !== 'MYR' || !Number.isFinite(quote.fee) || quote.fee < 0 || !quote.expiresAt) throw new Error('Lalamove returned an invalid quotation.');
+  if (!quote.quotationId || quote.currency !== 'MYR' || !Number.isFinite(quote.fee) || quote.fee < 0 || !Number.isFinite(Date.parse(quote.expiresAt))) throw new Error('Lalamove returned an invalid quotation.');
   const routingDestination = providerRoutingDestination({ quote, destination });
   const promotionPricing = calculatePromotionPricing({ items, promotions: checkout.promotions });
   const fulfilmentCount = fulfilments?.fulfilments.length || 1;
   const pricing = fulfilmentCount > 1 ? { customerDeliveryFee: money(quote.fee * fulfilmentCount) } : customerPricing({ providerFee: quote.fee, config, merchandiseSubtotal: promotionPricing.discountedMerchandiseTotal });
-  const dayPricing = calculateDeliveryDayPricing({ config, providerFee: quote.fee, items, fulfilments: fulfilments?.fulfilments, pickup, destination: routingDestination, promotionPricing, date: schedule.date || '' });
-  if (config.freeDelivery?.enabled === true) pricing.customerDeliveryFee = dayPricing.customerDeliveryFee;
+  const dayPricing = calculateDeliveryDayPricing({ dayQuotes, config, providerFee: quote.fee, items, fulfilments: fulfilments?.fulfilments, pickup, destination: routingDestination, promotionPricing, date: schedule.date || '' });
+  pricing.customerDeliveryFee = dayPricing.customerDeliveryFee;
   // Bind the displayed promotion/delivery price to a server record. The
   // browser receives only an opaque id and cannot author a price baseline.
   const pricingSnapshotId = randomBytes(24).toString('hex');
   await db.collection('storeDeliveryQuoteSnapshots').doc(pricingSnapshotId).create({
     ...(fulfilments ? { scheduleBinding: deliveryScheduleBinding(draft), firstQuote: quote, fulfilmentCount, finalDeliveryTotal: pricing.customerDeliveryFee } : {}),
+    dayQuotes,
     storeId: checkout.store.id,
     quotationId: quote.quotationId,
     discountedMerchandiseTotal: promotionPricing.discountedMerchandiseTotal,
@@ -206,7 +229,7 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
     expiresAt: quote.expiresAt,
     createdAt: new Date().toISOString()
   });
-  return { quote: { quotationId: quote.quotationId, expiresAt: quote.expiresAt, customerDeliveryFee: pricing.customerDeliveryFee, currency: 'MYR', days: dayPricing.days.map(({ date, customerDeliveryFee, freeDeliveryApplied }) => ({ date, customerDeliveryFee, freeDeliveryApplied })), minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS, ...(fulfilments ? { firstDayFee: config.freeDelivery?.enabled === true ? dayPricing.days[0].customerDeliveryFee : fulfilmentCount > 1 ? quote.fee : pricing.customerDeliveryFee, fulfilmentCount } : {}) }, pricingSnapshotId, merchandiseSubtotal: promotionPricing.discountedMerchandiseTotal, destination: routingDestination, schedule };
+  return { quote: { quotationId: quote.quotationId, expiresAt: quote.expiresAt, customerDeliveryFee: pricing.customerDeliveryFee, currency: 'MYR', days: dayPricing.days.map(({ date, customerDeliveryFee, freeDeliveryApplied }) => ({ date, customerDeliveryFee, freeDeliveryApplied })), minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS, ...(fulfilments ? { firstDayFee: dayPricing.days[0].customerDeliveryFee, fulfilmentCount } : {}) }, pricingSnapshotId, merchandiseSubtotal: promotionPricing.discountedMerchandiseTotal, destination: routingDestination, schedule };
 };
 
 export const getLalamoveSandboxCityInfo = async ({ db, uid, workspaceId, provider }) => {
@@ -223,8 +246,8 @@ export const getLalamoveSandboxCityInfo = async ({ db, uid, workspaceId, provide
 // is likely to expire while that boundary is crossed.
 export const revalidateDeliveryForPayment = async ({ provider, store, draft, now = Date.now(), minimumValidityMs = 0, db, products = [] }) => {
   const { config, pickup } = validateStoreDelivery(store, provider);
-  const destination = validateDestination(draft?.destination);
-  if (distanceKm(pickup, destination) > Number(config.fulfilment?.preOrder?.maximumDistanceKm || Infinity)) throw deliveryError('This delivery address is outside the Store’s maximum delivery distance.');
+  const destination = validateDestination(canonicalSchedule(draft)?.[0]?.destination || draft?.destination);
+  assertDeliveryDistance(config, pickup, destination);
   const plan = products.find(product => product.id === draft.selections?.[0]?.productId);
   if (hasDatedMenu(plan)) buildOrderFulfilments({ store, draft: { ...draft, fulfilmentMethod: 'delivery' }, products, now: new Date(now), getDates: getValidPickupDates, getTimes: getPickupTimeSlots });
   const scheduleStore = isFullWeekSelection(draft.selections?.[0], products) ? fullWeekDateStore(store, plan) : store;
@@ -232,23 +255,34 @@ export const revalidateDeliveryForPayment = async ({ provider, store, draft, now
   draft = scheduled.draft;
   const schedule = validateDeliverySchedule(scheduleStore, deliveryConfig(scheduleStore), draft);
   const quote = quoteSnapshot(await provider.retrieveQuote({ market: 'MY', quotationId: readString(draft?.deliveryQuoteId) }));
-  if (!quote.quotationId || quote.currency !== 'MYR' || !Number.isFinite(quote.fee) || quote.fee < 0 || Date.parse(quote.expiresAt) <= Number(now) + Number(minimumValidityMs) || quote.serviceType !== config.serviceType || quote.stops.length !== 2) throw deliveryError('Refresh your delivery quote before checkout.');
+  if (!quote.quotationId || quote.currency !== 'MYR' || !Number.isFinite(quote.fee) || quote.fee < 0 || !Number.isFinite(Date.parse(quote.expiresAt)) || Date.parse(quote.expiresAt) <= Number(now) + Number(minimumValidityMs) || quote.serviceType !== config.serviceType || quote.stops.length !== 2) throw deliveryError('Refresh your delivery quote before checkout.');
   // Lalamove returns coordinates as either JSON numbers or strings. Coordinates
   // are the provider routing identity; display-address differences must not
   // turn an otherwise identical selected place into a false mismatch.
-  if (!quoteMatchesDestination({ quote, destination })) throw deliveryError('Delivery quote no longer matches the selected address.');
+  if (!scheduled.entries && !quoteMatchesDestination({ quote, destination })) throw deliveryError('Delivery quote no longer matches the selected address.');
+  let dayQuotes = [];
   if (scheduled.entries) {
     const snapshot = await (db || getFirestore()).collection('storeDeliveryQuoteSnapshots').doc(readString(draft.deliveryPricingSnapshotId)).get();
     const stored = snapshot.exists ? snapshot.data() : null;
     if (!stored || stored.storeId !== (store.id || store.workspaceId) || stored.quotationId !== quote.quotationId
       || stored.scheduleBinding !== deliveryScheduleBinding(draft) || stored.fulfilmentCount !== scheduled.entries.length
       || stored.firstQuote?.fee !== quote.fee) throw deliveryError('Fulfilment schedule or delivery pricing changed. Refresh your delivery quote.');
+    if (stored.dayQuotes?.length) {
+      dayQuotes = await Promise.all(stored.dayQuotes.map(async day => {
+        const current = quoteSnapshot(await provider.retrieveQuote({ market: 'MY', quotationId: day.quote.quotationId }));
+        if (current.quotationId !== day.quote.quotationId || current.currency !== 'MYR' || !sameQuoteRoute(current, day.quote) || current.fee !== day.quote.fee || !Number.isFinite(Date.parse(current.expiresAt)) || Date.parse(current.expiresAt) <= Number(now) + Number(minimumValidityMs) || current.serviceType !== config.serviceType) throw deliveryError('Refresh delivery quotations before payment.');
+        const entry = scheduled.entries.find(entry => entry.date === day.date);
+        const target = validateDestination(entry?.destination || draft.destination);
+        assertDeliveryDistance(config, pickup, target);
+        return { ...day, destination: target, quote: current };
+      }));
+    }
   }
-  return { fulfilmentMethod: 'delivery', fulfilmentMode: schedule.mode, environment: provider.environment, ...(schedule.mode === 'preorder' ? { schedule } : {}), quote, pickup: { name: readString(pickup.name), address: readString(pickup.address), latitude: pickup.latitude, longitude: pickup.longitude, contactName: pickup.contactName, contactPhoneE164: pickup.contactPhoneE164 }, recipient: { name: readString(draft.customerName), phoneE164: readString(draft.phone), address: destination.address, latitude: destination.latitude, longitude: destination.longitude, instructions: destination.instructions }, dispatch: { status: 'not_requested' }, lifecycle: { state: 'not_started' } };
+  return { ...(dayQuotes.length ? { dayQuotes } : {}), fulfilmentMethod: 'delivery', fulfilmentMode: schedule.mode, environment: provider.environment, ...(schedule.mode === 'preorder' ? { schedule } : {}), quote, pickup: { name: readString(pickup.name), address: readString(pickup.address), latitude: pickup.latitude, longitude: pickup.longitude, contactName: pickup.contactName, contactPhoneE164: pickup.contactPhoneE164 }, recipient: { name: readString(draft.customerName), phoneE164: readString(draft.phone), address: destination.address, latitude: destination.latitude, longitude: destination.longitude, instructions: destination.instructions }, dispatch: { status: 'not_requested' }, lifecycle: { state: 'not_started' } };
 };
 
-export const dispatchStoreDelivery = async ({ db, provider, uid, orderId, fulfilmentId }) => {
-  if (fulfilmentId !== undefined) return dispatchFulfilmentDelivery({ db, provider, uid, orderId, fulfilmentId });
+export const dispatchStoreDelivery = async ({ db, provider, uid, orderId, fulfilmentId, internal = false }) => {
+  if (fulfilmentId !== undefined) return dispatchFulfilmentDelivery({ db, provider, uid, orderId, fulfilmentId, internal });
   if (!uid) throw new HttpsError('unauthenticated', 'Sign in to dispatch this order.');
   const orderRef = db.collection('storeOrders').doc(readString(orderId));
   const authorizationSnapshot = await orderRef.get();
@@ -325,9 +359,7 @@ const providerDriverSnapshot = async ({ provider, detail }) => {
     return {
       driverId,
       name: readString(driver.name), phone: readString(driver.phone), plateNumber: readString(driver.plateNumber), photo: readString(driver.photo),
-      coordinates: driver.coordinates && readString(driver.coordinates.lat) && readString(driver.coordinates.lng)
-        ? { lat: readString(driver.coordinates.lat), lng: readString(driver.coordinates.lng), updatedAt: readString(driver.coordinates.updatedAt) }
-        : undefined,
+      ...(driver.coordinates && readString(driver.coordinates.lat) && readString(driver.coordinates.lng) ? { coordinates: { lat: readString(driver.coordinates.lat), lng: readString(driver.coordinates.lng), updatedAt: readString(driver.coordinates.updatedAt) } } : {}),
       fetchedAt: new Date().toISOString()
     };
   } catch (error) {
@@ -437,6 +469,11 @@ const fulfilmentContext = async ({ db, provider, uid, orderId, fulfilmentId, int
   return { ref, order, entry, key: `fulfilmentOperations.${entry.id}` };
 };
 
+export const automaticDispatchDays = (order, before = {}) => {
+  if (!order || order.manualOrder || order.payment?.status !== 'paid' || ['Cancelled', 'Completed'].includes(order.fulfilmentStatus) || order.fulfilmentMethod !== 'delivery') return [];
+  return (order.fulfilments || []).filter(day => day.method === 'delivery' && !order.fulfilmentCompletion?.[day.id] && order.fulfilmentOperations?.[day.id]?.kitchenStatus === 'Ready' && !order.fulfilmentOperations?.[day.id]?.dispatch?.status && (before.payment?.status !== 'paid' || before.fulfilmentOperations?.[day.id]?.kitchenStatus !== 'Ready'));
+};
+
 export const dispatchFulfilmentDelivery = async args => {
   const { db, provider, uid, orderId, fulfilmentId } = args;
   const { ref, entry, key } = await fulfilmentContext(args);
@@ -444,21 +481,28 @@ export const dispatchFulfilmentDelivery = async args => {
     const snapshot = await transaction.get(ref); const order = snapshot.data();
     const operation = order.fulfilmentOperations?.[entry.id] || {};
     if (order.payment?.status !== 'paid' || order.fulfilmentStatus === 'Cancelled' || operation.kitchenStatus !== 'Ready') throw deliveryError('Only ready, paid delivery fulfilments can be dispatched.');
-    if (['creating', 'created', 'outcome_unknown', 'completed', 'cancel_requested', 'cancelled', 'provider_terminal'].includes(operation.dispatch?.status)) return { reused: operation.dispatch.status };
-    transaction.update(ref, { [`${key}.dispatch`]: { status: 'creating', identity: `${ref.id}:${entry.id}`, requestedBy: uid, requestedAt: new Date().toISOString(), attempt: Number(operation.dispatch?.attempt || 0) + 1 }, activeFulfilmentDeliveries: true, updatedAt: FieldValue.serverTimestamp() });
+    if ((args.internal && operation.dispatch?.status) || ['creating', 'created', 'outcome_unknown', 'completed', 'cancel_requested', 'cancelled', 'provider_terminal'].includes(operation.dispatch?.status)) return { reused: operation.dispatch.status };
+    if (order.fulfilmentStatus === 'Completed' || order.fulfilmentCompletion?.[entry.id]) throw deliveryError('This fulfilment is already completed.');
+    transaction.update(ref, { [`${key}.dispatch`]: { status: 'creating', identity: `${ref.id}:${entry.id}`, requestedBy: uid || 'automatic', requestedAt: new Date().toISOString(), attempt: Number(operation.dispatch?.attempt || 0) + 1 }, activeFulfilmentDeliveries: true, updatedAt: FieldValue.serverTimestamp() });
     return { order };
   });
   if (claim.reused) return { status: claim.reused };
   let submitted = false; let created;
   try {
     const delivery = claim.order.delivery;
+    const target = entry.destination ? { ...validateDestination(entry.destination), name: delivery.recipient.name, phoneE164: delivery.recipient.phoneE164 } : delivery.recipient;
     const schedule = { mode: 'preorder', date: entry.date, time: entry.time };
     // At dispatch time expired scheduled slots are requested immediately. Future
     // slots retain their date/time. This is operational pricing only.
-    const request = buildLalamoveQuoteRequest({ config: { serviceType: delivery.quote.serviceType }, pickup: delivery.pickup, destination: delivery.recipient,
+    const request = buildLalamoveQuoteRequest({ config: { serviceType: delivery.quote.serviceType }, pickup: delivery.pickup, destination: target,
       schedule: Date.parse(malaysiaPreorderScheduleAt(schedule)) > Date.now() ? schedule : { mode: 'instant' } });
     const fresh = quoteSnapshot(await provider.createQuote(request));
-    if (!fresh.quotationId || !Number.isFinite(fresh.fee) || fresh.fee < 0 || fresh.currency !== 'MYR' || fresh.stops.length !== 2) throw deliveryError('Invalid dispatch quotation.');
+    if (!fresh.quotationId || !Number.isFinite(fresh.fee) || fresh.fee < 0 || fresh.currency !== 'MYR' || fresh.stops.length !== 2 || fresh.stops.some(stop => !readString(stop.stopId))) throw deliveryError('Invalid dispatch quotation.');
+    const baselineFee = claim.order.deliveryPricingSnapshot?.days?.find(day => day.date === entry.date)?.providerDeliveryFee;
+    if (Number.isFinite(baselineFee) && fresh.fee - baselineFee > 5) {
+      await ref.update({ [`${key}.dispatch.status`]: 'failed', [`${key}.dispatch.errorCode`]: 'requote_exceeds_absorption_limit' });
+      return { status: 'dispatch_blocked_requote' };
+    }
     const [sender, recipient] = fresh.stops;
     // Persist submission intent before the external side effect. A crash here
     // remains locked; reconciliation never automatically resubmits it.
@@ -466,13 +510,13 @@ export const dispatchFulfilmentDelivery = async args => {
     submitted = true;
     created = await provider.createOrder({ market: 'MY', data: { quotationId: fresh.quotationId,
       sender: { stopId: sender.stopId, name: delivery.pickup.contactName, phone: delivery.pickup.contactPhoneE164 },
-      recipients: [{ stopId: recipient.stopId, name: delivery.recipient.name, phone: delivery.recipient.phoneE164, remarks: delivery.recipient.instructions }], isPODEnabled: true,
+      recipients: [{ stopId: recipient.stopId, name: target.name, phone: target.phoneE164, remarks: target.instructions }], isPODEnabled: true,
       metadata: { misechefOrderId: ref.id, misechefFulfilmentId: entry.id, misechefDispatchIdentity: `${ref.id}:${entry.id}` } } });
     if (!readString(created.orderId)) throw new Error('Provider did not return an order ID.');
     // Terminal outcomes are applied transactionally by the same reconciliation
     // path as later polls, so an immediate COMPLETED response cannot skip a day.
     const state = 'assigning_driver';
-    await ref.update({ [`${key}.dispatch.status`]: 'created', [`${key}.providerOrder`]: { orderId: created.orderId, quotationId: created.quotationId || fresh.quotationId, status: created.status || '', priceBreakdown: created.priceBreakdown || {} },
+    await ref.update({ [`${key}.dispatch.status`]: 'created', [`${key}.providerOrder`]: { orderId: created.orderId, quotationId: created.quotationId || fresh.quotationId, status: created.status || '', driverId: created.driverId || '', shareLink: created.shareLink || '', priceBreakdown: created.priceBreakdown || {} },
       [`${key}.lifecycle`]: { state: state, providerStatus: created.status || '', changedAt: new Date().toISOString() }, updatedAt: FieldValue.serverTimestamp() });
     if (TERMINAL_DELIVERY_STATES.has(projectLalamoveLifecycle(created))) await refreshFulfilmentDelivery(args);
     return { status: 'created', orderId: created.orderId };
@@ -505,7 +549,7 @@ export const refreshFulfilmentDelivery = async args => {
     const fresh = (await transaction.get(ref)).data(); const current = fresh.fulfilmentOperations?.[entry.id] || {};
     if (current.providerOrder?.orderId !== providerOrderId) throw deliveryError('Dispatch changed; refresh again.');
     if (TERMINAL_DELIVERY_STATES.has(current.lifecycle?.state)) return { status: current.providerOrder.status, lifecycleState: current.lifecycle.state };
-    const update = { [`${key}.providerOrder.status`]: readString(detail.status), [`${key}.providerOrder.priceBreakdown`]: detail.priceBreakdown || {},
+    const update = { [`${key}.providerOrder.status`]: readString(detail.status), [`${key}.providerOrder.shareLink`]: readString(detail.shareLink), [`${key}.providerOrder.driverId`]: readString(detail.driverId), [`${key}.providerOrder.priceBreakdown`]: detail.priceBreakdown || {},
       ...(driver ? { [`${key}.providerOrder.driver`]: driver } : {}),
       [`${key}.lifecycle`]: { state: nextState, providerStatus: readString(detail.status), changedAt: new Date().toISOString() },
       [`${key}.dispatch.status`]: nextState === 'completed' ? 'completed' : TERMINAL_DELIVERY_STATES.has(nextState) ? 'provider_terminal' : 'created', updatedAt: FieldValue.serverTimestamp() };
