@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
+import DeliveryDispatchAction from './DeliveryDispatchAction';
 import OrderFulfilmentDetails from './OrderFulfilmentDetails';
 import {deliveryOrderCase} from '../../../functions/fixtures/deliveryOrderCase.js';
 import {getOrderTickets,buildTicketDocument} from './orderTickets';
@@ -21,4 +22,12 @@ test('Pickup orders retain Pickup labels and their own location even with a deli
  const order=deliveryOrderCase() as unknown as StoreOrder;order.fulfilmentMethod='pickup';order.fulfilments[0].method='pickup';order.pickupCode='DV47';
  const html=renderToStaticMarkup(<dl><OrderFulfilmentDetails order={order} country="MY" /></dl>);
  assert.match(html,/Pickup Date/);assert.match(html,/Pickup Time/);assert.match(html,/Pickup Location/);assert.match(html,/Example Counter/);assert.doesNotMatch(html,/Delivery Address/);
+});
+
+test('paid New delivery exposes the booking action with a Ready instruction; Ready enables it without bypassing payment',()=>{
+ const order=deliveryOrderCase() as unknown as StoreOrder;
+ const render=()=>renderToStaticMarkup(<DeliveryDispatchAction order={order} fulfilmentId="day_20261022" isUpdating={false} onDispatch={()=>{throw Error('render must not book');}} />);
+ let html=render();assert.match(html,/Request Lalamove/);assert.match(html,/disabled=""/);assert.match(html,/Mark this paid delivery day Ready/);
+ order.fulfilmentOperations.day_20261022={kitchenStatus:'Ready'};html=render();assert.match(html,/Request Lalamove/);assert.doesNotMatch(html,/disabled=""/);
+ order.payment.status='failed';assert.equal(render(),'');
 });
