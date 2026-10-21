@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {deliveryOrderCase} from './fixtures/deliveryOrderCase.js';
-import {canonicalFulfilmentMethod,canonicalFulfilmentView,resolveDeliveryDispatchData,normalizeDeliveryPhone} from './storeFulfilmentCanonical.js';
+import {canonicalOrderFulfilmentLabel,canonicalFulfilmentMethod,canonicalFulfilmentView,resolveDeliveryDispatchData,normalizeDeliveryPhone} from './storeFulfilmentCanonical.js';
 
 test('anonymized paid New delivery with pickup code and collection fields remains a delivery at its saved time/address',()=>{
  const order=deliveryOrderCase(), before=structuredClone(order), day=order.fulfilments[0];
@@ -25,7 +25,7 @@ test('compatibility can recover missing pins only from an exactly matching store
 });
 test('a pickup code never determines method, and explicit per-day type/address/time override parent fields',()=>{
  const order=deliveryOrderCase(), day=order.fulfilments[0];
- order.fulfilmentMethod='pickup';assert.equal(canonicalFulfilmentMethod(order,day),'delivery');
+ order.fulfilmentMethod='pickup';assert.equal(canonicalOrderFulfilmentLabel(order),'Delivery');assert.equal(canonicalFulfilmentMethod(order,day),'delivery');
  day.method='pickup';assert.equal(canonicalFulfilmentView(order,day).method,'pickup');
  delete day.method;delete order.fulfilmentMethod;assert.equal(canonicalFulfilmentMethod(order,day),'delivery');
 });

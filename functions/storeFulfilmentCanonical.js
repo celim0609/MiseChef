@@ -2,6 +2,11 @@
 const text = value => typeof value === 'string' ? value.trim() : '';
 const method = value => value === 'delivery' || value === 'pickup' ? value : '';
 export const canonicalFulfilmentMethod = (order, day) => method(day?.method) || method(order.fulfilmentMethod) || method(order.delivery?.fulfilmentMethod) || (text(order.delivery?.recipient?.address) ? 'delivery' : 'pickup');
+export const canonicalOrderFulfilmentLabel = order => {
+  const methods = [...new Set((order.fulfilments || []).map(day => canonicalFulfilmentMethod(order, day)))];
+  const type = methods.length > 1 ? '' : methods[0] || canonicalFulfilmentMethod(order);
+  return type === 'delivery' ? 'Delivery' : type === 'pickup' ? 'Pickup' : 'Mixed fulfilments';
+};
 export const canonicalFulfilmentDestination = (order, day) => {
   if (day?.destination) return { address: text(day.destination.formattedAddress || day.destination.address), latitude: day.destination.latitude, longitude: day.destination.longitude, instructions: text(day.destination.deliveryInstructions) };
   const recipient = order.delivery?.recipient || {};

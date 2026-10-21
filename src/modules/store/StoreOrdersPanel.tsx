@@ -1,5 +1,5 @@
 import OrderFulfilmentDetails from './OrderFulfilmentDetails';
-import { canonicalFulfilmentMethod, resolveDeliveryDispatchData, deliveryBlockedMessage } from '../../../functions/storeFulfilmentCanonical.js';
+import { canonicalOrderFulfilmentLabel, canonicalFulfilmentMethod, resolveDeliveryDispatchData, deliveryBlockedMessage } from '../../../functions/storeFulfilmentCanonical.js';
 import { getOrderTickets } from './orderTickets';
 import { orderInPeriod, sortOrdersForPeriod, nextDailyStatus, orderMatchesStatusInPeriod } from './dailyOrderModel';
 import { toMalaysiaDateKey } from './posOrderModel';
@@ -332,7 +332,7 @@ export default function StoreOrdersPanel({
               <span className="flex items-start justify-between gap-4">
                 <span>
                   <span className="block font-display text-xl font-bold text-primary">{order.orderNumber}</span>
-                  {order.pickupCode && <span className="mt-1 block font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">{canonicalFulfilmentMethod(order)} · Code {order.pickupCode}</span>}
+                  {order.pickupCode && <span className="mt-1 block font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">{canonicalOrderFulfilmentLabel(order)} · Code {order.pickupCode}</span>}
                   <span className="mt-1 block font-sans text-sm font-extrabold text-on-surface">{order.customerName}</span>
                 </span>
                 <span className="rounded-full bg-surface-container px-3 py-1.5 font-sans text-[10px] font-extrabold text-primary">
