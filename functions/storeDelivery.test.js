@@ -565,7 +565,7 @@ test('legacy environment mismatch fails before changing order state or calling t
 
 test('legacy malformed requotation never submits an order and can safely retry the quotation', async () => {
  const f=legacyDispatchFixture();f.provider.createQuote=async()=>({quotationId:'bad',priceBreakdown:{total:40,currency:'MYR'},stops:[]});
- await assert.rejects(dispatchStoreDelivery(f.args),/Invalid dispatch quotation/);
+ await assert.rejects(dispatchStoreDelivery(f.args),error=>error.details.fields.includes('sender.stopId') && error.message.includes('no booking has been submitted'));
  assert.equal(f.counts().creations,0);assert.equal(f.db.documents['storeOrders/multi'].delivery.dispatch.status,'failed');
 });
 
@@ -651,4 +651,28 @@ test('automatic dispatch responds only to newly paid/ready days, not unrelated u
   assert.deepEqual(automaticDispatchDays(order).map(day=>day.id),['day_1']);
   assert.equal(automaticDispatchDays({...order,payment:{status:'failed'}}).length,0);
   assert.equal(automaticDispatchDays({...order,manualOrder:true}).length,0);
+});
+
+test('anonymized DV47-shaped order dispatches only its paid Ready day, normalizes the saved phone, and never rewrites the original', async t=>{
+ t.mock.timers.enable({apis:['Date'],now:new Date('2026-10-21T02:00:00Z')});
+ const {deliveryOrderCase}=await import('./fixtures/deliveryOrderCase.js');
+ const order=deliveryOrderCase(), original=structuredClone(order), db=multiDb({'workspaces/s':{ownerId:'owner'},'storeOrders/fixture-order':order});
+ let quotes=0, bookings=0, submitted;
+ const provider={environment:'sandbox',createQuote:async request=>{quotes++;assert.equal(request.data.stops[1].address,original.delivery.recipient.address);assert.equal(request.data.scheduleAt,'2026-10-22T03:30:00.000Z');return {quotationId:'new-operational-quote',serviceType:'MOTORCYCLE',priceBreakdown:{total:9,currency:'MYR'},stops:request.data.stops.map((stop,index)=>({...stop,stopId:`fresh-${index}`}))};},createOrder:async request=>{bookings++;submitted=request;return {orderId:'fake-provider-order',status:'ASSIGNING_DRIVER'};}};
+ const args={db,provider,uid:'owner',orderId:'fixture-order',fulfilmentId:'day_20261022'};
+ // A New paid order must not skip the kitchen workflow.
+ await assert.rejects(dispatchStoreDelivery(args),/Mark this delivery day Ready/);assert.equal(quotes,0);assert.equal(bookings,0);
+ order.fulfilmentOperations.day_20261022={kitchenStatus:'Ready'};
+ await Promise.all([dispatchStoreDelivery(args),dispatchStoreDelivery(args)]);
+ assert.equal(quotes,1);assert.equal(bookings,1);
+ assert.equal(submitted.data.quotationId,'new-operational-quote');assert.equal(submitted.data.recipients[0].phone,'+60123456789');assert.equal(submitted.data.recipients[0].stopId,'fresh-1');
+ assert.deepEqual(order.delivery,original.delivery);assert.deepEqual(order.fulfilments,original.fulfilments);assert.deepEqual(order.payment,original.payment);assert.deepEqual(order.totals,original.totals);assert.equal(order.phone,original.phone);
+});
+
+test('missing recipient pin is blocked before quotation, claim or booking and names the required field',async()=>{
+ const fixture=dispatchFixture(),order=fixture.db.documents['storeOrders/multi'];
+ order.fulfilments[0].destination={formattedAddress:'Different address without coordinates'};
+ const before=structuredClone(order);
+ await assert.rejects(dispatchStoreDelivery(fixture.args),error=>error.details.fields.includes('recipients[0].coordinates'));
+ assert.deepEqual(fixture.counts(),{quotes:0,creations:0});assert.deepEqual(order,before);
 });

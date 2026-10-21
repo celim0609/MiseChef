@@ -13,7 +13,7 @@ export interface PublicOrderFulfilment {
 }
 export interface FulfilmentOperation {
   kitchenStatus?: string;
-  dispatch?: { status?: string; errorCode?: string; identity?: string };
+  dispatch?: { status?: string; errorCode?: string; identity?: string; fields?: string[]; providerCode?: string; requestId?: string };
   lifecycle?: { state?: string; providerStatus?: string };
   providerOrder?: { shareLink?: string; driverId?: string; driver?: { name?: string; phone?: string; plateNumber?: string }; orderId?: string; status?: string; priceBreakdown?: Record<string, unknown> };
 }

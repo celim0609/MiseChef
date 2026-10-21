@@ -301,3 +301,10 @@ test('blocked rotation date refuses a full week and that individual date without
   plan.healthyLunchBlockedDates = [];
   assert.equal(financial({ products: [plan], draft: dayDraft, now: new Date('2026-07-26T04:00:00Z') }).items[0].productName, 'A wed lunch');
 });
+
+test('new delivery payment snapshots normalize Malaysian contact phones while preserving raw customer phone',()=>{
+ const deliveryDraft={...draft,phone:'0123456789',fulfilmentMethod:'delivery',fulfilmentMode:'preorder',deliverySnapshot:{quote:{fee:7},schedule:{date:'2026-07-27'},fulfilmentMode:'preorder',recipient:{phoneE164:'0123456789'}}};
+ const order=financial({draft:deliveryDraft});
+ assert.equal(order.phone,'0123456789');assert.equal(order.delivery.recipient.phoneE164,'+60123456789');
+ assert.throws(()=>financial({draft:{...deliveryDraft,phone:'12345678'}}),/recipient phone with country code/);
+});

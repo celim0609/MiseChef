@@ -1,3 +1,4 @@
+import { normalizeDeliveryPhone } from './storeFulfilmentCanonical.js';
 import { resolveSelectionMealOptions, mealOptionSurcharge, mergeMealOptionSnapshots, publicMealOptionSnapshot } from './healthyLunchOptions.js';
 import { calculateDeliveryDayPricing } from './storeDeliveryPricing.js';
 import { buildOrderFulfilments, publicOrderFulfilments } from './storeOrderFulfilments.js';
@@ -434,6 +435,11 @@ export const buildPendingOrder = ({
   const scheduled = buildOrderFulfilments({ store, draft, products, groupOrder, getDates: getValidPickupDates, getTimes: getPickupTimeSlots, now });
   if (scheduled) draft = { ...draft, pickupDate: scheduled.fulfilments[0].date, pickupTime: scheduled.fulfilments[0].time };
   validateDraft(store, draft, now, Boolean(groupOrder), Boolean(scheduled));
+  if (draft.deliverySnapshot) {
+    const phoneE164 = normalizeDeliveryPhone(draft.phone, store.country);
+    if (!phoneE164) throw new Error('Delivery requires a valid recipient phone with country code.');
+    draft = { ...draft, deliverySnapshot: { ...draft.deliverySnapshot, recipient: { ...draft.deliverySnapshot.recipient, phoneE164 } } };
+  }
   if (draft.selections?.some(selection => selection.healthyLunchPlanId) && (groupOrder || draft.groupShareCode || draft.fulfilmentMode === 'instant')) throw new Error('Healthy Lunch dates require scheduled ordering.');
   if (!scheduled) for (const selection of draft.selections || []) validateHealthyLunchDay(selection, products, draft.fulfilmentMethod === 'delivery' ? (draft.deliveryDate || draft.deliverySnapshot?.schedule?.date) : draft.pickupDate, store.workspaceId || store.id);
   const region = REGIONS[readString(store.country)];
