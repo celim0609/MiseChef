@@ -14,7 +14,7 @@ Branch: `fix/delivery-flow-completion`.
 
 ## Actual gaps and fixes
 
-1. Zero-day delivery settings permitted same-day checkout. Server and checkout now require tomorrow or later in Malaysia time. This means one calendar day, consistent with Store dates and weekly Sunday cutoffs.
+1. Zero-day delivery settings permitted same-day checkout. Delivery Settings, server and checkout now require tomorrow or later in Malaysia time. This means one calendar day, consistent with Store dates and weekly Sunday cutoffs.
 2. Weekly delivery required identical times. Delivery days now have independent times; pickup retains its shared time.
 3. All dates inherited a single recipient. Optional per-day Places selection and full address are persisted in each fulfilment, included in quote binding and used by dispatch and existing tickets.
 4. Checkout multiplied the first provider quote by the number of days. It now quotes every date/route, sums actual fees, and evaluates free-delivery thresholds and configured subsidy against each day's discounted merchandise. All provider quotations are revalidated at payment.
