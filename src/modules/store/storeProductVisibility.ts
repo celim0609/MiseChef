@@ -24,6 +24,16 @@ export const getReadyToSellProductDraft = (
   };
 };
 
+/** Late nutrition may fill untouched nutrition fields, never replace an edited draft. */
+export const applyReadyToSellNutrition = (draft: StoreProductDraft, recipe: Recipe, nutrition?: RecipeNutritionSummary): StoreProductDraft => {
+  if (draft.recipeId !== recipe.id) return draft;
+  const calculated = getReadyToSellProductDraft(recipe, nutrition);
+  return { ...draft,
+    ...(draft.calories === undefined && calculated.calories !== undefined ? { calories: calculated.calories } : {}),
+    description: draft.description || calculated.description
+  };
+};
+
 export const filterAdminStoreProducts = (
   products: StoreProduct[],
   workspaceId: string,

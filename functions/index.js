@@ -1,3 +1,4 @@
+import { saveManualPosOrder, confirmManualPosPayment } from './manualPosOrders.js';
 import { createRecipePipelineService } from './recipePipelineService.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import { readFileSync } from 'node:fs';
@@ -59,7 +60,7 @@ import {
   updateStoreOrderFulfilment
 } from './storeFulfilment.js';
 import { createLalamoveProvider, resolveLalamoveEnvironment } from './lalamoveSandbox.js';
-import { createStoreDeliveryQuote, dispatchStoreDelivery, refreshStoreDelivery, cancelStoreDelivery, reconcileActiveDeliveries, getLalamoveSandboxCityInfo } from './storeDelivery.js';
+import { automaticDispatchDays, createStoreDeliveryQuote, dispatchStoreDelivery, refreshStoreDelivery, cancelStoreDelivery, reconcileActiveDeliveries, getLalamoveSandboxCityInfo } from './storeDelivery.js';
 import { listCustomerOrders } from './customerOrders.js';
 import {
   activateHostProfile,
@@ -492,6 +493,19 @@ export const refreshStoreLalamoveDelivery = onCall({ region: REGION, secrets: [l
 export const cancelStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => {
   const provider = createRuntimeLalamoveProvider();
   return cancelStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId });
+});
+
+export const dispatchReadyStoreFulfilments = onDocumentWritten({
+  document: 'storeOrders/{orderId}', region: REGION, timeoutSeconds: 120, memory: '256MiB', secrets: [lalamoveApiKey, lalamoveApiSecret]
+}, async event => {
+  const order = event.data?.after.data();
+  const ready = automaticDispatchDays(order, event.data?.before.data());
+  if (!ready.length) return;
+  const provider = createRuntimeLalamoveProvider();
+  for (const day of ready) {
+    try { await dispatchStoreDelivery({ db, provider, orderId: event.params.orderId, fulfilmentId: day.id, internal: true }); }
+    catch (error) { logger.warn('Automatic delivery dispatch requires merchant review', { orderId: event.params.orderId, fulfilmentId: day.id, code: error.code || 'dispatch_failed' }); }
+  }
 });
 
 // No webhook endpoint is enabled yet. Scheduled order-detail reconciliation is
@@ -2525,3 +2539,6 @@ export const processResumeImportJob = onDocumentCreated({
     await logRequest({ requesterId, companyId, action, status: 'failed', attempts, errorCode, responseTime: Date.now() - startedAt, model: RESUME_MODEL }).catch(() => undefined);
   }
 });
+
+export const saveStoreManualPosOrder = onCall({ region: REGION, timeoutSeconds: 30 }, request => saveManualPosOrder({ db, uid: request.auth?.uid, input: request.data?.order }));
+export const confirmStoreManualPosPayment = onCall({ region: REGION, timeoutSeconds: 30 }, request => confirmManualPosPayment({ db, uid: request.auth?.uid, input: request.data }));
