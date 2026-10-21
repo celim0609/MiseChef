@@ -26,6 +26,7 @@ const signedRequest = async ({ host, apiKey, apiSecret, method, path, market, bo
   const source = `${timestamp}\r\n${method}\r\n${path}\r\n\r\n${serialized}`;
   const signature = createHmac('sha256', apiSecret).update(source).digest('hex');
   let response;
+  const clientRequestId = randomUUID();
   try { response = await fetch(`${host}${path}`, {
     signal: AbortSignal.timeout(15_000),
     method,
@@ -33,14 +34,16 @@ const signedRequest = async ({ host, apiKey, apiSecret, method, path, market, bo
       Authorization: `hmac ${apiKey}:${timestamp}:${signature}`,
       'Content-Type': 'application/json',
       Market: market,
-      'Request-ID': randomUUID()
+      'Request-ID': clientRequestId
     },
     ...(body ? { body: serialized } : {})
-  }); } catch { throw new HttpsError('unavailable', 'Delivery provider did not respond. Refresh the quote; check existing dispatch status before requesting a replacement.'); }
+  }); } catch { const error = new HttpsError('unavailable', 'Delivery provider did not respond. Refresh the quote; check existing dispatch status before requesting a replacement.', { requestId: clientRequestId }); error.requestId = clientRequestId; throw error; }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const providerCode = text(payload?.errors?.[0]?.id) || text(payload?.message);
     const messages = {
+      ERR_MISSING_FIELD: 'Lalamove rejected a missing required booking field. Check the quotation stop IDs, sender and recipient contacts. No replacement is submitted automatically.',
+      ERR_INVALID_FIELD: 'Lalamove rejected a booking field format. Check map coordinates, service type, quotation stop IDs and contact phone country codes.',
       ERR_OUT_OF_SERVICE_AREA: 'Lalamove does not serve this route. Choose another delivery location.',
       ERR_INVALID_SERVICE_TYPE: 'The Store delivery vehicle is unavailable for this route. Ask the Store to review its Lalamove service type.',
       ERR_INVALID_SCHEDULE_TIME: 'The delivery time is unavailable. Choose a future delivery time.',
@@ -50,9 +53,13 @@ const signedRequest = async ({ host, apiKey, apiSecret, method, path, market, bo
     const message = response.status === 401 || response.status === 403
       ? 'Lalamove authentication failed. The Store must check its delivery credentials for this environment.'
       : messages[providerCode] || (code === 'unavailable' ? 'Lalamove is temporarily unavailable. Please try again later.' : 'Lalamove rejected the delivery request. Review the route, service and schedule.');
-    const error = new HttpsError(code, message, { providerCode, requestId: text(payload?.meta?.requestId) });
+    const allowedFields = ['quotationId', 'sender.stopId', 'sender.name', 'sender.phone', 'recipients[0].stopId', 'recipients[0].name', 'recipients[0].phone', 'serviceType', 'scheduleAt', 'stops[0].coordinates.lat', 'stops[0].coordinates.lng', 'stops[1].coordinates.lat', 'stops[1].coordinates.lng'];
+    const diagnostic = JSON.stringify([payload.errors || [], payload.detail || '']);
+    const fields = allowedFields.filter(field => diagnostic.includes(field));
+    const requestId = text(payload?.meta?.requestId) || text(payload?.requestId) || text(response.headers.get('Request-ID')) || clientRequestId;
+    const error = new HttpsError(code, `${message}${fields.length ? ` Fields: ${fields.join(', ')}.` : ''}`, { providerCode, fields, requestId });
     error.status = response.status;
-    error.requestId = text(payload?.meta?.requestId);
+    error.requestId = requestId;
     throw error;
   }
   return payload.data;

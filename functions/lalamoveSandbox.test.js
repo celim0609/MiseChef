@@ -56,3 +56,13 @@ test('provider errors cross callable boundaries with safe actionable messages an
   await assert.rejects(createLalamoveSandboxProvider({apiKey:'key',apiSecret:'secret'}).getCityInfo('MY'),error=>error.code==='unavailable');
  } finally {globalThis.fetch=previous;}
 });
+
+test('missing-field rejection retains only safe field paths and request ID, never customer values', async()=>{
+ const previous=globalThis.fetch;
+ try {
+  globalThis.fetch=async()=>new Response(JSON.stringify({message:'ERR_MISSING_FIELD',errors:[{id:'ERR_MISSING_FIELD',detail:'recipients[0].phone absent, customer phone 0123456789'}],meta:{requestId:'test-correlation'}}),{status:422});
+  await assert.rejects(createLalamoveSandboxProvider({apiKey:'key',apiSecret:'secret'}).getCityInfo('MY'),error=>{
+   assert.equal(error.details.providerCode,'ERR_MISSING_FIELD');assert.deepEqual(error.details.fields,['recipients[0].phone']);assert.equal(error.requestId,'test-correlation');assert.ok(error.message.includes('recipients[0].phone'));assert.ok(!error.message.includes('0123456789'));return true;
+  });
+ } finally {globalThis.fetch=previous;}
+});

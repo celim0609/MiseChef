@@ -1,3 +1,5 @@
+import OrderFulfilmentDetails from './OrderFulfilmentDetails';
+import { canonicalFulfilmentMethod, resolveDeliveryDispatchData, deliveryBlockedMessage } from '../../../functions/storeFulfilmentCanonical.js';
 import { getOrderTickets } from './orderTickets';
 import { orderInPeriod, sortOrdersForPeriod, nextDailyStatus, orderMatchesStatusInPeriod } from './dailyOrderModel';
 import { toMalaysiaDateKey } from './posOrderModel';
@@ -330,7 +332,7 @@ export default function StoreOrdersPanel({
               <span className="flex items-start justify-between gap-4">
                 <span>
                   <span className="block font-display text-xl font-bold text-primary">{order.orderNumber}</span>
-                  {order.pickupCode && <span className="mt-1 block font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup {order.pickupCode}</span>}
+                  {order.pickupCode && <span className="mt-1 block font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">{canonicalFulfilmentMethod(order)} · Code {order.pickupCode}</span>}
                   <span className="mt-1 block font-sans text-sm font-extrabold text-on-surface">{order.customerName}</span>
                 </span>
                 <span className="rounded-full bg-surface-container px-3 py-1.5 font-sans text-[10px] font-extrabold text-primary">
@@ -340,9 +342,7 @@ export default function StoreOrdersPanel({
                 </span>
               </span>
               <span className="mt-4 grid gap-2 font-sans text-xs font-bold text-on-surface-variant sm:grid-cols-2">
-                <span>{formatPickupDateLabel(order.pickupDate, country)}</span>
-                <span>{order.pickupTime ? formatPickupTimeLabel(order.pickupTime, country) : order.pickupSession}</span>
-                <span>{order.pickupLocationName}</span>
+                {getOrderTickets(order).map(ticket => <span key={ticket.key} className="sm:col-span-2">{ticket.method === 'delivery' ? 'Delivery' : 'Pickup'} · {formatPickupDateLabel(ticket.date, country)} · {ticket.time ? formatPickupTimeLabel(ticket.time, country) : 'Time needs confirmation'} · {ticket.method === 'delivery' ? ticket.address || 'Delivery address missing' : ticket.address || order.pickupLocationName}</span>)}
                 <span>{formatRegionCurrency(order.total, currency)}</span>
                 <span className="inline-flex items-center gap-1.5"><Phone className="h-3 w-3" /> {order.phone}</span>
                 <span>Payment: {paymentStatusLabel(order.payment.status)}</span>
@@ -386,9 +386,7 @@ export default function StoreOrdersPanel({
             <dl className="mt-6 grid gap-3 rounded-2xl bg-surface-container-low p-4 sm:grid-cols-2">
               <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Customer</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{selectedOrder.customerName}</dd></div>
               <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Phone</dt><dd className="mt-1"><a href={`tel:${selectedOrder.phone}`} className="inline-flex items-center gap-1.5 font-sans text-sm font-extrabold text-primary"><Phone className="h-3.5 w-3.5" /> {selectedOrder.phone}</a></dd></div>
-              <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Pickup Date</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{formatPickupDateLabel(selectedOrder.pickupDate, country)}</dd></div>
-              <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Pickup Time</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{selectedOrder.pickupTime ? formatPickupTimeLabel(selectedOrder.pickupTime, country) : selectedOrder.pickupSession}</dd></div>
-              <div className="sm:col-span-2"><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Pickup Location</dt><dd className="mt-1 inline-flex items-start gap-1.5 font-sans text-sm font-extrabold text-primary"><MapPin className="mt-0.5 h-3.5 w-3.5" /> {selectedOrder.pickupLocationName}</dd></div>
+              <OrderFulfilmentDetails order={selectedOrder} country={country} />
               <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Payment</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{paymentStatusLabel(selectedOrder.payment.status)}</dd></div>
               <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Payment Method</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{selectedOrder.paymentMethodName}</dd></div>
               <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Fulfilment</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{selectedOrder.fulfilmentStatus || 'Not started'}</dd></div>
@@ -481,12 +479,14 @@ export default function StoreOrdersPanel({
                 const ticket = getOrderTickets(selectedOrder).find(ticket => ticket.fulfilmentId === day.id);
                 const next = ticket ? nextDailyStatus(selectedOrder,ticket) : null;
                 const dispatchStatus = operation?.dispatch?.status || 'not_requested';
+                const deliveryIssues = canonicalFulfilmentMethod(selectedOrder, day) === 'delivery' && !selectedOrder.manualOrder ? resolveDeliveryDispatchData(selectedOrder, day).issues : [];
                 const canAct = canProcessOrders && selectedOrder.payment.status === 'paid' && !['Completed', 'Cancelled'].includes(selectedOrder.fulfilmentStatus);
-                return <div key={day.id} className="rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>{day.date} · {day.time} · {day.method} · {day.pickupLocationName}</p>{day.allocations.map((allocation, index) => { const item = selectedOrder.items[allocation.itemIndex]; const meal = allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(meal => meal.day === allocation.componentDay) : item; return <div key={index}><p>{allocation.quantity} × {meal?.productName}</p><MealOptionSummary snapshot={allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(meal => meal.day === allocation.componentDay) : item?.healthyLunchSnapshot} /></div>; })}
+                return <div key={day.id} className="rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>{ticket?.date || day.date} · {ticket?.time || day.time} · {ticket?.method || day.method} · {ticket?.method === 'delivery' ? ticket.address || 'Delivery address missing' : day.pickupLocationName}</p>{deliveryIssues.length > 0 && <p role="alert">{deliveryBlockedMessage(deliveryIssues)}</p>}{ticket?.method === 'delivery' && operation?.kitchenStatus !== 'Ready' && !complete && <p>Mark this paid delivery day Ready before requesting Lalamove.</p>}{day.allocations.map((allocation, index) => { const item = selectedOrder.items[allocation.itemIndex]; const meal = allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(meal => meal.day === allocation.componentDay) : item; return <div key={index}><p>{allocation.quantity} × {meal?.productName}</p><MealOptionSummary snapshot={allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(meal => meal.day === allocation.componentDay) : item?.healthyLunchSnapshot} /></div>; })}
                   {complete ? <span>Completed</span> : canAct && <><p>{operation?.kitchenStatus || 'New'}</p>{next && <button type="button" disabled={isUpdating} onClick={() => updateStatus(next, undefined, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">{next === 'Preparing' ? 'Prepare' : `Mark ${next}`} {day.date}</button>}{next === 'Preparing' && <button type="button" disabled={isUpdating} onClick={() => updateStatus('Ready', undefined, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">Mark Ready {day.date}</button>}{day.method === 'delivery' && !selectedOrder.manualOrder && <div><p>{operation?.kitchenStatus || 'Scheduled'} · {dispatchStatus} · {operation?.lifecycle?.state || ''}</p>{operation?.providerOrder?.orderId && <p>Lalamove: {operation.providerOrder.orderId}</p>}{operation?.providerOrder?.shareLink && <a href={operation.providerOrder.shareLink} target="_blank" rel="noreferrer" className="underline">Track delivery</a>}{operation?.providerOrder?.driver && <p>Rider: {operation.providerOrder.driver.name} · {operation.providerOrder.driver.phone} · {operation.providerOrder.driver.plateNumber}</p>}
-                    {operation?.kitchenStatus === 'Ready' && ['not_requested', 'failed'].includes(dispatchStatus) && <button type="button" disabled={isUpdating} onClick={() => dispatchDelivery(selectedOrder.id, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">Request Lalamove</button>}
+                    {operation?.kitchenStatus === 'Ready' && ['not_requested', 'failed'].includes(dispatchStatus) && <button type="button" disabled={isUpdating || deliveryIssues.length > 0} onClick={() => dispatchDelivery(selectedOrder.id, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">Request Lalamove</button>}
                     {['creating', 'created', 'outcome_unknown', 'cancel_requested'].includes(dispatchStatus) && <button type="button" disabled={isUpdating} onClick={() => refreshDelivery(selectedOrder.id, day.id)} className="m-2 rounded-full border px-4 py-2">Refresh dispatch</button>}
                     {dispatchStatus === 'created' && <button type="button" disabled={isUpdating} onClick={() => cancelDelivery(selectedOrder.id, day.id)} className="m-2 rounded-full border px-4 py-2">Cancel dispatch</button>}
+                    {operation?.dispatch?.errorCode && <p role="alert">Dispatch: {operation.dispatch.errorCode}{operation.dispatch.fields?.length ? ` Fields: ${operation.dispatch.fields.join(', ')}` : ''}{operation.dispatch.requestId ? ` Request ID: ${operation.dispatch.requestId}` : ''}</p>}
                     {dispatchStatus === 'outcome_unknown' && <p role="alert">Provider submission outcome is uncertain. Reconcile the existing request before any replacement dispatch.</p>}
                   </div>}</>}
                 </div>;

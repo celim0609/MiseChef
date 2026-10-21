@@ -482,7 +482,11 @@ export const dispatchStoreLalamoveDelivery = onCall({
   memory: '256MiB'
 }, async request => {
   const provider = createRuntimeLalamoveProvider();
-  return dispatchStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId });
+  try { return await dispatchStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId }); }
+  catch (error) {
+    logger.warn('Store delivery dispatch blocked', { orderId: typeof request.data?.orderId === 'string' ? request.data.orderId : '', fulfilmentId: typeof request.data?.fulfilmentId === 'string' ? request.data.fulfilmentId : '', providerCode: error.details?.providerCode || '', fields: error.details?.fields || [], requestId: error.requestId || '', code: error.code || 'dispatch_failed' });
+    throw error;
+  }
 });
 
 export const refreshStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => {

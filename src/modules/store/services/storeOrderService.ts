@@ -19,6 +19,7 @@ import { httpsCallable } from 'firebase/functions';
 import { getBlob, ref } from 'firebase/storage';
 import { db, functions, storage } from '../../../firebase';
 import { getOrderPickupCode } from '../selling';
+import { canonicalFulfilmentMethod } from '../../../../functions/storeFulfilmentCanonical.js';
 import { normalizeStoreOrderItem, normalizeWeeklyFulfilments, normalizeOrderFulfilments } from '../storeOrderSnapshot';
 import {
   getOrderCompletionTimestamp,
@@ -112,10 +113,10 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     paymentMethodName: readString(data.paymentMethodName, 'Secure online payment'),
     customerName: readString(data.customerName, 'Customer'),
     phone: readString(data.phone),
-    fulfilmentMethod: data.fulfilmentMethod === 'delivery' ? 'delivery' : 'pickup',
+    fulfilmentMethod: canonicalFulfilmentMethod(data),
     totals: data.totals && typeof data.totals === 'object' ? data.totals as StoreOrder['totals'] : undefined,
     delivery: data.delivery && typeof data.delivery === 'object' ? data.delivery as StoreOrder['delivery'] : undefined,
-    fulfilments: normalizeOrderFulfilments(data.fulfilments),
+    fulfilments: normalizeOrderFulfilments(Array.isArray(data.fulfilments) ? data.fulfilments.map(entry => ({ ...entry, method: canonicalFulfilmentMethod(data, entry) })) : undefined),
     fulfilmentCompletion: data.fulfilmentCompletion as StoreOrder['fulfilmentCompletion'],
     fulfilmentOperations: data.fulfilmentOperations as StoreOrder['fulfilmentOperations'],
     weeklyFulfilments: normalizeWeeklyFulfilments(data.weeklyFulfilments),
