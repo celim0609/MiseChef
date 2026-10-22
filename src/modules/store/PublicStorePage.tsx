@@ -1,3 +1,7 @@
+import {promotionCodeService} from './services/promotionCodeService';
+import type {PromotionCodeSnapshot} from './promotionCodeTypes';
+import PromotionCodeSummary from './PromotionCodeSummary';
+import {normalizePromotionCode, malaysiaPromotionDay} from '../../../functions/promotionCodePricing.js';
 import { weeklyPricing } from '../../../functions/storeWeeklyMealPlan.js';
 import { resolveSelectionMealOptions, mealOptionSurcharge } from '../../../functions/healthyLunchOptions.js';
 import MealOptionSummary from './MealOptionSummary';
@@ -180,6 +184,10 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const [configuredSetItems, setConfiguredSetItems] = useState<Record<string, string[]>>({});
   const [configuredOptions, setConfiguredOptions] = useState<Record<string, string[]>>({});
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [promotionCodeInput,setPromotionCodeInput]=useState('');
+  const [promotionCodePreview,setPromotionCodePreview]=useState<{binding:string;snapshot:PromotionCodeSnapshot}|null>(null);
+  const [promotionCodeMessage,setPromotionCodeMessage]=useState('');
+  const [isApplyingCode,setIsApplyingCode]=useState(false);
   const [customerName, setCustomerName] = useState('');
   const [phone, setPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
@@ -221,7 +229,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const [isHostInfoOpen, setIsHostInfoOpen] = useState(false);
   const [isAccountSuggestionDismissed, setIsAccountSuggestionDismissed] = useState(false);
   const paymentStageKey = paymentSession?.paymentSessionId || '';
-  const usesCurlecPaymentLink = shouldUseCurlecPaymentLink({
+  const usesCurlecPaymentLink = (Boolean(promotionCodeInput.trim()) && paymentMethodId === 'curlec' && isCurlecPaymentLinkRolloutEnabled()) || shouldUseCurlecPaymentLink({
     paymentMethodId,
     isMetaInAppBrowser: isMetaInAppBrowser(),
     rolloutEnabled: isCurlecPaymentLinkRolloutEnabled()
@@ -491,6 +499,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
       setPaymentSession(null);
       setCart([]);
       setNotes('');
+    setPromotionCodeInput('');setPromotionCodePreview(null);setPromotionCodeMessage('');
       setCheckoutError('');
       sessionStorage.removeItem(storeDraftKey);
       return;
@@ -615,6 +624,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
             setPaymentReturnReconciliation(null);
             setCart([]);
             setNotes('');
+    setPromotionCodeInput('');setPromotionCodePreview(null);setPromotionCodeMessage('');
             sessionStorage.removeItem(storeDraftKey);
             return;
           }
@@ -751,6 +761,18 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     })
   );
 
+  const promotionCodeBinding=JSON.stringify([slug,cart,pickupDate,deliveryDate,fulfilmentMethod,currentUser?.uid,normalizePromotionCode(promotionCodeInput),groupOrder?.shareCode,data?.products,publicPromotions,malaysiaPromotionDay(new Date())]);
+  const appliedPromotionCode=promotionCodePreview?.binding===promotionCodeBinding?promotionCodePreview.snapshot:null;
+  const applyPromotionCode=async()=>{
+    if(isApplyingCode) return;
+    setIsApplyingCode(true);setPromotionCodeMessage('');setPromotionCodePreview(null);
+    try {
+      const result=await promotionCodeService.preview(slug,normalizePromotionCode(promotionCodeInput),cart.map(({key,...line})=>line),fulfilmentMethod==='delivery'?deliveryDate:pickupDate,groupOrder?.shareCode);
+      if(result.snapshot.eligibleSubtotalMinor!==Math.round(cartTotal*100)) throw new Error('Product prices changed. Refresh the Store before applying your code.');
+      setPromotionCodePreview({binding:promotionCodeBinding,snapshot:result.snapshot});
+      checkoutAttemptIdRef.current=crypto.randomUUID();
+    } catch(error) {setPromotionCodeMessage((error as Error).message);} finally {setIsApplyingCode(false);}
+  };
   const cartTotal = cartDetails.reduce((sum, item) => sum + item.lineTotal, 0);
   const cartPromotionEstimates = cartDetails.filter(item => !item.weeklyPriceSnapshot || item.weeklyPriceSnapshot.legacyPrice || item.weeklyPriceSnapshot.discount.type === 'none').reduce<Array<{ label: string; savings: number }>>((estimates, item) => {
     if (!item.product) return estimates;
@@ -765,7 +787,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     return estimates;
   }, []);
   const cartPromotionEstimate = cartPromotionEstimates.reduce((sum, estimate) => sum + estimate.savings, 0);
-  const estimatedMerchandiseTotal = Math.max(0, cartTotal - cartPromotionEstimate);
+  const estimatedMerchandiseTotal = appliedPromotionCode ? appliedPromotionCode.finalMerchandiseMinor/100 : Math.max(0, cartTotal - cartPromotionEstimate);
   const deliveryQuoteMinimumValidityMs = Math.max(0, Number(deliveryQuote?.quote.minimumValidityMs || 5_000));
   const hasDisplayableDeliveryQuote = Boolean(
     deliveryQuote?.quote.quotationId
@@ -983,6 +1005,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     setDeliveryQuote(null);
     setDeliveryPriceConfirmation(null);
     setNotes('');
+    setPromotionCodeInput('');setPromotionCodePreview(null);setPromotionCodeMessage('');
     setPaymentMethodId(store?.paymentMethods.find(method => method.enabled && method.id !== 'cash_on_pickup')?.id || 'stripe');
     setCheckoutError('');
     checkoutAttemptIdRef.current = crypto.randomUUID();
@@ -1073,6 +1096,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const startPayment = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!data || isPlacingOrder || paymentStartRef.current) return;
+    if(promotionCodeInput.trim() && !appliedPromotionCode) {setCheckoutError('Apply your promotion code to this cart, or remove it before payment.');return;}
     if (cartDetails.some(detail => detail.mealOptionError)) { setCheckoutError('Review your Healthy Lunch options before checkout.'); return; }
     if (weeklyCartPlan && cart[0]?.selectedMealOptions?.length && cart[0].healthyLunchWeekMonday !== (fulfilmentMethod === 'delivery' ? deliveryDate : pickupDate)) { setCheckoutError('The service week changed. Remove the plan and select its meal options again.'); return; }
     // This synchronous guard closes the interval before React can render the
@@ -1106,6 +1130,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
         customerName,
         phone,
         checkoutAttemptId: checkoutAttemptIdRef.current,
+        ...(appliedPromotionCode?{promotionCode:appliedPromotionCode.code,promotionCodeExpected:{configRevision:appliedPromotionCode.configRevision,eligibleSubtotalMinor:appliedPromotionCode.eligibleSubtotalMinor,discountMinor:appliedPromotionCode.discountMinor}}:{}),
         ...(customerEmail.trim() ? { customerEmail: customerEmail.trim() } : {}),
         pickupDate,
         pickupTime,
@@ -1193,7 +1218,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     setIsRefreshingDeliveryQuote(refresh);
     setCheckoutError('');
     try {
-      const quote = await storeDeliveryService.quote(slug, cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems, healthyLunchPlanId, healthyLunchDate, selectedMealOptions }) => ({ productId, ...(healthyLunchPlanId ? { healthyLunchPlanId, healthyLunchDate } : {}), ...(selectedMealOptions?.length ? { selectedMealOptions } : {}), ...(setId ? { setId } : {}), quantity, selectedOptions, ...(selectedSetItems ? { selectedSetItems } : {}) })), { ...destination, deliveryInstructions: deliveryRemarks }, proposedFulfilments?.[0]?.date || deliveryDate, proposedFulfilments?.[0]?.time || deliveryTime, deliveryMode, checkoutFulfilments);
+      const quote = await storeDeliveryService.quote(slug, cart.map(({ productId, setId, quantity, selectedOptions, selectedSetItems, healthyLunchPlanId, healthyLunchDate, selectedMealOptions }) => ({ productId, ...(healthyLunchPlanId ? { healthyLunchPlanId, healthyLunchDate } : {}), ...(selectedMealOptions?.length ? { selectedMealOptions } : {}), ...(setId ? { setId } : {}), quantity, selectedOptions, ...(selectedSetItems ? { selectedSetItems } : {}) })), { ...destination, deliveryInstructions: deliveryRemarks }, proposedFulfilments?.[0]?.date || deliveryDate, proposedFulfilments?.[0]?.time || deliveryTime, deliveryMode, checkoutFulfilments, appliedPromotionCode?.code);
       if (requestId === deliveryQuoteRequestRef.current) {
         setDeliveryQuote(quote);
         return quote;
@@ -1227,7 +1252,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     void requestDeliveryQuote();
   // Every date, time and destination is bound to its provider quotation.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fulfilmentMethod, deliveryMode, deliveryDestination, cart, scheduleKey, deliveryDate, deliveryTime, scheduleError]);
+  }, [fulfilmentMethod, deliveryMode, deliveryDestination, cart, scheduleKey, deliveryDate, deliveryTime, scheduleError, appliedPromotionCode?.code]);
 
   const selectDeliveryAddress = async (suggestion: PlaceSuggestion) => {
     invalidateDeliveryQuoteRequest();
@@ -1720,11 +1745,12 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                 ))}
               </div>
               <div className="mt-4 border-t border-surface-container-high pt-4">
+                <div className="mb-4 space-y-2 rounded-2xl border p-3"><label className="block text-sm font-bold">Promotion code<input aria-label="Member promotion code" value={promotionCodeInput} maxLength={32} onChange={event=>{setPromotionCodeInput(event.target.value.toUpperCase());setPromotionCodePreview(null);setPromotionCodeMessage('');checkoutAttemptIdRef.current=crypto.randomUUID();}} className="mt-1 block w-full rounded-xl border p-3" autoComplete="off" /></label><div className="flex gap-3"><button type="button" disabled={isApplyingCode||!promotionCodeInput.trim()} onClick={()=>void applyPromotionCode()} className="rounded-full border px-4 py-2 font-bold">{isApplyingCode?'Checking…':'Apply Code'}</button>{promotionCodeInput && <button type="button" onClick={()=>{setPromotionCodeInput('');setPromotionCodePreview(null);setPromotionCodeMessage('');checkoutAttemptIdRef.current=crypto.randomUUID();}}>Remove Code</button>}</div><p className="text-xs">Member-only codes require a registered account. Daily limits reset at 12:00 AM Malaysia time. Codes do not replace or stack with Weekly Discounts.</p>{(!currentUser||currentUser.isAnonymous)&&<a className="text-sm underline" href={`/login?returnTo=${encodeURIComponent(window.location.pathname)}`}>Sign in or register</a>}{promotionCodeMessage&&<p role="alert" className="text-sm text-error">{promotionCodeMessage}</p>}{promotionCodeInput&&!appliedPromotionCode&&!promotionCodeMessage&&<p className="text-sm">Apply the code again after changing your cart or fulfilment date.</p>}{appliedPromotionCode&&<PromotionCodeSummary snapshot={appliedPromotionCode}/>}</div>
                 <dl className="space-y-2 font-sans text-sm font-bold text-on-surface-variant">
                 {cartDetails.filter(item => item.weeklyPriceSnapshot).map(item => <div key={item.line.productId} className="text-sm"><p>Original Price: {formatRegionCurrency(item.weeklyPriceSnapshot!.originalPrice * item.line.quantity, store.currency)}</p><p>Discount: {formatRegionCurrency(item.weeklyPriceSnapshot!.discountAmount * item.line.quantity, store.currency)}</p><p>Final Weekly Price: {formatRegionCurrency(item.weeklyPriceSnapshot!.finalWeeklyPrice * item.line.quantity, store.currency)} (meal options added separately)</p></div>)}
                 <div className="flex justify-between gap-3"><dt>Items subtotal</dt><dd className="text-primary">{formatRegionCurrency(cartTotal, store.currency)}</dd></div>
-                {cartPromotionEstimates.map(estimate => <div key={estimate.label} className="flex justify-between gap-3"><dt>🔥 {estimate.label}</dt><dd className="text-primary">−{formatRegionCurrency(estimate.savings, store.currency)}</dd></div>)}
-                {cartPromotionEstimate > 0 && <p className="text-[11px] font-bold text-outline">Promotion savings are confirmed securely at checkout.</p>}
+                {!appliedPromotionCode && cartPromotionEstimates.map(estimate => <div key={estimate.label} className="flex justify-between gap-3"><dt>🔥 {estimate.label}</dt><dd className="text-primary">−{formatRegionCurrency(estimate.savings, store.currency)}</dd></div>)}
+                {!appliedPromotionCode && cartPromotionEstimate > 0 && <p className="text-[11px] font-bold text-outline">Promotion savings are confirmed securely at checkout.</p>}
                 {fulfilmentMethod === 'delivery' && <div className="flex justify-between gap-3"><dt>{multiScheduleEnabled ? deliveryFeeLabel(proposedFulfilments?.length || 1) : 'Delivery Fee'}</dt><dd className="text-primary">{hasDisplayableDeliveryQuote ? formatRegionCurrency(customerDeliveryFee, store.currency) : isCalculatingDelivery ? 'Calculating…' : checkoutError ? 'Unavailable' : 'Pending'}</dd></div>}
                 <div className="flex justify-between gap-3 border-t border-surface-container-high pt-2 text-base font-extrabold text-primary"><dt>Total</dt><dd>{fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? 'Pending delivery fee' : formatRegionCurrency(checkoutTotal, store.currency)}</dd></div>
                 </dl>

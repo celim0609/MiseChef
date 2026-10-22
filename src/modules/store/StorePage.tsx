@@ -42,6 +42,7 @@ import { deleteProductWithCleanup } from './productDeletion';
 import { storeDeliveryService } from './services/deliveryService';
 import StoreOrdersPanel from './StoreOrdersPanel';
 import StoreSetsPanel from './StoreSetsPanel';
+import StorePromotionCodesPanel from './StorePromotionCodesPanel';
 import StorePromotionsPanel from './StorePromotionsPanel';
 import {
   createStoreQrBlob,
@@ -1524,6 +1525,7 @@ export default function StorePage({
         </section>
       )}
 
+      {activeView === 'promotions' && <StorePromotionCodesPanel workspaceId={workspace.id} canManage={permissions.manageStoreSettings} />}
       {activeView === 'promotions' && <StorePromotionsPanel workspaceId={workspace.id} userId={currentUser.uid} storeSlug={store?.slug || ''} storeName={store?.name || ''} products={products} canManage={permissions.manageStoreSettings} />}
 
       {activeView === 'sets' && (

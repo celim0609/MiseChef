@@ -834,3 +834,9 @@ test('independent weekly discounts save with merchant permissions and reject inv
   for (const discount of [{type:'fixed_amount',value:-1},{type:'unknown',value:0},{type:'percentage',value:10,unexpected:true}]) await assertFails(ref.update({ rotationWeeks: { week1: { meals, discount } } }));
   await assertFails(customerA.firestore().doc(`storeProducts/${id}`).update({ rotationWeeks: { week1: { meals, discount: {type:'none',value:0} } } }));
 });
+
+test('promotion code configuration, counters, reservations and audit records are server-only even for Store owners',async()=>{
+ const paths=['storePromotionCodes/code','storePromotionCodes/code/redemptions/order','storePromotionCodes/code/redemptionEvents/event','storePromotionCodeIndex/hash','storePromotionCodeMembers/hash','storePromotionCodeDays/hash','storePromotionCodeReservations/order'];
+ await environment.withSecurityRulesDisabled(async context=>{for(const path of paths)await context.firestore().doc(path).set({storeId:WORKSPACE_A,memberUid:'customer-a',reserved:1});});
+ for(const context of [anonymous,ownerA,managerA,customerA,ownerB])for(const path of paths){await assertFails(context.firestore().doc(path).get());await assertFails(context.firestore().doc(path).set({reserved:0}));}
+});

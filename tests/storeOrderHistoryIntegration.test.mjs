@@ -421,3 +421,5 @@ test('legacy delivery compatibility preserves a DV47-shaped paid order through R
   assert.equal(saved.fulfilmentOperations.day_20261022.providerOrder.orderId,'fake-booking');
  } finally {await deleteApp(app);}
 });
+
+import "./memberPromotionCodes.integration.mjs";
