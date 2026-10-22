@@ -83,3 +83,12 @@ test('rotation shows real repeating dates and omits blocked days without exposin
   assert.match(full, /B mon/); assert.match(full, /26–30 Oct/);
   assert.doesNotMatch(full, /Week [1-4]|week[1-4]/);
 });
+
+test('weekly display shows independent original, discount and final prices while daily prices stay unchanged', () => {
+  const meals = Object.fromEntries(WEEKLY_DAYS.map(day => [day, { name: `${day} lunch`, photoUrl: 'meal.jpg', price: 12 }]));
+  const plan = { ...product, weeklyMenuVersion: 3, weeklyWeeks: undefined, rotationStartMonday: '2026-10-19', rotationWeeks: { week1: { meals, discount: { type: 'percentage', value: 10 } }, week2: { meals, discount: { type: 'fixed_weekly_price', value: 40 } } } } as StoreProduct;
+  for (const [date, final] of [['2026-10-19', '54.00'], ['2026-10-26', '40.00']]) {
+    const html = renderToStaticMarkup(<HealthyLunchMenu product={plan} products={[]} currency="MYR" weeks={['2026-10-19','2026-10-26']} dayDates={[]} choice={{mode:'week',date}} onChange={() => {}} />);
+    assert.match(html, /Original Price/); assert.match(html, /Discount/); assert.match(html, /Final Weekly Price/); assert.ok(html.includes(final));
+  }
+});

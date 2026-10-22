@@ -89,6 +89,7 @@ export function previewManualLines(
           catalog,
           groups,
           sets,
+          line.date,
         )[0];
         name = item.productName;
         unitMinor =

@@ -2,7 +2,7 @@ import { normalizeDeliveryPhone } from './storeFulfilmentCanonical.js';
 import { resolveSelectionMealOptions, mealOptionSurcharge, mergeMealOptionSnapshots, publicMealOptionSnapshot } from './healthyLunchOptions.js';
 import { calculateDeliveryDayPricing } from './storeDeliveryPricing.js';
 import { buildOrderFulfilments, publicOrderFulfilments } from './storeOrderFulfilments.js';
-import { buildWeeklyOrderDetails, isWeeklyMealPlan, publicWeeklyFulfilments, validateHealthyLunchDay, hasEmbeddedMenu } from './storeWeeklyMealPlan.js';
+import { weeklyPricing, buildWeeklyOrderDetails, isWeeklyMealPlan, publicWeeklyFulfilments, validateHealthyLunchDay, hasEmbeddedMenu } from './storeWeeklyMealPlan.js';
 import { cartAllowsFulfilmentDate, currentFulfilmentDate } from './storeProductAvailability.js';
 import { randomBytes } from 'node:crypto';
 import { calculatePromotionPricing } from './storePromotionPricing.js';
@@ -390,7 +390,8 @@ export const buildOrderItems = (selections, products, optionGroups, sets = [], s
     throw new Error(`An option for ${readString(product.name) || 'this product'} is no longer available.`);
   }
 
-  const basePrice = roundMoney(Math.max(0, readNumber(product.price)));
+  const weeklyPriceSnapshot = isWeeklyMealPlan(product) && !selection.healthyLunchDate ? weeklyPricing(product, products, serviceMonday) : null;
+  const basePrice = weeklyPriceSnapshot?.finalWeeklyPrice ?? roundMoney(Math.max(0, readNumber(product.price)));
   const legacyUnitPrice = roundMoney(Math.max(
     0,
     basePrice + selectedOptions.reduce((sum, option) => sum + option.priceAdjustment * (option.quantity || 1), 0)
@@ -400,6 +401,7 @@ export const buildOrderItems = (selections, products, optionGroups, sets = [], s
   if (mealOptionDays.length && !Number.isSafeInteger(unitMinor * selection.quantity)) throw new Error('Invalid meal total.');
   return {
     itemType: 'product',
+    ...(weeklyPriceSnapshot ? { weeklyPriceSnapshot } : {}),
     ...(selection.healthyLunchPlanId ? { healthyLunchSnapshot: { planId: selection.healthyLunchPlanId, date: selection.healthyLunchDate, ...mealOptionDays[0] } } : {}),
     productId: product.id,
     productName: readString(product.name),
@@ -603,6 +605,7 @@ export const toPublicPaymentOrderSummary = order => {
     )) : [];
     return {
       productName: readString(item.productName), quantity, lineTotal, selectedOptions,
+      ...(item.weeklyPriceSnapshot ? { weeklyPriceSnapshot: structuredClone(item.weeklyPriceSnapshot) } : {}),
       ...publicMealOptionSnapshot(item.healthyLunchSnapshot),
       ...(readString(item?.setSnapshot?.setName) && selectedGroups.length
         ? { setSnapshot: { setName: readString(item.setSnapshot.setName), selectedGroups } }

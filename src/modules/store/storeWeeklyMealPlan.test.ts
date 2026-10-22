@@ -174,3 +174,29 @@ test('rotation draft saves one sparse slot, normalizes blocked dates, and leaves
   assert.equal(dated.weeklyWeeks.week2.startMonday, '2026-10-19');
   assert.equal(validateStoreProduct(getStoreProductEditorDraft(dated)), '');
 });
+
+test('first save freezes each existing week price and preserves independent discounts through meal edits', async () => {
+  const { weeklyPricing } = await import('../../../functions/storeWeeklyMealPlan.js');
+  const meals = Object.fromEntries(WEEKLY_DAYS.map(day => [day, { name: day, photoUrl: 'meal.jpg', price: 12 }])) as import('./types').EmbeddedWeeklyMeals;
+  const draft = prepareHealthyLunchDraft({ ...getStoreProductEditorDraft(legacy), price: 55, productType: 'weekly_meal_plan', weeklyMenuVersion: 3, rotationStartMonday: '2026-07-27', rotationWeeks: { week1: { meals }, week2: { meals } } });
+  assert.equal(draft.rotationWeeks!.week1!.legacyWeeklyPrice, 55);
+  assert.equal(draft.rotationWeeks!.week2!.legacyWeeklyPrice, 55);
+  const saved = buildUpdatedStoreProduct(legacy, draft, 'now'); saved.price = 999;
+  assert.equal(weeklyPricing(saved, [], '2026-07-27').finalWeeklyPrice, 55);
+  assert.equal(weeklyPricing(saved, [], '2026-08-03').finalWeeklyPrice, 55);
+  saved.rotationWeeks!.week1!.discount = { type: 'fixed_amount', value: 5 };
+  const reloaded = prepareHealthyLunchDraft(getStoreProductEditorDraft(saved));
+  assert.deepEqual(reloaded.rotationWeeks!.week1!.discount, { type: 'fixed_amount', value: 5 });
+  assert.equal(reloaded.rotationWeeks!.week2!.discount, undefined);
+});
+
+test('dated to rotation conversion preserves discounts and drops dated-only fields', async () => {
+  const { getRotatingHealthyLunchDraft } = await import('./storeProductVisibility');
+  const meals = Object.fromEntries(WEEKLY_DAYS.map(day => [day, { name: day, photoUrl: 'meal.jpg', price: 12 }])) as import('./types').EmbeddedWeeklyMeals;
+  const product = { ...legacy, productType: 'weekly_meal_plan' as const, weeklyMenuVersion: 2 as const, weeklyWeeks: { week1: { startMonday: '2026-07-27', meals, discount: { type: 'percentage' as const, value: 10 } }, week2: { startMonday: '2026-08-03', meals, legacyWeeklyPrice: 55 } } };
+  const converted = prepareHealthyLunchDraft(getRotatingHealthyLunchDraft(product, []));
+  assert.equal(validateStoreProduct(converted), '');
+  assert.deepEqual(converted.rotationWeeks!.week1!.discount, { type: 'percentage', value: 10 });
+  assert.equal(converted.rotationWeeks!.week2!.legacyWeeklyPrice, 55);
+  assert.equal('startMonday' in converted.rotationWeeks!.week1!, false);
+});

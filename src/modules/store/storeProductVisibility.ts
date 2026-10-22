@@ -143,7 +143,7 @@ export const getEmbeddedHealthyLunchDraft = (product: StoreProduct, products: St
   if (product.weeklyMenuVersion === 2) return draft;
   const menus = product.weeklyWeeks ? Object.entries(product.weeklyWeeks) : [['week1', { startMonday: '', meals: product.weeklyMeals }]];
   const weeklyWeeks = Object.fromEntries(menus.map(([slot, week]) => [slot, {
-    startMonday: week.startMonday,
+    ...week, startMonday: week.startMonday,
     meals: Object.fromEntries(WEEKLY_DAYS.map(day => {
       const meal = resolvePlanMeal(product, products, week.startMonday, day);
       return [day, { photoUrl: meal?.photoUrl || '', name: meal?.name || '', price: meal?.price ?? 0,
@@ -158,14 +158,14 @@ export const getRotatingHealthyLunchDraft = (product: StoreProduct, products: St
   const weeks = Object.entries(embedded.weeklyWeeks || {}).filter(([, week]) => Boolean(week.startMonday)).sort((a, b) => a[1].startMonday.localeCompare(b[1].startMonday));
   return { ...embedded, weeklyMenuVersion: 3, weeklyWeeks: undefined, weeklyMeals: undefined,
     rotationStartMonday: weeks[0]?.[1].startMonday || '',
-    rotationWeeks: Object.fromEntries(weeks.map(([, week], index) => [`week${index + 1}`, { meals: structuredClone(week.meals) }])),
+    rotationWeeks: Object.fromEntries(weeks.map(([, { startMonday, ...week }], index) => [`week${index + 1}`, { ...week, meals: structuredClone(week.meals) }])),
     healthyLunchBlockedDates: [] };
 };
 
 export const prepareHealthyLunchDraft = (draft: StoreProductDraft): StoreProductDraft => {
   if (draft.weeklyMenuVersion === 3) {
     const rotationWeeks = Object.fromEntries(Object.entries(draft.rotationWeeks || {}).filter(([, week]) => Boolean(week)).map(([slot, week]) => [slot, {
-      meals: Object.fromEntries(Object.entries(week.meals).map(([day, meal]) => [day, { ...meal, name: meal.name.trim(), photoUrl: meal.photoUrl.trim(), ...(meal.description !== undefined ? { description: meal.description.trim() } : {}) }]))
+      ...week, ...(!week.discount && week.legacyWeeklyPrice === undefined ? { legacyWeeklyPrice: draft.price } : {}), meals: Object.fromEntries(Object.entries(week.meals).map(([day, meal]) => [day, { ...meal, name: meal.name.trim(), photoUrl: meal.photoUrl.trim(), ...(meal.description !== undefined ? { description: meal.description.trim() } : {}) }]))
     }])) as StoreProductDraft['rotationWeeks'];
     const first = Object.values(rotationWeeks || {})[0]?.meals.mon;
     return { ...draft, weeklyWeeks: undefined, weeklyMeals: undefined, rotationWeeks,
@@ -174,7 +174,7 @@ export const prepareHealthyLunchDraft = (draft: StoreProductDraft): StoreProduct
   }
   if (draft.weeklyMenuVersion !== 2) return draft;
   const weeklyWeeks = Object.fromEntries(Object.entries(draft.weeklyWeeks || {}).filter(([, week]) => Boolean(week?.startMonday)).map(([slot, week]) => [slot, {
-    ...week, meals: Object.fromEntries(Object.entries(week.meals).map(([day, meal]) => [day, typeof meal === 'object' ? { ...meal,
+    ...week, ...(!week.discount && week.legacyWeeklyPrice === undefined ? { legacyWeeklyPrice: draft.price } : {}), meals: Object.fromEntries(Object.entries(week.meals).map(([day, meal]) => [day, typeof meal === 'object' ? { ...meal,
       name: meal.name.trim(), photoUrl: meal.photoUrl.trim(), ...(meal.description !== undefined ? { description: meal.description.trim() } : {}) } : meal]))
   }])) as StoreProductDraft['weeklyWeeks'];
   const first = Object.values(weeklyWeeks).sort((a, b) => a.startMonday.localeCompare(b.startMonday))[0];

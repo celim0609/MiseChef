@@ -818,3 +818,19 @@ test('manual orders, payment confirmations and private POS catalog remain server
     await assertFails(context.firestore().doc('storeManualOrderRequests/forged').set({workspaceId:WORKSPACE_A,orderId:ORDER_A}));
   }
 });
+
+test('independent weekly discounts save with merchant permissions and reject invalid discount schemas', async () => {
+  const id = 'weekly-discounts';
+  const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+  const meals = Object.fromEntries(weeklyDays.map(day => [day, embeddedMealRecord(day)]));
+  const record = { ...createProductRecord(id), productType: 'weekly_meal_plan', weeklyMenuVersion: 3, rotationStartMonday: '2026-10-19', healthyLunchBlockedDates: [], availableDay: 'all', optionGroupIds: [],
+    rotationWeeks: { week1: { meals, legacyWeeklyPrice: 55 }, week2: { meals, discount: { type: 'percentage', value: 10 } } } };
+  await assertSucceeds(ref.set(record));
+  await assertSucceeds(ref.update({ rotationWeeks: Object.fromEntries([1,2,3,4].map(i => [`week${i}`, {meals, discount:{type:'percentage',value:10}}])) }));
+  const { rotationStartMonday, rotationWeeks, healthyLunchBlockedDates, ...datedRecord } = record;
+  await assertSucceeds(ref.set({ ...datedRecord, weeklyMenuVersion: 2, weeklyWeeks: Object.fromEntries(['2026-10-19','2026-10-26','2026-11-02','2026-11-09'].map((startMonday, i) => [`week${i+1}`, {startMonday, meals, discount:{type:'percentage',value:10}}])) }));
+  await assertSucceeds(ref.set(record));
+  for (const type of ['none', 'percentage', 'fixed_amount', 'fixed_weekly_price']) await assertSucceeds(ref.update({ rotationWeeks: { week1: { meals, discount: { type, value: 0 } } } }));
+  for (const discount of [{type:'fixed_amount',value:-1},{type:'unknown',value:0},{type:'percentage',value:10,unexpected:true}]) await assertFails(ref.update({ rotationWeeks: { week1: { meals, discount } } }));
+  await assertFails(customerA.firestore().doc(`storeProducts/${id}`).update({ rotationWeeks: { week1: { meals, discount: {type:'none',value:0} } } }));
+});
