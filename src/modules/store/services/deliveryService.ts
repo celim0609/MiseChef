@@ -18,9 +18,9 @@ export const storeDeliveryService = {
   async reconcile(orderId: string, fulfilmentId: string, providerOrderId?: string): Promise<{status: string}> {
     return (await httpsCallable<{orderId: string; fulfilmentId: string; providerOrderId?: string}, {status: string}>(getFunctions(), 'reconcileStoreLalamoveDelivery')({orderId, fulfilmentId, ...(providerOrderId ? {providerOrderId} : {})})).data;
   },
-  async quote(slug: string, selections: CartSelection[], destination: DeliveryDestination, deliveryDate: string, deliveryTime: string, fulfilmentMode: 'preorder' | 'instant' = 'preorder', fulfilments?: DraftFulfilment[]): Promise<DeliveryQuote> {
-    const call = httpsCallable<{ slug: string; delivery: { selections: CartSelection[]; destination: DeliveryDestination; deliveryDate: string; deliveryTime: string; fulfilmentMode: 'preorder' | 'instant'; fulfilments?: DraftFulfilment[] } }, DeliveryQuote>(getFunctions(), 'createPublicStoreDeliveryQuote');
-    return (await call({ slug, delivery: { selections, destination, deliveryDate, deliveryTime, fulfilmentMode, ...(fulfilments ? { fulfilments } : {}) } })).data;
+  async quote(slug: string, selections: CartSelection[], destination: DeliveryDestination, deliveryDate: string, deliveryTime: string, fulfilmentMode: 'preorder' | 'instant' = 'preorder', fulfilments?: DraftFulfilment[], promotionCode?: string): Promise<DeliveryQuote> {
+    const call = httpsCallable<{ slug: string; delivery: { selections: CartSelection[]; destination: DeliveryDestination; deliveryDate: string; deliveryTime: string; fulfilmentMode: 'preorder' | 'instant'; fulfilments?: DraftFulfilment[]; promotionCode?: string } }, DeliveryQuote>(getFunctions(), 'createPublicStoreDeliveryQuote');
+    return (await call({ slug, delivery: { selections, destination, deliveryDate, deliveryTime, fulfilmentMode, ...(promotionCode?{promotionCode}:{}), ...(fulfilments ? { fulfilments } : {}) } })).data;
   },
   async dispatch(orderId: string, fulfilmentId?: string, previewId?: string): Promise<{ status: string; orderId?: string; difference?: number }> {
     const call = httpsCallable<{ orderId: string; fulfilmentId?: string; previewId?: string; confirmed: boolean }, { status: string; orderId?: string; difference?: number }>(getFunctions(), 'dispatchStoreLalamoveDelivery');

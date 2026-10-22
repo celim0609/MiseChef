@@ -1,3 +1,5 @@
+import { readCheckoutCode } from './storePromotionCodes.js';
+import { pricePromotionCode } from './promotionCodePricing.js';
 import { isConfirmedProviderRejection } from './lalamoveSandbox.js';
 import { canonicalFulfilmentMethod, canonicalFulfilmentView, resolveDeliveryDispatchData, deliveryBlockedMessage } from './storeFulfilmentCanonical.js';
 import { calculateDeliveryDayPricing, deliveryDistanceKm as distanceKm } from './storeDeliveryPricing.js';
@@ -192,7 +194,7 @@ const scheduledDelivery = (store, draft, datedFullWeek = false) => {
   return { entries, draft: { ...draft, fulfilmentMode: 'preorder', deliveryDate: entries[0].date, deliveryTime: entries[0].time } };
 };
 
-export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) => {
+export const createStoreDeliveryQuote = async ({ db, provider, slug, draft, customerUid = '' }) => {
   const checkout = await loadStoreCheckoutData(db, slug);
   const { config, pickup } = validateStoreDelivery(checkout.store, provider);
   const destination = validateDestination(canonicalSchedule(draft)?.[0]?.destination || draft?.destination);
@@ -219,7 +221,9 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
   const quote = quoteSnapshot(quotation);
   if (!quote.quotationId || quote.currency !== 'MYR' || !Number.isFinite(quote.fee) || quote.fee < 0 || !Number.isFinite(Date.parse(quote.expiresAt))) throw new Error('Lalamove returned an invalid quotation.');
   const routingDestination = providerRoutingDestination({ quote, destination });
-  const promotionPricing = calculatePromotionPricing({ items, promotions: checkout.promotions });
+  const automaticPricing = calculatePromotionPricing({ items, promotions: checkout.promotions });
+  const code = await readCheckoutCode({db,storeId:checkout.store.id,code:draft.promotionCode,memberUid:customerUid,currency:checkout.store.currency});
+  const promotionPricing = code ? pricePromotionCode({items,pricing:automaticPricing,config:code.config,memberUid:customerUid,currency:checkout.store.currency,now:new Date(),groupOrder:Boolean(draft.groupShareCode)}) : automaticPricing;
   const fulfilmentCount = fulfilments?.fulfilments.length || 1;
   const pricing = fulfilmentCount > 1 ? { customerDeliveryFee: money(quote.fee * fulfilmentCount) } : customerPricing({ providerFee: quote.fee, config, merchandiseSubtotal: promotionPricing.discountedMerchandiseTotal });
   const dayPricing = calculateDeliveryDayPricing({ dayQuotes, config, providerFee: quote.fee, items, fulfilments: fulfilments?.fulfilments, pickup, destination: routingDestination, promotionPricing, date: schedule.date || '' });
@@ -232,6 +236,7 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
     dayQuotes,
     storeId: checkout.store.id,
     quotationId: quote.quotationId,
+    ...(promotionPricing.promotionCodeSnapshot ? {promotionCodeSnapshot:promotionPricing.promotionCodeSnapshot,memberUid:customerUid} : {}),
     discountedMerchandiseTotal: promotionPricing.discountedMerchandiseTotal,
     deliveryFee: pricing.customerDeliveryFee,
     grandTotal: money(promotionPricing.discountedMerchandiseTotal + pricing.customerDeliveryFee),

@@ -129,6 +129,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     pickupLocationAddress: readString(data.pickupLocationAddress),
     pickupLocationNotes: readString(data.pickupLocationNotes),
     notes: readString(data.notes),
+    ...(data.promotionCodeSnapshot ? {promotionCodeSnapshot:structuredClone(data.promotionCodeSnapshot) as StoreOrder['promotionCodeSnapshot']} : {}),
     items: Array.isArray(data.items) ? data.items.map(normalizeStoreOrderItem) : [],
     itemCount: readNumber(data.itemCount),
     total: readNumber(data.total),

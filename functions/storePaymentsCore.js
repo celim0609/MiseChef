@@ -1,3 +1,4 @@
+import { pricePromotionCode, promotionCodeError } from './promotionCodePricing.js';
 import { normalizeDeliveryPhone } from './storeFulfilmentCanonical.js';
 import { resolveSelectionMealOptions, mealOptionSurcharge, mergeMealOptionSnapshots, publicMealOptionSnapshot } from './healthyLunchOptions.js';
 import { calculateDeliveryDayPricing } from './storeDeliveryPricing.js';
@@ -431,6 +432,7 @@ export const buildPendingOrder = ({
   paymentMethod,
   groupOrder = null,
   customerUid = '',
+  promotionCodeConfig = null,
   draft,
   now = new Date()
 }) => {
@@ -472,7 +474,9 @@ export const buildPendingOrder = ({
   );
   // Group Orders and Sets are deliberately outside Promotion V1.  Pricing is
   // recomputed exclusively from current server catalogue data.
-  const promotionPricing = calculatePromotionPricing({ items, promotions, now, excluded: Boolean(groupOrder) });
+  if (draft.promotionCode && !promotionCodeConfig) promotionCodeError('This code must be validated by the server.');
+  const automaticPricing = calculatePromotionPricing({ items, promotions, now, excluded: Boolean(groupOrder) });
+  const promotionPricing = draft.promotionCode ? pricePromotionCode({items, pricing:automaticPricing, config:promotionCodeConfig, memberUid:customerUid, now, currency:region.currency, groupOrder:Boolean(groupOrder)}) : automaticPricing;
   const { merchandiseSubtotal, discountTotal, discountedMerchandiseTotal, promotionSnapshot } = promotionPricing;
   const providerDeliveryFee = draft.deliverySnapshot ? roundMoney(Math.max(0, readNumber(draft.deliverySnapshot.quote?.fee))) : 0;
   const subsidy = store.delivery?.subsidy || {};
@@ -531,6 +535,7 @@ export const buildPendingOrder = ({
     itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
     totals: { merchandiseSubtotal, discountTotal, discountedMerchandiseTotal, deliveryFee, grandTotal: total, currency: region.currency },
     ...(promotionSnapshot.appliedPromotions.length ? { promotionSnapshot } : {}),
+    ...(promotionPricing.promotionCodeSnapshot ? { promotionCodeSnapshot: promotionPricing.promotionCodeSnapshot } : {}),
     ...(draft.deliverySnapshot ? { delivery: { ...draft.deliverySnapshot, pricing: { providerDeliveryFee, customerDeliveryFee: deliveryFee, storeAbsorbedDeliveryFee, subsidyEnabled: subsidy.enabled === true, subsidyApplied, ...(dayPricing ? { freeDeliveryEnabled: store.delivery?.freeDelivery?.enabled === true, days: dayPricing.days, distanceKm: dayPricing.distanceKm } : {}), minimumMerchandiseSpend: roundMoney(Math.max(0, readNumber(subsidy.minimumMerchandiseSpend))), deliveryFeeCap, currency: region.currency } } } : {}),
     total,
     status: 'Awaiting Payment',
@@ -624,6 +629,7 @@ export const toPublicPaymentOrderSummary = order => {
       }
     } : {}),
     items,
+    ...(order.promotionCodeSnapshot ? { promotionCodeSnapshot: structuredClone(order.promotionCodeSnapshot) } : {}),
     totals: {
       merchandiseSubtotal: totals.merchandiseSubtotal,
       discountTotal: totals.discountTotal,
@@ -636,6 +642,7 @@ export const toPublicPaymentOrderSummary = order => {
 };
 
 export const toPublicOrderResult = order => ({
+  ...(order.promotionCodeSnapshot ? { promotionCodeSnapshot: structuredClone(order.promotionCodeSnapshot) } : {}),
   ...(order.fulfilments ? { fulfilments: publicOrderFulfilments(order) } : {}),
   ...(order.weeklyFulfilments ? { weeklyFulfilments: publicWeeklyFulfilments(order) } : {}),
   orderNumber: readString(order.orderNumber),

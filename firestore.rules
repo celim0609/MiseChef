@@ -1999,6 +1999,12 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    match /storePromotionCodes/{document=**} { allow read, write: if false; }
+    match /storePromotionCodeIndex/{document=**} { allow read, write: if false; }
+    match /storePromotionCodeMembers/{document=**} { allow read, write: if false; }
+    match /storePromotionCodeDays/{document=**} { allow read, write: if false; }
+    match /storePromotionCodeReservations/{document=**} { allow read, write: if false; }
+
     match /aiUsage/{document=**} {
       allow read, write: if false;
     }

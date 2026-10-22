@@ -527,6 +527,7 @@ export interface StoreNotification {
 }
 
 export interface StoreOrder {
+  promotionCodeSnapshot?: import('./promotionCodeTypes').PromotionCodeSnapshot;
   fulfilments?: OrderFulfilment[];
   fulfilmentCompletion?: Record<string, { completedAt: string; completedBy: string }>;
   fulfilmentOperations?: Record<string, FulfilmentOperation>;
@@ -628,6 +629,7 @@ export interface StoreOrder {
 }
 
 export interface CustomerStoreOrderSummary {
+  promotionCodeSnapshot?: import('./promotionCodeTypes').PromotionCodeSnapshot;
   fulfilments?: PublicOrderFulfilment[];
   weeklyFulfilments?: PublicWeeklyFulfilment[];
   orderNumber: string;
@@ -654,6 +656,8 @@ export interface CustomerStoreOrderSummary {
 }
 
 export interface StoreOrderDraft {
+  promotionCode?: string;
+  promotionCodeExpected?: Pick<import('./promotionCodeTypes').PromotionCodeSnapshot, 'configRevision' | 'eligibleSubtotalMinor' | 'discountMinor'>;
   fulfilments?: DraftFulfilment[];
   /** Opaque client-generated idempotency key for one checkout submission. */
   checkoutAttemptId?: string;
@@ -728,6 +732,7 @@ export interface PublicOrderGroupContext {
 }
 
 export interface StorePaymentOrderSummary {
+  promotionCodeSnapshot?: import('./promotionCodeTypes').PromotionCodeSnapshot;
   fulfilments?: PublicOrderFulfilment[];
   fulfilmentMethod: 'pickup' | 'delivery';
   /** Fulfilment values from the server-created pending-order snapshot. */
@@ -759,6 +764,7 @@ export interface StorePaymentSession {
 }
 
 export interface PublicStoreOrderResult {
+  promotionCodeSnapshot?: import('./promotionCodeTypes').PromotionCodeSnapshot;
   fulfilments?: PublicOrderFulfilment[];
   weeklyFulfilments?: PublicWeeklyFulfilment[];
   orderNumber: string;

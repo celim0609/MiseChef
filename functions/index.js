@@ -1,3 +1,5 @@
+import { managePromotionCodes, verifiedPromotionMember } from './storePromotionCodes.js';
+import { previewStorePromotionCode, expirePromotionCodeReservations } from './storePromotionCodeCheckout.js';
 import { previewMerchantDelivery, confirmMerchantDelivery, reconcileMerchantDelivery } from './storeManualDelivery.js';
 import { saveManualPosOrder, confirmManualPosPayment } from './manualPosOrders.js';
 import { createRecipePipelineService } from './recipePipelineService.js';
@@ -407,7 +409,7 @@ const toStorePaymentError = error => {
     'This QR payment method is not configured correctly.',
     'Touch ’n Go eWallet is available only for Malaysia Stores.',
     'Bank Transfer is not configured correctly.'
-  ].includes(message) || message.startsWith('Choose one ') || message.startsWith('Options for ')) {
+  ].includes(message) || message.startsWith('Promotion code:') || message.startsWith('Choose one ') || message.startsWith('Options for ')) {
     return new HttpsError('failed-precondition', message);
   }
   return new HttpsError('internal', 'Secure payment could not be started. Please try again.');
@@ -429,7 +431,7 @@ export const createPublicStorePayment = onCall({
         curlecKeySecret: curlecKeySecret.value(),
         method: paymentMethod,
         curlecPaymentLink: paymentMethod.provider === 'curlec'
-          && request.data?.order?.curlecPaymentLink === true
+          && (request.data?.order?.curlecPaymentLink === true || Boolean(request.data?.order?.promotionCode))
           && isCurlecPaymentLinkRolloutEnabled(curlecPaymentLinkRolloutEnabled.value())
       }),
       sellingWorkspaceId: sellingWorkspaceId.value(),
@@ -437,6 +439,7 @@ export const createPublicStorePayment = onCall({
         deliveryProvider: createRuntimeLalamoveProvider()
       } : {}),
       customerUid: request.auth?.uid || '',
+      promotionMemberUid:verifiedPromotionMember(request.auth),
       slug: request.data?.slug,
       draft: request.data?.order,
       returnUrl: request.data?.returnUrl
@@ -468,7 +471,7 @@ export const createPublicStoreDeliveryQuote = onCall({
   memory: '256MiB'
 }, async request => {
   const provider = createRuntimeLalamoveProvider();
-  return createStoreDeliveryQuote({ db, provider, slug: request.data?.slug, draft: request.data?.delivery });
+  return createStoreDeliveryQuote({ db, provider, slug: request.data?.slug, draft: request.data?.delivery, customerUid:verifiedPromotionMember(request.auth) });
 });
 
 export const getStoreLalamoveSandboxCityInfo = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => {
@@ -2543,3 +2546,14 @@ export const confirmStoreManualPosPayment = onCall({ region: REGION, timeoutSeco
 
 export const previewStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => previewMerchantDelivery({ db, provider: createRuntimeLalamoveProvider(), uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId }));
 export const reconcileStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => reconcileMerchantDelivery({ db, provider: createRuntimeLalamoveProvider(), uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId, providerOrderId: request.data?.providerOrderId }));
+
+
+export const manageStorePromotionCodes = onCall({region:REGION,timeoutSeconds:30}, async request => managePromotionCodes({db,uid:request.auth?.uid,input:request.data}));
+export const previewPublicStorePromotionCode = onCall({region:REGION,invoker:'public',timeoutSeconds:30}, async request => {
+  try {return await previewStorePromotionCode({db,slug:request.data?.slug,draft:request.data?.order,memberUid:verifiedPromotionMember(request.auth)});}
+  catch(error) {if(error instanceof HttpsError) throw error;throw toStorePaymentError(error);}
+});
+export const expireStorePromotionCodeReservations = onSchedule({region:REGION,schedule:'every 5 minutes',secrets:[stripeSecretKey,curlecKeyId,curlecKeySecret],timeoutSeconds:180}, async ()=>{
+  const results=await expirePromotionCodeReservations({db,resolveAdapter:order=>createPaymentAdapter(order.payment.provider,{stripeSecretKey:stripeSecretKey.value(),curlecKeyId:curlecKeyId.value(),curlecKeySecret:curlecKeySecret.value(),curlecPaymentLink:order.payment.providerMode==='payment_link'})});
+  logger.info('Promotion code reservation reconciliation',{processed:results.length,requiresReview:results.filter(item=>item.status==='requires_review').length});
+});
