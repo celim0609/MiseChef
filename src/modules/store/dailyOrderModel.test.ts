@@ -92,3 +92,10 @@ test('Completed summary follows the selected day while preserving future active 
  assert.equal(dailyEntries([partial],'Upcoming','2026-10-19').length,1);
  assert.equal(completedEntriesForPeriod([{...completedFuture,fulfilmentStatus:'Cancelled'}],'Today','2026-10-19').length,0);
 });
+
+ test('delivery days advance through Preparing before Ready, then require merchant booking', async()=>{
+ const {dailyActions}=await import('./dailyOrderModel');const delivery={...order,fulfilmentMethod:'delivery',fulfilments:order.fulfilments?.map(day=>({...day,method:'delivery'}))} as typeof order;const ticket={...getOrderTickets(delivery)[0],method:'delivery' as const};
+ assert.deepEqual(dailyActions(delivery,ticket),['Preparing']);
+ assert.deepEqual(dailyActions({...delivery,fulfilmentOperations:{today:{kitchenStatus:'Preparing'}}},ticket),['Ready']);
+ assert.deepEqual(dailyActions({...delivery,fulfilmentOperations:{today:{kitchenStatus:'Ready'}}},ticket),[]);
+ });

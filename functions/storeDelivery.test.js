@@ -642,13 +642,13 @@ test('automatic dispatch never retries a failed day; an operator can safely retr
   assert.equal(fixture.counts().creations,1);
 });
 
-test('automatic dispatch responds only to newly paid/ready days, not unrelated updates or failures', async () => {
+test('automatic dispatch stays disabled for payment, Ready, unrelated updates and failures', async () => {
   const { automaticDispatchDays } = await import('./storeDelivery.js');
   const order = multiOrder();
-  assert.equal(automaticDispatchDays(order, {payment:{status:'pending'}}).length,2);
+  assert.equal(automaticDispatchDays(order, {payment:{status:'pending'}}).length,0);
   assert.equal(automaticDispatchDays(order, structuredClone(order)).length,0);
   order.fulfilmentOperations.day_0.dispatch = {status:'failed'};
-  assert.deepEqual(automaticDispatchDays(order).map(day=>day.id),['day_1']);
+  assert.deepEqual(automaticDispatchDays(order),[]);
   assert.equal(automaticDispatchDays({...order,payment:{status:'failed'}}).length,0);
   assert.equal(automaticDispatchDays({...order,manualOrder:true}).length,0);
 });
@@ -675,4 +675,86 @@ test('missing recipient pin is blocked before quotation, claim or booking and na
  const before=structuredClone(order);
  await assert.rejects(dispatchStoreDelivery(fixture.args),error=>error.details.fields.includes('recipients[0].coordinates'));
  assert.deepEqual(fixture.counts(),{quotes:0,creations:0});assert.deepEqual(order,before);
+});
+
+const { previewMerchantDelivery, confirmMerchantDelivery, reconcileMerchantDelivery } = await import('./storeManualDelivery.js');
+const manualFixture = () => {
+  const fixture = dispatchFixture();
+  const original = fixture.provider.createQuote;
+  fixture.provider.createQuote = async request => ({...await original(request), expiresAt: new Date(Date.now()+300000).toISOString()});
+  return fixture;
+};
+
+test('merchant preview displays exact route, fee and service, creates no booking, confirmation claims exactly once', async () => {
+  const f=manualFixture(); const original=structuredClone(f.db.documents['storeOrders/multi']);
+  await assert.rejects(confirmMerchantDelivery(f.args), /explicitly confirm/);
+  const preview=await previewMerchantDelivery(f.args);
+  assert.equal(preview.pickupAddress,'Kitchen'); assert.equal(preview.dropoffAddress,'Customer'); assert.equal(preview.estimatedCost,40); assert.equal(preview.serviceType,'MOTORCYCLE'); assert.ok(preview.quotationId); assert.equal(f.counts().creations,0);
+  await assert.rejects(confirmMerchantDelivery({...f.args,previewId:preview.id,confirmed:false}),/explicitly confirm/);
+  const confirmed={...f.args,previewId:preview.id,confirmed:true};
+  await Promise.all(Array.from({length:6},()=>confirmMerchantDelivery(confirmed)));
+  await confirmMerchantDelivery(confirmed);
+  assert.deepEqual(f.counts(),{quotes:1,creations:1});
+  const order=f.db.documents['storeOrders/multi'];
+  for(const field of ['delivery','fulfilments','payment','total','totals']) assert.deepEqual(order[field],original[field]);
+});
+
+test('preview/confirmation rejects unpaid, non Ready, unauthorised, expired, stale route, wrong merchant and old clients', async () => {
+  for(const change of [order=>order.payment.status='failed',order=>order.fulfilmentOperations.day_0.kitchenStatus='Preparing',order=>order.fulfilmentStatus='Cancelled']) {
+    const f=manualFixture(); change(f.db.documents['storeOrders/multi']); await assert.rejects(previewMerchantDelivery(f.args)); assert.equal(f.counts().creations,0);
+  }
+  const f=manualFixture(); await assert.rejects(previewMerchantDelivery({...f.args,uid:'stranger'}));
+  const p=await previewMerchantDelivery(f.args);
+  await assert.rejects(confirmMerchantDelivery({...f.args,previewId:'forged',confirmed:true}));
+  f.db.documents['storeOrders/multi'].fulfilments[0].time='12:00';
+  await assert.rejects(confirmMerchantDelivery({...f.args,previewId:p.id,confirmed:true}),/expired or delivery details changed/);
+  const next=await previewMerchantDelivery(f.args); f.db.documents['storeOrders/multi'].fulfilmentOperations.day_0.bookingPreview.expiresAt='2020-01-01';
+  await assert.rejects(confirmMerchantDelivery({...f.args,previewId:next.id,confirmed:true}));
+  assert.equal(f.counts().creations,0);
+});
+
+test('quotation timeout cannot book; post-submission timeout locks and all replacement confirmations stay blocked', async () => {
+  const f=manualFixture(); const quote=f.provider.createQuote; f.provider.createQuote=async()=>{throw Error('quote timeout');};
+  await assert.rejects(previewMerchantDelivery(f.args),/quote timeout/); assert.equal(f.counts().creations,0);
+  f.provider.createQuote=quote;const p=await previewMerchantDelivery(f.args);let submissions=0;
+  f.provider.createOrder=async()=>{submissions++;throw Error('provider timeout');};
+  await assert.rejects(confirmMerchantDelivery({...f.args,previewId:p.id,confirmed:true}),/provider timeout/);
+  assert.equal(f.db.documents['storeOrders/multi'].fulfilmentOperations.day_0.dispatch.status,'outcome_unknown');
+  assert.equal((await confirmMerchantDelivery({...f.args,previewId:p.id,confirmed:true})).status,'outcome_unknown');
+  await assert.rejects(previewMerchantDelivery(f.args),/locked/);await assert.rejects(reconcileMerchantDelivery(f.args),/No booking ID/);assert.equal(submissions,1);
+});
+
+test('known provider rejection is safe failure; reusing consumed quote cannot submit a second request',async()=>{
+  const f=manualFixture();const p=await previewMerchantDelivery(f.args);
+  f.provider.createOrder=async()=>{const e=new Error('Wallet insufficient');e.status=400;e.details={providerCode:'ERR_INSUFFICIENT_CREDIT'};e.requestId='test-request';throw e;};
+  await assert.rejects(confirmMerchantDelivery({...f.args,previewId:p.id,confirmed:true}));
+  assert.equal(f.db.documents['storeOrders/multi'].fulfilmentOperations.day_0.dispatch.status,'failed');
+  await assert.rejects(confirmMerchantDelivery({...f.args,previewId:p.id,confirmed:true}),/expired or delivery details changed/);
+});
+
+test('DV47-shaped historical insufficient credit reconciles rejection without booking or changing paid data',async()=>{
+  const f=manualFixture();const order=f.db.documents['storeOrders/multi'];const original=structuredClone(order);
+  order.fulfilmentOperations.day_0.dispatch={status:'outcome_unknown',providerCode:'ERR_INSUFFICIENT_CREDIT',requestId:'original-request',operationalQuote:{quotationId:'original-quote'}};
+  assert.equal((await reconcileMerchantDelivery(f.args)).status,'failed');assert.equal(f.counts().creations,0);
+  assert.equal(order.fulfilmentOperations.day_0.dispatch.reconciliation.result,'confirmed_provider_rejection');
+  for(const field of ['delivery','fulfilments','payment','total','totals'])assert.deepEqual(order[field],original[field]);
+});
+
+test('unknown outcome accepts only a verified existing booking for the exact submitted quote',async()=>{
+  const f=manualFixture(),op=f.db.documents['storeOrders/multi'].fulfilmentOperations.day_0;
+  op.dispatch={status:'outcome_unknown',operationalQuote:{quotationId:'submitted-quote'}};
+  f.provider.retrieveOrder=async()=>({orderId:'known-booking',quotationId:'wrong-quote',status:'ASSIGNING_DRIVER'});
+  await assert.rejects(reconcileMerchantDelivery({...f.args,providerOrderId:'known-booking'}),/does not match/);
+  assert.equal(op.dispatch.status,'outcome_unknown');
+  f.provider.retrieveOrder=async()=>({orderId:'known-booking',quotationId:'submitted-quote',status:'ASSIGNING_DRIVER'});
+  await reconcileMerchantDelivery({...f.args,providerOrderId:'known-booking'});
+  assert.equal(op.providerOrder.orderId,'known-booking'); assert.equal(op.dispatch.status,'created');assert.equal(f.counts().creations,0);
+});
+
+test('deployed trigger is inert and the sole booking callable requires manual confirmation',async()=>{
+  const source=await (await import('node:fs/promises')).readFile(new URL('./index.js',import.meta.url),'utf8');
+  const trigger=source.slice(source.indexOf('export const dispatchReadyStoreFulfilments'),source.indexOf('// No webhook endpoint'));
+  assert.doesNotMatch(trigger,/dispatchStoreDelivery|createOrder|dispatchFulfilmentDelivery/);
+  const callable=source.slice(source.indexOf('export const dispatchStoreLalamoveDelivery'),source.indexOf('export const refreshStoreLalamoveDelivery'));
+  assert.match(callable,/confirmMerchantDelivery/);assert.match(callable,/confirmed: request.data/);
 });

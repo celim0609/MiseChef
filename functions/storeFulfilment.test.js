@@ -617,3 +617,10 @@ test('direct daily Ready is atomic, idempotent, authorized and leaves payment an
  await assert.rejects(updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus:'Ready',fulfilmentId:'monday'}));assert.equal(db.writes.length,0);
  }
 });
+
+test('delivery day cannot skip Preparing on the way to Ready',async()=>{
+ const order={...weeklyOrder(),weeklyFulfilments:undefined,fulfilments:[{id:'monday',method:'delivery'}],fulfilmentCompletion:{},fulfilmentOperations:{}};
+ const db=createFakeDb({'storeOrders/order-a':order,'workspaces/workspace-a':{ownerId:'owner-a'}});
+ await assert.rejects(updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus:'Ready',fulfilmentId:'monday'}),/Preparing before Ready/);
+ assert.equal(db.writes.length,0);
+});
