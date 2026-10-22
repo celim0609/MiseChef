@@ -1,3 +1,5 @@
+> Automatic dispatch described below is historical and superseded by [manual-only dispatch](../manual-lalamove/README.md).
+
 # Delivery mismatch and legacy booking compatibility
 
 ## Read-only Production evidence: MC-1020-DV47

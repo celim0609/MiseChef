@@ -47,7 +47,7 @@ export function dailyEntries(orders: StoreOrder[], view: DailyView, today: strin
 }
 export function dailyActions(order: StoreOrder, ticket: OrderTicket): Exclude<StoreOrder['fulfilmentStatus'], ''>[] {
  const next = nextDailyStatus(order,ticket);
- return next === 'Preparing' ? ['Preparing','Ready'] : next ? [next] : [];
+ return next === 'Preparing' && ticket.method !== 'delivery' ? ['Preparing','Ready'] : next ? [next] : [];
 }
 
 export function orderMatchesStatusInPeriod(order: StoreOrder, period: 'Today' | 'Upcoming' | 'History', filter: string, today: string) {

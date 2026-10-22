@@ -1,3 +1,4 @@
+import { isConfirmedProviderRejection } from './lalamoveSandbox.js';
 import { canonicalFulfilmentMethod, canonicalFulfilmentView, resolveDeliveryDispatchData, deliveryBlockedMessage } from './storeFulfilmentCanonical.js';
 import { calculateDeliveryDayPricing, deliveryDistanceKm as distanceKm } from './storeDeliveryPricing.js';
 import { fullWeekDateStore, isFullWeekSelection, hasDatedMenu } from './storeWeeklyMealPlan.js';
@@ -111,7 +112,7 @@ const customerPricing = ({ providerFee, config, merchandiseSubtotal }) => {
   const customerDeliveryFee = eligible ? money(Math.min(providerFee, Number(subsidy.maximumCustomerDeliveryCharge || 0))) : providerFee;
   return { providerDeliveryFee: providerFee, customerDeliveryFee, storeAbsorbedDeliveryFee: money(Math.max(providerFee - customerDeliveryFee, 0)), subsidyEnabled: subsidy.enabled === true, subsidyApplied: eligible, minimumMerchandiseSpend: money(Math.max(0, Number(subsidy.minimumMerchandiseSpend || 0))), deliveryFeeCap: money(Math.max(0, Number(subsidy.maximumCustomerDeliveryCharge || 0))), currency: 'MYR' };
 };
-const quoteSnapshot = quote => ({ quotationId: readString(quote.quotationId), expiresAt: readString(quote.expiresAt), serviceType: readString(quote.serviceType), fee: money(quote.priceBreakdown?.total), currency: readString(quote.priceBreakdown?.currency), priceBreakdown: quote.priceBreakdown || {}, stops: quote.stops || [] });
+export const quoteSnapshot = quote => ({ quotationId: readString(quote.quotationId), expiresAt: readString(quote.expiresAt), serviceType: readString(quote.serviceType), fee: money(quote.priceBreakdown?.total), currency: readString(quote.priceBreakdown?.currency), priceBreakdown: quote.priceBreakdown || {}, stops: quote.stops || [] });
 const assertDispatchQuote = quote => {
   const fields = [];
   if (!readString(quote.quotationId)) fields.push('quotationId');
@@ -467,7 +468,7 @@ export const reconcileActiveDeliveries = async ({ db, provider, limit = 50 }) =>
 
 // Multi-day operations never write order.total, totals, deliveryPricingSnapshot,
 // payment or the immutable fulfilments array.
-const fulfilmentContext = async ({ db, provider, uid, orderId, fulfilmentId, internal = false }) => {
+export const fulfilmentContext = async ({ db, provider, uid, orderId, fulfilmentId, internal = false }) => {
   if (!internal && !uid) throw new HttpsError('unauthenticated', 'Sign in to manage this delivery.');
   const ref = db.collection('storeOrders').doc(readString(orderId));
   const snapshot = await ref.get();
@@ -480,10 +481,8 @@ const fulfilmentContext = async ({ db, provider, uid, orderId, fulfilmentId, int
   return { ref, order, entry, key: `fulfilmentOperations.${entry.id}` };
 };
 
-export const automaticDispatchDays = (order, before = {}) => {
-  if (!order || order.manualOrder || order.payment?.status !== 'paid' || ['Cancelled', 'Completed'].includes(order.fulfilmentStatus) || order.fulfilmentMethod !== 'delivery') return [];
-  return (order.fulfilments || []).filter(day => day.method === 'delivery' && !order.fulfilmentCompletion?.[day.id] && order.fulfilmentOperations?.[day.id]?.kitchenStatus === 'Ready' && !order.fulfilmentOperations?.[day.id]?.dispatch?.status && (before.payment?.status !== 'paid' || before.fulfilmentOperations?.[day.id]?.kitchenStatus !== 'Ready'));
-};
+// Retained as an inert compatibility export. Payment, Ready and schedules never book.
+export const automaticDispatchDays = () => [];
 
 export const dispatchFulfilmentDelivery = async args => {
   const { db, provider, uid, orderId, fulfilmentId } = args;
@@ -497,8 +496,9 @@ export const dispatchFulfilmentDelivery = async args => {
     const currentEntry = order.fulfilments.find(day => day.id === entry.id);
     if (!currentEntry || canonicalFulfilmentMethod(order, currentEntry) !== 'delivery') throw deliveryError('Choose a delivery fulfilment.');
     const resolved = resolveDeliveryDispatchData(order, currentEntry);
+    if (args.validateConfirmation) args.validateConfirmation(order, currentEntry, resolved);
     if (resolved.issues.length) throw new HttpsError('failed-precondition', deliveryBlockedMessage(resolved.issues), { fields: resolved.issues.map(issue => issue.field) });
-    transaction.update(ref, { [`${key}.dispatch`]: { status: 'creating', identity: `${ref.id}:${entry.id}`, requestedBy: uid || 'automatic', requestedAt: new Date().toISOString(), attempt: Number(operation.dispatch?.attempt || 0) + 1 }, activeFulfilmentDeliveries: true, updatedAt: FieldValue.serverTimestamp() });
+    transaction.update(ref, { ...(args.confirmationPreviewId ? { [`${key}.bookingPreview.used`]: true } : {}), [`${key}.dispatch`]: { status: 'creating', identity: `${ref.id}:${entry.id}`, requestedBy: uid || 'automatic', ...(args.confirmationPreviewId ? { previewId: args.confirmationPreviewId } : {}), requestedAt: new Date().toISOString(), attempt: Number(operation.dispatch?.attempt || 0) + 1 }, activeFulfilmentDeliveries: true, updatedAt: FieldValue.serverTimestamp() });
     return { order, resolved, entry: currentEntry };
   });
   if (claim.reused) return { status: claim.reused };
@@ -514,7 +514,7 @@ export const dispatchFulfilmentDelivery = async args => {
     // slots retain their date/time. This is operational pricing only.
     const request = buildLalamoveQuoteRequest({ config: { serviceType: claim.resolved.serviceType }, pickup, destination: target,
       schedule: Date.parse(malaysiaPreorderScheduleAt(schedule)) > Date.now() ? schedule : { mode: 'instant' } });
-    const fresh = quoteSnapshot(await provider.createQuote(request));
+    const fresh = args.approvedQuote || quoteSnapshot(await provider.createQuote(request));
     assertDispatchQuote(fresh);
     if (!fresh.quotationId || !Number.isFinite(fresh.fee) || fresh.fee < 0 || fresh.currency !== 'MYR' || fresh.stops.length !== 2 || fresh.stops.some(stop => !readString(stop.stopId))) throw deliveryError('Invalid dispatch quotation.');
     const baselineFee = claim.order.deliveryPricingSnapshot?.days?.find(day => day.date === entry.date)?.providerDeliveryFee;
@@ -540,9 +540,9 @@ export const dispatchFulfilmentDelivery = async args => {
     if (TERMINAL_DELIVERY_STATES.has(projectLalamoveLifecycle(created))) await refreshFulfilmentDelivery(args);
     return { status: 'created', orderId: created.orderId };
   } catch (error) {
-    await ref.update({ [`${key}.dispatch.status`]: submitted ? 'outcome_unknown' : 'failed',
+    await ref.update({ [`${key}.dispatch.status`]: submitted && !isConfirmedProviderRejection(error) ? 'outcome_unknown' : 'failed',
       ...(created?.orderId ? { [`${key}.providerOrder.orderId`]: created.orderId } : {}),
-      [`${key}.dispatch.errorCode`]: readString(error.message).slice(0, 120), [`${key}.dispatch.fields`]: error.details?.fields || [], [`${key}.dispatch.providerCode`]: error.details?.providerCode || '', [`${key}.dispatch.requestId`]: error.requestId || '', updatedAt: FieldValue.serverTimestamp() }).catch(() => undefined);
+      [`${key}.dispatch.errorCode`]: readString(error.message).slice(0, 120), [`${key}.dispatch.fields`]: error.details?.fields || [], [`${key}.dispatch.providerCode`]: error.details?.providerCode || '', [`${key}.dispatch.requestId`]: error.requestId || '', [`${key}.dispatch.httpStatus`]: Number(error.status) || 0, updatedAt: FieldValue.serverTimestamp() }).catch(() => undefined);
     throw error;
   }
 };

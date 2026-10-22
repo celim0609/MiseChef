@@ -66,3 +66,16 @@ test('missing-field rejection retains only safe field paths and request ID, neve
   });
  } finally {globalThis.fetch=previous;}
 });
+
+test('insufficient wallet credit is actionable and only explicit 4xx rejections prove no booking',async()=>{
+ const {isConfirmedProviderRejection}=await import('./lalamoveSandbox.js');const previous=globalThis.fetch;
+ try {
+  globalThis.fetch=async()=>new Response(JSON.stringify({errors:[{id:'ERR_INSUFFICIENT_CREDIT'}],meta:{requestId:'wallet-request'}}),{status:402});
+  await assert.rejects(createLalamoveSandboxProvider({apiKey:'key',apiSecret:'secret'}).createOrder({market:'MY',data:{}}),error=>{
+   assert.match(error.message,/wallet has insufficient credit/);assert.equal(isConfirmedProviderRejection(error),true);return true;
+  });
+  assert.equal(isConfirmedProviderRejection({status:500,details:{providerCode:'ERR_INSUFFICIENT_CREDIT'}}),false);
+  assert.equal(isConfirmedProviderRejection({code:'unavailable',requestId:'timeout'}),false);
+  assert.equal(isConfirmedProviderRejection({status:429,details:{providerCode:'ERR_RATE_LIMIT_EXCEEDED'}}),false);
+ }finally{globalThis.fetch=previous;}
+});

@@ -1,3 +1,4 @@
+import { previewMerchantDelivery, confirmMerchantDelivery, reconcileMerchantDelivery } from './storeManualDelivery.js';
 import { saveManualPosOrder, confirmManualPosPayment } from './manualPosOrders.js';
 import { createRecipePipelineService } from './recipePipelineService.js';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -60,7 +61,7 @@ import {
   updateStoreOrderFulfilment
 } from './storeFulfilment.js';
 import { createLalamoveProvider, resolveLalamoveEnvironment } from './lalamoveSandbox.js';
-import { automaticDispatchDays, createStoreDeliveryQuote, dispatchStoreDelivery, refreshStoreDelivery, cancelStoreDelivery, reconcileActiveDeliveries, getLalamoveSandboxCityInfo } from './storeDelivery.js';
+import { createStoreDeliveryQuote, refreshStoreDelivery, cancelStoreDelivery, reconcileActiveDeliveries, getLalamoveSandboxCityInfo } from './storeDelivery.js';
 import { listCustomerOrders } from './customerOrders.js';
 import {
   activateHostProfile,
@@ -482,7 +483,7 @@ export const dispatchStoreLalamoveDelivery = onCall({
   memory: '256MiB'
 }, async request => {
   const provider = createRuntimeLalamoveProvider();
-  try { return await dispatchStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId }); }
+  try { return await confirmMerchantDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId, previewId: request.data?.previewId, confirmed: request.data?.confirmed }); }
   catch (error) {
     logger.warn('Store delivery dispatch blocked', { orderId: typeof request.data?.orderId === 'string' ? request.data.orderId : '', fulfilmentId: typeof request.data?.fulfilmentId === 'string' ? request.data.fulfilmentId : '', providerCode: error.details?.providerCode || '', fields: error.details?.fields || [], requestId: error.requestId || '', code: error.code || 'dispatch_failed' });
     throw error;
@@ -501,15 +502,8 @@ export const cancelStoreLalamoveDelivery = onCall({ region: REGION, secrets: [la
 
 export const dispatchReadyStoreFulfilments = onDocumentWritten({
   document: 'storeOrders/{orderId}', region: REGION, timeoutSeconds: 120, memory: '256MiB', secrets: [lalamoveApiKey, lalamoveApiSecret]
-}, async event => {
-  const order = event.data?.after.data();
-  const ready = automaticDispatchDays(order, event.data?.before.data());
-  if (!ready.length) return;
-  const provider = createRuntimeLalamoveProvider();
-  for (const day of ready) {
-    try { await dispatchStoreDelivery({ db, provider, orderId: event.params.orderId, fulfilmentId: day.id, internal: true }); }
-    catch (error) { logger.warn('Automatic delivery dispatch requires merchant review', { orderId: event.params.orderId, fulfilmentId: day.id, code: error.code || 'dispatch_failed' }); }
-  }
+}, async () => {
+  // Intentionally inert: a Firestore event must never create a Lalamove booking.
 });
 
 // No webhook endpoint is enabled yet. Scheduled order-detail reconciliation is
@@ -2546,3 +2540,6 @@ export const processResumeImportJob = onDocumentCreated({
 
 export const saveStoreManualPosOrder = onCall({ region: REGION, timeoutSeconds: 30 }, request => saveManualPosOrder({ db, uid: request.auth?.uid, input: request.data?.order }));
 export const confirmStoreManualPosPayment = onCall({ region: REGION, timeoutSeconds: 30 }, request => confirmManualPosPayment({ db, uid: request.auth?.uid, input: request.data }));
+
+export const previewStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => previewMerchantDelivery({ db, provider: createRuntimeLalamoveProvider(), uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId }));
+export const reconcileStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => reconcileMerchantDelivery({ db, provider: createRuntimeLalamoveProvider(), uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId, providerOrderId: request.data?.providerOrderId }));

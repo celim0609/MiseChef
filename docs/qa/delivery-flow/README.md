@@ -1,3 +1,5 @@
+> Automatic dispatch described below is historical and superseded by [manual-only dispatch](../manual-lalamove/README.md).
+
 # Delivery completion audit
 
 Base: Production and live Beta `98649c6dd735dd6b703465069005ae5902317a1b`.

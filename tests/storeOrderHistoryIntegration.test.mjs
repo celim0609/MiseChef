@@ -399,7 +399,7 @@ test('external orders without a platform reference deduplicate concurrent retrie
 
 test('legacy delivery compatibility preserves a DV47-shaped paid order through Ready and one concurrent booking',async()=>{
  const {deliveryOrderCase}=await import('../functions/fixtures/deliveryOrderCase.js');
- const {dispatchStoreDelivery}=await import('../functions/storeDelivery.js');
+ const {previewMerchantDelivery,confirmMerchantDelivery}=await import('../functions/storeManualDelivery.js');
  const app=initializeApp({projectId:'demo-misechef-store-payment-rules'},`delivery-compat-${process.pid}`),db=getFirestore(app);
  const workspaceId=`delivery-compat-${process.pid}`,ownerId=`${workspaceId}-owner`,orderId=`${workspaceId}-order`;
  const order={...deliveryOrderCase(),id:orderId,workspaceId,storeId:workspaceId};
@@ -407,11 +407,14 @@ test('legacy delivery compatibility preserves a DV47-shaped paid order through R
   await db.collection('workspaces').doc(workspaceId).set({ownerId,subscriptionPlan:'professional',subscriptionStatus:'active'});
   const ref=db.collection('storeOrders').doc(orderId);await ref.set(order);
   let quotes=0,bookings=0;
-  const provider={environment:'sandbox',createQuote:async request=>{quotes++;assert.equal(request.data.stops[1].address,order.delivery.recipient.address);return {quotationId:'fake-fresh-quote',serviceType:'MOTORCYCLE',priceBreakdown:{total:9,currency:'MYR'},stops:request.data.stops.map((stop,index)=>({...stop,stopId:`fake-${index}`}))};},createOrder:async request=>{bookings++;assert.equal(request.data.recipients[0].phone,'+60123456789');return {orderId:'fake-booking',status:'ASSIGNING_DRIVER'};}};
+  const provider={environment:'sandbox',createQuote:async request=>{quotes++;assert.equal(request.data.stops[1].address,order.delivery.recipient.address);return {quotationId:'fake-fresh-quote',expiresAt:new Date(Date.now()+300000).toISOString(),serviceType:'MOTORCYCLE',priceBreakdown:{total:9,currency:'MYR'},stops:request.data.stops.map((stop,index)=>({...stop,stopId:`fake-${index}`}))};},createOrder:async request=>{bookings++;assert.equal(request.data.recipients[0].phone,'+60123456789');return {orderId:'fake-booking',status:'ASSIGNING_DRIVER'};}};
   const args={db,provider,uid:ownerId,orderId,fulfilmentId:'day_20261022'};
-  await assert.rejects(dispatchStoreDelivery(args),/Mark this delivery day Ready/);assert.equal(quotes,0);
+  await assert.rejects(previewMerchantDelivery(args),/Ready/);assert.equal(quotes,0);
+  await assert.rejects(updateStoreOrderFulfilment({db,uid:ownerId,orderId,nextStatus:'Ready',fulfilmentId:'day_20261022'}),/Preparing before Ready/);
+  await updateStoreOrderFulfilment({db,uid:ownerId,orderId,nextStatus:'Preparing',fulfilmentId:'day_20261022'});
   await updateStoreOrderFulfilment({db,uid:ownerId,orderId,nextStatus:'Ready',fulfilmentId:'day_20261022'});
-  await Promise.all([dispatchStoreDelivery(args),dispatchStoreDelivery(args)]);
+  const preview=await previewMerchantDelivery(args);assert.equal(bookings,0);
+  await Promise.all([confirmMerchantDelivery({...args,previewId:preview.id,confirmed:true}),confirmMerchantDelivery({...args,previewId:preview.id,confirmed:true})]);
   assert.equal(quotes,1);assert.equal(bookings,1);
   const saved=(await ref.get()).data();
   for(const key of ['phone','customerName','fulfilments','payment','delivery','totals','total'])assert.deepEqual(saved[key],order[key]);

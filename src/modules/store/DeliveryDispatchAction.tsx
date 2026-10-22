@@ -10,7 +10,7 @@ export default function DeliveryDispatchAction({ order, fulfilmentId, isUpdating
   if (!['not_requested', 'failed'].includes(status)) return null;
   const issues = resolveDeliveryDispatchData(order, day).issues;
   const ready = operation?.kitchenStatus === 'Ready';
-  const reason = issues.length ? deliveryBlockedMessage(issues) : !ready ? 'Mark this paid delivery day Ready in Orders or POS to start dispatch. Request Lalamove is available for safe manual dispatch or retry.' : 'Book delivery for this day using its saved time and address.';
+  const reason = issues.length ? deliveryBlockedMessage(issues) : !ready ? 'Mark this paid delivery day Ready in Orders or POS to start dispatch. Request Lalamove is available for safe manual dispatch or retry.' : 'Review a quotation for this day. Only Confirm Lalamove booking submits the booking.';
   const reasonId = `dispatch-reason-${day.id}`;
   return <div className="mt-2"><button type="button" disabled={isUpdating || !ready || issues.length > 0} aria-describedby={reasonId} onClick={() => onDispatch(order.id, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary disabled:opacity-50">Request Lalamove</button><p id={reasonId} role={issues.length ? 'alert' : 'status'}>{reason}</p></div>;
 }
