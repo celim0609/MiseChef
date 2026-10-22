@@ -1,3 +1,4 @@
+import { weeklyPricing } from '../../../functions/storeWeeklyMealPlan.js';
 import { resolveSelectionMealOptions, mealOptionSurcharge } from '../../../functions/healthyLunchOptions.js';
 import MealOptionSummary from './MealOptionSummary';
 import { HealthyLunchCheckoutDates } from './HealthyLunchCheckoutDates';
@@ -685,8 +686,10 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     let mealOptionDays = [];
     let mealOptionError = '';
     try { mealOptionDays = resolveSelectionMealOptions(line, data?.products || [], line.healthyLunchWeekMonday || (fulfilmentMethod === 'delivery' ? deliveryDate : pickupDate)); } catch (error) { mealOptionError = (error as Error).message; }
+    let weeklyPriceSnapshot = null;
+    try { weeklyPriceSnapshot = product?.productType === 'weekly_meal_plan' && !line.healthyLunchDate ? weeklyPricing(product, data?.products || [], (fulfilmentMethod === 'delivery' ? deliveryDate : pickupDate) || line.healthyLunchWeekMonday) : null; } catch (error) { mealOptionError = (error as Error).message; }
     const baseUnitPrice = setAnalysis?.sellingPrice ?? calculateStoreOptionAdjustedPrice(
-      product?.price || 0, options.flatMap(item => Array(item.selection.quantity || 1).fill(item.option?.priceAdjustment || 0))
+      weeklyPriceSnapshot?.finalWeeklyPrice ?? product?.price ?? 0, options.flatMap(item => Array(item.selection.quantity || 1).fill(item.option?.priceAdjustment || 0))
     );
     const unitPrice = mealOptionDays.length ? (Math.round(baseUnitPrice * 100) + mealOptionSurcharge(mealOptionDays)) / 100 : baseUnitPrice;
     const setItems = setSelections.map(selection => ({
@@ -695,7 +698,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
       adjustment: set?.groups.find(group => group.id === selection.groupId)
         ?.options.find(option => option.productId === selection.productId)?.priceAdjustment || 0
     }));
-    return { line, product, set, options, setItems, mealOptionDays, mealOptionError, unitPrice, lineTotal: mealOptionDays.length ? Math.round(unitPrice * 100) * line.quantity / 100 : unitPrice * line.quantity };
+    return { line, product, set, options, weeklyPriceSnapshot, setItems, mealOptionDays, mealOptionError, unitPrice, lineTotal: mealOptionDays.length ? Math.round(unitPrice * 100) * line.quantity / 100 : unitPrice * line.quantity };
   }), [cart, data, optionGroupsById, fulfilmentMethod, deliveryDate, pickupDate]);
 
   const configuredProductPrice = useMemo(() => {
@@ -749,11 +752,11 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   );
 
   const cartTotal = cartDetails.reduce((sum, item) => sum + item.lineTotal, 0);
-  const cartPromotionEstimates = cartDetails.reduce<Array<{ label: string; savings: number }>>((estimates, item) => {
+  const cartPromotionEstimates = cartDetails.filter(item => !item.weeklyPriceSnapshot || item.weeklyPriceSnapshot.legacyPrice || item.weeklyPriceSnapshot.discount.type === 'none').reduce<Array<{ label: string; savings: number }>>((estimates, item) => {
     if (!item.product) return estimates;
     const promotion = publicPromotions.find(candidate => candidate.productId === item.product!.id);
     if (!promotion) return estimates;
-    const savings = getPromotionSavingsEstimate({ promotion, quantity: item.line.quantity, baseProductPrice: item.product.price, merchandiseSubtotal: cartTotal });
+    const savings = getPromotionSavingsEstimate({ promotion, quantity: item.line.quantity, baseProductPrice: item.weeklyPriceSnapshot?.finalWeeklyPrice ?? item.product.price, merchandiseSubtotal: cartTotal });
     if (savings <= 0) return estimates;
     const label = getPromotionOfferLabel(promotion);
     const existing = estimates.find(estimate => estimate.label === label);
@@ -1718,6 +1721,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
               </div>
               <div className="mt-4 border-t border-surface-container-high pt-4">
                 <dl className="space-y-2 font-sans text-sm font-bold text-on-surface-variant">
+                {cartDetails.filter(item => item.weeklyPriceSnapshot).map(item => <div key={item.line.productId} className="text-sm"><p>Original Price: {formatRegionCurrency(item.weeklyPriceSnapshot!.originalPrice * item.line.quantity, store.currency)}</p><p>Discount: {formatRegionCurrency(item.weeklyPriceSnapshot!.discountAmount * item.line.quantity, store.currency)}</p><p>Final Weekly Price: {formatRegionCurrency(item.weeklyPriceSnapshot!.finalWeeklyPrice * item.line.quantity, store.currency)} (meal options added separately)</p></div>)}
                 <div className="flex justify-between gap-3"><dt>Items subtotal</dt><dd className="text-primary">{formatRegionCurrency(cartTotal, store.currency)}</dd></div>
                 {cartPromotionEstimates.map(estimate => <div key={estimate.label} className="flex justify-between gap-3"><dt>🔥 {estimate.label}</dt><dd className="text-primary">−{formatRegionCurrency(estimate.savings, store.currency)}</dd></div>)}
                 {cartPromotionEstimate > 0 && <p className="text-[11px] font-bold text-outline">Promotion savings are confirmed securely at checkout.</p>}

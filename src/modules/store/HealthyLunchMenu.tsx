@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { snapshotMealOptions } from '../../../functions/healthyLunchOptions.js';
 import HealthyLunchMealOptions from './HealthyLunchMealOptions';
 import type { MealOptionChoice } from './types';
-import { WEEKLY_DAYS, getWeeklyDates, weekRangeLabel, resolvePlanMeal, resolveHealthyLunchDay, hasDatedMenu } from '../../../functions/storeWeeklyMealPlan.js';
+import { weeklyPricing, WEEKLY_DAYS, getWeeklyDates, weekRangeLabel, resolvePlanMeal, resolveHealthyLunchDay, hasDatedMenu } from '../../../functions/storeWeeklyMealPlan.js';
 import { formatRegionCurrency } from '../../regions';
 import { scheduleDateLabel } from './storeOrderFulfilments';
 import type { StoreProduct, WorkspaceStore } from './types';
@@ -42,6 +42,7 @@ export default function HealthyLunchMenu({ product, products, currency, weeks, d
   };
   const weekDates = getWeeklyDates(selectedMonday);
   const weekOptions = optionState(weekDates);
+  const pricing = (!dated || selectedMonday) ? weeklyPricing(product, products, selectedMonday) : null;
   return <div className="mt-3 rounded-2xl bg-surface-container-low p-3 sm:p-4">
     {dated ? <div className="flex gap-2" role="group" aria-label={`${product.name} ordering`}>
       <button type="button" aria-pressed={!showDays} onClick={() => onChange({ mode: 'week', date })} className="rounded-full border px-4 py-2 text-sm font-bold aria-pressed:bg-primary aria-pressed:text-white">5-Day Plan</button>
@@ -87,7 +88,8 @@ export default function HealthyLunchMenu({ product, products, currency, weeks, d
       })}</ul>
       {weekOptions.error && <p className="mt-3 text-sm" role="status">Complete required choices for each meal before adding the plan.</p>}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-lg font-extrabold text-primary">{formatRegionCurrency((Math.round(product.price * 100) + weekOptions.surchargeMinor) / 100, currency)}</p>
+        <p className="text-sm">Original Price: {formatRegionCurrency(pricing?.originalPrice ?? 0, currency)} · Discount: {formatRegionCurrency(pricing?.discountAmount ?? 0, currency)} · Final Weekly Price</p>
+        <p className="text-lg font-extrabold text-primary">{formatRegionCurrency((Math.round((pricing?.finalWeeklyPrice ?? 0) * 100) + weekOptions.surchargeMinor) / 100, currency)}</p>
         <button type="button" disabled={!canOrder || (dated && !date) || Boolean(weekOptions.error)} onClick={() => onAdd?.({ mode: 'week', date, selectedMealOptions: selected(weekDates) })} className="min-h-12 rounded-full bg-primary px-6 py-3 text-sm font-extrabold text-on-primary disabled:cursor-not-allowed disabled:opacity-45">Add 5-Day Plan</button>
       </div>
     </>}

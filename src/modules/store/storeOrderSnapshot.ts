@@ -90,6 +90,7 @@ export const normalizeStoreOrderItem = (value: unknown): StoreOrderItem => {
       : [],
     ...(setSnapshot ? { setSnapshot } : {}),
     ...(item.healthyLunchSnapshot && typeof item.healthyLunchSnapshot === 'object' ? { healthyLunchSnapshot: { planId: readString((item.healthyLunchSnapshot as { planId?: string }).planId), date: readString((item.healthyLunchSnapshot as { date?: string }).date), ...normalizeMealOptionSnapshot(item.healthyLunchSnapshot) } } : {}),
+    ...(item.weeklyPriceSnapshot && typeof item.weeklyPriceSnapshot === 'object' ? { weeklyPriceSnapshot: structuredClone(item.weeklyPriceSnapshot) as StoreOrderItem['weeklyPriceSnapshot'] } : {}),
     ...(item.weeklyPlanSnapshot && typeof item.weeklyPlanSnapshot === 'object' && Array.isArray((item.weeklyPlanSnapshot as { meals?: unknown }).meals) ? { weeklyPlanSnapshot: { ...((item.weeklyPlanSnapshot as { startMonday?: string }).startMonday ? { startMonday: readString((item.weeklyPlanSnapshot as { startMonday?: string }).startMonday) } : {}), meals: ((item.weeklyPlanSnapshot as { meals: unknown[] }).meals).map(normalizeWeeklyMeal) } } : {})
   };
 };

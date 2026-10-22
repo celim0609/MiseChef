@@ -248,8 +248,10 @@ export interface SelectedMealOption extends MealOptionChoice { optionGroupName: 
 export interface MealOptionSnapshot { serviceDate?: string; selectedMealOptions?: SelectedMealOption[]; optionSurchargeUnitMinor?: number }
 export interface HealthyLunchMeal { optionGroups?: MealOptionGroup[]; recipeId?: string; photoUrl: string; name: string; price: number; calories?: number; description?: string }
 export type EmbeddedWeeklyMeals = Record<WeeklyDay, HealthyLunchMeal>;
-export type WeeklyWeeks = Partial<Record<'week1' | 'week2' | 'week3' | 'week4', { startMonday: string; meals: WeeklyMeals | EmbeddedWeeklyMeals }>>;
-export type RotationWeeks = Partial<Record<'week1' | 'week2' | 'week3' | 'week4', { meals: EmbeddedWeeklyMeals }>>;
+export interface WeeklyDiscount { type: 'none' | 'percentage' | 'fixed_amount' | 'fixed_weekly_price'; value: number }
+export interface WeeklyPriceSnapshot { version: number; discount: WeeklyDiscount; legacyPrice: boolean; originalPrice: number; discountAmount: number; finalWeeklyPrice: number }
+export type WeeklyWeeks = Partial<Record<'week1' | 'week2' | 'week3' | 'week4', { startMonday: string; meals: WeeklyMeals | EmbeddedWeeklyMeals; discount?: WeeklyDiscount; legacyWeeklyPrice?: number }>>;
+export type RotationWeeks = Partial<Record<'week1' | 'week2' | 'week3' | 'week4', { meals: EmbeddedWeeklyMeals; discount?: WeeklyDiscount; legacyWeeklyPrice?: number }>>;
 export interface WeeklyMealSnapshot extends MealOptionSnapshot { day: WeeklyDay; productId: string; productName: string; photoUrl: string; price?: number; calories?: number; description?: string }
 export interface WeeklyFulfilment extends WeeklyMealSnapshot {
   date: string; pickupTime: string; pickupLocationId: string; pickupLocationName: string;
@@ -462,6 +464,7 @@ export interface StoreOrderItem {
   calories?: number;
   description?: string;
   healthyLunchSnapshot?: { planId: string; date: string } & MealOptionSnapshot;
+  weeklyPriceSnapshot?: WeeklyPriceSnapshot;
   weeklyPlanSnapshot?: { meals: WeeklyMealSnapshot[]; startMonday?: string };
   itemType?: 'product' | 'set' | 'custom';
   notes?: string;
