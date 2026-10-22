@@ -726,7 +726,7 @@ test('quotation timeout cannot book; post-submission timeout locks and all repla
 
 test('known provider rejection is safe failure; reusing consumed quote cannot submit a second request',async()=>{
   const f=manualFixture();const p=await previewMerchantDelivery(f.args);
-  f.provider.createOrder=async()=>{const e=new Error('Wallet insufficient');e.status=400;e.details={providerCode:'ERR_INSUFFICIENT_CREDIT'};e.requestId='test-request';throw e;};
+  f.provider.createOrder=async()=>{const e=new Error('Wallet insufficient');e.status=402;e.details={providerCode:'ERR_INSUFFICIENT_CREDIT'};e.requestId='test-request';throw e;};
   await assert.rejects(confirmMerchantDelivery({...f.args,previewId:p.id,confirmed:true}));
   assert.equal(f.db.documents['storeOrders/multi'].fulfilmentOperations.day_0.dispatch.status,'failed');
   await assert.rejects(confirmMerchantDelivery({...f.args,previewId:p.id,confirmed:true}),/expired or delivery details changed/);

@@ -70,7 +70,7 @@ test('missing-field rejection retains only safe field paths and request ID, neve
 test('insufficient wallet credit is actionable and only explicit 4xx rejections prove no booking',async()=>{
  const {isConfirmedProviderRejection}=await import('./lalamoveSandbox.js');const previous=globalThis.fetch;
  try {
-  globalThis.fetch=async()=>new Response(JSON.stringify({errors:[{id:'ERR_INSUFFICIENT_CREDIT'}],meta:{requestId:'wallet-request'}}),{status:400});
+  globalThis.fetch=async()=>new Response(JSON.stringify({errors:[{id:'ERR_INSUFFICIENT_CREDIT'}],meta:{requestId:'wallet-request'}}),{status:402});
   await assert.rejects(createLalamoveSandboxProvider({apiKey:'key',apiSecret:'secret'}).createOrder({market:'MY',data:{}}),error=>{
    assert.match(error.message,/wallet has insufficient credit/);assert.equal(isConfirmedProviderRejection(error),true);return true;
   });

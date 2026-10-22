@@ -89,5 +89,5 @@ export const createLalamoveSandboxProvider = credentials => createLalamoveProvid
 
 // Only an actual structured non-retryable provider response proves rejection.
 // Timeouts, transport errors, 429s and 5xx remain uncertain after submission.
-export const isConfirmedProviderRejection = error => [400, 401, 403, 422].includes(error?.status)
+export const isConfirmedProviderRejection = error => [400, 401, 402, 403, 422].includes(error?.status)
   && ['ERR_INSUFFICIENT_CREDIT', 'ERR_MISSING_FIELD', 'ERR_INVALID_FIELD', 'ERR_INVALID_PHONE_NUMBER', 'ERR_INVALID_SERVICE_TYPE', 'ERR_INVALID_SCHEDULE_TIME', 'ERR_OUT_OF_SERVICE_AREA'].includes(error?.details?.providerCode);
