@@ -1,3 +1,4 @@
+import { dispatchCompatibilityProject, retiredDispatchHttp, inertDispatchEvent } from './legacyDispatchCompatibility.js';
 import { managePromotionCodes, verifiedPromotionMember } from './storePromotionCodes.js';
 import { previewStorePromotionCode, expirePromotionCodeReservations } from './storePromotionCodeCheckout.js';
 import { previewMerchantDelivery, confirmMerchantDelivery, reconcileMerchantDelivery } from './storeManualDelivery.js';
@@ -503,11 +504,11 @@ export const cancelStoreLalamoveDelivery = onCall({ region: REGION, secrets: [la
   return cancelStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId });
 });
 
-export const dispatchReadyStoreFulfilments = onDocumentWritten({
-  document: 'storeOrders/{orderId}', region: REGION, timeoutSeconds: 120, memory: '256MiB', secrets: [lalamoveApiKey, lalamoveApiSecret]
-}, async () => {
-  // Intentionally inert: a Firestore event must never create a Lalamove booking.
-});
+// Production already owns an HTTPS endpoint under this name; Beta owns a
+// Firestore trigger. Preserve both without deletion, new triggers, or booking access.
+export const dispatchReadyStoreFulfilments = dispatchCompatibilityProject() === 'misechef-fa4bf'
+  ? onRequest({ region: REGION, invoker: 'private', timeoutSeconds: 30, memory: '256MiB' }, retiredDispatchHttp)
+  : onDocumentWritten({ document: 'storeOrders/{orderId}', region: REGION, timeoutSeconds: 120, memory: '256MiB' }, inertDispatchEvent);
 
 // No webhook endpoint is enabled yet. Scheduled order-detail reconciliation is
 // authoritative until a dedicated, replay-safe v3 signature verifier is shipped.
