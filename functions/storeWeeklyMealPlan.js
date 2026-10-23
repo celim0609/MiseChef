@@ -119,6 +119,7 @@ export const weekRangeLabel = monday => {
 
 export const validateWeeklyStructure = product => {
   for (const week of Object.values(product.rotationWeeks || product.weeklyWeeks || {})) {
+    if (week?.coverPhotoUrl !== undefined && (typeof week.coverPhotoUrl !== 'string' || week.coverPhotoUrl.length > 4096 || !/^https:\/\//.test(week.coverPhotoUrl))) return 'Choose a valid week cover photo.';
     if (week?.legacyWeeklyPrice !== undefined && (!Number.isFinite(week.legacyWeeklyPrice) || week.legacyWeeklyPrice < 0)) return 'Invalid existing weekly price.';
     const total = hasEmbeddedMenu(product) ? WEEKLY_DAYS.reduce((sum, day) => sum + Math.round((week?.meals?.[day]?.price ?? 0) * 100), 0) : Infinity;
     if (week?.discount !== undefined && !validWeeklyDiscount(week.discount, total)) return 'Enter a valid weekly discount within the original weekly total.';
@@ -129,7 +130,7 @@ export const validateWeeklyStructure = product => {
     if (product.weeklyWeeks !== undefined || product.weeklyMeals !== undefined || getWeeklyDates(product.rotationStartMonday).length !== 5) return 'Choose a valid rotation start Monday.';
     const weeks = product.rotationWeeks;
     if (!weeks || typeof weeks !== 'object' || Array.isArray(weeks) || !Object.keys(weeks).length || Object.keys(weeks).some(key => !WEEK_SLOTS.includes(key))) return 'Configure at least one rotation week.';
-    if (Object.values(weeks).some(week => !week || Object.keys(week).some(key => !['meals', 'discount', 'legacyWeeklyPrice'].includes(key)) || !Object.hasOwn(week, 'meals') || !week.meals || Object.keys(week.meals).length !== 5 || !WEEKLY_DAYS.every(day => validEmbeddedMeal(week.meals[day])))) return 'Each rotation week needs five meals.';
+    if (Object.values(weeks).some(week => !week || Object.keys(week).some(key => !['meals', 'discount', 'legacyWeeklyPrice', 'coverPhotoUrl'].includes(key)) || !Object.hasOwn(week, 'meals') || !week.meals || Object.keys(week.meals).length !== 5 || !WEEKLY_DAYS.every(day => validEmbeddedMeal(week.meals[day])))) return 'Each rotation week needs five meals.';
     const blocked = product.healthyLunchBlockedDates || [];
     if (!Array.isArray(blocked) || blocked.length > 120 || blocked.some(date => !validCalendarDate(date)) || new Set(blocked).size !== blocked.length || blocked.some((date, index) => index && blocked[index - 1] >= date)) return 'Choose unique, sorted Healthy Lunch blocked dates.';
     return '';
@@ -143,7 +144,7 @@ export const validateWeeklyStructure = product => {
     || Object.keys(weeks).some(key => !WEEK_SLOTS.includes(key))) return 'Configure at least one of the four weeks.';
   const starts = new Set();
   for (const week of Object.values(weeks)) {
-    if (!week || Object.keys(week).some(key => !['startMonday', 'meals', 'discount', 'legacyWeeklyPrice'].includes(key))
+    if (!week || Object.keys(week).some(key => !['startMonday', 'meals', 'discount', 'legacyWeeklyPrice', 'coverPhotoUrl'].includes(key))
       || getWeeklyDates(week.startMonday).length !== 5 || starts.has(week.startMonday) || !validMeals(week.meals)) return 'Each week needs a distinct Monday and five meals.';
     starts.add(week.startMonday);
   }

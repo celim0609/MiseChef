@@ -840,3 +840,16 @@ test('promotion code configuration, counters, reservations and audit records are
  await environment.withSecurityRulesDisabled(async context=>{for(const path of paths)await context.firestore().doc(path).set({storeId:WORKSPACE_A,memberUid:'customer-a',reserved:1});});
  for(const context of [anonymous,ownerA,managerA,customerA,ownerB])for(const path of paths){await assertFails(context.firestore().doc(path).get());await assertFails(context.firestore().doc(path).set({reserved:0}));}
 });
+
+
+test('weekly cover images preserve merchant-only permissions and validate source URL', async () => {
+  const id = 'weekly-cover-sharing';
+  const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+  const meals = Object.fromEntries(weeklyDays.map(day => [day, embeddedMealRecord(day)]));
+  const record = { ...createProductRecord(id), productType: 'weekly_meal_plan', weeklyMenuVersion: 3, rotationStartMonday: '2026-10-19', healthyLunchBlockedDates: [], availableDay: 'all', optionGroupIds: [], rotationWeeks: {week1:{meals,coverPhotoUrl:'https://cdn.example/original.jpg'}} };
+  await assertSucceeds(ref.set(record));
+  await assertSucceeds(ref.update({'rotationWeeks.week1.coverPhotoUrl':'https://cdn.example/replacement.jpg'}));
+  await assertFails(ref.update({'rotationWeeks.week1.coverPhotoUrl':'javascript:bad'}));
+  await assertFails(customerA.firestore().doc(`storeProducts/${id}`).update({'rotationWeeks.week1.coverPhotoUrl':'https://cdn.example/forged.jpg'}));
+  await assertFails(ownerB.firestore().doc(`storeProducts/${id}`).update({'rotationWeeks.week1.coverPhotoUrl':'https://cdn.example/forged.jpg'}));
+});

@@ -1,3 +1,4 @@
+import { readWeeklyShare, weeklyShareChoice, weeklySharePhoto } from '../../../functions/weeklyMenuSharing.js';
 import {promotionCodeService} from './services/promotionCodeService';
 import type {PromotionCodeSnapshot} from './promotionCodeTypes';
 import PromotionCodeSummary from './PromotionCodeSummary';
@@ -1320,10 +1321,11 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const productPriceLabel = (product: StoreProduct) => `${formatRegionCurrency(product.price, store.currency)}${hasDatedMenu(product) ? ' · 5-Day Plan' : ''}`;
   const renderWeeklyMeals = (product: StoreProduct, monday = '') => {
     if (!isWeeklyMealPlan(product)) return null;
-    const choice = healthyChoices[product.id] || { mode: 'week' as const, date: '' };
     const weeks = [...new Set([...(store.pickupEnabled ? availablePlanMondays(product, 'pickup', pickupClock) : []), ...(store.delivery?.enabled ? availablePlanMondays(product, 'delivery', pickupClock) : [])])].sort();
     const dayDates = availableHealthyDays(product, pickupClock);
-    return <HealthyLunchMenu product={product} products={data.products} currency={store.currency} weeks={weeks} dayDates={dayDates} choice={choice} monday={monday} canOrder={canOrderPickup && hasAvailableProductOptions(product)} onAdd={choice => startAddingProduct(product, choice)} onChange={choice => setHealthyChoices(current => ({ ...current, [product.id]: choice }))} />;
+    const share = productSlug ? readWeeklyShare(product, window.location.search) : null;
+    const choice = healthyChoices[product.id] || weeklyShareChoice(product, share, weeks, dayDates) || { mode: 'week' as const, date: '' };
+    return <HealthyLunchMenu sharedSelection={Boolean(share) && !healthyChoices[product.id]} product={product} products={data.products} currency={store.currency} weeks={weeks} dayDates={dayDates} choice={choice} monday={monday} canOrder={canOrderPickup && hasAvailableProductOptions(product)} onAdd={choice => startAddingProduct(product, choice)} onChange={choice => setHealthyChoices(current => ({ ...current, [product.id]: choice }))} />;
   };
   const canOrderPickup = store.pickupEnabled
     && store.pickupLocations.length > 0
@@ -1440,7 +1442,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
             </div>
             <div className="grid md:grid-cols-2">
               <div className="aspect-[4/3] bg-surface-container-low">
-                {!isWeeklyMealPlan(requestedProduct) && requestedProduct.photoUrl && <img src={requestedProduct.photoUrl} alt={requestedProduct.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />}
+                {(weeklySharePhoto(requestedProduct, readWeeklyShare(requestedProduct, window.location.search)) || requestedProduct.photoUrl) && <img src={weeklySharePhoto(requestedProduct, readWeeklyShare(requestedProduct, window.location.search)) || requestedProduct.photoUrl} alt={requestedProduct.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />}
               </div>
               <div className="p-5 sm:p-7">
                 {promotionByProduct.has(requestedProduct.id) && <p className="font-sans text-xs font-extrabold text-secondary">🔥 {getPromotionOfferLabel(promotionByProduct.get(requestedProduct.id)!)}</p>}
