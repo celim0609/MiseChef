@@ -12,6 +12,7 @@ const dateLabel = (date: string) => scheduleDateLabel(date).replace(/^(\w{3}) /,
 export interface HealthyLunchChoice { mode: 'week' | 'day'; date: string; selectedMealOptions?: MealOptionChoice[] }
 interface Props {
   sharedSelection?: boolean;
+  sharedUnavailable?: boolean;
   product: StoreProduct;
   products: StoreProduct[];
   currency: WorkspaceStore['currency'];
@@ -24,7 +25,7 @@ interface Props {
   onAdd?: (choice: HealthyLunchChoice) => void;
 }
 
-export default function HealthyLunchMenu({ sharedSelection = false, product, products, currency, weeks, dayDates, choice, monday = '', canOrder = true, onChange, onAdd }: Props) {
+export default function HealthyLunchMenu({ sharedSelection = false, sharedUnavailable = false, product, products, currency, weeks, dayDates, choice, monday = '', canOrder = true, onChange, onAdd }: Props) {
   const [choices, setChoices] = useState<MealOptionChoice[]>([]);
   const dated = hasDatedMenu(product);
   const date = weeks.includes(choice.date) ? choice.date : (sharedSelection ? '' : weeks[0]) || '';
@@ -57,7 +58,7 @@ export default function HealthyLunchMenu({ sharedSelection = false, product, pro
       </label>}
     </div>
 
-    {sharedSelection && !choice.date && <p role="status" className="mt-3 text-sm">This shared menu is not currently available to order.</p>}
+    {sharedSelection && (sharedUnavailable || !choice.date) && <p role="status" className="mt-3 text-sm">This shared menu is not currently available to order.</p>}
     {showDays ? <>
       {!dailyMeals.length && <p className="mt-4 text-sm text-on-surface-variant">No meals are currently available to order.</p>}
       <ul className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-5">{dailyMeals.map(({ date, meal }) => <li key={date} className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-surface-container-high bg-white shadow-sm">

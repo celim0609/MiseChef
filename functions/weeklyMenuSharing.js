@@ -35,3 +35,12 @@ export function weeklySharePhoto(product, share) {
   return share.day ? share.week.meals?.[share.day]?.photoUrl || ''
     : share.week.coverPhotoUrl || product.photoUrl || '';
 }
+
+export function weeklySharePreviewDate(product, share) {
+  if (!share) return '';
+  const slots = WEEK_SLOTS.filter(slot => product.rotationWeeks?.[slot]);
+  const monday = product.weeklyMenuVersion === 3
+    ? new Date(Date.parse(`${product.rotationStartMonday}T00:00:00Z`) + slots.indexOf(share.slot) * 604800000).toISOString().slice(0, 10)
+    : share.week.startMonday;
+  return share.day ? getWeeklyDates(monday)[WEEKLY_DAYS.indexOf(share.day)] || '' : monday;
+}

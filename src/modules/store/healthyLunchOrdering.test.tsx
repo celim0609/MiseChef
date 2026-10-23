@@ -116,3 +116,10 @@ test('shared day opens only its selected meal and unavailable shared weeks never
   assert.match(week,/disabled=""[^>]*>Add 5-Day Plan/);
   assert.equal((week.match(/<li /g)||[]).length,0);
 });
+
+test('a closed shared week stays visible with Add disabled', () => {
+  const html=renderToStaticMarkup(<HealthyLunchMenu product={product} products={products} currency="MYR" choice={{mode:'week',date:'2026-10-19'}} weeks={['2026-10-19']} dayDates={[]} sharedSelection sharedUnavailable canOrder={false} onChange={()=>{}} />);
+  assert.match(html,/This shared menu is not currently available/);
+  assert.equal((html.match(/<li /g)||[]).length,5);
+  assert.match(html,/disabled=""[^>]*>Add 5-Day Plan/);
+});

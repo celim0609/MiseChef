@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readWeeklyShare, weeklyShareUrl, weeklyShareChoice, weeklySharePhoto } from './weeklyMenuSharing.js';
+import { readWeeklyShare, weeklyShareUrl, weeklyShareChoice, weeklySharePhoto, weeklySharePreviewDate } from './weeklyMenuSharing.js';
 import { validateWeeklyStructure } from './storeWeeklyMealPlan.js';
 const meals = Object.fromEntries(['mon','tue','wed','thu','fri'].map(day => [day, { name: day, price: 12, photoUrl: `https://cdn.example/original-${day}.jpg` }]));
 const product = { productType: 'weekly_meal_plan', weeklyMenuVersion: 3, rotationStartMonday: '2026-10-19', rotationWeeks: { week1: { meals, coverPhotoUrl: 'https://cdn.example/original-cover.jpg', discount: {type:'percentage',value:10} }, week3: { meals, discount: {type:'none',value:0} } }, photoUrl:'https://cdn.example/legacy-cover.jpg' };
@@ -24,4 +24,9 @@ test('cover and daily photos use original URLs and round-trip without affecting 
  assert.equal(validateWeeklyStructure(product),'');
  assert.deepEqual(product,before);
  assert.match(validateWeeklyStructure({...product,rotationWeeks:{week1:{...product.rotationWeeks.week1,coverPhotoUrl:'javascript:bad'}}}),/cover photo/);
+});
+
+test('closed selections retain the exact slot/day for a view-only menu', () => {
+ assert.equal(weeklySharePreviewDate(product,readWeeklyShare(product,'?week=week3')),'2026-10-26');
+ assert.equal(weeklySharePreviewDate(product,readWeeklyShare(product,'?week=week3&day=fri')),'2026-10-30');
 });

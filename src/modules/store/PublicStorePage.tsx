@@ -1,4 +1,4 @@
-import { readWeeklyShare, weeklyShareChoice, weeklySharePhoto } from '../../../functions/weeklyMenuSharing.js';
+import { readWeeklyShare, weeklyShareChoice, weeklySharePhoto, weeklySharePreviewDate } from '../../../functions/weeklyMenuSharing.js';
 import {promotionCodeService} from './services/promotionCodeService';
 import type {PromotionCodeSnapshot} from './promotionCodeTypes';
 import PromotionCodeSummary from './PromotionCodeSummary';
@@ -1325,7 +1325,13 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     const dayDates = availableHealthyDays(product, pickupClock);
     const share = productSlug ? readWeeklyShare(product, window.location.search) : null;
     const choice = healthyChoices[product.id] || weeklyShareChoice(product, share, weeks, dayDates) || { mode: 'week' as const, date: '' };
-    return <HealthyLunchMenu sharedSelection={Boolean(share) && !healthyChoices[product.id]} product={product} products={data.products} currency={store.currency} weeks={weeks} dayDates={dayDates} choice={choice} monday={monday} canOrder={canOrderPickup && hasAvailableProductOptions(product)} onAdd={choice => startAddingProduct(product, choice)} onChange={choice => setHealthyChoices(current => ({ ...current, [product.id]: choice }))} />;
+    const previewOnly = Boolean(share && !healthyChoices[product.id] && !choice.date);
+    const displayChoice = previewOnly ? { ...choice, date: weeklySharePreviewDate(product, share) } : choice;
+    // Closed menus remain viewable; the existing availability checks still govern adding.
+    const displayProduct = previewOnly ? { ...product, healthyLunchBlockedDates: [] } : product;
+    const displayWeeks = previewOnly && choice.mode === 'week' ? [displayChoice.date] : weeks;
+    const displayDays = previewOnly && choice.mode === 'day' ? [displayChoice.date] : dayDates;
+    return <HealthyLunchMenu sharedUnavailable={previewOnly} sharedSelection={Boolean(share) && !healthyChoices[product.id]} product={displayProduct} products={data.products} currency={store.currency} weeks={displayWeeks} dayDates={displayDays} choice={displayChoice} monday={monday} canOrder={!previewOnly && canOrderPickup && hasAvailableProductOptions(product)} onAdd={choice => startAddingProduct(product, choice)} onChange={choice => setHealthyChoices(current => ({ ...current, [product.id]: choice }))} />;
   };
   const canOrderPickup = store.pickupEnabled
     && store.pickupLocations.length > 0
