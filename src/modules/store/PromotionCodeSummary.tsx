@@ -7,14 +7,14 @@ export default function PromotionCodeSummary({
   return (
     <div
       aria-label="Promotion code discount"
-      className="rounded-xl bg-surface-container-low p-3 text-sm"
+      className="min-w-0 space-y-0.5 break-words rounded-lg bg-surface-container-low px-3 py-2 text-xs leading-snug"
     >
-      <p className="font-bold">
+      <p className="font-bold text-primary">
         Code {snapshot.code} · {snapshot.percentage}% off eligible products
       </p>
       <p>
-        Maximum RM{(snapshot.capMinor / 100).toFixed(2)} · Discount −RM
-        {(snapshot.discountMinor / 100).toFixed(2)}
+        Maximum RM{(snapshot.capMinor / 100).toFixed(2)} · <span className="font-bold text-primary">Discount −RM
+        {(snapshot.discountMinor / 100).toFixed(2)}</span>
         {snapshot.capApplied ? " (cap applied)" : ""}
       </p>
       <p>
