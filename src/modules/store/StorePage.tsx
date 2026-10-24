@@ -1,3 +1,5 @@
+import { weeklyShareUrl } from '../../../functions/weeklyMenuSharing.js';
+import WeeklyMenuShareButton from './WeeklyMenuShareButton';
 import HealthyLunchOptionsEditor from './HealthyLunchOptionsEditor';
 import type { HealthyLunchMeal, EmbeddedWeeklyMeals } from './types';
 import { isWeeklyMealPlan, WEEKLY_DAYS, WEEK_SLOTS, validateWeeklyMealPlan } from '../../../functions/storeWeeklyMealPlan.js';
@@ -242,7 +244,8 @@ export default function StorePage({
   const [savedOptionGroupId, setSavedOptionGroupId] = useState('');
   const [mealPhotoFiles, setMealPhotoFiles] = useState<Record<string, File>>({});
   const mealPreviewUrls = useRef<Record<string, string>>({});
-  const clearMealPhotos = () => { Object.values(mealPreviewUrls.current).forEach(URL.revokeObjectURL); mealPreviewUrls.current = {}; setMealPhotoFiles({}); };
+  const [weekCoverFiles, setWeekCoverFiles] = useState<Record<string, File>>({});
+  const clearMealPhotos = () => { setWeekCoverFiles({}); Object.values(mealPreviewUrls.current).forEach(URL.revokeObjectURL); mealPreviewUrls.current = {}; setMealPhotoFiles({}); };
   useEffect(() => () => { Object.values(mealPreviewUrls.current).forEach(URL.revokeObjectURL); }, []);
   const [productPhotoFile, setProductPhotoFile] = useState<File | null>(null);
   const [productPhotoPreviewUrl, setProductPhotoPreviewUrl] = useState('');
@@ -524,6 +527,12 @@ export default function StorePage({
       if (error instanceof DOMException && error.name === 'AbortError') return;
       setShareMessage('Unable to open sharing. Copy the ordering link instead.');
     }
+  };
+
+  const shareWeeklyMenu = async (slot: string, day?: string) => {
+    if (!store || !editingProduct?.productSlug) throw new Error('Saved menu unavailable.');
+    const base = getStoreProductShareData(window.location.origin, store, editingProduct).url;
+    await navigator.clipboard.writeText(weeklyShareUrl(base, slot, day));
   };
 
   const shareProductLink = async (product: StoreProduct) => {
@@ -892,8 +901,12 @@ export default function StorePage({
         const [slot, day] = key.split('_'); const week = configuredDraft.weeklyMenuVersion === 3 ? rotationWeeks?.[slot] : weeklyWeeks?.[slot];
         if (week) (week.meals as EmbeddedWeeklyMeals)[day].photoUrl = await uploadHealthyLunchMealPhoto({ workspaceId: workspace.id, productId, file });
       }));
+      await Promise.all((Object.entries(weekCoverFiles) as Array<[string, File]>).map(async ([slot, file]) => {
+        const week = configuredDraft.weeklyMenuVersion === 3 ? rotationWeeks?.[slot] : weeklyWeeks?.[slot];
+        if (week) week.coverPhotoUrl = await uploadHealthyLunchMealPhoto({ workspaceId: workspace.id, productId, file });
+      }));
       const embeddedCover = configuredDraft.weeklyMenuVersion === 3 ? rotationWeeks?.[WEEK_SLOTS.find(slot => rotationWeeks?.[slot])!]?.meals.mon : configuredDraft.weeklyMenuVersion === 2 ? (Object.values(weeklyWeeks || {}) as Array<{ startMonday: string; meals: EmbeddedWeeklyMeals }>).sort((a, b) => a.startMonday.localeCompare(b.startMonday))[0]?.meals.mon as HealthyLunchMeal | undefined : undefined;
-      const photoUrl = embeddedCover?.photoUrl || uploadedImages?.[0] || configuredDraft.photoUrl;
+      const photoUrl = uploadedImages?.[0] || configuredDraft.photoUrl || embeddedCover?.photoUrl;
       const nextDraft: StoreProductDraft = {
         ...configuredDraft,
         weeklyWeeks,
@@ -1218,6 +1231,15 @@ export default function StorePage({
                           return { ...current, weeklyWeeks, weeklyMeals: undefined };
                         });
                       }} className="mt-1 block w-full rounded-xl border p-3" /></label>}
+                      {week && <div className="mt-3 space-y-2">
+                        <WeeklyMenuShareButton label="Share Full Set" disabled={!editingProduct?.productSlug || !(editingProduct.rotationWeeks || editingProduct.weeklyWeeks)?.[slot]} onCopy={() => shareWeeklyMenu(slot)} />
+                        <label className="block text-sm font-bold">Week cover image<input type="file" aria-label={`Week ${index + 1} cover image`} accept="image/jpeg,image/png,image/webp" onChange={event => {
+                          const file = event.target.files?.[0]; if (!file) return;
+                          if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) { setErrorMessage('Choose a JPEG, PNG or WebP cover up to 10 MB.'); return; }
+                          setWeekCoverFiles(current => ({ ...current, [slot]: file }));
+                        }} /></label>
+                        {weekCoverFiles[slot] ? <p className="text-xs">{weekCoverFiles[slot].name} — save to replace cover.</p> : (week.coverPhotoUrl || editingProduct?.photoUrl) && <img src={week.coverPhotoUrl || editingProduct?.photoUrl} alt={`Week ${index + 1} cover`} className="h-24 w-36 rounded-lg object-contain" />}
+                      </div>}
                       {week && <div className="mt-3 space-y-2"><label className="block text-sm font-bold">Weekly discount<select aria-label={`Week ${index + 1} discount`} value={week.discount?.type || 'legacy'} onChange={event => {
                         const discount = { type: event.target.value as import('./types').WeeklyDiscount['type'], value: 0 };
                         setProductDraft(current => current.weeklyMenuVersion === 3 ? { ...current, rotationWeeks: { ...current.rotationWeeks, [slot]: { ...week, meals: meals, discount } } } : { ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: { ...week, startMonday: week.startMonday!, meals, discount } } });
@@ -1227,6 +1249,7 @@ export default function StorePage({
                         setProductDraft(current => current.weeklyMenuVersion === 3 ? { ...current, rotationWeeks: { ...current.rotationWeeks, [slot]: { ...week, meals, discount } } } : { ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: { ...week, startMonday: week.startMonday!, meals, discount } } });
                       }} className="block rounded-xl border p-2" /></label>}<p className="text-sm">Original Price: {WEEKLY_DAYS.reduce((sum, day) => sum + Math.round(meals[day].price * 100), 0) / 100}. Applies to the complete Monday–Friday Full Set. Meal options are charged separately.</p></div>}
                       {week && WEEKLY_DAYS.map(day => <fieldset key={day} className="mt-4 space-y-2 rounded-xl bg-surface-container-low p-3"><legend className="font-bold">{({ mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday' })[day]}</legend>
+                        <WeeklyMenuShareButton label="Share" disabled={!editingProduct?.productSlug || !(editingProduct.rotationWeeks || editingProduct.weeklyWeeks)?.[slot]} onCopy={() => shareWeeklyMenu(slot, day)} />
                         <label className="block text-sm font-bold">Link Recipe (optional)
                           <select aria-label={`Week ${index + 1} ${day} Recipe`} disabled={isMealRecipeLoading} value={meals[day].recipeId || ''} onChange={event => {
                             const recipeId = event.target.value;

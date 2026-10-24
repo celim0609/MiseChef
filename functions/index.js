@@ -166,6 +166,10 @@ const publicStorePreviewHandler = createStoreSocialPreviewHandler({
     if (snapshot.empty) return null;
     const data = snapshot.docs[0].data();
     return {
+      productType: data.productType,
+      weeklyMenuVersion: data.weeklyMenuVersion,
+      rotationWeeks: data.rotationWeeks,
+      weeklyWeeks: data.weeklyWeeks,
       productSlug: typeof data.productSlug === 'string' ? data.productSlug : '',
       name: typeof data.name === 'string' ? data.name : '',
       description: typeof data.description === 'string' ? data.description : '',
