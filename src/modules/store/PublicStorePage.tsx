@@ -1446,11 +1446,11 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
             <div className="border-b border-surface-container-high px-5 py-4 sm:px-6">
               <a href={`/store/${encodeURIComponent(store.slug)}`} className="inline-flex items-center gap-2 font-sans text-xs font-extrabold text-primary"><ArrowRight className="h-4 w-4 rotate-180" /> Back to Store</a>
             </div>
-            <div className="grid md:grid-cols-2">
-              <div className="aspect-[4/3] bg-surface-container-low">
+            <div className={isWeeklyMealPlan(requestedProduct) ? 'grid min-w-0 items-start lg:grid-cols-[10rem_minmax(0,1fr)] xl:grid-cols-[12rem_minmax(0,1fr)]' : 'grid md:grid-cols-2'}>
+              <div className={isWeeklyMealPlan(requestedProduct) ? 'm-4 mb-0 aspect-[4/3] max-h-48 overflow-hidden rounded-2xl bg-surface-container-low lg:mr-0 lg:aspect-square lg:max-h-none' : 'aspect-[4/3] bg-surface-container-low'}>
                 {(weeklySharePhoto(requestedProduct, readWeeklyShare(requestedProduct, window.location.search)) || requestedProduct.photoUrl) && <img src={weeklySharePhoto(requestedProduct, readWeeklyShare(requestedProduct, window.location.search)) || requestedProduct.photoUrl} alt={requestedProduct.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" />}
               </div>
-              <div className="p-5 sm:p-7">
+              <div className={isWeeklyMealPlan(requestedProduct) ? 'min-w-0 p-4 sm:p-5' : 'p-5 sm:p-7'}>
                 {promotionByProduct.has(requestedProduct.id) && <p className="font-sans text-xs font-extrabold text-secondary">🔥 {getPromotionOfferLabel(promotionByProduct.get(requestedProduct.id)!)}</p>}
                 <h2 id="standalone-product-title" className="mt-2 font-display text-3xl font-bold text-primary">{requestedProduct.name}</h2>
                 <p className="mt-3 font-sans text-xl font-extrabold text-secondary">{!isWeeklyMealPlan(requestedProduct) && productPriceLabel(requestedProduct)}</p>

@@ -95,8 +95,8 @@ export default function HealthyLunchMenu({ sharedSelection = false, sharedUnavai
         </li>;
       })}</ul>
       {weekOptions.error && <p className="mt-3 text-sm" role="status">Complete required choices for each meal before adding the plan.</p>}
-      <div className="mt-4 flex flex-col gap-3 rounded-xl border border-surface-container-high bg-white p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-4">
-        <dl aria-label="Weekly pricing" className="grid min-w-0 flex-1 grid-cols-3 gap-2 sm:gap-4">
+      <div className="mt-4 flex flex-col gap-3 rounded-xl border border-surface-container-high bg-white p-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4 sm:p-4">
+        <dl aria-label="Weekly pricing" className="grid min-w-0 flex-1 grid-cols-3 gap-2 sm:basis-80 sm:gap-4">
           <div><dt className="text-xs text-on-surface-variant">Original Price</dt><dd className="mt-1 text-sm font-bold text-on-surface-variant">{formatRegionCurrency(pricing?.originalPrice ?? 0, currency)}</dd></div>
           <div><dt className="text-xs text-on-surface-variant">Discount</dt><dd className="mt-1 text-sm font-bold text-secondary">{formatRegionCurrency(pricing?.discountAmount ?? 0, currency)}</dd></div>
           <div><dt className="text-xs font-bold text-primary">Final Weekly Price</dt><dd className="mt-1 text-lg font-extrabold leading-tight text-primary">{formatRegionCurrency((Math.round((pricing?.finalWeeklyPrice ?? 0) * 100) + weekOptions.surchargeMinor) / 100, currency)}</dd></div>
