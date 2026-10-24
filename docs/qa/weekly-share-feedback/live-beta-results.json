@@ -1,0 +1,86 @@
+[
+  {
+    "width": 1440,
+    "day": "Full Set",
+    "success": true,
+    "labelRestored": true,
+    "elapsedMs": 2110
+  },
+  {
+    "width": 1440,
+    "day": "Monday",
+    "success": true,
+    "labelRestored": true,
+    "elapsedMs": 2079
+  },
+  {
+    "width": 1440,
+    "day": "Tuesday",
+    "success": true,
+    "labelRestored": true,
+    "elapsedMs": 2168
+  },
+  {
+    "width": 1440,
+    "day": "Wednesday",
+    "success": true,
+    "labelRestored": true,
+    "elapsedMs": 2142
+  },
+  {
+    "width": 1440,
+    "day": "Thursday",
+    "success": true,
+    "labelRestored": true,
+    "elapsedMs": 2141
+  },
+  {
+    "width": 1440,
+    "day": "Friday",
+    "success": true,
+    "labelRestored": true,
+    "elapsedMs": 2142
+  },
+  {
+    "width": 375,
+    "day": "Full Set",
+    "success": true,
+    "labelRestored": true,
+    "elapsedMs": 2092
+  },
+  {
+    "width": 375,
+    "day": "Monday",
+    "success": true,
+    "labelRestored": true,
+    "elapsedMs": 2192
+  },
+  {
+    "width": 375,
+    "day": "Tuesday",
+    "success": true,
+    "labelRestored": true,
+    "elapsedMs": 2136
+  },
+  {
+    "width": 375,
+    "day": "Wednesday",
+    "success": true,
+    "labelRestored": true,
+    "elapsedMs": 2143
+  },
+  {
+    "width": 375,
+    "day": "Thursday",
+    "success": true,
+    "labelRestored": true,
+    "elapsedMs": 2156
+  },
+  {
+    "width": 375,
+    "day": "Friday",
+    "success": true,
+    "labelRestored": true,
+    "elapsedMs": 2133
+  }
+]
