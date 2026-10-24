@@ -48,8 +48,8 @@ export default function HealthyLunchMenu({ sharedSelection = false, sharedUnavai
   return <div className="mt-3 min-w-0 rounded-2xl bg-surface-container-low p-3 sm:p-4">
     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       {dated ? <div className="inline-flex w-fit max-w-full rounded-xl border border-surface-container-high bg-white p-1" role="group" aria-label={`${product.name} ordering`}>
-        <button type="button" aria-pressed={!showDays} onClick={() => onChange({ mode: 'week', date })} className="min-h-10 rounded-lg px-3 py-2 text-sm font-bold text-primary aria-pressed:bg-primary aria-pressed:text-white sm:px-4">5-Day Plan</button>
-        <button type="button" aria-pressed={showDays} onClick={() => onChange({ mode: 'day', date })} className="min-h-10 rounded-lg px-3 py-2 text-sm font-bold text-primary aria-pressed:bg-primary aria-pressed:text-white sm:px-4">Order by Day</button>
+        <button type="button" aria-pressed={!showDays} onClick={() => onChange({ mode: 'week', date })} className="min-h-10 rounded-lg px-3 py-2 text-sm font-bold text-primary aria-pressed:bg-primary aria-pressed:text-on-primary sm:px-4">5-Day Plan</button>
+        <button type="button" aria-pressed={showDays} onClick={() => onChange({ mode: 'day', date })} className="min-h-10 rounded-lg px-3 py-2 text-sm font-bold text-primary aria-pressed:bg-primary aria-pressed:text-on-primary sm:px-4">Order by Day</button>
       </div> : <p className="text-sm font-extrabold text-primary">5-Day Plan · Mon–Fri</p>}
       {dated && !showDays && <label className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-bold text-on-surface-variant">Available weeks
         <select aria-label={`${product.name} dates`} value={date} onChange={event => { setChoices([]); onChange({ mode: 'week', date: event.target.value }); }} className="min-h-10 min-w-0 flex-1 rounded-lg border border-surface-container-high bg-white px-3 py-2 text-sm text-primary lg:w-44 lg:flex-none">
