@@ -1236,7 +1236,7 @@ export default function StorePage({
                         });
                       }} className="mt-1 block w-full rounded-xl border p-3" /></label>}
                       {week && <div className="mt-3 space-y-2">
-                        <button type="button" disabled={!editingProduct?.productSlug || !(editingProduct.rotationWeeks || editingProduct.weeklyWeeks)?.[slot]} onClick={() => void shareWeeklyMenu(slot)} className="rounded-full border px-3 py-1 text-xs font-bold disabled:opacity-40">Share Week</button>
+                        <button type="button" disabled={!editingProduct?.productSlug || !(editingProduct.rotationWeeks || editingProduct.weeklyWeeks)?.[slot]} onClick={() => void shareWeeklyMenu(slot)} className="rounded-full border px-3 py-1 text-xs font-bold disabled:opacity-40">Share Full Set</button>
                         <label className="block text-sm font-bold">Week cover image<input type="file" aria-label={`Week ${index + 1} cover image`} accept="image/jpeg,image/png,image/webp" onChange={event => {
                           const file = event.target.files?.[0]; if (!file) return;
                           if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) { setErrorMessage('Choose a JPEG, PNG or WebP cover up to 10 MB.'); return; }
@@ -1253,7 +1253,7 @@ export default function StorePage({
                         setProductDraft(current => current.weeklyMenuVersion === 3 ? { ...current, rotationWeeks: { ...current.rotationWeeks, [slot]: { ...week, meals, discount } } } : { ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: { ...week, startMonday: week.startMonday!, meals, discount } } });
                       }} className="block rounded-xl border p-2" /></label>}<p className="text-sm">Original Price: {WEEKLY_DAYS.reduce((sum, day) => sum + Math.round(meals[day].price * 100), 0) / 100}. Applies to the complete Monday–Friday Full Set. Meal options are charged separately.</p></div>}
                       {week && WEEKLY_DAYS.map(day => <fieldset key={day} className="mt-4 space-y-2 rounded-xl bg-surface-container-low p-3"><legend className="font-bold">{({ mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday' })[day]}</legend>
-                        <button type="button" disabled={!editingProduct?.productSlug || !(editingProduct.rotationWeeks || editingProduct.weeklyWeeks)?.[slot]} onClick={() => void shareWeeklyMenu(slot, day)} className="rounded-full border px-3 py-1 text-xs font-bold disabled:opacity-40">Share Day</button>
+                        <button type="button" disabled={!editingProduct?.productSlug || !(editingProduct.rotationWeeks || editingProduct.weeklyWeeks)?.[slot]} onClick={() => void shareWeeklyMenu(slot, day)} className="rounded-full border px-3 py-1 text-xs font-bold disabled:opacity-40">Share</button>
                         <label className="block text-sm font-bold">Link Recipe (optional)
                           <select aria-label={`Week ${index + 1} ${day} Recipe`} disabled={isMealRecipeLoading} value={meals[day].recipeId || ''} onChange={event => {
                             const recipeId = event.target.value;
