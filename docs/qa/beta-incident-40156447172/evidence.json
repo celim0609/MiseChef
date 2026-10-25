@@ -1,0 +1,35 @@
+{
+  "failedRun": "https://github.com/celim0609/MiseChef/actions/runs/40156447172",
+  "candidate": {
+    "hostingVersion": "sites/misechef-beta-fa4bf/versions/53b4f9a5d93ad3a0",
+    "renderPublicStoreRevision": "renderpublicstore-00230-nus",
+    "candidateCommit": "f006237f65c60d6a7d18a5970f3bfc53557db6b0",
+    "candidateTree": "9469486349c39376db65e4d464b7721b255ad321"
+  },
+  "previousManifest": {
+    "kind": "misechef-beta-release",
+    "version": 1,
+    "buildId": "3e095d18-f8ba-4d6e-ab44-f6638f7f5efd",
+    "builtAt": "2026-10-24T14:03:03.053Z",
+    "sourceCommit": "5ad8fb98c9ad16f60124a772477e6c20a55725a4",
+    "sourceTree": "f337da27755d01bc1c5390a6c41a9fe1a96e73fe",
+    "protectedBaseline": "06a37c0d30c47e037994454119a0461955df4ee3",
+    "entryAsset": "/assets/index-DHNm0rBK.js",
+    "entryAssetSha256": "12c141b99c2e02da820b66013bd305c8263d6d930c0ffd8346ce2a6095a10dad",
+    "storeShellAsset": "/assets/index-DHNm0rBK.js"
+  },
+  "rootAssetProof": {
+    "status": 200,
+    "contentType": "text/javascript; charset=utf-8",
+    "sha256": "12c141b99c2e02da820b66013bd305c8263d6d930c0ffd8346ce2a6095a10dad"
+  },
+  "storeAssetProof": {
+    "status": 200,
+    "contentType": "text/html; charset=utf-8",
+    "sha256": "795801a5d3216af57f3c7d398b552a62ce83fdd818bdc63a9d0e32f16211ffca"
+  },
+  "failures": [
+    "getPublicStorePaymentResult: Cloud Run update HTTP 500",
+    "saveStoreManualPosOrder: Cloud Run update HTTP 500"
+  ]
+}
