@@ -18,9 +18,9 @@ TypeScript and Beta-mode Vite build passed. Seven storage/save-feedback regressi
 
 An isolated localhost fixture rendered the actual WeekCoverUpload component for all three weeks. At desktop width, selecting the original QA PNG through the native file chooser displayed each preview and Replace Image. Simulated upload failures displayed three per-week errors. Retrying and saving displayed ✓ Image Updated. These fixture saves did not call Firebase or change any real menu.
 
-The Chrome connector's filechooser.setFiles operation is blocked because the extension lacks Allow access to file URLs. The native picker fallback completed initial desktop selection tests, but active Chrome use interrupted subsequent picker interactions. A user input request is pending to enable connector file access or pause Chrome for native-picker tests. No extension/security permissions were changed by the agent.
+The Chrome connector's filechooser.setFiles operation is blocked because the extension lacks Allow access to file URLs. The native picker fallback completed initial desktop selection tests, but active Chrome use interrupted subsequent picker interactions. The user later paused Chrome and the native-picker follow-up below completed. Extension/security permissions remained unchanged.
 
-Replacement, mobile upload/save, real Beta Storage/Firestore save and original-byte verification remain pending. Production preparation must not treat those checks as passed until completed. Production has not been deployed for this update.
+Replacement and mobile component checks subsequently passed in the native-picker follow-up below. Real Beta Storage/Firestore save and original-byte verification remain pending. Production preparation must not treat those checks as passed until completed. Production has not been deployed for this update.
 
 ## Beta deployment incident
 
