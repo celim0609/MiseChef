@@ -1,0 +1,11 @@
+{
+  "beta": {
+    "unchanged": true,
+    "sha256": "e87fe52c72a7611f119726af8f411ce2537017c550d3419f45b07c4048b6b34b"
+  },
+  "production": {
+    "unchanged": true,
+    "sha256": "e5000b01e0693b8aa3ff566f99ab13d0d61abb3b38f882ac69342b7bc9e28022"
+  },
+  "productionReleaseUnchanged": "5965b3db695a84efdff3ea1c25305f5736a36127"
+}

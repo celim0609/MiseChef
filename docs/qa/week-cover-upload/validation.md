@@ -1,3 +1,7 @@
+## Final live result
+
+Earlier pending statements below are historical. Recovery and live upload QA are now complete. See [live results](../week-cover-upload-live/README.md). Production remains unchanged.
+
 # Week Cover Upload polish — 25 October 2026
 
 PR: https://github.com/celim0609/MiseChef/pull/175
