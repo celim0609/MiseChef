@@ -371,7 +371,7 @@ test('ShopeeFood platform-paid and immediate Walk-in remain server-priced and op
  await db.collection('workspaces').doc(workspaceId).set({ownerId:uid,subscriptionPlan:'professional',subscriptionStatus:'active'});
  await db.collection('stores').doc(workspaceId).set({workspaceId,slug,name:'GG Grab&Go',currency:'MYR'});
  await db.collection('storeProducts').doc(`${workspaceId}-rice`).set({workspaceId,storeId:workspaceId,name:'Rice',price:10,available:true,optionGroupIds:[]});
- for(const [source,paymentLabel] of [['shopeefood','shopeefood_platform_paid'],['walk_in','walk_in_paid'],['other','other_paid']]) {
+ for(const [source,paymentLabel] of [['shopeefood','shopeefood_platform_paid'],['walk_in','walk_in_paid'],['other','other_paid'],['whatsapp','other_paid']]) {
   const input={workspaceId,storeId:workspaceId,slug,source,paymentLabel,externalOrderNumber:`${source}-QA`,customerName:'',phone:'',selections:[{productId:`${workspaceId}-rice`,quantity:2,selectedOptions:[],unitPrice:1}]};
   const result=await createExternalPosOrder({db,uid,input});const duplicate=await createExternalPosOrder({db,uid,input});assert.equal(result.orderId,duplicate.orderId);
   const ref=db.collection('storeOrders').doc(result.orderId),order=(await ref.get()).data();assert.equal(order.payment.status,'paid');assert.equal(order.phone,'');assert.equal(order.externalOrder.externalOrderNumber,`${source}-QA`);assert.equal(order.paymentMethodId,paymentLabel);assert.equal(order.total,20);assert.equal(order.fulfilments,undefined);
@@ -423,3 +423,33 @@ test('legacy delivery compatibility preserves a DV47-shaped paid order through R
 });
 
 import "./memberPromotionCodes.integration.mjs";
+
+
+test('external delivery confirmation is concurrent-idempotent, optional-contact and never calls Lalamove',async()=>{
+ const app=initializeApp({projectId:'demo-misechef-store-payment-rules'},`external-delivery-${process.pid}`),db=getFirestore(app);
+ const workspaceId=`external-delivery-${process.pid}`,uid=`${workspaceId}-owner`,slug=workspaceId;
+ let providerCalls=0;
+ const deliveryProvider=new Proxy({}, {get:()=>()=>{providerCalls++;throw new Error('Must never call Lalamove');}});
+ try {
+  await db.collection('workspaces').doc(workspaceId).set({ownerId:uid,subscriptionPlan:'professional',subscriptionStatus:'active'});
+  await db.collection('stores').doc(workspaceId).set({workspaceId,slug,name:'QA External Delivery',currency:'MYR',orderDays:['monday','tuesday','wednesday','thursday','friday'],earliestPickupDays:0,maximumAdvanceDays:30,unavailableDates:[]});
+  await db.collection('storeProducts').doc(`${workspaceId}-rice`).set({workspaceId,storeId:workspaceId,name:'Rice',price:11,available:true,optionGroupIds:[]});
+  const now=new Date('2026-10-18T04:00:00Z');
+  for(const source of ['shopeefood','whatsapp','walk_in','other']) {
+   const input={workspaceId,storeId:workspaceId,slug,source,paymentLabel:source==='shopeefood'?'shopeefood_platform_paid':source==='walk_in'?'walk_in_paid':'other_paid',requestId:`external-delivery-${source}-123456`,customerName:'',phone:'',fulfilmentMethod:'delivery',deliveryAddress:'Unit 12, Full delivery address',fulfilmentDate:'2026-10-20',fulfilmentTime:'13:17',selections:[{productId:`${workspaceId}-rice`,quantity:2,selectedOptions:[]},{productId:`${workspaceId}-rice`,quantity:1,selectedOptions:[]}],lineSchedules:[{date:'2026-10-19',time:'12:13'},{date:'',time:''}]};
+   const results=await Promise.all([1,2].map(()=>createExternalPosOrder({db,uid,input,deliveryProvider,now})));
+   assert.equal(new Set(results.map(result=>result.orderId)).size,1);
+   const order=(await db.collection('storeOrders').doc(results[0].orderId).get()).data();
+   assert.equal(order.fulfilmentMethod,'delivery');assert.equal(order.phone,'');assert.equal(order.total,33);assert.equal(order.payment.status,'paid');assert.equal(order.totals.discountTotal,0);
+   assert.deepEqual(order.fulfilments.map(day=>[day.date,day.time,day.method]),[['2026-10-19','12:13','delivery'],['2026-10-20','13:17','delivery']]);
+   assert.equal(order.delivery.recipient.address,input.deliveryAddress);assert.equal(order.delivery.providerOrder,undefined);
+   for(const day of order.fulfilments) for(const nextStatus of ['Preparing','Ready','Completed']) await updateStoreOrderFulfilment({db,uid,orderId:order.id,fulfilmentId:day.id,nextStatus});
+   const completed=(await db.collection('storeOrders').doc(order.id).get()).data();
+   assert.equal(completed.fulfilmentStatus,'Completed');assert.deepEqual(completed.payment,order.payment);assert.deepEqual(completed.totals,order.totals);assert.deepEqual(completed.items,order.items);
+   await assert.rejects(createExternalPosOrder({db,uid,input:{...input,deliveryAddress:'Changed address'},now}),/different order details/);
+   await assert.rejects(createExternalPosOrder({db,uid,input:{...input,fulfilmentMethod:'pickup'},now}),/different order details/);
+  }
+  assert.equal(providerCalls,0);
+  assert.equal((await db.collection('storeOrders').where('workspaceId','==',workspaceId).get()).size,4);
+ } finally {await deleteApp(app);}
+});

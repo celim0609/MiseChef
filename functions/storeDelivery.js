@@ -481,6 +481,7 @@ export const fulfilmentContext = async ({ db, provider, uid, orderId, fulfilment
   const order = snapshot.data();
   if (!internal) await assertWorkspaceOperator({ db, uid, order });
   const entry = order.fulfilments?.find(entry => entry.id === fulfilmentId && canonicalFulfilmentMethod(order, entry) === 'delivery');
+  if (order.delivery?.arrangedExternally === true) throw deliveryError('This delivery is arranged externally. No Lalamove booking is needed.');
   if (!entry || canonicalFulfilmentMethod(order, entry) !== 'delivery') throw deliveryError('Choose a delivery fulfilment.');
   assertDeliveryEnvironment({ delivery: order.delivery, provider });
   return { ref, order, entry, key: `fulfilmentOperations.${entry.id}` };

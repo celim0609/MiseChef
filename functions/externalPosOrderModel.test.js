@@ -50,3 +50,24 @@ test('individual dated menu dishes preserve their configured per-day price and s
  assert.equal(built.items[0].healthyLunchSnapshot.date,'2026-10-20');assert.equal(built.fulfilments.length,1);
  assert.throws(()=>buildExternalOrderItems({selections:[{productId:'mon',quantity:1,selectedOptions:[]}]},checkout,now),/Available day/);
 });
+
+test('external delivery keeps weekly allocations, exact times and independent dates without provider configuration',()=>{
+ const built=buildExternalOrderItems({fulfilmentMethod:'delivery',deliveryAddress:'  Unit 12, Full Street  ',fulfilmentDate:'2026-10-23',fulfilmentTime:'15:17',selections:[selection,{productId:'rice',quantity:1,selectedOptions:[]}],lineSchedules:[{date:'2026-10-19',time:'12:13'},{date:'',time:''}]},{...checkout,store:{...checkout.store,pickupLocations:[],delivery:{enabled:false}}},now);
+ assert.equal(built.fulfilmentMethod,'delivery');assert.equal(built.delivery.recipient.address,'Unit 12, Full Street');
+ assert.equal(built.fulfilments.length,6);assert.equal(built.fulfilments[0].date,'2026-10-19');assert.equal(built.fulfilments[0].time,'12:13');
+ assert.equal(built.fulfilments[5].date,'2026-10-23');assert.equal(built.fulfilments[5].time,'15:17');
+ for(const day of built.fulfilments) {assert.equal(day.method,'delivery');assert.equal(day.destination.formattedAddress,'Unit 12, Full Street');assert.equal(day.pickupLocationAddress,'');}
+ assert.equal(built.items.reduce((sum,item)=>sum+item.lineTotal,0),136);
+ assert.equal(built.delivery.providerOrder,undefined);assert.equal(built.delivery.dispatch,undefined);
+});
+test('explicit pickup supports exact minutes, order defaults, and immediate pickup',()=>{
+ const input={fulfilmentMethod:'pickup',selections:[{productId:'rice',quantity:1,selectedOptions:[]}]};
+ const built=buildExternalOrderItems({...input,fulfilmentDate:'2026-10-20',fulfilmentTime:'12:17'},checkout,now);
+ assert.equal(built.fulfilments[0].time,'12:17');assert.equal(built.fulfilments[0].method,'pickup');assert.equal(built.delivery,undefined);
+ const immediate=buildExternalOrderItems(input,checkout,now);assert.equal(immediate.fulfilments[0].date,'2026-10-18');assert.equal(immediate.fulfilments[0].time,'12:00');
+});
+test('external fulfilment rejects missing delivery details, invalid times and changed weekly meal dates',()=>{
+ const input={fulfilmentMethod:'delivery',deliveryAddress:'Full address',fulfilmentDate:'2026-10-20',fulfilmentTime:'12:17',selections:[{productId:'rice',quantity:1,selectedOptions:[]}]};
+ for(const patch of [{deliveryAddress:''},{fulfilmentTime:''},{fulfilmentTime:'25:00'},{fulfilmentDate:'2026-02-30'},{fulfilmentMethod:'invalid'}]) assert.throws(()=>buildExternalOrderItems({...input,...patch},checkout,now));
+ assert.throws(()=>buildExternalOrderItems({...input,selections:[{productId:'plan',healthyLunchPlanId:'plan',healthyLunchDate:'2026-10-20',quantity:1,selectedOptions:[]}],lineSchedules:[{date:'2026-10-21',time:'12:17'}]},checkout,now),/selected weekly meal/);
+});

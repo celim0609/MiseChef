@@ -189,6 +189,8 @@ const makeExternalOrderHarness = (overrides: Record<string, unknown> = {}) => {
     externalRequestIdRef: {current: 'request-1234567890'},
     externalCart: state.cart,
     creatingExternal: false,
+    externalMethod:'pickup', externalAddress:'', externalDate:'', externalTime:'',
+    setExternalMethod:()=>{}, setExternalAddress:()=>{}, setExternalDate:()=>{}, setExternalTime:()=>{},
     externalSource: 'walk_in', externalName: '', externalPhone: '', externalNotes: '', externalNumber: '',
     workspaceId: 'workspace-a', storeId: 'workspace-a',
     setCreatingExternal: (value: boolean) => { state.loading = value; },
@@ -312,7 +314,7 @@ test('POS modal keeps errors directly above the full-width action and separates 
 
 test('cart preview preserves option adjustments, Set upgrades, quantities and rounded subtotal', () => {
   const pricingSource = pageSource.slice(pageSource.indexOf('  const externalCartLines ='), pageSource.indexOf('\n  const advanceGroup ='));
-  const calculate = new Function('externalCart', 'externalProducts', 'externalOptionGroups', 'externalSets', 'calculateStoreOptionAdjustedPrice', 'calculateStoreSetAnalysis', 'externalStore', `${pricingSource}\nreturn { externalCartLines, externalSubtotal };`);
+  const calculate = new Function('externalCart', 'externalProducts', 'externalOptionGroups', 'externalSets', 'calculateStoreOptionAdjustedPrice', 'calculateStoreSetAnalysis', 'externalStore', 'externalDate', 'externalTime', `${pricingSource}\nreturn { externalCartLines, externalSubtotal };`);
   const products = [{ id: 'tea', name: 'Tea', available: true, price: 10 }];
   const groups = [{ id: 'flavour', available: true, options: [{ id: 'milk', available: true, priceAdjustment: 2.5 }] }];
   const sets = [{ id: 'set-a', price: 20, groups: [{ id: 'drink', options: [{ productId: 'tea', priceAdjustment: 3 }] }] }];
@@ -375,4 +377,13 @@ test('kitchen Kanban keeps compact single stacks and a collapsed Completed secti
   assert.match(pageSource, /event.currentTarget.open && !dailyHistory && !loadingDailyHistory/);
   assert.match(pageSource, /Load older completed fulfilments/);
   assert.equal((pageSource.match(/aria-label="Fulfilment period"/g) || []).length, 1);
+});
+
+
+test('external delivery payload preserves each selected meal date and exact time',async()=>{
+ const cart=[{selection:{productId:'plan',healthyLunchDate:'2026-10-26',selectedOptions:[]},quantity:1,date:'2026-10-26',time:'12:13'},{selection:{productId:'plan',healthyLunchDate:'2026-10-28',selectedOptions:[]},quantity:2,date:'2026-10-28',time:'13:17'}];
+ const harness=makeExternalOrderHarness({externalSource:'whatsapp',externalMethod:'delivery',externalAddress:'Unit 12, Full Street',externalDate:'2026-10-30',externalTime:'15:17',externalCart:cart});
+ await harness.submit();assert.equal(harness.state.error,'');assert.equal(harness.requests.length,1);
+ const payload=harness.requests[0];assert.equal(payload.source,'whatsapp');assert.equal(payload.fulfilmentMethod,'delivery');assert.equal(payload.deliveryAddress,'Unit 12, Full Street');
+ assert.deepEqual(payload.lineSchedules,[{date:'2026-10-26',time:'12:13'},{date:'2026-10-28',time:'13:17'}]);assert.equal(payload.customerName,'');assert.equal(payload.phone,'');
 });

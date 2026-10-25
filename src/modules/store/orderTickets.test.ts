@@ -153,3 +153,14 @@ test('external five-day menus print actual allocated dishes and quantities witho
   assert.ok(!html.includes('Weekly package'));assert.equal(ticket.items.length,1);
  }
 });
+
+test('external multi-date deliveries print the same exact fulfilment details on customer and kitchen tickets', async()=>{
+ const {buildExternalOrderItems}=await import('../../../functions/externalPosOrderModel.js');
+ const built=buildExternalOrderItems({fulfilmentMethod:'delivery',deliveryAddress:'Unit 12, Full Street',selections:[{productId:'rice',quantity:1,selectedOptions:[]},{productId:'rice',quantity:2,selectedOptions:[]}],lineSchedules:[{date:'2026-10-19',time:'12:13'},{date:'2026-10-20',time:'13:17'}]}, {store:{id:'s',workspaceId:'s',orderDays:['monday','tuesday'],earliestPickupDays:0,maximumAdvanceDays:30},products:[{id:'rice',name:'Rice',price:11,available:true,optionGroupIds:[]}],sets:[],optionGroups:[]},new Date('2026-10-18T04:00:00Z'));
+ const external={...order,...built,id:'external-delivery',externalOrder:{source:'shopeefood'},payment:{status:'paid'}} as StoreOrder;
+ const tickets=getOrderTickets(external);
+ assert.deepEqual(tickets.map(ticket=>[ticket.date,ticket.time,ticket.method,ticket.address]),[['2026-10-19','12:13','delivery','Unit 12, Full Street'],['2026-10-20','13:17','delivery','Unit 12, Full Street']]);
+ for(const kind of ['customer','kitchen'] as const) {
+  const html=buildTicketDocument(tickets,kind);assert.match(html,/Unit 12, Full Street/);assert.match(html,/2026-10-19 12:13/);assert.match(html,/2026-10-20 13:17/);assert.match(html,/ShopeeFood/);assert.match(html,/>Delivery</);
+ }
+});

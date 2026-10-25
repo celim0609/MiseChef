@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { dailyStatus, orderInPeriod, nextDailyStatus, sortOrdersForPeriod } from './dailyOrderModel';
-import { getOrderTickets } from './orderTickets';
+import { getOrderTickets, type OrderTicket } from './orderTickets';
 import type { StoreOrder } from './types';
 const order = {id:'a',items:[{productName:'Lunch',quantity:1,selectedOptions:[]}],fulfilmentStatus:'New',payment:{status:'paid'},fulfilments:[{id:'today',date:'2026-10-19',time:'12:00',method:'pickup',allocations:[{itemIndex:0,quantity:1}]},{id:'future',date:'2026-10-20',time:'12:00',method:'pickup',allocations:[{itemIndex:0,quantity:1}]}]} as StoreOrder;
 test('parent can appear in Today and Upcoming while daily statuses remain independent',()=>{
@@ -99,3 +99,10 @@ test('Completed summary follows the selected day while preserving future active 
  assert.deepEqual(dailyActions({...delivery,fulfilmentOperations:{today:{kitchenStatus:'Preparing'}}},ticket),['Ready']);
  assert.deepEqual(dailyActions({...delivery,fulfilmentOperations:{today:{kitchenStatus:'Ready'}}},ticket),[]);
  });
+
+test('externally arranged delivery can complete after Ready without Lalamove',()=>{
+ const external: StoreOrder={...order,id:'external',fulfilmentStatus:'New',delivery:{fulfilmentMethod:'delivery',arrangedExternally:true},fulfilmentOperations:{day:{kitchenStatus:'Ready'}}};
+ const ticket={fulfilmentId:'day',method:'delivery'} as OrderTicket;
+ assert.equal(nextDailyStatus(external,ticket),'Completed');
+ assert.equal(nextDailyStatus({...external,delivery:{}} as StoreOrder,ticket),null);
+});

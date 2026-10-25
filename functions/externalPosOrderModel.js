@@ -6,18 +6,27 @@ import { mergeMealOptionSnapshots, resolveSelectionMealOptions } from './healthy
 
 // Prices and daily meal snapshots always come from the Store catalog, not POS inputs.
 export function buildExternalOrderItems(input, checkout, now = new Date()) {
+  const method = input.fulfilmentMethod || 'pickup';
+  if (!['pickup', 'delivery'].includes(method)) throw new Error('Choose Delivery or Pickup.');
+  const address = typeof input.deliveryAddress === 'string' ? input.deliveryAddress.trim() : '';
+  if (method === 'delivery' && (!address || address.length > 1000)) throw new Error('Enter a delivery address (up to 1000 characters).');
+  const exactTime = value => typeof value === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
   const schedules = input.lineSchedules;
   if (schedules !== undefined && (!Array.isArray(schedules) || schedules.length !== input.selections.length || schedules.some(line=>!line || typeof line.date!=='string' || typeof line.time!=='string'))) throw new Error('Schedule every cart line.');
   const items = [], days = new Map();
   const immediateDate = new Date(now.getTime() + 28800000).toISOString().slice(0,10);
   const immediateTime = new Date(now.getTime() + 28800000).toISOString().slice(11,16);
-  let scheduled = false;
+  let scheduled = Boolean(input.fulfilmentMethod);
   for (const [index, selection] of input.selections.entries()) {
     const product = checkout.products.find(product => product.id === selection.productId);
     const weekly = isFullWeekSelection(selection, checkout.products);
     const line = schedules?.[index];
-    const date = line?.date || selection.healthyLunchDate;
-    const time = line?.time;
+    // A meal's selected day always wins over the order-level default.
+    if (selection.healthyLunchDate && line?.date && selection.healthyLunchDate !== line.date) throw new Error('Keep the selected weekly meal fulfilment date.');
+    const date = selection.healthyLunchDate || line?.date || input.fulfilmentDate;
+    const time = line?.time || input.fulfilmentTime;
+    if (method === 'delivery' && (!date || !time)) throw new Error('Choose a delivery date and exact time.');
+    if (time && !exactTime(time)) throw new Error('Choose a valid exact fulfilment time.');
     if (isWeeklyMealPlan(product) && !date) throw new Error('Choose a fulfilment date for this weekly menu.');
     if ((date && !time) || (!date && time)) throw new Error('Choose both a fulfilment date and time.');
     if (!date) {
@@ -29,21 +38,26 @@ export function buildExternalOrderItems(input, checkout, now = new Date()) {
       scheduled = true;
       const dates = weekly ? getWeeklyDates(date) : [date];
       if (!dates.length) throw new Error('Weekly plans must start on Monday.');
-      daily = buildOrderFulfilments({ store: checkout.store, products: checkout.products,
-        draft: { selections: [selection], fulfilmentMethod:'pickup', pickupLocationId: input.pickupLocationId || checkout.store.pickupLocations?.[0]?.id,
+      // Reuse catalog/day validation without requiring online delivery quotes or slots.
+      daily = buildOrderFulfilments({ store: method === 'delivery' ? {...checkout.store,pickupLocations:[{id:'external',name:'',address:''}]} : checkout.store, products: checkout.products,
+        draft: { selections: [selection], fulfilmentMethod:'pickup', pickupLocationId: method === 'delivery' ? 'external' : input.pickupLocationId || checkout.store.pickupLocations?.[0]?.id,
           fulfilments: dates.map(date => ({date,time,itemIndexes:[0]})) },
-        getDates:getValidPickupDates, getTimes:getPickupTimeSlots, now });
+        getDates:getValidPickupDates, getTimes: input.fulfilmentMethod ? () => [time] : getPickupTimeSlots, now });
     }
     const [item] = buildOrderItems([selection], checkout.products, checkout.optionGroups, checkout.sets, date);
     if (daily?.weeklyPlanSnapshot) item.weeklyPlanSnapshot = mergeMealOptionSnapshots(daily.weeklyPlanSnapshot, resolveSelectionMealOptions(selection, checkout.products, date));
     items.push(item);
     const entries = daily?.fulfilments || [{date:immediateDate,time:immediateTime,method:'pickup',pickupLocationId:checkout.store.pickupLocations?.[0]?.id || '',pickupLocationName:checkout.store.pickupLocations?.[0]?.name || '',pickupLocationAddress:checkout.store.pickupLocations?.[0]?.address || '',allocations:[{itemIndex:0,quantity:selection.quantity}]}];
-    for (const entry of entries) {
+    for (const original of entries) {
+      const entry = method === 'delivery' ? {...original, method, pickupLocationId:'', pickupLocationName:'', pickupLocationAddress:'', destination:{formattedAddress:address}} : original;
       const key = `${entry.date.replaceAll('-','')}_${entry.time.replace(':','')}`;
       const day = days.get(key) || {...entry,id:`external_${key}`,allocations:[]};
       day.allocations.push(...entry.allocations.map(allocation => ({...allocation,itemIndex:index})));
       days.set(key,day);
     }
   }
-  return { items, ...(scheduled ? {fulfilments:[...days.values()].sort((a,b)=>`${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`)),fulfilmentOperations:{},fulfilmentCompletion:{}} : {}) };
+  const fulfilments = [...days.values()].sort((a,b)=>`${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`));
+  return { items,
+    ...(input.fulfilmentMethod ? {fulfilmentMethod:method, pickupDate:fulfilments[0].date, pickupTime:fulfilments[0].time,
+      ...(method === 'delivery' ? {delivery:{arrangedExternally:true,fulfilmentMethod:'delivery',fulfilmentMode:'preorder',schedule:{date:fulfilments[0].date,time:fulfilments[0].time},recipient:{address}}} : {})} : {}), ...(scheduled ? {fulfilments,fulfilmentOperations:{},fulfilmentCompletion:{}} : {}) };
 }

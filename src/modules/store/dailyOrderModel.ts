@@ -30,7 +30,7 @@ export function nextDailyStatus(order: StoreOrder, ticket: OrderTicket): StoreOr
   const status = dailyStatus(order,ticket);
   if (status === 'New' || status === 'Paid' || status === 'Confirmed') return 'Preparing';
   if (status === 'Preparing') return 'Ready';
-  if (status === 'Ready' && (ticket.method === 'pickup' || order.manualOrder)) return 'Completed';
+  if (status === 'Ready' && (ticket.method === 'pickup' || order.manualOrder || order.delivery?.arrangedExternally === true)) return 'Completed';
   return null;
 }
 

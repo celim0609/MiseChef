@@ -8,7 +8,7 @@ export default function ManualDeliveryBooking({order, fulfilmentId, disabled = f
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [bookingId, setBookingId] = useState('');
   const operation = order.fulfilmentOperations?.[fulfilmentId];
   const run = async (action: () => Promise<void>) => { setBusy(true); setError(''); try { await action(); } catch(e) { setError(e instanceof Error ? e.message : 'Unable to manage Lalamove. Refresh before trying again.'); } finally { setBusy(false); } };
-  if (order.payment.status !== 'paid' || order.manualOrder) return null;
+  if (order.payment.status !== 'paid' || order.delivery?.arrangedExternally === true || order.manualOrder) return null;
   return <div className="mt-3">
     <DeliveryDispatchAction order={order} fulfilmentId={fulfilmentId} isUpdating={busy || disabled} onDispatch={() => { void run(async () => { setPreview(null); setPreview(await storeDeliveryService.preview(order.id, fulfilmentId)); }); }} />
     {preview && <section role="dialog" aria-modal="true" aria-label="Review Lalamove booking" className="rounded-xl border-2 bg-white p-4 text-slate-950">

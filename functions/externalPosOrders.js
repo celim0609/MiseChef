@@ -6,7 +6,7 @@ import { createAvailableOrderReference, readString } from './storePaymentsCore.j
 import { loadStoreCheckoutData } from './storePayments.js';
 import { hasActiveBusinessEntitlement } from './subscriptionFoundation.js';
 
-const EXTERNAL_SOURCES = new Set(['shopeefood', 'walk_in', 'other']);
+const EXTERNAL_SOURCES = new Set(['shopeefood', 'walk_in', 'other', 'whatsapp']);
 const OPERATOR_ROLES = new Set(['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef']);
 const money = value => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 const idempotencyId = ({ storeId, source, externalOrderNumber }) => createHash('sha256')
@@ -40,7 +40,7 @@ const validateInput = input => {
   if (readString(input?.notes).length > 500) throw externalError('Notes must be 500 characters or fewer.');
   if (!Array.isArray(input?.selections) || !input.selections.length || input.selections.length > 50) throw externalError('Choose one or more Store items.');
   if (input.selections.some(item => !Number.isInteger(item?.quantity) || item.quantity < 1 || item.quantity > 20)) throw externalError('Each product quantity must be between 1 and 20.');
-  if ((source === 'shopeefood' && paymentLabel !== 'shopeefood_platform_paid') || (source === 'walk_in' && paymentLabel !== 'walk_in_paid') || (source === 'other' && paymentLabel !== 'other_paid')) throw externalError('Choose the payment label that matches the order source.');
+  if ((source === 'shopeefood' && paymentLabel !== 'shopeefood_platform_paid') || (source === 'walk_in' && paymentLabel !== 'walk_in_paid') || (['other', 'whatsapp'].includes(source) && paymentLabel !== 'other_paid')) throw externalError('Choose the payment label that matches the order source.');
   const requestId = readString(input?.requestId);
   if (requestId && !/^[A-Za-z0-9_-]{16,100}$/.test(requestId)) throw externalError('Invalid order request.');
   if (!requestId && !externalOrderNumber) throw externalError('An order request ID is required. Refresh POS and retry.');
@@ -56,7 +56,7 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
   await assertOperator({ db, uid, workspaceId });
   const idempotencyReference = externalOrderNumber ? db.collection('storeExternalOrderReferences').doc(idempotencyId({ storeId, source, externalOrderNumber })) : null;
   const requestReference = requestId ? db.collection('storeExternalOrderReferences').doc(createHash('sha256').update(`${storeId}:${uid}:${requestId}`).digest('hex')) : null;
-  const fingerprint = createHash('sha256').update(JSON.stringify({source,externalOrderNumber,paymentLabel,customerName:readString(input.customerName),phone,notes:readString(input.notes),selections:input.selections,lineSchedules:input.lineSchedules,pickupLocationId:input.pickupLocationId})).digest('hex');
+  const fingerprint = createHash('sha256').update(JSON.stringify({source,externalOrderNumber,paymentLabel,customerName:readString(input.customerName),phone,notes:readString(input.notes),selections:input.selections,lineSchedules:input.lineSchedules,pickupLocationId:input.pickupLocationId,fulfilmentMethod:input.fulfilmentMethod,deliveryAddress:input.deliveryAddress,fulfilmentDate:input.fulfilmentDate,fulfilmentTime:input.fulfilmentTime})).digest('hex');
   const orderReference = db.collection('storeOrders').doc();
   const commit = () => db.runTransaction(async transaction => {
     if (requestReference) {
@@ -84,7 +84,7 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
       return reserved.exists || !existing.empty;
     } });
     const createdAt = now.toISOString();
-    const paymentMethodName = paymentLabel === 'shopeefood_platform_paid' ? 'ShopeeFood / Platform Paid' : paymentLabel === 'walk_in_paid' ? 'Walk-in / Paid' : 'Other / Paid';
+    const paymentMethodName = paymentLabel === 'shopeefood_platform_paid' ? 'ShopeeFood / Platform Paid' : paymentLabel === 'walk_in_paid' ? 'Walk-in / Paid' : source === 'whatsapp' ? 'WhatsApp / Paid' : 'Other / Paid';
     const order = { id: orderReference.id, orderNumber: reference.orderNumber, pickupCode: reference.pickupCode, storeId, workspaceId, orderSource: 'pos', externalOrder: { source, ...(externalOrderNumber ? { externalOrderNumber } : {}) }, storeName: readString(checkout.store.name), currency: readString(checkout.store.currency), paymentMethodId: paymentLabel, paymentMethodName, customerName: readString(input.customerName, source === 'walk_in' ? 'Walk-in customer' : 'Customer'), phone, fulfilmentMethod: 'pickup', notes: readString(input.notes), ...built, itemCount: items.reduce((sum, item) => sum + item.quantity, 0), totals: { merchandiseSubtotal, discountTotal: 0, discountedMerchandiseTotal: merchandiseSubtotal, deliveryFee: 0, grandTotal: total, currency: readString(checkout.store.currency) }, total, status: 'Paid externally', fulfilmentStatus: 'New', fulfilmentUpdatedAt: null, fulfilmentUpdatedBy: '', payment: { provider: 'external', providerMode: 'platform_handled', status: 'paid', amountMinor: Math.round(total * 100), currency: readString(checkout.store.currency), providerPaymentId: '', providerTransactionId: '', providerPaymentMethod: paymentLabel, failureCode: '', refundStatus: 'none', refundedAmountMinor: 0, refundFailureCode: '', createdAt, updatedAt: createdAt }, createdAt, updatedAt: createdAt };
     const reservation = db.collection('stores').doc(storeId).collection('orderNumberReservations').doc(`${reference.businessDateKey}_${reference.pickupCode}`);
     transaction.create(reservation, { orderId: orderReference.id, orderNumber: reference.orderNumber, pickupCode: reference.pickupCode, createdAt: FieldValue.serverTimestamp() });

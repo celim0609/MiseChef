@@ -4,7 +4,7 @@ import { resolveDeliveryDispatchData, deliveryBlockedMessage, canonicalFulfilmen
 
 export default function DeliveryDispatchAction({ order, fulfilmentId, isUpdating, onDispatch }: { order: StoreOrder; fulfilmentId: string; isUpdating: boolean; onDispatch: (orderId: string, fulfilmentId: string) => void }) {
   const day = order.fulfilments?.find(day => day.id === fulfilmentId);
-  if (!day || canonicalFulfilmentMethod(order, day) !== 'delivery' || order.manualOrder || order.payment.status !== 'paid' || ['Completed', 'Cancelled'].includes(order.fulfilmentStatus) || order.fulfilmentCompletion?.[day.id]) return null;
+  if (!day || canonicalFulfilmentMethod(order, day) !== 'delivery' || order.delivery?.arrangedExternally === true || order.manualOrder || order.payment.status !== 'paid' || ['Completed', 'Cancelled'].includes(order.fulfilmentStatus) || order.fulfilmentCompletion?.[day.id]) return null;
   const operation = order.fulfilmentOperations?.[day.id];
   const status = operation?.dispatch?.status || 'not_requested';
   if (!['not_requested', 'failed'].includes(status)) return null;

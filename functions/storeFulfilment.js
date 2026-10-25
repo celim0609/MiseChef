@@ -134,7 +134,7 @@ export const updateStoreOrderFulfilment = async ({
     if (!orderSnapshot.exists) throw new HttpsError('not-found', 'This order could not be found.');
 
     const order = orderSnapshot.data() || {};
-    if (!order.manualOrder && order.fulfilmentMethod === 'delivery'
+    if (!order.manualOrder && order.delivery?.arrangedExternally !== true && order.fulfilmentMethod === 'delivery'
       && normalizedNextStatus === STORE_FULFILMENT_STATUS.completed
       && readString(order.delivery?.providerOrder?.status) !== 'COMPLETED') {
       throw new HttpsError('failed-precondition', 'A delivery order can only complete after Lalamove confirms delivery.');
@@ -175,7 +175,7 @@ export const updateStoreOrderFulfilment = async ({
       if (!entry || order.payment?.status !== 'paid' || currentStatus === 'Cancelled') throw new HttpsError('failed-precondition', 'Choose an active, paid fulfilment.');
       const operation = order.fulfilmentOperations?.[entry.id] || {};
       if (order.fulfilmentCompletion?.[entry.id]) return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
-      if (!order.manualOrder && entry.method === 'delivery' && !['Preparing', 'Ready'].includes(normalizedNextStatus)) throw new HttpsError('failed-precondition', 'Delivery completion must be confirmed by Lalamove.');
+      if (!order.manualOrder && order.delivery?.arrangedExternally !== true && entry.method === 'delivery' && !['Preparing', 'Ready'].includes(normalizedNextStatus)) throw new HttpsError('failed-precondition', 'Delivery completion must be confirmed by Lalamove.');
       if (entry.method === 'pickup' && !['Preparing', 'Ready', 'Completed'].includes(normalizedNextStatus)) throw new HttpsError('failed-precondition', 'Complete each pickup independently.');
       if (!order.manualOrder && entry.method === 'delivery' && normalizedNextStatus === 'Ready' && !['Preparing', 'Ready'].includes(operation.kitchenStatus)) throw new HttpsError('failed-precondition', 'Mark this delivery day Preparing before Ready.');
       if (operation.kitchenStatus !== normalizedNextStatus && !canTransitionStoreFulfilment({ currentStatus: operation.kitchenStatus || 'New', nextStatus: normalizedNextStatus })) throw new HttpsError('failed-precondition', 'Mark this day Preparing or Ready before completing it.');

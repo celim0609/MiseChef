@@ -545,6 +545,7 @@ export interface StoreOrder {
   totals?: { merchandiseSubtotal: number; discountTotal: number; discountedMerchandiseTotal: number; deliveryFee: number; grandTotal: number; currency: RegionCurrency };
   promotionSnapshot?: StoreOrderPromotionSnapshot;
   delivery?: {
+    arrangedExternally?: boolean;
     fulfilmentMethod: 'delivery';
     fulfilmentMode?: 'preorder' | 'instant';
     schedule?: { mode?: 'preorder' | 'instant'; date?: string; time?: string; session?: string };
