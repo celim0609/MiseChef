@@ -1,4 +1,5 @@
 import { weeklyShareUrl } from '../../../functions/weeklyMenuSharing.js';
+import WeekCoverUpload from './WeekCoverUpload';
 import WeeklyMenuShareButton from './WeeklyMenuShareButton';
 import HealthyLunchOptionsEditor from './HealthyLunchOptionsEditor';
 import type { HealthyLunchMeal, EmbeddedWeeklyMeals } from './types';
@@ -245,7 +246,8 @@ export default function StorePage({
   const [mealPhotoFiles, setMealPhotoFiles] = useState<Record<string, File>>({});
   const mealPreviewUrls = useRef<Record<string, string>>({});
   const [weekCoverFiles, setWeekCoverFiles] = useState<Record<string, File>>({});
-  const clearMealPhotos = () => { setWeekCoverFiles({}); Object.values(mealPreviewUrls.current).forEach(URL.revokeObjectURL); mealPreviewUrls.current = {}; setMealPhotoFiles({}); };
+  const [weekCoverErrors, setWeekCoverErrors] = useState<Record<string, string>>({});
+  const clearMealPhotos = () => { setWeekCoverErrors({}); setWeekCoverFiles({}); Object.values(mealPreviewUrls.current).forEach(URL.revokeObjectURL); mealPreviewUrls.current = {}; setMealPhotoFiles({}); };
   useEffect(() => () => { Object.values(mealPreviewUrls.current).forEach(URL.revokeObjectURL); }, []);
   const [productPhotoFile, setProductPhotoFile] = useState<File | null>(null);
   const [productPhotoPreviewUrl, setProductPhotoPreviewUrl] = useState('');
@@ -860,7 +862,9 @@ export default function StorePage({
 
     setIsSaving(true);
     clearMessages();
+    setWeekCoverErrors({});
     let saveStage: ProductSaveStage = 'authorization';
+    let coverImageUpdated = false;
     try {
       await storeService.assertCanManageProducts({
         workspace,
@@ -903,7 +907,16 @@ export default function StorePage({
       }));
       await Promise.all((Object.entries(weekCoverFiles) as Array<[string, File]>).map(async ([slot, file]) => {
         const week = configuredDraft.weeklyMenuVersion === 3 ? rotationWeeks?.[slot] : weeklyWeeks?.[slot];
-        if (week) week.coverPhotoUrl = await uploadHealthyLunchMealPhoto({ workspaceId: workspace.id, productId, file });
+        if (week) {
+          try {
+            week.coverPhotoUrl = await uploadHealthyLunchMealPhoto({ workspaceId: workspace.id, productId, file });
+            coverImageUpdated = true;
+          }
+          catch (error) {
+            setWeekCoverErrors(current => ({ ...current, [slot]: 'Cover image upload failed. Please try again.' }));
+            throw error;
+          }
+        }
       }));
       const embeddedCover = configuredDraft.weeklyMenuVersion === 3 ? rotationWeeks?.[WEEK_SLOTS.find(slot => rotationWeeks?.[slot])!]?.meals.mon : configuredDraft.weeklyMenuVersion === 2 ? (Object.values(weeklyWeeks || {}) as Array<{ startMonday: string; meals: EmbeddedWeeklyMeals }>).sort((a, b) => a.startMonday.localeCompare(b.startMonday))[0]?.meals.mon as HealthyLunchMeal | undefined : undefined;
       const photoUrl = uploadedImages?.[0] || configuredDraft.photoUrl || embeddedCover?.photoUrl;
@@ -957,9 +970,9 @@ export default function StorePage({
       setIsProductFormOpen(false);
       clearMealPhotos();
       setRecentlySavedProductId(savedProduct.id);
-      setMessage(groupDeletionFailed
+      setMessage(`${coverImageUpdated ? '✓ Image Updated. ' : ''}${groupDeletionFailed
         ? 'Product saved. One unused option group could not be deleted; please try again.'
-        : editingProduct ? 'Product updated.' : 'Product added.');
+        : editingProduct ? 'Product updated.' : 'Product added.'}`);
     } catch (error) {
       console.error('[Store product save failed]', getProductSaveDiagnostic({
         error,
@@ -1129,7 +1142,7 @@ export default function StorePage({
       </nav>
 
       {(message || (errorMessage && !isProductFormOpen)) && (
-        <p className={`rounded-2xl px-4 py-3 font-sans text-sm font-bold ${
+        <p role={errorMessage ? 'alert' : 'status'} className={`rounded-2xl px-4 py-3 font-sans text-sm font-bold ${
           errorMessage ? 'bg-error/10 text-error' : 'bg-primary/10 text-primary'
         }`}>
           {errorMessage || message}
@@ -1233,12 +1246,10 @@ export default function StorePage({
                       }} className="mt-1 block w-full rounded-xl border p-3" /></label>}
                       {week && <div className="mt-3 space-y-2">
                         <WeeklyMenuShareButton label="Share Full Set" disabled={!editingProduct?.productSlug || !(editingProduct.rotationWeeks || editingProduct.weeklyWeeks)?.[slot]} onCopy={() => shareWeeklyMenu(slot)} />
-                        <label className="block text-sm font-bold">Week cover image<input type="file" aria-label={`Week ${index + 1} cover image`} accept="image/jpeg,image/png,image/webp" onChange={event => {
-                          const file = event.target.files?.[0]; if (!file) return;
-                          if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) { setErrorMessage('Choose a JPEG, PNG or WebP cover up to 10 MB.'); return; }
+                        <WeekCoverUpload weekNumber={index + 1} imageUrl={week.coverPhotoUrl || editingProduct?.photoUrl} file={weekCoverFiles[slot]} disabled={isSaving} error={weekCoverErrors[slot]} onFileChange={file => {
                           setWeekCoverFiles(current => ({ ...current, [slot]: file }));
-                        }} /></label>
-                        {weekCoverFiles[slot] ? <p className="text-xs">{weekCoverFiles[slot].name} — save to replace cover.</p> : (week.coverPhotoUrl || editingProduct?.photoUrl) && <img src={week.coverPhotoUrl || editingProduct?.photoUrl} alt={`Week ${index + 1} cover`} className="h-24 w-36 rounded-lg object-contain" />}
+                          setWeekCoverErrors(current => ({ ...current, [slot]: '' }));
+                        }} />
                       </div>}
                       {week && <div className="mt-3 space-y-2"><label className="block text-sm font-bold">Weekly discount<select aria-label={`Week ${index + 1} discount`} value={week.discount?.type || 'legacy'} onChange={event => {
                         const discount = { type: event.target.value as import('./types').WeeklyDiscount['type'], value: 0 };
