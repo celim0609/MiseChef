@@ -1,0 +1,27 @@
+{
+  "stage": "mobile-replacement",
+  "productId": "qa-cover-20261025-5e93796d",
+  "productSlug": "qa-cover-upload-qa-cover-20261025-5e93796d",
+  "available": false,
+  "unchangedMealDataAndPricing": true,
+  "weeks": {
+    "week1": {
+      "url": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fqa-cover-20261025-5e93796d%2Fmeal-569f18d1-8a2f-4e92-a364-91b7d2f5f6b0.png?alt=media&token=22d555cc-05c4-48c6-972c-7f27a717597a",
+      "sha256": "b4fa8616e03beffd499bdd2b052cf5cc82d8186a980a0fb27e7d21f8bf94fb16",
+      "bytes": 510,
+      "originalBytesPreserved": true
+    },
+    "week2": {
+      "url": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fqa-cover-20261025-5e93796d%2Fmeal-d0dd1069-0589-43f6-b220-aa40bf791012.png?alt=media&token=a8f6d0b0-f4e4-4130-94a5-8cfaad8ddd9b",
+      "sha256": "b4fa8616e03beffd499bdd2b052cf5cc82d8186a980a0fb27e7d21f8bf94fb16",
+      "bytes": 510,
+      "originalBytesPreserved": true
+    },
+    "week3": {
+      "url": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fqa-cover-20261025-5e93796d%2Fmeal-417d26d7-a869-486a-b3c8-620680bcf75f.png?alt=media&token=78f2ca7c-6025-4a82-b9e5-4479a8d7ad05",
+      "sha256": "b4fa8616e03beffd499bdd2b052cf5cc82d8186a980a0fb27e7d21f8bf94fb16",
+      "bytes": 510,
+      "originalBytesPreserved": true
+    }
+  }
+}

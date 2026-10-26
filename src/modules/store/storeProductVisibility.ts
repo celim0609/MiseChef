@@ -170,7 +170,7 @@ export const prepareHealthyLunchDraft = (draft: StoreProductDraft): StoreProduct
     const first = Object.values(rotationWeeks || {})[0]?.meals.mon;
     return { ...draft, weeklyWeeks: undefined, weeklyMeals: undefined, rotationWeeks,
       healthyLunchBlockedDates: [...new Set((draft.healthyLunchBlockedDates || []).map(date => date.trim()))].sort(),
-      photoUrl: first?.photoUrl || draft.photoUrl };
+      photoUrl: draft.photoUrl || first?.photoUrl };
   }
   if (draft.weeklyMenuVersion !== 2) return draft;
   const weeklyWeeks = Object.fromEntries(Object.entries(draft.weeklyWeeks || {}).filter(([, week]) => Boolean(week?.startMonday)).map(([slot, week]) => [slot, {
@@ -179,7 +179,7 @@ export const prepareHealthyLunchDraft = (draft: StoreProductDraft): StoreProduct
   }])) as StoreProductDraft['weeklyWeeks'];
   const first = Object.values(weeklyWeeks).sort((a, b) => a.startMonday.localeCompare(b.startMonday))[0];
   const cover = first?.meals.mon;
-  return { ...draft, weeklyWeeks, weeklyMeals: undefined, photoUrl: typeof cover === 'object' ? cover.photoUrl : draft.photoUrl };
+  return { ...draft, weeklyWeeks, weeklyMeals: undefined, photoUrl: draft.photoUrl || (typeof cover === 'object' ? cover.photoUrl : '') };
 };
 
 export const updateHealthyLunchMeal = (meal: import('./types').HealthyLunchMeal, patch: Partial<import('./types').HealthyLunchMeal>): import('./types').HealthyLunchMeal => {

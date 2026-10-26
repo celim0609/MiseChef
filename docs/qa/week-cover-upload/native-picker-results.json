@@ -1,0 +1,44 @@
+[
+  {
+    "width": 1440,
+    "weeks": [
+      1,
+      2,
+      3
+    ],
+    "selectPreviewSave": true,
+    "failureRetry": true,
+    "replacementSave": true,
+    "oversizeRejectedWithoutReplacingPreview": true
+  },
+  {
+    "page": 375,
+    "previews": [
+      {
+        "alt": "Week 1 cover",
+        "height": 160,
+        "width": 240
+      },
+      {
+        "alt": "Week 2 cover",
+        "height": 160,
+        "width": 240
+      },
+      {
+        "alt": "Week 3 cover",
+        "height": 160,
+        "width": 240
+      }
+    ],
+    "visibleNativeInputs": 0,
+    "width": 375,
+    "weeks": [
+      1,
+      2,
+      3
+    ],
+    "selectPreviewSave": true,
+    "failureRetry": true,
+    "replacementSave": true
+  }
+]

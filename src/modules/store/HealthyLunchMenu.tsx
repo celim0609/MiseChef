@@ -11,6 +11,8 @@ const dateLabel = (date: string) => scheduleDateLabel(date).replace(/^(\w{3}) /,
 
 export interface HealthyLunchChoice { mode: 'week' | 'day'; date: string; selectedMealOptions?: MealOptionChoice[] }
 interface Props {
+  sharedSelection?: boolean;
+  sharedUnavailable?: boolean;
   product: StoreProduct;
   products: StoreProduct[];
   currency: WorkspaceStore['currency'];
@@ -23,13 +25,13 @@ interface Props {
   onAdd?: (choice: HealthyLunchChoice) => void;
 }
 
-export default function HealthyLunchMenu({ product, products, currency, weeks, dayDates, choice, monday = '', canOrder = true, onChange, onAdd }: Props) {
+export default function HealthyLunchMenu({ sharedSelection = false, sharedUnavailable = false, product, products, currency, weeks, dayDates, choice, monday = '', canOrder = true, onChange, onAdd }: Props) {
   const [choices, setChoices] = useState<MealOptionChoice[]>([]);
   const dated = hasDatedMenu(product);
-  const date = weeks.includes(choice.date) ? choice.date : weeks[0] || '';
+  const date = weeks.includes(choice.date) ? choice.date : (sharedSelection ? '' : weeks[0]) || '';
   const selectedMonday = dated ? date : monday || date;
   const showDays = dated && choice.mode === 'day';
-  const dailyMeals = [...new Set(dayDates)].sort().flatMap(date => {
+  const dailyMeals = [...new Set(dayDates)].filter(date => !sharedSelection || date === choice.date).sort().flatMap(date => {
     const meal = resolveHealthyLunchDay(product, products, date);
     return meal ? [{ date, meal }] : [];
   });
@@ -46,8 +48,8 @@ export default function HealthyLunchMenu({ product, products, currency, weeks, d
   return <div className="mt-3 min-w-0 rounded-2xl bg-surface-container-low p-3 sm:p-4">
     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       {dated ? <div className="inline-flex w-fit max-w-full rounded-xl border border-surface-container-high bg-white p-1" role="group" aria-label={`${product.name} ordering`}>
-        <button type="button" aria-pressed={!showDays} onClick={() => onChange({ mode: 'week', date })} className="min-h-10 rounded-lg px-3 py-2 text-sm font-bold text-primary aria-pressed:bg-primary aria-pressed:text-white sm:px-4">5-Day Plan</button>
-        <button type="button" aria-pressed={showDays} onClick={() => onChange({ mode: 'day', date })} className="min-h-10 rounded-lg px-3 py-2 text-sm font-bold text-primary aria-pressed:bg-primary aria-pressed:text-white sm:px-4">Order by Day</button>
+        <button type="button" aria-pressed={!showDays} onClick={() => onChange({ mode: 'week', date })} className={`min-h-10 rounded-lg px-3 py-2 text-sm font-bold sm:px-4 ${!showDays ? 'bg-primary text-on-primary' : 'text-primary'}`}>5-Day Plan</button>
+        <button type="button" aria-pressed={showDays} onClick={() => onChange({ mode: 'day', date })} className={`min-h-10 rounded-lg px-3 py-2 text-sm font-bold sm:px-4 ${showDays ? 'bg-primary text-on-primary' : 'text-primary'}`}>Order by Day</button>
       </div> : <p className="text-sm font-extrabold text-primary">5-Day Plan · Mon–Fri</p>}
       {dated && !showDays && <label className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-bold text-on-surface-variant">Available weeks
         <select aria-label={`${product.name} dates`} value={date} onChange={event => { setChoices([]); onChange({ mode: 'week', date: event.target.value }); }} className="min-h-10 min-w-0 flex-1 rounded-lg border border-surface-container-high bg-white px-3 py-2 text-sm text-primary lg:w-44 lg:flex-none">
@@ -56,6 +58,7 @@ export default function HealthyLunchMenu({ product, products, currency, weeks, d
       </label>}
     </div>
 
+    {sharedSelection && (sharedUnavailable || !choice.date) && <p role="status" className="mt-3 text-sm">This shared menu is not currently available to order.</p>}
     {showDays ? <>
       {!dailyMeals.length && <p className="mt-4 text-sm text-on-surface-variant">No meals are currently available to order.</p>}
       <ul className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-5">{dailyMeals.map(({ date, meal }) => <li key={date} className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-surface-container-high bg-white shadow-sm">
@@ -92,8 +95,8 @@ export default function HealthyLunchMenu({ product, products, currency, weeks, d
         </li>;
       })}</ul>
       {weekOptions.error && <p className="mt-3 text-sm" role="status">Complete required choices for each meal before adding the plan.</p>}
-      <div className="mt-4 flex flex-col gap-3 rounded-xl border border-surface-container-high bg-white p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-4">
-        <dl aria-label="Weekly pricing" className="grid min-w-0 flex-1 grid-cols-3 gap-2 sm:gap-4">
+      <div className="mt-4 flex flex-col gap-3 rounded-xl border border-surface-container-high bg-white p-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4 sm:p-4">
+        <dl aria-label="Weekly pricing" className="grid min-w-0 flex-1 grid-cols-3 gap-2 sm:basis-80 sm:gap-4">
           <div><dt className="text-xs text-on-surface-variant">Original Price</dt><dd className="mt-1 text-sm font-bold text-on-surface-variant">{formatRegionCurrency(pricing?.originalPrice ?? 0, currency)}</dd></div>
           <div><dt className="text-xs text-on-surface-variant">Discount</dt><dd className="mt-1 text-sm font-bold text-secondary">{formatRegionCurrency(pricing?.discountAmount ?? 0, currency)}</dd></div>
           <div><dt className="text-xs font-bold text-primary">Final Weekly Price</dt><dd className="mt-1 text-lg font-extrabold leading-tight text-primary">{formatRegionCurrency((Math.round((pricing?.finalWeeklyPrice ?? 0) * 100) + weekOptions.surchargeMinor) / 100, currency)}</dd></div>

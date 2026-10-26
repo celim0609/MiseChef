@@ -592,8 +592,9 @@ service cloud.firestore {
     // budget without changing operator permissions.
     function isValidDatedWeek(week, planId, embedded) {
       let meals = week.meals;
-      return week.keys().hasOnly(['startMonday', 'meals', 'discount', 'legacyWeeklyPrice']) && (week.size() == 2 || isValidWeeklyDiscount(week))
+      return week.keys().hasOnly(['startMonday', 'meals', 'discount', 'legacyWeeklyPrice', 'coverPhotoUrl']) && (week.size() == 2 || isValidWeeklyDiscount(week))
         && week.startMonday.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && (!('coverPhotoUrl' in week) || (week.coverPhotoUrl is string && week.coverPhotoUrl.size() <= 4096 && week.coverPhotoUrl.matches('https://.*')))
         && meals.size() == 5
         && (embedded ? (meals.mon is map && meals.tue is map && meals.wed is map && meals.thu is map && meals.fri is map) : (meals.mon is string && meals.tue is string && meals.wed is string && meals.thu is string && meals.fri is string
         && ![meals.mon, meals.tue, meals.wed, meals.thu, meals.fri].hasAny(['', planId])));
@@ -618,8 +619,9 @@ service cloud.firestore {
     }
     function isValidRotationWeek(week) {
       let meals = week.meals;
-      return week.keys().hasOnly(['meals', 'discount', 'legacyWeeklyPrice'])
+      return week.keys().hasOnly(['meals', 'discount', 'legacyWeeklyPrice', 'coverPhotoUrl'])
         && (week.size() == 1 || isValidWeeklyDiscount(week))
+        && (!('coverPhotoUrl' in week) || (week.coverPhotoUrl is string && week.coverPhotoUrl.size() <= 4096 && week.coverPhotoUrl.matches('https://.*')))
         && meals.size() == 5
         && meals.mon is map && meals.tue is map && meals.wed is map
         && meals.thu is map && meals.fri is map;

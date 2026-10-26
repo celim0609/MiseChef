@@ -104,3 +104,22 @@ test('ingredients are disclosed without dropping source text and required exchan
   assert.match(html,/Onsen Egg/);assert.match(html,/Complete required choices for each meal/);
   assert.match(html,/<button[^>]*disabled=""[^>]*>Add 5-Day Plan/);
 });
+
+test('shared day opens only its selected meal and unavailable shared weeks never silently choose another week', () => {
+  const props = {product, products, currency:'MYR' as const, weeks:['2026-10-19','2026-10-26'], dayDates:['2026-10-20','2026-10-21'], onChange:()=>{}, sharedSelection:true};
+  const day = renderToStaticMarkup(<HealthyLunchMenu {...props} choice={{mode:'day',date:'2026-10-21'}} />);
+  assert.equal((day.match(/<li /g)||[]).length,1);
+  assert.match(day,/wed lunch/);
+  assert.doesNotMatch(day,/tue lunch/);
+  const week = renderToStaticMarkup(<HealthyLunchMenu {...props} choice={{mode:'week',date:''}} />);
+  assert.match(week,/This shared menu is not currently available/);
+  assert.match(week,/disabled=""[^>]*>Add 5-Day Plan/);
+  assert.equal((week.match(/<li /g)||[]).length,0);
+});
+
+test('a closed shared week stays visible with Add disabled', () => {
+  const html=renderToStaticMarkup(<HealthyLunchMenu product={product} products={products} currency="MYR" choice={{mode:'week',date:'2026-10-19'}} weeks={['2026-10-19']} dayDates={[]} sharedSelection sharedUnavailable canOrder={false} onChange={()=>{}} />);
+  assert.match(html,/This shared menu is not currently available/);
+  assert.equal((html.match(/<li /g)||[]).length,5);
+  assert.match(html,/disabled=""[^>]*>Add 5-Day Plan/);
+});
