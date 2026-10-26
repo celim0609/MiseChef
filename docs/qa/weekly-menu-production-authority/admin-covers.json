@@ -1,0 +1,26 @@
+[
+  {
+    "button": "Replace Image",
+    "loaded": true,
+    "source": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-623ae59d-8836-4d89-a161-877af5b69b12.jpg?alt=media&token=e3f28734-6e6e-41e1-a46b-f04f6eabb262",
+    "text": "Week cover image Replace ImageJPEG, PNG or WebP · Up to 10 MB",
+    "visibleInputs": 0,
+    "week": 1
+  },
+  {
+    "button": "Replace Image",
+    "loaded": true,
+    "source": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-e5ade864-58b9-4295-8672-2958a2840806.jpg?alt=media&token=11e5092f-8df4-4892-8b79-3e73a3ca6045",
+    "text": "Week cover image Replace ImageJPEG, PNG or WebP · Up to 10 MB",
+    "visibleInputs": 0,
+    "week": 2
+  },
+  {
+    "button": "Replace Image",
+    "loaded": true,
+    "source": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-cf1cd993-5bc3-44b5-8a43-51ff9941dc3f.jpg?alt=media&token=d7e07bfa-03fd-4757-98cc-d888757c2713",
+    "text": "Week cover image Replace ImageJPEG, PNG or WebP · Up to 10 MB",
+    "visibleInputs": 0,
+    "week": 3
+  }
+]

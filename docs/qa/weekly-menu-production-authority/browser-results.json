@@ -1,0 +1,776 @@
+[
+  {
+    "week": "week1",
+    "day": "Full Set",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Japanese chicken rice bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-623ae59d-8836-4d89-a161-877af5b69b12.jpg?alt=media&token=e3f28734-6e6e-41e1-a46b-f04f6eabb262",
+        "text": "Mon, 2 NovJapanese chicken rice bowl492 kcalMYR 12.90 / day"
+      },
+      {
+        "name": "Spicy tuna pasta",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-81be0aec-4348-4a40-83f1-9d5efa9bce8e.jpg?alt=media&token=b5f97e79-069a-4046-992c-785c37d95ef1",
+        "text": "Tue, 3 NovSpicy tuna pasta453 kcalMYR 12.90 / day"
+      },
+      {
+        "name": "Lemon baked chicken with garlic rice",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-02865d7f-8496-4202-be5b-68ac7a75b9fa.jpg?alt=media&token=ce1a00cf-3680-4479-8052-1dbefd5a0e50",
+        "text": "Wed, 4 NovLemon baked chicken with garlic rice601 kcalMYR 13.90 / day"
+      },
+      {
+        "name": "Baked prawn with potato salad",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-d692cd82-eeda-42d4-b6ff-ab684d1b98ba.jpg?alt=media&token=ec12f1bf-4cc8-4ec7-91f9-c8b886a3181f",
+        "text": "Thu, 5 NovBaked prawn with potato salad532 kcalMYR 13.90 / day"
+      },
+      {
+        "name": "Soba noodle",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-7e25ffe3-0a80-48eb-9c50-a3b8aed4064e.jpg?alt=media&token=3a09e335-6805-42aa-ab1f-27e0df49dad2",
+        "text": "Fri, 6 NovSoba noodle620 kcalMYR 13.90 / day"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-623ae59d-8836-4d89-a161-877af5b69b12.jpg?alt=media&token=e3f28734-6e6e-41e1-a46b-f04f6eabb262",
+    "pressed": [
+      "5-Day Plan"
+    ],
+    "summary": "Original PriceMYR 67.50DiscountMYR 7.50Final Weekly PriceMYR 60.00"
+  },
+  {
+    "week": "week1",
+    "day": "mon",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Japanese chicken rice bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-623ae59d-8836-4d89-a161-877af5b69b12.jpg?alt=media&token=e3f28734-6e6e-41e1-a46b-f04f6eabb262",
+        "text": "Mon, 2 NovJapanese chicken rice bowl492 kcalMYR 12.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-623ae59d-8836-4d89-a161-877af5b69b12.jpg?alt=media&token=e3f28734-6e6e-41e1-a46b-f04f6eabb262",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week1",
+    "day": "tue",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Spicy tuna pasta",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-81be0aec-4348-4a40-83f1-9d5efa9bce8e.jpg?alt=media&token=b5f97e79-069a-4046-992c-785c37d95ef1",
+        "text": "Tue, 3 NovSpicy tuna pasta453 kcalMYR 12.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-81be0aec-4348-4a40-83f1-9d5efa9bce8e.jpg?alt=media&token=b5f97e79-069a-4046-992c-785c37d95ef1",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week1",
+    "day": "wed",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Lemon baked chicken with garlic rice",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-02865d7f-8496-4202-be5b-68ac7a75b9fa.jpg?alt=media&token=ce1a00cf-3680-4479-8052-1dbefd5a0e50",
+        "text": "Wed, 4 NovLemon baked chicken with garlic rice601 kcalMYR 13.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-02865d7f-8496-4202-be5b-68ac7a75b9fa.jpg?alt=media&token=ce1a00cf-3680-4479-8052-1dbefd5a0e50",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week1",
+    "day": "thu",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Baked prawn with potato salad",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-d692cd82-eeda-42d4-b6ff-ab684d1b98ba.jpg?alt=media&token=ec12f1bf-4cc8-4ec7-91f9-c8b886a3181f",
+        "text": "Thu, 5 NovBaked prawn with potato salad532 kcalMYR 13.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-d692cd82-eeda-42d4-b6ff-ab684d1b98ba.jpg?alt=media&token=ec12f1bf-4cc8-4ec7-91f9-c8b886a3181f",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week1",
+    "day": "fri",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Soba noodle",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-7e25ffe3-0a80-48eb-9c50-a3b8aed4064e.jpg?alt=media&token=3a09e335-6805-42aa-ab1f-27e0df49dad2",
+        "text": "Fri, 6 NovSoba noodle620 kcalMYR 13.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-7e25ffe3-0a80-48eb-9c50-a3b8aed4064e.jpg?alt=media&token=3a09e335-6805-42aa-ab1f-27e0df49dad2",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week2",
+    "day": "Full Set",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Vietnam prawn noodle salad",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-745fc790-5977-4693-a9fd-f5b86bdc3896.jpg?alt=media&token=fa654bc9-02cc-4b34-945a-d846171d162d",
+        "text": "Mon, 9 NovVietnam prawn noodle salad492 kcalMYR 12.90 / dayView Ingredients**Description**\n\nA refreshing Vietnamese-inspired noodle salad featuring tender prawns, rice vermicelli, crisp vegetables, fresh coriander and crushed peanuts, served with a tangy Vietnamese fish sauce dressing.\n\n**Allergen Alert**\n\nContains: Crustaceans (Prawns), Fish (Fish Sauce), Peanuts.\n\n*Please inform us of any food allergies before ordering.*"
+      },
+      {
+        "name": "Chicken burrito bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-ef0a55da-9dfd-42ea-9994-dcf3879d0c20.jpg?alt=media&token=4d86da52-8152-4dbc-908f-69b0690c4ed5",
+        "text": "Tue, 10 NovChicken burrito bowl604 kcalMYR 13.90 / dayView Ingredients**Description**\n\nA Mexican-inspired burrito bowl featuring grilled chicken breast, brown rice, black beans, sweet corn, fresh lettuce and tomato salsa, served with lime wedges and creamy avocado yogurt sauce.\n\n**Allergen Alert**\n\nContains: Milk (Yogurt).\n\n*Please inform us of any food allergies before ordering.*"
+      },
+      {
+        "name": "Korean Gochujang Tofu Rice Bowl 🌶️",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-778b0dd0-257e-47ca-9406-e10a24476662.jpg?alt=media&token=e40b9eed-628f-457b-ac47-074dede4348d",
+        "text": "Wed, 11 NovKorean Gochujang Tofu Rice Bowl 🌶️492 kcalMYR 11.90 / dayView Ingredients**Description**\n\nA Korean-inspired rice bowl featuring gochujang-glazed tofu, mixed brown rice, hard-boiled egg, broccoli, carrot and edamame, finished with sesame seeds, spring onion and gochujang sauce.\n\n**Allergen Alert**\n\nContains: Soy, Egg, Sesame. Gochujang may contain Wheat (Gluten).\n\n*Please inform us of any food allergies before ordering.*"
+      },
+      {
+        "name": "Sweet Potatoes Lettuce Chicken Salad",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-9bd82bb9-1eda-4bde-bab9-b24bf3cffc4f.jpg?alt=media&token=4a9a4a3f-f2a2-4d97-85ad-8186c9cbcb69",
+        "text": "Thu, 12 NovSweet Potatoes Lettuce Chicken Salad593 kcalMYR 13.90 / dayView Ingredients**Description**\n\nA wholesome bowl featuring roasted chicken breast, baked yellow sweet potato, fresh lettuce, capsicum, broccoli and cherry tomatoes, served with a creamy yogurt dressing.\n\n**Allergen Alert**\n\nContains: Milk (Yogurt).\n\n*Please inform us of any food allergies before ordering.*"
+      },
+      {
+        "name": "Teriyaki Barramundi Donburi",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-d696fbd8-f5ee-400d-8b72-91299b8e92dc.jpg?alt=media&token=50e65abc-b308-42fd-8de7-795a2613e037",
+        "text": "Fri, 13 NovTeriyaki Barramundi Donburi570 kcalMYR 14.90 / dayView Ingredients**Description**\n\nA Japanese-inspired rice bowl featuring tender teriyaki-glazed fish fillet, steamed rice, broccoli, carrot, edamame and cucumber, finished with sesame seeds, spring onion and light teriyaki sauce.\n\n**Allergen Alert**\n\nContains: Fish, Soy, Sesame. Teriyaki Sauce may contain Wheat (Gluten).\n\n*Please inform us of any food allergies before ordering.*"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-e5ade864-58b9-4295-8672-2958a2840806.jpg?alt=media&token=11e5092f-8df4-4892-8b79-3e73a3ca6045",
+    "pressed": [
+      "5-Day Plan"
+    ],
+    "summary": "Original PriceMYR 67.50DiscountMYR 7.50Final Weekly PriceMYR 60.00"
+  },
+  {
+    "week": "week2",
+    "day": "mon",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Vietnam prawn noodle salad",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-745fc790-5977-4693-a9fd-f5b86bdc3896.jpg?alt=media&token=fa654bc9-02cc-4b34-945a-d846171d162d",
+        "text": "Mon, 9 NovVietnam prawn noodle salad492 kcalView Ingredients**Description**\n\nA refreshing Vietnamese-inspired noodle salad featuring tender prawns, rice vermicelli, crisp vegetables, fresh coriander and crushed peanuts, served with a tangy Vietnamese fish sauce dressing.\n\n**Allergen Alert**\n\nContains: Crustaceans (Prawns), Fish (Fish Sauce), Peanuts.\n\n*Please inform us of any food allergies before ordering.*MYR 12.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-745fc790-5977-4693-a9fd-f5b86bdc3896.jpg?alt=media&token=fa654bc9-02cc-4b34-945a-d846171d162d",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week2",
+    "day": "tue",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Chicken burrito bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-ef0a55da-9dfd-42ea-9994-dcf3879d0c20.jpg?alt=media&token=4d86da52-8152-4dbc-908f-69b0690c4ed5",
+        "text": "Tue, 20 OctChicken burrito bowl604 kcalView Ingredients**Description**\n\nA Mexican-inspired burrito bowl featuring grilled chicken breast, brown rice, black beans, sweet corn, fresh lettuce and tomato salsa, served with lime wedges and creamy avocado yogurt sauce.\n\n**Allergen Alert**\n\nContains: Milk (Yogurt).\n\n*Please inform us of any food allergies before ordering.*MYR 13.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-ef0a55da-9dfd-42ea-9994-dcf3879d0c20.jpg?alt=media&token=4d86da52-8152-4dbc-908f-69b0690c4ed5",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week2",
+    "day": "wed",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Korean Gochujang Tofu Rice Bowl 🌶️",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-778b0dd0-257e-47ca-9406-e10a24476662.jpg?alt=media&token=e40b9eed-628f-457b-ac47-074dede4348d",
+        "text": "Wed, 21 OctKorean Gochujang Tofu Rice Bowl 🌶️492 kcalView Ingredients**Description**\n\nA Korean-inspired rice bowl featuring gochujang-glazed tofu, mixed brown rice, hard-boiled egg, broccoli, carrot and edamame, finished with sesame seeds, spring onion and gochujang sauce.\n\n**Allergen Alert**\n\nContains: Soy, Egg, Sesame. Gochujang may contain Wheat (Gluten).\n\n*Please inform us of any food allergies before ordering.*MYR 11.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-778b0dd0-257e-47ca-9406-e10a24476662.jpg?alt=media&token=e40b9eed-628f-457b-ac47-074dede4348d",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week2",
+    "day": "thu",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Sweet Potatoes Lettuce Chicken Salad",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-9bd82bb9-1eda-4bde-bab9-b24bf3cffc4f.jpg?alt=media&token=4a9a4a3f-f2a2-4d97-85ad-8186c9cbcb69",
+        "text": "Thu, 22 OctSweet Potatoes Lettuce Chicken Salad593 kcalView Ingredients**Description**\n\nA wholesome bowl featuring roasted chicken breast, baked yellow sweet potato, fresh lettuce, capsicum, broccoli and cherry tomatoes, served with a creamy yogurt dressing.\n\n**Allergen Alert**\n\nContains: Milk (Yogurt).\n\n*Please inform us of any food allergies before ordering.*MYR 13.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-9bd82bb9-1eda-4bde-bab9-b24bf3cffc4f.jpg?alt=media&token=4a9a4a3f-f2a2-4d97-85ad-8186c9cbcb69",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week2",
+    "day": "fri",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Teriyaki Barramundi Donburi",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-d696fbd8-f5ee-400d-8b72-91299b8e92dc.jpg?alt=media&token=50e65abc-b308-42fd-8de7-795a2613e037",
+        "text": "Fri, 23 OctTeriyaki Barramundi Donburi570 kcalView Ingredients**Description**\n\nA Japanese-inspired rice bowl featuring tender teriyaki-glazed fish fillet, steamed rice, broccoli, carrot, edamame and cucumber, finished with sesame seeds, spring onion and light teriyaki sauce.\n\n**Allergen Alert**\n\nContains: Fish, Soy, Sesame. Teriyaki Sauce may contain Wheat (Gluten).\n\n*Please inform us of any food allergies before ordering.*MYR 14.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-d696fbd8-f5ee-400d-8b72-91299b8e92dc.jpg?alt=media&token=50e65abc-b308-42fd-8de7-795a2613e037",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week3",
+    "day": "Full Set",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Thai Basil Prawn Rice Bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-4bad10d1-161d-42af-bbdb-82b929e80595.jpg?alt=media&token=86eda496-21fe-4344-aa69-a80a5976590d",
+        "text": "Mon, 26 OctThai Basil Prawn Rice Bowl582 kcalMYR 12.90 / dayView IngredientsGarlic Mixed Rice · Thai Basil Prawns · Mango · Cucumber · Tomato · Lettuce · Purple Cabbage · Onion · Crushed Peanuts · Fresh Coriander · Thai Basil Dressing"
+      },
+      {
+        "name": "Japanese Chicken Curry Rice",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-ec995676-20db-438b-9e40-9f482b7a12e5.jpg?alt=media&token=157fb3ff-9dd3-473a-8893-ffac701340ab",
+        "text": "Tue, 27 OctJapanese Chicken Curry Rice492 kcalMYR 12.90 / dayView IngredientsMixed Rice · Japanese Curry Chicken Breast · Potato · Carrot · Onion · Broccoli · Spring Onion · Sesame Seeds"
+      },
+      {
+        "name": "Korean Tofu Bibimbap Bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-f762c8a7-674a-4069-a53b-b5261c56a226.jpg?alt=media&token=65370801-394e-45ff-841a-a2e69934b114",
+        "text": "Wed, 28 OctKorean Tofu Bibimbap Bowl449 kcalMYR 12.90 / dayView IngredientsMixed Rice · Pan-Seared Tofu · Spinach · Carrot · Purple Cabbage · Shiitake Mushrooms · Green Chilli · Egg · Spring Onion · Sesame Seeds · Korean Bibimbap SauceOptions & exchangesExchange Optional · Choose one · ExchangeOnsen Egg +RM1.50Clear choice"
+      },
+      {
+        "name": "Baked Potato Chicken Salad",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-1b60a952-5722-4d0c-bbad-6f4b8bbe17c1.jpg?alt=media&token=944df34e-9c32-446a-919e-2bd75c6a490b",
+        "text": "Thu, 29 OctBaked Potato Chicken Salad658 kcalMYR 13.90 / dayView IngredientsChicken Breast · Roasted Potatoes · Chickpeas · Cucumber · Onion · Cherry Tomatoes · Egg · Parmesan Cheese · Crispy Croutons · Ranch Dressing"
+      },
+      {
+        "name": "Cold Soba Noodle Bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-7d6c4fd9-3b55-4239-b643-13f03d951f67.jpg?alt=media&token=3a6a4f48-928c-4474-8fed-c0f11197dc9f",
+        "text": "Fri, 30 OctCold Soba Noodle Bowl441 kcalMYR 15.90 / dayView IngredientsChilled Soba Noodles · Kanikama (Crab Stick) · Cucumber · Edamame · Sweet Corn · Japanese Tamago · Seaweed · Spring Onion · Sesame Seeds · Ebiko · Soba Dressing"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-cf1cd993-5bc3-44b5-8a43-51ff9941dc3f.jpg?alt=media&token=d7e07bfa-03fd-4757-98cc-d888757c2713",
+    "pressed": [
+      "5-Day Plan"
+    ],
+    "summary": "Original PriceMYR 68.50DiscountMYR 6.50Final Weekly PriceMYR 62.00"
+  },
+  {
+    "week": "week3",
+    "day": "mon",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Thai Basil Prawn Rice Bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-4bad10d1-161d-42af-bbdb-82b929e80595.jpg?alt=media&token=86eda496-21fe-4344-aa69-a80a5976590d",
+        "text": "Mon, 26 OctThai Basil Prawn Rice Bowl582 kcalView IngredientsGarlic Mixed Rice · Thai Basil Prawns · Mango · Cucumber · Tomato · Lettuce · Purple Cabbage · Onion · Crushed Peanuts · Fresh Coriander · Thai Basil DressingMYR 12.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-4bad10d1-161d-42af-bbdb-82b929e80595.jpg?alt=media&token=86eda496-21fe-4344-aa69-a80a5976590d",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week3",
+    "day": "tue",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Japanese Chicken Curry Rice",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-ec995676-20db-438b-9e40-9f482b7a12e5.jpg?alt=media&token=157fb3ff-9dd3-473a-8893-ffac701340ab",
+        "text": "Tue, 27 OctJapanese Chicken Curry Rice492 kcalView IngredientsMixed Rice · Japanese Curry Chicken Breast · Potato · Carrot · Onion · Broccoli · Spring Onion · Sesame SeedsMYR 12.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-ec995676-20db-438b-9e40-9f482b7a12e5.jpg?alt=media&token=157fb3ff-9dd3-473a-8893-ffac701340ab",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week3",
+    "day": "wed",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Korean Tofu Bibimbap Bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-f762c8a7-674a-4069-a53b-b5261c56a226.jpg?alt=media&token=65370801-394e-45ff-841a-a2e69934b114",
+        "text": "Wed, 28 OctKorean Tofu Bibimbap Bowl449 kcalView IngredientsMixed Rice · Pan-Seared Tofu · Spinach · Carrot · Purple Cabbage · Shiitake Mushrooms · Green Chilli · Egg · Spring Onion · Sesame Seeds · Korean Bibimbap SauceOptions & exchangesExchange Optional · Choose one · ExchangeOnsen Egg +RM1.50Clear choiceMYR 12.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-f762c8a7-674a-4069-a53b-b5261c56a226.jpg?alt=media&token=65370801-394e-45ff-841a-a2e69934b114",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week3",
+    "day": "thu",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Baked Potato Chicken Salad",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-1b60a952-5722-4d0c-bbad-6f4b8bbe17c1.jpg?alt=media&token=944df34e-9c32-446a-919e-2bd75c6a490b",
+        "text": "Thu, 29 OctBaked Potato Chicken Salad658 kcalView IngredientsChicken Breast · Roasted Potatoes · Chickpeas · Cucumber · Onion · Cherry Tomatoes · Egg · Parmesan Cheese · Crispy Croutons · Ranch DressingMYR 13.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-1b60a952-5722-4d0c-bbad-6f4b8bbe17c1.jpg?alt=media&token=944df34e-9c32-446a-919e-2bd75c6a490b",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week3",
+    "day": "fri",
+    "viewport": 1440,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Cold Soba Noodle Bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-7d6c4fd9-3b55-4239-b643-13f03d951f67.jpg?alt=media&token=3a6a4f48-928c-4474-8fed-c0f11197dc9f",
+        "text": "Fri, 30 OctCold Soba Noodle Bowl441 kcalView IngredientsChilled Soba Noodles · Kanikama (Crab Stick) · Cucumber · Edamame · Sweet Corn · Japanese Tamago · Seaweed · Spring Onion · Sesame Seeds · Ebiko · Soba DressingMYR 15.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-7d6c4fd9-3b55-4239-b643-13f03d951f67.jpg?alt=media&token=3a6a4f48-928c-4474-8fed-c0f11197dc9f",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week1",
+    "day": "Full Set",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Japanese chicken rice bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-623ae59d-8836-4d89-a161-877af5b69b12.jpg?alt=media&token=e3f28734-6e6e-41e1-a46b-f04f6eabb262",
+        "text": "Mon, 2 NovJapanese chicken rice bowl492 kcalMYR 12.90 / day"
+      },
+      {
+        "name": "Spicy tuna pasta",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-81be0aec-4348-4a40-83f1-9d5efa9bce8e.jpg?alt=media&token=b5f97e79-069a-4046-992c-785c37d95ef1",
+        "text": "Tue, 3 NovSpicy tuna pasta453 kcalMYR 12.90 / day"
+      },
+      {
+        "name": "Lemon baked chicken with garlic rice",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-02865d7f-8496-4202-be5b-68ac7a75b9fa.jpg?alt=media&token=ce1a00cf-3680-4479-8052-1dbefd5a0e50",
+        "text": "Wed, 4 NovLemon baked chicken with garlic rice601 kcalMYR 13.90 / day"
+      },
+      {
+        "name": "Baked prawn with potato salad",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-d692cd82-eeda-42d4-b6ff-ab684d1b98ba.jpg?alt=media&token=ec12f1bf-4cc8-4ec7-91f9-c8b886a3181f",
+        "text": "Thu, 5 NovBaked prawn with potato salad532 kcalMYR 13.90 / day"
+      },
+      {
+        "name": "Soba noodle",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-7e25ffe3-0a80-48eb-9c50-a3b8aed4064e.jpg?alt=media&token=3a09e335-6805-42aa-ab1f-27e0df49dad2",
+        "text": "Fri, 6 NovSoba noodle620 kcalMYR 13.90 / day"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-623ae59d-8836-4d89-a161-877af5b69b12.jpg?alt=media&token=e3f28734-6e6e-41e1-a46b-f04f6eabb262",
+    "pressed": [
+      "5-Day Plan"
+    ],
+    "summary": "Original PriceMYR 67.50DiscountMYR 7.50Final Weekly PriceMYR 60.00"
+  },
+  {
+    "week": "week1",
+    "day": "mon",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Japanese chicken rice bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-623ae59d-8836-4d89-a161-877af5b69b12.jpg?alt=media&token=e3f28734-6e6e-41e1-a46b-f04f6eabb262",
+        "text": "Mon, 2 NovJapanese chicken rice bowl492 kcalMYR 12.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-623ae59d-8836-4d89-a161-877af5b69b12.jpg?alt=media&token=e3f28734-6e6e-41e1-a46b-f04f6eabb262",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week1",
+    "day": "tue",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Spicy tuna pasta",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-81be0aec-4348-4a40-83f1-9d5efa9bce8e.jpg?alt=media&token=b5f97e79-069a-4046-992c-785c37d95ef1",
+        "text": "Tue, 3 NovSpicy tuna pasta453 kcalMYR 12.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-81be0aec-4348-4a40-83f1-9d5efa9bce8e.jpg?alt=media&token=b5f97e79-069a-4046-992c-785c37d95ef1",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week1",
+    "day": "wed",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Lemon baked chicken with garlic rice",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-02865d7f-8496-4202-be5b-68ac7a75b9fa.jpg?alt=media&token=ce1a00cf-3680-4479-8052-1dbefd5a0e50",
+        "text": "Wed, 4 NovLemon baked chicken with garlic rice601 kcalMYR 13.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-02865d7f-8496-4202-be5b-68ac7a75b9fa.jpg?alt=media&token=ce1a00cf-3680-4479-8052-1dbefd5a0e50",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week1",
+    "day": "thu",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Baked prawn with potato salad",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-d692cd82-eeda-42d4-b6ff-ab684d1b98ba.jpg?alt=media&token=ec12f1bf-4cc8-4ec7-91f9-c8b886a3181f",
+        "text": "Thu, 5 NovBaked prawn with potato salad532 kcalMYR 13.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-d692cd82-eeda-42d4-b6ff-ab684d1b98ba.jpg?alt=media&token=ec12f1bf-4cc8-4ec7-91f9-c8b886a3181f",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week1",
+    "day": "fri",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Soba noodle",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-7e25ffe3-0a80-48eb-9c50-a3b8aed4064e.jpg?alt=media&token=3a09e335-6805-42aa-ab1f-27e0df49dad2",
+        "text": "Fri, 6 NovSoba noodle620 kcalMYR 13.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-7e25ffe3-0a80-48eb-9c50-a3b8aed4064e.jpg?alt=media&token=3a09e335-6805-42aa-ab1f-27e0df49dad2",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week2",
+    "day": "Full Set",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Vietnam prawn noodle salad",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-745fc790-5977-4693-a9fd-f5b86bdc3896.jpg?alt=media&token=fa654bc9-02cc-4b34-945a-d846171d162d",
+        "text": "Mon, 9 NovVietnam prawn noodle salad492 kcalMYR 12.90 / dayView Ingredients**Description**\n\nA refreshing Vietnamese-inspired noodle salad featuring tender prawns, rice vermicelli, crisp vegetables, fresh coriander and crushed peanuts, served with a tangy Vietnamese fish sauce dressing.\n\n**Allergen Alert**\n\nContains: Crustaceans (Prawns), Fish (Fish Sauce), Peanuts.\n\n*Please inform us of any food allergies before ordering.*"
+      },
+      {
+        "name": "Chicken burrito bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-ef0a55da-9dfd-42ea-9994-dcf3879d0c20.jpg?alt=media&token=4d86da52-8152-4dbc-908f-69b0690c4ed5",
+        "text": "Tue, 10 NovChicken burrito bowl604 kcalMYR 13.90 / dayView Ingredients**Description**\n\nA Mexican-inspired burrito bowl featuring grilled chicken breast, brown rice, black beans, sweet corn, fresh lettuce and tomato salsa, served with lime wedges and creamy avocado yogurt sauce.\n\n**Allergen Alert**\n\nContains: Milk (Yogurt).\n\n*Please inform us of any food allergies before ordering.*"
+      },
+      {
+        "name": "Korean Gochujang Tofu Rice Bowl 🌶️",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-778b0dd0-257e-47ca-9406-e10a24476662.jpg?alt=media&token=e40b9eed-628f-457b-ac47-074dede4348d",
+        "text": "Wed, 11 NovKorean Gochujang Tofu Rice Bowl 🌶️492 kcalMYR 11.90 / dayView Ingredients**Description**\n\nA Korean-inspired rice bowl featuring gochujang-glazed tofu, mixed brown rice, hard-boiled egg, broccoli, carrot and edamame, finished with sesame seeds, spring onion and gochujang sauce.\n\n**Allergen Alert**\n\nContains: Soy, Egg, Sesame. Gochujang may contain Wheat (Gluten).\n\n*Please inform us of any food allergies before ordering.*"
+      },
+      {
+        "name": "Sweet Potatoes Lettuce Chicken Salad",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-9bd82bb9-1eda-4bde-bab9-b24bf3cffc4f.jpg?alt=media&token=4a9a4a3f-f2a2-4d97-85ad-8186c9cbcb69",
+        "text": "Thu, 12 NovSweet Potatoes Lettuce Chicken Salad593 kcalMYR 13.90 / dayView Ingredients**Description**\n\nA wholesome bowl featuring roasted chicken breast, baked yellow sweet potato, fresh lettuce, capsicum, broccoli and cherry tomatoes, served with a creamy yogurt dressing.\n\n**Allergen Alert**\n\nContains: Milk (Yogurt).\n\n*Please inform us of any food allergies before ordering.*"
+      },
+      {
+        "name": "Teriyaki Barramundi Donburi",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-d696fbd8-f5ee-400d-8b72-91299b8e92dc.jpg?alt=media&token=50e65abc-b308-42fd-8de7-795a2613e037",
+        "text": "Fri, 13 NovTeriyaki Barramundi Donburi570 kcalMYR 14.90 / dayView Ingredients**Description**\n\nA Japanese-inspired rice bowl featuring tender teriyaki-glazed fish fillet, steamed rice, broccoli, carrot, edamame and cucumber, finished with sesame seeds, spring onion and light teriyaki sauce.\n\n**Allergen Alert**\n\nContains: Fish, Soy, Sesame. Teriyaki Sauce may contain Wheat (Gluten).\n\n*Please inform us of any food allergies before ordering.*"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-e5ade864-58b9-4295-8672-2958a2840806.jpg?alt=media&token=11e5092f-8df4-4892-8b79-3e73a3ca6045",
+    "pressed": [
+      "5-Day Plan"
+    ],
+    "summary": "Original PriceMYR 67.50DiscountMYR 7.50Final Weekly PriceMYR 60.00"
+  },
+  {
+    "week": "week2",
+    "day": "mon",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Vietnam prawn noodle salad",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-745fc790-5977-4693-a9fd-f5b86bdc3896.jpg?alt=media&token=fa654bc9-02cc-4b34-945a-d846171d162d",
+        "text": "Mon, 9 NovVietnam prawn noodle salad492 kcalView Ingredients**Description**\n\nA refreshing Vietnamese-inspired noodle salad featuring tender prawns, rice vermicelli, crisp vegetables, fresh coriander and crushed peanuts, served with a tangy Vietnamese fish sauce dressing.\n\n**Allergen Alert**\n\nContains: Crustaceans (Prawns), Fish (Fish Sauce), Peanuts.\n\n*Please inform us of any food allergies before ordering.*MYR 12.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-745fc790-5977-4693-a9fd-f5b86bdc3896.jpg?alt=media&token=fa654bc9-02cc-4b34-945a-d846171d162d",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week2",
+    "day": "tue",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Chicken burrito bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-ef0a55da-9dfd-42ea-9994-dcf3879d0c20.jpg?alt=media&token=4d86da52-8152-4dbc-908f-69b0690c4ed5",
+        "text": "Tue, 20 OctChicken burrito bowl604 kcalView Ingredients**Description**\n\nA Mexican-inspired burrito bowl featuring grilled chicken breast, brown rice, black beans, sweet corn, fresh lettuce and tomato salsa, served with lime wedges and creamy avocado yogurt sauce.\n\n**Allergen Alert**\n\nContains: Milk (Yogurt).\n\n*Please inform us of any food allergies before ordering.*MYR 13.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-ef0a55da-9dfd-42ea-9994-dcf3879d0c20.jpg?alt=media&token=4d86da52-8152-4dbc-908f-69b0690c4ed5",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week2",
+    "day": "wed",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Korean Gochujang Tofu Rice Bowl 🌶️",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-778b0dd0-257e-47ca-9406-e10a24476662.jpg?alt=media&token=e40b9eed-628f-457b-ac47-074dede4348d",
+        "text": "Wed, 21 OctKorean Gochujang Tofu Rice Bowl 🌶️492 kcalView Ingredients**Description**\n\nA Korean-inspired rice bowl featuring gochujang-glazed tofu, mixed brown rice, hard-boiled egg, broccoli, carrot and edamame, finished with sesame seeds, spring onion and gochujang sauce.\n\n**Allergen Alert**\n\nContains: Soy, Egg, Sesame. Gochujang may contain Wheat (Gluten).\n\n*Please inform us of any food allergies before ordering.*MYR 11.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-778b0dd0-257e-47ca-9406-e10a24476662.jpg?alt=media&token=e40b9eed-628f-457b-ac47-074dede4348d",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week2",
+    "day": "thu",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Sweet Potatoes Lettuce Chicken Salad",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-9bd82bb9-1eda-4bde-bab9-b24bf3cffc4f.jpg?alt=media&token=4a9a4a3f-f2a2-4d97-85ad-8186c9cbcb69",
+        "text": "Thu, 22 OctSweet Potatoes Lettuce Chicken Salad593 kcalView Ingredients**Description**\n\nA wholesome bowl featuring roasted chicken breast, baked yellow sweet potato, fresh lettuce, capsicum, broccoli and cherry tomatoes, served with a creamy yogurt dressing.\n\n**Allergen Alert**\n\nContains: Milk (Yogurt).\n\n*Please inform us of any food allergies before ordering.*MYR 13.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-9bd82bb9-1eda-4bde-bab9-b24bf3cffc4f.jpg?alt=media&token=4a9a4a3f-f2a2-4d97-85ad-8186c9cbcb69",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week2",
+    "day": "fri",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Teriyaki Barramundi Donburi",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-d696fbd8-f5ee-400d-8b72-91299b8e92dc.jpg?alt=media&token=50e65abc-b308-42fd-8de7-795a2613e037",
+        "text": "Fri, 23 OctTeriyaki Barramundi Donburi570 kcalView Ingredients**Description**\n\nA Japanese-inspired rice bowl featuring tender teriyaki-glazed fish fillet, steamed rice, broccoli, carrot, edamame and cucumber, finished with sesame seeds, spring onion and light teriyaki sauce.\n\n**Allergen Alert**\n\nContains: Fish, Soy, Sesame. Teriyaki Sauce may contain Wheat (Gluten).\n\n*Please inform us of any food allergies before ordering.*MYR 14.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-d696fbd8-f5ee-400d-8b72-91299b8e92dc.jpg?alt=media&token=50e65abc-b308-42fd-8de7-795a2613e037",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week3",
+    "day": "Full Set",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Thai Basil Prawn Rice Bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-4bad10d1-161d-42af-bbdb-82b929e80595.jpg?alt=media&token=86eda496-21fe-4344-aa69-a80a5976590d",
+        "text": "Mon, 26 OctThai Basil Prawn Rice Bowl582 kcalMYR 12.90 / dayView IngredientsGarlic Mixed Rice · Thai Basil Prawns · Mango · Cucumber · Tomato · Lettuce · Purple Cabbage · Onion · Crushed Peanuts · Fresh Coriander · Thai Basil Dressing"
+      },
+      {
+        "name": "Japanese Chicken Curry Rice",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-ec995676-20db-438b-9e40-9f482b7a12e5.jpg?alt=media&token=157fb3ff-9dd3-473a-8893-ffac701340ab",
+        "text": "Tue, 27 OctJapanese Chicken Curry Rice492 kcalMYR 12.90 / dayView IngredientsMixed Rice · Japanese Curry Chicken Breast · Potato · Carrot · Onion · Broccoli · Spring Onion · Sesame Seeds"
+      },
+      {
+        "name": "Korean Tofu Bibimbap Bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-f762c8a7-674a-4069-a53b-b5261c56a226.jpg?alt=media&token=65370801-394e-45ff-841a-a2e69934b114",
+        "text": "Wed, 28 OctKorean Tofu Bibimbap Bowl449 kcalMYR 12.90 / dayView IngredientsMixed Rice · Pan-Seared Tofu · Spinach · Carrot · Purple Cabbage · Shiitake Mushrooms · Green Chilli · Egg · Spring Onion · Sesame Seeds · Korean Bibimbap SauceOptions & exchangesExchange Optional · Choose one · ExchangeOnsen Egg +RM1.50Clear choice"
+      },
+      {
+        "name": "Baked Potato Chicken Salad",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-1b60a952-5722-4d0c-bbad-6f4b8bbe17c1.jpg?alt=media&token=944df34e-9c32-446a-919e-2bd75c6a490b",
+        "text": "Thu, 29 OctBaked Potato Chicken Salad658 kcalMYR 13.90 / dayView IngredientsChicken Breast · Roasted Potatoes · Chickpeas · Cucumber · Onion · Cherry Tomatoes · Egg · Parmesan Cheese · Crispy Croutons · Ranch Dressing"
+      },
+      {
+        "name": "Cold Soba Noodle Bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-7d6c4fd9-3b55-4239-b643-13f03d951f67.jpg?alt=media&token=3a6a4f48-928c-4474-8fed-c0f11197dc9f",
+        "text": "Fri, 30 OctCold Soba Noodle Bowl441 kcalMYR 15.90 / dayView IngredientsChilled Soba Noodles · Kanikama (Crab Stick) · Cucumber · Edamame · Sweet Corn · Japanese Tamago · Seaweed · Spring Onion · Sesame Seeds · Ebiko · Soba Dressing"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-cf1cd993-5bc3-44b5-8a43-51ff9941dc3f.jpg?alt=media&token=d7e07bfa-03fd-4757-98cc-d888757c2713",
+    "pressed": [
+      "5-Day Plan"
+    ],
+    "summary": "Original PriceMYR 68.50DiscountMYR 6.50Final Weekly PriceMYR 62.00"
+  },
+  {
+    "week": "week3",
+    "day": "mon",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Thai Basil Prawn Rice Bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-4bad10d1-161d-42af-bbdb-82b929e80595.jpg?alt=media&token=86eda496-21fe-4344-aa69-a80a5976590d",
+        "text": "Mon, 26 OctThai Basil Prawn Rice Bowl582 kcalView IngredientsGarlic Mixed Rice · Thai Basil Prawns · Mango · Cucumber · Tomato · Lettuce · Purple Cabbage · Onion · Crushed Peanuts · Fresh Coriander · Thai Basil DressingMYR 12.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-4bad10d1-161d-42af-bbdb-82b929e80595.jpg?alt=media&token=86eda496-21fe-4344-aa69-a80a5976590d",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week3",
+    "day": "tue",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Japanese Chicken Curry Rice",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-ec995676-20db-438b-9e40-9f482b7a12e5.jpg?alt=media&token=157fb3ff-9dd3-473a-8893-ffac701340ab",
+        "text": "Tue, 27 OctJapanese Chicken Curry Rice492 kcalView IngredientsMixed Rice · Japanese Curry Chicken Breast · Potato · Carrot · Onion · Broccoli · Spring Onion · Sesame SeedsMYR 12.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-ec995676-20db-438b-9e40-9f482b7a12e5.jpg?alt=media&token=157fb3ff-9dd3-473a-8893-ffac701340ab",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week3",
+    "day": "wed",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Korean Tofu Bibimbap Bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-f762c8a7-674a-4069-a53b-b5261c56a226.jpg?alt=media&token=65370801-394e-45ff-841a-a2e69934b114",
+        "text": "Wed, 28 OctKorean Tofu Bibimbap Bowl449 kcalView IngredientsMixed Rice · Pan-Seared Tofu · Spinach · Carrot · Purple Cabbage · Shiitake Mushrooms · Green Chilli · Egg · Spring Onion · Sesame Seeds · Korean Bibimbap SauceOptions & exchangesExchange Optional · Choose one · ExchangeOnsen Egg +RM1.50Clear choiceMYR 12.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-f762c8a7-674a-4069-a53b-b5261c56a226.jpg?alt=media&token=65370801-394e-45ff-841a-a2e69934b114",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week3",
+    "day": "thu",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Baked Potato Chicken Salad",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-1b60a952-5722-4d0c-bbad-6f4b8bbe17c1.jpg?alt=media&token=944df34e-9c32-446a-919e-2bd75c6a490b",
+        "text": "Thu, 29 OctBaked Potato Chicken Salad658 kcalView IngredientsChicken Breast · Roasted Potatoes · Chickpeas · Cucumber · Onion · Cherry Tomatoes · Egg · Parmesan Cheese · Crispy Croutons · Ranch DressingMYR 13.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-1b60a952-5722-4d0c-bbad-6f4b8bbe17c1.jpg?alt=media&token=944df34e-9c32-446a-919e-2bd75c6a490b",
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "week": "week3",
+    "day": "fri",
+    "viewport": 375,
+    "correctMode": true,
+    "correctMealsPhotosPrices": true,
+    "cards": [
+      {
+        "name": "Cold Soba Noodle Bowl",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-7d6c4fd9-3b55-4239-b643-13f03d951f67.jpg?alt=media&token=3a6a4f48-928c-4474-8fed-c0f11197dc9f",
+        "text": "Fri, 30 OctCold Soba Noodle Bowl441 kcalView IngredientsChilled Soba Noodles · Kanikama (Crab Stick) · Cucumber · Edamame · Sweet Corn · Japanese Tamago · Seaweed · Spring Onion · Sesame Seeds · Ebiko · Soba DressingMYR 15.90Add"
+      }
+    ],
+    "cover": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-7d6c4fd9-3b55-4239-b643-13f03d951f67.jpg?alt=media&token=3a6a4f48-928c-4474-8fed-c0f11197dc9f",
+    "pressed": [
+      "Order by Day"
+    ]
+  }
+]
