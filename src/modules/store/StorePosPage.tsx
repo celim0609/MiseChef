@@ -750,7 +750,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {externalCategory === 'all' && externalProducts.filter(product => product.productType !== 'weekly_meal_plan').map(product => (
                   <article key={product.id} className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
-                    <div className="aspect-[16/9] bg-slate-100">{product.photoUrl ? <img src={product.photoUrl} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs font-bold text-slate-400">No image</div>}</div>
+                    <div className="relative aspect-[16/9] shrink-0 overflow-hidden bg-slate-100">{product.photoUrl ? <img src={product.photoUrl} alt="" className="absolute inset-0 h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs font-bold text-slate-400">No image</div>}</div>
                     <div className="flex flex-1 flex-col gap-2 p-3">
                       <h3 className="break-words text-sm font-black">{product.name}</h3>
                       <p className="mt-auto text-sm font-bold text-slate-600">MYR {product.price.toFixed(2)}</p>
@@ -760,7 +760,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                 ))}
                 {(externalCategory === 'all' || externalCategory === 'sets') && externalSets.map(set => (
                   <article key={set.id} className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
-                    <div className="aspect-[16/9] bg-slate-100">{set.photoUrl ? <img src={set.photoUrl} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs font-bold text-slate-400">Set</div>}</div>
+                    <div className="relative aspect-[16/9] shrink-0 overflow-hidden bg-slate-100">{set.photoUrl ? <img src={set.photoUrl} alt="" className="absolute inset-0 h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs font-bold text-slate-400">Set</div>}</div>
                     <div className="flex flex-1 flex-col gap-2 p-3">
                       <h3 className="break-words text-sm font-black">{set.name}</h3>
                       <p className="mt-auto text-sm font-bold text-slate-600">MYR {set.price.toFixed(2)}</p>
