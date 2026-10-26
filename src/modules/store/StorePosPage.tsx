@@ -233,8 +233,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   useEffect(() => {setDailyHistory(null);}, [storeId, workspaceId]);
   const [externalOpen, setExternalOpen] = useState(false);
   const [externalStore, setExternalStore] = useState<WorkspaceStore | null>(null);
-  const [externalSearch, setExternalSearch] = useState('');
-  const [externalCategory, setExternalCategory] = useState<'all'|'products'|'sets'|'weekly'>('all');
+  const [externalCategory, setExternalCategory] = useState<'all'|'sets'|'weekly'>('all');
   const [externalLoading, setExternalLoading] = useState(false);
   const externalRequestIdRef = useRef(crypto.randomUUID());
   const [externalProducts, setExternalProducts] = useState<StoreProduct[]>([]);
@@ -419,6 +418,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const openExternalOrder = async () => {
     setErrorMessage('');
     setExternalError('');
+    setExternalCategory('all');
     setExternalOpen(true);
     setExternalLoading(true);
     try {
@@ -740,29 +740,36 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
 
             <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] md:grid-rows-1 md:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
             <div role="region" aria-label="Store products" className="min-h-0 flex-1 overflow-y-auto p-4">
-              <div className="sticky top-0 z-10 mb-3 space-y-2 bg-white pb-2">
-                <label className="block text-sm font-bold">Search catalog<input type="search" aria-label="Search POS products and sets" value={externalSearch} onChange={event=>setExternalSearch(event.target.value)} placeholder="Search products or sets…" className="mt-1 w-full rounded-xl border p-3"/></label>
-                <div className="flex flex-wrap gap-2">{(['all','products','sets','weekly'] as const).map(category=><button key={category} type="button" aria-pressed={externalCategory===category} onClick={()=>setExternalCategory(category)} className={`rounded-lg border px-3 py-2 text-sm font-bold ${externalCategory===category?'bg-blue-700 text-white':'bg-white'}`}>{category==='all'?'All':category==='weekly'?'Weekly menus':category==='sets'?'Sets':'Products'}</button>)}</div>
+              <div aria-label="Catalog categories" className="sticky top-0 z-10 mb-3 grid grid-cols-3 gap-2 bg-white pb-2">
+                {(['all','sets','weekly'] as const).map(category => <button key={category} type="button" aria-pressed={externalCategory === category} onClick={() => setExternalCategory(category)} className={`min-h-11 rounded-lg border px-2 py-2 text-sm font-bold ${externalCategory === category ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}>{category === 'all' ? 'All Products' : category === 'sets' ? 'Sets' : 'Weekly'}</button>)}
               </div>
               {externalLoading && <p role="status">Loading Store catalog…</p>}
               {!externalLoading && !externalProducts.length && !externalSets.length && <p>No available products. Review Store products.</p>}
-              {(externalCategory==='all'||externalCategory==='weekly') && externalStore && externalProducts.filter(product=>product.productType==='weekly_meal_plan' && product.name.toLowerCase().includes(externalSearch.toLowerCase())).map(product=><div key={product.id} className="mb-4"><PosWeeklyMenu exactTime disabled={creatingExternal || externalLoading} product={product} products={externalProducts} store={externalStore} onAdd={(choice,time)=>addExternalMenu(product,choice,time)}/></div>)}
-              <div className="grid grid-cols-2 items-start gap-3 xl:grid-cols-3">
-                {(externalCategory==='all'||externalCategory==='products') && externalProducts.filter(product=>product.productType!=='weekly_meal_plan' && product.name.toLowerCase().includes(externalSearch.toLowerCase())).map(product => (
-                  <article key={product.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+              {!externalLoading && externalCategory === 'sets' && !externalSets.length && <p className="py-6 text-sm text-slate-500">No available sets.</p>}
+              {!externalLoading && externalCategory === 'weekly' && !externalProducts.some(product => product.productType === 'weekly_meal_plan') && <p className="py-6 text-sm text-slate-500">No available weekly menus.</p>}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {externalCategory === 'all' && externalProducts.filter(product => product.productType !== 'weekly_meal_plan').map(product => (
+                  <article key={product.id} className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
                     <div className="aspect-[16/9] bg-slate-100">{product.photoUrl ? <img src={product.photoUrl} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs font-bold text-slate-400">No image</div>}</div>
-                    <div className="space-y-2 p-3">
-                      <p className="text-sm font-black">{product.name}</p>
-                      <p className="text-sm font-bold text-slate-600">MYR {product.price.toFixed(2)}</p>
-                      <button type="button" onClick={() => addExternalProduct(product)} disabled={creatingExternal} className="w-full rounded-lg bg-blue-50 px-3 py-2 text-sm font-black text-blue-800 hover:bg-blue-100 disabled:opacity-40">Add</button>
+                    <div className="flex flex-1 flex-col gap-2 p-3">
+                      <h3 className="break-words text-sm font-black">{product.name}</h3>
+                      <p className="mt-auto text-sm font-bold text-slate-600">MYR {product.price.toFixed(2)}</p>
+                      <button type="button" onClick={() => addExternalProduct(product)} disabled={creatingExternal} className="min-h-11 w-full rounded-lg bg-blue-50 px-3 py-2 text-sm font-black text-blue-800 hover:bg-blue-100 disabled:opacity-40">Add</button>
                     </div>
                   </article>
                 ))}
+                {(externalCategory === 'all' || externalCategory === 'sets') && externalSets.map(set => (
+                  <article key={set.id} className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
+                    <div className="aspect-[16/9] bg-slate-100">{set.photoUrl ? <img src={set.photoUrl} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs font-bold text-slate-400">Set</div>}</div>
+                    <div className="flex flex-1 flex-col gap-2 p-3">
+                      <h3 className="break-words text-sm font-black">{set.name}</h3>
+                      <p className="mt-auto text-sm font-bold text-slate-600">MYR {set.price.toFixed(2)}</p>
+                      <button type="button" onClick={() => addExternalSet(set)} disabled={creatingExternal} className="min-h-11 w-full rounded-lg bg-blue-50 px-3 py-2 text-sm font-black text-blue-800 hover:bg-blue-100 disabled:opacity-40">Add</button>
+                    </div>
+                  </article>
+                ))}
+                {(externalCategory === 'all' || externalCategory === 'weekly') && externalStore && externalProducts.filter(product => product.productType === 'weekly_meal_plan').map(product => <div key={product.id} className="col-span-full min-w-0"><PosWeeklyMenu exactTime disabled={creatingExternal || externalLoading} product={product} products={externalProducts} store={externalStore} onAdd={(choice,time) => addExternalMenu(product,choice,time)}/></div>)}
               </div>
-              {(externalCategory==='all'||externalCategory==='sets') && externalSets.length > 0 && <div className="mt-4 border-t pt-3">
-                <p className="mb-2 text-sm font-black">Sets</p>
-                <div className="grid gap-2 sm:grid-cols-2">{externalSets.filter(set=>set.name.toLowerCase().includes(externalSearch.toLowerCase())).map(set => <button key={set.id} type="button" onClick={() => addExternalSet(set)} disabled={creatingExternal} className="rounded-xl border border-violet-300 bg-violet-50 p-3 text-left disabled:opacity-40"><span className="block font-black">Set · {set.name}</span><span className="text-sm font-bold text-slate-600">MYR {set.price.toFixed(2)} · Add</span></button>)}</div>
-              </div>}
             </div>
 
             <div className="flex min-h-0 shrink-0 flex-col border-t bg-slate-50 md:border-l md:border-t-0">

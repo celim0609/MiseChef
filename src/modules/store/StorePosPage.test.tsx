@@ -297,8 +297,8 @@ test('POS modal keeps errors directly above the full-width action and separates 
   assert.match(modal, /aria-label="Order cart" className="min-h-0 flex-1 overflow-y-auto/);
   assert.match(modal, /md:w-\[90vw\] max-w-\[1440px\]/);
   assert.match(modal, /md:grid-cols-\[minmax\(0,1fr\)_minmax\(320px,420px\)\]/);
-  assert.match(modal, /grid grid-cols-2 items-start gap-3 xl:grid-cols-3/);
-  assert.match(modal, /Search POS products and sets/);
+  assert.match(modal, /grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3/);
+  assert.doesNotMatch(modal, /Search catalog|Search POS products and sets/);
   assert.match(modal, /grid-rows-\[minmax\(0,1fr\)_minmax\(0,1fr\)\]/);
   assert.match(modal, /Cart is empty/);
   assert.match(modal, /item\.unitPrice\.toFixed\(2\)/);
