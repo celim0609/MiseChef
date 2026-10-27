@@ -1,0 +1,47 @@
+name: Beta Renderer 20261028 Incident Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      recovery_confirmation:
+        description: Type RESTORE BETA RENDERER 20261028
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: misechef-beta-deployment
+  cancel-in-progress: false
+
+jobs:
+  restore-renderer:
+    if: ${{ github.ref == 'refs/heads/main' && inputs.recovery_confirmation == 'RESTORE BETA RENDERER 20261028' }}
+    runs-on: ubuntu-latest
+    environment: beta
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with:
+          ref: 22550b371d096b8b441f91fd24a86f3c0196cb3d
+          path: stable-source
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Authenticate to Beta
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_MISECHEF_BETA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Restore only the prior Beta Store renderer
+        env:
+          RECOVERY_CONFIRMATION: ${{ inputs.recovery_confirmation }}
+          FIREBASE_DEPLOY_TARGET: beta
+        run: node scripts/recoverBetaRenderer20261028.mjs
