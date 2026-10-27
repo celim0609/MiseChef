@@ -19,7 +19,7 @@ export const canonicalSchedule = draft => {
   }).sort((a, b) => a.date.localeCompare(b.date));
 };
 
-export const buildOrderFulfilments = ({ store, draft, products, groupOrder, getDates, getTimes, now = new Date() }) => {
+export const buildOrderFulfilments = ({ store, draft, products, groupOrder, getDates, getTimes, now = new Date(), owner = false }) => {
   const schedule = canonicalSchedule(draft);
   if (!schedule) return null;
   if (groupOrder || draft.groupShareCode) throw new Error('Group Orders use their existing single-date schedule.');
@@ -68,7 +68,7 @@ export const buildOrderFulfilments = ({ store, draft, products, groupOrder, getD
       if (selection.setId) {
         if ((selection.selectedSetItems || []).some(item => !productAllowsFulfilmentDate(products.find(product => product.id === item.productId) || {}, entry.date))) throw new Error('A Set meal does not match its Available day.');
       } else if (!product || (!weekly && !productAllowsFulfilmentDate(product, entry.date))) throw new Error('A meal does not match its Available day.');
-      if (!Number.isInteger(selection.quantity) || selection.quantity < 1 || selection.quantity > 20) throw new Error('Choose a valid quantity.');
+      if (!Number.isInteger(selection.quantity) || selection.quantity < 1 || selection.quantity > (owner ? 10000 : 20)) throw new Error('Choose a valid quantity.');
       return { itemIndex, quantity: selection.quantity, ...(weekly ? { componentDay: WEEKLY_DAYS[dayIndex] } : {}) };
     });
     return { ...(delivery && entry.destination ? { destination: entry.destination } : {}), id: `day_${entry.date.replaceAll('-', '')}`, method: delivery ? 'delivery' : 'pickup', date: entry.date, time: entry.time,

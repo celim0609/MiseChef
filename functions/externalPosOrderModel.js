@@ -5,8 +5,14 @@ import { isFullWeekSelection, isWeeklyMealPlan, getWeeklyDates } from './storeWe
 import { mergeMealOptionSnapshots, resolveSelectionMealOptions } from './healthyLunchOptions.js';
 
 // Prices and daily meal snapshots always come from the Store catalog, not POS inputs.
-export function buildExternalOrderItems(input, checkout, now = new Date()) {
+export function buildExternalOrderItems(input, checkout, now = new Date(), { owner = false } = {}) {
   const method = input.fulfilmentMethod || 'pickup';
+  if (input.selections?.some(selection => !Number.isInteger(selection.quantity) || selection.quantity < 1 || selection.quantity > (owner ? 10000 : 20))) throw new Error('Choose a valid quantity.');
+  if (owner) {
+    const selectedIds = new Set(input.selections.flatMap(selection => [selection.productId, ...(selection.selectedSetItems || []).map(item => item.productId)].filter(Boolean)));
+    if (checkout.products.some(product => selectedIds.has(product.id) && (product.storeId !== checkout.store.id || product.workspaceId !== checkout.store.workspaceId))) throw new Error('A selected product belongs to another Store.');
+  }
+  if (owner && input.selections.some(selection => { const product = checkout.products.find(product => product.id === selection.productId); return product && (!String(product.name || '').trim() || !Number.isFinite(product.price) || product.price < 0 || Math.round(product.price * 100) / 100 !== product.price); })) throw new Error('This product configuration is invalid.');
   if (!['pickup', 'delivery'].includes(method)) throw new Error('Choose Delivery or Pickup.');
   const address = typeof input.deliveryAddress === 'string' ? input.deliveryAddress.trim() : '';
   if (method === 'delivery' && (!address || address.length > 1000)) throw new Error('Enter a delivery address (up to 1000 characters).');
@@ -42,9 +48,10 @@ export function buildExternalOrderItems(input, checkout, now = new Date()) {
       daily = buildOrderFulfilments({ store: method === 'delivery' ? {...checkout.store,pickupLocations:[{id:'external',name:'',address:''}]} : checkout.store, products: checkout.products,
         draft: { selections: [selection], fulfilmentMethod:'pickup', pickupLocationId: method === 'delivery' ? 'external' : input.pickupLocationId || checkout.store.pickupLocations?.[0]?.id,
           fulfilments: dates.map(date => ({date,time,itemIndexes:[0]})) },
-        getDates:getValidPickupDates, getTimes: input.fulfilmentMethod ? () => [time] : getPickupTimeSlots, now });
+        getDates:getValidPickupDates, getTimes: input.fulfilmentMethod ? () => [time] : getPickupTimeSlots, now, owner });
     }
-    const [item] = buildOrderItems([selection], checkout.products, checkout.optionGroups, checkout.sets, date);
+    const [item] = buildOrderItems([selection], checkout.products, checkout.optionGroups, checkout.sets, date, { owner, storeId: checkout.store.id, workspaceId: checkout.store.workspaceId });
+    if (!Number.isSafeInteger(Math.round(item.lineTotal * 100)) || item.lineTotal < 0) throw new Error('Order amount is unsafe.');
     if (daily?.weeklyPlanSnapshot) item.weeklyPlanSnapshot = mergeMealOptionSnapshots(daily.weeklyPlanSnapshot, resolveSelectionMealOptions(selection, checkout.products, date));
     items.push(item);
     const entries = daily?.fulfilments || [{date:immediateDate,time:immediateTime,method:'pickup',pickupLocationId:checkout.store.pickupLocations?.[0]?.id || '',pickupLocationName:checkout.store.pickupLocations?.[0]?.name || '',pickupLocationAddress:checkout.store.pickupLocations?.[0]?.address || '',allocations:[{itemIndex:0,quantity:selection.quantity}]}];

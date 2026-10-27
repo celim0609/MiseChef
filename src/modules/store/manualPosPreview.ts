@@ -31,6 +31,7 @@ export function previewManualLines(
   products: StoreProduct[],
   sets: StoreSet[],
   groups: StoreOptionGroup[],
+  owner = false,
 ) {
   const rows = lines.map((line, index) => {
     let name = line.custom?.name || "Custom Item";
@@ -41,9 +42,9 @@ export function previewManualLines(
       if (
         !Number.isInteger(line.quantity) ||
         line.quantity < 1 ||
-        line.quantity > 20
+        line.quantity > (owner ? 10000 : 20)
       )
-        throw new Error("Quantity must be 1–20.");
+        throw new Error("Choose a valid quantity.");
       if (line.custom) {
         unitMinor = Math.round(line.custom.unitPrice * 100);
         if (!line.custom.name.trim()) throw new Error("Enter an item name.");
@@ -65,7 +66,7 @@ export function previewManualLines(
           product?.name ||
           sets.find((s) => s.id === selection.setId)?.name ||
           "Unavailable item";
-        let catalog = products;
+        let catalog = owner ? products.map(p => ({ ...p, available: true })) : products;
         if (product && hasEmbeddedMenu(product) && selection.healthyLunchDate) {
           const meal = resolveHealthyLunchDay(
             product,
@@ -73,7 +74,7 @@ export function previewManualLines(
             selection.healthyLunchDate,
           );
           if (!meal) throw new Error("No meal on this date.");
-          catalog = products.map((p) =>
+          catalog = catalog.map((p) =>
             p.id === product.id
               ? {
                   ...meal,

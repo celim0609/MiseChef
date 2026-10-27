@@ -26,7 +26,7 @@ import {
 } from './groupOrders.js';
 import { DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS, revalidateDeliveryForPayment } from './storeDelivery.js';
 
-export const loadStoreCheckoutData = async (db, slug) => {
+export const loadStoreCheckoutData = async (db, slug, { includeUnavailable = false } = {}) => {
   const storeSnapshot = await db.collection('stores')
     .where('slug', '==', readString(slug).toLowerCase())
     .limit(1)
@@ -36,10 +36,7 @@ export const loadStoreCheckoutData = async (db, slug) => {
 
   const store = { id: storeDocument.id, ...storeDocument.data() };
   const [productSnapshot, optionGroupSnapshot, setSnapshot, promotionSnapshot] = await Promise.all([
-    db.collection('storeProducts')
-      .where('storeId', '==', storeDocument.id)
-      .where('available', '==', true)
-      .get(),
+    (includeUnavailable ? db.collection('storeProducts').where('storeId', '==', storeDocument.id) : db.collection('storeProducts').where('storeId', '==', storeDocument.id).where('available', '==', true)).get(),
     db.collection('storeOptionGroups')
       .where('storeId', '==', storeDocument.id)
       .get(),

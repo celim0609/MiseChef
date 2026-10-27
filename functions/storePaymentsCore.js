@@ -252,7 +252,7 @@ const validateDraft = (store, draft, currentDate, isLegacyGroupOrder = false, va
   }
 };
 
-const buildSetOrderItem = (selection, sets, products) => {
+const buildSetOrderItem = (selection, sets, products, owner = false) => {
   const set = sets.find(candidate => candidate.id === readString(selection.setId) && candidate.available === true);
   if (!set) throw new Error('A set in your cart is no longer available.');
   const groups = Array.isArray(set.groups) ? [...set.groups].sort((a, b) => readNumber(a.sortOrder) - readNumber(b.sortOrder)) : [];
@@ -276,7 +276,7 @@ const buildSetOrderItem = (selection, sets, products) => {
     for (const choice of groupChoices) {
       const productId = readString(choice.productId);
       const option = options.find(candidate => readString(candidate.productId) === productId);
-      const product = products.find(candidate => candidate.id === productId && candidate.available === true);
+      const product = products.find(candidate => candidate.id === productId && (owner || candidate.available === true));
       if (isWeeklyMealPlan(product)) throw new Error('Weekly Meal Plans cannot be included in Sets.');
       if (!option || !product) throw new Error(`Choose an available ${groupName} option for ${readString(set.name) || 'this set'}.`);
       selectedGroups.push({
@@ -321,15 +321,15 @@ const buildSetOrderItem = (selection, sets, products) => {
   };
 };
 
-export const buildOrderItems = (selections, products, optionGroups, sets = [], serviceMonday) => selections.map(selection => {
+export const buildOrderItems = (selections, products, optionGroups, sets = [], serviceMonday, { owner = false, storeId, workspaceId } = {}) => selections.map(selection => {
   if (readString(selection.setId)) {
     if (selection.selectedMealOptions?.length) throw new Error('Sets cannot contain meal options.');
-    return buildSetOrderItem(selection, sets, products);
+    return buildSetOrderItem(selection, sets, products, owner);
   }
   const mealOptionDays = resolveSelectionMealOptions(selection, products, serviceMonday);
   const surchargeMinor = mealOptionSurcharge(mealOptionDays);
   let product = products.find(candidate => (
-    candidate.id === readString(selection.productId) && candidate.available === true
+    candidate.id === readString(selection.productId) && (owner || candidate.available === true) && (!owner || !storeId || (candidate.storeId === storeId && candidate.workspaceId === workspaceId))
   ));
   if (!product) throw new Error('A product in your cart is no longer available.');
   if (hasEmbeddedMenu(product) && selection.healthyLunchDate !== undefined) {

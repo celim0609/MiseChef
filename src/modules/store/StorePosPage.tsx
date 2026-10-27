@@ -30,6 +30,8 @@ import {
   X
 } from 'lucide-react';
 import { storeOrderService, storeService } from './services';
+import { auth, db } from '../../firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { formatStoreOrderSetSelection } from './storeOrderSnapshot';
 import WhatsAppCustomerButton from './WhatsAppCustomerButton';
 import { buildGroupKitchenEntries, type GroupKitchenEntry } from './groupKitchenOrderModel';
@@ -237,6 +239,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const [externalLoading, setExternalLoading] = useState(false);
   const externalRequestIdRef = useRef(crypto.randomUUID());
   const [externalProducts, setExternalProducts] = useState<StoreProduct[]>([]);
+  const [externalOwner, setExternalOwner] = useState(false);
   const [externalSets, setExternalSets] = useState<StoreSet[]>([]);
   const [externalOptionGroups, setExternalOptionGroups] = useState<StoreOptionGroup[]>([]);
   const [externalCart, setExternalCart] = useState<ExternalCartItem[]>([]);
@@ -429,8 +432,13 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
         storeService.listSets(workspaceId),
         storeService.getWorkspaceStore(workspaceId)
       ]);
+      const uid = auth?.currentUser?.uid || '';
+      const [workspaceRecord, memberRecord] = db && uid ? await Promise.all([getDoc(doc(db, 'workspaces', workspaceId)), getDoc(doc(db, 'workspaceMembers', `${workspaceId}_${uid}`))]) : [null, null];
+      const member = memberRecord?.data();
+      const owner = Boolean(uid && (workspaceRecord?.data()?.ownerId === uid || (member?.userId === uid && member?.workspaceId === workspaceId && member?.status === 'Active' && member?.role === 'Owner')));
+      setExternalOwner(owner);
       setExternalStore(loadedStore);
-      setExternalProducts(products.filter(product => product.available));
+      setExternalProducts(products.filter(product => product.storeId === storeId && product.workspaceId === workspaceId && (owner || product.available)));
       setExternalOptionGroups(optionGroups);
       setExternalSets(sets.filter(set => set.available && !getStoreSetUnavailableReason(set, products)));
     } catch (error) {
@@ -467,18 +475,18 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     const date = externalStore && product.availableDay && product.availableDay !== 'all' && !productAllowsFulfilmentDate(product,toMalaysiaDateKey()) ? getValidPickupDates(externalStore).find(date=>productAllowsFulfilmentDate(product,date)) || '' : '';
     const time = date && externalStore ? getPickupTimeSlots(externalStore,date)[0] || '' : '';
     const existing = current.find(item => item.key === `product:${product.id}`);
-    return existing ? current.map(item => item === existing ? { ...item, quantity: Math.min(20, item.quantity + 1) } : item) : [...current, { key: `product:${product.id}`, label: product.name, quantity: 1, date, time, selection: { productId: product.id, selectedOptions: [] } }];
+    return existing ? current.map(item => item === existing ? { ...item, quantity: Math.min(externalOwner ? 10000 : 20, item.quantity + 1) } : item) : [...current, { key: `product:${product.id}`, label: product.name, quantity: 1, date, time, selection: { productId: product.id, selectedOptions: [] } }];
   });
   const addExternalSet = (set: StoreSet) => setExternalCart(current => {
     const existing = current.find(item => item.key === `set:${set.id}`);
-    return existing ? current.map(item => item === existing ? { ...item, quantity: Math.min(20, item.quantity + 1) } : item) : [...current, { key: `set:${set.id}`, label: set.name, quantity: 1, selection: { setId: set.id, selectedOptions: [], selectedSetItems: getDefaultStoreSetSelections(set, externalProducts) } }];
+    return existing ? current.map(item => item === existing ? { ...item, quantity: Math.min(externalOwner ? 10000 : 20, item.quantity + 1) } : item) : [...current, { key: `set:${set.id}`, label: set.name, quantity: 1, selection: { setId: set.id, selectedOptions: [], selectedSetItems: getDefaultStoreSetSelections(set, externalProducts) } }];
   });
   const addExternalMenu = (product: StoreProduct, choice: HealthyLunchChoice, time: string) => {
     const meal = choice.mode === 'day' ? resolveHealthyLunchDay(product, externalProducts, choice.date) : product;
     if (!meal) return;
     const selection = {productId:meal.id,selectedOptions:[],selectedMealOptions:choice.selectedMealOptions || [],...(choice.mode === 'day'?{healthyLunchPlanId:product.id,healthyLunchDate:choice.date}:{})};
     const key = `menu:${product.id}:${choice.mode}:${choice.date}:${time}:${JSON.stringify(selection.selectedMealOptions)}`;
-    setExternalCart(current=>current.some(item=>item.key===key)?current.map(item=>item.key===key?{...item,quantity:Math.min(20,item.quantity+1)}:item):[...current,{key,label:meal.name,quantity:1,date:choice.date,time,selection}]);
+    setExternalCart(current=>current.some(item=>item.key===key)?current.map(item=>item.key===key?{...item,quantity:Math.min(externalOwner ? 10000 : 20,item.quantity+1)}:item):[...current,{key,label:meal.name,quantity:1,date:choice.date,time,selection}]);
   };
   const updateExternalSetChoice = (key:string,groupId:string,productId:string,maximum:number) => setExternalCart(current=>current.map(item=>{
     if(item.key!==key)return item;
@@ -486,7 +494,11 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     const next=selected.some(choice=>choice.productId===productId)?selected.filter(choice=>choice.productId!==productId):maximum===1?[{groupId,productId}]:[...selected,{groupId,productId}];
     return {...item,selection:{...item.selection,selectedSetItems:[...others,...next]}};
   }));
-  const updateExternalCartQuantity = (key: string, change: number) => setExternalCart(current => current.flatMap(item => item.key !== key ? [item] : item.quantity + change < 1 ? [] : [{ ...item, quantity: Math.min(20, item.quantity + change) }]));
+  const setExternalCartQuantity = (key: string, quantity: number) => {
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > (externalOwner ? 10000 : 20)) return;
+    setExternalCart(current => current.map(item => item.key === key ? { ...item, quantity } : item));
+  };
+  const updateExternalCartQuantity = (key: string, change: number) => setExternalCart(current => current.flatMap(item => item.key !== key ? [item] : item.quantity + change < 1 ? [] : [{ ...item, quantity: Math.min(externalOwner ? 10000 : 20, item.quantity + change) }]));
   const toggleExternalOption = (key: string, group: StoreOptionGroup, optionId: string) => setExternalCart(current => current.map(item => {
     if (item.key !== key) return item;
     const otherGroups = item.selection.selectedOptions.filter(choice => choice.groupId !== group.id);
@@ -514,7 +526,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       const option = group?.options.find(candidate => candidate.id === choice.optionId && candidate.available);
       return option ? [option.priceAdjustment] : [];
     });
-    const menuPreview = product?.productType === 'weekly_meal_plan' || item.selection.healthyLunchPlanId ? previewManualLines([{quantity:item.quantity,date:item.date || '',time:item.time || '',method:'pickup',deliveryAddress:'',notes:'',selection:item.selection}],externalProducts,externalSets,externalOptionGroups).rows[0] : null;
+    const menuPreview = product?.productType === 'weekly_meal_plan' || item.selection.healthyLunchPlanId ? previewManualLines([{quantity:item.quantity,date:item.date || '',time:item.time || '',method:'pickup',deliveryAddress:'',notes:'',selection:item.selection}],externalProducts,externalSets,externalOptionGroups,externalOwner).rows[0] : null;
     const fulfilmentDate = item.date || externalDate;
     const scheduleError = externalStore && !(product?.productType==='weekly_meal_plan' && !item.selection.healthyLunchDate) ? fulfilmentDate ? (!getValidPickupDates(externalStore).includes(fulfilmentDate) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(item.time || externalTime) ? 'Choose an available fulfilment date and time.' : '') : [product,...(item.selection.selectedSetItems || []).map(choice=>externalProducts.find(product=>product.id===choice.productId))].filter(Boolean).some(product=>!productAllowsFulfilmentDate(product,toMalaysiaDateKey())) ? 'Choose a fulfilment date matching the selected dish’s Available day.' : '' : '';
     const unitPrice = menuPreview ? (menuPreview.unitMinor || 0)/100 : set
@@ -784,8 +796,8 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                     <div className="min-w-0 basis-full sm:basis-auto sm:flex-1"><p className="text-sm font-bold">{item.label}</p><p className="text-xs text-slate-500">MYR {item.unitPrice.toFixed(2)} each</p></div>
                     <div className="flex items-center gap-2">
                       <button type="button" onClick={() => updateExternalCartQuantity(item.key, -1)} disabled={creatingExternal} aria-label={`Decrease ${item.label} quantity`} className="h-8 w-8 rounded-lg border border-slate-300 font-black disabled:opacity-40">−</button>
-                      <span aria-label={`${item.label} quantity`} className="min-w-5 text-center text-sm font-black">{item.quantity}</span>
-                      <button type="button" onClick={() => updateExternalCartQuantity(item.key, 1)} disabled={creatingExternal || item.quantity >= 20} aria-label={`Increase ${item.label} quantity`} className="h-8 w-8 rounded-lg border border-slate-300 font-black disabled:opacity-40">+</button>
+                      <input type="number" min={1} max={externalOwner ? 10000 : 20} step={1} inputMode="numeric" aria-label={`${item.label} quantity`} value={item.quantity} onChange={event => setExternalCartQuantity(item.key, Number(event.target.value))} disabled={creatingExternal} className="w-20 rounded-lg border border-slate-300 px-1 text-center text-sm font-black" />
+                      <button type="button" onClick={() => updateExternalCartQuantity(item.key, 1)} disabled={creatingExternal || item.quantity >= (externalOwner ? 10000 : 20)} aria-label={`Increase ${item.label} quantity`} className="h-8 w-8 rounded-lg border border-slate-300 font-black disabled:opacity-40">+</button>
                     </div>
                     <span className="min-w-20 text-right text-sm font-black">MYR {item.lineTotal.toFixed(2)}</span>
                   </div>

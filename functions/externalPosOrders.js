@@ -21,13 +21,15 @@ export const assertOperator = async ({ db, uid, workspaceId, financial = false, 
   ]);
   const workspace = workspaceSnapshot.data() || {}; const member = memberSnapshot.data() || {};
   if (!hasActiveBusinessEntitlement(workspace)) throw new HttpsError('permission-denied', 'An active Workspace Business subscription is required.');
-  if (readString(workspace.ownerId) !== uid && !(member.userId === uid && member.workspaceId === workspaceId && member.status === 'Active' && (financial ? ['Owner', 'Manager'].includes(readString(member.role)) : OPERATOR_ROLES.has(readString(member.role))))) {
+  const owner = readString(workspace.ownerId) === uid || (member.userId === uid && member.workspaceId === workspaceId && member.status === 'Active' && readString(member.role) === 'Owner');
+  if (!owner && !(member.userId === uid && member.workspaceId === workspaceId && member.status === 'Active' && (financial ? ['Owner', 'Manager'].includes(readString(member.role)) : OPERATOR_ROLES.has(readString(member.role))))) {
     throw new HttpsError('permission-denied', 'Your Workspace role cannot add Store orders.');
   }
+  return owner;
 };
 
 const externalError = message => new HttpsError('failed-precondition', message);
-const validateInput = input => {
+export const validateInput = (input, owner = false) => {
   const source = readString(input?.source).toLowerCase();
   const externalOrderNumber = readString(input?.externalOrderNumber);
   const paymentLabel = readString(input?.paymentLabel);
@@ -39,7 +41,7 @@ const validateInput = input => {
   if ((phone && phone.replace(/\D/g, '').length < 6) || phone.length > 40) throw externalError('Enter a valid phone number.');
   if (readString(input?.notes).length > 500) throw externalError('Notes must be 500 characters or fewer.');
   if (!Array.isArray(input?.selections) || !input.selections.length || input.selections.length > 50) throw externalError('Choose one or more Store items.');
-  if (input.selections.some(item => !Number.isInteger(item?.quantity) || item.quantity < 1 || item.quantity > 20)) throw externalError('Each product quantity must be between 1 and 20.');
+  if (input.selections.some(item => !Number.isInteger(item?.quantity) || item.quantity < 1 || item.quantity > (owner ? 10000 : 20))) throw externalError(owner ? 'Choose a valid POS quantity up to 10,000.' : 'Each product quantity must be between 1 and 20.');
   if ((source === 'shopeefood' && paymentLabel !== 'shopeefood_platform_paid') || (source === 'walk_in' && paymentLabel !== 'walk_in_paid') || (['other', 'whatsapp'].includes(source) && paymentLabel !== 'other_paid')) throw externalError('Choose the payment label that matches the order source.');
   const requestId = readString(input?.requestId);
   if (requestId && !/^[A-Za-z0-9_-]{16,100}$/.test(requestId)) throw externalError('Invalid order request.');
@@ -48,12 +50,13 @@ const validateInput = input => {
 };
 
 export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider, now = new Date() }) => {
-  const { source, externalOrderNumber, paymentLabel, phone, requestId } = validateInput(input);
   const workspaceId = readString(input?.workspaceId);
-  const checkout = await loadStoreCheckoutData(db, input?.slug);
-  const storeId = readString(checkout.store.id) || readString(checkout.store.workspaceId);
-  if (!workspaceId || workspaceId !== readString(checkout.store.workspaceId) || storeId !== readString(input?.storeId)) throw new HttpsError('permission-denied', 'This Store does not match the active Workspace.');
-  await assertOperator({ db, uid, workspaceId });
+  const checkoutStore = await loadStoreCheckoutData(db, input?.slug);
+  const storeId = readString(checkoutStore.store.id) || readString(checkoutStore.store.workspaceId);
+  if (!workspaceId || workspaceId !== readString(checkoutStore.store.workspaceId) || storeId !== readString(input?.storeId)) throw new HttpsError('permission-denied', 'This Store does not match the active Workspace.');
+  const owner = await assertOperator({ db, uid, workspaceId });
+  const { source, externalOrderNumber, paymentLabel, phone, requestId } = validateInput(input, owner);
+  const checkout = owner ? await loadStoreCheckoutData(db, input?.slug, { includeUnavailable: true }) : checkoutStore;
   const idempotencyReference = externalOrderNumber ? db.collection('storeExternalOrderReferences').doc(idempotencyId({ storeId, source, externalOrderNumber })) : null;
   const requestReference = requestId ? db.collection('storeExternalOrderReferences').doc(createHash('sha256').update(`${storeId}:${uid}:${requestId}`).digest('hex')) : null;
   const fingerprint = createHash('sha256').update(JSON.stringify({source,externalOrderNumber,paymentLabel,customerName:readString(input.customerName),phone,notes:readString(input.notes),selections:input.selections,lineSchedules:input.lineSchedules,pickupLocationId:input.pickupLocationId,fulfilmentMethod:input.fulfilmentMethod,deliveryAddress:input.deliveryAddress,fulfilmentDate:input.fulfilmentDate,fulfilmentTime:input.fulfilmentTime})).digest('hex');
@@ -71,10 +74,11 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
       if (existing.exists) return { orderId: readString(existing.data()?.orderId), duplicate: true };
     }
     let built;
-    try { built = buildExternalOrderItems(input, checkout, now); } catch(error) { throw externalError(error.message || 'Check the items and fulfilment dates.'); }
+    try { built = buildExternalOrderItems(input, checkout, now, { owner }); } catch(error) { throw externalError(error.message || 'Check the items and fulfilment dates.'); }
     const {items} = built;
     const merchandiseSubtotal = money(items.reduce((sum, item) => sum + item.lineTotal, 0));
     const total = merchandiseSubtotal;
+    if (!Number.isSafeInteger(Math.round(total * 100))) throw externalError('Order amount is unsafe.');
     if (total <= 0) throw externalError('Order total must be greater than zero.');
     const reference = await createAvailableOrderReference({ date: now, exists: async ({ orderNumber, pickupCode, businessDateKey }) => {
       const reservation = db.collection('stores').doc(storeId).collection('orderNumberReservations').doc(`${businessDateKey}_${pickupCode}`);
