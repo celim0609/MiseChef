@@ -94,6 +94,26 @@ test("custom items mix across dates, preserve notes and optionally save only pri
   assert.equal(result.fulfilments[1].allocations.length, 2);
   assert.equal(result.privateItems[0].notes, "No chilli");
 });
+test("Owner manual Custom Item quantities use the canonical RM4 price and retain safe limits", () => {
+  for (const quantity of [20, 21, 40, 100, 200]) {
+    const result = buildManualOrder(
+      { ...input(), lines: [{ ...line("prawn", "2026-10-19", quantity), selection: undefined, custom: { name: "Custom Item", unitPrice: 4 } }] },
+      checkout, now, { owner: true },
+    );
+    assert.equal(result.total, 4 * quantity);
+    assert.equal(result.items[0].lineTotal, 4 * quantity);
+    assert.equal(result.fulfilments[0].allocations[0].quantity, quantity);
+  }
+  assert.throws(() => buildManualOrder({ ...input(), lines: [line("prawn", "2026-10-19", 10001)] }, checkout, now, { owner: true }), /10,000/);
+  assert.throws(() => buildManualOrder({ ...input(), lines: [line("prawn", "2026-10-19", 1.5)] }, checkout, now, { owner: true }), /quantity/i);
+});
+test("Owner catalog quantities above 20 retain server pricing; Manager remains capped", () => {
+  for (const quantity of [21, 40, 100, 200]) {
+    const result = buildManualOrder({ ...input(), lines: [line("prawn", "2026-10-19", quantity)] }, checkout, now, { owner: true });
+    assert.equal(result.total, 15 * quantity);
+  }
+  assert.throws(() => buildManualOrder({ ...input(), lines: [line("prawn", "2026-10-19", 21)] }, checkout, now), /1–20/);
+});
 test("manual preorder rejects invalid dates, same-day at Malaysia midnight, forged catalog items, invalid prices and quantities", () => {
   for (const date of ["2026-10-18", "2026-02-30", "2026-13-20", "garbage"])
     assert.throws(() =>
@@ -199,6 +219,24 @@ test("weekly plan plus regular/custom lines creates five component allocations w
   );
   assert.equal(result.fulfilments[1].allocations[0].componentDay, "tue");
 });
+test("Owner weekly quantities above 20 keep five allocations and one parent total", () => {
+  const days = ["mon", "tue", "wed", "thu", "fri"];
+  const meals = days.map(day => ({ ...products[0], id: day, availableDay: day }));
+  const plan = { ...products[0], id: "plan", price: 60, productType: "weekly_meal_plan", weeklyMeals: Object.fromEntries(days.map(day => [day, day])) };
+  const result = buildManualOrder({ ...input(), lines: [line("plan", "2026-10-19", 21)] }, { ...checkout, products: [...products, ...meals, plan] }, now, { owner: true });
+  assert.equal(result.total, 1260);
+  assert.equal(result.fulfilments.length, 5);
+  assert.ok(result.fulfilments.every(day => day.allocations[0].quantity === 21));
+});
+test("Owner set quantity 40 keeps the configured set price and allocation", () => {
+  const set = { id: "meal-set", storeId: "s", workspaceId: "s", name: "Meal set", available: true, price: 20, groups: [{ id: "main", name: "Main", required: true, selectionCount: 1, options: [{ productId: "prawn", priceAdjustment: 3 }] }] };
+  const setLine = { ...line("prawn", "2026-10-19", 40), selection: { setId: "meal-set", selectedOptions: [], selectedSetItems: [{ groupId: "main", productId: "prawn" }] } };
+  const result = buildManualOrder({ ...input(), lines: [setLine] }, { ...checkout, sets: [set] }, now, { owner: true });
+  assert.equal(result.total, 920);
+  assert.equal(result.items[0].setSnapshot.setId, "meal-set");
+  assert.equal(result.fulfilments[0].allocations[0].quantity, 40);
+  assert.throws(() => buildManualOrder({ ...input(), lines: [setLine] }, { ...checkout, sets: [set] }, now), /1–20/);
+});
 // Transactional fake persists dotted updates and rejects duplicate creates, exercising retries.
 function database(initial = {}) {
   const docs = structuredClone(initial);
@@ -260,6 +298,19 @@ const workspace = {
   subscriptionPlan: "professional",
   subscriptionStatus: "active",
 };
+test("saved Owner Custom Item quantity 40 is RM160; Manager, unauthorized and cross-store requests fail", async () => {
+  const { db, docs } = database({
+    "workspaces/s": workspace,
+    "workspaceMembers/s_manager": { workspaceId: "s", userId: "manager", status: "Active", role: "Manager" },
+  });
+  const custom = { ...input(), lines: [{ ...line("prawn", "2026-10-19", 40), selection: undefined, custom: { name: "Custom Item", unitPrice: 4 } }] };
+  const args = { db, input: custom, now, loadCheckout: async () => checkout };
+  const saved = await saveManualPosOrder({ ...args, uid: "owner" });
+  assert.equal(docs[`storeOrders/${saved.orderId}`].total, 160);
+  await assert.rejects(saveManualPosOrder({ ...args, uid: "manager" }), /1–20/);
+  await assert.rejects(saveManualPosOrder({ ...args, uid: "stranger" }), e => e.code === "permission-denied");
+  await assert.rejects(saveManualPosOrder({ ...args, uid: "owner", input: { ...custom, workspaceId: "other" } }), e => e.code === "permission-denied");
+});
 test("save/edit manual order always pending, idempotent request, confirmation authorized and idempotent, no inventory writes", async () => {
   const { db, docs, writes } = database({ "workspaces/s": workspace });
   const args = {

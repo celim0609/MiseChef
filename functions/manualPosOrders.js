@@ -41,7 +41,7 @@ const text = (value, max, required = false) => {
 const money = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 export const malaysiaDate = (now = new Date()) =>
   new Date(now.getTime() + 28800000).toISOString().slice(0, 10);
-export function buildManualOrder(input, checkout, now = new Date()) {
+export function buildManualOrder(input, checkout, now = new Date(), { owner = false } = {}) {
   if (!["whatsapp", "phone", "walk_in", "other"].includes(input.source))
     fail("Choose a manual order source.");
   if (
@@ -101,9 +101,9 @@ export function buildManualOrder(input, checkout, now = new Date()) {
     if (
       !Number.isInteger(line.quantity) ||
       line.quantity < 1 ||
-      line.quantity > 20
+      line.quantity > (owner ? 10000 : 20)
     )
-      fail("Quantity must be 1–20.");
+      fail(owner ? "Quantity must be 1–10,000." : "Quantity must be 1–20.");
     const index = items.length;
     let item;
     if (line.custom) {
@@ -149,6 +149,7 @@ export function buildManualOrder(input, checkout, now = new Date()) {
         checkout.optionGroups,
         checkout.sets,
         line.date,
+        { owner, storeId: checkout.store.id, workspaceId: checkout.store.workspaceId },
       );
       if (isFullWeekSelection(selection, checkout.products)) {
         const plan = checkout.products.find(
@@ -243,10 +244,10 @@ export async function saveManualPosOrder({
   const storeId = readString(checkout.store.id) || workspaceId;
   if (input.workspaceId !== workspaceId || input.storeId !== storeId)
     throw new HttpsError("permission-denied", "Store ownership mismatch.");
-  await assertOperator({ db, uid, workspaceId });
+  const owner = await assertOperator({ db, uid, workspaceId });
   if (!/^[a-zA-Z0-9_-]{16,100}$/.test(input.requestId || ""))
     fail("A stable request ID is required.");
-  const built = buildManualOrder(input, checkout, now);
+  const built = buildManualOrder(input, checkout, now, { owner });
   const referenceId = createHash("sha256")
     .update(`${workspaceId}:${uid}:${input.requestId}`)
     .digest("hex");
@@ -255,7 +256,9 @@ export async function saveManualPosOrder({
     ? db.collection("storeOrders").doc(text(input.orderId, 150, true))
     : db.collection("storeOrders").doc();
   return db.runTransaction(async (tx) => {
-    await assertOperator({ db, uid, workspaceId, transaction: tx });
+    const transactionOwner = await assertOperator({ db, uid, workspaceId, transaction: tx });
+    if (owner && !transactionOwner)
+      throw new HttpsError("permission-denied", "Workspace Owner access changed. Reload and try again.");
     const request = await tx.get(requestRef);
     if (request.exists)
       return { orderId: request.data().orderId, duplicate: true };

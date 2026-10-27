@@ -131,6 +131,19 @@ test("incomplete or invalid prices never appear as a payable grand total", () =>
     null,
   );
 });
+test("Owner Custom Item preview accepts 20, 21, 40, 100 and 200 while staff stays capped", () => {
+  for (const quantity of [20, 21, 40, 100, 200]) {
+    const rows = [line({ quantity, selection: undefined, custom: { name: "Custom Item", unitPrice: 4 } })];
+    assert.equal(previewManualLines(rows, products, sets, groups, true).totalMinor, 400 * quantity);
+    assert.equal(previewManualLines(rows, products, sets, groups).totalMinor, quantity <= 20 ? 400 * quantity : null);
+  }
+});
+test("Owner catalog and set previews accept quantity 40 at canonical prices", () => {
+  assert.equal(previewManualLines([line({ quantity: 40 })], products, sets, groups, true).totalMinor, 68000);
+  const setLine = line({ quantity: 40, selection: { setId: "set", selectedOptions: [], selectedSetItems: [{ groupId: "main", productId: "p" }] } });
+  assert.equal(previewManualLines([setLine], products, sets, groups, true).totalMinor, 92000);
+  assert.equal(previewManualLines([setLine], products, sets, groups).totalMinor, null);
+});
 test("weekly package has five dated allocations whose cents sum to one package total", () => {
   const plan = {
     ...products[0],
