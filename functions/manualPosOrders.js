@@ -136,6 +136,14 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
         });
     } else {
       const selection = { ...line.selection, quantity: line.quantity };
+      if (owner) {
+        const selectedIds = [selection.productId, ...(selection.selectedSetItems || []).map(item => item.productId)].filter(Boolean);
+        for (const id of selectedIds) {
+          const product = checkout.products.find(candidate => candidate.id === id);
+          if (product && (product.storeId !== checkout.store.id || product.workspaceId !== checkout.store.workspaceId || !readString(product.name) || !Number.isFinite(product.price) || product.price < 0 || money(product.price) !== product.price))
+            fail("This product configuration is invalid for this Store.");
+        }
+      }
       // Prices and item snapshots come exclusively from the current server catalog.
       validateHealthyLunchDay(
         selection,
@@ -212,7 +220,7 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
     items.push(item);
   }
   const total = money(items.reduce((n, item) => n + item.lineTotal, 0));
-  if (total <= 0 || total > 1000000)
+  if (!Number.isSafeInteger(Math.round(total * 100)) || total <= 0 || total > 1000000)
     fail("Enter a valid positive order total.");
   return {
     items,
@@ -239,15 +247,19 @@ export async function saveManualPosOrder({
       "unauthenticated",
       "Sign in to create a manual order.",
     );
-  const checkout = await loadCheckout(db, input?.slug);
-  const workspaceId = readString(checkout.store.workspaceId);
-  const storeId = readString(checkout.store.id) || workspaceId;
+  const checkoutStore = await loadCheckout(db, input?.slug);
+  const workspaceId = readString(checkoutStore.store.workspaceId);
+  const storeId = readString(checkoutStore.store.id) || workspaceId;
   if (input.workspaceId !== workspaceId || input.storeId !== storeId)
     throw new HttpsError("permission-denied", "Store ownership mismatch.");
-  const owner = await assertOperator({ db, uid, workspaceId });
+  const posFullAccess = await assertOperator({ db, uid, workspaceId, posFullAccess: true });
+  const checkout = posFullAccess ? await loadCheckout(db, input?.slug, { includeUnavailable: true }) : checkoutStore;
+  if (readString(checkout.store.workspaceId) !== workspaceId || (readString(checkout.store.id) || workspaceId) !== storeId)
+    throw new HttpsError("permission-denied", "Store ownership mismatch.");
   if (!/^[a-zA-Z0-9_-]{16,100}$/.test(input.requestId || ""))
     fail("A stable request ID is required.");
-  const built = buildManualOrder(input, checkout, now, { owner });
+  const posCheckout = posFullAccess ? { ...checkout, products: checkout.products.map(product => ({ ...product, available: true })) } : checkout;
+  const built = buildManualOrder(input, posCheckout, now, { owner: posFullAccess });
   const referenceId = createHash("sha256")
     .update(`${workspaceId}:${uid}:${input.requestId}`)
     .digest("hex");
@@ -256,9 +268,9 @@ export async function saveManualPosOrder({
     ? db.collection("storeOrders").doc(text(input.orderId, 150, true))
     : db.collection("storeOrders").doc();
   return db.runTransaction(async (tx) => {
-    const transactionOwner = await assertOperator({ db, uid, workspaceId, transaction: tx });
-    if (owner && !transactionOwner)
-      throw new HttpsError("permission-denied", "Workspace Owner access changed. Reload and try again.");
+    const transactionPosFullAccess = await assertOperator({ db, uid, workspaceId, posFullAccess: true, transaction: tx });
+    if (posFullAccess && !transactionPosFullAccess)
+      throw new HttpsError("permission-denied", "POS ordering access changed. Reload and try again.");
     const request = await tx.get(requestRef);
     if (request.exists)
       return { orderId: request.data().orderId, duplicate: true };

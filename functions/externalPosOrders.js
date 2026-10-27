@@ -12,7 +12,7 @@ const money = value => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 const idempotencyId = ({ storeId, source, externalOrderNumber }) => createHash('sha256')
   .update(`${storeId}:${source}:${externalOrderNumber}`).digest('hex');
 
-export const assertOperator = async ({ db, uid, workspaceId, financial = false, transaction }) => {
+export const assertOperator = async ({ db, uid, workspaceId, financial = false, posFullAccess = false, transaction }) => {
   if (!uid) throw new HttpsError('unauthenticated', 'Sign in to add an external order.');
   const read = ref => transaction ? transaction.get(ref) : ref.get();
   const [workspaceSnapshot, memberSnapshot] = await Promise.all([
@@ -22,10 +22,11 @@ export const assertOperator = async ({ db, uid, workspaceId, financial = false, 
   const workspace = workspaceSnapshot.data() || {}; const member = memberSnapshot.data() || {};
   if (!hasActiveBusinessEntitlement(workspace)) throw new HttpsError('permission-denied', 'An active Workspace Business subscription is required.');
   const owner = readString(workspace.ownerId) === uid || (member.userId === uid && member.workspaceId === workspaceId && member.status === 'Active' && readString(member.role) === 'Owner');
+  const manager = member.userId === uid && member.workspaceId === workspaceId && member.status === 'Active' && readString(member.role) === 'Manager';
   if (!owner && !(member.userId === uid && member.workspaceId === workspaceId && member.status === 'Active' && (financial ? ['Owner', 'Manager'].includes(readString(member.role)) : OPERATOR_ROLES.has(readString(member.role))))) {
     throw new HttpsError('permission-denied', 'Your Workspace role cannot add Store orders.');
   }
-  return owner;
+  return posFullAccess ? owner || manager : owner;
 };
 
 const externalError = message => new HttpsError('failed-precondition', message);
@@ -54,14 +55,17 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
   const checkoutStore = await loadStoreCheckoutData(db, input?.slug);
   const storeId = readString(checkoutStore.store.id) || readString(checkoutStore.store.workspaceId);
   if (!workspaceId || workspaceId !== readString(checkoutStore.store.workspaceId) || storeId !== readString(input?.storeId)) throw new HttpsError('permission-denied', 'This Store does not match the active Workspace.');
-  const owner = await assertOperator({ db, uid, workspaceId });
-  const { source, externalOrderNumber, paymentLabel, phone, requestId } = validateInput(input, owner);
-  const checkout = owner ? await loadStoreCheckoutData(db, input?.slug, { includeUnavailable: true }) : checkoutStore;
+  const posFullAccess = await assertOperator({ db, uid, workspaceId, posFullAccess: true });
+  const { source, externalOrderNumber, paymentLabel, phone, requestId } = validateInput(input, posFullAccess);
+  const checkout = posFullAccess ? await loadStoreCheckoutData(db, input?.slug, { includeUnavailable: true }) : checkoutStore;
+  if (readString(checkout.store.workspaceId) !== workspaceId || (readString(checkout.store.id) || workspaceId) !== storeId) throw new HttpsError('permission-denied', 'This Store does not match the active Workspace.');
   const idempotencyReference = externalOrderNumber ? db.collection('storeExternalOrderReferences').doc(idempotencyId({ storeId, source, externalOrderNumber })) : null;
   const requestReference = requestId ? db.collection('storeExternalOrderReferences').doc(createHash('sha256').update(`${storeId}:${uid}:${requestId}`).digest('hex')) : null;
   const fingerprint = createHash('sha256').update(JSON.stringify({source,externalOrderNumber,paymentLabel,customerName:readString(input.customerName),phone,notes:readString(input.notes),selections:input.selections,lineSchedules:input.lineSchedules,pickupLocationId:input.pickupLocationId,fulfilmentMethod:input.fulfilmentMethod,deliveryAddress:input.deliveryAddress,fulfilmentDate:input.fulfilmentDate,fulfilmentTime:input.fulfilmentTime})).digest('hex');
   const orderReference = db.collection('storeOrders').doc();
   const commit = () => db.runTransaction(async transaction => {
+    const currentPosFullAccess = await assertOperator({ db, uid, workspaceId, posFullAccess: true, transaction });
+    if (posFullAccess && !currentPosFullAccess) throw new HttpsError('permission-denied', 'POS ordering access changed. Reload and try again.');
     if (requestReference) {
       const previous = await transaction.get(requestReference);
       if (previous.exists) {
@@ -74,7 +78,8 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
       if (existing.exists) return { orderId: readString(existing.data()?.orderId), duplicate: true };
     }
     let built;
-    try { built = buildExternalOrderItems(input, checkout, now, { owner }); } catch(error) { throw externalError(error.message || 'Check the items and fulfilment dates.'); }
+    const posCheckout = posFullAccess ? { ...checkout, products: checkout.products.map(product => ({ ...product, available: true })) } : checkout;
+    try { built = buildExternalOrderItems(input, posCheckout, now, { owner: posFullAccess }); } catch(error) { throw externalError(error.message || 'Check the items and fulfilment dates.'); }
     const {items} = built;
     const merchandiseSubtotal = money(items.reduce((sum, item) => sum + item.lineTotal, 0));
     const total = merchandiseSubtotal;

@@ -9,13 +9,20 @@ const product = { id: 'draft', storeId: 'store-1', workspaceId: 'workspace-1', n
 const checkout = { store, products: [product], optionGroups: [], sets: [] };
 const input = quantity => ({ source: 'walk_in', paymentLabel: 'walk_in_paid', requestId: 'a'.repeat(16), selections: [{ productId: 'draft', quantity, selectedOptions: [] }] });
 
-for (const quantity of [1, 20, 21, 40, 100, 200]) {
+for (const quantity of [1, 20, 21, 40, 100, 200, 10000]) {
   test(`Owner POS accepts quantity ${quantity} at canonical price`, () => {
     const built = buildExternalOrderItems(input(quantity), checkout, new Date('2026-10-18T04:00:00Z'), { owner: true });
     assert.equal(built.items[0].lineTotal, 9 * quantity);
     assert.equal(built.items[0].quantity, quantity);
     assert.doesNotThrow(() => validateInput(input(quantity), true));
     if (quantity > 20) assert.throws(() => validateInput(input(quantity)), /quantity/i);
+  });
+}
+for (const quantity of [21, 40, 100, 200, 10000]) {
+  test(`Manager POS accepts unpublished product quantity ${quantity} at canonical price`, () => {
+    const built = buildExternalOrderItems(input(quantity), checkout, new Date('2026-10-18T04:00:00Z'), { owner: true });
+    assert.equal(built.items[0].lineTotal, 9 * quantity);
+    assert.doesNotThrow(() => validateInput(input(quantity), true));
   });
 }
 test('public Store cannot select unpublished product or exceed 20', () => {
@@ -31,12 +38,21 @@ test('Owner POS rejects cross-store catalog, invalid configuration and unsafe qu
 test('backend Owner role is derived from active workspace records', async () => {
   const records = new Map([
     ['workspaces/workspace-1', { ownerId: 'owner', subscriptionPlan: 'business', subscriptionStatus: 'active' }],
-    ['workspaceMembers/workspace-1_staff', { userId: 'staff', workspaceId: 'workspace-1', role: 'Chef', status: 'Active' }]
+    ['workspaceMembers/workspace-1_staff', { userId: 'staff', workspaceId: 'workspace-1', role: 'Chef', status: 'Active' }],
+    ['workspaceMembers/workspace-1_manager', { userId: 'manager', workspaceId: 'workspace-1', role: 'Manager', status: 'Active' }],
+    ['workspaceMembers/workspace-1_inactive', { userId: 'inactive', workspaceId: 'workspace-1', role: 'Manager', status: 'Inactive' }],
+    ['workspaceMembers/workspace-1_foreign', { userId: 'foreign', workspaceId: 'other-workspace', role: 'Manager', status: 'Active' }]
   ]);
   const db = { collection: name => ({ doc: id => ({ get: async () => ({ data: () => records.get(`${name}/${id}`) || {} }) }) }) };
   // The owner decision must never come from the request body.
   assert.equal(await assertOperator({ db, uid: 'owner', workspaceId: 'workspace-1' }), true);
   assert.equal(await assertOperator({ db, uid: 'staff', workspaceId: 'workspace-1' }), false);
+  assert.equal(await assertOperator({ db, uid: 'manager', workspaceId: 'workspace-1' }), false);
+  assert.equal(await assertOperator({ db, uid: 'owner', workspaceId: 'workspace-1', posFullAccess: true }), true);
+  assert.equal(await assertOperator({ db, uid: 'manager', workspaceId: 'workspace-1', posFullAccess: true }), true);
+  assert.equal(await assertOperator({ db, uid: 'staff', workspaceId: 'workspace-1', posFullAccess: true }), false);
+  await assert.rejects(() => assertOperator({ db, uid: 'inactive', workspaceId: 'workspace-1', posFullAccess: true }), /role/i);
+  await assert.rejects(() => assertOperator({ db, uid: 'foreign', workspaceId: 'workspace-1', posFullAccess: true }), /role/i);
   await assert.rejects(() => assertOperator({ db, uid: 'outsider', workspaceId: 'workspace-1' }), /role/i);
 });
 
@@ -44,4 +60,18 @@ test('Owner scheduled quantity 200 retains one canonical line and one fulfilment
   const built = buildExternalOrderItems({ ...input(200), lineSchedules: [{ date: '2026-10-20', time: '12:00' }], fulfilmentMethod: 'pickup' }, checkout, new Date('2026-10-18T04:00:00Z'), { owner: true });
   assert.equal(built.items[0].lineTotal, 1800);
   assert.equal(built.fulfilments[0].allocations[0].quantity, 200);
+});
+test('Manager POS can order a Set with a hidden component and a hidden Weekly Menu', () => {
+  const set = { id: 'set', storeId: 'store-1', workspaceId: 'workspace-1', name: 'Set', available: true, price: 20, groups: [{ id: 'main', name: 'Main', required: true, selectionCount: 1, options: [{ productId: 'draft', priceAdjustment: 2 }] }] };
+  const setInput = { selections: [{ setId: 'set', quantity: 40, selectedOptions: [], selectedSetItems: [{ groupId: 'main', productId: 'draft' }] }] };
+  const setOrder = buildExternalOrderItems(setInput, { ...checkout, products: [{ ...product, available: true }], sets: [set] }, new Date('2026-10-18T04:00:00Z'), { owner: true });
+  assert.equal(setOrder.items[0].lineTotal, 880);
+  const days = ['mon', 'tue', 'wed', 'thu', 'fri'];
+  const meals = days.map(day => ({ ...product, id: day, storeId: 'workspace-1', availableDay: day }));
+  const plan = { ...product, id: 'week', storeId: 'workspace-1', name: 'Weekly', price: 60, productType: 'weekly_meal_plan', weeklyMeals: Object.fromEntries(days.map(day => [day, day])) };
+  const weeklyInput = { selections: [{ productId: 'week', quantity: 40, selectedOptions: [] }], lineSchedules: [{ date: '2026-10-19', time: '12:00' }], fulfilmentMethod: 'pickup' };
+  const weeklyOrder = buildExternalOrderItems(weeklyInput, { ...checkout, store: { ...store, id: 'workspace-1' }, products: [...meals, plan].map(item => ({ ...item, available: true })) }, new Date('2026-10-18T04:00:00Z'), { owner: true });
+  assert.equal(weeklyOrder.items[0].lineTotal, 2400);
+  assert.equal(weeklyOrder.fulfilments.length, 5);
+  assert.ok(weeklyOrder.fulfilments.every(day => day.allocations[0].quantity === 40));
 });

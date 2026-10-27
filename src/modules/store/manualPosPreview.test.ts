@@ -131,12 +131,21 @@ test("incomplete or invalid prices never appear as a payable grand total", () =>
     null,
   );
 });
-test("Owner Custom Item preview accepts 20, 21, 40, 100 and 200 while staff stays capped", () => {
+test("Owner or Manager Custom Item preview accepts 20, 21, 40, 100 and 200 while staff stays capped", () => {
   for (const quantity of [20, 21, 40, 100, 200]) {
     const rows = [line({ quantity, selection: undefined, custom: { name: "Custom Item", unitPrice: 4 } })];
     assert.equal(previewManualLines(rows, products, sets, groups, true).totalMinor, 400 * quantity);
     assert.equal(previewManualLines(rows, products, sets, groups).totalMinor, quantity <= 20 ? 400 * quantity : null);
   }
+});
+test("Manager Custom Item RM20 × 40 previews RM800 and unpublished catalog remains priced", () => {
+  const custom = line({ quantity: 40, selection: undefined, custom: { name: "Custom Item", unitPrice: 20 } });
+  assert.equal(previewManualLines([custom], products, sets, groups, true).totalMinor, 80000);
+  assert.equal(previewManualLines([custom], products, sets, groups).totalMinor, null);
+  const hidden = [{ ...products[0], available: false, optionGroupIds: [] }] as StoreProduct[];
+  const catalog = line({ quantity: 40, selection: { productId: "p", selectedOptions: [] } });
+  assert.equal(previewManualLines([catalog], hidden, sets, groups, true).totalMinor, 60000);
+  assert.equal(previewManualLines([catalog], hidden, sets, groups).totalMinor, null);
 });
 test("Owner catalog and set previews accept quantity 40 at canonical prices", () => {
   assert.equal(previewManualLines([line({ quantity: 40 })], products, sets, groups, true).totalMinor, 68000);
@@ -176,6 +185,13 @@ test("weekly package has five dated allocations whose cents sum to one package t
     result.days.map((d) => d.date),
     ["2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30"],
   );
+});
+test("Manager weekly quantity 40 retains five dated allocations and one package total", () => {
+  const plan = { ...products[0], id: "week", available: false, productType: "weekly_meal_plan", price: 60, optionGroupIds: [], weeklyMeals: { mon: "p", tue: "p", wed: "p", thu: "p", fri: "p" } } as StoreProduct;
+  const result = previewManualLines([line({ date: "2026-10-26", quantity: 40, selection: { productId: "week", selectedOptions: [] } })], [...products, plan], [], [], true);
+  assert.equal(result.totalMinor, 240000);
+  assert.equal(result.days.length, 5);
+  assert.equal(result.days.reduce((sum, day) => sum + day.totalMinor, 0), 240000);
 });
 
 test('embedded meal-day previews match server prices and meal modifiers', () => {

@@ -53,7 +53,7 @@ export default function ManualPosOrders({
   >([]);
   const [currency, setCurrency] = useState("MYR");
   const [catalogLoading, setCatalogLoading] = useState(false);
-  const [owner, setOwner] = useState(false);
+  const [posFullAccess, setPosFullAccess] = useState(false);
   const [defaultDate, setDefaultDate] = useState(
     shiftDateKey(toMalaysiaDateKey(), 1),
   );
@@ -63,7 +63,8 @@ export default function ManualPosOrders({
     (order) => order.payment.status === "pending",
   );
   const paid = manualOrders.filter((order) => order.payment.status === "paid");
-  const preview = previewManualLines(draft.lines, products, sets, groups, owner);
+  const posProducts = posFullAccess ? products.map((product) => ({ ...product, available: true })) : products;
+  const preview = previewManualLines(draft.lines, posProducts, sets, groups, posFullAccess);
   const money = (minor: number) => `${currency} ${(minor / 100).toFixed(2)}`;
   const [slug, setSlug] = useState("");
   const [saved, setSaved] = useState<StoreOrder | null>(null);
@@ -102,29 +103,32 @@ export default function ManualPosOrders({
     setProducts([]);
     setSets([]);
     setGroups([]);
-    setOwner(false);
+    setPosFullAccess(false);
     setPrivateItems([]);
     setSlug("");
     try {
       const uid = auth?.currentUser?.uid || "";
-      const [store, products, sets, groups, privateItems, workspaceRecord, memberRecord] = await Promise.all([
+      const [store, workspaceRecord, memberRecord] = await Promise.all([
         storeService.getWorkspaceStore(workspaceId),
-        storeService.listManualPosProducts(workspaceId, storeId),
-        storeService.listSets(workspaceId),
-        storeService.listOptionGroups(workspaceId),
-        storeOrderService.listPrivatePosItems(workspaceId),
         db && uid ? getDoc(doc(db, "workspaces", workspaceId)) : null,
         db && uid ? getDoc(doc(db, "workspaceMembers", `${workspaceId}_${uid}`)) : null,
       ]);
-      if (!store || store.id !== storeId || !store.slug)
+      if (!store || store.id !== storeId || store.workspaceId !== workspaceId || !store.slug)
         throw new Error(
           "This Store is unavailable. Close and retry loading the catalog.",
         );
-      setSlug(store.slug);
       const member = memberRecord?.data();
-      setOwner(Boolean(uid && (workspaceRecord?.data()?.ownerId === uid || (member?.userId === uid && member?.workspaceId === workspaceId && member?.status === "Active" && member?.role === "Owner"))));
+      const fullAccess = Boolean(uid && (workspaceRecord?.data()?.ownerId === uid || (member?.userId === uid && member?.workspaceId === workspaceId && member?.status === "Active" && ["Owner", "Manager"].includes(member?.role))));
+      const [products, sets, groups, privateItems] = await Promise.all([
+        storeService.listManualPosProducts(workspaceId, storeId, fullAccess),
+        storeService.listSets(workspaceId),
+        storeService.listOptionGroups(workspaceId),
+        storeOrderService.listPrivatePosItems(workspaceId),
+      ]);
+      setSlug(store.slug);
+      setPosFullAccess(fullAccess);
       setCurrency(store.currency);
-      setProducts(products.filter((p) => p.available && p.storeId === storeId));
+      setProducts(products.filter((p) => (fullAccess || p.available) && p.storeId === storeId && p.workspaceId === workspaceId));
       setSets(sets.filter((s) => s.available && s.storeId === storeId));
       setGroups(groups);
       setPrivateItems(privateItems);
@@ -526,7 +530,7 @@ export default function ManualPosOrders({
                           selectedOptions: [],
                           selectedSetItems: getDefaultStoreSetSelections(
                             s,
-                            products,
+                            posProducts,
                           ),
                         });
                     }}
@@ -682,7 +686,7 @@ export default function ManualPosOrders({
                       className={input}
                       type="number"
                       min="1"
-                      max={owner ? 10000 : 20}
+                      max={posFullAccess ? 10000 : 20}
                       value={line.quantity}
                       onChange={(e) =>
                         update(i, { quantity: Number(e.target.value) })

@@ -107,7 +107,12 @@ test("Owner manual Custom Item quantities use the canonical RM4 price and retain
   assert.throws(() => buildManualOrder({ ...input(), lines: [line("prawn", "2026-10-19", 10001)] }, checkout, now, { owner: true }), /10,000/);
   assert.throws(() => buildManualOrder({ ...input(), lines: [line("prawn", "2026-10-19", 1.5)] }, checkout, now, { owner: true }), /quantity/i);
 });
-test("Owner catalog quantities above 20 retain server pricing; Manager remains capped", () => {
+test("privileged manual Custom Item accepts 10,000 and rejects 10,001", () => {
+  const custom = quantity => ({ ...input(), lines: [{ ...line("prawn", "2026-10-19", quantity), selection: undefined, custom: { name: "Custom Item", unitPrice: 20 } }] });
+  assert.equal(buildManualOrder(custom(10000), checkout, now, { owner: true }).total, 200000);
+  assert.throws(() => buildManualOrder(custom(10001), checkout, now, { owner: true }), /10,000/);
+});
+test("privileged catalog quantities above 20 retain server pricing; other staff remains capped", () => {
   for (const quantity of [21, 40, 100, 200]) {
     const result = buildManualOrder({ ...input(), lines: [line("prawn", "2026-10-19", quantity)] }, checkout, now, { owner: true });
     assert.equal(result.total, 15 * quantity);
@@ -298,18 +303,64 @@ const workspace = {
   subscriptionPlan: "professional",
   subscriptionStatus: "active",
 };
-test("saved Owner Custom Item quantity 40 is RM160; Manager, unauthorized and cross-store requests fail", async () => {
+test("saved Owner and Manager Custom Items above 20 use canonical prices; staff and cross-store requests fail", async () => {
   const { db, docs } = database({
     "workspaces/s": workspace,
     "workspaceMembers/s_manager": { workspaceId: "s", userId: "manager", status: "Active", role: "Manager" },
+    "workspaceMembers/s_chef": { workspaceId: "s", userId: "chef", status: "Active", role: "Chef" },
+    "workspaceMembers/s_inactive": { workspaceId: "s", userId: "inactive", status: "Inactive", role: "Manager" },
   });
   const custom = { ...input(), lines: [{ ...line("prawn", "2026-10-19", 40), selection: undefined, custom: { name: "Custom Item", unitPrice: 4 } }] };
   const args = { db, input: custom, now, loadCheckout: async () => checkout };
   const saved = await saveManualPosOrder({ ...args, uid: "owner" });
   assert.equal(docs[`storeOrders/${saved.orderId}`].total, 160);
-  await assert.rejects(saveManualPosOrder({ ...args, uid: "manager" }), /1–20/);
+  const managerCustom = { ...custom, requestId: "manager-custom-12345678", lines: [{ ...custom.lines[0], custom: { name: "Custom Item", unitPrice: 20 } }] };
+  const managerSaved = await saveManualPosOrder({ ...args, uid: "manager", input: managerCustom });
+  assert.equal(docs[`storeOrders/${managerSaved.orderId}`].total, 800);
+  await assert.rejects(saveManualPosOrder({ ...args, uid: "chef" }), /1–20/);
+  await assert.rejects(saveManualPosOrder({ ...args, uid: "inactive", input: { ...custom, posFullAccess: true, owner: true } }), e => e.code === "permission-denied");
   await assert.rejects(saveManualPosOrder({ ...args, uid: "stranger" }), e => e.code === "permission-denied");
-  await assert.rejects(saveManualPosOrder({ ...args, uid: "owner", input: { ...custom, workspaceId: "other" } }), e => e.code === "permission-denied");
+  await assert.rejects(saveManualPosOrder({ ...args, uid: "manager", input: { ...managerCustom, workspaceId: "other" } }), e => e.code === "permission-denied");
+});
+test("Owner and Manager manual orders load unpublished same-store products for quantities 21–200", async () => {
+  const hidden = { ...products[0], id: "hidden", available: false, price: 9 };
+  for (const uid of ["owner", "manager"]) {
+    for (const quantity of [21, 40, 100, 200]) {
+      const { db, docs } = database({
+        "workspaces/s": workspace,
+        "workspaceMembers/s_manager": { workspaceId: "s", userId: "manager", status: "Active", role: "Manager" },
+      });
+      const calls = [];
+      const result = await saveManualPosOrder({
+        db, uid, now,
+        input: { ...input(), requestId: `${uid}-${quantity}-hidden-product`, lines: [line("hidden", "2026-10-19", quantity)] },
+        loadCheckout: async (_db, _slug, options) => {
+          calls.push(options?.includeUnavailable === true);
+          return options?.includeUnavailable ? { ...checkout, products: [...products, hidden] } : checkout;
+        },
+      });
+      assert.deepEqual(calls, [false, true]);
+      assert.equal(docs[`storeOrders/${result.orderId}`].total, 9 * quantity);
+    }
+  }
+});
+test("Manager manual order accepts a hidden Weekly Menu with five fulfilments", async () => {
+  const days = ["mon", "tue", "wed", "thu", "fri"];
+  const meals = days.map(day => ({ ...products[0], id: day, available: false, availableDay: day }));
+  const plan = { ...products[0], id: "hidden-week", available: false, price: 60, productType: "weekly_meal_plan", weeklyMeals: Object.fromEntries(days.map(day => [day, day])) };
+  const { db, docs } = database({
+    "workspaces/s": workspace,
+    "workspaceMembers/s_manager": { workspaceId: "s", userId: "manager", status: "Active", role: "Manager" },
+  });
+  const saved = await saveManualPosOrder({
+    db, uid: "manager", now,
+    input: { ...input(), requestId: "manager-hidden-week-12345", lines: [line("hidden-week", "2026-10-19", 40)] },
+    loadCheckout: async (_db, _slug, options) => options?.includeUnavailable ? { ...checkout, products: [...meals, plan] } : checkout,
+  });
+  const order = docs[`storeOrders/${saved.orderId}`];
+  assert.equal(order.total, 2400);
+  assert.equal(order.fulfilments.length, 5);
+  assert.ok(order.fulfilments.every(day => day.allocations[0].quantity === 40));
 });
 test("save/edit manual order always pending, idempotent request, confirmation authorized and idempotent, no inventory writes", async () => {
   const { db, docs, writes } = database({ "workspaces/s": workspace });

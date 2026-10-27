@@ -349,11 +349,11 @@ export const storeService = {
   },
 
   // POS must see the complete available catalog, not the admin list's first 50 documents.
-  async listManualPosProducts(workspaceId: string, storeId: string): Promise<StoreProduct[]> {
+  async listManualPosProducts(workspaceId: string, storeId: string, includeUnavailable = false): Promise<StoreProduct[]> {
     if (!db || !workspaceId || !storeId) return [];
     const snapshot = await getDocs(query(collection(db, 'storeProducts'), where('workspaceId', '==', workspaceId), where('storeId', '==', storeId)));
     return snapshot.docs.map(doc => normalizeStoreProduct(doc.id, doc.data() as Record<string, unknown>))
-      .filter(product => product.available).sort((a, b) => a.name.localeCompare(b.name));
+      .filter(product => includeUnavailable || product.available).sort((a, b) => a.name.localeCompare(b.name));
   },
 
   async listAdminProducts(workspaceId: string): Promise<StoreProduct[]> {

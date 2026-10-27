@@ -11,8 +11,8 @@ export function buildExternalOrderItems(input, checkout, now = new Date(), { own
   if (owner) {
     const selectedIds = new Set(input.selections.flatMap(selection => [selection.productId, ...(selection.selectedSetItems || []).map(item => item.productId)].filter(Boolean)));
     if (checkout.products.some(product => selectedIds.has(product.id) && (product.storeId !== checkout.store.id || product.workspaceId !== checkout.store.workspaceId))) throw new Error('A selected product belongs to another Store.');
+    if (checkout.products.some(product => selectedIds.has(product.id) && (!String(product.name || '').trim() || !Number.isFinite(product.price) || product.price < 0 || Math.round(product.price * 100) / 100 !== product.price))) throw new Error('This product configuration is invalid.');
   }
-  if (owner && input.selections.some(selection => { const product = checkout.products.find(product => product.id === selection.productId); return product && (!String(product.name || '').trim() || !Number.isFinite(product.price) || product.price < 0 || Math.round(product.price * 100) / 100 !== product.price); })) throw new Error('This product configuration is invalid.');
   if (!['pickup', 'delivery'].includes(method)) throw new Error('Choose Delivery or Pickup.');
   const address = typeof input.deliveryAddress === 'string' ? input.deliveryAddress.trim() : '';
   if (method === 'delivery' && (!address || address.length > 1000)) throw new Error('Enter a delivery address (up to 1000 characters).');
