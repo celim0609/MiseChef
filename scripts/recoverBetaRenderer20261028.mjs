@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { readLiveBetaFingerprint } from './betaLiveRelease.mjs';
 import { assertLiveBaseline } from './betaDeploymentSafety.mjs';
@@ -35,12 +37,85 @@ const assetFromShell = html => {
   assert.ok(match, 'Target image has no versioned Store shell asset');
   return new URL(match[1], origin).pathname;
 };
+const shellFromWorkspace = (workspace, readText = file => readFileSync(file, 'utf8')) => {
+  const matches = [];
+  const visit = directory => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const location = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(location);
+      else if (entry.name === 'publicStoreAppShell.html') {
+        assert.ok(entry.isFile(), 'Target Store shell is not a regular file');
+        matches.push(location);
+      }
+    }
+  };
+  visit(workspace);
+  assert.equal(matches.length, 1, 'Cannot independently identify exactly one Store shell in target image');
+  return readText(matches[0]);
+};
+const inspectImage = (image, docker = args => command('docker', args)) => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'misechef-beta-renderer-'));
+  let container = '';
+  try {
+    container = docker(['create', image]);
+    assert.match(container, /^[0-9a-f]{64}$/, 'Docker did not return an immutable container ID');
+    const workspace = path.join(directory, 'workspace');
+    docker(['cp', `${container}:/workspace`, workspace]);
+    return shellFromWorkspace(workspace);
+  } finally {
+    try {
+      if (container) docker(['rm', '-v', container]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
+};
+const runInspectionSelfTests = () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'misechef-beta-renderer-test-'));
+  try {
+    const shell = path.join(directory, 'publicStoreAppShell.html');
+    const valid = `<script src="${stableAsset}"></script>`;
+    writeFileSync(shell, valid);
+    assert.equal(assetFromShell(shellFromWorkspace(directory)), stableAsset);
+    assert.throws(() => shellFromWorkspace(directory, () => { throw new Error('unreadable'); }), /unreadable/);
+    writeFileSync(shell, '<script src="/assets/index-wrong.js"></script>');
+    assert.throws(() => assert.equal(assetFromShell(shellFromWorkspace(directory)), stableAsset));
+    rmSync(shell);
+    assert.throws(() => shellFromWorkspace(directory), /exactly one Store shell/);
+    writeFileSync(shell, valid);
+    mkdirSync(path.join(directory, 'duplicate'));
+    writeFileSync(path.join(directory, 'duplicate', 'publicStoreAppShell.html'), valid);
+    assert.throws(() => shellFromWorkspace(directory), /exactly one Store shell/);
+    rmSync(path.join(directory, 'duplicate'), { recursive: true });
+    const calls = [];
+    const id = 'a'.repeat(64);
+    const extracted = inspectImage('immutable-image', args => {
+      calls.push(args[0]);
+      if (args[0] === 'create') return id;
+      if (args[0] === 'cp') {
+        mkdirSync(args[2]);
+        writeFileSync(path.join(args[2], 'publicStoreAppShell.html'), valid);
+      }
+      return '';
+    });
+    assert.equal(assetFromShell(extracted), stableAsset);
+    assert.deepEqual(calls, ['create', 'cp', 'rm']);
+    console.log('Offline image inspection: success, wrong asset, missing, ambiguous, unreadable, and no-container-execution checks passed.');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+};
 const live = async () => {
   const fingerprint = await readLiveBetaFingerprint();
   assert.equal(fingerprint.releaseCommit, stableCommit);
   assert.equal(fingerprint.rootAsset, stableAsset);
   return fingerprint;
 };
+
+if (process.argv.includes('--self-test')) {
+  runInspectionSelfTests();
+  process.exit(0);
+}
 
 assert.equal(process.env.GITHUB_ACTIONS, 'true', 'Recovery must run in GitHub Actions');
 assert.equal(process.env.GITHUB_REPOSITORY, 'celim0609/MiseChef', 'Recovery is limited to the MiseChef repository');
@@ -73,10 +148,7 @@ const image = target.spec.containers[0].image;
 assert.match(image, /^us-central1-docker\.pkg\.dev\/misechef-beta-fa4bf\/gcf-artifacts\/.+@sha256:[0-9a-f]{64}$/);
 command('gcloud', ['auth', 'configure-docker', 'us-central1-docker.pkg.dev', '--quiet']);
 command('docker', ['pull', image]);
-const paths = command('docker', ['run', '--rm', '--network', 'none', '--entrypoint', 'find', image,
-  '/workspace', '-type', 'f', '-name', 'publicStoreAppShell.html']).split('\n').filter(Boolean);
-assert.equal(paths.length, 1, 'Cannot independently identify exactly one Store shell in target image');
-const targetShell = command('docker', ['run', '--rm', '--network', 'none', '--entrypoint', 'cat', image, paths[0]]);
+const targetShell = inspectImage(image);
 assert.equal(assetFromShell(targetShell), stableAsset, 'Target renderer image does not serve the Hosting asset');
 
 const assetResponse = await fetch(`${origin}${stableAsset}`, { cache: 'no-store' });
