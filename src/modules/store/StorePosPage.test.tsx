@@ -288,23 +288,20 @@ test('receipt failure does not turn an already-created Walk-in order into a subm
   assert.equal(harness.lock.current, false);
 });
 
-test('POS modal keeps errors directly above the full-width action and separates product scrolling from fixed regions', () => {
-  const modal = pageSource.slice(pageSource.indexOf('      {externalOpen && ('));
+test('POS Add Order uses document flow with catalog before cart and no modal scrolling', () => {
+  const modal = pageSource.slice(pageSource.indexOf('      <div hidden={!externalOpen}>'));
   assert.match(modal, /aria-labelledby="pos-order-entry-title"/);
-  assert.match(modal, /flex h-\[92dvh\].*flex-col overflow-hidden/);
-  assert.match(modal, /<header className="[^"]*shrink-0/);
-  assert.match(modal, /aria-label="Store products" className="min-h-0 flex-1 overflow-y-auto/);
-  assert.match(modal, /aria-label="Order cart" className="min-h-0 flex-1 overflow-y-auto/);
-  assert.match(modal, /md:w-\[90vw\] max-w-\[1440px\]/);
-  assert.match(modal, /md:grid-cols-\[minmax\(0,1fr\)_minmax\(320px,420px\)\]/);
-  assert.match(modal, /grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3/);
+  assert.doesNotMatch(modal, /role="dialog"|aria-modal|fixed|sticky|overflow-y|overflow-auto|max-h-|h-\[92dvh\]/);
+  assert.match(modal, /Back to POS/);
+  assert.match(modal, /grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4/);
   assert.doesNotMatch(modal, /Search catalog|Search POS products and sets/);
-  assert.match(modal, /grid-rows-\[minmax\(0,1fr\)_minmax\(0,1fr\)\]/);
+  assert.ok(modal.indexOf('aria-label="Store products"') < modal.indexOf('aria-label="Order cart"'));
+  assert.match(modal, /hidden=\{externalCategory === 'sets'\}/);
   assert.match(modal, /Cart is empty/);
   assert.match(modal, /item\.unitPrice\.toFixed\(2\)/);
   assert.match(modal, /item\.lineTotal\.toFixed\(2\)/);
   assert.match(modal, /externalSubtotal\.toFixed\(2\)/);
-  assert.match(modal, /<footer className="shrink-0/);
+  assert.match(modal, /<footer className="border-t/);
   assert.match(modal, /\{externalError && <p[^>]*role="alert"[^>]*>\{externalError\}<\/p>\}\s*<button[^>]*onClick=\{\(\) => void createExternalOrder\(\)\}/);
   assert.match(modal, /aria-busy=\{creatingExternal\}/);
   assert.match(modal, /className="[^"]*w-full[^"]*bg-blue-700[^"]*disabled:cursor-not-allowed[^"]*disabled:bg-slate-200/);

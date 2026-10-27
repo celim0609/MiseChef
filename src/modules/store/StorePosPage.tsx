@@ -420,6 +420,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     setExternalError('');
     setExternalCategory('all');
     setExternalOpen(true);
+    window.scrollTo({ top: 0 });
     setExternalLoading(true);
     try {
       const [products, optionGroups, sets, loadedStore] = await Promise.all([
@@ -601,6 +602,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   return (
     <section data-pos-theme={isNightMode ? 'dark' : 'light'} className={`pos-screen flex min-h-screen flex-col transition-colors ${isNightMode ? 'bg-[#07111f] text-white' : 'bg-slate-100 text-slate-950'}`}>
       <audio ref={audioRef} preload="auto" aria-hidden="true" />
+      <div hidden={externalOpen}>
       <header className={`pos-light-surface flex flex-col gap-3 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:px-6 ${isNightMode ? 'border-white/10 bg-[#0b1727]' : 'border-slate-300 bg-white'}`}>
         <div className="flex min-w-0 items-center gap-3">
           <button type="button" onClick={onBack} aria-label="Back to Store" className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border ${isNightMode ? 'border-white/15 bg-white/5 text-white' : 'border-slate-300 bg-slate-100 text-slate-900'}`}><ArrowLeft className="h-6 w-6" /></button>
@@ -709,15 +711,15 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       <footer className={`pos-light-surface mx-3 mb-3 grid gap-2 rounded-xl border px-4 py-2 sm:grid-cols-3 lg:mx-4 ${isNightMode ? 'border-slate-700 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}><div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /><span><span className="block text-[10px] font-bold text-slate-400">Last Updated</span><span className="text-xs font-black">{lastUpdated ? lastUpdated.toLocaleTimeString() : 'Connecting…'}</span></span></div><div className="flex items-center gap-2"><Store className="h-5 w-5 text-slate-400" /><span><span className="block text-[10px] font-bold text-slate-400">Store</span><span className="text-xs font-black">{storeDisplayName}</span></span></div><div className="flex items-center gap-2"><BellRing className="h-5 w-5 text-emerald-500" /><span><span className="block text-[10px] font-bold text-slate-400">Active Online Orders</span><span className="text-xs font-black">{activeOnlineOrderCount}</span></span></div></footer>
 
       {cancelOrder && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/65 p-4" role="presentation"><section role="dialog" aria-modal="true" aria-labelledby="cancel-order-title" className={`pos-light-surface w-full max-w-lg rounded-2xl border p-5 shadow-2xl ${isNightMode ? 'border-slate-600 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-rose-500">Preserves order record</p><h2 id="cancel-order-title" className="pos-readable-heading mt-1 text-2xl font-black">Cancel Order</h2><p className="mt-1 text-lg font-black">{cancelOrder.orderNumber}</p></div><button type="button" onClick={closeCancellation} aria-label="Close cancellation dialog" className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-400"><X className="h-5 w-5" /></button></div><p className={`mt-4 rounded-xl px-4 py-3 text-sm font-bold ${isNightMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>This removes the order from the active kitchen queue but preserves it in Order History.</p>{cancelOrder.payment.status === 'paid' && <p className="mt-3 flex gap-2 rounded-xl border border-amber-400 bg-amber-100 px-4 py-3 text-sm font-black text-amber-950"><AlertTriangle className="h-5 w-5 shrink-0" />Canceling this order does not refund the payment.</p>}<fieldset className="mt-5"><legend className="text-sm font-black">Cancellation reason</legend><div className="mt-2 grid gap-2 sm:grid-cols-2">{CANCELLATION_REASONS.map(reason => <label key={reason} className={`pos-control flex min-h-12 cursor-pointer items-center gap-2 rounded-xl border px-3 text-sm font-bold ${cancellationChoice === reason ? 'border-rose-500 bg-rose-50 text-rose-900' : isNightMode ? 'border-slate-600 bg-slate-900' : 'border-slate-300 bg-white'}`}><input type="radio" name="cancellation-reason" value={reason} checked={cancellationChoice === reason} onChange={() => setCancellationChoice(reason)} />{reason}</label>)}</div></fieldset>{cancellationChoice === 'Other' && <label className="mt-3 block text-sm font-black">Explain the reason<textarea autoFocus maxLength={233} value={otherCancellationReason} onChange={event => setOtherCancellationReason(event.target.value)} className="pos-control mt-2 min-h-24 w-full rounded-xl border border-slate-400 bg-white p-3 text-sm font-bold text-slate-950" placeholder="Required" /></label>}<div className="mt-5 grid grid-cols-2 gap-3"><button type="button" onClick={closeCancellation} disabled={Boolean(updatingOrderId)} className={`min-h-12 rounded-xl border px-4 font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-800'}`}>Keep Order</button><button type="button" onClick={() => void confirmCancellation()} disabled={!canConfirmCancellation || Boolean(updatingOrderId)} className="min-h-12 rounded-xl bg-rose-600 px-4 font-black text-white disabled:opacity-40">{updatingOrderId ? 'Cancelling…' : 'Confirm Cancellation'}</button></div></section></div>}
-      {externalOpen && (
-        <div className="fixed inset-0 z-[101] flex items-center justify-center bg-black/65 p-3 sm:p-4">
-          <section role="dialog" aria-modal="true" aria-labelledby="pos-order-entry-title" className="flex h-[92dvh] max-h-[900px] w-full md:w-[90vw] max-w-[1440px] flex-col overflow-hidden rounded-2xl bg-white text-slate-950 shadow-2xl">
+      </div>
+      <div hidden={!externalOpen}>
+          <section aria-labelledby="pos-order-entry-title" className="mx-auto w-full max-w-7xl bg-white text-slate-950">
             <header className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3">
               <div>
                 <h2 id="pos-order-entry-title" className="text-xl font-black">Add Order</h2>
                 <p className="text-xs font-bold text-slate-500">{externalSource === 'shopeefood' ? 'ShopeeFood · Platform Paid' : externalSource === 'walk_in' ? 'Walk-in · Paid' : externalSource === 'whatsapp' ? 'WhatsApp · Paid' : 'Other · Paid'}</p>
               </div>
-              <button type="button" onClick={() => setExternalOpen(false)} disabled={creatingExternal} aria-label="Close" className="rounded-lg p-2 hover:bg-slate-100 disabled:opacity-40"><X /></button>
+              <button type="button" onClick={() => { setExternalOpen(false); window.scrollTo({ top: 0 }); }} disabled={creatingExternal} className="inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 py-2 font-bold hover:bg-slate-100 disabled:opacity-40"><ArrowLeft className="h-5 w-5" />Back to POS</button>
             </header>
 
             <fieldset disabled={creatingExternal} className="grid shrink-0 grid-cols-2 gap-3 border-b px-4 py-3 disabled:opacity-60">
@@ -738,16 +740,16 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               <p className="col-span-2 text-xs text-slate-600">Dates and times above apply to items without their own schedule. Weekly meals keep their selected dates. {externalMethod === 'delivery' ? 'Delivery is arranged externally. Confirming this order does not book Lalamove.' : 'Leave both blank for immediate pickup.'}</p>
             </fieldset>
 
-            <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] md:grid-rows-1 md:grid-cols-[minmax(0,1fr)_minmax(320px,420px)]">
-            <div role="region" aria-label="Store products" className="min-h-0 flex-1 overflow-y-auto p-4">
-              <div aria-label="Catalog categories" className="sticky top-0 z-10 mb-3 grid grid-cols-3 gap-2 bg-white pb-2">
+            <div className="space-y-6">
+            <div role="region" aria-label="Store products" className="p-4">
+              <div aria-label="Catalog categories" className="mb-3 grid grid-cols-3 gap-2 bg-white pb-2">
                 {(['all','sets','weekly'] as const).map(category => <button key={category} type="button" aria-pressed={externalCategory === category} onClick={() => setExternalCategory(category)} className={`min-h-11 rounded-lg border px-2 py-2 text-sm font-bold ${externalCategory === category ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}>{category === 'all' ? 'All Products' : category === 'sets' ? 'Sets' : 'Weekly'}</button>)}
               </div>
               {externalLoading && <p role="status">Loading Store catalog…</p>}
               {!externalLoading && !externalProducts.length && !externalSets.length && <p>No available products. Review Store products.</p>}
               {!externalLoading && externalCategory === 'sets' && !externalSets.length && <p className="py-6 text-sm text-slate-500">No available sets.</p>}
               {!externalLoading && externalCategory === 'weekly' && !externalProducts.some(product => product.productType === 'weekly_meal_plan') && <p className="py-6 text-sm text-slate-500">No available weekly menus.</p>}
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4">
                 {externalCategory === 'all' && externalProducts.filter(product => product.productType !== 'weekly_meal_plan').map(product => (
                   <article key={product.id} className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
                     <div className="relative aspect-[16/9] shrink-0 overflow-hidden bg-slate-100">{product.photoUrl ? <img src={product.photoUrl} alt="" className="absolute inset-0 h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs font-bold text-slate-400">No image</div>}</div>
@@ -768,18 +770,18 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                     </div>
                   </article>
                 ))}
-                {(externalCategory === 'all' || externalCategory === 'weekly') && externalStore && externalProducts.filter(product => product.productType === 'weekly_meal_plan').map(product => <div key={product.id} className="col-span-full min-w-0"><PosWeeklyMenu exactTime disabled={creatingExternal || externalLoading} product={product} products={externalProducts} store={externalStore} onAdd={(choice,time) => addExternalMenu(product,choice,time)}/></div>)}
+                {externalStore && externalProducts.filter(product => product.productType === 'weekly_meal_plan').map(product => <div key={product.id} hidden={externalCategory === 'sets'} className="col-span-full min-w-0"><PosWeeklyMenu exactTime disabled={creatingExternal || externalLoading} product={product} products={externalProducts} store={externalStore} onAdd={(choice,time) => addExternalMenu(product,choice,time)}/></div>)}
               </div>
             </div>
 
-            <div className="flex min-h-0 shrink-0 flex-col border-t bg-slate-50 md:border-l md:border-t-0">
-            <section aria-label="Order cart" className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            <div className="border-t bg-slate-50">
+            <section aria-label="Order cart" className="px-4 py-3">
               <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-black">Cart</h3><button type="button" disabled={creatingExternal || !externalCart.length} onClick={()=>{if(!window.confirm('Clear this draft? Check View Orders first if a previous submission had a connection error.'))return;setExternalCart([]); setExternalMethod('pickup'); setExternalAddress(''); setExternalDate(''); setExternalTime('');setExternalNumber('');setExternalName('');setExternalPhone('');setExternalNotes('');setExternalError('');externalRequestIdRef.current=crypto.randomUUID();}} className="text-xs underline">Clear draft</button></div>
               <div className="space-y-2">
                 {externalCartLines.length === 0 && <p className="py-2 text-sm text-slate-500">Cart is empty</p>}
                 {externalCartLines.map(item => <div key={item.key} className="rounded-lg border border-slate-200 bg-white p-3">
-                  <div className="flex items-center gap-3">
-                    <div className="min-w-0 flex-1"><p className="text-sm font-bold">{item.label}</p><p className="text-xs text-slate-500">MYR {item.unitPrice.toFixed(2)} each</p></div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="min-w-0 basis-full sm:basis-auto sm:flex-1"><p className="text-sm font-bold">{item.label}</p><p className="text-xs text-slate-500">MYR {item.unitPrice.toFixed(2)} each</p></div>
                     <div className="flex items-center gap-2">
                       <button type="button" onClick={() => updateExternalCartQuantity(item.key, -1)} disabled={creatingExternal} aria-label={`Decrease ${item.label} quantity`} className="h-8 w-8 rounded-lg border border-slate-300 font-black disabled:opacity-40">−</button>
                       <span aria-label={`${item.label} quantity`} className="min-w-5 text-center text-sm font-black">{item.quantity}</span>
@@ -811,7 +813,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               </fieldset>
             </section>
 
-            <footer className="shrink-0 border-t bg-white px-4 py-3">
+            <footer className="border-t bg-white px-4 py-3">
               <div className="mb-2 flex justify-between text-base font-black"><span>Subtotal</span><span>MYR {externalSubtotal.toFixed(2)}</span></div>
               {!hasRequiredExternalOptions && <p className="mb-2 text-sm text-amber-800">Choose the required product options to continue.</p>}
               {externalError && <p id="pos-order-entry-error" role="alert" className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-800">{externalError}</p>}
@@ -822,8 +824,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
             </div>
             </div>
           </section>
-        </div>
-      )}
+      </div>
     </section>
   );
 }
