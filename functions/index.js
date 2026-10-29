@@ -1,3 +1,4 @@
+import { recordStoreCustomerReminder as recordCustomerReminder } from './storeFulfilment.js';
 import { createRecipePipelineService } from './recipePipelineService.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import { readFileSync } from 'node:fs';
@@ -2525,3 +2526,5 @@ export const processResumeImportJob = onDocumentCreated({
     await logRequest({ requesterId, companyId, action, status: 'failed', attempts, errorCode, responseTime: Date.now() - startedAt, model: RESUME_MODEL }).catch(() => undefined);
   }
 });
+
+export const recordStoreCustomerReminder = onCall({ region: REGION, timeoutSeconds: 20, memory: '256MiB' }, request => recordCustomerReminder({ db, uid: request.auth?.uid, orderId: request.data?.orderId, date: request.data?.date, status: request.data?.status }));

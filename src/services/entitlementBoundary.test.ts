@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import ts from 'typescript';
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
@@ -69,7 +70,22 @@ test('server and rules enforce Business entitlement while customer paths stay pu
   const manualPayments = read('../../functions/storeManualPayments.js');
   const firestore = read('../../firestore.rules');
   const storage = read('../../storage.rules');
-  assert.equal((fulfilment.match(/hasActiveBusinessEntitlement\(workspace\)/g) || []).length, 2);
+  // Check each merchant mutation's boundary, rather than a file-wide guard count:
+  // adding another protected action must not invalidate the existing two guards.
+  const source = ts.createSourceFile('storeFulfilment.js', fulfilment, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  for (const name of ['updateStoreOrderFulfilment', 'updateStoreGroupOrderFulfilment', 'recordStoreCustomerReminder']) {
+    const declaration = source.statements
+      .filter(ts.isVariableStatement)
+      .flatMap(statement => [...statement.declarationList.declarations])
+      .find(node => node.name.getText(source) === name);
+    assert.ok(declaration, `${name} must retain its server boundary`);
+    const body = declaration.initializer?.getText(source) || '';
+    assert.match(body, /if \(!hasActiveBusinessEntitlement\(workspace\)/, `${name} must reject inactive Business entitlement`);
+    const guard = body.indexOf('if (!hasActiveBusinessEntitlement(workspace)');
+    const denied = body.indexOf("throw new HttpsError('permission-denied'", guard);
+    const firstWrite = body.search(/transaction\.(?:update|create|set|delete)\(/);
+    assert.ok(guard >= 0 && denied > guard && firstWrite > denied, `${name} must deny access before any mutation`);
+  }
   assert.match(manualPayments, /hasActiveBusinessEntitlement\(workspace\.data\(\) \|\| \{\}\)/);
   assert.match(firestore, /subscriptionPlan in \['starter', 'professional', 'business', 'internal_unlimited'\]/);
   assert.match(storage, /subscriptionPlan in \['starter', 'professional', 'business', 'internal_unlimited'\]/);
