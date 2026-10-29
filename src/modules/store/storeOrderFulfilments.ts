@@ -2,7 +2,7 @@ import { hasEmbeddedMenu, resolveHealthyLunchDay } from '../../../functions/stor
 import { productAllowsFulfilmentDate } from '../../../functions/storeProductAvailability.js';
 import type { CartSelection, StoreProduct, MealOptionChoice } from './types';
 
-export interface DraftFulfilment { date: string; time: string; itemIndexes: number[] }
+export interface DraftFulfilment { destination?: import('./services/deliveryService').DeliveryDestination; date: string; time: string; itemIndexes: number[] }
 export const addDatedHealthyLunchLine = <T extends CartSelection & { key: string }>(cart: T[], planId: string, mealId: string, date: string, selectedMealOptions: MealOptionChoice[] = []): T[] => {
   const key = `healthy_${planId}_${date}${selectedMealOptions.length ? '_' + selectedMealOptions.map(choice => `${choice.optionGroupId}:${choice.optionId}`).sort().join('|') : ''}`;
   return cart.some(line => line.key === key)

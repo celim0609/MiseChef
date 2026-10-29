@@ -592,9 +592,10 @@ service cloud.firestore {
     // budget without changing operator permissions.
     function isValidDatedWeek(week, planId, embedded) {
       let meals = week.meals;
-      return week is map && week.keys().hasOnly(['startMonday', 'meals']) && week.size() == 2
-        && week.startMonday is string && week.startMonday.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && meals is map && meals.size() == 5 && meals.keys().hasAll(['mon', 'tue', 'wed', 'thu', 'fri'])
+      return week.keys().hasOnly(['startMonday', 'meals', 'discount', 'legacyWeeklyPrice', 'coverPhotoUrl']) && (week.size() == 2 || isValidWeeklyDiscount(week))
+        && week.startMonday.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && (!('coverPhotoUrl' in week) || (week.coverPhotoUrl is string && week.coverPhotoUrl.size() <= 4096 && week.coverPhotoUrl.matches('https://.*')))
+        && meals.size() == 5
         && (embedded ? (meals.mon is map && meals.tue is map && meals.wed is map && meals.thu is map && meals.fri is map) : (meals.mon is string && meals.tue is string && meals.wed is string && meals.thu is string && meals.fri is string
         && ![meals.mon, meals.tue, meals.wed, meals.thu, meals.fri].hasAny(['', planId])));
     }
@@ -602,22 +603,31 @@ service cloud.firestore {
     // document-read budget. Validate bounded schema here; save and checkout
     // validate references against the Store catalogue without changing access.
     function isValidDatedWeeks(weeks, planId, embedded) {
-      return weeks is map && weeks.size() > 0 && weeks.keys().hasOnly(['week1', 'week2', 'week3', 'week4'])
+      return weeks.size() > 0 && weeks.keys().hasOnly(['week1', 'week2', 'week3', 'week4'])
         && (!('week1' in weeks) || isValidDatedWeek(weeks.week1, planId, embedded))
         && (!('week2' in weeks) || isValidDatedWeek(weeks.week2, planId, embedded))
         && (!('week3' in weeks) || isValidDatedWeek(weeks.week3, planId, embedded))
         && (!('week4' in weeks) || isValidDatedWeek(weeks.week4, planId, embedded));
     }
 
+    // Full amount bounds and minor-unit validation run in the shared catalogue
+    // validator and authoritative checkout; keep this bounded for four weeks.
+    function isValidWeeklyDiscount(week) {
+      let discount = week.get('discount', {'type': 'none', 'value': 0});
+      return discount.size() == 2 && discount.value is number && discount.value >= 0
+        && discount.type in ['none', 'percentage', 'fixed_amount', 'fixed_weekly_price'];
+    }
     function isValidRotationWeek(week) {
-      return week is map && week.keys().hasOnly(['meals']) && week.size() == 1
-        && week.meals is map && week.meals.size() == 5
-        && week.meals.keys().hasAll(['mon', 'tue', 'wed', 'thu', 'fri'])
-        && week.meals.mon is map && week.meals.tue is map && week.meals.wed is map
-        && week.meals.thu is map && week.meals.fri is map;
+      let meals = week.meals;
+      return week.keys().hasOnly(['meals', 'discount', 'legacyWeeklyPrice', 'coverPhotoUrl'])
+        && (week.size() == 1 || isValidWeeklyDiscount(week))
+        && (!('coverPhotoUrl' in week) || (week.coverPhotoUrl is string && week.coverPhotoUrl.size() <= 4096 && week.coverPhotoUrl.matches('https://.*')))
+        && meals.size() == 5
+        && meals.mon is map && meals.tue is map && meals.wed is map
+        && meals.thu is map && meals.fri is map;
     }
     function isValidRotationWeeks(weeks) {
-      return weeks is map && weeks.size() > 0 && weeks.keys().hasOnly(['week1', 'week2', 'week3', 'week4'])
+      return weeks.size() > 0 && weeks.keys().hasOnly(['week1', 'week2', 'week3', 'week4'])
         && (!('week1' in weeks) || isValidRotationWeek(weeks.week1))
         && (!('week2' in weeks) || isValidRotationWeek(weeks.week2))
         && (!('week3' in weeks) || isValidRotationWeek(weeks.week3))
@@ -636,7 +646,12 @@ service cloud.firestore {
     }
     function isValidWeeklyProduct(data, productId) {
       return ('weeklyMenuVersion' in data && data.weeklyMenuVersion == 3)
-        ? isValidRotationProduct(data) : isValidLegacyWeeklyProduct(data, productId);
+        ? isValidRotationProduct(data)
+        : (('weeklyMenuVersion' in data && data.weeklyMenuVersion == 2)
+          ? (data.productType == 'weekly_meal_plan' && data.optionGroupIds.size() == 0
+            && (!('availableDay' in data) || data.availableDay == 'all')
+            && isValidDatedWeeks(data.weeklyWeeks, productId, true))
+          : isValidLegacyWeeklyProduct(data, productId));
     }
     function isValidLegacyWeeklyProduct(data, productId) {
       return (!('weeklyMenuVersion' in data) || (data.weeklyMenuVersion == 2 && data.productType == 'weekly_meal_plan' && 'weeklyWeeks' in data))
@@ -1763,6 +1778,12 @@ service cloud.firestore {
       allow delete: if canManageStoreProducts(resource.data.workspaceId);
     }
 
+    // Private off-menu POS items are never part of the public Store catalog.
+    match /storePrivatePosItems/{itemId} {
+      allow read: if canViewStoreOrders(resource.data.workspaceId);
+      allow write: if false;
+    }
+
     match /storeOrders/{orderId} {
       // Guest checkout is created by the trusted payment function after it
       // re-prices the cart from current Store data. Clients can never write an
@@ -1979,6 +2000,12 @@ service cloud.firestore {
       allow read: if isSuperAdmin();
       allow update, delete: if false;
     }
+
+    match /storePromotionCodes/{document=**} { allow read, write: if false; }
+    match /storePromotionCodeIndex/{document=**} { allow read, write: if false; }
+    match /storePromotionCodeMembers/{document=**} { allow read, write: if false; }
+    match /storePromotionCodeDays/{document=**} { allow read, write: if false; }
+    match /storePromotionCodeReservations/{document=**} { allow read, write: if false; }
 
     match /aiUsage/{document=**} {
       allow read, write: if false;

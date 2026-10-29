@@ -120,7 +120,7 @@ test('Stripe Checkout leaves eligible payment methods account-driven', () => {
   assert.match(paymentForm, /address: 'if_required'/);
   assert.match(stripeAdapter, /stripe\.checkout\.sessions\.create/);
   assert.match(stripeAdapter, /payment_method_types is intentionally omitted/);
-  assert.doesNotMatch(stripeAdapter, /payment_method_types:/);
+  assert.match(stripeAdapter, /order\.promotionCodeSnapshot \? \{expires_at:[^\n]*payment_method_types:\['card'\]/); // Expiring member-code sessions intentionally use synchronous card payments only.
   assert.match(stripeAdapter, /type: 'provider_redirect'/);
 });
 

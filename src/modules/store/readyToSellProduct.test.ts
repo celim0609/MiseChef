@@ -78,7 +78,7 @@ test('manual photos invalidate pending transfers and stale nutrition cannot rese
   const manual = source.slice(source.indexOf('const handleProductPhotoChange'), source.indexOf('const handleSetUpStore'));
   assert.match(manual, /productPhotoTransferIdRef.current \+= 1/);
   assert.match(manual, /readImageFile\(event, setProductPhotoFile\)/);
-  assert.match(source, /if \(productPhotoTransferIdRef.current !== transferId\) return;\s*setProductDraft/);
+  assert.match(source, /if \(productDraftRequestIdRef.current !== requestId\) return;\s*setProductDraft/);
   assert.match(source, /if \(productPhotoTransferIdRef.current === transferId\) setProductPhotoFile\(photo\)/);
 });
 
@@ -98,4 +98,55 @@ test('Ready to Sell carries Partial kcal as clearly labelled editable public des
   for (const value of [undefined, NaN, Infinity, -1]) {
     assert.equal(getReadyToSellProductDraft(recipe, { status: 'ESTIMATED', kcalPerServing: value, incompleteReasons: [] }).description, '');
   }
+});
+
+test('late Ready to Sell nutrition fills only nutrition fields without losing edited name, price, photo or recipe link', async () => {
+ const {applyReadyToSellNutrition}=await import('./storeProductVisibility');
+ const initial=getReadyToSellProductDraft(recipe);
+ const edited={...initial,name:'Customer name',price:25,photoUrl:'https://store.test/manual.jpg'};
+ const filled=applyReadyToSellNutrition(edited,recipe as Recipe,completeNutrition);
+ assert.deepEqual(filled,{...edited,calories:420});
+ const manual={...edited,calories:88,description:'Keep my copy'};
+ assert.deepEqual(applyReadyToSellNutrition(manual,recipe as Recipe,completeNutrition),manual);
+ assert.equal(applyReadyToSellNutrition({...edited,recipeId:'other'},recipe as Recipe,completeNutrition).calories,undefined);
+ for(const status of ['ESTIMATED','INCOMPLETE'] as const) assert.equal(applyReadyToSellNutrition(initial,recipe as Recipe,{...completeNutrition,status}).calories,undefined);
+});
+
+test('actual Ready to Sell handler opens immediately, preserves edits during nutrition loading and isolates manual photos', async () => {
+ const {transpileModule,ModuleKind,ScriptTarget}=await import('typescript');
+ const {applyReadyToSellNutrition}=await import('./storeProductVisibility');
+ const source=readFileSync(new URL('./StorePage.tsx',import.meta.url),'utf8');
+ const handler=source.slice(source.indexOf('  const openReadyToSellProduct = async'),source.indexOf('\n  useEffect(() => {\n    if (!readyToSellRecipe)'));
+ const state={draft:{} as import('./types').StoreProductDraft,open:false,nutritionLoading:false,photo:null as unknown};
+ let finish!: (value: unknown)=>void;const pending=new Promise(resolve=>{finish=resolve;});
+ let finishPhoto!: (value: unknown)=>void;const photo=new Promise(resolve=>{finishPhoto=resolve;});
+ const photoRef={current:0},draftRef={current:0};
+ const scope={productPhotoTransferIdRef:photoRef,productDraftRequestIdRef:draftRef,
+  setActiveView(){},setEditingProduct(){},setProductOptions(){},setSavedOptionGroupId(){},setRecipePhotoError(){},setIsRecipePhotoLoading(){},clearMessages(){},
+  setProductDraft(value:typeof state.draft|((current:typeof state.draft)=>typeof state.draft)){state.draft=typeof value==='function'?value(state.draft):value;},
+  setProductPhotoFile(value:unknown){state.photo=value;},setIsRecipeNutritionLoading(value:boolean){state.nutritionLoading=value;},setIsProductFormOpen(value:boolean){state.open=value;},
+  getReadyToSellProductDraft,applyReadyToSellNutrition,loadRecipePhotoForStoreProduct:()=>photo,loadIngredientNutritionProfiles:()=>pending,
+  workspace:{id:'workspace'},recipes:[],calculateRecipeNutrition:()=>completeNutrition};
+ const compiled=transpileModule(handler,{compilerOptions:{module:ModuleKind.None,target:ScriptTarget.ES2022}}).outputText;
+ const open=new Function(...Object.keys(scope),`${compiled};return openReadyToSellProduct;`)(...Object.values(scope)) as (recipe:Recipe)=>Promise<void>;
+ const task=open({...recipe,ingredients:[],imageUrl:'https://recipe.test/photo.jpg'} as Recipe);
+ assert.equal(state.open,true);assert.equal(state.nutritionLoading,true);assert.equal(state.draft.recipeId,recipe.id);
+ state.draft={...state.draft,name:'Keep edits',price:20};photoRef.current++;state.photo='manual photo';
+ finish({});await task;finishPhoto('late Recipe photo');await Promise.resolve();
+ assert.equal(state.draft.name,'Keep edits');assert.equal(state.draft.price,20);assert.equal(state.draft.calories,420);
+ assert.equal(state.photo,'manual photo');assert.equal(state.nutritionLoading,false);
+});
+
+test('Store reload retains a newly saved Recipe product beyond the old 50-product boundary', async () => {
+ const {transpileModule,ModuleKind,ScriptTarget}=await import('typescript');
+ const {normalizeStoreProduct}=await import('./storeModel');
+ const source=readFileSync(new URL('./services/storeService.ts',import.meta.url),'utf8');
+ const method=source.slice(source.indexOf('  async listAdminProducts('),source.indexOf('  async createProduct('));
+ const documents=Array.from({length:61},(_,index)=>({id:`product-${index}`,data:()=>({workspaceId:'workspace',storeId:'workspace',name:`Product ${index}`,photoUrl:'https://store.test/photo.jpg',recipeId:recipe.id,calories:420,updatedAt:String(index).padStart(3,'0')})}));
+ const scope={db:{},collection:()=>({}),where:()=>({}),limit:(count:number)=>({count}),query:(_:unknown,...constraints:Array<{count?:number}>)=>constraints,
+  getDocs:async(constraints:Array<{count?:number}>)=>({docs:documents.slice(0,constraints.find(item=>item.count)?.count??documents.length)}),normalizeStoreProduct};
+ const code=transpileModule(`const service={${method}}`,{compilerOptions:{module:ModuleKind.None,target:ScriptTarget.ES2022}}).outputText;
+ const service=new Function(...Object.keys(scope),`${code};return service;`)(...Object.values(scope));
+ const products=await service.listAdminProducts('workspace');assert.equal(products.length,61);
+ assert.equal(products[0].id,'product-60');assert.equal(products[0].recipeId,recipe.id);assert.equal(products[0].calories,420);
 });
