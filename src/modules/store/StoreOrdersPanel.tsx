@@ -1,8 +1,11 @@
-import OrderTicketPanel from './OrderTicketPanel';
-import { orderInPeriod } from './dailyOrderModel';
+import ManualDeliveryBooking from './ManualDeliveryBooking';
+import OrderFulfilmentDetails from './OrderFulfilmentDetails';
+import { canonicalOrderFulfilmentLabel } from '../../../functions/storeFulfilmentCanonical.js';
+import { getOrderTickets } from './orderTickets';
+import { orderInPeriod, sortOrdersForPeriod, nextDailyStatus, orderMatchesStatusInPeriod } from './dailyOrderModel';
 import { toMalaysiaDateKey } from './posOrderModel';
 import MealOptionSummary from './MealOptionSummary';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import {
   CheckCircle2,
   ChevronRight,
@@ -18,7 +21,7 @@ import { storeOrderService, type StoreOrderHistoryCursor } from './services';
 import { storeDeliveryService } from './services/deliveryService';
 import { formatPickupDateLabel, formatPickupTimeLabel } from './storeModel';
 import { isOrderOperationallyEligible, sortOrdersByDeliverySchedule } from './posOrderModel';
-import WhatsAppCustomerButton from './WhatsAppCustomerButton';
+import WhatsAppCustomerButton from './WhatsAppCustomerActions';
 import type {
   StoreFulfilmentStatus,
   StoreNotification,
@@ -109,10 +112,16 @@ export default function StoreOrdersPanel({
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [timeline, setTimeline] = useState<StoreOrderTimelineEvent[]>([]);
+  const handledFocusRef = useRef('');
   const [period, setPeriod] = useState<'Today' | 'Upcoming' | 'History'>('Today');
   const [activeFilter, setActiveFilter] = useState<(typeof FILTERS)[number]>('All');
   const [isUpdating, setIsUpdating] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => {
+    setPeriod('Today'); setActiveFilter('All'); setSelectedOrderId('');
+    setOperationalOrders([]); handledFocusRef.current = '';
+  }, [storeId, workspaceId]);
 
   useEffect(() => storeOrderService.subscribeOperationalOrders(
     storeId,
@@ -152,7 +161,12 @@ export default function StoreOrdersPanel({
   }, [historyOrders, operationalOrders]);
 
   useEffect(() => {
-    if (focusOrderId && orders.some(order => order.id === focusOrderId)) {
+    const order = orders.find(order => order.id === focusOrderId);
+    if (order && handledFocusRef.current !== focusOrderId) {
+      handledFocusRef.current = focusOrderId;
+      const today = toMalaysiaDateKey();
+      setPeriod(orderInPeriod(order, 'Today', today) ? 'Today' : orderInPeriod(order, 'Upcoming', today) ? 'Upcoming' : 'History');
+      setActiveFilter('All');
       setSelectedOrderId(focusOrderId);
     }
   }, [focusOrderId, orders]);
@@ -172,16 +186,13 @@ export default function StoreOrdersPanel({
     );
   }, [selectedOrderId, workspaceId]);
 
-  const visibleOrders = useMemo(() => orders.filter(order => {
-    if (!orderInPeriod(order, period, toMalaysiaDateKey())) return false;
-    if (activeFilter === 'All') return true;
-    if (activeFilter === 'Payment Review') return order.payment.status === 'pending_verification';
-    if (activeFilter === 'Paid') return order.payment.status === 'paid';
-    if (activeFilter === 'New') {
-      return order.payment.status === 'paid' && order.fulfilmentStatus === 'New';
-    }
-    return order.fulfilmentStatus === activeFilter;
-  }), [activeFilter, orders, period]);
+  const visibleOrders = useMemo(() => sortOrdersForPeriod(orders.filter(order =>
+    orderMatchesStatusInPeriod(order, period, activeFilter, toMalaysiaDateKey())
+  ), period, toMalaysiaDateKey()), [activeFilter, orders, period]);
+
+  useEffect(() => {
+    if (selectedOrderId && !visibleOrders.some(order => order.id === selectedOrderId)) setSelectedOrderId('');
+  }, [selectedOrderId, visibleOrders]);
 
   const updateStatus = async (nextStatus: StoreFulfilmentStatus, weeklyDay?: string, fulfilmentId?: string) => {
     if (!selectedOrder || isUpdating) return;
@@ -219,14 +230,6 @@ export default function StoreOrdersPanel({
     }
   };
 
-  const dispatchDelivery = async (orderId: string, fulfilmentId?: string) => {
-    setErrorMessage('');
-    setIsUpdating(true);
-    try {
-      const result = await storeDeliveryService.dispatch(orderId, fulfilmentId);
-      if (result.status === 'dispatch_blocked_requote') setErrorMessage(`Dispatch blocked: refreshed fee exceeds the RM5 absorption limit by ${result.difference?.toFixed(2) || '0.00'}.`);
-    } catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to dispatch delivery.'); } finally { setIsUpdating(false); }
-  };
   const cancelDelivery = async (orderId: string, fulfilmentId?: string) => {
     setErrorMessage(''); setIsUpdating(true);
     try { await storeDeliveryService.cancel(orderId, fulfilmentId); } catch (error) { setErrorMessage(error instanceof Error ? error.message : 'Unable to cancel delivery.'); } finally { setIsUpdating(false); }
@@ -287,9 +290,10 @@ export default function StoreOrdersPanel({
         </p>
       )}
 
-      <OrderTicketPanel orders={orders} />
-      <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Order filters">
-        {(['Today', 'Upcoming', 'History'] as const).map(value => <button type="button" key={value} aria-pressed={period === value} onClick={() => setPeriod(value)} className="rounded-full border px-5 py-3 font-bold">{value}</button>)}
+      <div className="flex flex-wrap items-center gap-2" aria-label="Order periods">
+        {(['Today', 'Upcoming', 'History'] as const).map(value => <button type="button" key={value} aria-pressed={period === value} onClick={() => { setPeriod(value); setActiveFilter('All'); setSelectedOrderId(''); }} className={`rounded-full border px-5 py-3 font-bold ${period === value ? 'border-primary bg-primary text-on-primary' : 'border-surface-container-high bg-white text-primary'}`}>{value}</button>)}
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1" aria-label="Order status filters">
         {FILTERS.map(filter => (
           <button
             key={filter}
@@ -321,7 +325,7 @@ export default function StoreOrdersPanel({
               <span className="flex items-start justify-between gap-4">
                 <span>
                   <span className="block font-display text-xl font-bold text-primary">{order.orderNumber}</span>
-                  {order.pickupCode && <span className="mt-1 block font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Pickup {order.pickupCode}</span>}
+                  {order.pickupCode && <span className="mt-1 block font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">{canonicalOrderFulfilmentLabel(order)} · Code {order.pickupCode}</span>}
                   <span className="mt-1 block font-sans text-sm font-extrabold text-on-surface">{order.customerName}</span>
                 </span>
                 <span className="rounded-full bg-surface-container px-3 py-1.5 font-sans text-[10px] font-extrabold text-primary">
@@ -331,9 +335,7 @@ export default function StoreOrdersPanel({
                 </span>
               </span>
               <span className="mt-4 grid gap-2 font-sans text-xs font-bold text-on-surface-variant sm:grid-cols-2">
-                <span>{formatPickupDateLabel(order.pickupDate, country)}</span>
-                <span>{order.pickupTime ? formatPickupTimeLabel(order.pickupTime, country) : order.pickupSession}</span>
-                <span>{order.pickupLocationName}</span>
+                {getOrderTickets(order).map(ticket => <span key={ticket.key} className="sm:col-span-2">{ticket.method === 'delivery' ? 'Delivery' : 'Pickup'} · {formatPickupDateLabel(ticket.date, country)} · {ticket.time ? formatPickupTimeLabel(ticket.time, country) : 'Time needs confirmation'} · {ticket.method === 'delivery' ? ticket.address || 'Delivery address missing' : ticket.address || order.pickupLocationName}</span>)}
                 <span>{formatRegionCurrency(order.total, currency)}</span>
                 <span className="inline-flex items-center gap-1.5"><Phone className="h-3 w-3" /> {order.phone}</span>
                 <span>Payment: {paymentStatusLabel(order.payment.status)}</span>
@@ -377,9 +379,7 @@ export default function StoreOrdersPanel({
             <dl className="mt-6 grid gap-3 rounded-2xl bg-surface-container-low p-4 sm:grid-cols-2">
               <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Customer</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{selectedOrder.customerName}</dd></div>
               <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Phone</dt><dd className="mt-1"><a href={`tel:${selectedOrder.phone}`} className="inline-flex items-center gap-1.5 font-sans text-sm font-extrabold text-primary"><Phone className="h-3.5 w-3.5" /> {selectedOrder.phone}</a></dd></div>
-              <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Pickup Date</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{formatPickupDateLabel(selectedOrder.pickupDate, country)}</dd></div>
-              <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Pickup Time</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{selectedOrder.pickupTime ? formatPickupTimeLabel(selectedOrder.pickupTime, country) : selectedOrder.pickupSession}</dd></div>
-              <div className="sm:col-span-2"><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Pickup Location</dt><dd className="mt-1 inline-flex items-start gap-1.5 font-sans text-sm font-extrabold text-primary"><MapPin className="mt-0.5 h-3.5 w-3.5" /> {selectedOrder.pickupLocationName}</dd></div>
+              <OrderFulfilmentDetails order={selectedOrder} country={country} />
               <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Payment</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{paymentStatusLabel(selectedOrder.payment.status)}</dd></div>
               <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Payment Method</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{selectedOrder.paymentMethodName}</dd></div>
               <div><dt className="font-sans text-[10px] font-extrabold uppercase text-outline">Fulfilment</dt><dd className="mt-1 font-sans text-sm font-extrabold text-primary">{selectedOrder.fulfilmentStatus || 'Not started'}</dd></div>
@@ -469,21 +469,30 @@ export default function StoreOrdersPanel({
               {selectedOrder.fulfilments && <section aria-label="Fulfilment schedule" className="w-full space-y-3">{selectedOrder.fulfilments.map(day => {
                 const operation = selectedOrder.fulfilmentOperations?.[day.id];
                 const complete = Boolean(selectedOrder.fulfilmentCompletion?.[day.id]);
+                const ticket = getOrderTickets(selectedOrder).find(ticket => ticket.fulfilmentId === day.id);
+                const next = ticket ? nextDailyStatus(selectedOrder,ticket) : null;
                 const dispatchStatus = operation?.dispatch?.status || 'not_requested';
                 const canAct = canProcessOrders && selectedOrder.payment.status === 'paid' && !['Completed', 'Cancelled'].includes(selectedOrder.fulfilmentStatus);
-                return <div key={day.id} className="rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>{day.date} · {day.time} · {day.method} · {day.pickupLocationName}</p>{day.allocations.map((allocation, index) => { const item = selectedOrder.items[allocation.itemIndex]; const meal = allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(meal => meal.day === allocation.componentDay) : item; return <div key={index}><p>{allocation.quantity} × {meal?.productName}</p><MealOptionSummary snapshot={allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(meal => meal.day === allocation.componentDay) : item?.healthyLunchSnapshot} /></div>; })}
-                  {complete ? <span>Completed</span> : canAct && (day.method === 'pickup' ? <button type="button" disabled={isUpdating} onClick={() => updateStatus('Completed', undefined, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">Complete {day.date}</button> : <div><p>{operation?.kitchenStatus || 'Scheduled'} · {dispatchStatus} · {operation?.lifecycle?.state || ''}</p>{operation?.providerOrder?.orderId && <p>Lalamove: {operation.providerOrder.orderId}</p>}
-                    {operation?.kitchenStatus !== 'Ready' && <button type="button" disabled={isUpdating} onClick={() => updateStatus('Ready', undefined, day.id)} className="m-2 rounded-full border px-4 py-2">Mark ready</button>}
-                    {operation?.kitchenStatus === 'Ready' && ['not_requested', 'failed'].includes(dispatchStatus) && <button type="button" disabled={isUpdating} onClick={() => dispatchDelivery(selectedOrder.id, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">Request Lalamove</button>}
+                return <div key={day.id} className="rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>{ticket?.date || day.date} · {ticket?.time || day.time} · {ticket?.method || day.method} · {ticket?.method === 'delivery' ? ticket.address || 'Delivery address missing' : day.pickupLocationName}</p>{day.allocations.map((allocation, index) => { const item = selectedOrder.items[allocation.itemIndex]; const meal = allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(meal => meal.day === allocation.componentDay) : item; return <div key={index}><p>{allocation.quantity} × {meal?.productName}</p><MealOptionSummary snapshot={allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(meal => meal.day === allocation.componentDay) : item?.healthyLunchSnapshot} /></div>; })}
+                  {complete ? <span>Completed</span> : canAct && <><p>{operation?.kitchenStatus || 'New'}</p>{next && <button type="button" disabled={isUpdating} onClick={() => updateStatus(next, undefined, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">{next === 'Preparing' ? 'Prepare' : `Mark ${next}`} {day.date}</button>}{next === 'Preparing' && ticket?.method !== 'delivery' && <button type="button" disabled={isUpdating} onClick={() => updateStatus('Ready', undefined, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">Mark Ready {day.date}</button>}{(ticket?.method || day.method) === 'delivery' && !selectedOrder.manualOrder && <div><p>{operation?.kitchenStatus || 'Scheduled'} · {dispatchStatus} · {operation?.lifecycle?.state || ''}</p>{operation?.providerOrder?.orderId && <p>Lalamove: {operation.providerOrder.orderId}</p>}{operation?.providerOrder?.shareLink && <a href={operation.providerOrder.shareLink} target="_blank" rel="noreferrer" className="underline">Track delivery</a>}{operation?.providerOrder?.driver && <p>Rider: {operation.providerOrder.driver.name} · {operation.providerOrder.driver.phone} · {operation.providerOrder.driver.plateNumber}</p>}
+                    <ManualDeliveryBooking order={selectedOrder} fulfilmentId={day.id} disabled={isUpdating} />
                     {['creating', 'created', 'outcome_unknown', 'cancel_requested'].includes(dispatchStatus) && <button type="button" disabled={isUpdating} onClick={() => refreshDelivery(selectedOrder.id, day.id)} className="m-2 rounded-full border px-4 py-2">Refresh dispatch</button>}
                     {dispatchStatus === 'created' && <button type="button" disabled={isUpdating} onClick={() => cancelDelivery(selectedOrder.id, day.id)} className="m-2 rounded-full border px-4 py-2">Cancel dispatch</button>}
+                    {operation?.dispatch?.errorCode && <p role="alert">Dispatch: {operation.dispatch.errorCode}{operation.dispatch.fields?.length ? ` Fields: ${operation.dispatch.fields.join(', ')}` : ''}{operation.dispatch.requestId ? ` Request ID: ${operation.dispatch.requestId}` : ''}</p>}
                     {dispatchStatus === 'outcome_unknown' && <p role="alert">Provider submission outcome is uncertain. Reconcile the existing request before any replacement dispatch.</p>}
-                  </div>)}
+                  </div>}</>}
                 </div>;
               })}</section>}
-              {selectedOrder.weeklyFulfilments && <section aria-label="Weekly Meal Plan schedule" className="w-full space-y-2">{selectedOrder.weeklyFulfilments.map(day => <div key={day.day} className="rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>{day.day.toUpperCase()} · {day.date} · {day.pickupTime} · {day.pickupLocationName}</p><p>{day.quantity} × {day.productName}</p>{selectedOrder.weeklyCompletion?.[day.day] ? <span>Completed</span> : canProcessOrders && selectedOrder.payment.status === 'paid' && !['Completed', 'Cancelled'].includes(selectedOrder.fulfilmentStatus) && <button type="button" disabled={isUpdating} onClick={() => updateStatus('Completed', day.day)} className="mt-2 rounded-full bg-primary px-4 py-2 text-on-primary disabled:opacity-50">Complete {day.day.toUpperCase()}</button>}</div>)}</section>}
+              {!selectedOrder.fulfilments && getOrderTickets(selectedOrder).some(ticket => ticket.weeklyDay || ticket.fulfilmentId) && <section aria-label="Legacy daily schedule" className="w-full space-y-2">{getOrderTickets(selectedOrder).map(ticket => {
+                const complete = Boolean(ticket.fulfilmentId ? selectedOrder.fulfilmentCompletion?.[ticket.fulfilmentId] : selectedOrder.weeklyCompletion?.[ticket.weeklyDay as NonNullable<typeof ticket.weeklyDay>]);
+                const status = selectedOrder.fulfilmentOperations?.[ticket.fulfilmentId || ticket.weeklyDay || '']?.kitchenStatus || 'New';
+                const next = nextDailyStatus(selectedOrder,ticket);
+                return <div key={ticket.key} className="rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>{ticket.date} · {ticket.time} · {ticket.method} · {complete ? 'Completed' : status}</p>{ticket.items.map((item,index) => <p key={index}>{item.quantity} × {item.name}</p>)}{!complete && canProcessOrders && selectedOrder.payment.status === 'paid' && !['Completed','Cancelled'].includes(selectedOrder.fulfilmentStatus) && next && <button type="button" disabled={isUpdating} onClick={() => updateStatus(next,ticket.weeklyDay,ticket.fulfilmentId)} className="mt-2 rounded-full bg-primary px-4 py-2 text-on-primary">{next === 'Preparing' ? 'Prepare' : `Mark ${next}`} {ticket.date}</button>}{!complete && canProcessOrders && next === 'Preparing' && <button type="button" disabled={isUpdating} onClick={() => updateStatus('Ready',ticket.weeklyDay,ticket.fulfilmentId)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">Mark Ready {ticket.date}</button>}</div>;
+              })}</section>}
+              {!getOrderTickets(selectedOrder).length && <p role="status">Schedule review required. Purchased item dates are missing or inconsistent.</p>}
               {canProcessOrders
                 && !selectedOrder.weeklyFulfilments && !selectedOrder.fulfilments
+                && getOrderTickets(selectedOrder).length > 0 && !getOrderTickets(selectedOrder).some(ticket => ticket.fulfilmentId)
                 && isOrderOperationallyEligible(selectedOrder)
                 && NEXT_STATUS[selectedOrder.fulfilmentStatus as StoreFulfilmentStatus] && (
                 <button
@@ -496,18 +505,20 @@ export default function StoreOrdersPanel({
                   Mark {NEXT_STATUS[selectedOrder.fulfilmentStatus as StoreFulfilmentStatus]}
                 </button>
               )}
-              {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && selectedOrder.delivery?.lifecycle?.state !== 'completed' && !['created', 'creating', 'provider_terminal', 'cancelled'].includes(selectedOrder.delivery?.dispatch?.status || '') && ((selectedOrder.delivery?.fulfilmentMode === 'instant' && ['Preparing', 'Ready'].includes(selectedOrder.fulfilmentStatus)) || (selectedOrder.delivery?.fulfilmentMode !== 'instant' && selectedOrder.fulfilmentStatus === 'Ready')) && (
-                <button type="button" disabled={isUpdating} onClick={() => dispatchDelivery(selectedOrder.id)} className="mt-3 w-full rounded-full bg-secondary px-5 py-3 font-sans text-xs font-extrabold text-on-secondary disabled:opacity-50">{selectedOrder.delivery?.fulfilmentMode === 'instant' ? 'Find Driver' : 'Request Lalamove delivery'}</button>
+              {selectedOrder.delivery?.dispatch?.status === 'outcome_unknown' && <p role="alert">Delivery submission outcome is uncertain. Reconcile the existing request before requesting a replacement.</p>}
+              {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && selectedOrder.delivery?.lifecycle?.state !== 'completed' && !['created', 'creating', 'outcome_unknown', 'cancel_requested', 'provider_terminal', 'cancelled'].includes(selectedOrder.delivery?.dispatch?.status || '') && ((selectedOrder.delivery?.fulfilmentMode === 'instant' && ['Preparing', 'Ready'].includes(selectedOrder.fulfilmentStatus)) || (selectedOrder.delivery?.fulfilmentMode !== 'instant' && selectedOrder.fulfilmentStatus === 'Ready')) && (
+                <button type="button" disabled={isUpdating} onClick={() => setErrorMessage('This legacy order needs a reviewed daily fulfilment migration before booking. No booking was submitted.')} className="mt-3 w-full rounded-full bg-secondary px-5 py-3 font-sans text-xs font-extrabold text-on-secondary disabled:opacity-50">{selectedOrder.delivery?.fulfilmentMode === 'instant' ? 'Find Driver' : 'Request Lalamove delivery'}</button>
               )}
               {selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && <div className="mt-3 rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>Delivery: {deliveryLifecycleLabel(selectedOrder.delivery?.lifecycle?.state)}</p>{selectedOrder.delivery?.lifecycle?.state === 'assigning_driver' && deliveryElapsed(selectedOrder.delivery.lifecycle.history) && <p className="mt-1 text-xs">Searching for {deliveryElapsed(selectedOrder.delivery.lifecycle.history)}</p>}{selectedOrder.delivery?.providerOrder?.driver?.name && <p className="mt-1 text-xs">Driver: {selectedOrder.delivery.providerOrder.driver.name}{selectedOrder.delivery.providerOrder.driver.plateNumber ? ` · ${selectedOrder.delivery.providerOrder.driver.plateNumber}` : ''}</p>}{selectedOrder.delivery?.providerOrder?.driver?.phone && <p className="mt-1 text-xs">{selectedOrder.delivery.providerOrder.driver.phone}</p>}{selectedOrder.delivery?.providerOrder?.shareLink && <a className="mt-2 inline-block text-xs underline" href={selectedOrder.delivery.providerOrder.shareLink} target="_blank" rel="noreferrer">Track delivery</a>}{['expired', 'rejected', 'canceled'].includes(selectedOrder.delivery?.lifecycle?.state || '') && <p className="mt-2 text-xs">Merchant review required. A replacement is never created automatically.</p>}</div>}
               {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && activeDeliveryLifecycle(selectedOrder.delivery?.lifecycle?.state) && <button type="button" disabled={isUpdating} onClick={() => refreshDelivery(selectedOrder.id)} className="mt-3 rounded-full border border-outline px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-50">Refresh delivery</button>}
               {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && ['assigning_driver', 'driver_assigned'].includes(selectedOrder.delivery?.lifecycle?.state || '') && <button type="button" disabled={isUpdating} onClick={() => cancelDelivery(selectedOrder.id)} className="mt-3 rounded-full border border-error px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">Cancel Lalamove delivery</button>}
-              <WhatsAppCustomerButton
+              <div key={selectedOrder.id} className="w-full"><WhatsAppCustomerButton
+                canRecordReminder={canProcessOrders}
                 order={selectedOrder}
                 country={country}
                 storeName={storeName}
                 className="flex-1"
-              />
+              /></div>
               {canProcessOrders && !selectedOrder.weeklyFulfilments && !selectedOrder.fulfilments && selectedOrder.payment.refundStatus === 'refunded'
                 && !['Completed', 'Cancelled'].includes(selectedOrder.fulfilmentStatus) && (
                 <button type="button" disabled={isUpdating} onClick={() => updateStatus('Cancelled')} className="rounded-full bg-error/10 px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">

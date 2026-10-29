@@ -1,5 +1,7 @@
-export interface DraftFulfilment { date: string; time: string; itemIndexes: number[] }
+export interface DraftFulfilment { destination?: import('./services/deliveryService').DeliveryDestination; date: string; time: string; itemIndexes: number[] }
 export interface OrderFulfilment {
+  destination?: import('./services/deliveryService').DeliveryDestination;
+  notes?: string;
   id: string; method: 'pickup' | 'delivery'; date: string; time: string;
   pickupLocationId: string; pickupLocationName: string; pickupLocationAddress: string;
   allocations: Array<{ itemIndex: number; quantity: number; componentDay?: WeeklyDay }>;
@@ -11,9 +13,9 @@ export interface PublicOrderFulfilment {
 }
 export interface FulfilmentOperation {
   kitchenStatus?: string;
-  dispatch?: { status?: string; errorCode?: string; identity?: string };
+  dispatch?: { status?: string; errorCode?: string; identity?: string; fields?: string[]; providerCode?: string; requestId?: string };
   lifecycle?: { state?: string; providerStatus?: string };
-  providerOrder?: { orderId?: string; status?: string; priceBreakdown?: Record<string, unknown> };
+  providerOrder?: { shareLink?: string; driverId?: string; driver?: { name?: string; phone?: string; plateNumber?: string }; orderId?: string; status?: string; priceBreakdown?: Record<string, unknown> };
 }
 import type { RegionCode, RegionCurrency } from '../../regions';
 
@@ -246,8 +248,10 @@ export interface SelectedMealOption extends MealOptionChoice { optionGroupName: 
 export interface MealOptionSnapshot { serviceDate?: string; selectedMealOptions?: SelectedMealOption[]; optionSurchargeUnitMinor?: number }
 export interface HealthyLunchMeal { optionGroups?: MealOptionGroup[]; recipeId?: string; photoUrl: string; name: string; price: number; calories?: number; description?: string }
 export type EmbeddedWeeklyMeals = Record<WeeklyDay, HealthyLunchMeal>;
-export type WeeklyWeeks = Partial<Record<'week1' | 'week2' | 'week3' | 'week4', { startMonday: string; meals: WeeklyMeals | EmbeddedWeeklyMeals }>>;
-export type RotationWeeks = Partial<Record<'week1' | 'week2' | 'week3' | 'week4', { meals: EmbeddedWeeklyMeals }>>;
+export interface WeeklyDiscount { type: 'none' | 'percentage' | 'fixed_amount' | 'fixed_weekly_price'; value: number }
+export interface WeeklyPriceSnapshot { version: number; discount: WeeklyDiscount; legacyPrice: boolean; originalPrice: number; discountAmount: number; finalWeeklyPrice: number }
+export type WeeklyWeeks = Partial<Record<'week1' | 'week2' | 'week3' | 'week4', { startMonday: string; meals: WeeklyMeals | EmbeddedWeeklyMeals; discount?: WeeklyDiscount; legacyWeeklyPrice?: number; coverPhotoUrl?: string }>>;
+export type RotationWeeks = Partial<Record<'week1' | 'week2' | 'week3' | 'week4', { meals: EmbeddedWeeklyMeals; discount?: WeeklyDiscount; legacyWeeklyPrice?: number; coverPhotoUrl?: string }>>;
 export interface WeeklyMealSnapshot extends MealOptionSnapshot { day: WeeklyDay; productId: string; productName: string; photoUrl: string; price?: number; calories?: number; description?: string }
 export interface WeeklyFulfilment extends WeeklyMealSnapshot {
   date: string; pickupTime: string; pickupLocationId: string; pickupLocationName: string;
@@ -460,8 +464,10 @@ export interface StoreOrderItem {
   calories?: number;
   description?: string;
   healthyLunchSnapshot?: { planId: string; date: string } & MealOptionSnapshot;
+  weeklyPriceSnapshot?: WeeklyPriceSnapshot;
   weeklyPlanSnapshot?: { meals: WeeklyMealSnapshot[]; startMonday?: string };
-  itemType?: 'product' | 'set';
+  itemType?: 'product' | 'set' | 'custom';
+  notes?: string;
   productId: string;
   productName: string;
   photoUrl: string;
@@ -476,7 +482,7 @@ export interface StoreOrderItem {
 export type StoreOrderSource = 'online' | 'pos';
 
 export interface StoreExternalOrder {
-  source: 'shopeefood' | 'walk_in' | 'other';
+  source: 'shopeefood' | 'walk_in' | 'other' | 'whatsapp' | 'phone';
   externalOrderNumber?: string;
 }
 
@@ -521,6 +527,8 @@ export interface StoreNotification {
 }
 
 export interface StoreOrder {
+  promotionCodeSnapshot?: import('./promotionCodeTypes').PromotionCodeSnapshot;
+  customerReminders?: Record<string, { status: 'draft_opened' | 'owner_confirmed_sent'; updatedAt: string; updatedBy: string }>;
   fulfilments?: OrderFulfilment[];
   fulfilmentCompletion?: Record<string, { completedAt: string; completedBy: string }>;
   fulfilmentOperations?: Record<string, FulfilmentOperation>;
@@ -533,10 +541,12 @@ export interface StoreOrder {
   workspaceId: string;
   orderSource: StoreOrderSource;
   externalOrder?: StoreExternalOrder;
+  manualOrder?: { revision: number; draft: Record<string, unknown>; createdBy: string };
   fulfilmentMethod?: 'pickup' | 'delivery';
   totals?: { merchandiseSubtotal: number; discountTotal: number; discountedMerchandiseTotal: number; deliveryFee: number; grandTotal: number; currency: RegionCurrency };
   promotionSnapshot?: StoreOrderPromotionSnapshot;
   delivery?: {
+    arrangedExternally?: boolean;
     fulfilmentMethod: 'delivery';
     fulfilmentMode?: 'preorder' | 'instant';
     schedule?: { mode?: 'preorder' | 'instant'; date?: string; time?: string; session?: string };
@@ -545,7 +555,7 @@ export interface StoreOrder {
     dispatch?: { status?: string; errorCode?: string; attempt?: number };
     lifecycle?: { state?: 'not_started' | 'assigning_driver' | 'driver_assigned' | 'picked_up' | 'completed' | 'canceled' | 'expired' | 'rejected'; providerStatus?: string; changedAt?: string; history?: Array<{ state: string; providerStatus: string; source: string; occurredAt: string }> };
     providerOrder?: { orderId?: string; status?: string; driverId?: string; shareLink?: string; driver?: { name?: string; phone?: string; plateNumber?: string; photo?: string; coordinates?: { lat?: string; lng?: string; updatedAt?: string } } };
-    recipient?: { address?: string };
+    recipient?: { address?: string; instructions?: string };
     quote?: { fee?: number; expiresAt?: string };
   };
   customerUid?: string;
@@ -621,6 +631,7 @@ export interface StoreOrder {
 }
 
 export interface CustomerStoreOrderSummary {
+  promotionCodeSnapshot?: import('./promotionCodeTypes').PromotionCodeSnapshot;
   fulfilments?: PublicOrderFulfilment[];
   weeklyFulfilments?: PublicWeeklyFulfilment[];
   orderNumber: string;
@@ -647,6 +658,8 @@ export interface CustomerStoreOrderSummary {
 }
 
 export interface StoreOrderDraft {
+  promotionCode?: string;
+  promotionCodeExpected?: Pick<import('./promotionCodeTypes').PromotionCodeSnapshot, 'configRevision' | 'eligibleSubtotalMinor' | 'discountMinor'>;
   fulfilments?: DraftFulfilment[];
   /** Opaque client-generated idempotency key for one checkout submission. */
   checkoutAttemptId?: string;
@@ -721,6 +734,7 @@ export interface PublicOrderGroupContext {
 }
 
 export interface StorePaymentOrderSummary {
+  promotionCodeSnapshot?: import('./promotionCodeTypes').PromotionCodeSnapshot;
   fulfilments?: PublicOrderFulfilment[];
   fulfilmentMethod: 'pickup' | 'delivery';
   /** Fulfilment values from the server-created pending-order snapshot. */
@@ -752,6 +766,7 @@ export interface StorePaymentSession {
 }
 
 export interface PublicStoreOrderResult {
+  promotionCodeSnapshot?: import('./promotionCodeTypes').PromotionCodeSnapshot;
   fulfilments?: PublicOrderFulfilment[];
   weeklyFulfilments?: PublicWeeklyFulfilment[];
   orderNumber: string;
