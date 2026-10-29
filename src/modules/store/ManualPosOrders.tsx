@@ -1,4 +1,5 @@
 import "./manualPosOrders.css";
+import WhatsAppCustomerActions from "./WhatsAppCustomerActions";
 import { previewManualLines, type ManualLine } from "./manualPosPreview";
 import {
   resolveHealthyLunchDay,
@@ -39,9 +40,15 @@ const empty = (): Draft => ({
 export default function ManualPosOrders({
   workspaceId,
   storeId,
+  country = "MY",
+  storeName = "",
+  canRecordReminders = false,
 }: {
   workspaceId: string;
   storeId: string;
+  country?: "MY" | "SG";
+  storeName?: string;
+  canRecordReminders?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(empty);
@@ -350,6 +357,7 @@ export default function ManualPosOrders({
               ))}
             </div>
           ))}
+          <div key={saved.id}><WhatsAppCustomerActions order={saved} country={country} storeName={storeName} canRecordReminder={canRecordReminders} /></div>
           <div className="manual-actions">
             {saved.payment.status === "paid" ? (
               <button

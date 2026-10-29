@@ -1,3 +1,4 @@
+import { canonicalFulfilmentView } from '../../../functions/storeFulfilmentCanonical.js';
 import type { StoreOrder } from './types';
 import type { RegionCode } from '../../regions';
 import { normalizeCustomerWhatsAppDestination } from './whatsappOrderConfirmation';
@@ -26,8 +27,8 @@ const safeTracking = (value?: string) => {
 export function customerMessageSchedule(order: StoreOrder): MessageSchedule[] {
   if (order.fulfilments?.length) return order.fulfilments.map(entry => {
     const op = order.fulfilmentOperations?.[entry.id];
-    return { id: entry.id, date: entry.date, time: entry.time, method: entry.method,
-      address: entry.method === 'delivery' ? order.delivery?.recipient?.address || '' : entry.pickupLocationAddress || entry.pickupLocationName,
+    const view = canonicalFulfilmentView(order, entry);
+    return { id: entry.id, date: view.date, time: view.time, method: view.method, address: view.address,
       items: entry.allocations.flatMap(allocation => {
         const item = order.items[allocation.itemIndex];
         const meal = allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(m => m.day === allocation.componentDay) : item;

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import WhatsAppCustomerActions from './WhatsAppCustomerActions';
 import { customerActionMessage, customerActionUrl, plainText } from './customerCommunicationModel';
@@ -62,4 +63,41 @@ test('order details show exactly three WhatsApp actions and no sent claim on ini
   const html = renderToStaticMarkup(<WhatsAppCustomerActions order={order()} country="MY" storeName="Shop" canRecordReminder />);
   for (const label of ['Confirm Order', 'Order Reminder', 'Delivery Update', 'Not recorded']) assert.ok(html.includes(label));
   assert.doesNotMatch(html, /Sent \(confirmed by owner\)/);
+});
+
+test('all multi-day delivery messages use the selected date snapshot address, time, method and allocations', () => {
+  const o = order({ fulfilmentMethod: 'delivery', delivery: { fulfilmentMethod: 'delivery', recipient: { address: 'Stale parent address' } }, fulfilments: [
+    { ...fulfilments![0], destination: { formattedAddress: 'Day One &amp; Address', latitude: '4.5', longitude: '101.1' } },
+    { ...fulfilments![1], method: 'delivery', destination: { formattedAddress: 'Day Two Address', latitude: '4.6', longitude: '101.2' } }
+  ] });
+  const confirmation = message(o,'confirm');
+  assert.match(confirmation,/Date: 2026-10-29\nDelivery time: 12:30\n1 x Rice\nAddress: Day One & Address/);
+  assert.match(confirmation,/Date: 2026-10-30\nDelivery time: 18:00\n1 x Soup\nAddress: Day Two Address/);
+  assert.doesNotMatch(confirmation,/Stale parent|&amp;|[*_`�]/);
+  const reminder = message(o,'reminder','2026-10-30');
+  assert.match(reminder,/Day Two Address/); assert.doesNotMatch(reminder,/Day One|Rice|Stale parent/);
+  const update = message(o,'delivery','2026-10-30');
+  assert.match(update,/Day One & Address/); assert.doesNotMatch(update,/Day Two|Soup|Stale parent/);
+});
+test('manual customer-arranged delivery uses saved day notes; legacy orders retain parent address fallback', () => {
+  const manual = order({ manualOrder: { revision:1, draft:{}, createdBy:'owner' }, fulfilmentMethod:'delivery', delivery:{fulfilmentMethod:'delivery',recipient:{address:'Wrong old parent'}}, fulfilments:[{...fulfilments![0],notes:'Customer arranged address for today'}] });
+  assert.match(message(manual,'reminder'),/Address: Customer arranged address for today/);
+  assert.doesNotMatch(message(manual,'reminder'),/Wrong old parent/);
+  const legacy = order({fulfilmentMethod:'delivery',delivery:{fulfilmentMethod:'delivery',recipient:{address:'Legacy saved address'}},fulfilments:[fulfilments![0]]});
+  assert.match(message(legacy,'reminder'),/Legacy saved address/);
+  const incomplete = order({ ...legacy, fulfilments:[{...fulfilments![0],destination:{formattedAddress:'',latitude:'4.5',longitude:'101.1'}}] });
+  assert.doesNotMatch(message(incomplete,'reminder'),/Legacy saved address/);
+});
+
+test('both POS history and manual saved-order details reuse the shared actions and existing role permission', () => {
+  const read = (name: string) => readFileSync(new URL(name,import.meta.url),'utf8');
+  const pos = read('./StorePosPage.tsx');
+  const manual = read('./ManualPosOrders.tsx');
+  const app = read('../../App.tsx');
+  const history = pos.slice(pos.indexOf('visibleHistoryOrders.map(order =>'));
+  assert.match(history, /<WhatsAppCustomerActions order=\{order\}/);
+  assert.match(manual, /<WhatsAppCustomerActions order=\{saved\}/);
+  assert.match(pos,/canRecordReminder=\{canRecordReminders\}/);
+  assert.match(app,/canRecordReminders=\{getStorePermissions\(currentWorkspaceRole\).processOrders\}/);
+  for (const source of [pos,manual]) assert.doesNotMatch(source,/web\.whatsapp\.com\/send|customerActionMessage\(/);
 });
