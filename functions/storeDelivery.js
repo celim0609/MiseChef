@@ -1,3 +1,7 @@
+import { readCheckoutCode } from './storePromotionCodes.js';
+import { pricePromotionCode } from './promotionCodePricing.js';
+import { isConfirmedProviderRejection } from './lalamoveSandbox.js';
+import { canonicalFulfilmentMethod, canonicalFulfilmentView, resolveDeliveryDispatchData, deliveryBlockedMessage } from './storeFulfilmentCanonical.js';
 import { calculateDeliveryDayPricing, deliveryDistanceKm as distanceKm } from './storeDeliveryPricing.js';
 import { fullWeekDateStore, isFullWeekSelection, hasDatedMenu } from './storeWeeklyMealPlan.js';
 import { canonicalSchedule, buildOrderFulfilments } from './storeOrderFulfilments.js';
@@ -21,7 +25,7 @@ const coord = (value, maximum = 180) => {
 export const sameDeliveryCoordinates = (left, right) => coord(left) !== '' && coord(left) === coord(right);
 const deliveryError = message => new HttpsError('failed-precondition', message);
 const deliveryConfig = store => store?.delivery && typeof store.delivery === 'object' ? store.delivery : {};
-const validateDestination = destination => {
+export const validateDestination = destination => {
   const address = readString(destination?.formattedAddress);
   const latitude = coord(destination?.latitude, 90);
   const longitude = coord(destination?.longitude, 180);
@@ -46,6 +50,7 @@ export const validatePreOrderSchedule = (store, config, draft, now = new Date())
   if (preOrder.enabled !== true) throw deliveryError('Pre-order delivery is unavailable for this Store.');
   const deliveryDate = readString(draft?.deliveryDate);
   const deliveryTime = readString(draft?.deliveryTime);
+  if (deliveryDate <= new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).format(now)) throw deliveryError('Place delivery orders at least one day in advance.');
   const dates = getValidPickupDates({ ...store, country: store.country, orderDays: preOrder.orderDays, earliestPickupDays: preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates }, now);
   if (!dates.includes(deliveryDate)) throw deliveryError('Choose an available delivery date.');
   const hours = preOrder.deliveryHours || { from: '00:00', to: '23:59' };
@@ -65,7 +70,17 @@ export const validateInstantSchedule = (store, config, now = new Date()) => {
   if (!open) throw deliveryError('Instant delivery is currently unavailable. Choose Pre-order delivery.');
   return { mode: 'instant' };
 };
-const validateDeliverySchedule = (store, config, draft) => readString(draft?.fulfilmentMode) === 'instant' ? validateInstantSchedule(store, config) : validatePreOrderSchedule(store, config, draft);
+const validateDeliverySchedule = (store, config, draft) => {
+  if (draft?.fulfilmentMode === 'instant') throw deliveryError('Place delivery orders at least one day in advance.');
+  return validatePreOrderSchedule(store, config, draft);
+};
+export const assertDeliveryDistance = (config, pickup, destination) => {
+  const configured = config.fulfilment?.preOrder?.maximumDistanceKm;
+  if (configured === undefined || configured === null) return;
+  const limit = Number(configured);
+  if (!Number.isFinite(limit) || limit <= 0) throw deliveryError('Configure a valid maximum delivery distance.');
+  if (distanceKm(pickup, destination) > limit) throw deliveryError('This delivery address is outside the Store’s maximum delivery distance.');
+};
 export const malaysiaPreorderScheduleAt = schedule => new Date(`${schedule.date}T${schedule.time}:00+08:00`).toISOString();
 export const assertFutureLalamoveSchedule = (schedule, now = Date.now()) => {
   if (schedule.mode !== 'preorder') return schedule;
@@ -99,13 +114,20 @@ const customerPricing = ({ providerFee, config, merchandiseSubtotal }) => {
   const customerDeliveryFee = eligible ? money(Math.min(providerFee, Number(subsidy.maximumCustomerDeliveryCharge || 0))) : providerFee;
   return { providerDeliveryFee: providerFee, customerDeliveryFee, storeAbsorbedDeliveryFee: money(Math.max(providerFee - customerDeliveryFee, 0)), subsidyEnabled: subsidy.enabled === true, subsidyApplied: eligible, minimumMerchandiseSpend: money(Math.max(0, Number(subsidy.minimumMerchandiseSpend || 0))), deliveryFeeCap: money(Math.max(0, Number(subsidy.maximumCustomerDeliveryCharge || 0))), currency: 'MYR' };
 };
-const quoteSnapshot = quote => ({ quotationId: readString(quote.quotationId), expiresAt: readString(quote.expiresAt), serviceType: readString(quote.serviceType), fee: money(quote.priceBreakdown?.total), currency: readString(quote.priceBreakdown?.currency), priceBreakdown: quote.priceBreakdown || {}, stops: quote.stops || [] });
+export const quoteSnapshot = quote => ({ quotationId: readString(quote.quotationId), expiresAt: readString(quote.expiresAt), serviceType: readString(quote.serviceType), fee: money(quote.priceBreakdown?.total), currency: readString(quote.priceBreakdown?.currency), priceBreakdown: quote.priceBreakdown || {}, stops: quote.stops || [] });
+const assertDispatchQuote = quote => {
+  const fields = [];
+  if (!readString(quote.quotationId)) fields.push('quotationId');
+  if (!readString(quote.stops?.[0]?.stopId)) fields.push('sender.stopId');
+  if (!readString(quote.stops?.[1]?.stopId)) fields.push('recipients[0].stopId');
+  if (fields.length) throw new HttpsError('failed-precondition', `Delivery booking blocked: Lalamove quotation is missing ${fields.join(', ')}. Refresh the quotation; no booking has been submitted.`, { fields });
+};
 // The provider may canonicalize a Google Places pin (for example, by snapping
 // it to the routable point). Keep the Google address for the recipient, but
 // bind payment revalidation to the coordinates Lalamove attached to its quote.
 export const providerRoutingDestination = ({ quote, destination }) => {
   const dropoff = quote?.stops?.[1] || {};
-  const latitude = coord(dropoff.coordinates?.lat);
+  const latitude = coord(dropoff.coordinates?.lat, 90);
   const longitude = coord(dropoff.coordinates?.lng);
   if (!latitude || !longitude) throw new Error('Lalamove returned an invalid quotation.');
   return { ...destination, latitude, longitude };
@@ -115,6 +137,7 @@ export const quoteMatchesDestination = ({ quote, destination }) => {
   return sameDeliveryCoordinates(dropoff.coordinates?.lat, destination?.latitude)
     && sameDeliveryCoordinates(dropoff.coordinates?.lng, destination?.longitude);
 };
+const sameQuoteRoute = (left, right) => left.stops.length === 2 && right.stops.length === 2 && left.stops.every((stop, index) => sameDeliveryCoordinates(stop.coordinates?.lat, right.stops[index].coordinates?.lat) && sameDeliveryCoordinates(stop.coordinates?.lng, right.stops[index].coordinates?.lng));
 const ACTIVE_OPERATOR_ROLES = new Set(['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef']);
 const assertWorkspaceOperator = async ({ db, uid, order }) => {
   const workspaceId = readString(order.workspaceId);
@@ -160,8 +183,8 @@ const canReplaceProviderState = ({ existingState, nextState }) => {
 };
 
 const deliveryScheduleBinding = draft => createHash('sha256').update(JSON.stringify({
-  schedule: canonicalSchedule(draft), selections: draft.selections,
-  address: validateDestination(draft.destination).address
+  schedule: canonicalSchedule(draft), selections: draft.selections, destination: (({ instructions, ...route }) => route)(validateDestination(draft.destination)),
+  address: validateDestination(canonicalSchedule(draft)?.[0]?.destination || draft.destination).address
 })).digest('hex');
 const scheduledDelivery = (store, draft, datedFullWeek = false) => {
   const entries = canonicalSchedule(draft);
@@ -171,11 +194,11 @@ const scheduledDelivery = (store, draft, datedFullWeek = false) => {
   return { entries, draft: { ...draft, fulfilmentMode: 'preorder', deliveryDate: entries[0].date, deliveryTime: entries[0].time } };
 };
 
-export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) => {
+export const createStoreDeliveryQuote = async ({ db, provider, slug, draft, customerUid = '' }) => {
   const checkout = await loadStoreCheckoutData(db, slug);
   const { config, pickup } = validateStoreDelivery(checkout.store, provider);
-  const destination = validateDestination(draft?.destination);
-  if (distanceKm(pickup, destination) > Number(config.fulfilment?.preOrder?.maximumDistanceKm || Infinity)) throw deliveryError('This delivery address is outside the Store’s maximum delivery distance.');
+  const destination = validateDestination(canonicalSchedule(draft)?.[0]?.destination || draft?.destination);
+  assertDeliveryDistance(config, pickup, destination);
   const fulfilments = buildOrderFulfilments({ store: checkout.store, draft: { ...draft, fulfilmentMethod: 'delivery' }, products: checkout.products, getDates: getValidPickupDates, getTimes: getPickupTimeSlots });
   const scheduleStore = fulfilments?.weeklyPlanSnapshot ? fullWeekDateStore(checkout.store, checkout.products.find(product => product.id === draft.selections?.[0]?.productId)) : checkout.store;
   const scheduled = scheduledDelivery(scheduleStore, draft, Boolean(fulfilments?.weeklyPlanSnapshot && hasDatedMenu(checkout.products.find(product => product.id === draft.selections?.[0]?.productId))));
@@ -184,29 +207,43 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft }) =>
   // Rebuild cart on the server. The browser does not send prices or service type.
   const items = buildOrderItems(draft?.selections || [], checkout.products, checkout.optionGroups, checkout.sets, fulfilments?.fulfilments[0]?.date || draft.deliveryDate);
   if (!items.length) throw deliveryError('Your cart is empty.');
-  const quotation = await provider.createQuote(buildLalamoveQuoteRequest({ config, pickup, destination, schedule }));
+  const dayQuotes = [];
+  await Promise.all((scheduled.entries || []).map(async entry => {
+    const target = validateDestination(entry.destination || draft.destination);
+    assertDeliveryDistance(config, pickup, target);
+    const dayQuote = quoteSnapshot(await provider.createQuote(buildLalamoveQuoteRequest({ config, pickup, destination: target, schedule: { mode: 'preorder', date: entry.date, time: entry.time } })));
+    providerRoutingDestination({ quote: dayQuote, destination: target });
+    if (dayQuote.stops.length !== 2 || dayQuote.serviceType !== config.serviceType || Date.parse(dayQuote.expiresAt) <= Date.now() + DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS || !dayQuote.quotationId || dayQuote.currency !== 'MYR' || !Number.isFinite(dayQuote.fee) || dayQuote.fee < 0 || !Number.isFinite(Date.parse(dayQuote.expiresAt))) throw deliveryError('Invalid delivery quotation.');
+    dayQuotes.push({ date: entry.date, quote: dayQuote, destination: target });
+  }));
+  dayQuotes.sort((a, b) => a.date.localeCompare(b.date));
+  const quotation = dayQuotes[0] ? { ...dayQuotes[0].quote, priceBreakdown: dayQuotes[0].quote.priceBreakdown } : await provider.createQuote(buildLalamoveQuoteRequest({ config, pickup, destination, schedule }));
   const quote = quoteSnapshot(quotation);
-  if (!quote.quotationId || quote.currency !== 'MYR' || !Number.isFinite(quote.fee) || quote.fee < 0 || !quote.expiresAt) throw new Error('Lalamove returned an invalid quotation.');
+  if (!quote.quotationId || quote.currency !== 'MYR' || !Number.isFinite(quote.fee) || quote.fee < 0 || !Number.isFinite(Date.parse(quote.expiresAt))) throw new Error('Lalamove returned an invalid quotation.');
   const routingDestination = providerRoutingDestination({ quote, destination });
-  const promotionPricing = calculatePromotionPricing({ items, promotions: checkout.promotions });
+  const automaticPricing = calculatePromotionPricing({ items, promotions: checkout.promotions });
+  const code = await readCheckoutCode({db,storeId:checkout.store.id,code:draft.promotionCode,memberUid:customerUid,currency:checkout.store.currency});
+  const promotionPricing = code ? pricePromotionCode({items,pricing:automaticPricing,config:code.config,memberUid:customerUid,currency:checkout.store.currency,now:new Date(),groupOrder:Boolean(draft.groupShareCode)}) : automaticPricing;
   const fulfilmentCount = fulfilments?.fulfilments.length || 1;
   const pricing = fulfilmentCount > 1 ? { customerDeliveryFee: money(quote.fee * fulfilmentCount) } : customerPricing({ providerFee: quote.fee, config, merchandiseSubtotal: promotionPricing.discountedMerchandiseTotal });
-  const dayPricing = calculateDeliveryDayPricing({ config, providerFee: quote.fee, items, fulfilments: fulfilments?.fulfilments, pickup, destination: routingDestination, promotionPricing, date: schedule.date || '' });
-  if (config.freeDelivery?.enabled === true) pricing.customerDeliveryFee = dayPricing.customerDeliveryFee;
+  const dayPricing = calculateDeliveryDayPricing({ dayQuotes, config, providerFee: quote.fee, items, fulfilments: fulfilments?.fulfilments, pickup, destination: routingDestination, promotionPricing, date: schedule.date || '' });
+  pricing.customerDeliveryFee = dayPricing.customerDeliveryFee;
   // Bind the displayed promotion/delivery price to a server record. The
   // browser receives only an opaque id and cannot author a price baseline.
   const pricingSnapshotId = randomBytes(24).toString('hex');
   await db.collection('storeDeliveryQuoteSnapshots').doc(pricingSnapshotId).create({
     ...(fulfilments ? { scheduleBinding: deliveryScheduleBinding(draft), firstQuote: quote, fulfilmentCount, finalDeliveryTotal: pricing.customerDeliveryFee } : {}),
+    dayQuotes,
     storeId: checkout.store.id,
     quotationId: quote.quotationId,
+    ...(promotionPricing.promotionCodeSnapshot ? {promotionCodeSnapshot:promotionPricing.promotionCodeSnapshot,memberUid:customerUid} : {}),
     discountedMerchandiseTotal: promotionPricing.discountedMerchandiseTotal,
     deliveryFee: pricing.customerDeliveryFee,
     grandTotal: money(promotionPricing.discountedMerchandiseTotal + pricing.customerDeliveryFee),
     expiresAt: quote.expiresAt,
     createdAt: new Date().toISOString()
   });
-  return { quote: { quotationId: quote.quotationId, expiresAt: quote.expiresAt, customerDeliveryFee: pricing.customerDeliveryFee, currency: 'MYR', days: dayPricing.days.map(({ date, customerDeliveryFee, freeDeliveryApplied }) => ({ date, customerDeliveryFee, freeDeliveryApplied })), minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS, ...(fulfilments ? { firstDayFee: config.freeDelivery?.enabled === true ? dayPricing.days[0].customerDeliveryFee : fulfilmentCount > 1 ? quote.fee : pricing.customerDeliveryFee, fulfilmentCount } : {}) }, pricingSnapshotId, merchandiseSubtotal: promotionPricing.discountedMerchandiseTotal, destination: routingDestination, schedule };
+  return { quote: { quotationId: quote.quotationId, expiresAt: quote.expiresAt, customerDeliveryFee: pricing.customerDeliveryFee, currency: 'MYR', days: dayPricing.days.map(({ date, customerDeliveryFee, freeDeliveryApplied }) => ({ date, customerDeliveryFee, freeDeliveryApplied })), minimumValidityMs: DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS, ...(fulfilments ? { firstDayFee: dayPricing.days[0].customerDeliveryFee, fulfilmentCount } : {}) }, pricingSnapshotId, merchandiseSubtotal: promotionPricing.discountedMerchandiseTotal, destination: routingDestination, schedule };
 };
 
 export const getLalamoveSandboxCityInfo = async ({ db, uid, workspaceId, provider }) => {
@@ -223,8 +260,8 @@ export const getLalamoveSandboxCityInfo = async ({ db, uid, workspaceId, provide
 // is likely to expire while that boundary is crossed.
 export const revalidateDeliveryForPayment = async ({ provider, store, draft, now = Date.now(), minimumValidityMs = 0, db, products = [] }) => {
   const { config, pickup } = validateStoreDelivery(store, provider);
-  const destination = validateDestination(draft?.destination);
-  if (distanceKm(pickup, destination) > Number(config.fulfilment?.preOrder?.maximumDistanceKm || Infinity)) throw deliveryError('This delivery address is outside the Store’s maximum delivery distance.');
+  const destination = validateDestination(canonicalSchedule(draft)?.[0]?.destination || draft?.destination);
+  assertDeliveryDistance(config, pickup, destination);
   const plan = products.find(product => product.id === draft.selections?.[0]?.productId);
   if (hasDatedMenu(plan)) buildOrderFulfilments({ store, draft: { ...draft, fulfilmentMethod: 'delivery' }, products, now: new Date(now), getDates: getValidPickupDates, getTimes: getPickupTimeSlots });
   const scheduleStore = isFullWeekSelection(draft.selections?.[0], products) ? fullWeekDateStore(store, plan) : store;
@@ -232,23 +269,34 @@ export const revalidateDeliveryForPayment = async ({ provider, store, draft, now
   draft = scheduled.draft;
   const schedule = validateDeliverySchedule(scheduleStore, deliveryConfig(scheduleStore), draft);
   const quote = quoteSnapshot(await provider.retrieveQuote({ market: 'MY', quotationId: readString(draft?.deliveryQuoteId) }));
-  if (!quote.quotationId || quote.currency !== 'MYR' || !Number.isFinite(quote.fee) || quote.fee < 0 || Date.parse(quote.expiresAt) <= Number(now) + Number(minimumValidityMs) || quote.serviceType !== config.serviceType || quote.stops.length !== 2) throw deliveryError('Refresh your delivery quote before checkout.');
+  if (!quote.quotationId || quote.currency !== 'MYR' || !Number.isFinite(quote.fee) || quote.fee < 0 || !Number.isFinite(Date.parse(quote.expiresAt)) || Date.parse(quote.expiresAt) <= Number(now) + Number(minimumValidityMs) || quote.serviceType !== config.serviceType || quote.stops.length !== 2) throw deliveryError('Refresh your delivery quote before checkout.');
   // Lalamove returns coordinates as either JSON numbers or strings. Coordinates
   // are the provider routing identity; display-address differences must not
   // turn an otherwise identical selected place into a false mismatch.
-  if (!quoteMatchesDestination({ quote, destination })) throw deliveryError('Delivery quote no longer matches the selected address.');
+  if (!scheduled.entries && !quoteMatchesDestination({ quote, destination })) throw deliveryError('Delivery quote no longer matches the selected address.');
+  let dayQuotes = [];
   if (scheduled.entries) {
     const snapshot = await (db || getFirestore()).collection('storeDeliveryQuoteSnapshots').doc(readString(draft.deliveryPricingSnapshotId)).get();
     const stored = snapshot.exists ? snapshot.data() : null;
     if (!stored || stored.storeId !== (store.id || store.workspaceId) || stored.quotationId !== quote.quotationId
       || stored.scheduleBinding !== deliveryScheduleBinding(draft) || stored.fulfilmentCount !== scheduled.entries.length
       || stored.firstQuote?.fee !== quote.fee) throw deliveryError('Fulfilment schedule or delivery pricing changed. Refresh your delivery quote.');
+    if (stored.dayQuotes?.length) {
+      dayQuotes = await Promise.all(stored.dayQuotes.map(async day => {
+        const current = quoteSnapshot(await provider.retrieveQuote({ market: 'MY', quotationId: day.quote.quotationId }));
+        if (current.quotationId !== day.quote.quotationId || current.currency !== 'MYR' || !sameQuoteRoute(current, day.quote) || current.fee !== day.quote.fee || !Number.isFinite(Date.parse(current.expiresAt)) || Date.parse(current.expiresAt) <= Number(now) + Number(minimumValidityMs) || current.serviceType !== config.serviceType) throw deliveryError('Refresh delivery quotations before payment.');
+        const entry = scheduled.entries.find(entry => entry.date === day.date);
+        const target = validateDestination(entry?.destination || draft.destination);
+        assertDeliveryDistance(config, pickup, target);
+        return { ...day, destination: target, quote: current };
+      }));
+    }
   }
-  return { fulfilmentMethod: 'delivery', fulfilmentMode: schedule.mode, environment: provider.environment, ...(schedule.mode === 'preorder' ? { schedule } : {}), quote, pickup: { name: readString(pickup.name), address: readString(pickup.address), latitude: pickup.latitude, longitude: pickup.longitude, contactName: pickup.contactName, contactPhoneE164: pickup.contactPhoneE164 }, recipient: { name: readString(draft.customerName), phoneE164: readString(draft.phone), address: destination.address, latitude: destination.latitude, longitude: destination.longitude, instructions: destination.instructions }, dispatch: { status: 'not_requested' }, lifecycle: { state: 'not_started' } };
+  return { ...(dayQuotes.length ? { dayQuotes } : {}), fulfilmentMethod: 'delivery', fulfilmentMode: schedule.mode, environment: provider.environment, ...(schedule.mode === 'preorder' ? { schedule } : {}), quote, pickup: { name: readString(pickup.name), address: readString(pickup.address), latitude: pickup.latitude, longitude: pickup.longitude, contactName: pickup.contactName, contactPhoneE164: pickup.contactPhoneE164 }, recipient: { name: readString(draft.customerName), phoneE164: readString(draft.phone), address: destination.address, latitude: destination.latitude, longitude: destination.longitude, instructions: destination.instructions }, dispatch: { status: 'not_requested' }, lifecycle: { state: 'not_started' } };
 };
 
-export const dispatchStoreDelivery = async ({ db, provider, uid, orderId, fulfilmentId }) => {
-  if (fulfilmentId !== undefined) return dispatchFulfilmentDelivery({ db, provider, uid, orderId, fulfilmentId });
+export const dispatchStoreDelivery = async ({ db, provider, uid, orderId, fulfilmentId, internal = false }) => {
+  if (fulfilmentId !== undefined) return dispatchFulfilmentDelivery({ db, provider, uid, orderId, fulfilmentId, internal });
   if (!uid) throw new HttpsError('unauthenticated', 'Sign in to dispatch this order.');
   const orderRef = db.collection('storeOrders').doc(readString(orderId));
   const authorizationSnapshot = await orderRef.get();
@@ -259,6 +307,7 @@ export const dispatchStoreDelivery = async ({ db, provider, uid, orderId, fulfil
     const order = snap.data();
     if (order.fulfilments) throw deliveryError('Choose a fulfilment to dispatch.');
     const delivery = order.delivery || {};
+    assertDeliveryEnvironment({ delivery, provider });
     const instant = delivery.fulfilmentMode === 'instant';
     const kitchenEligible = instant
       ? ['Preparing', 'Ready'].includes(readString(order.fulfilmentStatus))
@@ -266,7 +315,9 @@ export const dispatchStoreDelivery = async ({ db, provider, uid, orderId, fulfil
     if (order.payment?.status !== 'paid' || !kitchenEligible || delivery.fulfilmentMethod !== 'delivery') throw deliveryError(instant ? 'Only preparing or ready, paid instant delivery orders can find a driver.' : 'Only ready, paid pre-order delivery orders can be dispatched.');
     if (TERMINAL_DELIVERY_STATES.has(readString(delivery.lifecycle?.state))) throw deliveryError('This delivery is terminal. Merchant review is required before requesting a replacement.');
     if (delivery.dispatch?.status === 'created') return { order, alreadyCreated: true };
-    if (delivery.dispatch?.status === 'creating') return { order, alreadyCreating: true };
+    if (['creating', 'outcome_unknown', 'cancel_requested'].includes(delivery.dispatch?.status)) return { order, alreadyCreating: true, status: delivery.dispatch.status };
+    const resolved = resolveDeliveryDispatchData(order);
+    if (resolved.issues.length) throw new HttpsError('failed-precondition', deliveryBlockedMessage(resolved.issues), { fields: resolved.issues.map(issue => issue.field) });
     transaction.update(orderRef, {
       'delivery.dispatch.status': 'creating',
       'delivery.dispatch.requestedBy': uid,
@@ -277,19 +328,29 @@ export const dispatchStoreDelivery = async ({ db, provider, uid, orderId, fulfil
       'delivery.lifecycle.changedAt': FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp()
     });
-    return { order, alreadyCreated: false };
+    return { order: { ...order, delivery: { ...delivery, quote: { ...order.deliveryPricingSnapshot?.firstQuote, ...delivery.quote, serviceType: resolved.serviceType }, pickup: resolved.pickup, recipient: resolved.recipient } }, alreadyCreated: false };
   });
   if (result.alreadyCreated) return { status: 'created' };
-  if (result.alreadyCreating) return { status: 'creating' };
+  if (result.alreadyCreating) return { status: result.status };
   const delivery = result.order.delivery;
   assertDeliveryEnvironment({ delivery, provider });
-  // Always quote again at dispatch; GG may absorb at most RM5.
+  // Preserve future preorder slots when refreshing the operational quotation.
+  // An elapsed slot uses immediate dispatch, as in the daily fulfilment path.
+  let submitted = false; let created;
   try {
-  const fresh = await provider.createQuote({ market: 'MY', data: { serviceType: delivery.quote.serviceType, language: 'en_MY', stops: delivery.quote.stops.map(stop => ({ coordinates: stop.coordinates, address: stop.address })) } });
+  const schedule = delivery.schedule;
+  const scheduled = delivery.fulfilmentMode !== 'instant' && schedule?.date && schedule?.time
+    && Date.parse(malaysiaPreorderScheduleAt(schedule)) > Date.now();
+  const fresh = await provider.createQuote(buildLalamoveQuoteRequest({ config: { serviceType: delivery.quote.serviceType }, pickup: delivery.pickup, destination: delivery.recipient, schedule: scheduled ? { ...schedule, mode: 'preorder' } : { mode: 'instant' } }));
   const freshQuote = quoteSnapshot(fresh); const difference = money(freshQuote.fee - Number(delivery.quote.fee));
   if (difference > 5) { await orderRef.update({ 'delivery.dispatch.status': 'dispatch_blocked_requote', 'delivery.dispatch.errorCode': 'requote_exceeds_absorption_limit', 'delivery.dispatch.requoteFee': freshQuote.fee }); return { status: 'dispatch_blocked_requote', difference }; }
+  assertDispatchQuote(freshQuote);
+  if (!freshQuote.quotationId || freshQuote.currency !== 'MYR' || !Number.isFinite(freshQuote.fee) || freshQuote.fee < 0 || freshQuote.stops.length !== 2 || freshQuote.stops.some(stop => !readString(stop.stopId))) throw deliveryError('Invalid dispatch quotation.');
   const [senderStop, recipientStop] = freshQuote.stops;
-  const created = await provider.createOrder({ market: 'MY', data: { quotationId: freshQuote.quotationId, sender: { stopId: senderStop.stopId, name: delivery.pickup.contactName, phone: delivery.pickup.contactPhoneE164 }, recipients: [{ stopId: recipientStop.stopId, name: delivery.recipient.name, phone: delivery.recipient.phoneE164, remarks: delivery.recipient.instructions }], isPODEnabled: true, metadata: { misechefOrderId: result.order.id, misechefOrderNumber: result.order.orderNumber } } });
+  await orderRef.update({ 'delivery.dispatch.submissionStartedAt': new Date().toISOString(), 'delivery.dispatch.operationalQuote': freshQuote });
+  submitted = true;
+  created = await provider.createOrder({ market: 'MY', data: { quotationId: freshQuote.quotationId, sender: { stopId: senderStop.stopId, name: delivery.pickup.contactName, phone: delivery.pickup.contactPhoneE164 }, recipients: [{ stopId: recipientStop.stopId, name: delivery.recipient.name, phone: delivery.recipient.phoneE164, remarks: delivery.recipient.instructions }], isPODEnabled: true, metadata: { misechefOrderId: result.order.id, misechefOrderNumber: result.order.orderNumber } } });
+  if (!readString(created.orderId)) throw new Error('Provider did not return an order ID.');
   const lifecycleState = projectLalamoveLifecycle(created);
   await orderRef.update({
     'delivery.dispatch.status': 'created',
@@ -302,7 +363,7 @@ export const dispatchStoreDelivery = async ({ db, provider, uid, orderId, fulfil
   });
   return { status: 'created', orderId: created.orderId };
   } catch (error) {
-    await orderRef.update({ 'delivery.dispatch.status': 'failed', 'delivery.dispatch.errorCode': readString(error?.message).slice(0, 120) || 'provider_error', 'delivery.lifecycle.state': 'not_started', updatedAt: FieldValue.serverTimestamp() }).catch(() => undefined);
+    await orderRef.update({ 'delivery.dispatch.status': submitted ? 'outcome_unknown' : 'failed', ...(created?.orderId ? { 'delivery.providerOrder.orderId': created.orderId } : {}), 'delivery.dispatch.errorCode': readString(error?.message).slice(0, 120) || 'provider_error', 'delivery.lifecycle.state': submitted ? 'assigning_driver' : 'not_started', updatedAt: FieldValue.serverTimestamp() }).catch(() => undefined);
     throw error;
   }
 };
@@ -315,9 +376,7 @@ const providerDriverSnapshot = async ({ provider, detail }) => {
     return {
       driverId,
       name: readString(driver.name), phone: readString(driver.phone), plateNumber: readString(driver.plateNumber), photo: readString(driver.photo),
-      coordinates: driver.coordinates && readString(driver.coordinates.lat) && readString(driver.coordinates.lng)
-        ? { lat: readString(driver.coordinates.lat), lng: readString(driver.coordinates.lng), updatedAt: readString(driver.coordinates.updatedAt) }
-        : undefined,
+      ...(driver.coordinates && readString(driver.coordinates.lat) && readString(driver.coordinates.lng) ? { coordinates: { lat: readString(driver.coordinates.lat), lng: readString(driver.coordinates.lng), updatedAt: readString(driver.coordinates.updatedAt) } } : {}),
       fetchedAt: new Date().toISOString()
     };
   } catch (error) {
@@ -398,7 +457,7 @@ export const cancelStoreDelivery = async ({ db, provider, uid, orderId, fulfilme
 
 export const reconcileActiveDeliveries = async ({ db, provider, limit = 50 }) => {
   await reconcileFulfilmentDeliveries({ db, provider, limit });
-  const active = await db.collection('storeOrders').where('delivery.dispatch.status', 'in', ['created', 'cancel_requested']).limit(limit).get();
+  const active = await db.collection('storeOrders').where('delivery.dispatch.status', 'in', ['created', 'cancel_requested', 'outcome_unknown']).limit(limit).get();
   return Promise.all(active.docs.map(async doc => {
     const order = doc.data(); const providerOrderId = readString(order.delivery?.providerOrder?.orderId); if (!providerOrderId) return null;
     try {
@@ -414,18 +473,22 @@ export const reconcileActiveDeliveries = async ({ db, provider, limit = 50 }) =>
 
 // Multi-day operations never write order.total, totals, deliveryPricingSnapshot,
 // payment or the immutable fulfilments array.
-const fulfilmentContext = async ({ db, provider, uid, orderId, fulfilmentId, internal = false }) => {
+export const fulfilmentContext = async ({ db, provider, uid, orderId, fulfilmentId, internal = false }) => {
   if (!internal && !uid) throw new HttpsError('unauthenticated', 'Sign in to manage this delivery.');
   const ref = db.collection('storeOrders').doc(readString(orderId));
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new HttpsError('not-found', 'This order could not be found.');
   const order = snapshot.data();
   if (!internal) await assertWorkspaceOperator({ db, uid, order });
-  const entry = order.fulfilments?.find(entry => entry.id === fulfilmentId && entry.method === 'delivery');
-  if (!entry || order.fulfilmentMethod !== 'delivery') throw deliveryError('Choose a delivery fulfilment.');
+  const entry = order.fulfilments?.find(entry => entry.id === fulfilmentId && canonicalFulfilmentMethod(order, entry) === 'delivery');
+  if (order.delivery?.arrangedExternally === true) throw deliveryError('This delivery is arranged externally. No Lalamove booking is needed.');
+  if (!entry || canonicalFulfilmentMethod(order, entry) !== 'delivery') throw deliveryError('Choose a delivery fulfilment.');
   assertDeliveryEnvironment({ delivery: order.delivery, provider });
   return { ref, order, entry, key: `fulfilmentOperations.${entry.id}` };
 };
+
+// Retained as an inert compatibility export. Payment, Ready and schedules never book.
+export const automaticDispatchDays = () => [];
 
 export const dispatchFulfilmentDelivery = async args => {
   const { db, provider, uid, orderId, fulfilmentId } = args;
@@ -433,43 +496,59 @@ export const dispatchFulfilmentDelivery = async args => {
   const claim = await db.runTransaction(async transaction => {
     const snapshot = await transaction.get(ref); const order = snapshot.data();
     const operation = order.fulfilmentOperations?.[entry.id] || {};
-    if (order.payment?.status !== 'paid' || order.fulfilmentStatus === 'Cancelled' || operation.kitchenStatus !== 'Ready') throw deliveryError('Only ready, paid delivery fulfilments can be dispatched.');
-    if (['creating', 'created', 'outcome_unknown', 'completed', 'cancel_requested', 'cancelled', 'provider_terminal'].includes(operation.dispatch?.status)) return { reused: operation.dispatch.status };
-    transaction.update(ref, { [`${key}.dispatch`]: { status: 'creating', identity: `${ref.id}:${entry.id}`, requestedBy: uid, requestedAt: new Date().toISOString(), attempt: Number(operation.dispatch?.attempt || 0) + 1 }, activeFulfilmentDeliveries: true, updatedAt: FieldValue.serverTimestamp() });
-    return { order };
+    if (order.payment?.status !== 'paid' || order.fulfilmentStatus === 'Cancelled' || operation.kitchenStatus !== 'Ready') throw deliveryError('Only ready, paid delivery fulfilments can be dispatched. Mark this delivery day Ready in Orders or POS before requesting Lalamove.');
+    if ((args.internal && operation.dispatch?.status) || ['creating', 'created', 'outcome_unknown', 'completed', 'cancel_requested', 'cancelled', 'provider_terminal'].includes(operation.dispatch?.status)) return { reused: operation.dispatch.status };
+    if (order.fulfilmentStatus === 'Completed' || order.fulfilmentCompletion?.[entry.id]) throw deliveryError('This fulfilment is already completed.');
+    const currentEntry = order.fulfilments.find(day => day.id === entry.id);
+    if (!currentEntry || canonicalFulfilmentMethod(order, currentEntry) !== 'delivery') throw deliveryError('Choose a delivery fulfilment.');
+    const resolved = resolveDeliveryDispatchData(order, currentEntry);
+    if (args.validateConfirmation) args.validateConfirmation(order, currentEntry, resolved);
+    if (resolved.issues.length) throw new HttpsError('failed-precondition', deliveryBlockedMessage(resolved.issues), { fields: resolved.issues.map(issue => issue.field) });
+    transaction.update(ref, { ...(args.confirmationPreviewId ? { [`${key}.bookingPreview.used`]: true } : {}), [`${key}.dispatch`]: { status: 'creating', identity: `${ref.id}:${entry.id}`, requestedBy: uid || 'automatic', ...(args.confirmationPreviewId ? { previewId: args.confirmationPreviewId } : {}), requestedAt: new Date().toISOString(), attempt: Number(operation.dispatch?.attempt || 0) + 1 }, activeFulfilmentDeliveries: true, updatedAt: FieldValue.serverTimestamp() });
+    return { order, resolved, entry: currentEntry };
   });
   if (claim.reused) return { status: claim.reused };
   let submitted = false; let created;
   try {
     const delivery = claim.order.delivery;
-    const schedule = { mode: 'preorder', date: entry.date, time: entry.time };
+    const target = claim.resolved.recipient;
+    const pickup = claim.resolved.pickup;
+    const view = canonicalFulfilmentView(claim.order, claim.entry);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(view.date) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(view.time)) throw deliveryError('Delivery booking blocked: verify the saved delivery date and time.');
+    const schedule = { mode: 'preorder', date: view.date, time: view.time };
     // At dispatch time expired scheduled slots are requested immediately. Future
     // slots retain their date/time. This is operational pricing only.
-    const request = buildLalamoveQuoteRequest({ config: { serviceType: delivery.quote.serviceType }, pickup: delivery.pickup, destination: delivery.recipient,
+    const request = buildLalamoveQuoteRequest({ config: { serviceType: claim.resolved.serviceType }, pickup, destination: target,
       schedule: Date.parse(malaysiaPreorderScheduleAt(schedule)) > Date.now() ? schedule : { mode: 'instant' } });
-    const fresh = quoteSnapshot(await provider.createQuote(request));
-    if (!fresh.quotationId || !Number.isFinite(fresh.fee) || fresh.fee < 0 || fresh.currency !== 'MYR' || fresh.stops.length !== 2) throw deliveryError('Invalid dispatch quotation.');
+    const fresh = args.approvedQuote || quoteSnapshot(await provider.createQuote(request));
+    assertDispatchQuote(fresh);
+    if (!fresh.quotationId || !Number.isFinite(fresh.fee) || fresh.fee < 0 || fresh.currency !== 'MYR' || fresh.stops.length !== 2 || fresh.stops.some(stop => !readString(stop.stopId))) throw deliveryError('Invalid dispatch quotation.');
+    const baselineFee = claim.order.deliveryPricingSnapshot?.days?.find(day => day.date === entry.date)?.providerDeliveryFee;
+    if (Number.isFinite(baselineFee) && fresh.fee - baselineFee > 5) {
+      await ref.update({ [`${key}.dispatch.status`]: 'failed', [`${key}.dispatch.errorCode`]: 'requote_exceeds_absorption_limit' });
+      return { status: 'dispatch_blocked_requote' };
+    }
     const [sender, recipient] = fresh.stops;
     // Persist submission intent before the external side effect. A crash here
     // remains locked; reconciliation never automatically resubmits it.
     await ref.update({ [`${key}.dispatch.submissionStartedAt`]: new Date().toISOString(), [`${key}.dispatch.operationalQuote`]: fresh });
     submitted = true;
     created = await provider.createOrder({ market: 'MY', data: { quotationId: fresh.quotationId,
-      sender: { stopId: sender.stopId, name: delivery.pickup.contactName, phone: delivery.pickup.contactPhoneE164 },
-      recipients: [{ stopId: recipient.stopId, name: delivery.recipient.name, phone: delivery.recipient.phoneE164, remarks: delivery.recipient.instructions }], isPODEnabled: true,
+      sender: { stopId: sender.stopId, name: pickup.contactName, phone: pickup.contactPhoneE164 },
+      recipients: [{ stopId: recipient.stopId, name: target.name, phone: target.phoneE164, remarks: target.instructions }], isPODEnabled: true,
       metadata: { misechefOrderId: ref.id, misechefFulfilmentId: entry.id, misechefDispatchIdentity: `${ref.id}:${entry.id}` } } });
     if (!readString(created.orderId)) throw new Error('Provider did not return an order ID.');
     // Terminal outcomes are applied transactionally by the same reconciliation
     // path as later polls, so an immediate COMPLETED response cannot skip a day.
     const state = 'assigning_driver';
-    await ref.update({ [`${key}.dispatch.status`]: 'created', [`${key}.providerOrder`]: { orderId: created.orderId, quotationId: created.quotationId || fresh.quotationId, status: created.status || '', priceBreakdown: created.priceBreakdown || {} },
+    await ref.update({ [`${key}.dispatch.status`]: 'created', [`${key}.providerOrder`]: { orderId: created.orderId, quotationId: created.quotationId || fresh.quotationId, status: created.status || '', driverId: created.driverId || '', shareLink: created.shareLink || '', priceBreakdown: created.priceBreakdown || {} },
       [`${key}.lifecycle`]: { state: state, providerStatus: created.status || '', changedAt: new Date().toISOString() }, updatedAt: FieldValue.serverTimestamp() });
     if (TERMINAL_DELIVERY_STATES.has(projectLalamoveLifecycle(created))) await refreshFulfilmentDelivery(args);
     return { status: 'created', orderId: created.orderId };
   } catch (error) {
-    await ref.update({ [`${key}.dispatch.status`]: submitted ? 'outcome_unknown' : 'failed',
+    await ref.update({ [`${key}.dispatch.status`]: submitted && !isConfirmedProviderRejection(error) ? 'outcome_unknown' : 'failed',
       ...(created?.orderId ? { [`${key}.providerOrder.orderId`]: created.orderId } : {}),
-      [`${key}.dispatch.errorCode`]: readString(error.message).slice(0, 120), updatedAt: FieldValue.serverTimestamp() }).catch(() => undefined);
+      [`${key}.dispatch.errorCode`]: readString(error.message).slice(0, 120), [`${key}.dispatch.fields`]: error.details?.fields || [], [`${key}.dispatch.providerCode`]: error.details?.providerCode || '', [`${key}.dispatch.requestId`]: error.requestId || '', [`${key}.dispatch.httpStatus`]: Number(error.status) || 0, updatedAt: FieldValue.serverTimestamp() }).catch(() => undefined);
     throw error;
   }
 };
@@ -495,7 +574,7 @@ export const refreshFulfilmentDelivery = async args => {
     const fresh = (await transaction.get(ref)).data(); const current = fresh.fulfilmentOperations?.[entry.id] || {};
     if (current.providerOrder?.orderId !== providerOrderId) throw deliveryError('Dispatch changed; refresh again.');
     if (TERMINAL_DELIVERY_STATES.has(current.lifecycle?.state)) return { status: current.providerOrder.status, lifecycleState: current.lifecycle.state };
-    const update = { [`${key}.providerOrder.status`]: readString(detail.status), [`${key}.providerOrder.priceBreakdown`]: detail.priceBreakdown || {},
+    const update = { [`${key}.providerOrder.status`]: readString(detail.status), [`${key}.providerOrder.shareLink`]: readString(detail.shareLink), [`${key}.providerOrder.driverId`]: readString(detail.driverId), [`${key}.providerOrder.priceBreakdown`]: detail.priceBreakdown || {},
       ...(driver ? { [`${key}.providerOrder.driver`]: driver } : {}),
       [`${key}.lifecycle`]: { state: nextState, providerStatus: readString(detail.status), changedAt: new Date().toISOString() },
       [`${key}.dispatch.status`]: nextState === 'completed' ? 'completed' : TERMINAL_DELIVERY_STATES.has(nextState) ? 'provider_terminal' : 'created', updatedAt: FieldValue.serverTimestamp() };

@@ -19,6 +19,7 @@ import { httpsCallable } from 'firebase/functions';
 import { getBlob, ref } from 'firebase/storage';
 import { db, functions, storage } from '../../../firebase';
 import { getOrderPickupCode } from '../selling';
+import { canonicalFulfilmentMethod } from '../../../../functions/storeFulfilmentCanonical.js';
 import { normalizeStoreOrderItem, normalizeWeeklyFulfilments, normalizeOrderFulfilments } from '../storeOrderSnapshot';
 import {
   getOrderCompletionTimestamp,
@@ -85,6 +86,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     : null;
   return {
     id: snapshot.id,
+    ...(data.manualOrder ? { manualOrder: data.manualOrder as StoreOrder['manualOrder'] } : {}),
     orderNumber: readString(data.orderNumber),
     pickupCode: getOrderPickupCode(
       readString(data.orderNumber),
@@ -93,7 +95,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     storeId: readString(data.storeId),
     workspaceId: readString(data.workspaceId),
     orderSource: data.orderSource === 'pos' ? 'pos' : 'online',
-    ...(externalOrder && ['shopeefood', 'walk_in', 'other'].includes(readString(externalOrder.source)) ? { externalOrder: {
+    ...(externalOrder && ['shopeefood', 'walk_in', 'other', 'whatsapp', 'phone'].includes(readString(externalOrder.source)) ? { externalOrder: {
       source: readString(externalOrder.source) as NonNullable<StoreOrder['externalOrder']>['source'],
       ...(readString(externalOrder.externalOrderNumber) ? { externalOrderNumber: readString(externalOrder.externalOrderNumber) } : {})
     } } : {}),
@@ -111,10 +113,10 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     paymentMethodName: readString(data.paymentMethodName, 'Secure online payment'),
     customerName: readString(data.customerName, 'Customer'),
     phone: readString(data.phone),
-    fulfilmentMethod: data.fulfilmentMethod === 'delivery' ? 'delivery' : 'pickup',
+    fulfilmentMethod: canonicalFulfilmentMethod(data),
     totals: data.totals && typeof data.totals === 'object' ? data.totals as StoreOrder['totals'] : undefined,
     delivery: data.delivery && typeof data.delivery === 'object' ? data.delivery as StoreOrder['delivery'] : undefined,
-    fulfilments: normalizeOrderFulfilments(data.fulfilments),
+    fulfilments: normalizeOrderFulfilments(Array.isArray(data.fulfilments) ? data.fulfilments.map(entry => ({ ...entry, method: canonicalFulfilmentMethod(data, entry) })) : undefined),
     fulfilmentCompletion: data.fulfilmentCompletion as StoreOrder['fulfilmentCompletion'],
     fulfilmentOperations: data.fulfilmentOperations as StoreOrder['fulfilmentOperations'],
     weeklyFulfilments: normalizeWeeklyFulfilments(data.weeklyFulfilments),
@@ -127,6 +129,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     pickupLocationAddress: readString(data.pickupLocationAddress),
     pickupLocationNotes: readString(data.pickupLocationNotes),
     notes: readString(data.notes),
+    ...(data.promotionCodeSnapshot ? {promotionCodeSnapshot:structuredClone(data.promotionCodeSnapshot) as StoreOrder['promotionCodeSnapshot']} : {}),
     items: Array.isArray(data.items) ? data.items.map(normalizeStoreOrderItem) : [],
     itemCount: readNumber(data.itemCount),
     total: readNumber(data.total),
@@ -170,6 +173,22 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
 };
 
 export const storeOrderService = {
+  async saveManualPosOrder(order: Record<string, unknown>) {
+    if (!functions) throw new Error('Store ordering is unavailable.');
+    return (await httpsCallable<{order: Record<string, unknown>}, {orderId: string}>(functions, 'saveStoreManualPosOrder')({order})).data;
+  },
+  async confirmManualPosPayment(input: Record<string, unknown>) {
+    if (!functions) throw new Error('Store payments are unavailable.');
+    return (await httpsCallable(functions, 'confirmStoreManualPosPayment')(input)).data;
+  },
+  async listPrivatePosItems(workspaceId: string) {
+    if (!db) return [];
+    return (await getDocs(query(collection(db, 'storePrivatePosItems'), where('workspaceId', '==', workspaceId)))).docs.map(doc => ({id: doc.id, ...doc.data()})) as Array<{id: string; name: string; unitPrice: number; notes: string}>;
+  },
+  subscribePendingManualOrders(storeId: string, workspaceId: string, onData: (orders: StoreOrder[]) => void, onError: (error: Error) => void, includePaid = false) {
+    if (!db || !storeId || !workspaceId) return () => undefined;
+    return onSnapshot(query(collection(db, 'storeOrders'), where('storeId','==',storeId), where('workspaceId','==',workspaceId), where('fulfilmentStatus','in',ACTIVE_FULFILMENT_STATUSES), orderBy('createdAt','desc')), snapshot => onData(snapshot.docs.map(normalizeOrder).filter(order => order.manualOrder && (order.payment.status === 'pending' || (includePaid && order.payment.status === 'paid')))), onError);
+  },
   async createExternalPosOrder(order: Record<string, unknown>) {
     if (!functions) throw new Error('Store ordering is unavailable.');
     const create = httpsCallable<{ order: Record<string, unknown> }, { orderId: string; orderNumber: string; duplicate: boolean }>(functions, 'createStoreExternalPosOrder');
@@ -449,7 +468,8 @@ export const storeOrderService = {
           workspaceId: readString(data.workspaceId),
           storeId: readString(data.storeId),
           orderId: readString(data.orderId),
-          orderNumber: readString(data.orderNumber),
+          ...(data.manualOrder ? { manualOrder: data.manualOrder as StoreOrder['manualOrder'] } : {}),
+    orderNumber: readString(data.orderNumber),
           type,
           title: readString(data.title, 'New paid order'),
           message: readString(data.message),

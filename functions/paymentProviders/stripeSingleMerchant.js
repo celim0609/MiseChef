@@ -32,6 +32,8 @@ const normalizeCheckoutPayment = session => {
     currency: readString(session?.currency).toUpperCase(),
     status: checkoutStatus(session, paymentIntent),
     providerStatus: readString(session?.payment_status || session?.status),
+    ...(session?.status === 'expired' && session?.payment_status !== 'paid' ? {promotionTerminal:true} : {}),
+    ...(paymentIntent?.latest_charge && typeof paymentIntent.latest_charge==='object' && Number.isFinite(paymentIntent.latest_charge.created) ? {paidAt:new Date(paymentIntent.latest_charge.created*1000).toISOString()} : {}),
     paymentMethod: readStripePaymentMethod(paymentIntent),
     failureCode: readString(paymentIntent?.last_payment_error?.code)
   };
@@ -83,6 +85,18 @@ export const createStripeSingleMerchantAdapter = (secretKey, { stripeClient } = 
     provider: STRIPE_PROVIDER_ID,
     mode: STRIPE_PROVIDER_MODE,
     requiresSellingWorkspace: true,
+    promotionCodeLifecycle: true,
+    async expirePromotionPayment({order,recovery}) {
+      let id=order.payment.providerPaymentId;
+      if(!id) {
+        if(Date.now()-Date.parse(order.promotionCodeSnapshot.reservationExpiresAt)>22*60*60*1000) throw new Error('Provider creation requires manual reconciliation.');
+        try { id=(await this.createPayment({order,returnUrl:recovery.returnUrl,checkoutAccessToken:recovery.checkoutAccessToken})).providerPaymentId; }
+        catch(error) { if(error.type === 'StripeInvalidRequestError' && error.code !== 'idempotency_key_in_use' && error.code !== 'idempotency_error') return {status:'cancelled',promotionTerminal:true,promotionDefinitelyNotCreated:true}; throw error; }
+      }
+      let payment=await this.retrievePayment(id);
+      if(payment.status==='paid' || payment.promotionTerminal) return payment;
+      try { return await this.cancelPayment(id); } catch(error) { payment=await this.retrievePayment(id); if(payment.status==='paid' || payment.promotionTerminal) return payment; throw error; }
+    },
 
     async createPayment({ order, returnUrl, checkoutAccessToken }) {
       const placeholder = '{CHECKOUT_SESSION_ID}';
@@ -114,11 +128,15 @@ export const createStripeSingleMerchantAdapter = (secretKey, { stripeClient } = 
           }
         }],
         metadata,
+        ...(order.promotionCodeSnapshot ? {expires_at:Math.floor(Date.parse(order.promotionCodeSnapshot.reservationExpiresAt)/1000),payment_method_types:['card']} : {}),
         payment_intent_data: { metadata }
         // payment_method_types is intentionally omitted. Stripe dynamically presents
         // Dashboard-enabled methods that are eligible for the currency and customer.
       }, {
         idempotencyKey: `misechef-order-${order.id}`
+      }).catch(error=>{
+        if(error.type==='StripeInvalidRequestError' && error.code!=='idempotency_key_in_use' && error.code!=='idempotency_error') error.promotionDefinitelyNotCreated=true;
+        throw error;
       });
       return {
         providerPaymentId: session.id,
