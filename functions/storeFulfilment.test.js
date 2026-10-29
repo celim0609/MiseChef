@@ -661,3 +661,22 @@ test('weekly reminder dates are independent and do not use the parent pickup dat
   assert.doesNotMatch(JSON.stringify(db.writes), /customerReminders.2026-10-29/);
   await assert.rejects(recordStoreCustomerReminder({ db, uid: 'owner', orderId: 'o', date: '2026-10-28', status: 'draft_opened' }));
 });
+
+test('reminder metadata fails closed for inactive Business subscriptions, including workspace owners', async () => {
+  const { recordStoreCustomerReminder } = await import('./storeFulfilment.js');
+  for (const workspace of [
+    { subscriptionPlan: 'personal' },
+    { subscriptionStatus: 'expired' },
+    { subscriptionStatus: 'canceled' },
+    { subscriptionStatus: 'trialing', trialEndsAt: '2000-01-01T00:00:00Z' }
+  ]) {
+    const db = createFakeDb({
+      'storeOrders/o': { workspaceId: 'w', pickupDate: '2026-10-29', customerReminders: { '2026-10-29': { status: 'draft_opened' } } },
+      'workspaces/w': { ownerId: 'owner', ...workspace }
+    });
+    for (const status of ['draft_opened', 'owner_confirmed_sent']) {
+      await assert.rejects(recordStoreCustomerReminder({ db, uid: 'owner', orderId: 'o', date: '2026-10-29', status }), { code: 'permission-denied' });
+    }
+    assert.equal(db.writes.length, 0, JSON.stringify(workspace));
+  }
+});
