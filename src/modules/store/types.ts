@@ -528,6 +528,7 @@ export interface StoreNotification {
 
 export interface StoreOrder {
   promotionCodeSnapshot?: import('./promotionCodeTypes').PromotionCodeSnapshot;
+  customerReminders?: Record<string, { status: 'draft_opened' | 'owner_confirmed_sent'; updatedAt: string; updatedBy: string }>;
   fulfilments?: OrderFulfilment[];
   fulfilmentCompletion?: Record<string, { completedAt: string; completedBy: string }>;
   fulfilmentOperations?: Record<string, FulfilmentOperation>;

@@ -116,6 +116,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     fulfilmentMethod: canonicalFulfilmentMethod(data),
     totals: data.totals && typeof data.totals === 'object' ? data.totals as StoreOrder['totals'] : undefined,
     delivery: data.delivery && typeof data.delivery === 'object' ? data.delivery as StoreOrder['delivery'] : undefined,
+    customerReminders: data.customerReminders as StoreOrder['customerReminders'],
     fulfilments: normalizeOrderFulfilments(Array.isArray(data.fulfilments) ? data.fulfilments.map(entry => ({ ...entry, method: canonicalFulfilmentMethod(data, entry) })) : undefined),
     fulfilmentCompletion: data.fulfilmentCompletion as StoreOrder['fulfilmentCompletion'],
     fulfilmentOperations: data.fulfilmentOperations as StoreOrder['fulfilmentOperations'],

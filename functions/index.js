@@ -3,6 +3,7 @@ import { managePromotionCodes, verifiedPromotionMember } from './storePromotionC
 import { previewStorePromotionCode, expirePromotionCodeReservations } from './storePromotionCodeCheckout.js';
 import { previewMerchantDelivery, confirmMerchantDelivery, reconcileMerchantDelivery } from './storeManualDelivery.js';
 import { saveManualPosOrder, confirmManualPosPayment } from './manualPosOrders.js';
+import { recordStoreCustomerReminder as recordCustomerReminder } from './storeFulfilment.js';
 import { createRecipePipelineService } from './recipePipelineService.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import { readFileSync } from 'node:fs';
@@ -2562,3 +2563,4 @@ export const expireStorePromotionCodeReservations = onSchedule({region:REGION,sc
   const results=await expirePromotionCodeReservations({db,resolveAdapter:order=>createPaymentAdapter(order.payment.provider,{stripeSecretKey:stripeSecretKey.value(),curlecKeyId:curlecKeyId.value(),curlecKeySecret:curlecKeySecret.value(),curlecPaymentLink:order.payment.providerMode==='payment_link'})});
   logger.info('Promotion code reservation reconciliation',{processed:results.length,requiresReview:results.filter(item=>item.status==='requires_review').length});
 });
+export const recordStoreCustomerReminder = onCall({ region: REGION, timeoutSeconds: 20, memory: '256MiB' }, request => recordCustomerReminder({ db, uid: request.auth?.uid, orderId: request.data?.orderId, date: request.data?.date, status: request.data?.status }));

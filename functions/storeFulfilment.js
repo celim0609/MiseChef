@@ -409,3 +409,42 @@ export const updateStoreGroupOrderFulfilment = async ({ db, uid, groupId, action
     };
   });
 };
+
+// Communication metadata only; opening WhatsApp never proves that Send was pressed.
+export const recordStoreCustomerReminder = async ({ db, uid, orderId, date, status }) => {
+  if (!uid) throw new HttpsError('unauthenticated', 'Sign in to record a reminder.');
+  if (typeof orderId !== 'string' || !orderId || orderId.includes('/') || !/^\d{4}-\d{2}-\d{2}$/.test(date || '')
+    || !['draft_opened', 'owner_confirmed_sent'].includes(status)) {
+    throw new HttpsError('invalid-argument', 'Choose a valid order date and reminder status.');
+  }
+  const reference = db.collection('storeOrders').doc(orderId);
+  return db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists) throw new HttpsError('not-found', 'Order not found.');
+    const order = snapshot.data();
+    const workspaceId = order.workspaceId;
+    if (!workspaceId) throw new HttpsError('failed-precondition', 'Order has no Workspace.');
+    const [workspaceSnapshot, membershipSnapshot] = await Promise.all([
+      transaction.get(db.collection('workspaces').doc(workspaceId)),
+      transaction.get(db.collection('workspaceMembers').doc(`${workspaceId}_${uid}`))
+    ]);
+    const workspace = workspaceSnapshot.data() || {};
+    const membership = membershipSnapshot.data() || {};
+    if (!hasActiveBusinessEntitlement(workspace) || !hasStoreProcessingAuthority({ uid, workspaceId, workspace, membership })) {
+      throw new HttpsError('permission-denied', 'Your Workspace role cannot record reminders.');
+    }
+    const dates = order.fulfilments?.length ? order.fulfilments.map(entry => entry.date)
+      : order.weeklyFulfilments?.length ? order.weeklyFulfilments.map(entry => entry.date)
+        : [order.fulfilmentMethod === 'delivery' ? order.delivery?.schedule?.date : order.pickupDate];
+    if (!dates.includes(date)) throw new HttpsError('invalid-argument', 'This date is not scheduled for the order.');
+    const previous = order.customerReminders?.[date];
+    if (previous?.status === 'owner_confirmed_sent') return { status: previous.status };
+    if (status === 'owner_confirmed_sent' && previous?.status !== 'draft_opened') {
+      throw new HttpsError('failed-precondition', 'Open and review the reminder before confirming it was sent.');
+    }
+    transaction.update(reference, {
+      [`customerReminders.${date}`]: { status, updatedAt: new Date().toISOString(), updatedBy: uid }
+    });
+    return { status };
+  });
+};

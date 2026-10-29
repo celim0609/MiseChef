@@ -21,7 +21,7 @@ import { storeOrderService, type StoreOrderHistoryCursor } from './services';
 import { storeDeliveryService } from './services/deliveryService';
 import { formatPickupDateLabel, formatPickupTimeLabel } from './storeModel';
 import { isOrderOperationallyEligible, sortOrdersByDeliverySchedule } from './posOrderModel';
-import WhatsAppCustomerButton from './WhatsAppCustomerButton';
+import WhatsAppCustomerButton from './WhatsAppCustomerActions';
 import type {
   StoreFulfilmentStatus,
   StoreNotification,
@@ -512,12 +512,13 @@ export default function StoreOrdersPanel({
               {selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && <div className="mt-3 rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>Delivery: {deliveryLifecycleLabel(selectedOrder.delivery?.lifecycle?.state)}</p>{selectedOrder.delivery?.lifecycle?.state === 'assigning_driver' && deliveryElapsed(selectedOrder.delivery.lifecycle.history) && <p className="mt-1 text-xs">Searching for {deliveryElapsed(selectedOrder.delivery.lifecycle.history)}</p>}{selectedOrder.delivery?.providerOrder?.driver?.name && <p className="mt-1 text-xs">Driver: {selectedOrder.delivery.providerOrder.driver.name}{selectedOrder.delivery.providerOrder.driver.plateNumber ? ` · ${selectedOrder.delivery.providerOrder.driver.plateNumber}` : ''}</p>}{selectedOrder.delivery?.providerOrder?.driver?.phone && <p className="mt-1 text-xs">{selectedOrder.delivery.providerOrder.driver.phone}</p>}{selectedOrder.delivery?.providerOrder?.shareLink && <a className="mt-2 inline-block text-xs underline" href={selectedOrder.delivery.providerOrder.shareLink} target="_blank" rel="noreferrer">Track delivery</a>}{['expired', 'rejected', 'canceled'].includes(selectedOrder.delivery?.lifecycle?.state || '') && <p className="mt-2 text-xs">Merchant review required. A replacement is never created automatically.</p>}</div>}
               {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && activeDeliveryLifecycle(selectedOrder.delivery?.lifecycle?.state) && <button type="button" disabled={isUpdating} onClick={() => refreshDelivery(selectedOrder.id)} className="mt-3 rounded-full border border-outline px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-50">Refresh delivery</button>}
               {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && ['assigning_driver', 'driver_assigned'].includes(selectedOrder.delivery?.lifecycle?.state || '') && <button type="button" disabled={isUpdating} onClick={() => cancelDelivery(selectedOrder.id)} className="mt-3 rounded-full border border-error px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">Cancel Lalamove delivery</button>}
-              <WhatsAppCustomerButton
+              <div key={selectedOrder.id} className="w-full"><WhatsAppCustomerButton
+                canRecordReminder={canProcessOrders}
                 order={selectedOrder}
                 country={country}
                 storeName={storeName}
                 className="flex-1"
-              />
+              /></div>
               {canProcessOrders && !selectedOrder.weeklyFulfilments && !selectedOrder.fulfilments && selectedOrder.payment.refundStatus === 'refunded'
                 && !['Completed', 'Cancelled'].includes(selectedOrder.fulfilmentStatus) && (
                 <button type="button" disabled={isUpdating} onClick={() => updateStatus('Cancelled')} className="rounded-full bg-error/10 px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">

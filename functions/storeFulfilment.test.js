@@ -624,3 +624,40 @@ test('delivery day cannot skip Preparing on the way to Ready',async()=>{
  await assert.rejects(updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus:'Ready',fulfilmentId:'monday'}),/Preparing before Ready/);
  assert.equal(db.writes.length,0);
 });
+
+// Metadata writes must remain independent from payment and fulfilment operations.
+test('customer reminder records opened draft by date, requires explicit sent acknowledgement and preserves sent status', async () => {
+  const { recordStoreCustomerReminder } = await import('./storeFulfilment.js');
+  const order = { workspaceId: 'w', pickupDate: '2026-10-29' };
+  const db = createFakeDb({ 'storeOrders/o': order, 'workspaces/w': { ownerId: 'owner' } });
+  await recordStoreCustomerReminder({ db, uid: 'owner', orderId: 'o', date: '2026-10-29', status: 'draft_opened' });
+  assert.equal(db.writes.length, 1);
+  const write = JSON.stringify(db.writes);
+  assert.match(write, /customerReminders.2026-10-29/);
+  assert.doesNotMatch(write, /payment|fulfilmentStatus|owner_confirmed_sent/);
+  await assert.rejects(recordStoreCustomerReminder({ db, uid: 'owner', orderId: 'o', date: '2026-10-29', status: 'owner_confirmed_sent' }), /Open and review/);
+  order.customerReminders = { '2026-10-29': { status: 'draft_opened' } };
+  await recordStoreCustomerReminder({ db, uid: 'owner', orderId: 'o', date: '2026-10-29', status: 'owner_confirmed_sent' });
+  order.customerReminders['2026-10-29'].status = 'owner_confirmed_sent';
+  const count = db.writes.length;
+  const result = await recordStoreCustomerReminder({ db, uid: 'owner', orderId: 'o', date: '2026-10-29', status: 'draft_opened' });
+  assert.equal(result.status, 'owner_confirmed_sent'); assert.equal(db.writes.length, count);
+});
+test('customer reminder rejects unauthenticated, cross-workspace, invalid dates and unsupported states', async () => {
+  const { recordStoreCustomerReminder } = await import('./storeFulfilment.js');
+  const db = createFakeDb({ 'storeOrders/o': { workspaceId: 'w', fulfilments: [{ date: '2026-10-29' }] }, 'workspaces/w': { ownerId: 'owner' } });
+  const input = { db, uid: 'owner', orderId: 'o', date: '2026-10-29', status: 'draft_opened' };
+  for (const overrides of [{ uid: '' }, { uid: 'stranger' }, { date: '2026-10-30' }, { status: 'sent' }, { orderId: 'bad/id' }]) {
+    await assert.rejects(recordStoreCustomerReminder({ ...input, ...overrides }));
+  }
+  assert.equal(db.writes.length, 0);
+});
+test('weekly reminder dates are independent and do not use the parent pickup date', async () => {
+  const { recordStoreCustomerReminder } = await import('./storeFulfilment.js');
+  const order = { workspaceId: 'w', pickupDate: '2026-10-28', weeklyFulfilments: [{ date: '2026-10-29' }, { date: '2026-10-30' }], customerReminders: { '2026-10-29': { status: 'owner_confirmed_sent' } } };
+  const db = createFakeDb({ 'storeOrders/o': order, 'workspaces/w': { ownerId: 'owner' } });
+  await recordStoreCustomerReminder({ db, uid: 'owner', orderId: 'o', date: '2026-10-30', status: 'draft_opened' });
+  assert.match(JSON.stringify(db.writes), /customerReminders.2026-10-30/);
+  assert.doesNotMatch(JSON.stringify(db.writes), /customerReminders.2026-10-29/);
+  await assert.rejects(recordStoreCustomerReminder({ db, uid: 'owner', orderId: 'o', date: '2026-10-28', status: 'draft_opened' }));
+});
