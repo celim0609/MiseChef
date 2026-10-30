@@ -1,5 +1,13 @@
+import OrderFulfilmentDetails from './OrderFulfilmentDetails';
+import {productAllowsFulfilmentDate} from '../../../functions/storeProductAvailability.js';
+import PosWeeklyMenu from './PosWeeklyMenu';
+import type {HealthyLunchChoice} from './HealthyLunchMenu';
+import {previewManualLines} from './manualPosPreview';
+import {getWeeklyDates,resolveHealthyLunchDay} from '../../../functions/storeWeeklyMealPlan.js';
+import ManualPosOrders from './ManualPosOrders';
 import { getOrderTickets } from './orderTickets';
-import DailyFulfilmentQueue from './DailyFulfilmentQueue';
+import DailyFulfilmentQueue, { DailyFulfilmentCard } from './DailyFulfilmentQueue';
+import { dailyEntries, completedEntriesForPeriod, ticketInDailyView, type DailyView } from './dailyOrderModel';
 import OrderTicketPanel from './OrderTicketPanel';
 import HealthyLunchPurchasedOptions from './HealthyLunchPurchasedOptions';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -8,7 +16,6 @@ import {
   ArrowLeft,
   BellRing,
   CalendarDays,
-  CheckCircle2,
   ChefHat,
   ChevronLeft,
   ChevronRight,
@@ -23,8 +30,11 @@ import {
   X
 } from 'lucide-react';
 import { storeOrderService, storeService } from './services';
+import { auth, db } from '../../firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { formatStoreOrderSetSelection } from './storeOrderSnapshot';
 import WhatsAppCustomerButton from './WhatsAppCustomerButton';
+import WhatsAppCustomerActions from './WhatsAppCustomerActions';
 import { buildGroupKitchenEntries, type GroupKitchenEntry } from './groupKitchenOrderModel';
 import {
   countActiveOnlineOrders,
@@ -33,6 +43,7 @@ import {
   getMalaysiaDateRange,
   getOrderCompletionTimestamp,
   isOrderCompletedOnMalaysiaDate,
+  isOrderOperationallyEligible,
   shiftDateKey,
   sortOrdersByDeliverySchedule,
   toActivePosStatus,
@@ -41,17 +52,22 @@ import {
   type OrderHistoryFilter
 } from './posOrderModel';
 import type { StoreFulfilmentStatus, StoreOrder } from './types';
-import type { StoreOptionGroup, StoreProduct, StoreSet } from './types';
+import type { StoreOptionGroup, StoreProduct, StoreSet, WorkspaceStore, MealOptionChoice } from './types';
 import { getPosSourceLabel, isWalkInOrder, printWalkInReceipt } from './posWalkIn';
-import { calculateStoreSetAnalysis, getDefaultStoreSetSelections, getStoreSetUnavailableReason } from './storeSetModel';
-import { calculateStoreOptionAdjustedPrice } from './storeModel';
+import { calculateStoreSetAnalysis, getDefaultStoreSetSelections, getStoreSetUnavailableReason, validateStoreSetSelections } from './storeSetModel';
+import { calculateStoreOptionAdjustedPrice, getPickupTimeSlots, getValidPickupDates } from './storeModel';
 
 type ExternalCartItem = {
   key: string;
   label: string;
   quantity: number;
+  date?: string;
+  time?: string;
   selection: {
     productId?: string;
+    healthyLunchPlanId?: string;
+    healthyLunchDate?: string;
+    selectedMealOptions?: MealOptionChoice[];
     setId?: string;
     selectedOptions: Array<{ groupId: string; optionId: string }>;
     selectedSetItems?: Array<{ groupId: string; productId: string }>;
@@ -170,6 +186,7 @@ const createAlertToneUrl = () => {
 };
 
 interface StorePosPageProps {
+  canRecordReminders?: boolean;
   storeId: string;
   workspaceId: string;
   workspaceName: string;
@@ -177,7 +194,8 @@ interface StorePosPageProps {
   notificationAction?: ReactNode;
 }
 
-export default function StorePosPage({ storeId, workspaceId, workspaceName, onBack, notificationAction }: StorePosPageProps) {
+export default function StorePosPage({ storeId, workspaceId, workspaceName, onBack, notificationAction, canRecordReminders = false }: StorePosPageProps) {
+  const [posSection, setPosSection] = useState<'orders' | 'tickets'>('orders');
   const [orders, setOrders] = useState<StoreOrder[]>([]);
   const [completedOrders, setCompletedOrders] = useState<StoreOrder[]>([]);
   const [storeDisplayName, setStoreDisplayName] = useState('Loading Store…');
@@ -206,12 +224,33 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const [cancelOrder, setCancelOrder] = useState<StoreOrder | null>(null);
   const [cancellationChoice, setCancellationChoice] = useState('');
   const [otherCancellationReason, setOtherCancellationReason] = useState('');
+  const [dailyHistory, setDailyHistory] = useState<Awaited<ReturnType<typeof storeOrderService.getTerminalOrderHistoryPage>> | null>(null);
+  const [loadingDailyHistory, setLoadingDailyHistory] = useState(false);
+  const loadDailyHistory = async () => {
+    setLoadingDailyHistory(true);
+    try {
+      const page = await storeOrderService.getTerminalOrderHistoryPage(storeId, workspaceId, dailyHistory?.cursor);
+      setDailyHistory(previous => ({...page, orders: [...(previous?.orders || []), ...page.orders]}));
+    } catch(error) {setErrorMessage(error instanceof Error ? error.message : 'Unable to load fulfilment history.');}
+    finally {setLoadingDailyHistory(false);}
+  };
+  useEffect(() => {setDailyHistory(null);}, [storeId, workspaceId]);
   const [externalOpen, setExternalOpen] = useState(false);
+  const [externalStore, setExternalStore] = useState<WorkspaceStore | null>(null);
+  const [externalCategory, setExternalCategory] = useState<'all'|'sets'|'weekly'>('all');
+  const [externalLoading, setExternalLoading] = useState(false);
+  const externalRequestIdRef = useRef(crypto.randomUUID());
   const [externalProducts, setExternalProducts] = useState<StoreProduct[]>([]);
+  const [externalPosFullAccess, setExternalPosFullAccess] = useState(false);
+  const externalOrderableProducts = externalPosFullAccess ? externalProducts.map(product => ({ ...product, available: true })) : externalProducts;
   const [externalSets, setExternalSets] = useState<StoreSet[]>([]);
   const [externalOptionGroups, setExternalOptionGroups] = useState<StoreOptionGroup[]>([]);
   const [externalCart, setExternalCart] = useState<ExternalCartItem[]>([]);
   const [externalSource, setExternalSource] = useState('shopeefood');
+  const [externalMethod, setExternalMethod] = useState<'pickup' | 'delivery'>('pickup');
+  const [externalAddress, setExternalAddress] = useState('');
+  const [externalDate, setExternalDate] = useState('');
+  const [externalTime, setExternalTime] = useState('');
   const [externalNumber, setExternalNumber] = useState('');
   const [externalName, setExternalName] = useState('');
   const [externalPhone, setExternalPhone] = useState('');
@@ -343,16 +382,18 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     };
   }, [activeView, historyDateBasis, historyDateKey, historyRefreshKey, storeId, workspaceId]);
 
+  const [dailyView, setDailyView] = useState<DailyView>('Today');
+  const dailyOrders = [...new Map([...(dailyHistory?.orders || []), ...completedOrders, ...orders].map(order => [order.id, order])).values()];
+  const boardDailyEntries = dailyView === 'History' ? [] : dailyEntries(dailyOrders,dailyView,todayKey);
   const groupedOrders = useMemo(() => ACTIVE_COLUMNS.reduce<Record<ActivePosStatus, ReturnType<typeof buildGroupKitchenEntries>>>(
     (groups, column) => {
-      groups[column.status] = buildGroupKitchenEntries(orders.filter(order => !order.fulfilments?.length && !order.weeklyFulfilments?.length && getOrderTickets(order).some(ticket => ticket.date === todayKey)), column.status, storePickupSessions);
+      groups[column.status] = buildGroupKitchenEntries(orders.filter(order => !order.fulfilments?.length && !order.weeklyFulfilments?.length && !getOrderTickets(order).some(ticket => ticket.fulfilmentId) && getOrderTickets(order).some(ticket => ticketInDailyView(ticket.date,dailyView,todayKey)) && dailyView !== 'History'), column.status, storePickupSessions);
       return groups;
     },
     { New: [], Preparing: [], Ready: [] }
-  ), [orders, storePickupSessions, todayKey]);
+  ), [orders, storePickupSessions, todayKey, dailyView]);
 
-  const completedTodayOrders = completedOrders.filter(order => isOrderCompletedOnMalaysiaDate(order, todayKey));
-  const completedTodayCount = completedTodayOrders.length;
+  const completedPeriodEntries = completedEntriesForPeriod(dailyOrders, dailyView, todayKey);
   const activeOnlineOrderCount = countActiveOnlineOrders(orders);
   const historySourceOrders = useMemo(
     () => historyDateBasis === 'completed'
@@ -383,19 +424,32 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const openExternalOrder = async () => {
     setErrorMessage('');
     setExternalError('');
+    setExternalCategory('all');
+    setExternalPosFullAccess(false);
     setExternalOpen(true);
+    window.scrollTo({ top: 0 });
+    setExternalLoading(true);
     try {
-      const [products, optionGroups, sets] = await Promise.all([
-        storeService.listAdminProducts(workspaceId),
+      const uid = auth?.currentUser?.uid || '';
+      const [workspaceRecord, memberRecord] = db && uid ? await Promise.all([getDoc(doc(db, 'workspaces', workspaceId)), getDoc(doc(db, 'workspaceMembers', `${workspaceId}_${uid}`))]) : [null, null];
+      const member = memberRecord?.data();
+      const posFullAccess = Boolean(uid && (workspaceRecord?.data()?.ownerId === uid || (member?.userId === uid && member?.workspaceId === workspaceId && member?.status === 'Active' && ['Owner', 'Manager'].includes(member?.role))));
+      const [products, optionGroups, sets, loadedStore] = await Promise.all([
+        storeService.listManualPosProducts(workspaceId, storeId, posFullAccess),
         storeService.listOptionGroups(workspaceId),
-        storeService.listSets(workspaceId)
+        storeService.listSets(workspaceId),
+        storeService.getWorkspaceStore(workspaceId)
       ]);
-      setExternalProducts(products.filter(product => product.available));
+      if (!loadedStore || loadedStore.id !== storeId || loadedStore.workspaceId !== workspaceId) throw new Error('This Store does not match the active Workspace.');
+      setExternalPosFullAccess(posFullAccess);
+      setExternalStore(loadedStore);
+      setExternalProducts(products.filter(product => product.storeId === storeId && product.workspaceId === workspaceId && (posFullAccess || product.available)));
       setExternalOptionGroups(optionGroups);
-      setExternalSets(sets.filter(set => set.available && !getStoreSetUnavailableReason(set, products)));
+      const setProducts = posFullAccess ? products.map(product => ({ ...product, available: true })) : products;
+      setExternalSets(sets.filter(set => set.available && !getStoreSetUnavailableReason(set, setProducts)));
     } catch (error) {
       setExternalError(error instanceof Error ? error.message : 'Unable to load Store products.');
-    }
+    } finally { setExternalLoading(false); }
   };
 
   const createExternalOrder = async () => {
@@ -405,7 +459,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     setExternalError('');
     try {
       const paymentLabel = externalSource === 'shopeefood' ? 'shopeefood_platform_paid' : externalSource === 'walk_in' ? 'walk_in_paid' : 'other_paid';
-      const result = await storeOrderService.createExternalPosOrder({ workspaceId, storeId, slug: (await storeService.getWorkspaceStore(workspaceId))?.slug || '', source: externalSource, externalOrderNumber: externalNumber, paymentLabel, customerName: externalName, phone: externalPhone, notes: externalNotes, selections: externalCart.map(item => ({ ...item.selection, quantity: item.quantity })) });
+      const result = await storeOrderService.createExternalPosOrder({ requestId: externalRequestIdRef.current, workspaceId, storeId, slug: (await storeService.getWorkspaceStore(workspaceId))?.slug || '', source: externalSource, externalOrderNumber: externalNumber, paymentLabel, customerName: externalName, phone: externalPhone, notes: externalNotes, fulfilmentMethod: externalMethod, deliveryAddress: externalMethod === 'delivery' ? externalAddress : '', fulfilmentDate: externalDate, fulfilmentTime: externalTime, selections: externalCart.map(item => ({ ...item.selection, quantity: item.quantity })), lineSchedules: externalCart.map(item=>({date:item.date || '',time:item.time || ''})) });
       if (externalSource === 'walk_in') {
         try {
           const createdOrder = await storeOrderService.getOrder(result.orderId);
@@ -414,7 +468,8 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
           // The persisted order remains available for POS-card reprint.
         }
       }
-      setExternalOpen(false); setExternalNumber(''); setExternalName(''); setExternalPhone(''); setExternalNotes(''); setExternalCart([]);
+      externalRequestIdRef.current = crypto.randomUUID();
+      setExternalOpen(false); setExternalNumber(''); setExternalName(''); setExternalPhone(''); setExternalNotes(''); setExternalCart([]); setExternalMethod('pickup'); setExternalAddress(''); setExternalDate(''); setExternalTime('');
     } catch (error) {
       setExternalError(error instanceof Error ? error.message : 'Unable to create external order.');
     } finally {
@@ -423,14 +478,33 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     }
   };
   const addExternalProduct = (product: StoreProduct) => setExternalCart(current => {
+    const date = externalStore && product.availableDay && product.availableDay !== 'all' && !productAllowsFulfilmentDate(product,toMalaysiaDateKey()) ? getValidPickupDates(externalStore).find(date=>productAllowsFulfilmentDate(product,date)) || '' : '';
+    const time = date && externalStore ? getPickupTimeSlots(externalStore,date)[0] || '' : '';
     const existing = current.find(item => item.key === `product:${product.id}`);
-    return existing ? current.map(item => item === existing ? { ...item, quantity: Math.min(20, item.quantity + 1) } : item) : [...current, { key: `product:${product.id}`, label: product.name, quantity: 1, selection: { productId: product.id, selectedOptions: [] } }];
+    return existing ? current.map(item => item === existing ? { ...item, quantity: Math.min(externalPosFullAccess ? 10000 : 20, item.quantity + 1) } : item) : [...current, { key: `product:${product.id}`, label: product.name, quantity: 1, date, time, selection: { productId: product.id, selectedOptions: [] } }];
   });
   const addExternalSet = (set: StoreSet) => setExternalCart(current => {
     const existing = current.find(item => item.key === `set:${set.id}`);
-    return existing ? current.map(item => item === existing ? { ...item, quantity: Math.min(20, item.quantity + 1) } : item) : [...current, { key: `set:${set.id}`, label: set.name, quantity: 1, selection: { setId: set.id, selectedOptions: [], selectedSetItems: getDefaultStoreSetSelections(set, externalProducts) } }];
+    return existing ? current.map(item => item === existing ? { ...item, quantity: Math.min(externalPosFullAccess ? 10000 : 20, item.quantity + 1) } : item) : [...current, { key: `set:${set.id}`, label: set.name, quantity: 1, selection: { setId: set.id, selectedOptions: [], selectedSetItems: getDefaultStoreSetSelections(set, externalOrderableProducts) } }];
   });
-  const updateExternalCartQuantity = (key: string, change: number) => setExternalCart(current => current.flatMap(item => item.key !== key ? [item] : item.quantity + change < 1 ? [] : [{ ...item, quantity: Math.min(20, item.quantity + change) }]));
+  const addExternalMenu = (product: StoreProduct, choice: HealthyLunchChoice, time: string) => {
+    const meal = choice.mode === 'day' ? resolveHealthyLunchDay(product, externalProducts, choice.date) : product;
+    if (!meal) return;
+    const selection = {productId:meal.id,selectedOptions:[],selectedMealOptions:choice.selectedMealOptions || [],...(choice.mode === 'day'?{healthyLunchPlanId:product.id,healthyLunchDate:choice.date}:{})};
+    const key = `menu:${product.id}:${choice.mode}:${choice.date}:${time}:${JSON.stringify(selection.selectedMealOptions)}`;
+    setExternalCart(current=>current.some(item=>item.key===key)?current.map(item=>item.key===key?{...item,quantity:Math.min(externalPosFullAccess ? 10000 : 20,item.quantity+1)}:item):[...current,{key,label:meal.name,quantity:1,date:choice.date,time,selection}]);
+  };
+  const updateExternalSetChoice = (key:string,groupId:string,productId:string,maximum:number) => setExternalCart(current=>current.map(item=>{
+    if(item.key!==key)return item;
+    const choices=item.selection.selectedSetItems || [], selected=choices.filter(choice=>choice.groupId===groupId), others=choices.filter(choice=>choice.groupId!==groupId);
+    const next=selected.some(choice=>choice.productId===productId)?selected.filter(choice=>choice.productId!==productId):maximum===1?[{groupId,productId}]:[...selected,{groupId,productId}];
+    return {...item,selection:{...item.selection,selectedSetItems:[...others,...next]}};
+  }));
+  const setExternalCartQuantity = (key: string, quantity: number) => {
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > (externalPosFullAccess ? 10000 : 20)) return;
+    setExternalCart(current => current.map(item => item.key === key ? { ...item, quantity } : item));
+  };
+  const updateExternalCartQuantity = (key: string, change: number) => setExternalCart(current => current.flatMap(item => item.key !== key ? [item] : item.quantity + change < 1 ? [] : [{ ...item, quantity: Math.min(externalPosFullAccess ? 10000 : 20, item.quantity + change) }]));
   const toggleExternalOption = (key: string, group: StoreOptionGroup, optionId: string) => setExternalCart(current => current.map(item => {
     if (item.key !== key) return item;
     const otherGroups = item.selection.selectedOptions.filter(choice => choice.groupId !== group.id);
@@ -439,9 +513,14 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     return { ...item, selection: { ...item.selection, selectedOptions: [...otherGroups, ...next] } };
   }));
   const hasRequiredExternalOptions = externalCart.every(item => {
+    const set = externalSets.find(candidate=>candidate.id===item.selection.setId);
+    if (set && validateStoreSetSelections(set,externalOrderableProducts,item.selection.selectedSetItems || [])) return false;
     const product = externalProducts.find(candidate => candidate.id === item.selection.productId);
     return !product || product.optionGroupIds.every(groupId => {
       const group = externalOptionGroups.find(candidate => candidate.id === groupId);
+      if (!group || !group.available) return !item.selection.selectedOptions.some(choice=>choice.groupId===groupId);
+      const selected = item.selection.selectedOptions.filter(choice=>choice.groupId===groupId);
+      if (selected.length > (group.selectionType==='single'?1:group.maximumSelections) || selected.some(choice=>!group.options.some(option=>option.id===choice.optionId&&option.available))) return false;
       return !group?.required || item.selection.selectedOptions.filter(choice => choice.groupId === groupId).length >= Math.max(1, group.minimumSelections || 1);
     });
   });
@@ -453,10 +532,13 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       const option = group?.options.find(candidate => candidate.id === choice.optionId && candidate.available);
       return option ? [option.priceAdjustment] : [];
     });
-    const unitPrice = set
+    const menuPreview = product?.productType === 'weekly_meal_plan' || item.selection.healthyLunchPlanId ? previewManualLines([{quantity:item.quantity,date:item.date || '',time:item.time || '',method:'pickup',deliveryAddress:'',notes:'',selection:item.selection}],externalProducts,externalSets,externalOptionGroups,externalPosFullAccess).rows[0] : null;
+    const fulfilmentDate = item.date || externalDate;
+    const scheduleError = externalStore && !(product?.productType==='weekly_meal_plan' && !item.selection.healthyLunchDate) ? fulfilmentDate ? (!getValidPickupDates(externalStore).includes(fulfilmentDate) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(item.time || externalTime) ? 'Choose an available fulfilment date and time.' : '') : [product,...(item.selection.selectedSetItems || []).map(choice=>externalProducts.find(product=>product.id===choice.productId))].filter(Boolean).some(product=>!productAllowsFulfilmentDate(product,toMalaysiaDateKey())) ? 'Choose a fulfilment date matching the selected dish’s Available day.' : '' : '';
+    const unitPrice = menuPreview ? (menuPreview.unitMinor || 0)/100 : set
       ? calculateStoreSetAnalysis(set, externalProducts, item.selection.selectedSetItems || []).sellingPrice
       : calculateStoreOptionAdjustedPrice(product?.price || 0, adjustments);
-    return { ...item, unitPrice, lineTotal: Math.round((unitPrice * item.quantity + Number.EPSILON) * 100) / 100 };
+    return { ...item, previewError:menuPreview?.error || scheduleError, unitPrice, lineTotal: Math.round((unitPrice * item.quantity + Number.EPSILON) * 100) / 100 };
   });
   const externalSubtotal = Math.round((externalCartLines.reduce((sum, item) => sum + item.lineTotal, 0) + Number.EPSILON) * 100) / 100;
 
@@ -537,10 +619,8 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
 
   return (
     <section data-pos-theme={isNightMode ? 'dark' : 'light'} className={`pos-screen flex min-h-screen flex-col transition-colors ${isNightMode ? 'bg-[#07111f] text-white' : 'bg-slate-100 text-slate-950'}`}>
-      <OrderTicketPanel orders={[...new Map([...completedOrders, ...orders].map(order => [order.id, order])).values()]} />
-      {activeView === 'live' && <DailyFulfilmentQueue orders={orders} />}
       <audio ref={audioRef} preload="auto" aria-hidden="true" />
-
+      <div hidden={externalOpen}>
       <header className={`pos-light-surface flex flex-col gap-3 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:px-6 ${isNightMode ? 'border-white/10 bg-[#0b1727]' : 'border-slate-300 bg-white'}`}>
         <div className="flex min-w-0 items-center gap-3">
           <button type="button" onClick={onBack} aria-label="Back to Store" className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border ${isNightMode ? 'border-white/15 bg-white/5 text-white' : 'border-slate-300 bg-slate-100 text-slate-900'}`}><ArrowLeft className="h-6 w-6" /></button>
@@ -552,55 +632,79 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
 
         <div className="flex flex-wrap items-center gap-2">
           {audioBlocked && <p className="text-sm font-bold text-amber-300">Tap Sound to enable alerts.</p>}
-          <button type="button" onClick={openExternalOrder} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-black text-white">+ Add Order</button>
-          <button type="button" onClick={() => activeView === 'live' ? openHistory() : setActiveView('live')} className={`inline-flex min-h-12 items-center gap-2 rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-white/15 bg-white/5 text-white' : 'border-slate-300 bg-slate-100 text-slate-900'}`}>{activeView === 'live' ? <History className="h-5 w-5" /> : <BellRing className="h-5 w-5" />}{activeView === 'live' ? 'View Orders' : 'Live Queue'}</button>
+          {posSection === 'orders' && activeView === 'history' && <button type="button" onClick={openExternalOrder} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-black text-white">+ Add Order</button>}
           <button type="button" onClick={() => setIsNightMode(current => !current)} aria-pressed={isNightMode} className={`inline-flex min-h-12 items-center gap-2 rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-blue-400/60 bg-blue-500/10 text-white' : 'border-slate-300 bg-slate-100 text-slate-900'}`}><Moon className="h-5 w-5" /><span>Night Mode</span><span className={`relative h-6 w-11 rounded-full transition-colors ${isNightMode ? 'bg-blue-500' : 'bg-slate-300'}`} aria-hidden="true"><span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-transform ${isNightMode ? 'translate-x-6' : 'translate-x-1'}`} /></span></button>
           <button type="button" onClick={toggleSound} aria-pressed={soundEnabled} className={`inline-flex min-h-12 items-center gap-2 rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-blue-500/40 bg-blue-500/10 text-blue-200' : 'border-blue-300 bg-blue-50 text-blue-800'}`}>{soundEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}Sound {soundEnabled ? 'On' : 'Off'}</button>
           {notificationAction}
         </div>
       </header>
 
+      <nav aria-label="POS sections" className={`flex flex-wrap gap-2 border-b px-4 py-3 ${isNightMode ? 'border-slate-700 bg-[#0b1727]' : 'border-slate-300 bg-white'}`}>
+        {([{id:'live',label:'POS Live'},{id:'history',label:'View Orders'},{id:'tickets',label:'Print Tickets'}] as const).map(section => {
+          const selected = section.id === 'tickets' ? posSection === 'tickets' : posSection === 'orders' && activeView === section.id;
+          return <button key={section.id} type="button" aria-current={selected ? 'page' : undefined} onClick={() => {setPosSection(section.id === 'tickets' ? 'tickets' : 'orders'); if(section.id === 'history') openHistory(); else if(section.id === 'live') setActiveView('live');}} className={`min-h-11 rounded-xl px-5 py-2 font-bold ${selected ? 'bg-blue-600 text-white' : isNightMode ? 'bg-slate-800 text-slate-100' : 'bg-slate-100 text-slate-800'}`}>{section.label}</button>;
+        })}
+      </nav>
+      {posSection === 'orders' && activeView === 'live' && <nav aria-label="Fulfilment period" className="flex flex-wrap gap-2 px-4 py-3">{(['Today','Tomorrow','Upcoming','History'] as const).map(view => <button key={view} type="button" aria-pressed={dailyView === view} onClick={() => {setDailyView(view); if(view === 'History' && !dailyHistory) void loadDailyHistory();}} className={`min-h-11 rounded-full border px-5 py-2 font-bold ${dailyView === view ? 'border-blue-600 bg-blue-600 text-white' : isNightMode ? 'border-slate-600 bg-slate-800' : 'border-slate-300 bg-white'}`}>{view}</button>)}</nav>}
+      {posSection === 'tickets' ? <main className="w-full p-4 lg:p-6">
+        <OrderTicketPanel orders={dailyOrders} />
+        {(!dailyHistory || dailyHistory.hasMore) && <button type="button" className="mt-3 rounded border px-4 py-2 underline" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()}>{loadingDailyHistory ? 'Loading…' : 'Load older orders for reprint'}</button>}
+      </main> : <main className="flex-1 min-w-0">
+      {activeView === 'history' && <ManualPosOrders workspaceId={workspaceId} storeId={storeId} country={storeCountry || 'MY'} storeName={storeNameForMessages} canRecordReminders={canRecordReminders} />}
       {errorMessage && <p role="alert" className="mx-4 mt-3 rounded-xl border border-red-400 bg-red-950 px-5 py-3 text-sm font-black text-red-100 lg:mx-6">{errorMessage}</p>}
 
-      {activeView === 'live' ? (
-        <div className="flex-1 overflow-x-auto p-3 lg:p-4">
-          <div className="grid min-h-full min-w-[1040px] grid-cols-[minmax(0,1fr)_220px] gap-4">
-            <div className="grid grid-cols-[1.1fr_1.1fr_0.9fr] gap-4">
+      {activeView === 'live' ? dailyView === 'History' ? (
+        <div className="p-4 lg:p-6"><DailyFulfilmentQueue view={dailyView} onUpdated={() => setHistoryRefreshKey(value => value + 1)} orders={dailyOrders} />{(!dailyHistory || dailyHistory.hasMore) && <button type="button" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()} className="mt-4 min-h-11 rounded-xl border px-4 py-2 font-bold">{loadingDailyHistory ? 'Loading…' : 'Load older fulfilments'}</button>}</div>
+      ) : (
+        <div className="p-4 lg:p-6" aria-label="Daily fulfilments">
+          <h2 className="text-xl font-bold">Daily fulfilments · {dailyView} {dailyView === 'Today' ? `(${todayKey}, Malaysia)` : ''}</h2>
+          {dailyOrders.some(order => isOrderOperationallyEligible(order) && !['Completed','Cancelled'].includes(order.fulfilmentStatus) && !getOrderTickets(order).length) && <p role="status" className="mt-3 rounded-xl border border-amber-400 bg-amber-50 p-3 font-bold text-amber-950">Schedule review required: some orders have missing or inconsistent item dates. Review them in View Orders before preparation or printing.</p>}
+          <p>Counts reflect this fulfilment period, not the parent order status. Future Ready meals are available under Upcoming.</p>
+          <div className="mt-4 grid items-start gap-4">
+            <div aria-label="Active kitchen board" className="grid grid-cols-1 items-start gap-3 lg:grid-cols-3">
               {ACTIVE_COLUMNS.map(column => {
                 const Icon = column.icon;
                 const columnOrders = groupedOrders[column.status];
+                const dailyColumn = boardDailyEntries.filter(entry => toActivePosStatus(entry.status) === column.status);
                 return (
-                  <section key={column.status} aria-labelledby={`pos-column-${column.status}`} className={`flex min-h-[65vh] flex-col rounded-2xl border border-t-4 ${column.border} ${isNightMode ? 'bg-[#0b1727]/90 text-white' : `${column.tint} text-slate-950`} p-3 shadow-lg`}>
-                    <div className="mb-3 flex items-center justify-between gap-3 px-1"><h2 data-status={column.status.toLowerCase()} id={`pos-column-${column.status}`} className="pos-status-heading flex items-center gap-2 text-xl font-black tracking-tight"><Icon className="h-6 w-6" /> {column.label}</h2><span className={`flex h-9 min-w-9 items-center justify-center rounded-full px-2.5 text-base font-black ${column.badge}`}>{columnOrders.length}</span></div>
-                    <div className="flex-1 space-y-3">
+                  <section key={column.status} aria-labelledby={`pos-column-${column.status}`} className={`flex min-w-0 flex-col rounded-2xl border border-t-4 ${column.border} ${isNightMode ? 'bg-[#0b1727]/90 text-white' : `${column.tint} text-slate-950`} p-2 shadow-sm`}>
+                    <div className="mb-3 flex items-center justify-between gap-3 px-1"><h2 data-status={column.status.toLowerCase()} id={`pos-column-${column.status}`} className="pos-status-heading flex items-center gap-2 text-xl font-black tracking-tight"><Icon className="h-6 w-6" /> {column.label}</h2><span className={`flex h-9 min-w-9 items-center justify-center rounded-full px-2.5 text-base font-black ${column.badge}`}>{columnOrders.length + dailyColumn.length}</span></div>
+                    <div className="grid min-w-0 grid-cols-1 items-start gap-2">
+                      {dailyColumn.map(({order,ticket}) => <div key={ticket.key}><DailyFulfilmentCard order={order} ticket={ticket} onUpdated={()=>setHistoryRefreshKey(value=>value+1)} /></div>)}
                       {columnOrders.map(entry => entry.kind === 'group' ? (
-                        <article key={entry.key} data-group-order-id={entry.groupId} className={`pos-light-surface rounded-2xl border-2 p-4 shadow-md ${isNightMode ? 'border-blue-500/60 bg-[#081321]' : 'border-blue-300 bg-white'}`}>
+                        <article key={entry.key} data-group-order-id={entry.groupId} className={`pos-light-surface rounded-xl border p-3 shadow-sm ${isNightMode ? 'border-blue-500/60 bg-[#081321]' : 'border-blue-300 bg-white'}`}>
                           <div className="flex items-start justify-between gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${column.badge}`}>Group Order · {column.label}</span><span className={`text-sm font-black ${isNightMode ? 'text-blue-200' : 'text-blue-800'}`}>{entry.memberCount} members</span></div>
-                          <h3 className={`pos-card-title mt-4 text-2xl font-black leading-none ${isNightMode ? 'text-white' : 'text-slate-950'}`}>{entry.groupName}</h3>
+                          <h3 className={`pos-card-title mt-2 text-base font-black leading-none ${isNightMode ? 'text-white' : 'text-slate-950'}`}>{entry.groupName}</h3>
                           <p className={`mt-2 text-sm font-extrabold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>Host: {entry.hostName}</p>
                           <div className={`mt-3 rounded-xl px-3 py-3 ${isNightMode ? 'bg-blue-500/10 text-blue-100' : 'bg-blue-50 text-blue-950'}`}><p className="text-xs font-black uppercase tracking-wide">Group Pickup</p><p className="mt-1 text-base font-black">{formatMalaysiaBusinessDate(entry.pickupDate)} · {entry.pickupSession}</p><p className="mt-1 text-sm font-extrabold">{entry.pickupLocationName}</p></div>
                           <p className={`mt-3 text-sm font-black ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{entry.paidOrderCount} paid · {entry.eligibleOrderCount} eligible</p>
-                          <div className={`mt-4 space-y-4 border-t pt-4 ${isNightMode ? 'border-slate-700' : 'border-slate-200'}`}>
+                          <div className={`mt-3 space-y-2 border-t pt-2 ${isNightMode ? 'border-slate-700' : 'border-slate-200'}`}>
                             {entry.members.map(member => {
                               const order = member.order;
                               return <section key={order.id} data-store-order-id={order.id} className={`rounded-xl border p-3 ${isNightMode ? 'border-slate-700 bg-slate-900/60' : 'border-slate-200 bg-slate-50'}`}><div className="flex items-start justify-between gap-3"><div><h4 className="text-base font-black">{member.position} / {member.total} — {order.customerName}</h4><p className={`mt-1 text-xs font-black ${paymentClass(order)}`}>{paymentStatusLabel(order.payment.status)} · {order.fulfilmentStatus || 'New'}</p></div><span className={`text-xs font-black ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>{order.orderNumber}</span></div><ul className="mt-3 space-y-2">{order.items.map((item, index) => <li key={`${order.id}-${item.productId}-${index}`} className="flex gap-2 text-base font-black leading-tight"><span className="min-w-7 text-right">{item.quantity}×</span><div>{item.productName}<HealthyLunchPurchasedOptions item={item} />{item.setSnapshot && <span className={`mt-1 block text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.setSnapshot.selectedGroups.map(selection => formatStoreOrderSetSelection(selection, storeCountry === 'SG' ? 'SGD' : 'MYR')).join(' · ')}</span>}{item.selectedOptions.length > 0 && <span className={`mt-1 block text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.selectedOptions.map(option => `${option.groupName}: ${option.optionName}`).join(' · ')}</span>}</div></li>)}</ul>{order.notes && <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm font-extrabold text-amber-950">Remark: {order.notes}</p>}{member.actionable && <>{storeCountry && <WhatsAppCustomerButton order={order} country={storeCountry} storeName={storeNameForMessages} className="mt-2 w-full" />}<button type="button" disabled={Boolean(updatingOrderId || updatingGroupId)} onClick={() => openCancellation(order)} className={`mt-2 min-h-11 w-full rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-rose-400/50 text-rose-200' : 'border-rose-300 bg-rose-50 text-rose-800'}`}>Cancel Order</button></>}</section>;
                             })}
                           </div>
-                          {entry.batchAction ? <button type="button" disabled={Boolean(updatingGroupId || updatingOrderId)} onClick={() => void advanceGroup(entry)} className={`mt-4 min-h-14 w-full rounded-xl px-4 text-lg font-black shadow-md active:scale-[0.98] disabled:opacity-50 ${column.action}`}>{updatingGroupId === entry.groupId ? 'Updating Group…' : entry.batchAction === 'start_preparing' ? 'Start Preparing Group' : entry.batchAction === 'mark_ready' ? 'Mark Group Ready' : 'Complete Group'}</button> : entry.awaitingPaymentCount > 0 ? <p className={`mt-4 rounded-xl px-4 py-3 text-center text-sm font-black ${isNightMode ? 'bg-amber-500/10 text-amber-200' : 'bg-amber-50 text-amber-900'}`}>Awaiting payment</p> : null}
+                          {entry.batchAction ? <button type="button" disabled={Boolean(updatingGroupId || updatingOrderId)} onClick={() => void advanceGroup(entry)} className={`mt-3 min-h-11 w-full rounded-xl px-4 text-base font-black shadow-md active:scale-[0.98] disabled:opacity-50 ${column.action}`}>{updatingGroupId === entry.groupId ? 'Updating Group…' : entry.batchAction === 'start_preparing' ? 'Start Preparing Group' : entry.batchAction === 'mark_ready' ? 'Mark Group Ready' : 'Complete Group'}</button> : entry.awaitingPaymentCount > 0 ? <p className={`mt-4 rounded-xl px-4 py-3 text-center text-sm font-black ${isNightMode ? 'bg-amber-500/10 text-amber-200' : 'bg-amber-50 text-amber-900'}`}>Awaiting payment</p> : null}
                         </article>
                       ) : (() => {
                         const order = entry.order;
-                        return <article key={entry.key} className={`pos-light-surface rounded-2xl border-2 p-4 shadow-md ${isNightMode ? 'border-slate-700 bg-[#081321]' : 'border-slate-300 bg-white'}`}><div className="flex items-start justify-between gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${column.badge}`}>{column.label}</span><time className={`shrink-0 text-sm font-black ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`} dateTime={order.createdAt}>{formatRelativeTime(order.createdAt, now)}</time></div><h3 className={`pos-card-title mt-4 text-2xl font-black leading-none ${isNightMode ? 'text-white' : 'text-slate-950'}`}>{order.orderNumber}</h3>{order.pickupCode && <p className={`mt-2 inline-flex rounded-lg px-3 py-1.5 text-xl font-black tracking-[0.18em] ${isNightMode ? 'bg-blue-400 text-slate-950' : 'bg-blue-100 text-blue-950'}`}><span className="sr-only">Pickup Code </span>{order.pickupCode}</p>}<p className={`mt-3 text-sm font-extrabold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}><span className="capitalize">{getPosSourceLabel(order)}</span><span className="px-1.5">·</span><span className={paymentClass(order)}>{paymentStatusLabel(order.payment.status)}</span></p><ul className={`mt-4 space-y-3 border-t pt-4 ${isNightMode ? 'border-slate-700' : 'border-slate-200'}`}>{order.items.map((item, index) => <li key={`${order.id}-${item.productId}-${index}`} className={`flex gap-2 text-lg font-black leading-tight ${isNightMode ? 'text-white' : 'text-slate-950'}`}><span className={`min-w-8 text-right ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.quantity}×</span><div>{item.productName}<HealthyLunchPurchasedOptions item={item} />{item.setSnapshot ? <span className={`mt-1 block text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.setSnapshot.selectedGroups.map(selection => formatStoreOrderSetSelection(selection, storeCountry === 'SG' ? 'SGD' : 'MYR')).join(' · ')}</span> : item.selectedOptions.length > 0 && <span className={`mt-1 block text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.selectedOptions.map(option => option.optionName).join(', ')}</span>}</div></li>)}</ul>{order.notes && <p className="mt-4 rounded-xl bg-amber-100 px-3 py-2 text-sm font-extrabold text-amber-950">Note: {order.notes}</p>}<button type="button" disabled={Boolean(updatingOrderId)} onClick={() => void advanceOrder(order)} className={`mt-5 min-h-14 w-full rounded-xl px-4 text-lg font-black shadow-md active:scale-[0.98] disabled:opacity-50 ${column.action}`}>{updatingOrderId === order.id ? 'Updating…' : column.actionLabel}</button>{isWalkInOrder(order) && order.payment.status === "paid" && <button type="button" onClick={() => printWalkInReceipt(order)} className="mt-2 min-h-12 w-full rounded-xl border px-4 text-sm font-black">Print Receipt</button>}{storeCountry && <WhatsAppCustomerButton order={order} country={storeCountry} storeName={storeNameForMessages} className="mt-2 w-full" />}<button type="button" disabled={Boolean(updatingOrderId)} onClick={() => openCancellation(order)} className={`mt-2 min-h-12 w-full rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-rose-400/50 text-rose-200' : 'border-rose-300 bg-rose-50 text-rose-800'}`}>Cancel Order</button></article>;
+                        return <article key={entry.key} className={`pos-light-surface rounded-xl border p-3 shadow-sm ${isNightMode ? 'border-slate-700 bg-[#081321]' : 'border-slate-300 bg-white'}`}><div className="flex items-start justify-between gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${column.badge}`}>{column.label}</span><time className={`shrink-0 text-sm font-black ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`} dateTime={order.createdAt}>{formatRelativeTime(order.createdAt, now)}</time></div><h3 className={`pos-card-title mt-2 text-base font-black leading-none ${isNightMode ? 'text-white' : 'text-slate-950'}`}>{order.orderNumber}</h3><p className="mt-1 break-words text-sm font-bold">{order.customerName || 'Customer not provided'}</p><p className="text-xs font-bold">{getOrderTickets(order).map(ticket => `${ticket.method === 'delivery' ? 'Delivery' : 'Pickup'} · ${ticket.date} ${ticket.time}${ticket.address ? ` · ${ticket.address}` : ''}`).join(' · ')}</p>{order.pickupCode && <p className={`mt-2 inline-flex rounded-lg px-3 py-1.5 text-xl font-black tracking-[0.18em] ${isNightMode ? 'bg-blue-400 text-slate-950' : 'bg-blue-100 text-blue-950'}`}><span className="sr-only">Pickup Code </span>{order.pickupCode}</p>}<p className={`mt-3 text-sm font-extrabold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}><span className="capitalize">{getPosSourceLabel(order)}</span><span className="px-1.5">·</span><span className={paymentClass(order)}>{paymentStatusLabel(order.payment.status)}</span></p><ul className={`mt-3 space-y-2 border-t pt-2 ${isNightMode ? 'border-slate-700' : 'border-slate-200'}`}>{order.items.map((item, index) => <li key={`${order.id}-${item.productId}-${index}`} className={`flex gap-2 text-base font-black leading-tight ${isNightMode ? 'text-white' : 'text-slate-950'}`}><span className={`min-w-8 text-right ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.quantity}×</span><div>{item.productName}<HealthyLunchPurchasedOptions item={item} />{item.setSnapshot ? <span className={`mt-1 block text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.setSnapshot.selectedGroups.map(selection => formatStoreOrderSetSelection(selection, storeCountry === 'SG' ? 'SGD' : 'MYR')).join(' · ')}</span> : item.selectedOptions.length > 0 && <span className={`mt-1 block text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.selectedOptions.map(option => option.optionName).join(', ')}</span>}</div></li>)}</ul>{order.notes && <p className="mt-4 rounded-xl bg-amber-100 px-3 py-2 text-sm font-extrabold text-amber-950">Note: {order.notes}</p>}<button type="button" disabled={Boolean(updatingOrderId)} onClick={() => void advanceOrder(order)} className={`mt-3 min-h-11 w-full rounded-xl px-4 text-base font-black shadow-md active:scale-[0.98] disabled:opacity-50 ${column.action}`}>{updatingOrderId === order.id ? 'Updating…' : column.actionLabel}</button>{column.status === 'New' && order.payment.status === 'paid' && <button disabled={Boolean(updatingOrderId)} className="mt-2 min-h-12 w-full rounded-xl bg-emerald-600 p-3 font-bold text-white" onClick={async()=>{setUpdatingOrderId(order.id);try{await storeOrderService.updateFulfilment(order.id,'Ready');}catch(error){setErrorMessage(error instanceof Error?error.message:'Unable to mark ready.');}finally{setUpdatingOrderId('');}}}>Mark Ready</button>}{isWalkInOrder(order) && order.payment.status === "paid" && <button type="button" onClick={() => printWalkInReceipt(order)} className="mt-2 min-h-12 w-full rounded-xl border px-4 text-sm font-black">Print Receipt</button>}{storeCountry && <WhatsAppCustomerButton order={order} country={storeCountry} storeName={storeNameForMessages} className="mt-2 w-full" />}<button type="button" disabled={Boolean(updatingOrderId)} onClick={() => openCancellation(order)} className={`mt-2 min-h-12 w-full rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-rose-400/50 text-rose-200' : 'border-rose-300 bg-rose-50 text-rose-800'}`}>Cancel Order</button></article>;
                       })())}
-                      {!isLoading && columnOrders.length === 0 && <p className={`px-4 py-4 text-center text-sm font-extrabold ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>No orders</p>}
-                      {isLoading && <p className={`px-4 py-4 text-center text-sm font-extrabold ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>Loading live orders…</p>}
+                      {!isLoading && columnOrders.length === 0 && dailyColumn.length === 0 && <p className={`px-2 py-2 text-center text-sm font-extrabold ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>No orders</p>}
+                      {isLoading && <p className={`px-2 py-2 text-center text-sm font-extrabold ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>Loading live orders…</p>}
                     </div>
                   </section>
                 );
               })}
             </div>
 
-            <aside className={`pos-light-surface self-start rounded-2xl border p-4 shadow-lg ${isNightMode ? 'border-slate-700 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}><div className="flex items-center gap-2 text-blue-500"><CheckCircle2 className="h-6 w-6" /><h2 className="pos-readable-heading text-lg font-black">Completed</h2></div><p className="mt-4 text-4xl font-black">{completedTodayCount}</p><p className={`mt-1 text-sm font-bold ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>completed today</p><button type="button" onClick={openCompletedHistory} className={`mt-5 min-h-12 w-full rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-blue-400/40 bg-blue-500/10 text-blue-200' : 'border-blue-300 bg-blue-50 text-blue-800'}`}>View Completed</button></aside>
+            <details onToggle={event => {if(event.currentTarget.open && !dailyHistory && !loadingDailyHistory) void loadDailyHistory();}} className={`pos-light-surface rounded-xl border px-3 py-2 ${isNightMode ? 'border-slate-700 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}>
+              <summary className="min-h-11 cursor-pointer content-center text-sm font-black">Completed · {completedPeriodEntries.length} fulfilments · {dailyView}</summary>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{completedPeriodEntries.map(({order,ticket}) => <div key={ticket.key}><DailyFulfilmentCard order={order} ticket={ticket} /></div>)}</div>
+              {!completedPeriodEntries.length && <p className="py-2 text-sm">No completed fulfilments for this period.</p>}
+              {(!dailyHistory || dailyHistory.hasMore) && <button type="button" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()} className="mr-2 mt-2 min-h-11 rounded-lg border px-3 text-sm font-bold">{loadingDailyHistory ? 'Loading…' : 'Load older completed fulfilments'}</button>}
+              <button type="button" onClick={openCompletedHistory} className="mt-2 min-h-11 rounded-lg border px-3 text-sm font-bold">View Completed Orders</button>
+            </details>
           </div>
         </div>
       ) : (
@@ -614,73 +718,100 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               const isCompleted = order.fulfilmentStatus === 'Completed';
               const canCancel = Boolean(toActivePosStatus(order.fulfilmentStatus));
               const historyTimestamp = historyDateBasis === 'completed' ? getOrderCompletionTimestamp(order) : order.createdAt;
-              return <article key={order.id} className={`rounded-2xl border-2 p-4 ${isCancelled ? isNightMode ? 'border-rose-800 bg-rose-950/40' : 'border-rose-200 bg-rose-50' : isNightMode ? 'border-slate-700 bg-[#081321]' : 'border-slate-200 bg-slate-50'}`}><div className="flex items-start justify-between gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${isCancelled ? 'bg-rose-600 text-white' : isCompleted ? 'bg-slate-600 text-white' : 'bg-blue-600 text-white'}`}>{order.fulfilmentStatus || 'Order'}</span><time className={`text-xs font-black ${isNightMode ? 'text-slate-200' : 'text-slate-600'}`}>{historyDateBasis === 'completed' ? 'Completed' : 'Created'} {formatMalaysiaTimestamp(historyTimestamp)}</time></div><h3 className="pos-readable-heading mt-3 text-xl font-black">{order.orderNumber}</h3>{order.pickupCode && <p className={`mt-2 text-sm font-black tracking-[0.16em] ${isNightMode ? 'text-blue-200' : 'text-blue-800'}`}>Pickup {order.pickupCode}</p>}<p className={`mt-2 text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}><span className="capitalize">{order.orderSource}</span> · <span className={paymentClass(order)}>{paymentStatusLabel(order.payment.status)}</span></p><ul className={`mt-3 space-y-2 border-t pt-3 ${isNightMode ? 'border-slate-700' : 'border-slate-200'}`}>{order.items.map((item, index) => <li key={`${order.id}-history-${index}`} className="font-black">{item.quantity}× {item.productName}<HealthyLunchPurchasedOptions item={item} />{item.setSnapshot ? <span className={`block pl-5 text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.setSnapshot.selectedGroups.map(selection => formatStoreOrderSetSelection(selection, storeCountry === 'SG' ? 'SGD' : 'MYR')).join(' · ')}</span> : item.selectedOptions.length > 0 && <span className={`block pl-5 text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.selectedOptions.map(option => option.optionName).join(', ')}</span>}</li>)}</ul>{order.notes && <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm font-bold text-amber-950">Note: {order.notes}</p>}{isCancelled && <div className={`mt-3 rounded-xl px-3 py-3 text-sm ${isNightMode ? 'bg-rose-950 text-rose-100' : 'bg-rose-100 text-rose-950'}`}><p className="font-black">Cancellation reason</p><p className="mt-1 font-bold">{order.cancellationReason || 'Not recorded'}</p><p className="mt-2 text-xs font-bold">Cancelled {formatMalaysiaTimestamp(order.cancelledAt)}</p></div>}{canCancel && <button type="button" onClick={() => openCancellation(order)} className={`mt-4 min-h-12 w-full rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-rose-400/50 text-rose-200' : 'border-rose-300 bg-rose-50 text-rose-800'}`}>Cancel Order</button>}</article>;
+              return <article key={order.id} className={`rounded-2xl border-2 p-4 ${isCancelled ? isNightMode ? 'border-rose-800 bg-rose-950/40' : 'border-rose-200 bg-rose-50' : isNightMode ? 'border-slate-700 bg-[#081321]' : 'border-slate-200 bg-slate-50'}`}><div className="flex items-start justify-between gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${isCancelled ? 'bg-rose-600 text-white' : isCompleted ? 'bg-slate-600 text-white' : 'bg-blue-600 text-white'}`}>{order.fulfilmentStatus || 'Order'}</span><time className={`text-xs font-black ${isNightMode ? 'text-slate-200' : 'text-slate-600'}`}>{historyDateBasis === 'completed' ? 'Completed' : 'Created'} {formatMalaysiaTimestamp(historyTimestamp)}</time></div><h3 className="pos-readable-heading mt-3 text-xl font-black">{order.orderNumber}</h3>{order.pickupCode && <p className={`mt-2 text-sm font-black tracking-[0.16em] ${isNightMode ? 'text-blue-200' : 'text-blue-800'}`}>Pickup {order.pickupCode}</p>}<p className={`mt-2 text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}><span className="capitalize">{order.orderSource}</span> · <span className={paymentClass(order)}>{paymentStatusLabel(order.payment.status)}</span></p><dl className="mt-3 grid grid-cols-2 gap-2"><OrderFulfilmentDetails order={order} country={storeCountry || 'MY'} /></dl><ul className={`mt-3 space-y-2 border-t pt-3 ${isNightMode ? 'border-slate-700' : 'border-slate-200'}`}>{order.items.map((item, index) => <li key={`${order.id}-history-${index}`} className="font-black">{item.quantity}× {item.productName}<HealthyLunchPurchasedOptions item={item} />{item.setSnapshot ? <span className={`block pl-5 text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.setSnapshot.selectedGroups.map(selection => formatStoreOrderSetSelection(selection, storeCountry === 'SG' ? 'SGD' : 'MYR')).join(' · ')}</span> : item.selectedOptions.length > 0 && <span className={`block pl-5 text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.selectedOptions.map(option => option.optionName).join(', ')}</span>}</li>)}</ul>{order.notes && <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm font-bold text-amber-950">Note: {order.notes}</p>}{storeCountry && <WhatsAppCustomerActions order={order} country={storeCountry} storeName={storeNameForMessages} canRecordReminder={canRecordReminders} className="mt-4" />}{isCancelled && <div className={`mt-3 rounded-xl px-3 py-3 text-sm ${isNightMode ? 'bg-rose-950 text-rose-100' : 'bg-rose-100 text-rose-950'}`}><p className="font-black">Cancellation reason</p><p className="mt-1 font-bold">{order.cancellationReason || 'Not recorded'}</p><p className="mt-2 text-xs font-bold">Cancelled {formatMalaysiaTimestamp(order.cancelledAt)}</p></div>}{canCancel && <button type="button" onClick={() => openCancellation(order)} className={`mt-4 min-h-12 w-full rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-rose-400/50 text-rose-200' : 'border-rose-300 bg-rose-50 text-rose-800'}`}>Cancel Order</button>}</article>;
             })}</div>}
           </section>
         </div>
       )}
 
+      </main>}
+
       <footer className={`pos-light-surface mx-3 mb-3 grid gap-2 rounded-xl border px-4 py-2 sm:grid-cols-3 lg:mx-4 ${isNightMode ? 'border-slate-700 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}><div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /><span><span className="block text-[10px] font-bold text-slate-400">Last Updated</span><span className="text-xs font-black">{lastUpdated ? lastUpdated.toLocaleTimeString() : 'Connecting…'}</span></span></div><div className="flex items-center gap-2"><Store className="h-5 w-5 text-slate-400" /><span><span className="block text-[10px] font-bold text-slate-400">Store</span><span className="text-xs font-black">{storeDisplayName}</span></span></div><div className="flex items-center gap-2"><BellRing className="h-5 w-5 text-emerald-500" /><span><span className="block text-[10px] font-bold text-slate-400">Active Online Orders</span><span className="text-xs font-black">{activeOnlineOrderCount}</span></span></div></footer>
 
       {cancelOrder && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/65 p-4" role="presentation"><section role="dialog" aria-modal="true" aria-labelledby="cancel-order-title" className={`pos-light-surface w-full max-w-lg rounded-2xl border p-5 shadow-2xl ${isNightMode ? 'border-slate-600 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-rose-500">Preserves order record</p><h2 id="cancel-order-title" className="pos-readable-heading mt-1 text-2xl font-black">Cancel Order</h2><p className="mt-1 text-lg font-black">{cancelOrder.orderNumber}</p></div><button type="button" onClick={closeCancellation} aria-label="Close cancellation dialog" className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-400"><X className="h-5 w-5" /></button></div><p className={`mt-4 rounded-xl px-4 py-3 text-sm font-bold ${isNightMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>This removes the order from the active kitchen queue but preserves it in Order History.</p>{cancelOrder.payment.status === 'paid' && <p className="mt-3 flex gap-2 rounded-xl border border-amber-400 bg-amber-100 px-4 py-3 text-sm font-black text-amber-950"><AlertTriangle className="h-5 w-5 shrink-0" />Canceling this order does not refund the payment.</p>}<fieldset className="mt-5"><legend className="text-sm font-black">Cancellation reason</legend><div className="mt-2 grid gap-2 sm:grid-cols-2">{CANCELLATION_REASONS.map(reason => <label key={reason} className={`pos-control flex min-h-12 cursor-pointer items-center gap-2 rounded-xl border px-3 text-sm font-bold ${cancellationChoice === reason ? 'border-rose-500 bg-rose-50 text-rose-900' : isNightMode ? 'border-slate-600 bg-slate-900' : 'border-slate-300 bg-white'}`}><input type="radio" name="cancellation-reason" value={reason} checked={cancellationChoice === reason} onChange={() => setCancellationChoice(reason)} />{reason}</label>)}</div></fieldset>{cancellationChoice === 'Other' && <label className="mt-3 block text-sm font-black">Explain the reason<textarea autoFocus maxLength={233} value={otherCancellationReason} onChange={event => setOtherCancellationReason(event.target.value)} className="pos-control mt-2 min-h-24 w-full rounded-xl border border-slate-400 bg-white p-3 text-sm font-bold text-slate-950" placeholder="Required" /></label>}<div className="mt-5 grid grid-cols-2 gap-3"><button type="button" onClick={closeCancellation} disabled={Boolean(updatingOrderId)} className={`min-h-12 rounded-xl border px-4 font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-800'}`}>Keep Order</button><button type="button" onClick={() => void confirmCancellation()} disabled={!canConfirmCancellation || Boolean(updatingOrderId)} className="min-h-12 rounded-xl bg-rose-600 px-4 font-black text-white disabled:opacity-40">{updatingOrderId ? 'Cancelling…' : 'Confirm Cancellation'}</button></div></section></div>}
-      {externalOpen && (
-        <div className="fixed inset-0 z-[101] flex items-center justify-center bg-black/65 p-3 sm:p-4">
-          <section role="dialog" aria-modal="true" aria-labelledby="pos-order-entry-title" className="flex h-[92dvh] max-h-[900px] w-full md:w-[90vw] max-w-[1440px] flex-col overflow-hidden rounded-2xl bg-white text-slate-950 shadow-2xl">
+      </div>
+      <div hidden={!externalOpen}>
+          <section aria-labelledby="pos-order-entry-title" className="mx-auto w-full max-w-7xl bg-white text-slate-950">
             <header className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3">
               <div>
                 <h2 id="pos-order-entry-title" className="text-xl font-black">Add Order</h2>
-                <p className="text-xs font-bold text-slate-500">{externalSource === 'shopeefood' ? 'ShopeeFood · Platform Paid' : externalSource === 'walk_in' ? 'Walk-in · Paid' : 'Other · Paid'}</p>
+                <p className="text-xs font-bold text-slate-500">{externalSource === 'shopeefood' ? 'ShopeeFood · Platform Paid' : externalSource === 'walk_in' ? 'Walk-in · Paid' : externalSource === 'whatsapp' ? 'WhatsApp · Paid' : 'Other · Paid'}</p>
               </div>
-              <button type="button" onClick={() => setExternalOpen(false)} disabled={creatingExternal} aria-label="Close" className="rounded-lg p-2 hover:bg-slate-100 disabled:opacity-40"><X /></button>
+              <button type="button" onClick={() => { setExternalOpen(false); window.scrollTo({ top: 0 }); }} disabled={creatingExternal} className="inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 py-2 font-bold hover:bg-slate-100 disabled:opacity-40"><ArrowLeft className="h-5 w-5" />Back to POS</button>
             </header>
 
             <fieldset disabled={creatingExternal} className="grid shrink-0 grid-cols-2 gap-3 border-b px-4 py-3 disabled:opacity-60">
               <label className="text-xs font-bold text-slate-600">Source
                 <select value={externalSource} onChange={event => setExternalSource(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950">
-                  <option value="shopeefood">ShopeeFood</option><option value="walk_in">Walk-in</option><option value="other">Other</option>
+                  <option value="shopeefood">ShopeeFood</option><option value="whatsapp">WhatsApp</option><option value="walk_in">Walk-in</option><option value="other">Other</option>
                 </select>
               </label>
               <label className="text-xs font-bold text-slate-600">External order number (optional)
                 <input value={externalNumber} onChange={event => setExternalNumber(event.target.value)} placeholder="External order number (optional)" className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-950" />
               </label>
+              <label className="text-xs font-bold text-slate-600">Fulfilment method
+                <select aria-label="Fulfilment method" value={externalMethod} onChange={event => setExternalMethod(event.target.value as 'pickup' | 'delivery')} className="mt-1 block w-full rounded-lg border p-2"><option value="delivery">Delivery</option><option value="pickup">Pickup</option></select>
+              </label>
+              {externalMethod === 'delivery' && <label className="text-xs font-bold text-slate-600">Customer delivery address<textarea aria-label="Customer delivery address" value={externalAddress} maxLength={1000} onChange={event => setExternalAddress(event.target.value)} className="mt-1 block w-full rounded-lg border p-2" /></label>}
+              <label className="text-xs font-bold text-slate-600">{externalMethod === 'delivery' ? 'Delivery' : 'Pickup'} date<input aria-label="Order fulfilment date" type="date" value={externalDate} onChange={event => setExternalDate(event.target.value)} className="mt-1 block w-full rounded-lg border p-2" /></label>
+              <label className="text-xs font-bold text-slate-600">Exact {externalMethod} time<input aria-label="Order fulfilment time" type="time" value={externalTime} onChange={event => setExternalTime(event.target.value)} className="mt-1 block w-full rounded-lg border p-2" /></label>
+              <p className="col-span-2 text-xs text-slate-600">Dates and times above apply to items without their own schedule. Weekly meals keep their selected dates. {externalMethod === 'delivery' ? 'Delivery is arranged externally. Confirming this order does not book Lalamove.' : 'Leave both blank for immediate pickup.'}</p>
             </fieldset>
 
-            <div className="flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[minmax(0,1fr)_minmax(360px,420px)]">
-            <div role="region" aria-label="Store products" className="min-h-0 flex-1 overflow-y-auto p-4">
-              <h3 className="mb-3 text-sm font-black">Products</h3>
-              <div className="grid grid-cols-2 items-start gap-3 xl:grid-cols-3">
-                {externalProducts.map(product => (
-                  <article key={product.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-                    <div className="aspect-[16/9] bg-slate-100">{product.photoUrl ? <img src={product.photoUrl} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs font-bold text-slate-400">No image</div>}</div>
-                    <div className="space-y-2 p-3">
-                      <p className="text-sm font-black">{product.name}</p>
-                      <p className="text-sm font-bold text-slate-600">MYR {product.price.toFixed(2)}</p>
-                      <button type="button" onClick={() => addExternalProduct(product)} disabled={creatingExternal} className="w-full rounded-lg bg-blue-50 px-3 py-2 text-sm font-black text-blue-800 hover:bg-blue-100 disabled:opacity-40">Add</button>
+            <div className="space-y-6">
+            <div role="region" aria-label="Store products" className="p-4">
+              <div aria-label="Catalog categories" className="mb-3 grid grid-cols-3 gap-2 bg-white pb-2">
+                {(['all','sets','weekly'] as const).map(category => <button key={category} type="button" aria-pressed={externalCategory === category} onClick={() => setExternalCategory(category)} className={`min-h-11 rounded-lg border px-2 py-2 text-sm font-bold ${externalCategory === category ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}>{category === 'all' ? 'All Products' : category === 'sets' ? 'Sets' : 'Weekly'}</button>)}
+              </div>
+              {externalLoading && <p role="status">Loading Store catalog…</p>}
+              {!externalLoading && !externalProducts.length && !externalSets.length && <p>No available products. Review Store products.</p>}
+              {!externalLoading && externalCategory === 'sets' && !externalSets.length && <p className="py-6 text-sm text-slate-500">No available sets.</p>}
+              {!externalLoading && externalCategory === 'weekly' && !externalProducts.some(product => product.productType === 'weekly_meal_plan') && <p className="py-6 text-sm text-slate-500">No available weekly menus.</p>}
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4">
+                {externalCategory === 'all' && externalProducts.filter(product => product.productType !== 'weekly_meal_plan').map(product => (
+                  <article key={product.id} className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
+                    <div className="relative aspect-[16/9] shrink-0 overflow-hidden bg-slate-100">{product.photoUrl ? <img src={product.photoUrl} alt="" className="absolute inset-0 h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs font-bold text-slate-400">No image</div>}</div>
+                    <div className="flex flex-1 flex-col gap-2 p-3">
+                      <h3 className="break-words text-sm font-black">{product.name}</h3>
+                      <p className="mt-auto text-sm font-bold text-slate-600">MYR {product.price.toFixed(2)}</p>
+                      <button type="button" onClick={() => addExternalProduct(product)} disabled={creatingExternal} className="min-h-11 w-full rounded-lg bg-blue-50 px-3 py-2 text-sm font-black text-blue-800 hover:bg-blue-100 disabled:opacity-40">Add</button>
                     </div>
                   </article>
                 ))}
+                {(externalCategory === 'all' || externalCategory === 'sets') && externalSets.map(set => (
+                  <article key={set.id} className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
+                    <div className="relative aspect-[16/9] shrink-0 overflow-hidden bg-slate-100">{set.photoUrl ? <img src={set.photoUrl} alt="" className="absolute inset-0 h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs font-bold text-slate-400">Set</div>}</div>
+                    <div className="flex flex-1 flex-col gap-2 p-3">
+                      <h3 className="break-words text-sm font-black">{set.name}</h3>
+                      <p className="mt-auto text-sm font-bold text-slate-600">MYR {set.price.toFixed(2)}</p>
+                      <button type="button" onClick={() => addExternalSet(set)} disabled={creatingExternal} className="min-h-11 w-full rounded-lg bg-blue-50 px-3 py-2 text-sm font-black text-blue-800 hover:bg-blue-100 disabled:opacity-40">Add</button>
+                    </div>
+                  </article>
+                ))}
+                {externalStore && externalOrderableProducts.filter(product => product.productType === 'weekly_meal_plan').map(product => <div key={product.id} hidden={externalCategory === 'sets'} className="col-span-full min-w-0"><PosWeeklyMenu exactTime disabled={creatingExternal || externalLoading} product={product} products={externalOrderableProducts} store={externalStore} onAdd={(choice,time) => addExternalMenu(product,choice,time)}/></div>)}
               </div>
-              {externalSets.length > 0 && <div className="mt-4 border-t pt-3">
-                <p className="mb-2 text-sm font-black">Sets</p>
-                <div className="grid gap-2 sm:grid-cols-2">{externalSets.map(set => <button key={set.id} type="button" onClick={() => addExternalSet(set)} disabled={creatingExternal} className="rounded-xl border border-violet-300 bg-violet-50 p-3 text-left disabled:opacity-40"><span className="block font-black">Set · {set.name}</span><span className="text-sm font-bold text-slate-600">MYR {set.price.toFixed(2)} · Add</span></button>)}</div>
-              </div>}
             </div>
 
-            <div className="flex min-h-0 shrink-0 flex-col border-t bg-slate-50 md:border-l md:border-t-0">
-            <section aria-label="Order cart" className="min-h-0 overflow-y-auto px-4 py-3 md:flex-1">
-              <h3 className="mb-2 text-sm font-black">Cart</h3>
-              <div className="max-h-[20dvh] space-y-2 overflow-y-auto md:max-h-none md:overflow-visible">
+            <div className="border-t bg-slate-50">
+            <section aria-label="Order cart" className="px-4 py-3">
+              <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-black">Cart</h3><button type="button" disabled={creatingExternal || !externalCart.length} onClick={()=>{if(!window.confirm('Clear this draft? Check View Orders first if a previous submission had a connection error.'))return;setExternalCart([]); setExternalMethod('pickup'); setExternalAddress(''); setExternalDate(''); setExternalTime('');setExternalNumber('');setExternalName('');setExternalPhone('');setExternalNotes('');setExternalError('');externalRequestIdRef.current=crypto.randomUUID();}} className="text-xs underline">Clear draft</button></div>
+              <div className="space-y-2">
                 {externalCartLines.length === 0 && <p className="py-2 text-sm text-slate-500">Cart is empty</p>}
                 {externalCartLines.map(item => <div key={item.key} className="rounded-lg border border-slate-200 bg-white p-3">
-                  <div className="flex items-center gap-3">
-                    <div className="min-w-0 flex-1"><p className="text-sm font-bold">{item.label}</p><p className="text-xs text-slate-500">MYR {item.unitPrice.toFixed(2)} each</p></div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="min-w-0 basis-full sm:basis-auto sm:flex-1"><p className="text-sm font-bold">{item.label}</p><p className="text-xs text-slate-500">MYR {item.unitPrice.toFixed(2)} each</p></div>
                     <div className="flex items-center gap-2">
                       <button type="button" onClick={() => updateExternalCartQuantity(item.key, -1)} disabled={creatingExternal} aria-label={`Decrease ${item.label} quantity`} className="h-8 w-8 rounded-lg border border-slate-300 font-black disabled:opacity-40">−</button>
-                      <span aria-label={`${item.label} quantity`} className="min-w-5 text-center text-sm font-black">{item.quantity}</span>
-                      <button type="button" onClick={() => updateExternalCartQuantity(item.key, 1)} disabled={creatingExternal || item.quantity >= 20} aria-label={`Increase ${item.label} quantity`} className="h-8 w-8 rounded-lg border border-slate-300 font-black disabled:opacity-40">+</button>
+                      <input type="number" min={1} max={externalPosFullAccess ? 10000 : 20} step={1} inputMode="numeric" aria-label={`${item.label} quantity`} value={item.quantity} onChange={event => setExternalCartQuantity(item.key, Number(event.target.value))} disabled={creatingExternal} className="w-20 rounded-lg border border-slate-300 px-1 text-center text-sm font-black" />
+                      <button type="button" onClick={() => updateExternalCartQuantity(item.key, 1)} disabled={creatingExternal || item.quantity >= (externalPosFullAccess ? 10000 : 20)} aria-label={`Increase ${item.label} quantity`} className="h-8 w-8 rounded-lg border border-slate-300 font-black disabled:opacity-40">+</button>
                     </div>
                     <span className="min-w-20 text-right text-sm font-black">MYR {item.lineTotal.toFixed(2)}</span>
                   </div>
+                  {item.date && <p className="mt-2 text-xs font-bold">{item.selection.healthyLunchDate ? item.date : externalProducts.find(product=>product.id===item.selection.productId)?.productType==='weekly_meal_plan' ? getWeeklyDates(item.date).join(' · ') : item.date} · {item.time}</p>}
+                  {item.previewError && <p role="alert" className="text-sm text-red-700">{item.previewError}</p>}
+                  {!item.selection.healthyLunchPlanId && externalProducts.find(product=>product.id===item.selection.productId)?.productType!=='weekly_meal_plan' && <div className="mt-2 flex flex-wrap gap-2 text-xs"><label>Item date (blank = order date)<input type="date" disabled={creatingExternal} aria-label={`${item.label} fulfilment date`} value={item.date || ''} onChange={event=>setExternalCart(current=>current.map(line=>line.key===item.key?{...line,date:event.target.value,time:event.target.value?(externalStore ? getPickupTimeSlots(externalStore,event.target.value)[0] || '' : ''):''}:line))} className="block rounded border p-2"/></label></div>}
+                  {item.date && <label className="block text-xs">Fulfilment time<input type="time" disabled={creatingExternal} aria-label={`${item.label} fulfilment time`} value={item.time || ''} onChange={event=>setExternalCart(current=>current.map(line=>line.key===item.key?{...line,time:event.target.value}:line))} className="ml-2 rounded border p-2"/></label>}
+                  {item.selection.setId && externalSets.find(set=>set.id===item.selection.setId)?.groups.map(group=><fieldset key={group.id} disabled={creatingExternal} className="mt-2 border-t pt-2 text-xs"><legend className="font-bold">{group.name} · choose {group.selectionCount}{group.required?' (required)':''}</legend>{group.options.map(option=>{const product=externalProducts.find(product=>product.id===option.productId);return product && <label key={option.productId} className="mr-3 inline-flex items-center gap-1 py-1"><input type={group.selectionCount===1?'radio':'checkbox'} name={`${item.key}-${group.id}`} checked={item.selection.selectedSetItems?.some(choice=>choice.groupId===group.id&&choice.productId===option.productId)||false} onChange={()=>updateExternalSetChoice(item.key,group.id,option.productId,group.selectionCount)}/>{product.name}{option.priceAdjustment?` (+${option.priceAdjustment.toFixed(2)})`:''}</label>})}</fieldset>)}
                   {item.selection.productId && externalProducts.find(product => product.id === item.selection.productId)?.optionGroupIds.map(groupId => {
                     const group = externalOptionGroups.find(candidate => candidate.id === groupId);
                     return group && <fieldset key={group.id} disabled={creatingExternal} className="mt-2 border-t pt-2 text-xs disabled:opacity-60"><legend className="font-bold">{group.name}{group.required ? ' (required)' : ''}</legend><div className="flex flex-wrap gap-3">{group.options.filter(option => option.available).map(option => <label key={option.id} className="flex items-center gap-1"><input type={group.selectionType === 'single' ? 'radio' : 'checkbox'} name={`${item.key}-${group.id}`} checked={item.selection.selectedOptions.some(choice => choice.groupId === group.id && choice.optionId === option.id)} onChange={() => toggleExternalOption(item.key, group, option.id)} />{option.name}</label>)}</div></fieldset>;
@@ -688,11 +819,11 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                 </div>)}
               </div>
               <fieldset disabled={creatingExternal} className="mt-3 grid grid-cols-2 gap-2 disabled:opacity-60">
-                <label className="text-xs font-bold text-slate-600">Customer name{externalSource === 'walk_in' ? ' (optional)' : ' (required)'}
-                  <input value={externalName} onChange={event => setExternalName(event.target.value)} placeholder="Customer name (optional for Walk-in)" className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
+                <label className="text-xs font-bold text-slate-600">Customer name (optional)
+                  <input value={externalName} onChange={event => setExternalName(event.target.value)} placeholder="Customer name (optional)" className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
                 </label>
-                <label className="text-xs font-bold text-slate-600">Phone{externalSource === 'walk_in' ? ' (optional)' : ' (required)'}
-                  <input type="tel" value={externalPhone} onChange={event => setExternalPhone(event.target.value)} placeholder="Phone (optional for Walk-in)" className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
+                <label className="text-xs font-bold text-slate-600">Phone (optional)
+                  <input type="tel" value={externalPhone} onChange={event => setExternalPhone(event.target.value)} placeholder="Phone (optional)" className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
                 </label>
                 <label className="col-span-2 text-xs font-bold text-slate-600">Notes (optional)
                   <textarea rows={1} value={externalNotes} onChange={event => setExternalNotes(event.target.value)} placeholder="Notes (optional)" className="mt-1 block w-full resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
@@ -700,20 +831,18 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               </fieldset>
             </section>
 
-            <footer className="shrink-0 border-t bg-white px-4 py-3">
+            <footer className="border-t bg-white px-4 py-3">
               <div className="mb-2 flex justify-between text-base font-black"><span>Subtotal</span><span>MYR {externalSubtotal.toFixed(2)}</span></div>
               {!hasRequiredExternalOptions && <p className="mb-2 text-sm text-amber-800">Choose the required product options to continue.</p>}
-              {externalSource !== 'walk_in' && (!externalName || !externalPhone) && <p className="mb-2 text-sm text-slate-600">Customer name and phone are required for this source.</p>}
               {externalError && <p id="pos-order-entry-error" role="alert" className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-800">{externalError}</p>}
-              <button type="button" onClick={() => void createExternalOrder()} disabled={creatingExternal || !externalCart.length || !hasRequiredExternalOptions || (externalSource !== 'walk_in' && (!externalName || !externalPhone))} aria-busy={creatingExternal} aria-describedby={externalError ? 'pos-order-entry-error' : undefined} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-base font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
+              <button type="button" onClick={() => void createExternalOrder()} disabled={creatingExternal || !externalCart.length || !hasRequiredExternalOptions || externalLoading || externalCartLines.some(item=>Boolean(item.previewError))} aria-busy={creatingExternal} aria-describedby={externalError ? 'pos-order-entry-error' : undefined} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-base font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
                 {creatingExternal && <LoaderCircle aria-hidden="true" className="h-5 w-5 animate-spin" />}{creatingExternal ? 'Creating…' : 'Confirm Order'}
               </button>
             </footer>
             </div>
             </div>
           </section>
-        </div>
-      )}
+      </div>
     </section>
   );
 }

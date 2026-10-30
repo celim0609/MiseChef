@@ -1,3 +1,4 @@
+import { weeklyPricing } from '../../../functions/storeWeeklyMealPlan.js';
 import { isWeeklyMealPlan, WEEKLY_DAYS, validateWeeklyStructure } from '../../../functions/storeWeeklyMealPlan.js';
 import { AVAILABLE_DAYS } from '../../../functions/storeProductAvailability.js';
 import type { Workspace } from '../../types';
@@ -723,7 +724,8 @@ export const buildStoreOrderItems = (
   selections: CartSelection[],
   products: StoreProduct[],
   optionGroups: StoreOptionGroup[],
-  sets: StoreSet[] = []
+  sets: StoreSet[] = [],
+  serviceMonday?: string
 ): StoreOrderItem[] => selections.map(selection => {
   if (selection.setId) {
     const set = sets.find(candidate => candidate.id === selection.setId);
@@ -753,8 +755,9 @@ export const buildStoreOrderItems = (
     });
   });
 
+  const weeklyPriceSnapshot = product.productType === 'weekly_meal_plan' && !selection.healthyLunchDate ? weeklyPricing(product, products, serviceMonday) : null;
   const unitPrice = calculateStoreOptionAdjustedPrice(
-    product.price,
+    weeklyPriceSnapshot?.finalWeeklyPrice ?? product.price,
     selectedOptions.flatMap(option => Array(option.quantity || 1).fill(option.priceAdjustment))
   );
 
@@ -764,7 +767,8 @@ export const buildStoreOrderItems = (
     productName: product.name,
     photoUrl: product.photoUrl,
     quantity: selection.quantity,
-    basePrice: product.price,
+    ...(weeklyPriceSnapshot ? { weeklyPriceSnapshot } : {}),
+    basePrice: weeklyPriceSnapshot?.finalWeeklyPrice ?? product.price,
     unitPrice,
     lineTotal: roundMoney(unitPrice * selection.quantity),
     selectedOptions

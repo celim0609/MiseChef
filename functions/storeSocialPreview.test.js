@@ -267,3 +267,15 @@ test('Hosting sends Store routes to the metadata Function before the SPA catch-a
   });
   assert.deepEqual(firebaseConfig.hosting.rewrites.at(-1), { source: '**', destination: '/index.html' });
 });
+
+test('Weekly Menu metadata keeps selection and uses the week cover or original daily photo', () => {
+  const product = { productType:'weekly_meal_plan', productSlug:'weekly-menu', name:'Weekly Menu', photoUrl:'https://cdn.example/legacy.jpg', socialImageUrl:'https://cdn.example/generic.jpg', rotationWeeks:{week2:{coverPhotoUrl:'https://cdn.example/week2.jpg',meals:{fri:{name:'Friday Meal',photoUrl:'https://cdn.example/friday-original.jpg'}}}} };
+  const args={store:{slug:'chef',name:'Chef'},product,origin:betaOrigin,slug:'chef',productSlug:'weekly-menu'};
+  const week=buildProductSocialMetadata({...args,search:'?week=week2'});
+  assert.equal(week.image,'https://cdn.example/week2.jpg');
+  assert.equal(week.canonicalUrl,`${betaOrigin}/store/chef/product/weekly-menu?week=week2`);
+  const day=buildProductSocialMetadata({...args,search:'?week=week2&day=fri'});
+  assert.equal(day.image,'https://cdn.example/friday-original.jpg');
+  assert.equal(day.title,'Friday Meal | Chef');
+  assert.match(day.canonicalUrl,/week=week2&day=fri$/);
+});
