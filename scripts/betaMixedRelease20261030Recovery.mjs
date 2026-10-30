@@ -115,3 +115,5 @@ export function assert20261030RendererTraffic(service) {
     fail('renderer traffic must follow the single latest ready revision at 100 percent.');
   }
 }
+
+export const candidate20261030FunctionIds = (...sources) => [...new Set(sources.flatMap(source=>[...source.matchAll(/^export const ([A-Za-z0-9_]+)\s*=\s*on/gm)].map(match=>match[1])))].sort();

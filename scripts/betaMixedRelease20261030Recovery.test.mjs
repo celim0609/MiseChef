@@ -89,3 +89,11 @@ test('renderer traffic checks reject pins, splits and unfinished revisions',asyn
  assert.doesNotThrow(()=>check(service));
  for(const change of [{traffic:[{type:'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION',percent:100}]},{traffic:[{type:latest,percent:50}]},{trafficStatuses:[{type:latest,percent:100,revision:'old'}]},{latestCreatedRevision:'services/render/revisions/new'},{trafficStatuses:[]}])assert.throws(()=>check({...service,...change}));
 });
+
+test('Function health proof includes the entry-point renderer but excludes exported helper factories',async()=>{
+ const {candidate20261030FunctionIds:ids}=await import('./betaMixedRelease20261030Recovery.mjs');
+ const result=ids(readFileSync(new URL('../functions/index.js',import.meta.url),'utf8'),readFileSync(new URL('../functions/entry.js',import.meta.url),'utf8'));
+ assert.ok(result.includes('renderPublicRecipe'));assert.ok(result.includes('renderPublicStore'));
+ assert.ok(!result.includes('createCurlecStorePaymentWebhookHandler'));assert.ok(!result.includes('curlecStorePaymentWebhookHandler'));
+ assert.deepEqual(ids('export const helper = () => {};\nexport const callable = onCall({});','export const renderer =\n onRequest({});'),['callable','renderer']);
+});

@@ -7,7 +7,7 @@ import { ALLOWED_POST_BUILD_DIRTY_PATHS, BETA_PROJECT_ID, FULL_BETA_RESOURCE_PLA
 import { createBetaHostingReader, readDurableBetaLiveState } from './betaDurableLiveRelease.mjs';
 import { readCloudRunServiceState, readLiveAssetProof, readLiveReleaseMetadata } from './betaRun33530702897Recovery.mjs';
 import { run20260926PermissionPreflight } from './betaMixedRelease20260926PermissionPreflight.mjs';
-import { BETA_MIXED_RELEASE_20261030_INCIDENT as incident, assert20261030Available, assert20261030Candidate, assert20261030LiveState, assert20261030TemporaryConfig, assertDurableLiveUnchanged, read20261030IncidentState, assert20261030DeployCompleted, assertRecovery20261030Mode, create20261030Marker, create20261030TemporaryRc, write20261030TemporaryFirebaseFiles } from './betaMixedRelease20261030Recovery.mjs';
+import { BETA_MIXED_RELEASE_20261030_INCIDENT as incident, assert20261030Available, assert20261030Candidate, assert20261030LiveState, assert20261030TemporaryConfig, assertDurableLiveUnchanged, candidate20261030FunctionIds, read20261030IncidentState, assert20261030DeployCompleted, assertRecovery20261030Mode, create20261030Marker, create20261030TemporaryRc, write20261030TemporaryFirebaseFiles } from './betaMixedRelease20261030Recovery.mjs';
 
 const controllerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const candidateFlag = process.argv.indexOf('--candidate-root'); const candidateRoot = candidateFlag >= 0 ? path.resolve(process.argv[candidateFlag + 1] || '') : '';
@@ -68,7 +68,7 @@ try {
     await verifyBetaWebRelease({manifest, expectedCss});
     const deployedFunctions=[]; let pageToken='';
     do { const response=await request({method:'GET',url:`https://cloudfunctions.googleapis.com/v2/projects/${BETA_PROJECT_ID}/locations/-/functions`,params:{pageSize:1000,...(pageToken?{pageToken}:{})}}); deployedFunctions.push(...(response.data.functions || [])); pageToken=response.data.nextPageToken || ''; } while(pageToken);
-    const expectedFunctions=[...readFileSync(path.join(candidateRoot,'functions/index.js'),'utf8').matchAll(/^export const (\w+)\s*=/gm)].map(match=>match[1]);
+    const expectedFunctions=candidate20261030FunctionIds(...['index.js','entry.js'].map(file=>readFileSync(path.join(candidateRoot,'functions',file),'utf8')));
     for(const id of expectedFunctions) if(!deployedFunctions.some(fn=>fn.name.endsWith('/'+id) && fn.state==='ACTIVE')) throw new Error(`Expected Function is not ACTIVE: ${id}`);
   }
 } finally { if (existsSync(lockPath)) unlinkSync(lockPath); rmSync(dir, { recursive: true, force: true }); }
