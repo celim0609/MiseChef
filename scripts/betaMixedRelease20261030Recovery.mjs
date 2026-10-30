@@ -97,8 +97,21 @@ export const incidentResourceHashes = ({functions, rules}) => ({
   rulesStateSha256: createHash('sha256').update(JSON.stringify(rules.map(rule=>({name:rule.name,rulesetName:rule.rulesetName,updateTime:rule.updateTime})).sort((a,b)=>a.name.localeCompare(b.name)))).digest('hex')
 });
 export async function read20261030IncidentState({readDurable, request}) {
+  const renderer=await request({method:'GET',url:`https://run.googleapis.com/v2/projects/${BETA_PROJECT_ID}/locations/us-central1/services/renderpublicstore`});
+  assert20261030RendererTraffic(renderer.data);
   const functions=[]; let pageToken='';
   do { const response=await request({method:'GET',url:`https://cloudfunctions.googleapis.com/v2/projects/${BETA_PROJECT_ID}/locations/-/functions`,params:{pageSize:1000,...(pageToken?{pageToken}:{})}}); functions.push(...(response.data.functions || []));pageToken=response.data.nextPageToken || ''; } while(pageToken);
   const rules=await request({method:'GET',url:`https://firebaserules.googleapis.com/v1/projects/${BETA_PROJECT_ID}/releases`});
   return {...await readDurable(),...incidentResourceHashes({functions,rules:rules.data.releases || []})};
+}
+
+export function assert20261030RendererTraffic(service) {
+  const latest='TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST';
+  const traffic=service?.traffic || [], actual=service?.trafficStatuses || [];
+  if (traffic.length!==1 || traffic[0].type!==latest || traffic[0].percent!==100
+    || actual.length!==1 || actual[0].type!==latest || actual[0].percent!==100
+    || !service.latestReadyRevision || service.latestReadyRevision!==service.latestCreatedRevision
+    || service.latestReadyRevision.split('/').pop()!==actual[0].revision) {
+    fail('renderer traffic must follow the single latest ready revision at 100 percent.');
+  }
 }

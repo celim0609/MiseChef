@@ -81,3 +81,11 @@ test('resource inventory hashes detect Function and Rules drift without dependin
  assert.notEqual(incidentResourceHashes({functions:[{...functions[0],revision:'b-2'},functions[1]],rules}).functionsStateSha256,expected.functionsStateSha256);
  assert.notEqual(incidentResourceHashes({functions,rules:[{...rules[0],rulesetName:'rules/2'}]}).rulesStateSha256,expected.rulesStateSha256);
 });
+
+test('renderer traffic checks reject pins, splits and unfinished revisions',async()=>{
+ const {assert20261030RendererTraffic:check}=await import('./betaMixedRelease20261030Recovery.mjs');
+ const latest='TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST';
+ const service={traffic:[{type:latest,percent:100}],trafficStatuses:[{type:latest,percent:100,revision:'ready'}],latestReadyRevision:'services/render/revisions/ready',latestCreatedRevision:'services/render/revisions/ready'};
+ assert.doesNotThrow(()=>check(service));
+ for(const change of [{traffic:[{type:'TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION',percent:100}]},{traffic:[{type:latest,percent:50}]},{trafficStatuses:[{type:latest,percent:100,revision:'old'}]},{latestCreatedRevision:'services/render/revisions/new'},{trafficStatuses:[]}])assert.throws(()=>check({...service,...change}));
+});
