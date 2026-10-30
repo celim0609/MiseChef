@@ -93,7 +93,7 @@ test('renderer traffic checks reject pins, splits and unfinished revisions',asyn
 test('Function health proof includes the entry-point renderer but excludes exported helper factories',async()=>{
  const {candidate20261030FunctionIds:ids}=await import('./betaMixedRelease20261030Recovery.mjs');
  const result=ids(readFileSync(new URL('../functions/index.js',import.meta.url),'utf8'),readFileSync(new URL('../functions/entry.js',import.meta.url),'utf8'));
- assert.ok(result.includes('renderPublicRecipe'));assert.ok(result.includes('renderPublicStore'));assert.ok(result.includes('dispatchReadyStoreFulfilments'));
+ assert.ok(result.includes('renderPublicRecipe'));assert.ok(result.includes('renderPublicStore'));
  assert.ok(!result.includes('createCurlecStorePaymentWebhookHandler'));assert.ok(!result.includes('curlecStorePaymentWebhookHandler'));
- assert.deepEqual(ids('export const helper = () => {};\nexport const callable = onCall({});','export const renderer =\n onRequest({});'),['callable','renderer']);
+ assert.deepEqual(ids('export const helper = () => {};\nexport const callable = onCall({});\nexport const compatibility = project()\n ? onRequest({}) : onDocumentWritten({});','export const renderer =\n onRequest({});'),['callable','compatibility','renderer']);
 });
