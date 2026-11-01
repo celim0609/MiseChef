@@ -189,3 +189,38 @@ test('date-only formatting is calendar-safe and missing information stays unspec
     assert.doesNotMatch(unpaid,/Payment confirmed/);assert.match(unpaid,/Payment has not been confirmed/);
   }
 });
+
+test('saved completion wins over Ready and stale provider state only for its own date', () => {
+  for(const method of ['pickup','delivery'] as const){
+    const o=order({fulfilments:fulfilments!.map(f=>({...f,method})),fulfilmentCompletion:{a:{completedAt:'2026-10-29T08:00:00Z',completedBy:'owner'}},fulfilmentOperations:{a:{kitchenStatus:'Ready',lifecycle:{state:'driver_assigned'}},b:{kitchenStatus:'Preparing'}}});
+    const today=message(o,'delivery');
+    assert.match(today,new RegExp(`${method==='pickup'?'Pickup':'Delivery'} status: Completed`));
+    assert.doesNotMatch(today,/status: Ready|Driver assigned|Soup/);
+    const future=customerActionMessage(o,'delivery','2026-10-29','2026-10-30','Shop');
+    assert.match(future,/Preparing your meals/);assert.doesNotMatch(future,/status: Completed|Rice/);
+  }
+});
+test('parent completion and cancellation are respected for ordinary and weekly schedules', () => {
+  const delivered=order({fulfilmentStatus:'Completed',fulfilmentMethod:'delivery',delivery:{fulfilmentMethod:'delivery',schedule:{date:'2026-10-29',time:'12:30'},lifecycle:{state:'driver_assigned'}}});
+  assert.match(message(delivered,'delivery'),/Delivery status: Completed/);
+  assert.match(message(order({fulfilmentStatus:'Completed',fulfilments}),'delivery'),/Delivery status: Completed/);
+  const weekly=order({fulfilmentStatus:'Completed',weeklyFulfilments:[{day:'thu',date:'2026-10-29',productName:'Lunch',quantity:1}] as StoreOrder['weeklyFulfilments']});
+  assert.match(message(weekly,'delivery'),/Pickup status: Completed/);
+  assert.match(message({...weekly,fulfilmentStatus:'Cancelled'},'delivery'),/Pickup status: Cancelled/);
+});
+test('confirmation displays saved total and currency without using payment amounts or item arithmetic', () => {
+  for(const currency of ['MYR','SGD'] as const){
+    const o=order({currency,total:32,payment:{status:'paid',amountMinor:999999,currency:currency==='MYR'?'SGD':'MYR'} as StoreOrder['payment'],totals:{grandTotal:999} as StoreOrder['totals']});
+    const before=structuredClone(o);const text=message(o,'confirm');
+    assert.match(text,new RegExp(`Order total: ${currency} 32\\.00`));assert.match(text,/Payment confirmed/);
+    assert.doesNotMatch(text,/999|Amount paid|Total Paid/);assert.deepEqual(o,before);
+    assert.doesNotMatch(message({...o,payment:{...o.payment,status:'pending'}},'confirm'),/Payment confirmed/);
+    assert.match(message({...o,payment:{...o.payment,status:'pending'}},'confirm'),new RegExp(`Order total: ${currency} 32\\.00`));
+  }
+});
+test('unknown, invalid or normalized-default totals are omitted; saved zero remains valid', () => {
+  for(const total of [undefined,null,NaN,Infinity,-1,'32'] as const)assert.doesNotMatch(message(order({currency:'MYR',total} as Partial<StoreOrder>),'confirm'),/Order total:/);
+  assert.doesNotMatch(message(order({currency:undefined,total:32,payment:{status:'paid',amountMinor:3200,currency:'MYR'} as StoreOrder['payment']}),'confirm'),/Order total:/);
+  assert.doesNotMatch(message(order({currency:'SGD',total:0,hasSavedCommunicationTotal:false}),'confirm'),/Order total:/);
+  assert.match(message(order({currency:'MYR',total:0,hasSavedCommunicationTotal:true}),'confirm'),/Order total: MYR 0\.00/);
+});

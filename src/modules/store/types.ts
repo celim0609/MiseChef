@@ -584,6 +584,8 @@ export interface StoreOrder {
   notes: string;
   items: StoreOrderItem[];
   itemCount: number;
+  // Display-only provenance: normalization defaults must not invent a customer-facing total.
+  hasSavedCommunicationTotal?: boolean;
   total: number;
   fulfilmentStatus: StoreFulfilmentStatus | '';
   fulfilmentUpdatedAt: string;

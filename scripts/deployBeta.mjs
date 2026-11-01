@@ -31,6 +31,7 @@ import { readLiveBetaFingerprint } from './betaLiveRelease.mjs';
 import { repairKnownBetaRendererIncident } from './betaRendererIncidentRepair.mjs';
 import { stylesheetPaths, verifyBetaWebRelease } from './betaWebReleaseVerification.mjs';
 import { createHash } from 'node:crypto';
+import { assertBetaBuildOptimizationDisabled, assertBetaFirebaseDeployCompleted } from './betaFirebaseCompletionSafety.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const verifyOnly = process.argv.includes('--verify-only');
@@ -229,6 +230,10 @@ try {
   if (verifyOnly) {
     console.log(`Beta release verification passed for ${head}; no deployment performed.`);
   } else {
+    assertBetaBuildOptimizationDisabled(false);
+    run('firebase', ['experiments:disable', 'functionsv2deployoptimizations']);
+    const optimizationEnabled = execFileSync(process.execPath, ['-e', `process.stdout.write(String(require(${JSON.stringify(path.join(globalNpmRoot, 'firebase-tools/lib/experiments.js'))}).isEnabled('functionsv2deployoptimizations')))`], { encoding: 'utf8' }).trim();
+    assertBetaBuildOptimizationDisabled(optimizationEnabled !== 'false');
     const result = spawnSync('firebase', [
       'deploy',
       '--project',
@@ -246,9 +251,13 @@ try {
         MISECHEF_BETA_CI_LOCK_ID: process.env.MISECHEF_BETA_CI_LOCK_ID || '',
         MISECHEF_BETA_ALLOW_LOCAL_DEPLOY: process.env.MISECHEF_BETA_ALLOW_LOCAL_DEPLOY || ''
       },
-      stdio: 'inherit'
+      stdio: 'pipe',
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024
     });
-    if (result.status !== 0) throw new Error(`Canonical Firebase Beta deployment failed with exit code ${result.status}.`);
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    assertBetaFirebaseDeployCompleted(result);
     const css = stylesheetPaths(readFileSync(path.join(repositoryRoot,'dist','index.html'),'utf8')).map(asset => ({
       path: asset, sha256: createHash('sha256').update(readFileSync(path.join(repositoryRoot,'dist',asset.replace(/^\//,'')))).digest('hex')
     }));

@@ -24,6 +24,9 @@ export const plainText = (value: string = '') => value
 const safeTracking = (value?: string) => {
   try { const url = new URL(value || ''); return url.protocol === 'https:' ? url.href : undefined; } catch { return undefined; }
 };
+const terminalMessageStatus = (order: StoreOrder, completed = false) => order.fulfilmentStatus === 'Cancelled' ? 'Cancelled'
+  : order.fulfilmentStatus === 'Completed' || completed ? 'Completed' : undefined;
+
 export function customerMessageSchedule(order: StoreOrder): MessageSchedule[] {
   if (order.fulfilments?.length) return order.fulfilments.map(entry => {
     const op = order.fulfilmentOperations?.[entry.id];
@@ -34,7 +37,7 @@ export function customerMessageSchedule(order: StoreOrder): MessageSchedule[] {
         const meal = allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(m => m.day === allocation.componentDay) : item;
         return meal ? [{ name: meal.productName, quantity: allocation.quantity }] : [];
       }),
-      status: op?.lifecycle?.state || op?.providerOrder?.status || op?.dispatch?.status || op?.kitchenStatus || 'Status unavailable',
+      status: terminalMessageStatus(order, Boolean(order.fulfilmentCompletion?.[entry.id])) || op?.lifecycle?.state || op?.providerOrder?.status || op?.dispatch?.status || op?.kitchenStatus || 'Status unavailable',
       // Never reuse the parent delivery link/status for an independent date.
       tracking: safeTracking(op?.providerOrder?.shareLink)
     };
@@ -43,14 +46,14 @@ export function customerMessageSchedule(order: StoreOrder): MessageSchedule[] {
     id: entry.day, date: entry.date, time: entry.pickupTime, method: order.fulfilmentMethod === 'delivery' ? 'delivery' : 'pickup',
     address: order.fulfilmentMethod === 'delivery' ? order.delivery?.recipient?.address || '' : entry.pickupLocationAddress || entry.pickupLocationName,
     items: [{ name: entry.productName, quantity: entry.quantity }],
-    status: order.weeklyCompletion?.[entry.day] ? 'Completed' : 'Status unavailable'
+    status: terminalMessageStatus(order, Boolean(order.weeklyCompletion?.[entry.day])) || 'Status unavailable'
   }));
   const delivery = order.fulfilmentMethod === 'delivery';
   return [{ id: 'single', date: delivery ? order.delivery?.schedule?.date || '' : order.pickupDate,
     time: delivery ? order.delivery?.schedule?.time || order.delivery?.schedule?.session || '' : order.pickupTime || order.pickupSession,
     method: delivery ? 'delivery' : 'pickup', address: delivery ? order.delivery?.recipient?.address || '' : order.pickupLocationAddress || order.pickupLocationName,
     items: (order.items || []).map(item => ({ name: item.productName, quantity: item.quantity })),
-    status: delivery ? order.delivery?.lifecycle?.state || order.delivery?.providerOrder?.status || order.delivery?.dispatch?.status || 'Status unavailable' : order.fulfilmentStatus || 'Status unavailable',
+    status: terminalMessageStatus(order) || (delivery ? order.delivery?.lifecycle?.state || order.delivery?.providerOrder?.status || order.delivery?.dispatch?.status || 'Status unavailable' : order.fulfilmentStatus || 'Status unavailable'),
     tracking: delivery ? safeTracking(order.delivery?.providerOrder?.shareLink) : undefined
   }];
 }
@@ -94,6 +97,12 @@ const messageStatus = (value: string) => {
   };
   return labels[value.toLowerCase()] || plainText(value) || 'Status unavailable';
 };
+// Only display the saved order total. Payment amounts and item arithmetic are not substitutes.
+const savedOrderTotal = (order: StoreOrder) => order.hasSavedCommunicationTotal !== false
+  && typeof order.total === 'number' && Number.isFinite(order.total) && order.total >= 0
+  && ['MYR', 'SGD'].includes(order.currency)
+    ? `${order.currency} ${order.total.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
+
 export function customerActionMessage(order: StoreOrder, action: CustomerAction, date: string, today: string, storeName: string) {
   const schedule = customerMessageSchedule(order).filter(entry => action === 'confirm' || entry.date === (action === 'delivery' ? today : date));
   if (!schedule.length || (action !== 'confirm' && !(action === 'delivery' ? today : date))) return '';
@@ -104,8 +113,11 @@ export function customerActionMessage(order: StoreOrder, action: CustomerAction,
       : `Here's the latest update on your order${brand ? ` from ${brand}` : ''}.`;
   const lines = [customer ? `Hi ${customer},` : 'Hi there,', '', intro];
   if (plainText(order.orderNumber)) lines.push(`Order number: ${plainText(order.orderNumber)}`);
-  if (action === 'confirm') lines.push(order.payment.status === 'paid'
-    ? 'Payment confirmed. Thank you!' : 'Payment has not been confirmed.');
+  if (action === 'confirm') {
+    const total = savedOrderTotal(order);
+    if (total) lines.push(`Order total: ${total}`);
+    lines.push(order.payment.status === 'paid' ? 'Payment confirmed. Thank you!' : 'Payment has not been confirmed.');
+  }
   const methodLabel = (entry: MessageSchedule) => entry.method === 'delivery' ? 'Delivery' : 'Pickup';
   const times = schedule.map(entry => messageTime(entry.time));
   const addresses = schedule.map(entry => plainText(entry.address));

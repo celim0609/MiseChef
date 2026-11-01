@@ -133,6 +133,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     ...(data.promotionCodeSnapshot ? {promotionCodeSnapshot:structuredClone(data.promotionCodeSnapshot) as StoreOrder['promotionCodeSnapshot']} : {}),
     items: Array.isArray(data.items) ? data.items.map(normalizeStoreOrderItem) : [],
     itemCount: readNumber(data.itemCount),
+    hasSavedCommunicationTotal: typeof data.total === 'number' && Number.isFinite(data.total) && data.total >= 0 && (data.currency === 'MYR' || data.currency === 'SGD'),
     total: readNumber(data.total),
     fulfilmentStatus: (
       ['New', 'Confirmed', 'Paid', 'Preparing', 'Ready', 'Completed', 'Cancelled'].includes(fulfilmentStatus)
