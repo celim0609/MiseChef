@@ -1,0 +1,13 @@
+{
+  "confirmedDateMYT": "2026-11-01",
+  "source": "User-confirmed Google Maps pin coordinates; replaces the earlier center",
+  "centerAddress": "44, Laluan Pakatan Jaya 3, Pakatan Jaya, 31150 Ipoh, Perak",
+  "latitude": 4.6413277,
+  "longitude": 101.1445881,
+  "googleMapsUri": "https://www.google.com/maps?q=4.6413277,101.1445881",
+  "radiusMetres": 1000,
+  "distanceMethod": "Straight-line spherical Haversine, mean Earth radius 6,371,000 metres, using the existing delivery distance utility",
+  "boundary": "Inclusive at 1,000 metres; one micrometre of numerical tolerance for floating-point boundary error. Display rounding is never used for eligibility.",
+  "verification": "Independent forward spherical destination points: 0, 999.9, 1000, 1000.01, 1000.1 and 1500 metres in eight directions.",
+  "pickupLocation": "Area eligibility center only; existing kitchen pickup configuration is unchanged."
+}

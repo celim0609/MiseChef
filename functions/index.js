@@ -1,3 +1,5 @@
+import { getGroupDeliveryConfiguration, requireGroupDeliveryBeta, requireCustomer, eligibility, configureGroupDelivery, getGroupDelivery, reserveGroupDelivery, cancelGroupDelivery, expireGroupDelivery } from './groupDelivery.js';
+import { createGroupDeliveryPlaces, consumeGroupDeliveryRate } from './groupDeliveryPlaces.js';
 import { dispatchCompatibilityProject, retiredDispatchHttp, inertDispatchEvent } from './legacyDispatchCompatibility.js';
 import { managePromotionCodes, verifiedPromotionMember } from './storePromotionCodes.js';
 import { previewStorePromotionCode, expirePromotionCodeReservations } from './storePromotionCodeCheckout.js';
@@ -2564,3 +2566,52 @@ export const expireStorePromotionCodeReservations = onSchedule({region:REGION,sc
   logger.info('Promotion code reservation reconciliation',{processed:results.length,requiresReview:results.filter(item=>item.status==='requires_review').length});
 });
 export const recordStoreCustomerReminder = onCall({ region: REGION, timeoutSeconds: 20, memory: '256MiB' }, request => recordCustomerReminder({ db, uid: request.auth?.uid, orderId: request.data?.orderId, date: request.data?.date, status: request.data?.status }));
+
+// Beta-only Phase 1. No Store order, payment, notification or delivery side effects.
+const groupDeliveryOptions = { region: REGION, invoker: 'public', maxInstances: 5, timeoutSeconds: 30 };
+const assertGroupDeliveryProject = () => requireGroupDeliveryBeta(process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT);
+const groupDeliveryCustomer = async request => {
+  assertGroupDeliveryProject();
+  requireCustomer(request.auth?.uid);
+  if (request.auth?.token?.firebase?.sign_in_provider === 'anonymous') throw new HttpsError('unauthenticated', 'Sign in to join. / 请先登录。');
+  await consumeGroupDeliveryRate({ db, uid: request.auth.uid });
+};
+export const configureMiseChefGroupDelivery = onCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  return configureGroupDelivery({ db, uid: request.auth.uid, slug: request.data?.slug, input: request.data?.config });
+});
+export const getMiseChefGroupDelivery = onCall(groupDeliveryOptions, async request => {
+  assertGroupDeliveryProject();
+  return getGroupDelivery({ db, uid: request.auth?.uid, slug: request.data?.slug, date: request.data?.date });
+});
+export const searchMiseChefGroupDeliveryAddresses = onCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  const input = request.data?.input;
+  const sessionToken = request.data?.sessionToken;
+  if (typeof input !== 'string' || input.trim().length < 3 || input.length > 200 || typeof sessionToken !== 'string' || !/^[\w-]{1,64}$/.test(sessionToken)) throw new HttpsError('invalid-argument', 'Enter an address. / 请输入地址。');
+  return { suggestions: await createGroupDeliveryPlaces().search(input.trim(), request.data?.language, sessionToken) };
+});
+export const checkMiseChefGroupDeliveryAddress = onCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  if (typeof request.data?.placeId !== 'string' || !/^[\w-]{1,160}$/.test(request.data.placeId)) throw new HttpsError('invalid-argument', 'Select an address. / 请选择地址。');
+  const place = await createGroupDeliveryPlaces().resolve(request.data.placeId);
+  return { ...eligibility(place), formattedAddress: place.formattedAddress };
+});
+export const reserveMiseChefGroupDelivery = onCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  return reserveGroupDelivery({ db, uid: request.auth.uid, slug: request.data?.slug, input: request.data?.reservation,
+    resolvePlace: placeId => createGroupDeliveryPlaces().resolve(placeId) });
+});
+export const cancelMiseChefGroupDeliveryReservation = onCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  return cancelGroupDelivery({ db, uid: request.auth.uid, slug: request.data?.slug, date: request.data?.date });
+});
+export const expireMiseChefGroupDeliveryReservations = onSchedule({ region: REGION, schedule: 'every 15 minutes', timeZone: 'Asia/Kuala_Lumpur', maxInstances: 1 }, async () => {
+  assertGroupDeliveryProject();
+  await expireGroupDelivery({ db });
+});
+
+export const getMiseChefGroupDeliveryConfiguration = onCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  return getGroupDeliveryConfiguration({ db, uid: request.auth.uid, slug: request.data?.slug });
+});
