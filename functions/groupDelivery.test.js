@@ -7,9 +7,10 @@ const product = { id: 'lunch', name: 'Lunch', price: 12, available: true, option
 const config = { enabled: true, eligibleProducts: { lunch: 1, combo: 2 }, dates: { '2026-11-03': { closesAt: '2026-11-03T02:00:00Z' } } };
 const store = { country: 'MY', orderDays: ['tuesday'], earliestPickupDays: 0, maximumAdvanceDays: 14 };
 const now = new Date('2026-11-01T00:00:00Z');
-test('exact Google address pin, 1000m radius, 10 portions and zero customer delivery charge', () => {
-  assert.equal(pilot.centerPlaceId, 'ChIJcesW6EztyjERi2lHR-4JneY');
-  assert.deepEqual(pilot.center, { latitude: 4.6376547, longitude: 101.1467695 });
+test('user-confirmed Pakatan Jaya pin, 1000m radius, 10 portions and zero customer delivery charge', () => {
+  assert.equal(pilot.centerSource, 'user_confirmed_google_maps_pin');
+  assert.equal(pilot.centerAddress, '44, Laluan Pakatan Jaya 3, Pakatan Jaya, 31150 Ipoh, Perak');
+  assert.deepEqual(pilot.center, { latitude: 4.6413277, longitude: 101.1445881 });
   assert.equal(pilot.customerDeliveryFeeMinor, 0); assert.equal(pilot.minimumPortions, 10);
   assert.equal(eligibility(pilot.center).eligible, true);
   const latitudeOffset = metres => metres / 6371000 * 180 / Math.PI;
@@ -52,4 +53,30 @@ test('Places server uses OAuth, projects fields, and rejects foreign address or 
   assert.equal(calls[0].init.headers.Authorization, 'Bearer test-token');
   assert.equal(calls[0].init.headers['X-Goog-User-Project'], 'misechef-beta-fa4bf');
   await assert.rejects(places.resolve('other'));
+});
+
+// Independent forward spherical-geodesic construction, rather than offsets copied
+// from the distance implementation. Uses the same 6,371 km mean Earth convention.
+const destinationAt = (metres, bearingDegrees) => {
+  const lat = pilot.center.latitude * Math.PI / 180;
+  const lon = pilot.center.longitude * Math.PI / 180;
+  const bearing = bearingDegrees * Math.PI / 180;
+  const arc = metres / 6371000;
+  const nextLat = Math.asin(Math.sin(lat) * Math.cos(arc) + Math.cos(lat) * Math.sin(arc) * Math.cos(bearing));
+  const nextLon = lon + Math.atan2(Math.sin(bearing) * Math.sin(arc) * Math.cos(lat), Math.cos(arc) - Math.sin(lat) * Math.sin(nextLat));
+  return { latitude: nextLat * 180 / Math.PI, longitude: nextLon * 180 / Math.PI };
+};
+test('1 km straight-line boundary is inclusive in eight directions; rounding never admits outside pins', () => {
+  for (const bearing of [0,45,90,135,180,225,270,315]) {
+    for (const [metres, expected] of [[0,true],[999.9,true],[1000,true],[1000.01,false],[1000.1,false],[1500,false]]) {
+      const result = eligibility(destinationAt(metres, bearing));
+      assert.equal(result.eligible, expected, `${metres}m at bearing ${bearing}`);
+      assert.equal(result.distanceMetres, Math.round(metres));
+    }
+  }
+});
+test('new north-side customer pin uses corrected center and does not change kitchen pickup', () => {
+  assert.equal(eligibility({ latitude: 4.649421594453269, longitude: 101.1445881 }).eligible, true);
+  assert.equal(Object.hasOwn(pilot, 'pickup'), false);
+  assert.equal(Object.hasOwn(pilot, 'pickupLocationId'), false);
 });

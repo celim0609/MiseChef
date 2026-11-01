@@ -62,7 +62,7 @@ export default function PublicGroupDeliveryPage({ slug, currentUser }: { slug: s
   const total = Object.values<DeliverySelection>(selections).reduce((n, s) => n + s.quantity * (progress?.menu?.find(m => m.productId === s.productId)?.portionsPerUnit || 0), 0);
   return <div className="mx-auto max-w-2xl space-y-6 text-on-surface">
     <a href={`/store/${encodeURIComponent(slug)}`} className="font-bold text-primary">← Store / 店铺</a>
-    <header><p className="text-sm font-bold text-secondary">Pakatan / Bercham Raya · Beta</p><h1 className="mt-2 text-3xl font-bold text-primary">Group lunch delivery / 午餐团购配送</h1><p className="mt-3">Within 1 km of 18 Dataran Perpaduan 3. Minimum 10 eligible lunch portions per date. / 以18 Dataran Perpaduan 3为中心，限1公里内；每个配送日需满10份指定午餐。</p></header>
+    <header><p className="text-sm font-bold text-secondary">Pakatan / Bercham Raya · Beta</p><h1 className="mt-2 text-3xl font-bold text-primary">Group lunch delivery / 午餐团购配送</h1><p className="mt-3">Within a 1 km straight-line radius of the pilot area center. Minimum 10 eligible lunch portions per date. / 以试点区域中心为准，限直线距离1公里内；每个配送日需满10份指定午餐。</p>{progress?.centerAddress && <p className="mt-3">Area center / 区域中心：{progress.centerAddress}</p>}</header>
     {currentUser && <GroupDeliveryConfiguration userId={currentUser.uid} slug={slug} onSaved={load} />}
     {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-red-800">{error}</p>}
     {notice && <p role="status" className="rounded-xl bg-green-50 p-4 text-green-900">{notice}</p>}

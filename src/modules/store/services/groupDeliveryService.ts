@@ -3,7 +3,7 @@ import { functions } from '../../../firebase';
 import type { MealOptionGroup } from '../types';
 
 export type DeliveryLunch = { productId: string; name: string; price: number; photoUrl: string; portionsPerUnit: number; optionGroups: MealOptionGroup[] };
-export type DeliveryProgress = { available: boolean; dates?: string[]; date?: string; areaName?: string; minimumPortions?: number;
+export type DeliveryProgress = { available: boolean; dates?: string[]; date?: string; areaName?: string; centerAddress?: string; minimumPortions?: number;
   joinedPortions?: number; closesAt?: string; status?: 'collecting' | 'ready_for_review' | 'closed'; menu?: DeliveryLunch[]; sharePath?: string;
   mine?: { status: 'reserved' | 'cancelled' | 'expired'; portions: number; expiresAt: string } | null };
 export type DeliverySelection = { productId: string; quantity: number; selectedMealOptions?: { serviceDate: string; optionGroupId: string; optionId: string }[] };

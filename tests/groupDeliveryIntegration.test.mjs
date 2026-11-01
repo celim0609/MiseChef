@@ -11,7 +11,7 @@ const { getFirestore } = require('firebase-admin/firestore');
 const projectId = 'demo-misechef-group-delivery';
 const now = new Date('2026-11-01T00:00:00Z'), date = '2026-11-03';
 const config = { enabled: true, dates: { [date]: { closesAt: '2026-11-03T02:00:00.000Z' } }, eligibleProducts: { lunch: 1 } };
-const input = { date, selections: [{ productId: 'lunch', quantity: 3 }], placeId: pilot.centerPlaceId, requestId: 'request-one', name: 'QA Customer', phone: '+60123456789', unit: 'PRIVATE UNIT' };
+const input = { date, selections: [{ productId: 'lunch', quantity: 3 }], placeId: 'qa-customer-place', requestId: 'request-one', name: 'QA Customer', phone: '+60123456789', unit: 'PRIVATE UNIT' };
 const resolvePlace = async () => ({ ...pilot.center, formattedAddress: 'PRIVATE CUSTOMER ADDRESS' });
 let env, app, db;
 const reserve = (uid = 'customer', reservation = input, extra = {}) => reserveGroupDelivery({ db, uid, slug: 'qa-store', input: reservation, resolvePlace, now, ...extra });
@@ -53,7 +53,7 @@ test('public and other-customer responses never contain private addresses, conta
   await reserve();
   for (const uid of [undefined,'other','customer']) {
     const p=await progress(uid), encoded=JSON.stringify(p);
-    for(const secret of ['PRIVATE CUSTOMER ADDRESS','PRIVATE UNIT','QA Customer','60123456789','request-one','fingerprint','latitude":4.6376547,"longitude":101.1467695,"placeId']) assert.equal(encoded.includes(secret),false);
+    for(const secret of ['PRIVATE CUSTOMER ADDRESS','PRIVATE UNIT','QA Customer','60123456789','request-one','fingerprint','latitude":4.6413277,"longitude":101.1445881,"placeId']) assert.equal(encoded.includes(secret),false);
     assert.equal(p.mine?.portions,uid==='customer'?3:undefined);
   }
 });
@@ -115,4 +115,16 @@ test('pausing hides new joins but preserves a customer’s private cancellation/
   const p=await progress('customer'); assert.equal(p.available,true); assert.equal(p.status,'closed'); assert.equal(p.mine.status,'reserved');
   await cancelGroupDelivery({db,uid:'customer',slug:'qa-store',date,now});
   assert.equal((await progress('customer')).joinedPortions,0);
+});
+
+test('corrected-center eligibility is enforced by reservation backend; Store kitchen pickup remains independent', async () => {
+  const pickup = { latitude: 4.60, longitude: 101.10, formattedAddress: 'Existing kitchen pickup' };
+  await db.doc('stores/store').update({ 'delivery.pickup': pickup });
+  await configureGroupDelivery({db,uid:'owner',slug:'qa-store',input:config,now});
+  assert.deepEqual((await db.doc('stores/store').get()).data().delivery.pickup,pickup);
+  const atDistance = metres => ({ latitude: pilot.center.latitude + metres / 6371000 * 180 / Math.PI, longitude: pilot.center.longitude, formattedAddress:'PRIVATE CUSTOMER ADDRESS' });
+  await reserve('inside',input,{resolvePlace:async()=>atDistance(999.9)});
+  await assert.rejects(reserve('outside',input,{resolvePlace:async()=>atDistance(1000.1)}),{code:'out-of-range'});
+  assert.equal((await progress()).joinedPortions,3);
+  assert.deepEqual((await db.doc('stores/store').get()).data().delivery.pickup,pickup);
 });

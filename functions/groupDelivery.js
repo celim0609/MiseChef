@@ -9,10 +9,11 @@ import { hasActiveBusinessEntitlement } from './subscriptionFoundation.js';
 
 export const GROUP_DELIVERY_PILOT = Object.freeze({
   areaId: 'pakatan-bercham-raya', areaName: 'Pakatan / Bercham Raya',
-  centerAddress: '18 Dataran Perpaduan 3, Taman Bercham Raya, 31150 Ipoh',
-  center: { latitude: 4.6376547, longitude: 101.1467695 },
-  centerPlaceId: 'ChIJcesW6EztyjERi2lHR-4JneY',
-  googleAddress: '18, Dataran Perpaduan 3, Taman Bercham Jaya, 31150 Ulu Kinta, Perak, Malaysia',
+  centerAddress: '44, Laluan Pakatan Jaya 3, Pakatan Jaya, 31150 Ipoh, Perak',
+  center: { latitude: 4.6413277, longitude: 101.1445881 },
+  centerSource: 'user_confirmed_google_maps_pin',
+  centerMapsUrl: 'https://www.google.com/maps?q=4.6413277,101.1445881',
+  // Area eligibility center only. Kitchen pickup stays in the existing Store configuration.
   centerVerifiedAt: '2026-11-01', radiusMetres: 1000, minimumPortions: 10,
   customerDeliveryFeeMinor: 0, currency: 'MYR', timeZone: 'Asia/Kuala_Lumpur'
 });
@@ -31,7 +32,8 @@ const active = (reservation, now) => reservation.status === 'reserved' && Date.p
 export const activePortions = (reservations, now = new Date()) => reservations.filter(r => active(r, now)).reduce((sum, r) => sum + r.portions, 0);
 export const eligibility = point => {
   const distanceMetres = deliveryDistanceKm(GROUP_DELIVERY_PILOT.center, point) * 1000;
-  return { eligible: distanceMetres <= GROUP_DELIVERY_PILOT.radiusMetres, distanceMetres: Math.round(distanceMetres) };
+  // One micrometre absorbs floating-point error at the inclusive spherical boundary.
+  return { eligible: distanceMetres <= GROUP_DELIVERY_PILOT.radiusMetres + 1e-6, distanceMetres: Math.round(distanceMetres) };
 };
 export const validateDeliveryDate = (store, config, date, now = new Date()) => {
   if (!validCalendarDate(date) || config?.enabled !== true || !config.dates?.[date]
