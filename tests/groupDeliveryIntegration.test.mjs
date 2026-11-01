@@ -135,7 +135,8 @@ const reviewArgs=()=>({db,uid:'owner',storeId:'store',workspaceId:'workspace',gr
 const fakeQuoteProvider=(changes={})=>({environment:'sandbox',createQuote:async request=>({quotationId:'quote-phase2',serviceType:request.data.serviceType,stops:request.data.stops,expiresAt:new Date(now.getTime()+60000).toISOString(),priceBreakdown:{total:'18.40',currency:'MYR'},...changes}),createOrder:async()=>{throw new Error('Booking must never be called');}});
 const seedReview=async(quantities=[6,4])=>{
  await db.doc('stores/store').update({delivery:{provider:'lalamove',market:'MY',environment:'sandbox',serviceType:'MOTORCYCLE',pickup:{address:'Separate QA kitchen',latitude:4.60,longitude:101.10}}});
- await Promise.all(quantities.map((quantity,i)=>reserve('member-'+i,{...input,selections:[{productId:'lunch',quantity}]})));
+ // Fixture setup is sequential; concurrency is exercised explicitly in the approval test.
+ for (const [i,quantity] of quantities.entries()) await reserve('member-'+i,{...input,selections:[{productId:'lunch',quantity}]});
  return reviewArgs();
 };
 const makeEstimate=async(args)=>estimateGroupDelivery({...args,provider:fakeQuoteProvider(),pickupTime:'11:30'});
