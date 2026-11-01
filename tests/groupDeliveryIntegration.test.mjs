@@ -1,3 +1,4 @@
+import { listGroupDeliveryReview, getGroupDeliveryReview, estimateGroupDelivery, approveGroupDelivery } from '../functions/groupDeliveryReview.js';
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { readFileSync } from 'node:fs';
@@ -127,4 +128,95 @@ test('corrected-center eligibility is enforced by reservation backend; Store kit
   await assert.rejects(reserve('outside',input,{resolvePlace:async()=>atDistance(1000.1)}),{code:'out-of-range'});
   assert.equal((await progress()).joinedPortions,3);
   assert.deepEqual((await db.doc('stores/store').get()).data().delivery.pickup,pickup);
+});
+
+
+const reviewArgs=()=>({db,uid:'owner',storeId:'store',workspaceId:'workspace',groupId:groupDeliveryKey('store',date),now});
+const fakeQuoteProvider=(changes={})=>({environment:'sandbox',createQuote:async request=>({quotationId:'quote-phase2',serviceType:request.data.serviceType,stops:request.data.stops,expiresAt:new Date(now.getTime()+60000).toISOString(),priceBreakdown:{total:'18.40',currency:'MYR'},...changes}),createOrder:async()=>{throw new Error('Booking must never be called');}});
+const seedReview=async(quantities=[6,4])=>{
+ await db.doc('stores/store').update({delivery:{provider:'lalamove',market:'MY',environment:'sandbox',serviceType:'MOTORCYCLE',pickup:{address:'Separate QA kitchen',latitude:4.60,longitude:101.10}}});
+ await Promise.all(quantities.map((quantity,i)=>reserve('member-'+i,{...input,selections:[{productId:'lunch',quantity}]})));
+ return reviewArgs();
+};
+const makeEstimate=async(args)=>estimateGroupDelivery({...args,provider:fakeQuoteProvider(),pickupTime:'11:30'});
+const approveEstimate=(args,estimate,extra={})=>approveGroupDelivery({...args,estimateId:estimate.id,expectedFeeMinor:estimate.feeMinor,requestId:'approve-request',confirmFreeDelivery:true,...extra});
+
+test('Phase 2 lists date/area/active count/expiry and exposes private customer detail only to Owner/Manager',async()=>{
+ const args=await seedReview();
+ const list=await listGroupDeliveryReview(args);assert.equal(list.groups.length,1);assert.equal(list.groups[0].activePortions,10);assert.equal(list.groups[0].target,10);assert.equal(list.groups[0].expiresAt,config.dates[date].closesAt);
+ assert.equal(JSON.stringify(list).includes('PRIVATE'),false);
+ const detail=await getGroupDeliveryReview(args);assert.equal(detail.members.length,2);assert.equal(detail.members[0].address.formattedAddress,'PRIVATE CUSTOMER ADDRESS');assert.equal(detail.members[0].items[0].quantity,6);
+ for(const role of ['Chef','Finance','Viewer']) {
+  await db.doc('workspaceMembers/workspace_not-manager').set({userId:'not-manager',workspaceId:'workspace',role,status:'Active'});
+  await assert.rejects(getGroupDeliveryReview({...args,uid:'not-manager'}),{code:'permission-denied'});
+ }
+ await db.doc('workspaceMembers/workspace_manager').set({userId:'manager',workspaceId:'workspace',role:'Manager',status:'Active'});
+ assert.equal((await getGroupDeliveryReview({...args,uid:'manager'})).members.length,2);
+ await assert.rejects(listGroupDeliveryReview({...args,uid:'customer'}),{code:'permission-denied'});
+ await assert.rejects(getGroupDeliveryReview({...args,workspaceId:'another'}),{code:'permission-denied'});
+});
+
+test('Phase 2 quote includes kitchen plus customer stops, price is server-owned, explicit approval records one immutable history',async()=>{
+ const args=await seedReview();const estimate=await makeEstimate(args);
+ assert.equal(estimate.route.length,3);assert.equal(estimate.route[0].address,'Separate QA kitchen');assert.equal(estimate.feeMinor,1840);
+ await assert.rejects(approveEstimate(args,estimate,{confirmFreeDelivery:false}),{code:'invalid-argument'});
+ await assert.rejects(approveEstimate(args,estimate,{expectedFeeMinor:0}),{code:'failed-precondition'});
+ const approved=await approveEstimate(args,estimate);assert.equal(approved.duplicate,false);assert.equal(approved.approval.customerDeliveryFeeMinor,0);assert.equal(approved.approval.approvedPortions,10);
+ const detail=await getGroupDeliveryReview(args);assert.equal(detail.history.length,1);assert.equal(detail.group.status,'approved');assert.equal(detail.history[0].members.length,2);
+ const pub=await progress();assert.equal(pub.status,'approved');assert.equal(JSON.stringify(pub).includes('PRIVATE'),false);assert.equal(JSON.stringify(pub).includes('approvedBy'),false);
+ await assert.rejects(reserve('late',{...input,requestId:'late'}),{code:'failed-precondition'});
+ await assert.rejects(cancelGroupDelivery({db,uid:'member-0',slug:'qa-store',date,now}),{code:'failed-precondition'});
+ for(const collection of ['storeOrders','storePaymentEvents','storeNotifications'])assert.equal((await db.collection(collection).get()).size,0);
+});
+
+test('Phase 2 concurrent approvals and retries record one approval and charge nobody',async()=>{
+ const args=await seedReview();const estimate=await makeEstimate(args);
+ const results=await Promise.all(Array.from({length:5},(_,i)=>approveEstimate(args,estimate,{requestId:'approval-'+i})));
+ assert.equal(results.filter(r=>!r.duplicate).length,1);assert.equal((await getGroupDeliveryReview(args)).history.length,1);
+ assert.equal((await db.collection('storeOrders').get()).size,0);
+});
+
+test('Phase 2 changed reservations, pickup, eligibility config or expired quote block stale approval',async()=>{
+ const args=await seedReview();
+ let estimate=await makeEstimate(args);
+ await reserve('new-member',{...input,requestId:'new-member'});
+ await assert.rejects(approveEstimate(args,estimate),{code:'failed-precondition'});
+ estimate=await makeEstimate(args);await db.doc('stores/store').update({'delivery.pickup.address':'Changed kitchen'});
+ await assert.rejects(approveEstimate(args,estimate),{code:'failed-precondition'});
+ estimate=await makeEstimate(args);await db.doc('groupDeliveryConfigs/store').update({enabled:false});
+ await assert.rejects(approveEstimate(args,estimate),{code:'failed-precondition'});
+ await db.doc('groupDeliveryConfigs/store').update({enabled:true});estimate=await makeEstimate(args);
+ await assert.rejects(approveEstimate(args,estimate,{now:new Date(now.getTime()+60000)}),{code:'failed-precondition'});
+ assert.equal((await getGroupDeliveryReview(args)).history.length,0);
+});
+
+test('Phase 2 minimum and expired reservations are enforced by backend before approval',async()=>{
+ const args=await seedReview([6]);let estimate=await makeEstimate(args);
+ await assert.rejects(approveEstimate(args,estimate),{code:'failed-precondition'});
+ await reserve('another',{...input,selections:[{productId:'lunch',quantity:4}]});estimate=await makeEstimate(args);
+ await db.doc(`deliveryGroups/${args.groupId}/groupDeliveryReservations/another`).update({expiresAt:now.toISOString()});
+ await assert.rejects(approveEstimate(args,estimate),{code:'failed-precondition'});
+ assert.equal((await getGroupDeliveryReview(args)).group.activePortions,6);
+});
+
+test('Phase 2 provider failure, invalid route/currency and role revocation fail closed',async()=>{
+ const args=await seedReview();
+ for(const changes of [{priceBreakdown:{total:'10.00',currency:'SGD'}},{stops:[]},{stops:[{coordinates:{lat:'bad',lng:'101'}}]}]) await assert.rejects(estimateGroupDelivery({...args,provider:fakeQuoteProvider(changes),pickupTime:'11:30'}),{code:'failed-precondition'});
+ await assert.rejects(estimateGroupDelivery({...args,provider:{environment:'sandbox',createQuote:async()=>{throw new Error('Provider unavailable');}},pickupTime:'11:30'}));
+ const estimate=await makeEstimate(args);
+ await db.doc('workspaceMembers/workspace_manager').set({userId:'manager',workspaceId:'workspace',role:'Manager',status:'Active'});
+ await db.doc('workspaceMembers/workspace_manager').update({status:'Inactive'});
+ await assert.rejects(approveEstimate({...args,uid:'manager'},estimate),{code:'permission-denied'});
+ let ticks=0;
+ await assert.rejects(approveEstimate({...args,now:undefined,clock:()=>++ticks===1?now:new Date(now.getTime()+61000)},estimate),{code:'failed-precondition'});
+});
+
+test('Phase 2 estimates and approval histories remain inaccessible through direct Firestore reads and writes',async()=>{
+ const args=await seedReview();const estimate=await makeEstimate(args);await approveEstimate(args,estimate);
+ for(const context of [env.unauthenticatedContext(),env.authenticatedContext('owner'),env.authenticatedContext('member-0')]) {
+  for(const suffix of ['estimates/'+estimate.id,'approvals/free-delivery']) {
+   const ref=doc(context.firestore(),`deliveryGroups/${args.groupId}/${suffix}`);
+   await assertFails(getDoc(ref));await assertFails(setDoc(ref,{customerDeliveryFeeMinor:999}));
+  }
+ }
 });

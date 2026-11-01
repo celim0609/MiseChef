@@ -2155,6 +2155,7 @@ export default function App() {
         if (!currentUser || !currentWorkspace || !hasBusinessEntitlement) return null;
         return (
           <StorePosPage
+            canReviewGroupDelivery={getStorePermissions(currentWorkspaceRole).manageStoreSettings}
             canRecordReminders={getStorePermissions(currentWorkspaceRole).processOrders}
             storeId={currentWorkspace.id}
             workspaceId={currentWorkspace.id}
