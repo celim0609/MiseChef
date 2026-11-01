@@ -16,6 +16,6 @@ test('POS review shows private address, quantities, separate kitchen, sandbox bu
 test('approved public state remains unpaid and unconfirmed, and POS tab is role-gated independently of normal orders',()=>{
  const html=renderToStaticMarkup(<GroupDeliveryProgress progress={{available:true,status:'approved',joinedPortions:10}}/>);
  assert.match(html,/Free delivery approved/);assert.match(html,/order not confirmed/);
- const pos=readFileSync(new URL('./StorePosPage.tsx',import.meta.url),'utf8');assert.match(pos,/canReviewGroupDelivery &&/);assert.match(pos,/GroupDeliveryReviewPanel storeId=\{storeId\} workspaceId=\{workspaceId\}/);
+ const pos=readFileSync(new URL('./StorePosPage.tsx',import.meta.url),'utf8');assert.match(pos,/canReviewGroupDelivery &&/);assert.match(pos,/posSection === 'group-delivery' && canReviewGroupDelivery \? <GroupDeliveryReviewPanel/);assert.match(pos,/setPosSection\('orders'\); \}, \[storeId, workspaceId, canReviewGroupDelivery\]/);assert.match(pos,/GroupDeliveryReviewPanel storeId=\{storeId\} workspaceId=\{workspaceId\}/);
  const app=readFileSync(new URL('../../App.tsx',import.meta.url),'utf8');assert.match(app,/canReviewGroupDelivery=\{getStorePermissions\(currentWorkspaceRole\).manageStoreSettings\}/);
 });

@@ -7,7 +7,7 @@ export default function GroupDeliveryReviewPanel({storeId,workspaceId}:{storeId:
   const [date,setDate]=useState(''),[cursor,setCursor]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false);
   const [pickupTime,setPickupTime]=useState('11:30'),[confirmed,setConfirmed]=useState(false),[now,setNow]=useState(Date.now());
   const generation=useRef(0),approvalRequest=useRef(crypto.randomUUID());
-  const refresh=useCallback(async()=>{const request=++generation.current;setBusy(true);setError('');try{const result=await api.list(storeId,workspaceId,date);if(request===generation.current){setGroups(result.groups);setCursor(result.cursor);setDetail(undefined);setConfirmed(false);}}catch(e){if(request===generation.current)setError(message(e));}finally{if(request===generation.current)setBusy(false);}},[storeId,workspaceId,date]);
+  const refresh=useCallback(async()=>{const request=++generation.current;setBusy(true);setError('');setDetail(undefined);setGroups([]);setConfirmed(false);try{const result=await api.list(storeId,workspaceId,date);if(request===generation.current){setGroups(result.groups);setCursor(result.cursor);setDetail(undefined);setConfirmed(false);}}catch(e){if(request===generation.current)setError(message(e));}finally{if(request===generation.current)setBusy(false);}},[storeId,workspaceId,date]);
   useEffect(()=>{void refresh();return()=>{generation.current++;};},[refresh]);
   useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[]);
   useEffect(()=>{
