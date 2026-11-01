@@ -37,6 +37,7 @@ export const isValidPromotion = promotion => {
 };
 
 const promotionSavingMinor = ({ promotion, item, merchandiseSubtotalMinor }) => {
+  if (item.weeklyPriceSnapshot && !item.weeklyPriceSnapshot.legacyPrice && item.weeklyPriceSnapshot.discount.type !== 'none') return 0;
   if (item.itemType === 'set' || !promotion.eligibleProductIds.includes(asString(item.productId)) || item.quantity < promotion.minimumQuantity) return 0;
   const minimumOrderMinor = Number.isFinite(promotion.minimumOrderAmount) ? moneyToMinor(promotion.minimumOrderAmount) : 0;
   if (merchandiseSubtotalMinor < minimumOrderMinor) return 0;

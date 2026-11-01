@@ -138,3 +138,12 @@ test('embedded order snapshots preserve purchased photos, kcal, descriptions and
   const day = normalizeStoreOrderItem({ productName: 'Lunch', calories: 0, description: 'Purchased recipe', basePrice: 12, unitPrice: 12 });
   assert.equal(day.calories, 0); assert.equal(day.description, 'Purchased recipe'); assert.equal(day.basePrice, 12);
 });
+
+test('weekly pricing snapshot survives serialization, normalization and later menu changes', () => {
+  const snapshot = { version: 1, discount: { type: 'percentage', value: 10 }, legacyPrice: false, originalPrice: 60, discountAmount: 6, finalWeeklyPrice: 54 };
+  const item = normalizeStoreOrderItem(JSON.parse(JSON.stringify({ productName: 'Paid lunch', unitPrice: 54, quantity: 2, lineTotal: 108, weeklyPriceSnapshot: snapshot })));
+  snapshot.discount.value = 50;
+  assert.equal(item.weeklyPriceSnapshot!.discount.value, 10);
+  assert.equal(item.lineTotal, 108);
+  assert.equal(normalizeStoreOrderItem({ productName: 'Old order', unitPrice: 45, lineTotal: 45 }).weeklyPriceSnapshot, undefined);
+});

@@ -28,6 +28,10 @@ import {
   assertPinnedFirebaseCliStorageBehavior
 } from './betaDeploymentSafety.mjs';
 import { readLiveBetaFingerprint } from './betaLiveRelease.mjs';
+import { repairKnownBetaRendererIncident } from './betaRendererIncidentRepair.mjs';
+import { stylesheetPaths, verifyBetaWebRelease } from './betaWebReleaseVerification.mjs';
+import { createHash } from 'node:crypto';
+import { assertBetaBuildOptimizationDisabled, assertBetaFirebaseDeployCompleted } from './betaFirebaseCompletionSafety.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const verifyOnly = process.argv.includes('--verify-only');
@@ -129,7 +133,7 @@ try {
   if (!trustedGateRoot || trustedGateRoot === repositoryRoot) {
     throw new Error('MISECHEF_BETA_TRUSTED_GATE_ROOT must identify the separate trusted gate checkout.');
   }
-  const liveBefore = await readLiveBetaFingerprint();
+  let liveBefore = await readLiveBetaFingerprint();
   console.log('Live Beta release fingerprint before validation:', JSON.stringify({
     rootAsset: liveBefore.rootAsset,
     storeAsset: liveBefore.storeAsset,
@@ -140,15 +144,6 @@ try {
     rootEtag: liveBefore.rootEtag,
     storeEtag: liveBefore.storeEtag
   }, null, 2));
-  assertLiveBaseline({
-    liveFingerprint: liveBefore,
-    resolveSourceTree: commit => git(['rev-parse', `${commit}^{tree}`]),
-    isAncestor: (ancestor, descendant) => spawnSync(
-      'git',
-      ['merge-base', '--is-ancestor', ancestor, descendant],
-      { cwd: repositoryRoot, stdio: 'ignore' }
-    ).status === 0
-  });
   if (liveBefore.releaseCommit) {
     const liveIsAncestor = spawnSync('git', ['merge-base', '--is-ancestor', liveBefore.releaseCommit, head], {
       cwd: repositoryRoot,
@@ -176,6 +171,24 @@ try {
     FIREBASE_DEPLOY_TARGET: 'beta',
     MISECHEF_BETA_PROTECTED_BASELINE: authorityBaseline,
     MISECHEF_BETA_VERIFY_ONLY: verifyOnly ? '1' : '0'
+  });
+
+  if (liveBefore.rootAsset !== liveBefore.storeAsset && !verifyOnly) {
+    // Full immutable source validation has passed above. Repair only the exact
+    // known runtime pin, then require the unchanged live-coherence gate to pass.
+    liveBefore = await repairKnownBetaRendererIncident({
+      head,
+      isAncestor: (ancestor, descendant) => spawnSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {cwd:repositoryRoot,stdio:'ignore'}).status === 0
+    });
+  }
+  assertLiveBaseline({
+    liveFingerprint: liveBefore,
+    resolveSourceTree: commit => git(['rev-parse', `${commit}^{tree}`]),
+    isAncestor: (ancestor, descendant) => spawnSync(
+      'git',
+      ['merge-base', '--is-ancestor', ancestor, descendant],
+      { cwd: repositoryRoot, stdio: 'ignore' }
+    ).status === 0
   });
 
   rmSync(path.join(repositoryRoot, 'dist'), { recursive: true, force: true });
@@ -217,6 +230,10 @@ try {
   if (verifyOnly) {
     console.log(`Beta release verification passed for ${head}; no deployment performed.`);
   } else {
+    assertBetaBuildOptimizationDisabled(false);
+    run('firebase', ['experiments:disable', 'functionsv2deployoptimizations']);
+    const optimizationEnabled = execFileSync(process.execPath, ['-e', `process.stdout.write(String(require(${JSON.stringify(path.join(globalNpmRoot, 'firebase-tools/lib/experiments.js'))}).isEnabled('functionsv2deployoptimizations')))`], { encoding: 'utf8' }).trim();
+    assertBetaBuildOptimizationDisabled(optimizationEnabled !== 'false');
     const result = spawnSync('firebase', [
       'deploy',
       '--project',
@@ -234,10 +251,18 @@ try {
         MISECHEF_BETA_CI_LOCK_ID: process.env.MISECHEF_BETA_CI_LOCK_ID || '',
         MISECHEF_BETA_ALLOW_LOCAL_DEPLOY: process.env.MISECHEF_BETA_ALLOW_LOCAL_DEPLOY || ''
       },
-      stdio: 'inherit'
+      stdio: 'pipe',
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024
     });
-    if (result.status !== 0) throw new Error(`Canonical Firebase Beta deployment failed with exit code ${result.status}.`);
-    console.log('Beta resources deployed. Do not advance the baseline until live QA and explicit release completion.');
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    assertBetaFirebaseDeployCompleted(result);
+    const css = stylesheetPaths(readFileSync(path.join(repositoryRoot,'dist','index.html'),'utf8')).map(asset => ({
+      path: asset, sha256: createHash('sha256').update(readFileSync(path.join(repositoryRoot,'dist',asset.replace(/^\//,'')))).digest('hex')
+    }));
+    await verifyBetaWebRelease({manifest, expectedCss:css});
+    console.log('Beta resources and public navigation/assets verified. Do not advance the baseline until live QA and explicit release completion.');
   }
 } finally {
   restoreGeneratedFiles();
