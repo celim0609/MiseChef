@@ -1,3 +1,4 @@
+import { listGroupDeliveryReview, getGroupDeliveryReview, estimateGroupDelivery, approveGroupDelivery } from './groupDeliveryReview.js';
 import { getGroupDeliveryConfiguration, requireGroupDeliveryBeta, requireCustomer, eligibility, configureGroupDelivery, getGroupDelivery, reserveGroupDelivery, cancelGroupDelivery, expireGroupDelivery } from './groupDelivery.js';
 import { createGroupDeliveryPlaces, consumeGroupDeliveryRate } from './groupDeliveryPlaces.js';
 import { dispatchCompatibilityProject, retiredDispatchHttp, inertDispatchEvent } from './legacyDispatchCompatibility.js';
@@ -2614,4 +2615,24 @@ export const expireMiseChefGroupDeliveryReservations = onSchedule({ region: REGI
 export const getMiseChefGroupDeliveryConfiguration = onCall(groupDeliveryOptions, async request => {
   await groupDeliveryCustomer(request);
   return getGroupDeliveryConfiguration({ db, uid: request.auth.uid, slug: request.data?.slug });
+});
+
+export const listMiseChefGroupDeliveryReview = onCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  return listGroupDeliveryReview({db,uid:request.auth.uid,storeId:request.data?.storeId,workspaceId:request.data?.workspaceId,date:request.data?.date,cursor:request.data?.cursor});
+});
+export const getMiseChefGroupDeliveryReview = onCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  return getGroupDeliveryReview({db,uid:request.auth.uid,storeId:request.data?.storeId,workspaceId:request.data?.workspaceId,groupId:request.data?.groupId});
+});
+export const estimateMiseChefGroupDelivery = onCall({...groupDeliveryOptions,secrets:[lalamoveApiKey,lalamoveApiSecret]}, async request => {
+  await groupDeliveryCustomer(request);
+  return estimateGroupDelivery({db,uid:request.auth.uid,storeId:request.data?.storeId,workspaceId:request.data?.workspaceId,
+    groupId:request.data?.groupId,pickupTime:request.data?.pickupTime,provider:createRuntimeLalamoveProvider()});
+});
+export const approveMiseChefGroupDelivery = onCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  return approveGroupDelivery({db,uid:request.auth.uid,storeId:request.data?.storeId,workspaceId:request.data?.workspaceId,
+    groupId:request.data?.groupId,estimateId:request.data?.estimateId,requestId:request.data?.requestId,
+    confirmFreeDelivery:request.data?.confirmFreeDelivery,expectedFeeMinor:request.data?.expectedFeeMinor});
 });

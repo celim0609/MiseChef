@@ -58,7 +58,7 @@ export default function PublicGroupDeliveryPage({ slug, currentUser }: { slug: s
     try { const url = new URL(progress.sharePath, window.location.origin).href; await navigator.clipboard.writeText(url); setNotice('Group link copied. / 团购链接已复制。'); } catch { setNotice('Copy the group link below. / 请复制下方团购链接。'); }
   };
   const reserved = progress?.mine?.status === 'reserved';
-  const closed = progress?.status === 'closed';
+  const closed = progress?.status === 'closed' || progress?.status === 'approved';
   const total = Object.values<DeliverySelection>(selections).reduce((n, s) => n + s.quantity * (progress?.menu?.find(m => m.productId === s.productId)?.portionsPerUnit || 0), 0);
   return <div className="mx-auto max-w-2xl space-y-6 text-on-surface">
     <a href={`/store/${encodeURIComponent(slug)}`} className="font-bold text-primary">← Store / 店铺</a>
@@ -75,7 +75,7 @@ export default function PublicGroupDeliveryPage({ slug, currentUser }: { slug: s
       {progress.date && <><GroupDeliveryProgress progress={progress} />
       {progress.sharePath && <div className="space-y-2"><button type="button" className={action} onClick={share}>Copy group link / 复制团购链接</button><a className="block break-all text-sm underline" href={progress.sharePath}>{new URL(progress.sharePath, window.location.origin).href}</a></div>}
       {progress.mine && <div className="rounded-xl border p-4"><p>Your reservation / 您的预订：{progress.mine.portions} · {reserved ? 'Reserved / 已预订' : progress.mine.status === 'expired' ? 'Expired / 已过期' : 'Cancelled / 已取消'}</p>
-        {reserved && <button type="button" disabled={busy} className="mt-3 underline" onClick={async () => { setBusy(true); try { await api.cancel(slug, date); pending.current = undefined; await load(); setNotice('Reservation cancelled. / 预订已取消。'); } catch(e) { setError(message(e)); } finally { setBusy(false); } }}>Cancel reservation / 取消预订</button>}
+        {reserved && progress.status !== 'approved' && <button type="button" disabled={busy} className="mt-3 underline" onClick={async () => { setBusy(true); try { await api.cancel(slug, date); pending.current = undefined; await load(); setNotice('Reservation cancelled. / 预订已取消。'); } catch(e) { setError(message(e)); } finally { setBusy(false); } }}>Cancel reservation / 取消预订</button>}
       </div>}
       {!currentUser ? <a className={action + ' inline-block'} href={`/login?returnTo=${encodeURIComponent(`/store/${slug}/group-delivery?date=${date}`)}`}>Sign in to join / 登录参加</a> : !reserved && !closed && <form onSubmit={submit} className="space-y-5">
         <h2 className="text-xl font-bold">Choose lunch / 选择午餐</h2>

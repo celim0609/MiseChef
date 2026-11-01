@@ -77,12 +77,13 @@ const loadStore = async (db, slug) => {
   if (!doc || doc.data().country !== 'MY') fail('not-found', 'Store unavailable. / 店铺暂不可用。');
   return { ...doc.data(), id: doc.id };
 };
-export const requireGroupDeliveryManager = async ({ db, uid, store }) => {
+export const requireGroupDeliveryManager = async ({ db, uid, store, transaction }) => {
   requireCustomer(uid);
   const workspaceId = store.workspaceId || store.id;
+  const read = ref => transaction ? transaction.get(ref) : ref.get();
   const [workspace, member] = await Promise.all([
-    db.collection('workspaces').doc(workspaceId).get(),
-    db.collection('workspaceMembers').doc(`${workspaceId}_${uid}`).get()
+    read(db.collection('workspaces').doc(workspaceId)),
+    read(db.collection('workspaceMembers').doc(`${workspaceId}_${uid}`))
   ]);
   const m = member.data();
   if (!workspace.exists || !hasActiveBusinessEntitlement(workspace.data())
@@ -131,7 +132,7 @@ export const getGroupDelivery = async ({ db, slug, date, uid, now = new Date() }
   // Explicit projection. Neither customer identities nor locations leave this endpoint.
   return { available: true, ...GROUP_DELIVERY_PILOT, dates: availableDates, date: selectedDate,
     closesAt: config.dates[selectedDate].closesAt, joinedPortions,
-    status: !open ? 'closed' : joinedPortions >= 10 ? 'ready_for_review' : 'collecting',
+    status: group.data()?.status === 'approved' ? 'approved' : !open ? 'closed' : joinedPortions >= 10 ? 'ready_for_review' : 'collecting',
     menu: open ? lunchMenu(products.docs.map(d => ({ ...d.data(), id: d.id })), config, selectedDate) : [],
     sharePath: `/store/${encodeURIComponent(slug)}/group-delivery?date=${selectedDate}`,
     mine: mine ? { status: active(mine, now) ? 'reserved' : mine.status === 'cancelled' ? 'cancelled' : 'expired',

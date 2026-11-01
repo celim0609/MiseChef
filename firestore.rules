@@ -1807,6 +1807,12 @@ service cloud.firestore {
       match /groupDeliveryReservations/{customerId} {
         allow read, write: if false;
       }
+      match /estimates/{estimateId} {
+        allow read, write: if false;
+      }
+      match /approvals/{approvalId} {
+        allow read, write: if false;
+      }
     }
     match /groupDeliveryRateLimits/{customerId} {
       allow read, write: if false;
