@@ -279,3 +279,10 @@ test('Weekly Menu metadata keeps selection and uses the week cover or original d
   assert.equal(day.title,'Friday Meal | Chef');
   assert.match(day.canonicalUrl,/week=week2&day=fri$/);
 });
+
+test('Group Delivery deep link serves the application shell with bilingual promotion metadata', async () => {
+  const response = createResponse();
+  const handler = createStoreSocialPreviewHandler({ projectId:'misechef-beta-fa4bf', loadStore:async()=>({id:'qa',slug:'qa-store',name:'QA'}),loadAppShell:async()=>appShell });
+  await handler({ method:'GET',path:'/store/qa-store/group-delivery',originalUrl:'/store/qa-store/group-delivery?date=2026-11-03',get:()=> 'misechef-beta-fa4bf.web.app' },response);
+  assert.equal(response.statusCode,200); assert.match(response.body,/午餐团购配送/); assert.match(response.body,/RM0/); assert.match(response.body,/assets\/app.js/);
+});

@@ -1798,6 +1798,20 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    // Callable-only: public progress is an explicit projection, never a document read.
+    match /groupDeliveryConfigs/{storeId} {
+      allow read, write: if false;
+    }
+    match /deliveryGroups/{groupId} {
+      allow read, write: if false;
+      match /groupDeliveryReservations/{customerId} {
+        allow read, write: if false;
+      }
+    }
+    match /groupDeliveryRateLimits/{customerId} {
+      allow read, write: if false;
+    }
+
     match /groupOrders/{groupId} {
       allow read: if signedIn() && resource.data.hostId == request.auth.uid;
       allow create, update, delete: if false;
