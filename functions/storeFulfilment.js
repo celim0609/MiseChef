@@ -1,3 +1,4 @@
+import { legacyDailyFulfilments } from './legacyDailyFulfilments.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import {
@@ -20,14 +21,17 @@ export const STORE_FULFILMENT_STATUS = Object.freeze({
 const ALLOWED_TRANSITIONS = Object.freeze({
   [STORE_FULFILMENT_STATUS.new]: new Set([
     STORE_FULFILMENT_STATUS.preparing,
+    STORE_FULFILMENT_STATUS.ready,
     STORE_FULFILMENT_STATUS.cancelled
   ]),
   [STORE_FULFILMENT_STATUS.confirmed]: new Set([
     STORE_FULFILMENT_STATUS.preparing,
+    STORE_FULFILMENT_STATUS.ready,
     STORE_FULFILMENT_STATUS.cancelled
   ]),
   [STORE_FULFILMENT_STATUS.paid]: new Set([
     STORE_FULFILMENT_STATUS.preparing,
+    STORE_FULFILMENT_STATUS.ready,
     STORE_FULFILMENT_STATUS.cancelled
   ]),
   [STORE_FULFILMENT_STATUS.preparing]: new Set([
@@ -130,7 +134,7 @@ export const updateStoreOrderFulfilment = async ({
     if (!orderSnapshot.exists) throw new HttpsError('not-found', 'This order could not be found.');
 
     const order = orderSnapshot.data() || {};
-    if (order.fulfilmentMethod === 'delivery'
+    if (!order.manualOrder && order.delivery?.arrangedExternally !== true && order.fulfilmentMethod === 'delivery'
       && normalizedNextStatus === STORE_FULFILMENT_STATUS.completed
       && readString(order.delivery?.providerOrder?.status) !== 'COMPLETED') {
       throw new HttpsError('failed-precondition', 'A delivery order can only complete after Lalamove confirms delivery.');
@@ -154,8 +158,11 @@ export const updateStoreOrderFulfilment = async ({
     }
 
     const currentStatus = readString(order.fulfilmentStatus);
+    const legacy = legacyDailyFulfilments(order);
+    if (legacy) order.fulfilments = legacy;
+    if (normalizedNextStatus !== 'Cancelled' && !order.fulfilments?.length && !order.weeklyFulfilments?.length && order.items?.some(item => item.healthyLunchSnapshot?.date || item.weeklyPlanSnapshot)) throw new HttpsError('failed-precondition', 'This order needs a verified per-item fulfilment schedule.');
     const isLegacyCashOnPickup = readString(order.paymentMethodId) === 'cash_on_pickup';
-    const requiresConfirmedPayment = readString(order.orderSource) === 'online' && !isLegacyCashOnPickup;
+    const requiresConfirmedPayment = readString(order.orderSource) === 'pos' || (readString(order.orderSource) === 'online' && !isLegacyCashOnPickup);
     if (
       normalizedNextStatus !== STORE_FULFILMENT_STATUS.cancelled
       && requiresConfirmedPayment
@@ -163,21 +170,23 @@ export const updateStoreOrderFulfilment = async ({
     ) {
       throw new HttpsError('failed-precondition', 'Confirm payment before processing this order.');
     }
-    if (Array.isArray(order.fulfilments)) {
+    if (Array.isArray(order.fulfilments) && normalizedNextStatus !== 'Cancelled') {
       const entry = order.fulfilments.find(entry => entry.id === fulfilmentId);
       if (!entry || order.payment?.status !== 'paid' || currentStatus === 'Cancelled') throw new HttpsError('failed-precondition', 'Choose an active, paid fulfilment.');
       const operation = order.fulfilmentOperations?.[entry.id] || {};
       if (order.fulfilmentCompletion?.[entry.id]) return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
-      if (entry.method === 'delivery' && !['Preparing', 'Ready'].includes(normalizedNextStatus)) throw new HttpsError('failed-precondition', 'Delivery completion must be confirmed by Lalamove.');
+      if (!order.manualOrder && order.delivery?.arrangedExternally !== true && entry.method === 'delivery' && !['Preparing', 'Ready'].includes(normalizedNextStatus)) throw new HttpsError('failed-precondition', 'Delivery completion must be confirmed by Lalamove.');
       if (entry.method === 'pickup' && !['Preparing', 'Ready', 'Completed'].includes(normalizedNextStatus)) throw new HttpsError('failed-precondition', 'Complete each pickup independently.');
+      if (!order.manualOrder && entry.method === 'delivery' && normalizedNextStatus === 'Ready' && !['Preparing', 'Ready'].includes(operation.kitchenStatus)) throw new HttpsError('failed-precondition', 'Mark this delivery day Preparing before Ready.');
+      if (operation.kitchenStatus !== normalizedNextStatus && !canTransitionStoreFulfilment({ currentStatus: operation.kitchenStatus || 'New', nextStatus: normalizedNextStatus })) throw new HttpsError('failed-precondition', 'Mark this day Preparing or Ready before completing it.');
       if (normalizedNextStatus !== 'Completed') {
         if (operation.kitchenStatus === normalizedNextStatus) return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
         if (operation.kitchenStatus === 'Ready' && normalizedNextStatus === 'Preparing') throw new HttpsError('failed-precondition', 'A ready fulfilment cannot return to preparing.');
-        transaction.update(orderReference, { [`fulfilmentOperations.${entry.id}.kitchenStatus`]: normalizedNextStatus, fulfilmentUpdatedAt: FieldValue.serverTimestamp(), fulfilmentUpdatedBy: uid, updatedAt: FieldValue.serverTimestamp() });
+        transaction.update(orderReference, { ...(legacy ? {fulfilments: legacy} : {}), [`fulfilmentOperations.${entry.id}.kitchenStatus`]: normalizedNextStatus, fulfilmentUpdatedAt: FieldValue.serverTimestamp(), fulfilmentUpdatedBy: uid, updatedAt: FieldValue.serverTimestamp() });
       } else {
         const completion = { ...(order.fulfilmentCompletion || {}), [entry.id]: { completedAt: new Date().toISOString(), completedBy: uid } };
         const complete = order.fulfilments.every(day => Boolean(completion[day.id]));
-        transaction.update(orderReference, { fulfilmentCompletion: completion,
+        transaction.update(orderReference, { ...(legacy ? {fulfilments: legacy} : {}), fulfilmentCompletion: completion,
           ...(complete ? { fulfilmentStatus: 'Completed', completedAt: FieldValue.serverTimestamp() } : {}),
           fulfilmentUpdatedAt: FieldValue.serverTimestamp(), fulfilmentUpdatedBy: uid, updatedAt: FieldValue.serverTimestamp() });
       }
@@ -186,7 +195,7 @@ export const updateStoreOrderFulfilment = async ({
       return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: normalizedNextStatus === 'Completed' && order.fulfilments.every(day => day.id === entry.id || order.fulfilmentCompletion?.[day.id]) ? 'Completed' : currentStatus, cancellationReason: '' };
     }
     if (fulfilmentId !== undefined) throw new HttpsError('invalid-argument', 'This order has no separate fulfilments.');
-    if (Array.isArray(order.weeklyFulfilments)) {
+    if (Array.isArray(order.weeklyFulfilments) && normalizedNextStatus !== 'Cancelled') {
       const day = readString(weeklyDay);
       const days = order.weeklyFulfilments;
       if (!['Preparing', 'Ready', 'Completed'].includes(normalizedNextStatus) || !day
@@ -198,8 +207,9 @@ export const updateStoreOrderFulfilment = async ({
       }
       const completion = order.weeklyCompletion || {};
       if (completion[day]) return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
+      const status = order.fulfilmentOperations?.[day]?.kitchenStatus;
+      if (status !== normalizedNextStatus && !canTransitionStoreFulfilment({ currentStatus: status || 'New', nextStatus: normalizedNextStatus })) throw new HttpsError('failed-precondition', 'Mark this day Preparing or Ready before completing it.');
       if (normalizedNextStatus !== 'Completed') {
-        const status = order.fulfilmentOperations?.[day]?.kitchenStatus;
         if (status === normalizedNextStatus) return { orderId: normalizedOrderId, previousStatus: currentStatus, fulfilmentStatus: currentStatus, cancellationReason: '' };
         if (status === 'Ready' && normalizedNextStatus === 'Preparing') throw new HttpsError('failed-precondition', 'A ready fulfilment cannot return to preparing.');
         transaction.update(orderReference, { [`fulfilmentOperations.${day}.kitchenStatus`]: normalizedNextStatus, fulfilmentUpdatedAt: FieldValue.serverTimestamp(), fulfilmentUpdatedBy: uid, updatedAt: FieldValue.serverTimestamp() });
@@ -397,5 +407,44 @@ export const updateStoreGroupOrderFulfilment = async ({ db, uid, groupId, action
       matchedOrderCount: matchedOrders.length,
       transitionedOrderCount: eligibleOrders.length
     };
+  });
+};
+
+// Communication metadata only; opening WhatsApp never proves that Send was pressed.
+export const recordStoreCustomerReminder = async ({ db, uid, orderId, date, status }) => {
+  if (!uid) throw new HttpsError('unauthenticated', 'Sign in to record a reminder.');
+  if (typeof orderId !== 'string' || !orderId || orderId.includes('/') || !/^\d{4}-\d{2}-\d{2}$/.test(date || '')
+    || !['draft_opened', 'owner_confirmed_sent'].includes(status)) {
+    throw new HttpsError('invalid-argument', 'Choose a valid order date and reminder status.');
+  }
+  const reference = db.collection('storeOrders').doc(orderId);
+  return db.runTransaction(async transaction => {
+    const snapshot = await transaction.get(reference);
+    if (!snapshot.exists) throw new HttpsError('not-found', 'Order not found.');
+    const order = snapshot.data();
+    const workspaceId = order.workspaceId;
+    if (!workspaceId) throw new HttpsError('failed-precondition', 'Order has no Workspace.');
+    const [workspaceSnapshot, membershipSnapshot] = await Promise.all([
+      transaction.get(db.collection('workspaces').doc(workspaceId)),
+      transaction.get(db.collection('workspaceMembers').doc(`${workspaceId}_${uid}`))
+    ]);
+    const workspace = workspaceSnapshot.data() || {};
+    const membership = membershipSnapshot.data() || {};
+    if (!hasActiveBusinessEntitlement(workspace) || !hasStoreProcessingAuthority({ uid, workspaceId, workspace, membership })) {
+      throw new HttpsError('permission-denied', 'Your Workspace role cannot record reminders.');
+    }
+    const dates = order.fulfilments?.length ? order.fulfilments.map(entry => entry.date)
+      : order.weeklyFulfilments?.length ? order.weeklyFulfilments.map(entry => entry.date)
+        : [order.fulfilmentMethod === 'delivery' ? order.delivery?.schedule?.date : order.pickupDate];
+    if (!dates.includes(date)) throw new HttpsError('invalid-argument', 'This date is not scheduled for the order.');
+    const previous = order.customerReminders?.[date];
+    if (previous?.status === 'owner_confirmed_sent') return { status: previous.status };
+    if (status === 'owner_confirmed_sent' && previous?.status !== 'draft_opened') {
+      throw new HttpsError('failed-precondition', 'Open and review the reminder before confirming it was sent.');
+    }
+    transaction.update(reference, {
+      [`customerReminders.${date}`]: { status, updatedAt: new Date().toISOString(), updatedBy: uid }
+    });
+    return { status };
   });
 };
