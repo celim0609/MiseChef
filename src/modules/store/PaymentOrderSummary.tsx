@@ -1,3 +1,4 @@
+import PromotionCodeSummary from './PromotionCodeSummary';
 import MealOptionSummary from './MealOptionSummary';
 import { deliveryFeeLabel } from './storeOrderFulfilments';
 import { formatRegionCurrency } from '../../regions';
@@ -17,6 +18,7 @@ export default function PaymentOrderSummary({ summary }: { summary: StorePayment
           </div>
         ))}
       </div>
+      {summary.promotionCodeSnapshot && <PromotionCodeSummary snapshot={summary.promotionCodeSnapshot} />}
       <dl className="mt-3 space-y-2 border-t border-surface-container-high pt-3 font-sans text-sm font-bold text-primary">
         <div className="flex justify-between gap-3"><dt>Items subtotal</dt><dd>{formatRegionCurrency(summary.totals.merchandiseSubtotal, summary.totals.currency)}</dd></div>
         {summary.totals.discountTotal > 0 && <div className="flex justify-between gap-3"><dt>Discount</dt><dd>−{formatRegionCurrency(summary.totals.discountTotal, summary.totals.currency)}</dd></div>}

@@ -1,3 +1,6 @@
+import { weeklyShareUrl } from '../../../functions/weeklyMenuSharing.js';
+import WeekCoverUpload from './WeekCoverUpload';
+import WeeklyMenuShareButton from './WeeklyMenuShareButton';
 import HealthyLunchOptionsEditor from './HealthyLunchOptionsEditor';
 import type { HealthyLunchMeal, EmbeddedWeeklyMeals } from './types';
 import { isWeeklyMealPlan, WEEKLY_DAYS, WEEK_SLOTS, validateWeeklyMealPlan } from '../../../functions/storeWeeklyMealPlan.js';
@@ -42,6 +45,7 @@ import { deleteProductWithCleanup } from './productDeletion';
 import { storeDeliveryService } from './services/deliveryService';
 import StoreOrdersPanel from './StoreOrdersPanel';
 import StoreSetsPanel from './StoreSetsPanel';
+import StorePromotionCodesPanel from './StorePromotionCodesPanel';
 import StorePromotionsPanel from './StorePromotionsPanel';
 import {
   createStoreQrBlob,
@@ -88,6 +92,7 @@ import {
   syncHealthyLunchRecipe,
   getStoreProductEditorPresentation,
   getReadyToSellProductDraft,
+  applyReadyToSellNutrition,
   getStoreProductValidationTarget
 } from './storeProductVisibility';
 import { calculateStoreProductCostAnalysis, resolveStoreProductEstimatedCost } from './storeCostModel';
@@ -240,11 +245,14 @@ export default function StorePage({
   const [savedOptionGroupId, setSavedOptionGroupId] = useState('');
   const [mealPhotoFiles, setMealPhotoFiles] = useState<Record<string, File>>({});
   const mealPreviewUrls = useRef<Record<string, string>>({});
-  const clearMealPhotos = () => { Object.values(mealPreviewUrls.current).forEach(URL.revokeObjectURL); mealPreviewUrls.current = {}; setMealPhotoFiles({}); };
+  const [weekCoverFiles, setWeekCoverFiles] = useState<Record<string, File>>({});
+  const [weekCoverErrors, setWeekCoverErrors] = useState<Record<string, string>>({});
+  const clearMealPhotos = () => { setWeekCoverErrors({}); setWeekCoverFiles({}); Object.values(mealPreviewUrls.current).forEach(URL.revokeObjectURL); mealPreviewUrls.current = {}; setMealPhotoFiles({}); };
   useEffect(() => () => { Object.values(mealPreviewUrls.current).forEach(URL.revokeObjectURL); }, []);
   const [productPhotoFile, setProductPhotoFile] = useState<File | null>(null);
   const [productPhotoPreviewUrl, setProductPhotoPreviewUrl] = useState('');
   const [isRecipePhotoLoading, setIsRecipePhotoLoading] = useState(false);
+  const [isRecipeNutritionLoading, setIsRecipeNutritionLoading] = useState(false);
   const [recipePhotoError, setRecipePhotoError] = useState('');
   const [editingProduct, setEditingProduct] = useState<StoreProduct | null>(null);
   const [isProductFormOpen, setIsProductFormOpen] = useState(false);
@@ -259,6 +267,11 @@ export default function StorePage({
   const productOptionsRef = useRef<HTMLDivElement | null>(null);
   const productCardRefs = useRef(new Map<string, HTMLElement>());
   const productPhotoTransferIdRef = useRef(0);
+  const productDraftRequestIdRef = useRef(0);
+  useEffect(() => () => {
+    productDraftRequestIdRef.current += 1;
+    productPhotoTransferIdRef.current += 1;
+  }, [workspace.id]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -518,6 +531,12 @@ export default function StorePage({
     }
   };
 
+  const shareWeeklyMenu = async (slot: string, day?: string) => {
+    if (!store || !editingProduct?.productSlug) throw new Error('Saved menu unavailable.');
+    const base = getStoreProductShareData(window.location.origin, store, editingProduct).url;
+    await navigator.clipboard.writeText(weeklyShareUrl(base, slot, day));
+  };
+
   const shareProductLink = async (product: StoreProduct) => {
     const productSlug = product.productSlug;
     if (!store || !productSlug) return;
@@ -658,6 +677,8 @@ export default function StorePage({
   };
 
   const openNewProduct = () => {
+    productDraftRequestIdRef.current += 1;
+    setIsRecipeNutritionLoading(false);
     productPhotoTransferIdRef.current += 1;
     setEditingProduct(null);
     setProductDraft(emptyProductDraft());
@@ -673,28 +694,20 @@ export default function StorePage({
   const openReadyToSellProduct = async (recipe: Recipe) => {
     const photoUrl = recipe.imageUrl || recipe.coverImage;
     const transferId = ++productPhotoTransferIdRef.current;
+    const requestId = ++productDraftRequestIdRef.current;
     setActiveView('products');
     setEditingProduct(null);
-    let nutrition;
-    try {
-      const profiles = await loadIngredientNutritionProfiles(recipe.ingredients.map(ingredient => ingredient.ingredientId || ''), workspace.id);
-      nutrition = calculateRecipeNutrition(recipe, profiles, recipes);
-    } catch (error) {
-      console.warn('Recipe nutrition was unavailable for Ready to Sell.', error);
-      nutrition = { status: 'INCOMPLETE' as const, incompleteReasons: ['Nutrition profiles are unavailable.'] };
-    }
-    if (productPhotoTransferIdRef.current !== transferId) return;
-    setProductDraft(getReadyToSellProductDraft(recipe, nutrition));
+    setProductDraft(getReadyToSellProductDraft(recipe));
     setProductOptions([]);
     setSavedOptionGroupId('');
     setProductPhotoFile(null);
     setRecipePhotoError('');
     setIsRecipePhotoLoading(Boolean(photoUrl));
+    setIsRecipeNutritionLoading(true);
     setIsProductFormOpen(true);
     clearMessages();
 
-    if (!photoUrl) return;
-    void loadRecipePhotoForStoreProduct({ recipeId: recipe.id, photoUrl })
+    if (photoUrl) void loadRecipePhotoForStoreProduct({ recipeId: recipe.id, photoUrl })
       .then(photo => {
         if (productPhotoTransferIdRef.current === transferId) setProductPhotoFile(photo);
       })
@@ -706,6 +719,19 @@ export default function StorePage({
       .finally(() => {
         if (productPhotoTransferIdRef.current === transferId) setIsRecipePhotoLoading(false);
       });
+
+    let nutrition;
+    try {
+      const profiles = await loadIngredientNutritionProfiles(recipe.ingredients.map(ingredient => ingredient.ingredientId || ''), workspace.id);
+      nutrition = calculateRecipeNutrition(recipe, profiles, recipes);
+    } catch (error) {
+      console.warn('Recipe nutrition was unavailable for Ready to Sell.', error);
+      nutrition = { status: 'INCOMPLETE' as const, incompleteReasons: ['Nutrition profiles are unavailable.'] };
+    } finally {
+      if (productDraftRequestIdRef.current === requestId) setIsRecipeNutritionLoading(false);
+    }
+    if (productDraftRequestIdRef.current !== requestId) return;
+    setProductDraft(current => applyReadyToSellNutrition(current, recipe, nutrition));
   };
 
   useEffect(() => {
@@ -715,6 +741,8 @@ export default function StorePage({
   }, [readyToSellRecipe, onReadyToSellHandled]);
 
   const closeProductForm = () => {
+    productDraftRequestIdRef.current += 1;
+    setIsRecipeNutritionLoading(false);
     clearMealPhotos();
     productPhotoTransferIdRef.current += 1;
     setEditingProduct(null);
@@ -729,6 +757,8 @@ export default function StorePage({
   };
 
   const openProductEditor = (product: StoreProduct) => {
+    productDraftRequestIdRef.current += 1;
+    setIsRecipeNutritionLoading(false);
     productPhotoTransferIdRef.current += 1;
     setEditingProduct(product);
     clearMealPhotos();
@@ -797,7 +827,7 @@ export default function StorePage({
 
   const handleProductSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (isMealRecipeLoading) return;
+    if (isMealRecipeLoading || isRecipeNutritionLoading || isRecipePhotoLoading) return;
     if (!store || isSaving) return;
     const configuredDraft = prepareHealthyLunchDraft(productDraft);
 
@@ -832,7 +862,9 @@ export default function StorePage({
 
     setIsSaving(true);
     clearMessages();
+    setWeekCoverErrors({});
     let saveStage: ProductSaveStage = 'authorization';
+    let coverImageUpdated = false;
     try {
       await storeService.assertCanManageProducts({
         workspace,
@@ -873,8 +905,21 @@ export default function StorePage({
         const [slot, day] = key.split('_'); const week = configuredDraft.weeklyMenuVersion === 3 ? rotationWeeks?.[slot] : weeklyWeeks?.[slot];
         if (week) (week.meals as EmbeddedWeeklyMeals)[day].photoUrl = await uploadHealthyLunchMealPhoto({ workspaceId: workspace.id, productId, file });
       }));
+      await Promise.all((Object.entries(weekCoverFiles) as Array<[string, File]>).map(async ([slot, file]) => {
+        const week = configuredDraft.weeklyMenuVersion === 3 ? rotationWeeks?.[slot] : weeklyWeeks?.[slot];
+        if (week) {
+          try {
+            week.coverPhotoUrl = await uploadHealthyLunchMealPhoto({ workspaceId: workspace.id, productId, file });
+            coverImageUpdated = true;
+          }
+          catch (error) {
+            setWeekCoverErrors(current => ({ ...current, [slot]: 'Cover image upload failed. Please try again.' }));
+            throw error;
+          }
+        }
+      }));
       const embeddedCover = configuredDraft.weeklyMenuVersion === 3 ? rotationWeeks?.[WEEK_SLOTS.find(slot => rotationWeeks?.[slot])!]?.meals.mon : configuredDraft.weeklyMenuVersion === 2 ? (Object.values(weeklyWeeks || {}) as Array<{ startMonday: string; meals: EmbeddedWeeklyMeals }>).sort((a, b) => a.startMonday.localeCompare(b.startMonday))[0]?.meals.mon as HealthyLunchMeal | undefined : undefined;
-      const photoUrl = embeddedCover?.photoUrl || uploadedImages?.[0] || configuredDraft.photoUrl;
+      const photoUrl = uploadedImages?.[0] || configuredDraft.photoUrl || embeddedCover?.photoUrl;
       const nextDraft: StoreProductDraft = {
         ...configuredDraft,
         weeklyWeeks,
@@ -925,9 +970,9 @@ export default function StorePage({
       setIsProductFormOpen(false);
       clearMealPhotos();
       setRecentlySavedProductId(savedProduct.id);
-      setMessage(groupDeletionFailed
+      setMessage(`${coverImageUpdated ? '✓ Image Updated. ' : ''}${groupDeletionFailed
         ? 'Product saved. One unused option group could not be deleted; please try again.'
-        : editingProduct ? 'Product updated.' : 'Product added.');
+        : editingProduct ? 'Product updated.' : 'Product added.'}`);
     } catch (error) {
       console.error('[Store product save failed]', getProductSaveDiagnostic({
         error,
@@ -1097,7 +1142,7 @@ export default function StorePage({
       </nav>
 
       {(message || (errorMessage && !isProductFormOpen)) && (
-        <p className={`rounded-2xl px-4 py-3 font-sans text-sm font-bold ${
+        <p role={errorMessage ? 'alert' : 'status'} className={`rounded-2xl px-4 py-3 font-sans text-sm font-bold ${
           errorMessage ? 'bg-error/10 text-error' : 'bg-primary/10 text-primary'
         }`}>
           {errorMessage || message}
@@ -1187,19 +1232,35 @@ export default function StorePage({
                     const meals = (week?.meals || emptyMeals()) as EmbeddedWeeklyMeals;
                     const updateMeal = (day: string, patch: Partial<HealthyLunchMeal>) => setProductDraft(current => {
                       const nextMeal = updateHealthyLunchMeal(meals[day], patch);
-                      return current.weeklyMenuVersion === 3 ? { ...current, rotationWeeks: { ...current.rotationWeeks, [slot]: { meals: { ...meals, [day]: nextMeal } } } } : { ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: { startMonday: current.weeklyWeeks![slot]!.startMonday, meals: { ...meals, [day]: nextMeal } } } };
+                      return current.weeklyMenuVersion === 3 ? { ...current, rotationWeeks: { ...current.rotationWeeks, [slot]: { ...week, meals: { ...meals, [day]: nextMeal } } } } : { ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: { ...week, startMonday: current.weeklyWeeks![slot]!.startMonday, meals: { ...meals, [day]: nextMeal } } } };
                     });
                     return <details key={slot} open={Boolean(week)} className="rounded-xl border p-3"><summary className="cursor-pointer font-bold">Week {index + 1}</summary>
-                      {productDraft.weeklyMenuVersion === 3 ? <button type="button" onClick={() => { if (week) { setProductDraft(current => { const rotationWeeks = { ...current.rotationWeeks }; delete rotationWeeks[slot]; return { ...current, rotationWeeks }; }); } else setProductDraft(current => ({ ...current, rotationWeeks: { ...current.rotationWeeks, [slot]: { meals: emptyMeals() } } })); }} className="mt-3 rounded-full border px-4 py-2 text-sm font-bold">{week ? 'Remove week' : 'Configure week'}</button> : <label className="mt-3 block text-sm font-bold">Start Monday<input aria-label={`Week ${index + 1} start Monday`} type="date" value={week?.startMonday || ''} onChange={event => {
+                      {productDraft.weeklyMenuVersion === 3 ? <button type="button" onClick={() => { if (week) { setProductDraft(current => { const rotationWeeks = { ...current.rotationWeeks }; delete rotationWeeks[slot]; return { ...current, rotationWeeks }; }); } else setProductDraft(current => ({ ...current, rotationWeeks: { ...current.rotationWeeks, [slot]: { meals: emptyMeals(), discount: { type: 'none', value: 0 } } } })); }} className="mt-3 rounded-full border px-4 py-2 text-sm font-bold">{week ? 'Remove week' : 'Configure week'}</button> : <label className="mt-3 block text-sm font-bold">Start Monday<input aria-label={`Week ${index + 1} start Monday`} type="date" value={week?.startMonday || ''} onChange={event => {
                         const startMonday = event.target.value;
                         if (!startMonday) { for (const day of WEEKLY_DAYS) { const key = `${slot}_${day}`; if (mealPreviewUrls.current[key]) URL.revokeObjectURL(mealPreviewUrls.current[key]); delete mealPreviewUrls.current[key]; } setMealPhotoFiles(files => Object.fromEntries(Object.entries(files).filter(([key]) => !key.startsWith(`${slot}_`)))); }
                         setProductDraft(current => {
                           const weeklyWeeks = { ...current.weeklyWeeks };
-                          if (startMonday) weeklyWeeks[slot] = { startMonday, meals: structuredClone(meals) }; else delete weeklyWeeks[slot];
+                          if (startMonday) weeklyWeeks[slot] = { ...week, startMonday, meals: structuredClone(meals), ...(week ? {} : { discount: { type: 'none', value: 0 } }) }; else delete weeklyWeeks[slot];
                           return { ...current, weeklyWeeks, weeklyMeals: undefined };
                         });
                       }} className="mt-1 block w-full rounded-xl border p-3" /></label>}
+                      {week && <div className="mt-3 space-y-2">
+                        <WeeklyMenuShareButton label="Share Full Set" disabled={!editingProduct?.productSlug || !(editingProduct.rotationWeeks || editingProduct.weeklyWeeks)?.[slot]} onCopy={() => shareWeeklyMenu(slot)} />
+                        <WeekCoverUpload weekNumber={index + 1} imageUrl={week.coverPhotoUrl || editingProduct?.photoUrl} file={weekCoverFiles[slot]} disabled={isSaving} error={weekCoverErrors[slot]} onFileChange={file => {
+                          setWeekCoverFiles(current => ({ ...current, [slot]: file }));
+                          setWeekCoverErrors(current => ({ ...current, [slot]: '' }));
+                        }} />
+                      </div>}
+                      {week && <div className="mt-3 space-y-2"><label className="block text-sm font-bold">Weekly discount<select aria-label={`Week ${index + 1} discount`} value={week.discount?.type || 'legacy'} onChange={event => {
+                        const discount = { type: event.target.value as import('./types').WeeklyDiscount['type'], value: 0 };
+                        setProductDraft(current => current.weeklyMenuVersion === 3 ? { ...current, rotationWeeks: { ...current.rotationWeeks, [slot]: { ...week, meals: meals, discount } } } : { ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: { ...week, startMonday: week.startMonday!, meals, discount } } });
+                      }} className="block rounded-xl border p-2">{!week.discount && <option value="legacy">Existing weekly price (preserved)</option>}<option value="none">No Discount</option><option value="percentage">Percentage Discount</option><option value="fixed_amount">Fixed Amount Discount</option><option value="fixed_weekly_price">Fixed Weekly Price</option></select></label>
+                      {week.discount && week.discount.type !== 'none' && <label className="block text-sm">{week.discount.type === 'percentage' ? 'Discount (%)' : 'Amount'}<input aria-label={`Week ${index + 1} discount value`} type="number" min="0" step="0.01" value={week.discount.value} onChange={event => {
+                        const discount = { ...week.discount!, value: Number(event.target.value) };
+                        setProductDraft(current => current.weeklyMenuVersion === 3 ? { ...current, rotationWeeks: { ...current.rotationWeeks, [slot]: { ...week, meals, discount } } } : { ...current, weeklyWeeks: { ...current.weeklyWeeks, [slot]: { ...week, startMonday: week.startMonday!, meals, discount } } });
+                      }} className="block rounded-xl border p-2" /></label>}<p className="text-sm">Original Price: {WEEKLY_DAYS.reduce((sum, day) => sum + Math.round(meals[day].price * 100), 0) / 100}. Applies to the complete Monday–Friday Full Set. Meal options are charged separately.</p></div>}
                       {week && WEEKLY_DAYS.map(day => <fieldset key={day} className="mt-4 space-y-2 rounded-xl bg-surface-container-low p-3"><legend className="font-bold">{({ mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday' })[day]}</legend>
+                        <WeeklyMenuShareButton label="Share" disabled={!editingProduct?.productSlug || !(editingProduct.rotationWeeks || editingProduct.weeklyWeeks)?.[slot]} onCopy={() => shareWeeklyMenu(slot, day)} />
                         <label className="block text-sm font-bold">Link Recipe (optional)
                           <select aria-label={`Week ${index + 1} ${day} Recipe`} disabled={isMealRecipeLoading} value={meals[day].recipeId || ''} onChange={event => {
                             const recipeId = event.target.value;
@@ -1245,6 +1306,7 @@ export default function StorePage({
                 </label>
                 <label hidden={productDraft.weeklyMenuVersion === 2 || productDraft.weeklyMenuVersion === 3} className={productDraft.weeklyMenuVersion === 2 || productDraft.weeklyMenuVersion === 3 ? 'hidden' : 'block'}>
                   <span className="font-sans text-xs font-extrabold text-primary">Calories per serving (kcal)</span>
+                  {isRecipeNutritionLoading && <span role="status" className="block text-xs">Calculating Recipe nutrition…</span>}
                   <input ref={productCaloriesInputRef} type="number" min="0" step="1" value={productDraft.calories ?? ''} onChange={event => updateProduct('calories', event.target.value === '' ? undefined : Number(event.target.value))} className="mt-2 w-full rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3 font-sans text-sm font-bold text-primary outline-none focus:border-primary" />
                 </label>
                 <label className="block md:col-span-2">
@@ -1279,7 +1341,7 @@ export default function StorePage({
                 <label hidden={productDraft.weeklyMenuVersion === 2 || productDraft.weeklyMenuVersion === 3} className={productDraft.weeklyMenuVersion === 2 || productDraft.weeklyMenuVersion === 3 ? 'hidden' : 'block'}>
                   <span className="font-sans text-xs font-extrabold text-primary">Product Photo <span aria-hidden="true">*</span></span>
                   <input ref={productPhotoInputRef} type="file" accept="image/jpeg,image/png,image/webp" aria-required={!editingProduct && !productDraft.photoUrl} onChange={handleProductPhotoChange} className="mt-2 block w-full font-sans text-xs font-bold text-on-surface-variant" />
-                  {productPhotoPreviewUrl && <img src={productPhotoPreviewUrl} alt="Product photo preview" className="mt-3 h-32 w-32 rounded-xl border border-surface-container-high object-cover" />}
+                  {(productPhotoPreviewUrl || productDraft.photoUrl) && <img src={productPhotoPreviewUrl || productDraft.photoUrl} alt="Product photo preview" className="mt-3 h-32 w-32 rounded-xl border border-surface-container-high object-cover" />}
                   <span className="mt-1 block font-sans text-[11px] font-bold text-outline">
                     {isRecipePhotoLoading ? 'Loading Recipe photo…' : productPhotoFile?.name || (productDraft.photoUrl ? 'Existing photo retained' : 'Photo required')}
                   </span>
@@ -1429,7 +1491,7 @@ export default function StorePage({
                   </button>
                 )}
                 <button type="button" onClick={closeProductForm} className="rounded-full bg-surface-container px-5 py-3 font-sans text-xs font-extrabold text-primary">{productEditorPresentation.cancelAction}</button>
-                <button type="submit" disabled={isSaving || isMealRecipeLoading} className="rounded-full bg-primary px-6 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : productEditorPresentation.primaryAction}</button>
+                <button type="submit" disabled={isSaving || isMealRecipeLoading || isRecipeNutritionLoading || isRecipePhotoLoading} className="rounded-full bg-primary px-6 py-3 font-sans text-xs font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : productEditorPresentation.primaryAction}</button>
               </div>
             </form>
           )}
@@ -1497,6 +1559,7 @@ export default function StorePage({
         </section>
       )}
 
+      {activeView === 'promotions' && <StorePromotionCodesPanel workspaceId={workspace.id} canManage={permissions.manageStoreSettings} />}
       {activeView === 'promotions' && <StorePromotionsPanel workspaceId={workspace.id} userId={currentUser.uid} storeSlug={store?.slug || ''} storeName={store?.name || ''} products={products} canManage={permissions.manageStoreSettings} />}
 
       {activeView === 'sets' && (
@@ -1862,10 +1925,10 @@ export default function StorePage({
               <label><span className="text-xs font-bold">Minimum order total (MYR)</span><input type="number" min="0" step="0.01" value={delivery.subsidy.minimumMerchandiseSpend} onChange={event => update({ ...delivery, subsidy: { ...delivery.subsidy, minimumMerchandiseSpend: Number(event.target.value) } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Customer pays up to (MYR)</span><input type="number" min="0" step="0.01" value={delivery.subsidy.maximumCustomerDeliveryCharge} onChange={event => update({ ...delivery, subsidy: { ...delivery.subsidy, maximumCustomerDeliveryCharge: Number(event.target.value) } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
               </fieldset>
               <fieldset className="grid gap-3 md:col-span-2 md:grid-cols-2"><legend className="mb-3 text-sm font-bold">Delivery schedule</legend>
-              <div className="rounded-xl bg-white p-3 text-sm font-bold md:col-span-2"><p>Pre-order delivery</p><label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={delivery.fulfilment.preOrder.enabled} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, enabled: event.target.checked } } })} />Enabled</label><p className="mt-3">Instant Delivery</p><label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={delivery.fulfilment.instant.enabled} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, instant: { ...delivery.fulfilment.instant, enabled: event.target.checked } } })} />Enabled</label>{delivery.fulfilment.instant.enabled && <div className="mt-3 grid gap-2 sm:grid-cols-3"><label><span className="text-xs">Starts</span><input type="time" value={delivery.fulfilment.instant.operatingHours.start} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, instant: { ...delivery.fulfilment.instant, operatingHours: { ...delivery.fulfilment.instant.operatingHours, start: event.target.value } } } })} className="mt-1 w-full rounded-lg bg-surface-container-low p-2" /></label><label><span className="text-xs">Ends</span><input type="time" value={delivery.fulfilment.instant.operatingHours.end} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, instant: { ...delivery.fulfilment.instant, operatingHours: { ...delivery.fulfilment.instant.operatingHours, end: event.target.value } } } })} className="mt-1 w-full rounded-lg bg-surface-container-low p-2" /></label><label><span className="text-xs">Preparation minutes</span><input type="number" min="0" max="180" value={delivery.fulfilment.instant.preparationMinutes} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, instant: { ...delivery.fulfilment.instant, preparationMinutes: Number(event.target.value) } } })} className="mt-1 w-full rounded-lg bg-surface-container-low p-2" /></label></div>}</div>
+              <div className="rounded-xl bg-white p-3 text-sm font-bold md:col-span-2"><p>Pre-order delivery</p><label className="mt-2 flex items-center gap-2"><input type="checkbox" checked={delivery.fulfilment.preOrder.enabled} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, enabled: event.target.checked } } })} />Enabled</label><p className="mt-3">Delivery orders must be placed at least one day in advance. Existing instant bookings can still be managed in Orders.</p></div>
               <label><span className="text-xs font-bold">Delivery Hours — From</span><input type="time" value={delivery.fulfilment.preOrder.deliveryHours.from} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, deliveryHours: { ...delivery.fulfilment.preOrder.deliveryHours, from: event.target.value } } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Delivery Hours — To</span><input type="time" value={delivery.fulfilment.preOrder.deliveryHours.to} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, deliveryHours: { ...delivery.fulfilment.preOrder.deliveryHours, to: event.target.value } } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
               <label><span className="text-xs font-bold">Maximum Delivery Distance (km)</span><input type="number" min="1" max="500" value={delivery.fulfilment.preOrder.maximumDistanceKm} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, maximumDistanceKm: Number(event.target.value) } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
-              <label><span className="text-xs font-bold">Earliest delivery</span><select value={delivery.fulfilment.preOrder.earliestDays} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, earliestDays: Number(event.target.value) as 0 | 1 } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold"><option value={0}>Same day allowed</option><option value={1}>From tomorrow</option></select></label><label><span className="text-xs font-bold">Maximum advance booking</span><select value={delivery.fulfilment.preOrder.maximumAdvanceDays} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, maximumAdvanceDays: Number(event.target.value) as 7 | 14 | 30 } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold"><option value={7}>7 days</option><option value={14}>14 days</option><option value={30}>30 days</option></select></label>
+              <div><span className="text-xs font-bold">Earliest delivery</span><p className="mt-1 font-bold">From tomorrow (required)</p></div><label><span className="text-xs font-bold">Maximum advance booking</span><select value={delivery.fulfilment.preOrder.maximumAdvanceDays} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, maximumAdvanceDays: Number(event.target.value) as 7 | 14 | 30 } } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold"><option value={7}>7 days</option><option value={14}>14 days</option><option value={30}>30 days</option></select></label>
               <label className="md:col-span-2"><span className="text-xs font-bold">Unavailable delivery dates</span><input value={delivery.fulfilment.preOrder.unavailableDates.join(', ')} onChange={event => update({ ...delivery, fulfilment: { ...delivery.fulfilment, preOrder: { ...delivery.fulfilment.preOrder, unavailableDates: event.target.value.split(',').map(value => value.trim()).filter(Boolean) } } })} placeholder="YYYY-MM-DD, YYYY-MM-DD" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
               </fieldset>
               <details className="md:col-span-2 rounded-xl bg-white p-4"><summary className="cursor-pointer text-sm font-bold">Advanced settings</summary><div className="mt-3 grid gap-3 md:grid-cols-2">

@@ -66,7 +66,7 @@ test('both views use embedded photos, kcal and descriptions without a Single Pro
   assert.doesNotMatch(full, /Week [1-4]|Meal unavailable/);
   const day = renderEmbedded('day');
   assert.match(day, /Wed, 21 Oct/); assert.match(day, /wed direct lunch/); assert.match(day, /402 kcal/);
-  assert.match(day, /12\.00/); assert.match(day, /wed vegetables/); assert.match(day, /h-40 w-full/);
+  assert.match(day, /12\.00/); assert.match(day, /wed vegetables/); assert.match(day, /object-cover/);
   assert.match(day, /src="https:\/\/example.test\/wed.jpg"/); assert.equal((day.match(/<li /g) || []).length, 2);
 });
 
@@ -82,4 +82,44 @@ test('rotation shows real repeating dates and omits blocked days without exposin
   const full = view('week', '2026-10-26', ['2026-10-26'], []);
   assert.match(full, /B mon/); assert.match(full, /26–30 Oct/);
   assert.doesNotMatch(full, /Week [1-4]|week[1-4]/);
+});
+
+test('weekly display shows independent original, discount and final prices while daily prices stay unchanged', () => {
+  const meals = Object.fromEntries(WEEKLY_DAYS.map(day => [day, { name: `${day} lunch`, photoUrl: 'meal.jpg', price: 12 }]));
+  const plan = { ...product, weeklyMenuVersion: 3, weeklyWeeks: undefined, rotationStartMonday: '2026-10-19', rotationWeeks: { week1: { meals, discount: { type: 'percentage', value: 10 } }, week2: { meals, discount: { type: 'fixed_weekly_price', value: 40 } } } } as StoreProduct;
+  for (const [date, final] of [['2026-10-19', '54.00'], ['2026-10-26', '40.00']]) {
+    const html = renderToStaticMarkup(<HealthyLunchMenu product={plan} products={[]} currency="MYR" weeks={['2026-10-19','2026-10-26']} dayDates={[]} choice={{mode:'week',date}} onChange={() => {}} />);
+    assert.match(html, /Original Price/); assert.match(html, /Discount/); assert.match(html, /Final Weekly Price/); assert.ok(html.includes(final));
+  }
+});
+
+
+test('ingredients are disclosed without dropping source text and required exchanges stay open', () => {
+  const meals = Object.fromEntries(WEEKLY_DAYS.map(day => [day, { name: day, photoUrl: `https://example.test/${day}.jpg`, price: 12.9, description: 'Original ingredients', optionGroups: day === 'wed' ? [{id:'exchange',name:'Exchange',type:'exchange',selection:'single',required:true,options:[{id:'egg',name:'Onsen Egg',priceAdjustmentMinor:150}]}] : [] }]));
+  const plan = {...product, weeklyMenuVersion:2, weeklyWeeks:{week1:{startMonday:'2026-10-19',meals}}} as StoreProduct;
+  const html = renderToStaticMarkup(<HealthyLunchMenu product={plan} products={[]} currency="MYR" weeks={['2026-10-19']} dayDates={[]} choice={{mode:'week',date:'2026-10-19'}} onChange={() => {}} />);
+  assert.equal((html.match(/View Ingredients/g)||[]).length,5);
+  assert.equal((html.match(/Original ingredients/g)||[]).length,5);
+  assert.match(html, /<details[^>]*open=""[^>]*>[\s\S]*?Options &amp; exchanges/);
+  assert.match(html,/Onsen Egg/);assert.match(html,/Complete required choices for each meal/);
+  assert.match(html,/<button[^>]*disabled=""[^>]*>Add 5-Day Plan/);
+});
+
+test('shared day opens only its selected meal and unavailable shared weeks never silently choose another week', () => {
+  const props = {product, products, currency:'MYR' as const, weeks:['2026-10-19','2026-10-26'], dayDates:['2026-10-20','2026-10-21'], onChange:()=>{}, sharedSelection:true};
+  const day = renderToStaticMarkup(<HealthyLunchMenu {...props} choice={{mode:'day',date:'2026-10-21'}} />);
+  assert.equal((day.match(/<li /g)||[]).length,1);
+  assert.match(day,/wed lunch/);
+  assert.doesNotMatch(day,/tue lunch/);
+  const week = renderToStaticMarkup(<HealthyLunchMenu {...props} choice={{mode:'week',date:''}} />);
+  assert.match(week,/This shared menu is not currently available/);
+  assert.match(week,/disabled=""[^>]*>Add 5-Day Plan/);
+  assert.equal((week.match(/<li /g)||[]).length,0);
+});
+
+test('a closed shared week stays visible with Add disabled', () => {
+  const html=renderToStaticMarkup(<HealthyLunchMenu product={product} products={products} currency="MYR" choice={{mode:'week',date:'2026-10-19'}} weeks={['2026-10-19']} dayDates={[]} sharedSelection sharedUnavailable canOrder={false} onChange={()=>{}} />);
+  assert.match(html,/This shared menu is not currently available/);
+  assert.equal((html.match(/<li /g)||[]).length,5);
+  assert.match(html,/disabled=""[^>]*>Add 5-Day Plan/);
 });

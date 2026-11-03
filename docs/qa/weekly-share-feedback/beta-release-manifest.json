@@ -1,0 +1,12 @@
+{
+  "kind": "misechef-beta-release",
+  "version": 1,
+  "buildId": "3e095d18-f8ba-4d6e-ab44-f6638f7f5efd",
+  "builtAt": "2026-10-24T14:03:03.053Z",
+  "sourceCommit": "5ad8fb98c9ad16f60124a772477e6c20a55725a4",
+  "sourceTree": "f337da27755d01bc1c5390a6c41a9fe1a96e73fe",
+  "protectedBaseline": "06a37c0d30c47e037994454119a0461955df4ee3",
+  "entryAsset": "/assets/index-DHNm0rBK.js",
+  "entryAssetSha256": "12c141b99c2e02da820b66013bd305c8263d6d930c0ffd8346ce2a6095a10dad",
+  "storeShellAsset": "/assets/index-DHNm0rBK.js"
+}

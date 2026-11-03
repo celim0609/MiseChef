@@ -55,6 +55,7 @@ const customerOrder = document => {
     orderNumber: readString(data.orderNumber),
     orderDate: toIso(data.createdAt),
     storeName: readString(data.storeName) || 'Store',
+    ...(data.promotionCodeSnapshot ? {promotionCodeSnapshot:structuredClone(data.promotionCodeSnapshot)} : {}),
     itemCount: Math.max(0, readNumber(data.itemCount)),
     items,
     remarks: readString(data.notes),

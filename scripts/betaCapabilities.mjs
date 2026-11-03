@@ -61,6 +61,11 @@ const calleeName = expression => {
 export const discoverFirebaseFunctions = sourceText => {
   const sourceFile = ts.createSourceFile('functions/index.js', sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   const discovered = new Set();
+  const isFunctionBuilder = expression => {
+    const value = unwrapExpression(expression);
+    if (ts.isConditionalExpression(value)) return isFunctionBuilder(value.whenTrue) && isFunctionBuilder(value.whenFalse);
+    return ts.isCallExpression(value) && FUNCTION_BUILDERS.has(calleeName(value.expression));
+  };
 
   for (const statement of sourceFile.statements) {
     if (!ts.isVariableStatement(statement)) continue;
@@ -69,8 +74,7 @@ export const discoverFirebaseFunctions = sourceText => {
     for (const declaration of statement.declarationList.declarations) {
       if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
       const initializer = unwrapExpression(declaration.initializer);
-      if (!ts.isCallExpression(initializer)) continue;
-      if (FUNCTION_BUILDERS.has(calleeName(initializer.expression))) discovered.add(declaration.name.text);
+      if (isFunctionBuilder(initializer)) discovered.add(declaration.name.text);
     }
   }
 

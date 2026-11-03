@@ -27,3 +27,7 @@ Actual Chrome native print preview exposed an extra blank trailing page for batc
 Live daily pickup went through Preparing → Ready → Completed. Firestore readback confirms only today's completion exists, tomorrow has no operation/completion, the parent remains New, and payment/items/allocations/total remain unchanged. The other eight fixture documents remain equivalent to their pre-print baseline.
 
 Production verification has NOT passed and no Production workflow has been dispatched.
+
+## Later release reconciliation / Issue 160
+
+The preceding pending-release notes describe the original QA session, not current authority. On Issue 160 inspection (19 October), live Beta reports corrected `5cdad56b2319341d27c6b8778f4209a5b2471e48`; the independently completed prior ticket-only Production release reports `a907e951ca247f2f71f272a27c26fcf5bfcfe79f`. See `docs/qa/pos-daily-fulfilment-160.md` for the new manual POS workflow, local verification and pending protected Beta acceptance. Issue 160 does not authorize a Production deployment.
