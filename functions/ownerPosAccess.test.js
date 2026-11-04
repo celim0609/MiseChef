@@ -75,3 +75,34 @@ test('Manager POS can order a Set with a hidden component and a hidden Weekly Me
   assert.equal(weeklyOrder.fulfilments.length, 5);
   assert.ok(weeklyOrder.fulfilments.every(day => day.allocations[0].quantity === 40));
 });
+
+for(const method of ['pickup','delivery']) for(const date of ['2020-01-01','2026-10-18','2030-12-31']) {
+  test(`privileged catalog POS preserves ${date} at 00:01 for ${method}`,()=>{
+    const request={...input(2),fulfilmentMethod:method,deliveryAddress:'QA destination',fulfilmentDate:date,fulfilmentTime:'00:01'};
+    const restricted={...checkout,store:{...store,orderDays:[],unavailableDates:[date]},products:[{...product,available:true,availableDay:'friday'}]};
+    const built=buildExternalOrderItems(request,restricted,new Date('2026-10-18T04:00:00Z'),{owner:true});
+    assert.equal(built.fulfilments[0].date,date);
+    assert.equal(built.fulfilments[0].time,'00:01');
+    assert.equal(built.items[0].lineTotal,18);
+    assert.throws(()=>buildExternalOrderItems(request,restricted,new Date('2026-10-18T04:00:00Z')));
+  });
+}
+
+test('historical dated Weekly Plans and Sets ignore cutoff, blocked days and Store hours at canonical prices',()=>{
+  const date='2020-01-06';
+  const meals=Object.fromEntries(['mon','tue','wed','thu','fri'].map(day=>[day,{name:`${day} meal`,photoUrl:'meal.jpg',price:12}]));
+  const plan={id:'week',storeId:'workspace-1',workspaceId:'workspace-1',name:'Weekly',productType:'weekly_meal_plan',weeklyMenuVersion:2,weeklyWeeks:{week1:{startMonday:date,meals}},available:true,price:60,optionGroupIds:[]};
+  const catalog={...checkout,store:{...store,id:'workspace-1',orderDays:[],unavailableDates:getFiveDates(),orderCutoffTime:'00:00'},products:[plan]};
+  function getFiveDates(){return ['2020-01-06','2020-01-07','2020-01-08','2020-01-09','2020-01-10'];}
+  for(const method of ['pickup','delivery']){
+    const request={selections:[{productId:'week',quantity:2,selectedOptions:[]}],fulfilmentMethod:method,fulfilmentDate:date,fulfilmentTime:'23:59',deliveryAddress:'QA address'};
+    const built=buildExternalOrderItems(request,catalog,new Date('2026-11-04T04:00:00Z'),{owner:true});
+    assert.deepEqual(built.fulfilments.map(day=>day.date),getFiveDates());
+    assert.equal(built.items[0].lineTotal,120);
+    assert.throws(()=>buildExternalOrderItems(request,catalog,new Date('2026-11-04T04:00:00Z')));
+  }
+  const set={id:'set',name:'Set',available:true,price:20,groups:[{id:'main',name:'Main',required:true,selectionCount:1,options:[{productId:'draft',priceAdjustment:2}]}]};
+  const built=buildExternalOrderItems({selections:[{setId:'set',quantity:2,selectedOptions:[],selectedSetItems:[{groupId:'main',productId:'draft'}]}],fulfilmentMethod:'pickup',fulfilmentDate:date,fulfilmentTime:'00:01'},{...checkout,sets:[set],products:[{...product,available:true,availableDay:'friday'}]},new Date('2026-11-04T04:00:00Z'),{owner:true});
+  assert.equal(built.items[0].lineTotal,44);
+  assert.equal(built.fulfilments[0].date,date);
+});

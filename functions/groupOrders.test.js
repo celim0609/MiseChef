@@ -142,7 +142,7 @@ test('existing order builder stores only server-resolved Group context', () => {
     paymentMethod: { id: 'cash_on_pickup', name: 'Cash on Pickup' },
     groupOrder: { id: 'group-1', shareCode: 'secure-code', name: 'Office', hostId: 'host-1', hostName: 'Host', rewardPercent: 5 },
     draft: { customerName: 'Guest', phone: '+60123456789', pickupDate: '2026-08-23', pickupSession: '9:00 AM', pickupLocationId: 'counter', notes: '', selections: [{ productId: 'meal', quantity: 1, selectedOptions: [] }] },
-    now: new Date('2026-08-23T01:00:00.000Z')
+    now: new Date('2026-08-22T01:00:00.000Z')
   });
   assert.equal(order.groupOrder.id, 'group-1');
   assert.equal(order.groupOrder.hostId, 'host-1');

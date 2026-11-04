@@ -33,6 +33,7 @@ export function previewManualLines(
   groups: StoreOptionGroup[],
   owner = false,
 ) {
+  if (owner) products = products.map(p => ({ ...p, healthyLunchBlockedDates: [] }));
   const rows = lines.map((line, index) => {
     let name = line.custom?.name || "Custom Item";
     let unitMinor = 0;

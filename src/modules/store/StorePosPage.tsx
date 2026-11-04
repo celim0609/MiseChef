@@ -245,7 +245,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const externalRequestIdRef = useRef(crypto.randomUUID());
   const [externalProducts, setExternalProducts] = useState<StoreProduct[]>([]);
   const [externalPosFullAccess, setExternalPosFullAccess] = useState(false);
-  const externalOrderableProducts = externalPosFullAccess ? externalProducts.map(product => ({ ...product, available: true })) : externalProducts;
+  const externalOrderableProducts = externalPosFullAccess ? externalProducts.map(product => ({ ...product, available: true, healthyLunchBlockedDates: [] })) : externalProducts;
   const [externalSets, setExternalSets] = useState<StoreSet[]>([]);
   const [externalOptionGroups, setExternalOptionGroups] = useState<StoreOptionGroup[]>([]);
   const [externalCart, setExternalCart] = useState<ExternalCartItem[]>([]);
@@ -448,7 +448,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       setExternalStore(loadedStore);
       setExternalProducts(products.filter(product => product.storeId === storeId && product.workspaceId === workspaceId && (posFullAccess || product.available)));
       setExternalOptionGroups(optionGroups);
-      const setProducts = posFullAccess ? products.map(product => ({ ...product, available: true })) : products;
+      const setProducts = posFullAccess ? products.map(product => ({ ...product, available: true, healthyLunchBlockedDates: [] })) : products;
       setExternalSets(sets.filter(set => set.available && !getStoreSetUnavailableReason(set, setProducts)));
     } catch (error) {
       setExternalError(error instanceof Error ? error.message : 'Unable to load Store products.');
@@ -481,7 +481,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     }
   };
   const addExternalProduct = (product: StoreProduct) => setExternalCart(current => {
-    const date = externalStore && product.availableDay && product.availableDay !== 'all' && !productAllowsFulfilmentDate(product,toMalaysiaDateKey()) ? getValidPickupDates(externalStore).find(date=>productAllowsFulfilmentDate(product,date)) || '' : '';
+    const date = !externalPosFullAccess && externalStore && product.availableDay && product.availableDay !== 'all' && !productAllowsFulfilmentDate(product,toMalaysiaDateKey()) ? getValidPickupDates(externalStore).find(date=>productAllowsFulfilmentDate(product,date)) || '' : '';
     const time = date && externalStore ? getPickupTimeSlots(externalStore,date)[0] || '' : '';
     const existing = current.find(item => item.key === `product:${product.id}`);
     return existing ? current.map(item => item === existing ? { ...item, quantity: Math.min(externalPosFullAccess ? 10000 : 20, item.quantity + 1) } : item) : [...current, { key: `product:${product.id}`, label: product.name, quantity: 1, date, time, selection: { productId: product.id, selectedOptions: [] } }];
@@ -537,7 +537,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     });
     const menuPreview = product?.productType === 'weekly_meal_plan' || item.selection.healthyLunchPlanId ? previewManualLines([{quantity:item.quantity,date:item.date || '',time:item.time || '',method:'pickup',deliveryAddress:'',notes:'',selection:item.selection}],externalProducts,externalSets,externalOptionGroups,externalPosFullAccess).rows[0] : null;
     const fulfilmentDate = item.date || externalDate;
-    const scheduleError = externalStore && !(product?.productType==='weekly_meal_plan' && !item.selection.healthyLunchDate) ? fulfilmentDate ? (!getValidPickupDates(externalStore).includes(fulfilmentDate) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(item.time || externalTime) ? 'Choose an available fulfilment date and time.' : '') : [product,...(item.selection.selectedSetItems || []).map(choice=>externalProducts.find(product=>product.id===choice.productId))].filter(Boolean).some(product=>!productAllowsFulfilmentDate(product,toMalaysiaDateKey())) ? 'Choose a fulfilment date matching the selected dish’s Available day.' : '' : '';
+    const scheduleError = !externalPosFullAccess && externalStore && !(product?.productType==='weekly_meal_plan' && !item.selection.healthyLunchDate) ? fulfilmentDate ? (!getValidPickupDates(externalStore).includes(fulfilmentDate) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(item.time || externalTime) ? 'Choose an available fulfilment date and time.' : '') : [product,...(item.selection.selectedSetItems || []).map(choice=>externalProducts.find(product=>product.id===choice.productId))].filter(Boolean).some(product=>!productAllowsFulfilmentDate(product,toMalaysiaDateKey())) ? 'Choose a fulfilment date matching the selected dish’s Available day.' : '' : '';
     const unitPrice = menuPreview ? (menuPreview.unitMinor || 0)/100 : set
       ? calculateStoreSetAnalysis(set, externalProducts, item.selection.selectedSetItems || []).sellingPrice
       : calculateStoreOptionAdjustedPrice(product?.price || 0, adjustments);
@@ -792,7 +792,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                     </div>
                   </article>
                 ))}
-                {externalStore && externalOrderableProducts.filter(product => product.productType === 'weekly_meal_plan').map(product => <div key={product.id} hidden={externalCategory === 'sets'} className="col-span-full min-w-0"><PosWeeklyMenu exactTime disabled={creatingExternal || externalLoading} product={product} products={externalOrderableProducts} store={externalStore} onAdd={(choice,time) => addExternalMenu(product,choice,time)}/></div>)}
+                {externalStore && externalOrderableProducts.filter(product => product.productType === 'weekly_meal_plan').map(product => <div key={product.id} hidden={externalCategory === 'sets'} className="col-span-full min-w-0"><PosWeeklyMenu unrestricted={externalPosFullAccess} exactTime disabled={creatingExternal || externalLoading} product={product} products={externalOrderableProducts} store={externalStore} onAdd={(choice,time) => addExternalMenu(product,choice,time)}/></div>)}
               </div>
             </div>
 
@@ -813,7 +813,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                   </div>
                   {item.date && <p className="mt-2 text-xs font-bold">{item.selection.healthyLunchDate ? item.date : externalProducts.find(product=>product.id===item.selection.productId)?.productType==='weekly_meal_plan' ? getWeeklyDates(item.date).join(' · ') : item.date} · {item.time}</p>}
                   {item.previewError && <p role="alert" className="text-sm text-red-700">{item.previewError}</p>}
-                  {!item.selection.healthyLunchPlanId && externalProducts.find(product=>product.id===item.selection.productId)?.productType!=='weekly_meal_plan' && <div className="mt-2 flex flex-wrap gap-2 text-xs"><label>Item date (blank = order date)<input type="date" disabled={creatingExternal} aria-label={`${item.label} fulfilment date`} value={item.date || ''} onChange={event=>setExternalCart(current=>current.map(line=>line.key===item.key?{...line,date:event.target.value,time:event.target.value?(externalStore ? getPickupTimeSlots(externalStore,event.target.value)[0] || '' : ''):''}:line))} className="block rounded border p-2"/></label></div>}
+                  {!item.selection.healthyLunchPlanId && externalProducts.find(product=>product.id===item.selection.productId)?.productType!=='weekly_meal_plan' && <div className="mt-2 flex flex-wrap gap-2 text-xs"><label>Item date (blank = order date)<input type="date" disabled={creatingExternal} aria-label={`${item.label} fulfilment date`} value={item.date || ''} onChange={event=>setExternalCart(current=>current.map(line=>line.key===item.key?{...line,date:event.target.value,time:event.target.value?(externalPosFullAccess ? line.time || externalTime || '12:00' : externalStore ? getPickupTimeSlots(externalStore,event.target.value)[0] || '' : ''):''}:line))} className="block rounded border p-2"/></label></div>}
                   {item.date && <label className="block text-xs">Fulfilment time<input type="time" disabled={creatingExternal} aria-label={`${item.label} fulfilment time`} value={item.time || ''} onChange={event=>setExternalCart(current=>current.map(line=>line.key===item.key?{...line,time:event.target.value}:line))} className="ml-2 rounded border p-2"/></label>}
                   {item.selection.setId && externalSets.find(set=>set.id===item.selection.setId)?.groups.map(group=><fieldset key={group.id} disabled={creatingExternal} className="mt-2 border-t pt-2 text-xs"><legend className="font-bold">{group.name} · choose {group.selectionCount}{group.required?' (required)':''}</legend>{group.options.map(option=>{const product=externalProducts.find(product=>product.id===option.productId);return product && <label key={option.productId} className="mr-3 inline-flex items-center gap-1 py-1"><input type={group.selectionCount===1?'radio':'checkbox'} name={`${item.key}-${group.id}`} checked={item.selection.selectedSetItems?.some(choice=>choice.groupId===group.id&&choice.productId===option.productId)||false} onChange={()=>updateExternalSetChoice(item.key,group.id,option.productId,group.selectionCount)}/>{product.name}{option.priceAdjustment?` (+${option.priceAdjustment.toFixed(2)})`:''}</label>})}</fieldset>)}
                   {item.selection.productId && externalProducts.find(product => product.id === item.selection.productId)?.optionGroupIds.map(groupId => {

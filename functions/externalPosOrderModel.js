@@ -6,6 +6,7 @@ import { mergeMealOptionSnapshots, resolveSelectionMealOptions } from './healthy
 
 // Prices and daily meal snapshots always come from the Store catalog, not POS inputs.
 export function buildExternalOrderItems(input, checkout, now = new Date(), { owner = false } = {}) {
+  if (owner) checkout = { ...checkout, products: checkout.products.map(p => ({ ...p, healthyLunchBlockedDates: [] })) };
   const method = input.fulfilmentMethod || 'pickup';
   if (input.selections?.some(selection => !Number.isInteger(selection.quantity) || selection.quantity < 1 || selection.quantity > (owner ? 10000 : 20))) throw new Error('Choose a valid quantity.');
   if (owner) {
@@ -37,7 +38,7 @@ export function buildExternalOrderItems(input, checkout, now = new Date(), { own
     if ((date && !time) || (!date && time)) throw new Error('Choose both a fulfilment date and time.');
     if (!date) {
       const selectedProducts = selection.setId ? (selection.selectedSetItems || []).map(choice=>checkout.products.find(product=>product.id===choice.productId)) : [product];
-      if (selectedProducts.some(product=>product && !productAllowsFulfilmentDate(product,immediateDate))) throw new Error('Choose a fulfilment date matching the selected dish’s Available day.');
+      if (!owner && selectedProducts.some(product=>product && !productAllowsFulfilmentDate(product,immediateDate))) throw new Error('Choose a fulfilment date matching the selected dish’s Available day.');
     }
     let daily;
     if (date) {

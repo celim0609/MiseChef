@@ -202,7 +202,7 @@ export const getValidPickupDates = (store, currentDate = new Date()) => {
   const enabledDays = new Set(Array.isArray(store.orderDays) ? store.orderDays : ORDER_DAY_BY_INDEX);
   const blockedDates = new Set(Array.isArray(store.unavailableDates) ? store.unavailableDates : []);
   const afterCutoff = isAfterOrderCutoff(store, currentDate);
-  const earliest = (store.earliestPickupDays === 1 ? 1 : 0) + (afterCutoff ? 1 : 0);
+  const earliest = Math.max(1, (store.earliestPickupDays === 1 ? 1 : 0) + (afterCutoff ? 1 : 0));
   const maximum = [7, 14, 30].includes(store.maximumAdvanceDays) ? store.maximumAdvanceDays : 14;
   const dates = [];
 

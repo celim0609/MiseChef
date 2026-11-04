@@ -42,6 +42,7 @@ const money = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 export const malaysiaDate = (now = new Date()) =>
   new Date(now.getTime() + 28800000).toISOString().slice(0, 10);
 export function buildManualOrder(input, checkout, now = new Date(), { owner = false } = {}) {
+  if (owner) checkout = { ...checkout, products: checkout.products.map(p => ({ ...p, healthyLunchBlockedDates: [] })) };
   if (!["whatsapp", "phone", "walk_in", "other"].includes(input.source))
     fail("Choose a manual order source.");
   if (
@@ -54,7 +55,8 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
   const days = new Map();
   const privateItems = [];
   const add = (line, date, allocation) => {
-    if (!validCalendarDate(date) || date <= malaysiaDate(now))
+    if (!validCalendarDate(date)) fail("Choose a valid fulfilment date.");
+    if (!owner && date <= malaysiaDate(now))
       fail("Preorders require at least one Malaysia calendar day in advance.");
     if (
       !/^([01]\d|2[0-3]):[0-5]\d$/.test(line.time) ||
@@ -63,11 +65,11 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
       fail("Choose a valid fulfilment time and method.");
     // Manual delivery is customer-arranged. Never book or quote Lalamove here.
     if (
-      line.method === "pickup" &&
+      !owner && line.method === "pickup" &&
       !getPickupTimeSlots(checkout.store, date, now).includes(line.time)
     )
       fail("Choose an available pickup time.");
-    if (!getValidPickupDates(checkout.store, now).includes(date))
+    if (!owner && !getValidPickupDates(checkout.store, now).includes(date))
       fail("Choose an available Store date.");
     const key = `${date}_${line.time.replace(":", "")}_${line.method}`;
     const entry = days.get(key) || {
@@ -164,7 +166,7 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
           (p) => p.id === selection.productId,
         );
         if (
-          hasDatedMenu(plan) &&
+          !owner && hasDatedMenu(plan) &&
           (!isDatedWeekOpen(checkout.store, line.date, now) ||
             isHealthyLunchWeekBlocked(plan, line.date))
         )
@@ -201,7 +203,7 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
           ? item.setSnapshot.selectedGroups.map((g) => g.productId)
           : [item.productId];
         if (
-          !selection.healthyLunchDate &&
+          !owner && !selection.healthyLunchDate &&
           productIds.some(
             (id) =>
               !productAllowsFulfilmentDate(

@@ -70,7 +70,7 @@ export default function ManualPosOrders({
     (order) => order.payment.status === "pending",
   );
   const paid = manualOrders.filter((order) => order.payment.status === "paid");
-  const posProducts = posFullAccess ? products.map((product) => ({ ...product, available: true })) : products;
+  const posProducts = posFullAccess ? products.map((product) => ({ ...product, available: true, healthyLunchBlockedDates: [] })) : products;
   const preview = previewManualLines(draft.lines, posProducts, sets, groups, posFullAccess);
   const money = (minor: number) => `${currency} ${(minor / 100).toFixed(2)}`;
   const [slug, setSlug] = useState("");
@@ -473,7 +473,7 @@ export default function ManualPosOrders({
                   Default fulfilment date
                   <input
                     type="date"
-                    min={shiftDateKey(toMalaysiaDateKey(), 1)}
+                    min={posFullAccess ? undefined : shiftDateKey(toMalaysiaDateKey(), 1)}
                     value={defaultDate}
                     onChange={(e) => setDefaultDate(e.target.value)}
                   />
@@ -709,7 +709,7 @@ export default function ManualPosOrders({
                     <input
                       className={input}
                       type="date"
-                      min={shiftDateKey(toMalaysiaDateKey(), 1)}
+                      min={posFullAccess ? undefined : shiftDateKey(toMalaysiaDateKey(), 1)}
                       value={line.date}
                       onChange={(e) =>
                         update(i, {

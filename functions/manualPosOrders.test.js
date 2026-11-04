@@ -492,3 +492,29 @@ test('FPX receipt recording uses exact saved amount, revision, acknowledgment an
   assert.equal(writes.length,count);
   assert.equal(docs[`storeOrders/${saved.orderId}`].payment.providerPaymentMethod,'fpx');
 });
+
+for (const role of ['owner', 'manager']) {
+  for (const method of ['pickup', 'delivery']) {
+    test(`${role} records historical, same-day and distant Custom Items without shifting fulfilment dates (${method})`, async () => {
+      const { db, docs } = database({
+        'workspaces/s': workspace,
+        'workspaceMembers/s_manager': {workspaceId:'s',userId:'manager',status:'Active',role:'Manager'},
+      });
+      const dates = ['2020-01-01', '2026-10-18', '2030-12-31'];
+      const result = await saveManualPosOrder({db,uid:role,now,loadCheckout:async()=>checkout,input:{...input(),lines:dates.map(date=>({custom:{name:'Historical special',unitPrice:12},quantity:2,date,time:'00:01',method,deliveryAddress:method==='delivery'?'QA address':'',notes:''}))}});
+      const order=docs[`storeOrders/${result.orderId}`];
+      assert.deepEqual(order.fulfilments.map(day=>day.date),dates);
+      assert.ok(order.fulfilments.every(day=>day.time==='00:01'&&day.method===method));
+      assert.equal(order.createdAt,now.toISOString());
+      assert.equal(order.total,72);
+      assert.equal(order.payment.status,'pending');
+    });
+  }
+}
+test('manual full access bypasses Store and product date rules but still rejects malformed schedules', () => {
+  const restricted={...checkout,store:{...store,orderDays:[],unavailableDates:['2020-01-01']},products:products.map(p=>({...p,availableDay:'friday'}))};
+  const request={...input(),lines:[{...line('prawn','2020-01-01'),time:'23:59'}]};
+  assert.equal(buildManualOrder(request,restricted,now,{owner:true}).fulfilments[0].date,'2020-01-01');
+  assert.throws(()=>buildManualOrder(request,restricted,now));
+  for(const change of [{date:'2020-02-30'},{time:'24:01'}]) assert.throws(()=>buildManualOrder({...request,lines:[{...request.lines[0],...change}]},restricted,now,{owner:true}));
+});

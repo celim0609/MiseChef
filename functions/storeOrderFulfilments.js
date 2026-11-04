@@ -30,7 +30,7 @@ export const buildOrderFulfilments = ({ store, draft, products, groupOrder, getD
   const weekly = isFullWeekSelection(selections[0], products);
   const selectedMeals = weekly ? resolveWeeklyMeals(plan, schedule[0].date) : null;
   if (weekly) {
-    if (!selectedMeals || (hasDatedMenu(plan) && (!isDatedWeekOpen(store, schedule[0].date, now) || isHealthyLunchWeekBlocked(plan, schedule[0].date)))) throw new Error('This 5-Day Plan is closed or unavailable.');
+    if (!selectedMeals || (!owner && hasDatedMenu(plan) && (!isDatedWeekOpen(store, schedule[0].date, now) || isHealthyLunchWeekBlocked(plan, schedule[0].date)))) throw new Error('This 5-Day Plan is closed or unavailable.');
     const invalid = validateWeeklyMealPlan(plan, products, store.workspaceId || store.id, schedule[0].date);
     if (invalid) throw new Error(invalid);
     const dates = getWeeklyDates(schedule[0].date);
@@ -53,12 +53,12 @@ export const buildOrderFulfilments = ({ store, draft, products, groupOrder, getD
   if (!delivery && !location) throw new Error('Choose a valid pickup location.');
   const seen = new Set();
   const fulfilments = schedule.map((entry, dayIndex) => {
-    if (weekly && hasDatedMenu(plan) ? !datedFullWeekAvailable : !dates.includes(entry.date)) throw new Error('Choose an available fulfilment date.');
-    if (delivery) {
+    if (!owner && (weekly && hasDatedMenu(plan) ? !datedFullWeekAvailable : !dates.includes(entry.date))) throw new Error('Choose an available fulfilment date.');
+    if (!owner && delivery) {
       const hours = preOrder?.deliveryHours || { from: '00:00', to: '23:59' };
       if (preOrder?.enabled === false || entry.time < hours.from || entry.time > hours.to
         || entry.date <= new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).format(now)) throw new Error('Order delivery at least one day ahead. Choose a future delivery time within Store hours.');
-    } else if (!getTimes(store, entry.date, now).includes(entry.time)) throw new Error('Choose an available pickup time for every day.');
+    } else if (!owner && !getTimes(store, entry.date, now).includes(entry.time)) throw new Error('Choose an available pickup time for every day.');
     const allocations = entry.itemIndexes.map(itemIndex => {
       const selection = selections[itemIndex];
       if (!selection || (!weekly && seen.has(itemIndex))) throw new Error('Each cart line must belong to exactly one fulfilment.');
@@ -66,8 +66,8 @@ export const buildOrderFulfilments = ({ store, draft, products, groupOrder, getD
       const dayMeal = validateHealthyLunchDay(selection, products, entry.date, store.workspaceId || store.id);
       const product = weekly ? resolvePlanMeal(plan, products, schedule[0].date, WEEKLY_DAYS[dayIndex]) : dayMeal || products.find(product => product.id === selection.productId);
       if (selection.setId) {
-        if ((selection.selectedSetItems || []).some(item => !productAllowsFulfilmentDate(products.find(product => product.id === item.productId) || {}, entry.date))) throw new Error('A Set meal does not match its Available day.');
-      } else if (!product || (!weekly && !productAllowsFulfilmentDate(product, entry.date))) throw new Error('A meal does not match its Available day.');
+        if (!owner && (selection.selectedSetItems || []).some(item => !productAllowsFulfilmentDate(products.find(product => product.id === item.productId) || {}, entry.date))) throw new Error('A Set meal does not match its Available day.');
+      } else if (!product || (!owner && !weekly && !productAllowsFulfilmentDate(product, entry.date))) throw new Error('A meal does not match its Available day.');
       if (!Number.isInteger(selection.quantity) || selection.quantity < 1 || selection.quantity > (owner ? 10000 : 20)) throw new Error('Choose a valid quantity.');
       return { itemIndex, quantity: selection.quantity, ...(weekly ? { componentDay: WEEKLY_DAYS[dayIndex] } : {}) };
     });
