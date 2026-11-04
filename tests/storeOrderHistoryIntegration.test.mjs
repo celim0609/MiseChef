@@ -53,7 +53,7 @@ test('actual new-order writes remain queryable after Completed and Cancelled tra
       hostId: `${workspaceId}-host`,
       hostName: 'Test Host',
       name: 'Regression Group',
-      pickupDate: '2026-08-22',
+      pickupDate: '2026-08-23',
       pickupSession: 'Breakfast',
       pickupLocationId: 'counter',
       pickupLocationName: 'Main Counter',
@@ -71,7 +71,7 @@ test('actual new-order writes remain queryable after Completed and Cancelled tra
   ]);
   const adapter = createManualPaymentAdapter(paymentMethod);
   const draft = suffix => ({
-    customerName: `Customer ${suffix}`, phone: '+60123456789', pickupDate: '2026-08-22', pickupTime: '10:00',
+    customerName: `Customer ${suffix}`, phone: '+60123456789', pickupDate: '2026-08-23', pickupTime: '10:00',
     pickupSession: 'Breakfast', pickupLocationId: 'counter', notes: '',
     paymentMethodId: paymentMethod.id,
     selections: [{ productId: `${workspaceId}-product`, quantity: 1, selectedOptions: [] }]
