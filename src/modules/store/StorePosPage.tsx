@@ -876,7 +876,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                     </div>
                   </article>
                 ))}
-                {externalStore && externalOrderableProducts.filter(product => product.productType === 'weekly_meal_plan').map(product => <div key={product.id} hidden={externalCategory === 'sets'} className="col-span-full min-w-0"><PosWeeklyMenu cartFeedback={weeklyCartFeedback(product)} unrestricted={externalPosFullAccess} exactTime disabled={creatingExternal || externalLoading} product={product} products={externalOrderableProducts} store={externalStore} onAdd={(choice,time) => addExternalMenu(product,choice,time)}/></div>)}
+                {externalStore && externalOrderableProducts.filter(product => product.productType === 'weekly_meal_plan').map(product => <div key={product.id} hidden={externalCategory === 'sets'} className="col-span-full min-w-0"><PosWeeklyMenu defaultDate={externalDate} defaultTime={externalTime} cartFeedback={weeklyCartFeedback(product)} unrestricted={externalPosFullAccess} exactTime disabled={creatingExternal || externalLoading} product={product} products={externalOrderableProducts} store={externalStore} onAdd={(choice,time) => addExternalMenu(product,choice,time)}/></div>)}
               </div>
             </div>
 
