@@ -484,3 +484,29 @@ test('POS delivery checkout uses stored quote totals, rejects stale/forged fees,
   assert.equal(order.total,29);assert.equal(order.fulfilments[0].date,'2020-01-01');assert.equal(order.totals.deliveryFee,5);assert.equal(order.posDeliveryPricing.providerDeliveryFee,null);assert.equal(order.posDeliveryPricing.authorizedBy,manager);assert.equal(bookings,0);
  }finally{await deleteApp(app);}
 });
+
+test('manual store delivery saves a server quotation into pending totals and confirms the same amount once',async()=>{
+ const {createPosDeliveryQuote}=await import('../functions/posDeliveryQuotes.js');
+ const {buildManualOrder,manualDeliveryInput}=await import('../functions/manualPosOrders.js');
+ const {loadStoreCheckoutData}=await import('../functions/storePayments.js');
+ const {assertOperator}=await import('../functions/externalPosOrders.js');
+ const app=initializeApp({projectId:'demo-misechef-store-payment-rules'},`manual-delivery-${process.pid}`),db=getFirestore(app);
+ const workspaceId=`manual-delivery-${process.pid}`,uid=`${workspaceId}-owner`;
+ try {
+  await db.collection('workspaces').doc(workspaceId).set({ownerId:uid,subscriptionPlan:'professional',subscriptionStatus:'active'});
+  await db.collection('stores').doc(workspaceId).set({workspaceId,slug:workspaceId,name:'Disposable manual delivery Store',currency:'MYR',pickupLocations:[{id:'counter',name:'Counter',address:'QA pickup'}],delivery:{enabled:true,provider:'lalamove',environment:'sandbox',market:'MY',serviceType:'MOTORCYCLE',pickup:{address:'QA pickup',latitude:'4.6',longitude:'101.1'},freeDelivery:{enabled:false}}});
+  const input={workspaceId,storeId:workspaceId,slug:workspaceId,source:'whatsapp',customerName:'Disposable QA',phone:'',notes:'',requestId:'manual-quoted-request-12345',manualPos:true,lines:[{custom:{name:'QA custom meal',unitPrice:12},quantity:2,date:'2099-01-01',time:'00:01',method:'delivery',deliveryArrangement:'store',deliveryAddress:'QA unit 2',destination:{placeId:'qa-place',formattedAddress:'QA unit 2',latitude:'0',longitude:'0'},notes:''}]};
+  let bookings=0;
+  const provider={environment:'sandbox',createQuote:async()=>({quotationId:'qa-quote',expiresAt:new Date(Date.now()+300000).toISOString(),serviceType:'MOTORCYCLE',priceBreakdown:{total:9.5,currency:'MYR'},stops:[]}),createOrder:()=>{bookings++;}};
+  const quote=await createPosDeliveryQuote({db,uid,input,provider,authorize:assertOperator,loadCheckout:loadStoreCheckoutData,buildItems:buildManualOrder,normalizeInput:manualDeliveryInput,resolvePlace:async()=>({latitude:4.61,longitude:101.11})});
+  const args={db,uid,input:{...input,posDeliveryQuoteId:quote.id,payment:{status:'paid'},total:1}};
+  const saved=await saveManualPosOrder(args);
+  let order=(await db.collection('storeOrders').doc(saved.orderId).get()).data();
+  assert.equal(order.total,33.5);assert.equal(order.payment.status,'pending');assert.equal(order.payment.amountMinor,3350);assert.equal(order.totals.deliveryFee,9.5);assert.equal(order.fulfilments[0].destination.latitude,'4.61');assert.equal(bookings,0);
+  assert.equal((await saveManualPosOrder(args)).duplicate,true);
+  await assert.rejects(saveManualPosOrder({...args,input:{...args.input,requestId:'manual-changed-request-12345',lines:input.lines.map(line=>({...line,time:'00:02'}))}}),/changed/);
+  await confirmManualPosPayment({db,uid,input:{orderId:saved.orderId,expectedRevision:1,amountMinor:3350,received:true,method:'bank_transfer',reference:'QA only'}});
+  order=(await db.collection('storeOrders').doc(saved.orderId).get()).data();
+  assert.equal(order.payment.status,'paid');assert.equal(order.payment.amountMinor,3350);assert.equal(bookings,0);
+ }finally{await deleteApp(app);}
+});

@@ -17,7 +17,7 @@ const validMoney = value => typeof value === 'number' && Number.isFinite(value) 
 
 // POS reuses canonical items, schedules, provider requests and fee policy. It does not
 // use public advance-order validation and never invokes a booking operation.
-export async function createPosDeliveryQuote({ db, uid, input, provider, authorize, loadCheckout, resolvePlace, now = new Date() }) {
+export async function createPosDeliveryQuote({ db, uid, input, provider, authorize, loadCheckout, resolvePlace, buildItems = buildExternalOrderItems, normalizeInput = value => value, now = new Date() }) {
   if (!uid) throw new HttpsError('unauthenticated', 'Sign in to estimate delivery.');
   const base = await loadCheckout(db, input?.slug);
   if (input.workspaceId !== base.store.workspaceId || input.storeId !== base.store.id) throw new HttpsError('permission-denied', 'Store ownership mismatch.');
@@ -25,19 +25,21 @@ export async function createPosDeliveryQuote({ db, uid, input, provider, authori
   const checkout = fullAccess ? await loadCheckout(db, input.slug, { includeUnavailable: true }) : base;
   if (checkout.store.id !== base.store.id || checkout.store.workspaceId !== base.store.workspaceId) throw new HttpsError('permission-denied', 'Store ownership mismatch.');
   const catalog = fullAccess ? { ...checkout, products: checkout.products.map(p => ({ ...p, available: true })) } : checkout;
+  input = normalizeInput(input, catalog.products);
   if (input.fulfilmentMethod !== 'delivery') fail('Choose Delivery to estimate a fee.');
-  if (!Array.isArray(input.selections) || !input.selections.length || input.selections.length > 50) fail('Choose 1–50 cart lines.');
-  const built = buildExternalOrderItems(input, catalog, now, { owner: fullAccess });
+  if (buildItems === buildExternalOrderItems && (!Array.isArray(input.selections) || !input.selections.length || input.selections.length > 50)) fail('Choose 1–50 cart lines.');
+  const built = buildItems(input, catalog, now, { owner: fullAccess });
+  const deliveryDays = built.fulfilments.filter(day => day.method === 'delivery' && day.deliveryArrangement !== 'customer');
   const config = checkout.store.delivery;
   if (checkout.store.currency !== 'MYR' || !config?.enabled || config.provider !== 'lalamove' || config.market !== 'MY' || config.environment !== provider.environment || !config.serviceType) fail('Lalamove quotation is unavailable for this Store.');
   const pickup = config.pickup;
   validateDestination({ formattedAddress: pickup?.address, latitude: pickup?.latitude, longitude: pickup?.longitude });
-  if (!built.fulfilments?.length || built.fulfilments.length > 20) fail('Use a manual delivery fee for more than 20 delivery schedules.');
+  if (!deliveryDays.length || deliveryDays.length > 20) fail('Use a manual delivery fee for more than 20 delivery schedules.');
   // Validate all schedules before requesting any provider quote (including mixed historical weeks).
-  for (const day of built.fulfilments) assertFutureLalamoveSchedule({ mode: 'preorder', date: day.date, time: day.time }, now.getTime());
+  for (const day of deliveryDays) assertFutureLalamoveSchedule({ mode: 'preorder', date: day.date, time: day.time }, now.getTime());
   const resolved = new Map();
   const dayQuotes = [];
-  for (const day of built.fulfilments) {
+  for (const day of deliveryDays) {
     const choice = input.deliveryDestinations?.[day.date] || input.destination;
     if (!choice?.placeId || typeof choice.placeId !== 'string' || choice.placeId.length > 300) fail('Select a Malaysian delivery location, or use a manual fee when address search is unavailable.');
     if (!resolved.has(choice.placeId)) resolved.set(choice.placeId, await resolvePlace(choice.placeId));
@@ -50,11 +52,13 @@ export async function createPosDeliveryQuote({ db, uid, input, provider, authori
   }
   // The existing policy allocates package cents across service days. Slot keys also
   // distinguish two fulfilment times on the same date without changing the schedule.
+  const deliveryItemIndexes = [...new Set(deliveryDays.flatMap(day => day.allocations.map(allocation => allocation.itemIndex)))].sort((a,b) => a-b);
+  const deliveryItems = deliveryItemIndexes.map(index => built.items[index]);
   const pricing = calculateDeliveryDayPricing({ config, pickup, destination: dayQuotes[0].destination, providerFee: dayQuotes[0].quote.fee,
-    items: built.items.map(item => ({ ...item, ...(item.mealOptionDays ? { mealOptionDays: built.fulfilments.flatMap(day => item.mealOptionDays.filter(option => option.serviceDate === day.date).map(option => ({ ...option, serviceDate: posSlotKey(day) }))) } : {}) })),
-    fulfilments: built.fulfilments.map(day => ({ ...day, date: posSlotKey(day) })),
+    items: deliveryItems.map(item => ({ ...item, ...(item.mealOptionDays ? { mealOptionDays: built.fulfilments.flatMap(day => item.mealOptionDays.filter(option => option.serviceDate === day.date).map(option => ({ ...option, serviceDate: posSlotKey(day) }))) } : {}) })),
+    fulfilments: deliveryDays.map(day => ({ ...day, date: posSlotKey(day), allocations: day.allocations.map(allocation => ({ ...allocation, itemIndex: deliveryItemIndexes.indexOf(allocation.itemIndex) })) })),
     dayQuotes: dayQuotes.map(day => ({ ...day, date: day.key })),
-    promotionPricing: { discountedMerchandiseTotal: money(built.items.reduce((sum, item) => sum + item.lineTotal, 0)), promotionSnapshot: { lineAdjustments: built.items.map(item => ({ finalLineTotal: item.lineTotal })) } },
+    promotionPricing: { discountedMerchandiseTotal: money(deliveryItems.reduce((sum, item) => sum + item.lineTotal, 0)), promotionSnapshot: { lineAdjustments: deliveryItems.map(item => ({ finalLineTotal: item.lineTotal })) } },
   });
   const days = dayQuotes.map(day => ({ ...day, ...pricing.days.find(price => price.date === day.key), date: day.date }));
   const id = randomUUID();

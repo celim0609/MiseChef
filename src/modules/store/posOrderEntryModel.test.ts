@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { claimPosAdd, posDeliveryDates, currentPosQuote, type PosQuote } from './posOrderEntryModel';
+import { claimPosAdd, posDeliveryDates, currentPosQuote, posInitialItemDate, type PosQuote } from './posOrderEntryModel';
 
 test('rapid Add events add once; later intentional quantity changes remain available',()=>{
  const recent=new Map<string,number>();
@@ -19,4 +19,11 @@ test('quote responses from an older address or schedule and expired quotes are u
  assert.equal(currentPosQuote(quote,'same','same',now),quote);
  assert.equal(currentPosQuote(quote,'old','changed',now),null);
  assert.equal(currentPosQuote(quote,'same','same',now+5000),null);
+});
+
+test('new full-week selections never inherit a non-Monday main date while explicit meal days remain untouched',()=>{
+ assert.equal(posInitialItemDate({productType:'weekly_meal_plan'},'2026-11-04'),'');
+ assert.equal(posInitialItemDate({productType:'weekly_meal_plan'},'2026-11-09'),'2026-11-09');
+ assert.equal(posInitialItemDate({productType:'weekly_meal_plan'},'2026-11-09','2026-11-11'),'2026-11-11');
+ assert.equal(posInitialItemDate(undefined,'2020-01-01'),'2020-01-01');
 });

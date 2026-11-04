@@ -21,6 +21,8 @@ export type ManualLine = {
   time: string;
   method: string;
   deliveryAddress: string;
+  deliveryArrangement?: 'store' | 'customer';
+  destination?: import('./posOrderEntryModel').PosDestination;
   notes: string;
   selection?: Partial<CartSelection>;
   custom?: { name: string; unitPrice: number; savePrivate?: boolean };

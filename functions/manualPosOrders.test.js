@@ -518,3 +518,20 @@ test('manual full access bypasses Store and product date rules but still rejects
   assert.throws(()=>buildManualOrder(request,restricted,now));
   for(const change of [{date:'2020-02-30'},{time:'24:01'}]) assert.throws(()=>buildManualOrder({...request,lines:[{...request.lines[0],...change}]},restricted,now,{owner:true}));
 });
+
+test('manual delivery fee is server-added to payable totals, remains pending and records the override reason', async () => {
+ const {db,docs}=database({'workspaces/s':workspace});
+ const request={...input(),lines:[{...line('prawn','2020-01-01',2),method:'delivery',deliveryArrangement:'store',deliveryAddress:'QA corrected address'}],deliveryFeeOverride:{amount:7.5,reason:'Customer agreed historical charge'}};
+ const result=await saveManualPosOrder({db,uid:'owner',input:request,now,loadCheckout:async()=>checkout});
+ const saved=docs[`storeOrders/${result.orderId}`];
+ assert.equal(saved.total,37.5);assert.equal(saved.totals.merchandiseSubtotal,30);assert.equal(saved.totals.deliveryFee,7.5);assert.equal(saved.totals.grandTotal,37.5);
+ assert.equal(saved.payment.amountMinor,3750);assert.equal(saved.payment.status,'pending');assert.equal(saved.deliveryPricingSnapshot.providerDeliveryFee,null);assert.equal(saved.deliveryPricingSnapshot.authorizedBy,'owner');
+ assert.equal(saved.fulfilments[0].destination.formattedAddress,'QA corrected address');
+ assert.equal((await saveManualPosOrder({db,uid:'owner',input:request,now,loadCheckout:async()=>checkout})).duplicate,true);
+ await assert.rejects(saveManualPosOrder({db,uid:'owner',input:{...request,deliveryFeeOverride:{amount:1,reason:'Changed'}},now,loadCheckout:async()=>checkout}),/different order/);
+ const ownDriver={...request,requestId:'request-own-driver-123456',lines:request.lines.map(l=>({...l,deliveryArrangement:'customer'}))};
+ await assert.rejects(saveManualPosOrder({db,uid:'owner',input:ownDriver,now,loadCheckout:async()=>checkout}),/Remove the delivery fee/);
+ delete ownDriver.deliveryFeeOverride;
+ const own=await saveManualPosOrder({db,uid:'owner',input:ownDriver,now,loadCheckout:async()=>checkout});
+ assert.equal(docs[`storeOrders/${own.orderId}`].total,30);
+});

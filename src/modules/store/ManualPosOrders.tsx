@@ -1,4 +1,6 @@
 import "./manualPosOrders.css";
+import PosAddressPicker from './PosAddressPicker';
+import { currentPosQuote, posInitialItemDate, type PosQuote } from './posOrderEntryModel';
 import WhatsAppCustomerActions from "./WhatsAppCustomerActions";
 import { previewManualLines, type ManualLine } from "./manualPosPreview";
 import {
@@ -29,6 +31,7 @@ type Draft = {
   phone: string;
   notes: string;
   lines: Line[];
+  deliveryFeeOverride?: { amount: number; reason: string };
 };
 const empty = (): Draft => ({
   source: "whatsapp",
@@ -78,6 +81,27 @@ export default function ManualPosOrders({
   const [editing, setEditing] = useState<StoreOrder | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [deliveryQuote, setDeliveryQuote] = useState<PosQuote | null>(null);
+  const [quoteKey, setQuoteKey] = useState('');
+  const [quoting, setQuoting] = useState(false);
+  const quotationInFlight = useRef(false);
+  const [feeMode, setFeeMode] = useState<'estimate' | 'manual'>('estimate');
+  const deliveryKey = JSON.stringify({ draft, storeId, workspaceId });
+  const hasStoreDelivery = draft.lines.some(line => line.method === 'delivery' && line.deliveryArrangement === 'store');
+  const usableQuote = currentPosQuote(deliveryQuote, quoteKey, deliveryKey, Date.now());
+  const deliveryFee = hasStoreDelivery ? feeMode === 'manual' ? draft.deliveryFeeOverride?.amount : usableQuote?.customerDeliveryFee : 0;
+  const quoteDelivery = async () => {
+    if (quotationInFlight.current) return;
+    quotationInFlight.current = true;
+    const key = deliveryKey;
+    setQuoting(true); setError('');
+    try {
+      const input = { ...draft }; delete input.deliveryFeeOverride;
+      const quote = await storeOrderService.quotePosDelivery({ ...input, manualPos: true, workspaceId, storeId, slug });
+      setDeliveryQuote(quote); setQuoteKey(key);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to estimate delivery.'); }
+    finally { quotationInFlight.current = false; setQuoting(false); }
+  };
   const [pay, setPay] = useState<StoreOrder | null>(null);
   const [reference, setReference] = useState("");
   const [method, setMethod] = useState("bank_transfer");
@@ -100,6 +124,7 @@ export default function ManualPosOrders({
   );
   const load = async (order?: StoreOrder) => {
     setError("");
+    setDeliveryQuote(null); setFeeMode(order?.manualOrder?.draft?.deliveryFeeOverride ? "manual" : "estimate");
     setBusy(true);
     setCatalogLoading(true);
     setOpen(true);
@@ -163,7 +188,7 @@ export default function ManualPosOrders({
         ...d.lines,
         {
           quantity: 1,
-          date: defaultDate,
+          date: posInitialItemDate(products.find(product => product.id === selection?.productId), defaultDate, selection?.healthyLunchDate),
           time: defaultTime,
           method: "pickup",
           deliveryAddress: "",
@@ -188,8 +213,11 @@ export default function ManualPosOrders({
     setBusy(true);
     setError("");
     try {
+      const input = { ...draft }; delete input.deliveryFeeOverride;
       const result = await storeOrderService.saveManualPosOrder({
-        ...draft,
+        ...input,
+        ...(hasStoreDelivery && feeMode === "manual" ? { deliveryFeeOverride: draft.deliveryFeeOverride } : {}),
+        ...(hasStoreDelivery && feeMode === "estimate" ? { posDeliveryQuoteId: usableQuote?.id } : {}),
         workspaceId,
         storeId,
         slug,
@@ -406,7 +434,7 @@ export default function ManualPosOrders({
             <span className="manual-badge">Pending Payment</span>
             <p className="manual-muted">
               Save as Pending Payment. Confirm only after payment is actually
-              received. {posFullAccess ? "Owner and Manager can record any fulfilment date and time, including historical orders." : "Preorders start tomorrow; immediate Walk-in stays available under Add Order."} Delivery here is arranged by the customer.
+              received. {posFullAccess ? "Owner and Manager can record any fulfilment date and time, including historical orders." : "Preorders start tomorrow; immediate Walk-in stays available under Add Order."} Choose store delivery for a quote or use customer-arranged delivery.
             </p>
             <fieldset disabled={busy} className="manual-section manual-grid">
               <legend>1. Customer</legend>
@@ -786,26 +814,18 @@ export default function ManualPosOrders({
                     Mode{" "}
                     <select
                       className={input}
-                      value={line.method}
-                      onChange={(e) => update(i, { method: e.target.value })}
+                      value={line.method === 'delivery' && line.deliveryArrangement === 'store' ? 'store_delivery' : line.method}
+                      onChange={(e) => update(i, { method: e.target.value === 'store_delivery' ? 'delivery' : e.target.value, deliveryArrangement: e.target.value === 'store_delivery' ? 'store' : 'customer' })}
                     >
                       <option value="pickup">Pickup</option>
+                      <option value="store_delivery">Store delivery · estimate fee</option>
                       <option value="delivery">
                         Customer-arranged delivery
                       </option>
                     </select>
                   </label>
                   {line.method === "delivery" && (
-                    <label>
-                      Delivery address{" "}
-                      <input
-                        className={input}
-                        value={line.deliveryAddress}
-                        onChange={(e) =>
-                          update(i, { deliveryAddress: e.target.value })
-                        }
-                      />
-                    </label>
+                    <PosAddressPicker label={`Delivery address ${i + 1}`} disabled={busy} value={line.destination || { formattedAddress: line.deliveryAddress, latitude: '', longitude: '' }} onChange={destination => update(i, { destination, deliveryAddress: destination.formattedAddress })} />
                   )}
                   <label>
                     Item notes{" "}
@@ -1028,12 +1048,28 @@ export default function ManualPosOrders({
                   </div>
                 </div>
               ))}
+              {hasStoreDelivery && <fieldset className="manual-section">
+                <legend>Delivery fee</legend>
+                <label>Fee source<select value={feeMode} disabled={busy || quoting} onChange={e => setFeeMode(e.target.value as 'estimate' | 'manual')}>
+                  <option value="estimate">Lalamove estimate</option>{posFullAccess && <option value="manual">Agreed / manual fee</option>}
+                </select></label>
+                {feeMode === 'estimate' ? <>
+                  <button type="button" disabled={busy || quoting} onClick={() => void quoteDelivery()}>{quoting ? 'Estimating…' : 'Refresh delivery estimate'}</button>
+                  {usableQuote ? <p role="status">Customer charge {money(Math.round(usableQuote.customerDeliveryFee * 100))} · provider cost {money(Math.round(usableQuote.providerDeliveryFee * 100))}. Expires {new Date(usableQuote.expiresAt).toLocaleTimeString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })} MYT.</p> : <p>Refresh after changing items, addresses or schedules.</p>}
+                </> : <>
+                  <label>Customer delivery charge<input type="number" min="0" max="100000" step="0.01" value={draft.deliveryFeeOverride?.amount ?? ''} onChange={e => setDraft({ ...draft, deliveryFeeOverride: { amount: e.target.value === '' ? NaN : Number(e.target.value), reason: draft.deliveryFeeOverride?.reason || '' } })} /></label>
+                  <label>Audit reason / agreed fee reference<input maxLength={240} value={draft.deliveryFeeOverride?.reason || ''} onChange={e => setDraft({ ...draft, deliveryFeeOverride: { amount: draft.deliveryFeeOverride?.amount ?? NaN, reason: e.target.value } })} /></label>
+                </>}
+              </fieldset>}
+              <div className="manual-summary-row"><span>Product subtotal</span><span>{preview.totalMinor === null ? 'Incomplete' : money(preview.totalMinor)}</span></div>
+              <div className="manual-summary-row"><span>Delivery charge</span><span>{deliveryFee === undefined ? 'Estimate required' : money(Math.round(deliveryFee * 100))}</span></div>
+              <div className="manual-summary-row"><span>Discounts</span><span>{money(0)}</span></div>
               <div className="manual-total">
                 <span>Grand total</span>
                 <span>
                   {preview.totalMinor === null
                     ? "Complete item options"
-                    : money(preview.totalMinor)}
+                    : deliveryFee === undefined || !Number.isFinite(deliveryFee) ? "Complete delivery fee" : money(preview.totalMinor + Math.round(deliveryFee * 100))}
                 </span>
               </div>
               <p className="manual-muted">
@@ -1057,7 +1093,8 @@ export default function ManualPosOrders({
                   !draft.lines.length ||
                   !draft.customerName.trim() ||
                   preview.totalMinor === null ||
-                  preview.totalMinor <= 0
+                  preview.totalMinor <= 0 ||
+                  (hasStoreDelivery && (deliveryFee === undefined || !Number.isFinite(deliveryFee) || (feeMode === "manual" && !draft.deliveryFeeOverride?.reason.trim())))
                 }
                 onClick={() => void save()}
                 className="manual-primary"

@@ -69,3 +69,24 @@ test('same-date different times get separate quotes and fees; provider failures 
  const q=await createPosDeliveryQuote({...f.args,input:request});assert.equal(f.requests.length,2);assert.equal(q.customerDeliveryFee,19);
  const failed=fixture();await assert.rejects(createPosDeliveryQuote({...failed.args,provider:{...failed.args.provider,createQuote:async()=>{throw new Error('Provider unavailable');}}}),/unavailable/);assert.equal(failed.docs.size,0);
 });
+
+test('Manual Order reuses quote-only pricing for store delivery and excludes pickup/customer-arranged items', async () => {
+ const {buildManualOrder, manualDeliveryInput} = await import('./manualPosOrders.js');
+ const f=fixture();
+ const lines = [
+  {selection:{productId:'p',selectedOptions:[]},quantity:1,date:'2026-11-05',time:'12:00',method:'delivery',deliveryArrangement:'store',deliveryAddress:'Unit 1',destination:{placeId:'my-place',latitude:'99',longitude:'0'},notes:''},
+  {custom:{name:'Pickup catering',unitPrice:500},quantity:1,date:'2026-11-06',time:'12:00',method:'pickup',deliveryAddress:'',notes:''},
+  {custom:{name:'Own driver',unitPrice:500},quantity:1,date:'2026-11-07',time:'12:00',method:'delivery',deliveryAddress:'Own address',notes:''}
+ ];
+ const request={...input,selections:undefined,manualPos:true,source:'whatsapp',customerName:'QA',lines};
+ const config={...checkout,store:{...checkout.store,delivery:{...checkout.store.delivery,freeDelivery:{enabled:true,distanceThresholdKm:20,minimumSubtotalWithin:20,minimumSubtotalBeyond:100}}}};
+ const q=await createPosDeliveryQuote({...f.args,input:request,loadCheckout:async()=>config,buildItems:buildManualOrder,normalizeInput:manualDeliveryInput});
+ assert.equal(f.requests.length,1); assert.equal(q.customerDeliveryFee,9.5);
+ const normalized=manualDeliveryInput({...request,posDeliveryQuoteId:q.id},config.products);
+ const built=buildManualOrder(request,config,now,{owner:true});
+ const args={db:f.args.db,transaction:f.transaction,input:normalized,checkout:config,built,uid:'manager',fullAccess:true,now};
+ assert.equal((await resolvePosDeliveryCharge(args)).fee,9.5);
+ await assert.rejects(resolvePosDeliveryCharge({...args,now:new Date('2026-11-04T04:10:00Z')}),/expired/);
+ await assert.rejects(resolvePosDeliveryCharge({...args,built:{...built,total:1,items:built.items.map(i=>({...i,quantity:10}))}}),/changed/);
+ assert.equal(f.requests[0].data.stops[1].coordinates.lat,'4.61');
+});

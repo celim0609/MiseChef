@@ -5,7 +5,7 @@ import { dispatchCompatibilityProject, retiredDispatchHttp, inertDispatchEvent }
 import { managePromotionCodes, verifiedPromotionMember } from './storePromotionCodes.js';
 import { previewStorePromotionCode, expirePromotionCodeReservations } from './storePromotionCodeCheckout.js';
 import { previewMerchantDelivery, confirmMerchantDelivery, reconcileMerchantDelivery } from './storeManualDelivery.js';
-import { saveManualPosOrder, confirmManualPosPayment } from './manualPosOrders.js';
+import { saveManualPosOrder, confirmManualPosPayment, buildManualOrder, manualDeliveryInput } from './manualPosOrders.js';
 import { recordStoreCustomerReminder as recordCustomerReminder } from './storeFulfilment.js';
 import { createRecipePipelineService } from './recipePipelineService.js';
 import { GoogleGenAI, Type } from '@google/genai';
@@ -478,7 +478,8 @@ export const quoteStorePosDelivery = onCall({ region: REGION, secrets: [lalamove
   if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Sign in to estimate delivery.');
   await assertOperator({ db, uid: request.auth.uid, workspaceId: request.data?.order?.workspaceId, posFullAccess: true });
   await consumeGroupDeliveryRate({ db, uid: request.auth.uid });
-  return createPosDeliveryQuote({ db, uid: request.auth.uid, input: request.data?.order, provider: createRuntimeLalamoveProvider(), authorize: assertOperator,
+  return createPosDeliveryQuote({ db, uid: request.auth.uid, input: request.data?.order,
+    ...(request.data?.order?.manualPos ? { buildItems: buildManualOrder, normalizeInput: manualDeliveryInput } : {}), provider: createRuntimeLalamoveProvider(), authorize: assertOperator,
     loadCheckout: loadStoreCheckoutData, resolvePlace: placeId => createGroupDeliveryPlaces().resolve(placeId) });
 });
 
