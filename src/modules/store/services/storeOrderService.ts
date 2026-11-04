@@ -92,6 +92,9 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
       readString(data.orderNumber),
       readString(data.pickupCode)
     ),
+    deletedAt: readString(data.deletedAt),
+    deletedBy: readString(data.deletedBy),
+    deletionReason: readString(data.deletionReason),
     storeId: readString(data.storeId),
     workspaceId: readString(data.workspaceId),
     orderSource: data.orderSource === 'pos' ? 'pos' : 'online',
@@ -193,7 +196,7 @@ export const storeOrderService = {
   },
   subscribePendingManualOrders(storeId: string, workspaceId: string, onData: (orders: StoreOrder[]) => void, onError: (error: Error) => void, includePaid = false) {
     if (!db || !storeId || !workspaceId) return () => undefined;
-    return onSnapshot(query(collection(db, 'storeOrders'), where('storeId','==',storeId), where('workspaceId','==',workspaceId), where('fulfilmentStatus','in',ACTIVE_FULFILMENT_STATUSES), orderBy('createdAt','desc')), snapshot => onData(snapshot.docs.map(normalizeOrder).filter(order => order.manualOrder && (order.payment.status === 'pending' || (includePaid && order.payment.status === 'paid')))), onError);
+    return onSnapshot(query(collection(db, 'storeOrders'), where('storeId','==',storeId), where('workspaceId','==',workspaceId), where('fulfilmentStatus','in',ACTIVE_FULFILMENT_STATUSES), orderBy('createdAt','desc')), snapshot => onData(snapshot.docs.map(normalizeOrder).filter(order => !order.deletedAt).filter(order => order.manualOrder && (order.payment.status === 'pending' || (includePaid && order.payment.status === 'paid')))), onError);
   },
   async createExternalPosOrder(order: Record<string, unknown>) {
     if (!functions) throw new Error('Store ordering is unavailable.');
@@ -225,7 +228,7 @@ export const storeOrderService = {
         orderBy('createdAt', 'desc')
       ),
       snapshot => {
-        const orders = snapshot.docs.map(normalizeOrder);
+        const orders = snapshot.docs.map(normalizeOrder).filter(order => !order.deletedAt);
         const operationalOrders = orders.filter(isOrderOperationallyEligible);
         const unresolvedGroupIds = new Set(orders
           .filter(order => order.groupOrder?.id
@@ -265,7 +268,7 @@ export const storeOrderService = {
         where('fulfilmentStatus', 'in', ACTIVE_FULFILMENT_STATUSES),
         orderBy('createdAt', 'desc')
       ),
-      snapshot => onData(snapshot.docs.map(normalizeOrder)),
+      snapshot => onData(snapshot.docs.map(normalizeOrder).filter(order => !order.deletedAt)),
       error => onError(error)
     );
   },
@@ -288,7 +291,7 @@ export const storeOrderService = {
     const hasMore = snapshot.docs.length > STORE_ORDER_HISTORY_PAGE_SIZE;
     const pageDocuments = snapshot.docs.slice(0, STORE_ORDER_HISTORY_PAGE_SIZE);
     return {
-      orders: pageDocuments.map(normalizeOrder),
+      orders: pageDocuments.map(normalizeOrder).filter(order => !order.deletedAt),
       cursor: hasMore ? pageDocuments.at(-1) || null : null,
       hasMore
     };
@@ -327,7 +330,7 @@ export const storeOrderService = {
       [...canonicalSnapshot.docs, ...legacySnapshot.docs]
         .map(snapshot => [snapshot.id, normalizeOrder(snapshot)] as const)
     );
-    return [...ordersById.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return [...ordersById.values()].filter(order => !order.deletedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   },
 
   async getCompletedOrdersForBusinessDate(
@@ -364,7 +367,7 @@ export const storeOrderService = {
       [...canonicalSnapshot.docs, ...legacySnapshot.docs]
         .map(snapshot => [snapshot.id, normalizeOrder(snapshot)] as const)
     );
-    return [...ordersById.values()].sort((a, b) => (
+    return [...ordersById.values()].filter(order => !order.deletedAt).sort((a, b) => (
       getOrderCompletionTimestamp(b).localeCompare(getOrderCompletionTimestamp(a))
     ));
   },

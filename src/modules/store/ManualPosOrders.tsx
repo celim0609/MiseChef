@@ -1,6 +1,7 @@
+import PasteOrderButton, {type PasteDraft} from './PasteOrderButton';
 import "./manualPosOrders.css";
 import PosAddressPicker from './PosAddressPicker';
-import { currentPosQuote, posInitialItemDate, type PosQuote } from './posOrderEntryModel';
+import { currentPosQuote, posInitialItemDate, claimPosAdd, type PosDestination, type PosQuote } from './posOrderEntryModel';
 import WhatsAppCustomerActions from "./WhatsAppCustomerActions";
 import { previewManualLines, type ManualLine } from "./manualPosPreview";
 import {
@@ -46,12 +47,16 @@ export default function ManualPosOrders({
   country = "MY",
   storeName = "",
   canRecordReminders = false,
+  pasteRequest,
+  onPasteConsumed,
 }: {
   workspaceId: string;
   storeId: string;
   country?: "MY" | "SG";
   storeName?: string;
   canRecordReminders?: boolean;
+  pasteRequest?: {id:string;draft:PasteDraft} | null;
+  onPasteConsumed?: ()=>void;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(empty);
@@ -68,6 +73,12 @@ export default function ManualPosOrders({
     shiftDateKey(toMalaysiaDateKey(), 1),
   );
   const [defaultTime, setDefaultTime] = useState("12:00");
+  const [defaultMethod,setDefaultMethod]=useState('pickup');
+  const [defaultDestination,setDefaultDestination]=useState<PosDestination>();
+  const recentAdds=useRef(new Map<string,number>());
+  const mainDefaults = {date:defaultDate,time:defaultTime,method:defaultMethod==='pickup'?'pickup':'delivery',deliveryArrangement:defaultMethod==='store_delivery'?'store' as const:'customer' as const,deliveryAddress:defaultDestination?.formattedAddress || '',...(defaultDestination?{destination:defaultDestination}:{})};
+  const updateMain = (patch:Partial<Line>) => setDraft(d=>({...d,lines:d.lines.map(line=>line.inheritSchedule?{...line,...patch}:line)}));
+
   const [manualOrders, setManualOrders] = useState<StoreOrder[]>([]);
   const pending = manualOrders.filter(
     (order) => order.payment.status === "pending",
@@ -85,15 +96,18 @@ export default function ManualPosOrders({
   const [quoteKey, setQuoteKey] = useState('');
   const [quoting, setQuoting] = useState(false);
   const quotationInFlight = useRef(false);
+  const attemptedQuoteKey = useRef('');
+  const [quoteClock,setQuoteClock]=useState(Date.now());
   const [feeMode, setFeeMode] = useState<'estimate' | 'manual'>('estimate');
   const deliveryKey = JSON.stringify({ draft, storeId, workspaceId });
   const hasStoreDelivery = draft.lines.some(line => line.method === 'delivery' && line.deliveryArrangement === 'store');
-  const usableQuote = currentPosQuote(deliveryQuote, quoteKey, deliveryKey, Date.now());
+  const usableQuote = currentPosQuote(deliveryQuote, quoteKey, deliveryKey, quoteClock);
   const deliveryFee = hasStoreDelivery ? feeMode === 'manual' ? draft.deliveryFeeOverride?.amount : usableQuote?.customerDeliveryFee : 0;
   const quoteDelivery = async () => {
     if (quotationInFlight.current) return;
     quotationInFlight.current = true;
     const key = deliveryKey;
+    attemptedQuoteKey.current = key;
     setQuoting(true); setError('');
     try {
       const input = { ...draft }; delete input.deliveryFeeOverride;
@@ -102,6 +116,16 @@ export default function ManualPosOrders({
     } catch (e) { setError(e instanceof Error ? e.message : 'Unable to estimate delivery.'); }
     finally { quotationInFlight.current = false; setQuoting(false); }
   };
+  useEffect(()=>{
+    if (!deliveryQuote) return;
+    const timer=setInterval(()=>setQuoteClock(Date.now()),1000);
+    return ()=>clearInterval(timer);
+  },[deliveryQuote]);
+  useEffect(()=>{
+    if (!open || !hasStoreDelivery || feeMode!=='estimate' || quoting || usableQuote || attemptedQuoteKey.current===deliveryKey || !draft.customerName.trim() || preview.totalMinor===null || !draft.lines.every(line=>line.date && line.time && (line.deliveryArrangement!=='store' || line.destination?.placeId))) return;
+    const timer=setTimeout(()=>void quoteDelivery(),600);
+    return ()=>clearTimeout(timer);
+  },[deliveryKey,open,hasStoreDelivery,feeMode,quoting]);
   const [pay, setPay] = useState<StoreOrder | null>(null);
   const [reference, setReference] = useState("");
   const [method, setMethod] = useState("bank_transfer");
@@ -122,14 +146,14 @@ export default function ManualPosOrders({
       ),
     [storeId, workspaceId],
   );
-  const load = async (order?: StoreOrder) => {
+  const load = async (order?: StoreOrder, pasted?: PasteDraft) => {
     setError("");
-    setDeliveryQuote(null); setFeeMode(order?.manualOrder?.draft?.deliveryFeeOverride ? "manual" : "estimate");
+    setDeliveryQuote(null); attemptedQuoteKey.current=''; setFeeMode(order?.manualOrder?.draft?.deliveryFeeOverride || pasted?.deliveryFeeOverride ? "manual" : "estimate");
     setBusy(true);
     setCatalogLoading(true);
     setOpen(true);
     setDraft(
-      order ? (structuredClone(order.manualOrder!.draft) as Draft) : empty(),
+      order ? (structuredClone(order.manualOrder!.draft) as Draft) : pasted || empty(),
     );
     setEditing(order || null);
     setProducts([]);
@@ -165,8 +189,15 @@ export default function ManualPosOrders({
       setGroups(groups);
       setPrivateItems(privateItems);
       setDraft(
-        order ? (structuredClone(order.manualOrder!.draft) as Draft) : empty(),
+        order ? (structuredClone(order.manualOrder!.draft) as Draft) : pasted || empty(),
       );
+      const restored = order ? structuredClone(order.manualOrder!.draft) as Draft : pasted || empty();
+      const primary = restored.lines.find(line=>line.inheritSchedule) || restored.lines[0];
+      setDefaultDate(primary?.date || (fullAccess ? toMalaysiaDateKey() : shiftDateKey(toMalaysiaDateKey(),1)));
+      setDefaultTime(primary?.time || '12:00');
+      setDefaultMethod(primary?.method==='delivery' ? primary.deliveryArrangement==='store' ? 'store_delivery' : 'delivery' : 'pickup');
+      setDefaultDestination(primary?.destination || (primary?.deliveryAddress ? {formattedAddress:primary.deliveryAddress,latitude:'',longitude:''} : undefined));
+      recentAdds.current.clear();
       setEditing(order || null);
       requestId.current = crypto.randomUUID();
       setOpen(true);
@@ -177,27 +208,35 @@ export default function ManualPosOrders({
       setCatalogLoading(false);
     }
   };
+  useEffect(() => {
+    if (!pasteRequest) return;
+    void load(undefined, pasteRequest.draft);
+    onPasteConsumed?.();
+  }, [pasteRequest?.id]);
   const add = (
     selection?: Partial<CartSelection>,
     custom?: Line["custom"],
     notes = "",
-  ) =>
+  ) => {
+    const key=selection?.productId || selection?.setId || custom?.name || 'custom';
+    if(!claimPosAdd(recentAdds.current,key,Date.now()))return;
     setDraft((d) => ({
       ...d,
       lines: [
         ...d.lines,
         {
+          ...mainDefaults,
+          inheritSchedule: products.find(product=>product.id===selection?.productId)?.productType!=="weekly_meal_plan",
           quantity: 1,
           date: posInitialItemDate(products.find(product => product.id === selection?.productId), defaultDate, selection?.healthyLunchDate),
           time: defaultTime,
-          method: "pickup",
-          deliveryAddress: "",
           notes,
           ...(selection ? { selection } : {}),
           ...(custom ? { custom } : {}),
         },
       ],
     }));
+  };
   const update = (i: number, change: Partial<Line>) => {
     requestId.current = crypto.randomUUID();
     setDraft((d) => ({
@@ -432,12 +471,13 @@ export default function ManualPosOrders({
               {editing ? `Edit ${editing.orderNumber}` : "Create Manual Order"}
             </h2>
             <span className="manual-badge">Pending Payment</span>
+            <PasteOrderButton workspaceId={workspaceId} storeId={storeId} slug={slug} products={posProducts} sets={sets} disabled={busy} onApply={pasted=>{setDraft(pasted);setFeeMode(pasted.deliveryFeeOverride?'manual':'estimate');setDeliveryQuote(null);}} />
             <p className="manual-muted">
               Save as Pending Payment. Confirm only after payment is actually
               received. {posFullAccess ? "Owner and Manager can record any fulfilment date and time, including historical orders." : "Preorders start tomorrow; immediate Walk-in stays available under Add Order."} Choose store delivery for a quote or use customer-arranged delivery.
             </p>
             <fieldset disabled={busy} className="manual-section manual-grid">
-              <legend>1. Customer</legend>
+              <legend>1. Customer &amp; Fulfilment</legend>
               <label>
                 Source{" "}
                 <select
@@ -486,34 +526,32 @@ export default function ManualPosOrders({
                   }
                 />
               </label>
-            </fieldset>
-            <section className="manual-section">
-              <h3>2. Schedule &amp; items</h3>
-              <p className="manual-muted">
-                All dates and times are Malaysia time (UTC+8). Set defaults for
-                new items, then adjust each item below. Changing defaults does
-                not move existing items.
-              </p>
-              <div className="manual-grid">
+              <div className="manual-grid col-span-full">
                 <label>
-                  Default fulfilment date
+                  Main fulfilment date
                   <input
                     type="date"
                     min={posFullAccess ? undefined : shiftDateKey(toMalaysiaDateKey(), 1)}
                     value={defaultDate}
-                    onChange={(e) => setDefaultDate(e.target.value)}
+                    onChange={(e) => {setDefaultDate(e.target.value);updateMain({date:e.target.value});}}
                   />
                 </label>
                 <label>
-                  Default pickup / delivery time
+                  Main exact time
                   <input
                     type="time"
-                    step="1800"
                     value={defaultTime}
-                    onChange={(e) => setDefaultTime(e.target.value)}
+                    onChange={(e) => {setDefaultTime(e.target.value);updateMain({time:e.target.value});}}
                   />
                 </label>
+                {posFullAccess&&<button type="button" onClick={()=>{const date=toMalaysiaDateKey(),time=new Date(Date.now()+28800000).toISOString().slice(11,16);setDefaultDate(date);setDefaultTime(time);setDefaultMethod('pickup');updateMain({date,time,method:'pickup'});}}>Immediate pickup</button>}
+                <label>Fulfilment<select value={defaultMethod} onChange={e=>{setDefaultMethod(e.target.value);updateMain({method:e.target.value==='pickup'?'pickup':'delivery',deliveryArrangement:e.target.value==='store_delivery'?'store':'customer'});}}><option value="pickup">Pickup</option><option value="store_delivery">Store delivery</option><option value="delivery">Customer-arranged delivery</option></select></label>
+                {defaultMethod!=='pickup'&&<PosAddressPicker label="Main delivery address" disabled={busy} value={defaultDestination} onChange={destination=>{setDefaultDestination(destination);updateMain({destination,deliveryAddress:destination.formattedAddress});}}/>}
               </div>
+            </fieldset>
+            <section className="manual-section">
+              <h3>2. Product Selection</h3>
+              <p role="status" className="manual-muted">{draft.lines.reduce((sum,line)=>sum+line.quantity,0)} items in cart · Product subtotal {preview.totalMinor===null?"Incomplete":money(preview.totalMinor)}</p>
               {catalogLoading && (
                 <p role="status">Loading this Store’s catalog…</p>
               )}
@@ -612,7 +650,7 @@ export default function ManualPosOrders({
             {!draft.lines.length && (
               <p className="manual-section">
                 Your order is empty. Choose a menu item, set or Custom Item
-                above. Each item gets its own date, time, quantity and notes.
+                above. Items use the main fulfilment schedule unless you choose an override.
               </p>
             )}
             {draft.lines.map((line, i) => {
@@ -727,7 +765,9 @@ export default function ManualPosOrders({
                       }
                     />
                   </label>
-                  <label>
+                  {plan?.productType!=="weekly_meal_plan"&&<label><input type="checkbox" checked={!line.inheritSchedule} onChange={e=>update(i,e.target.checked?{inheritSchedule:false}:{...mainDefaults,inheritSchedule:true})}/> Override main fulfilment for this item</label>}
+                  {line.inheritSchedule&&<p className="manual-muted">Main schedule · {line.date} · {line.time} · {line.method}</p>}
+                  <label style={line.inheritSchedule?{display:'none'}:undefined}>
                     {plan?.productType === "weekly_meal_plan" &&
                     !line.selection?.healthyLunchDate
                       ? "Start Monday (5 days)"
@@ -800,7 +840,7 @@ export default function ManualPosOrders({
                       </select>
                     </label>
                   )}
-                  <label>
+                  <label style={line.inheritSchedule?{display:'none'}:undefined}>
                     Time{" "}
                     <input
                       className={input}
@@ -810,7 +850,7 @@ export default function ManualPosOrders({
                       onChange={(e) => update(i, { time: e.target.value })}
                     />
                   </label>
-                  <label>
+                  <label style={line.inheritSchedule?{display:'none'}:undefined}>
                     Mode{" "}
                     <select
                       className={input}
@@ -824,7 +864,7 @@ export default function ManualPosOrders({
                       </option>
                     </select>
                   </label>
-                  {line.method === "delivery" && (
+                  {line.method === "delivery" && !line.inheritSchedule && (
                     <PosAddressPicker label={`Delivery address ${i + 1}`} disabled={busy} value={line.destination || { formattedAddress: line.deliveryAddress, latitude: '', longitude: '' }} onChange={destination => update(i, { destination, deliveryAddress: destination.formattedAddress })} />
                   )}
                   <label>
@@ -1014,7 +1054,7 @@ export default function ManualPosOrders({
               className="manual-summary"
               aria-label="Daily order summary"
             >
-              <h3>3. Daily summary &amp; payment</h3>
+              <h3>3. Cart &amp; Order Summary</h3>
               {!preview.days.length && (
                 <p className="manual-muted">
                   Your daily allocations and subtotals will appear here.
@@ -1077,6 +1117,7 @@ export default function ManualPosOrders({
                 final saved amount. Weekly package prices are allocated across
                 five days for this summary.
               </p>
+              <h3 className="mt-4">4. Payment &amp; Confirmation</h3>
               <span className="manual-badge">Pending Payment</span>
               <p className="manual-muted">
                 Saving does not confirm payment. After saving, use Pending

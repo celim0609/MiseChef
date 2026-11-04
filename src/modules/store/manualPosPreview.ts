@@ -16,6 +16,7 @@ import type {
   StoreOptionGroup,
 } from "./types";
 export type ManualLine = {
+  inheritSchedule?: boolean;
   quantity: number;
   date: string;
   time: string;

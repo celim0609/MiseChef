@@ -853,3 +853,13 @@ test('weekly cover images preserve merchant-only permissions and validate source
   await assertFails(customerA.firestore().doc(`storeProducts/${id}`).update({'rotationWeeks.week1.coverPhotoUrl':'https://cdn.example/forged.jpg'}));
   await assertFails(ownerB.firestore().doc(`storeProducts/${id}`).update({'rotationWeeks.week1.coverPhotoUrl':'https://cdn.example/forged.jpg'}));
 });
+
+test('POS deletion markers, deleted-order indexes and AI usage counters remain callable-only',async()=>{
+ const owner=environment.authenticatedContext('owner-a').firestore();
+ await assertFails(owner.doc(`storeOrders/${ORDER_A}`).update({deletedAt:new Date().toISOString(),deletedBy:'owner-a'}));
+ await assertFails(owner.doc(`storeOrders/${ORDER_A}`).delete());
+ await assertFails(owner.doc(`stores/${WORKSPACE_A}/deletedOrders/${ORDER_A}`).set({orderId:ORDER_A,deletedAt:new Date().toISOString()}));
+ await assertFails(owner.collection(`stores/${WORKSPACE_A}/deletedOrders`).get());
+ await assertFails(owner.doc('storePosPasteUsage/forged').set({count:0}));
+ await assertFails(owner.doc('storePosPasteUsage/forged').get());
+});

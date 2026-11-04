@@ -315,6 +315,7 @@ export async function saveManualPosOrder({
     if (
       input.orderId &&
       (!previous ||
+        previous.deletedAt ||
         previous.workspaceId !== workspaceId ||
         !previous.manualOrder ||
         previous.payment.status !== "pending" ||
@@ -479,6 +480,7 @@ export async function confirmManualPosPayment({
     await assertOperator({ db, uid, workspaceId, financial: true, transaction: tx });
     const snap = await tx.get(ref);
     const order = snap.data();
+    if (order?.deletedAt) fail("This order has been deleted.");
     if (
       order.workspaceId !== workspaceId ||
       !order.manualOrder ||

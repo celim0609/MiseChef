@@ -27,3 +27,10 @@ test('new full-week selections never inherit a non-Monday main date while explic
  assert.equal(posInitialItemDate({productType:'weekly_meal_plan'},'2026-11-09','2026-11-11'),'2026-11-11');
  assert.equal(posInitialItemDate(undefined,'2020-01-01'),'2020-01-01');
 });
+
+test('soft-deleted paid orders remain financial records but never produce kitchen eligibility or tickets',async()=>{
+ const {isOrderOperationallyEligible,filterHistoryOrders}=await import('./posOrderModel');
+ const {getOrderTickets}=await import('./orderTickets');
+ const order={id:'deleted',orderNumber:'QA',orderSource:'pos',payment:{status:'paid',amountMinor:1200},total:12,deletedAt:'2026-11-04T08:00:00Z',items:[]} as any;
+ assert.equal(isOrderOperationallyEligible(order),false);assert.deepEqual(getOrderTickets(order),[]);assert.deepEqual(filterHistoryOrders([order],'all',''),[]);assert.equal(order.payment.amountMinor,1200);
+});
