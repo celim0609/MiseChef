@@ -406,9 +406,7 @@ export default function ManualPosOrders({
             <span className="manual-badge">Pending Payment</span>
             <p className="manual-muted">
               Save as Pending Payment. Confirm only after payment is actually
-              received. Preorders start tomorrow; immediate Walk-in stays
-              available under Add Order. Delivery here is arranged by the
-              customer.
+              received. {posFullAccess ? "Owner and Manager can record any fulfilment date and time, including historical orders." : "Preorders start tomorrow; immediate Walk-in stays available under Add Order."} Delivery here is arranged by the customer.
             </p>
             <fieldset disabled={busy} className="manual-section manual-grid">
               <legend>1. Customer</legend>
