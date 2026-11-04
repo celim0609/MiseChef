@@ -8,7 +8,7 @@ export default function PosWeeklyMenu({product,products,store,onAdd,disabled=fal
  const [choice,setChoice]=useState<HealthyLunchChoice>({mode:'week',date:''});
  const [time,setTime]=useState('');
  if (unrestricted) { product={...product,healthyLunchBlockedDates:[]}; products=products.map(p=>({...p,healthyLunchBlockedDates:[]})); }
- const requestedDate=choice.date || defaultDate;
+ const requestedDate=choice.date || (getWeeklyDates(defaultDate).length===5 ? defaultDate : '');
  const dates=getValidPickupDates(fullWeekDateStore(store,product));
  const weeks=[...new Set((product.weeklyWeeks!==undefined?datedWeeks(product).map(week=>week.startMonday):[...(unrestricted && getWeeklyDates(requestedDate).length===5 ? [requestedDate] : []),...dates.filter(date=>getWeeklyDates(date).length===5)])
   .filter(date=>!validateWeeklyMealPlan(product,products,store.id,date)&&(unrestricted||((!hasDatedMenu(product)||isDatedWeekOpen(store,date))&&!isHealthyLunchWeekBlocked(product,date)&&getWeeklyPickupTimes(fullWeekDateStore(store,product),date,getValidPickupDates,getPickupTimeSlots,new Date(),product).length))))];
