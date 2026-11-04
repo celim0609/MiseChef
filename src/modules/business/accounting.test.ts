@@ -135,5 +135,5 @@ test('Dashboard exposes all period controls and passes one range to the shared a
 test('soft-deleted completed orders retain net revenue and original refund accounting',()=>{
  const deleted=order({deletedAt:'2026-11-04T08:00:00Z'});
  assert.equal(getStoreOrderNetSale(deleted),100);
- assert.equal(getStoreOrderNetSale({...deleted,payment:{...deleted.payment,refundStatus:'partially_refunded',refundedAmountMinor:2500}}),75);
+ assert.equal(getStoreOrderNetSale({...deleted,payment:{...deleted.payment,refundStatus:'partial',refundedAmountMinor:2500}}),75);
 });
