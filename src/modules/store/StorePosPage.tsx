@@ -1,3 +1,6 @@
+import PosAddressPicker from './PosAddressPicker';
+import PosProductAdd from './PosProductAdd';
+import { claimPosAdd, posDeliveryDates, currentPosQuote, type PosDestination, type PosQuote } from './posOrderEntryModel';
 import GroupDeliveryReviewPanel from './GroupDeliveryReviewPanel';
 import OrderFulfilmentDetails from './OrderFulfilmentDetails';
 import {productAllowsFulfilmentDate} from '../../../functions/storeProductAvailability.js';
@@ -64,6 +67,7 @@ type ExternalCartItem = {
   quantity: number;
   date?: string;
   time?: string;
+  scheduleOverride?: boolean;
   selection: {
     productId?: string;
     healthyLunchPlanId?: string;
@@ -252,6 +256,17 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const [externalSource, setExternalSource] = useState('shopeefood');
   const [externalMethod, setExternalMethod] = useState<'pickup' | 'delivery'>('pickup');
   const [externalAddress, setExternalAddress] = useState('');
+  const [externalDestination,setExternalDestination]=useState<PosDestination>();
+  const [externalDestinations,setExternalDestinations]=useState<Record<string,PosDestination>>({});
+  const [externalQuoteState,setExternalQuoteState]=useState<{quote:PosQuote;key:string}|null>(null);
+  const [externalQuoteError,setExternalQuoteError]=useState('');
+  const [externalQuoting,setExternalQuoting]=useState(false);
+  const [externalManualFee,setExternalManualFee]=useState(false);
+  const [externalOverrideKey,setExternalOverrideKey]=useState('');
+  const [externalFeeAmount,setExternalFeeAmount]=useState('');
+  const [externalFeeReason,setExternalFeeReason]=useState('');
+  const externalAddTimes=useRef(new Map<string,number>());
+
   const [externalDate, setExternalDate] = useState('');
   const [externalTime, setExternalTime] = useState('');
   const [externalNumber, setExternalNumber] = useState('');
@@ -261,6 +276,40 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const [creatingExternal, setCreatingExternal] = useState(false);
   const [externalError, setExternalError] = useState('');
   const externalSubmitInFlightRef = useRef(false);
+  const externalOrderInput = { workspaceId, storeId, slug: externalStore?.slug || '', source: externalSource,
+    externalOrderNumber:externalNumber, customerName:externalName, phone:externalPhone, notes:externalNotes,
+    fulfilmentMethod:externalMethod, deliveryAddress:externalDestination?.formattedAddress || externalAddress,
+    destination:externalDestination, deliveryDestinations:externalDestinations,
+    fulfilmentDate:externalDate, fulfilmentTime:externalTime,
+    selections:externalCart.map(item=>({...item.selection,quantity:item.quantity})),
+    lineSchedules:externalCart.map(item=>({date:item.date || '',time:item.time || ''})),
+  };
+  const externalQuoteKey=JSON.stringify({workspaceId,storeId,slug:externalOrderInput.slug,fulfilmentMethod:externalMethod,
+    deliveryAddress:externalOrderInput.deliveryAddress,destination:externalDestination,deliveryDestinations:externalDestinations,
+    fulfilmentDate:externalDate,fulfilmentTime:externalTime,selections:externalOrderInput.selections,lineSchedules:externalOrderInput.lineSchedules});
+  const externalQuoteKeyRef=useRef(externalQuoteKey);externalQuoteKeyRef.current=externalQuoteKey;
+  const deliveryDates=posDeliveryDates(externalCart,externalProducts,externalDate);
+  const externalQuote=currentPosQuote(externalQuoteState?.quote || null,externalQuoteState?.key || '',externalQuoteKey,now);
+  const externalFee=externalMethod==='pickup'?0:externalManualFee?Number(externalFeeAmount):externalQuote?.customerDeliveryFee;
+  const externalFeeReady=externalMethod==='pickup'||(externalManualFee
+    ? externalOverrideKey===externalQuoteKey && externalPosFullAccess && externalFeeAmount.trim()!=='' && Number.isFinite(externalFee) && Number(externalFee)>=0 && Number(externalFee)<=100000 && Math.round(Number(externalFee)*100)/100===externalFee && Boolean(externalFeeReason.trim())
+    : Boolean(externalQuote));
+  useEffect(()=>{
+    let active=true;
+    setExternalQuoteState(null);setExternalQuoteError('');setExternalQuoting(false);
+    setExternalManualFee(false);setExternalFeeAmount('');setExternalFeeReason('');
+    if(!externalOpen||externalMethod!=='delivery'||!externalCart.length||externalLoading)return;
+    const order=JSON.parse(externalQuoteKey);
+    if(!order.destination?.formattedAddress) {setExternalQuoteError('Enter a delivery address.');return;}
+    setExternalQuoting(true);
+    const timer=setTimeout(()=>{void storeOrderService.quotePosDelivery(order).then(quote=>{if(active)setExternalQuoteState({quote,key:externalQuoteKey});}).catch(error=>{if(active)setExternalQuoteError(error instanceof Error?error.message:'Delivery quotation is unavailable.');}).finally(()=>{if(active)setExternalQuoting(false);});},600);
+    return ()=>{active=false;clearTimeout(timer);};
+  },[externalOpen,externalMethod,externalQuoteKey,externalLoading]);
+  useEffect(()=>{
+    if(!externalQuoteState||externalQuoteState.key!==externalQuoteKey)return;
+    const timer=setTimeout(()=>{setExternalQuoteState(null);setExternalQuoteError('Delivery estimate expired. Refresh it or enter a manual fee.');},Math.max(0,Date.parse(externalQuoteState.quote.expiresAt)-Date.now()-5000));
+    return ()=>clearTimeout(timer);
+  },[externalQuoteState,externalQuoteKey]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const hasHydratedRef = useRef(false);
   const soundEnabledRef = useRef(soundEnabled);
@@ -462,7 +511,12 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     setExternalError('');
     try {
       const paymentLabel = externalSource === 'shopeefood' ? 'shopeefood_platform_paid' : externalSource === 'walk_in' ? 'walk_in_paid' : 'other_paid';
-      const result = await storeOrderService.createExternalPosOrder({ requestId: externalRequestIdRef.current, workspaceId, storeId, slug: (await storeService.getWorkspaceStore(workspaceId))?.slug || '', source: externalSource, externalOrderNumber: externalNumber, paymentLabel, customerName: externalName, phone: externalPhone, notes: externalNotes, fulfilmentMethod: externalMethod, deliveryAddress: externalMethod === 'delivery' ? externalAddress : '', fulfilmentDate: externalDate, fulfilmentTime: externalTime, selections: externalCart.map(item => ({ ...item.selection, quantity: item.quantity })), lineSchedules: externalCart.map(item=>({date:item.date || '',time:item.time || ''})) });
+      const currentStore=await storeService.getWorkspaceStore(workspaceId);
+      if(!currentStore?.slug || currentStore.slug!==externalOrderInput.slug) throw new Error('Store details changed. Reload the catalog before retrying.');
+      if(externalMethod==='delivery' && !externalManualFee && (!externalQuote || Date.parse(externalQuote.expiresAt)<=Date.now()+5000)) throw new Error('Delivery estimate expired. Refresh before confirming.');
+      if (!externalFeeReady) throw new Error('Refresh the delivery estimate or enter an authorized manual fee.');
+      const result = await storeOrderService.createExternalPosOrder({ ...externalOrderInput, requestId: externalRequestIdRef.current, paymentLabel,
+        ...(externalMethod==='delivery' ? externalManualFee ? {deliveryFeeOverride:{amount:Number(externalFeeAmount),reason:externalFeeReason}} : {posDeliveryQuoteId:externalQuote?.id} : {}) });
       if (externalSource === 'walk_in') {
         try {
           const createdOrder = await storeOrderService.getOrder(result.orderId);
@@ -472,7 +526,8 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
         }
       }
       externalRequestIdRef.current = crypto.randomUUID();
-      setExternalOpen(false); setExternalNumber(''); setExternalName(''); setExternalPhone(''); setExternalNotes(''); setExternalCart([]); setExternalMethod('pickup'); setExternalAddress(''); setExternalDate(''); setExternalTime('');
+      externalAddTimes.current.clear();
+      setExternalOpen(false); setExternalNumber(''); setExternalName(''); setExternalPhone(''); setExternalNotes(''); setExternalCart([]); setExternalMethod('pickup'); setExternalAddress('');setExternalDestination(undefined);setExternalDestinations({});setExternalQuoteState(null); setExternalDate(''); setExternalTime('');
     } catch (error) {
       setExternalError(error instanceof Error ? error.message : 'Unable to create external order.');
     } finally {
@@ -480,21 +535,28 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       setCreatingExternal(false);
     }
   };
-  const addExternalProduct = (product: StoreProduct) => setExternalCart(current => {
+  const addExternalProduct = (product: StoreProduct) => {
+    if(!claimPosAdd(externalAddTimes.current,`product:${product.id}`,Date.now()))return;
+    setExternalCart(current => {
     const date = !externalPosFullAccess && externalStore && product.availableDay && product.availableDay !== 'all' && !productAllowsFulfilmentDate(product,toMalaysiaDateKey()) ? getValidPickupDates(externalStore).find(date=>productAllowsFulfilmentDate(product,date)) || '' : '';
     const time = date && externalStore ? getPickupTimeSlots(externalStore,date)[0] || '' : '';
     const existing = current.find(item => item.key === `product:${product.id}`);
     return existing ? current.map(item => item === existing ? { ...item, quantity: Math.min(externalPosFullAccess ? 10000 : 20, item.quantity + 1) } : item) : [...current, { key: `product:${product.id}`, label: product.name, quantity: 1, date, time, selection: { productId: product.id, selectedOptions: [] } }];
   });
-  const addExternalSet = (set: StoreSet) => setExternalCart(current => {
+  };
+  const addExternalSet = (set: StoreSet) => {
+    if(!claimPosAdd(externalAddTimes.current,`set:${set.id}`,Date.now()))return;
+    setExternalCart(current => {
     const existing = current.find(item => item.key === `set:${set.id}`);
     return existing ? current.map(item => item === existing ? { ...item, quantity: Math.min(externalPosFullAccess ? 10000 : 20, item.quantity + 1) } : item) : [...current, { key: `set:${set.id}`, label: set.name, quantity: 1, selection: { setId: set.id, selectedOptions: [], selectedSetItems: getDefaultStoreSetSelections(set, externalOrderableProducts) } }];
   });
+  };
   const addExternalMenu = (product: StoreProduct, choice: HealthyLunchChoice, time: string) => {
     const meal = choice.mode === 'day' ? resolveHealthyLunchDay(product, externalProducts, choice.date) : product;
     if (!meal) return;
     const selection = {productId:meal.id,selectedOptions:[],selectedMealOptions:choice.selectedMealOptions || [],...(choice.mode === 'day'?{healthyLunchPlanId:product.id,healthyLunchDate:choice.date}:{})};
     const key = `menu:${product.id}:${choice.mode}:${choice.date}:${time}:${JSON.stringify(selection.selectedMealOptions)}`;
+    if(!claimPosAdd(externalAddTimes.current,key,Date.now()))return;
     setExternalCart(current=>current.some(item=>item.key===key)?current.map(item=>item.key===key?{...item,quantity:Math.min(externalPosFullAccess ? 10000 : 20,item.quantity+1)}:item):[...current,{key,label:meal.name,quantity:1,date:choice.date,time,selection}]);
   };
   const updateExternalSetChoice = (key:string,groupId:string,productId:string,maximum:number) => setExternalCart(current=>current.map(item=>{
@@ -527,6 +589,14 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       return !group?.required || item.selection.selectedOptions.filter(choice => choice.groupId === groupId).length >= Math.max(1, group.minimumSelections || 1);
     });
   });
+  const weeklyCartFeedback = (product:StoreProduct) => {
+    const lines=externalCart.filter(line=>line.key.startsWith(`menu:${product.id}:`));
+    const last=lines.at(-1);
+    if(!last)return null;
+    const quantity=lines.reduce((sum,line)=>sum+line.quantity,0);
+    return <div className="mt-3 border-t pt-3"><p className="mb-1 text-xs text-slate-500">In cart across selected dates · controls adjust the last selection</p><PosProductAdd name={product.name} quantity={quantity} max={quantity+(externalPosFullAccess?10000:20)-last.quantity} disabled={creatingExternal} onAdd={()=>updateExternalCartQuantity(last.key,1)} onDecrease={()=>updateExternalCartQuantity(last.key,-1)}/></div>;
+  };
+
   const externalCartLines = externalCart.map(item => {
     const set = externalSets.find(candidate => candidate.id === item.selection.setId);
     const product = externalProducts.find(candidate => candidate.id === item.selection.productId);
@@ -745,6 +815,17 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
             </header>
 
             <fieldset disabled={creatingExternal} className="grid shrink-0 grid-cols-2 gap-3 border-b px-4 py-3 disabled:opacity-60">
+              <legend className="px-1 text-base font-black">Customer &amp; Fulfilment</legend>
+                <label className="text-xs font-bold text-slate-600">Customer name (optional)
+                  <input value={externalName} onChange={event => setExternalName(event.target.value)} placeholder="Customer name (optional)" className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
+                </label>
+                <label className="text-xs font-bold text-slate-600">Phone (optional)
+                  <input type="tel" value={externalPhone} onChange={event => setExternalPhone(event.target.value)} placeholder="Phone (optional)" className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
+                </label>
+                <label className="col-span-2 text-xs font-bold text-slate-600">Notes (optional)
+                  <textarea rows={1} value={externalNotes} onChange={event => setExternalNotes(event.target.value)} placeholder="Notes (optional)" className="mt-1 block w-full resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
+                </label>
+
               <label className="text-xs font-bold text-slate-600">Source
                 <select value={externalSource} onChange={event => setExternalSource(event.target.value)} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950">
                   <option value="shopeefood">ShopeeFood</option><option value="whatsapp">WhatsApp</option><option value="walk_in">Walk-in</option><option value="other">Other</option>
@@ -756,7 +837,9 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               <label className="text-xs font-bold text-slate-600">Fulfilment method
                 <select aria-label="Fulfilment method" value={externalMethod} onChange={event => setExternalMethod(event.target.value as 'pickup' | 'delivery')} className="mt-1 block w-full rounded-lg border p-2"><option value="delivery">Delivery</option><option value="pickup">Pickup</option></select>
               </label>
-              {externalMethod === 'delivery' && <label className="text-xs font-bold text-slate-600">Customer delivery address<textarea aria-label="Customer delivery address" value={externalAddress} maxLength={1000} onChange={event => setExternalAddress(event.target.value)} className="mt-1 block w-full rounded-lg border p-2" /></label>}
+              {externalMethod === 'delivery' && <div className="col-span-2 space-y-2"><PosAddressPicker label="Customer delivery address" value={externalDestination} disabled={creatingExternal} onChange={value=>{setExternalDestination(value);setExternalAddress(value.formattedAddress);}} />
+                {deliveryDates.length>1&&<details className="rounded-lg border p-3 text-sm"><summary className="cursor-pointer font-bold">Different delivery addresses by date</summary>{deliveryDates.map(date=><div key={date} className="mt-3"><label className="text-xs font-bold"><input type="checkbox" checked={Boolean(externalDestinations[date])} onChange={e=>setExternalDestinations(current=>{const next={...current};if(e.target.checked)next[date]={formattedAddress:'',latitude:'',longitude:''};else delete next[date];return next;})}/> Different address for {date}</label>{externalDestinations[date]&&<PosAddressPicker label={`Delivery address for ${date}`} value={externalDestinations[date]} onChange={value=>setExternalDestinations(current=>({...current,[date]:value}))}/>}</div>)}</details>}
+              </div>}
               <label className="text-xs font-bold text-slate-600">{externalMethod === 'delivery' ? 'Delivery' : 'Pickup'} date<input aria-label="Order fulfilment date" type="date" value={externalDate} onChange={event => setExternalDate(event.target.value)} className="mt-1 block w-full rounded-lg border p-2" /></label>
               <label className="text-xs font-bold text-slate-600">Exact {externalMethod} time<input aria-label="Order fulfilment time" type="time" value={externalTime} onChange={event => setExternalTime(event.target.value)} className="mt-1 block w-full rounded-lg border p-2" /></label>
               <p className="col-span-2 text-xs text-slate-600">Dates and times above apply to items without their own schedule. Weekly meals keep their selected dates. {externalMethod === 'delivery' ? 'Delivery is arranged externally. Confirming this order does not book Lalamove.' : 'Leave both blank for immediate pickup.'}</p>
@@ -764,6 +847,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
 
             <div className="space-y-6">
             <div role="region" aria-label="Store products" className="p-4">
+              <div role="status" aria-live="polite" className="mb-3 flex justify-between rounded-lg bg-blue-50 p-3 font-bold text-blue-950"><span>{externalCart.reduce((sum,item)=>sum+item.quantity,0)} items in cart</span><span>MYR {externalFeeReady?(Math.round((externalSubtotal+Number(externalFee))*100)/100).toFixed(2):externalSubtotal.toFixed(2)}{!externalFeeReady?' · delivery pending':''}</span></div>
               <div aria-label="Catalog categories" className="mb-3 grid grid-cols-3 gap-2 bg-white pb-2">
                 {(['all','sets','weekly'] as const).map(category => <button key={category} type="button" aria-pressed={externalCategory === category} onClick={() => setExternalCategory(category)} className={`min-h-11 rounded-lg border px-2 py-2 text-sm font-bold ${externalCategory === category ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}>{category === 'all' ? 'All Products' : category === 'sets' ? 'Sets' : 'Weekly'}</button>)}
               </div>
@@ -778,7 +862,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                     <div className="flex flex-1 flex-col gap-2 p-3">
                       <h3 className="break-words text-sm font-black">{product.name}</h3>
                       <p className="mt-auto text-sm font-bold text-slate-600">MYR {product.price.toFixed(2)}</p>
-                      <button type="button" onClick={() => addExternalProduct(product)} disabled={creatingExternal} className="min-h-11 w-full rounded-lg bg-blue-50 px-3 py-2 text-sm font-black text-blue-800 hover:bg-blue-100 disabled:opacity-40">Add</button>
+                      <PosProductAdd name={product.name} quantity={externalCart.find(item=>item.key===`product:${product.id}`)?.quantity || 0} onAdd={()=>addExternalProduct(product)} onDecrease={()=>updateExternalCartQuantity(`product:${product.id}`,-1)} disabled={creatingExternal} max={externalPosFullAccess?10000:20}/>
                     </div>
                   </article>
                 ))}
@@ -788,17 +872,17 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                     <div className="flex flex-1 flex-col gap-2 p-3">
                       <h3 className="break-words text-sm font-black">{set.name}</h3>
                       <p className="mt-auto text-sm font-bold text-slate-600">MYR {set.price.toFixed(2)}</p>
-                      <button type="button" onClick={() => addExternalSet(set)} disabled={creatingExternal} className="min-h-11 w-full rounded-lg bg-blue-50 px-3 py-2 text-sm font-black text-blue-800 hover:bg-blue-100 disabled:opacity-40">Add</button>
+                      <PosProductAdd name={set.name} quantity={externalCart.find(item=>item.key===`set:${set.id}`)?.quantity || 0} onAdd={()=>addExternalSet(set)} onDecrease={()=>updateExternalCartQuantity(`set:${set.id}`,-1)} disabled={creatingExternal} max={externalPosFullAccess?10000:20}/>
                     </div>
                   </article>
                 ))}
-                {externalStore && externalOrderableProducts.filter(product => product.productType === 'weekly_meal_plan').map(product => <div key={product.id} hidden={externalCategory === 'sets'} className="col-span-full min-w-0"><PosWeeklyMenu unrestricted={externalPosFullAccess} exactTime disabled={creatingExternal || externalLoading} product={product} products={externalOrderableProducts} store={externalStore} onAdd={(choice,time) => addExternalMenu(product,choice,time)}/></div>)}
+                {externalStore && externalOrderableProducts.filter(product => product.productType === 'weekly_meal_plan').map(product => <div key={product.id} hidden={externalCategory === 'sets'} className="col-span-full min-w-0"><PosWeeklyMenu cartFeedback={weeklyCartFeedback(product)} unrestricted={externalPosFullAccess} exactTime disabled={creatingExternal || externalLoading} product={product} products={externalOrderableProducts} store={externalStore} onAdd={(choice,time) => addExternalMenu(product,choice,time)}/></div>)}
               </div>
             </div>
 
             <div className="border-t bg-slate-50">
             <section aria-label="Order cart" className="px-4 py-3">
-              <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-black">Cart</h3><button type="button" disabled={creatingExternal || !externalCart.length} onClick={()=>{if(!window.confirm('Clear this draft? Check View Orders first if a previous submission had a connection error.'))return;setExternalCart([]); setExternalMethod('pickup'); setExternalAddress(''); setExternalDate(''); setExternalTime('');setExternalNumber('');setExternalName('');setExternalPhone('');setExternalNotes('');setExternalError('');externalRequestIdRef.current=crypto.randomUUID();}} className="text-xs underline">Clear draft</button></div>
+              <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-black">Cart</h3><button type="button" disabled={creatingExternal || !externalCart.length} onClick={()=>{if(!window.confirm('Clear this draft? Check View Orders first if a previous submission had a connection error.'))return;setExternalCart([]); setExternalMethod('pickup'); setExternalAddress('');setExternalDestination(undefined);setExternalDestinations({});setExternalQuoteState(null); setExternalDate(''); setExternalTime('');setExternalNumber('');setExternalName('');setExternalPhone('');setExternalNotes('');setExternalError('');externalAddTimes.current.clear();externalRequestIdRef.current=crypto.randomUUID();}} className="text-xs underline">Clear draft</button></div>
               <div className="space-y-2">
                 {externalCartLines.length === 0 && <p className="py-2 text-sm text-slate-500">Cart is empty</p>}
                 {externalCartLines.map(item => <div key={item.key} className="rounded-lg border border-slate-200 bg-white p-3">
@@ -813,8 +897,8 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                   </div>
                   {item.date && <p className="mt-2 text-xs font-bold">{item.selection.healthyLunchDate ? item.date : externalProducts.find(product=>product.id===item.selection.productId)?.productType==='weekly_meal_plan' ? getWeeklyDates(item.date).join(' · ') : item.date} · {item.time}</p>}
                   {item.previewError && <p role="alert" className="text-sm text-red-700">{item.previewError}</p>}
-                  {!item.selection.healthyLunchPlanId && externalProducts.find(product=>product.id===item.selection.productId)?.productType!=='weekly_meal_plan' && <div className="mt-2 flex flex-wrap gap-2 text-xs"><label>Item date (blank = order date)<input type="date" disabled={creatingExternal} aria-label={`${item.label} fulfilment date`} value={item.date || ''} onChange={event=>setExternalCart(current=>current.map(line=>line.key===item.key?{...line,date:event.target.value,time:event.target.value?(externalPosFullAccess ? line.time || externalTime || '12:00' : externalStore ? getPickupTimeSlots(externalStore,event.target.value)[0] || '' : ''):''}:line))} className="block rounded border p-2"/></label></div>}
-                  {item.date && <label className="block text-xs">Fulfilment time<input type="time" disabled={creatingExternal} aria-label={`${item.label} fulfilment time`} value={item.time || ''} onChange={event=>setExternalCart(current=>current.map(line=>line.key===item.key?{...line,time:event.target.value}:line))} className="ml-2 rounded border p-2"/></label>}
+                  {!item.selection.healthyLunchPlanId && externalProducts.find(product=>product.id===item.selection.productId)?.productType!=='weekly_meal_plan' && <label className="mt-2 block text-xs font-bold"><input type="checkbox" checked={Boolean(item.scheduleOverride || item.date)} disabled={creatingExternal} onChange={event=>setExternalCart(current=>current.map(line=>line.key===item.key?{...line,scheduleOverride:event.target.checked,date:event.target.checked?externalDate:'',time:event.target.checked?externalTime:''}:line))}/> Override fulfilment schedule for this item</label>}
+                  {(item.scheduleOverride || item.date) && <div className="mt-2 flex flex-wrap gap-2 text-xs">{!item.selection.healthyLunchPlanId && externalProducts.find(product=>product.id===item.selection.productId)?.productType!=='weekly_meal_plan'&&<label>Item date<input type="date" disabled={creatingExternal} aria-label={`${item.label} fulfilment date`} value={item.date || ''} onChange={event=>setExternalCart(current=>current.map(line=>line.key===item.key?{...line,date:event.target.value}:line))} className="block rounded border p-2"/></label>}<label>Fulfilment time<input type="time" disabled={creatingExternal} aria-label={`${item.label} fulfilment time`} value={item.time || ''} onChange={event=>setExternalCart(current=>current.map(line=>line.key===item.key?{...line,time:event.target.value}:line))} className="block rounded border p-2"/></label></div>}
                   {item.selection.setId && externalSets.find(set=>set.id===item.selection.setId)?.groups.map(group=><fieldset key={group.id} disabled={creatingExternal} className="mt-2 border-t pt-2 text-xs"><legend className="font-bold">{group.name} · choose {group.selectionCount}{group.required?' (required)':''}</legend>{group.options.map(option=>{const product=externalProducts.find(product=>product.id===option.productId);return product && <label key={option.productId} className="mr-3 inline-flex items-center gap-1 py-1"><input type={group.selectionCount===1?'radio':'checkbox'} name={`${item.key}-${group.id}`} checked={item.selection.selectedSetItems?.some(choice=>choice.groupId===group.id&&choice.productId===option.productId)||false} onChange={()=>updateExternalSetChoice(item.key,group.id,option.productId,group.selectionCount)}/>{product.name}{option.priceAdjustment?` (+${option.priceAdjustment.toFixed(2)})`:''}</label>})}</fieldset>)}
                   {item.selection.productId && externalProducts.find(product => product.id === item.selection.productId)?.optionGroupIds.map(groupId => {
                     const group = externalOptionGroups.find(candidate => candidate.id === groupId);
@@ -822,24 +906,23 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                   })}
                 </div>)}
               </div>
-              <fieldset disabled={creatingExternal} className="mt-3 grid grid-cols-2 gap-2 disabled:opacity-60">
-                <label className="text-xs font-bold text-slate-600">Customer name (optional)
-                  <input value={externalName} onChange={event => setExternalName(event.target.value)} placeholder="Customer name (optional)" className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
-                </label>
-                <label className="text-xs font-bold text-slate-600">Phone (optional)
-                  <input type="tel" value={externalPhone} onChange={event => setExternalPhone(event.target.value)} placeholder="Phone (optional)" className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
-                </label>
-                <label className="col-span-2 text-xs font-bold text-slate-600">Notes (optional)
-                  <textarea rows={1} value={externalNotes} onChange={event => setExternalNotes(event.target.value)} placeholder="Notes (optional)" className="mt-1 block w-full resize-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
-                </label>
-              </fieldset>
+
             </section>
 
             <footer className="border-t bg-white px-4 py-3">
-              <div className="mb-2 flex justify-between text-base font-black"><span>Subtotal</span><span>MYR {externalSubtotal.toFixed(2)}</span></div>
+              {externalMethod==='delivery'&&<section aria-label="Delivery estimate" className="mb-3 rounded-lg border p-3 text-sm">
+                <div className="flex justify-between font-bold"><span>Delivery estimate</span><span>{externalQuoting?'Getting quote…':externalQuote?`MYR ${externalQuote.customerDeliveryFee.toFixed(2)}`:'Unavailable'}</span></div>
+                <p className="mt-1 text-xs text-slate-500">Quote only. No Lalamove booking is created.</p>
+                {externalQuote&&<><p className="text-xs text-slate-500">Provider estimate: MYR {externalQuote.providerDeliveryFee.toFixed(2)} · Valid until {new Date(externalQuote.expiresAt).toLocaleTimeString('en-MY')}</p>{externalQuote.days.length>1&&externalQuote.days.map(day=><p key={`${day.date}_${day.time}`} className="text-xs">{day.date} {day.time} · MYR {day.customerDeliveryFee.toFixed(2)}{day.freeDeliveryApplied?' · Free delivery applied':''}</p>)}</>}
+                {externalQuoteError&&<p role="alert" className="mt-2 text-amber-800">{externalQuoteError} {externalPosFullAccess?'Use a manual fee below if quotation is unavailable.':''}</p>}
+                {!externalQuote&&!externalQuoting&&externalCart.length>0&&<button type="button" className="mt-2 rounded border px-3 py-2 font-bold" onClick={()=>{setExternalManualFee(false);setExternalQuoteState(null);setExternalQuoteError('');setExternalQuoting(true);const key=externalQuoteKey;void storeOrderService.quotePosDelivery(JSON.parse(key)).then(quote=>{if(key===externalQuoteKeyRef.current)setExternalQuoteState({quote,key});}).catch(error=>{if(key===externalQuoteKeyRef.current)setExternalQuoteError(error.message);}).finally(()=>{if(key===externalQuoteKeyRef.current)setExternalQuoting(false);});}}>Refresh estimate</button>}
+                {externalPosFullAccess && !externalQuote && !externalQuoting && <div className="mt-2"><label className="font-bold"><input type="checkbox" checked={externalManualFee} onChange={e=>{setExternalManualFee(e.target.checked);setExternalOverrideKey(externalQuoteKey);}}/> Manual delivery fee</label>{externalManualFee&&<div className="mt-2 grid gap-2"><label>Customer delivery fee (MYR)<input aria-label="Manual delivery fee" type="number" min="0" max="100000" step="0.01" value={externalFeeAmount} onChange={e=>setExternalFeeAmount(e.target.value)} className="ml-2 w-28 rounded border p-2"/></label><label>Reason<input aria-label="Manual delivery fee reason" value={externalFeeReason} maxLength={240} onChange={e=>setExternalFeeReason(e.target.value)} className="ml-2 rounded border p-2"/></label></div>}</div>}
+              </section>}
+              <dl className="mb-3 space-y-1 text-sm"><div className="flex justify-between"><dt>Product subtotal</dt><dd>MYR {externalSubtotal.toFixed(2)}</dd></div><div className="flex justify-between"><dt>Discounts</dt><dd>MYR 0.00</dd></div><div className="flex justify-between"><dt>Delivery fee</dt><dd>{externalFeeReady?`MYR ${Number(externalFee).toFixed(2)}`:'Pending estimate'}</dd></div><div className="flex justify-between border-t pt-2 text-base font-black"><dt>Grand total</dt><dd>{externalFeeReady?`MYR ${(Math.round((externalSubtotal+Number(externalFee))*100)/100).toFixed(2)}`:'Pending delivery fee'}</dd></div></dl>
+              <p className="mb-2 text-xs font-bold">Payment status: {externalSource==='shopeefood'?'Platform paid':'Paid externally'} · Confirm only after payment is received.</p>
               {!hasRequiredExternalOptions && <p className="mb-2 text-sm text-amber-800">Choose the required product options to continue.</p>}
               {externalError && <p id="pos-order-entry-error" role="alert" className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-800">{externalError}</p>}
-              <button type="button" onClick={() => void createExternalOrder()} disabled={creatingExternal || !externalCart.length || !hasRequiredExternalOptions || externalLoading || externalCartLines.some(item=>Boolean(item.previewError))} aria-busy={creatingExternal} aria-describedby={externalError ? 'pos-order-entry-error' : undefined} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-base font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
+              <button type="button" onClick={() => void createExternalOrder()} disabled={creatingExternal || !externalFeeReady || !externalCart.length || !hasRequiredExternalOptions || externalLoading || externalCartLines.some(item=>Boolean(item.previewError))} aria-busy={creatingExternal} aria-describedby={externalError ? 'pos-order-entry-error' : undefined} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-base font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
                 {creatingExternal && <LoaderCircle aria-hidden="true" className="h-5 w-5 animate-spin" />}{creatingExternal ? 'Creating…' : 'Confirm Order'}
               </button>
             </footer>

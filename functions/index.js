@@ -47,13 +47,15 @@ import {
 import { isCurlecPaymentLinkRolloutEnabled } from './paymentProviders/curlecPaymentLinkRollout.js';
 import { CurlecOrderCreationError } from './paymentProviders/curlecStandardCheckout.js';
 import {
+  loadStoreCheckoutData,
   cancelStorePayment,
   claimPublicStoreGuestOrderOperation,
   createStorePayment,
   getStorePaymentResult,
   handleStorePaymentWebhook
 } from './storePayments.js';
-import { createExternalPosOrder } from './externalPosOrders.js';
+import { createPosDeliveryQuote } from './posDeliveryQuotes.js';
+import { createExternalPosOrder, assertOperator } from './externalPosOrders.js';
 import {
   createCurlecWebhookRejectionLog,
   getCurlecWebhookSignatureDiagnostics
@@ -471,6 +473,14 @@ export const createStoreExternalPosOrder = onCall({
   uid: request.auth?.uid,
   input: request.data?.order
 }));
+
+export const quoteStorePosDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 120, memory: '256MiB' }, async request => {
+  if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Sign in to estimate delivery.');
+  await assertOperator({ db, uid: request.auth.uid, workspaceId: request.data?.order?.workspaceId, posFullAccess: true });
+  await consumeGroupDeliveryRate({ db, uid: request.auth.uid });
+  return createPosDeliveryQuote({ db, uid: request.auth.uid, input: request.data?.order, provider: createRuntimeLalamoveProvider(), authorize: assertOperator,
+    loadCheckout: loadStoreCheckoutData, resolvePlace: placeId => createGroupDeliveryPlaces().resolve(placeId) });
+});
 
 export const createPublicStoreDeliveryQuote = onCall({
   region: REGION,

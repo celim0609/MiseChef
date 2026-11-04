@@ -1,0 +1,22 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { claimPosAdd, posDeliveryDates, currentPosQuote, type PosQuote } from './posOrderEntryModel';
+
+test('rapid Add events add once; later intentional quantity changes remain available',()=>{
+ const recent=new Map<string,number>();
+ assert.equal(claimPosAdd(recent,'product:tea',1000),true);
+ assert.equal(claimPosAdd(recent,'product:tea',1001),false);
+ assert.equal(claimPosAdd(recent,'product:tea',1200),false);
+ assert.equal(claimPosAdd(recent,'set:tea',1200),true);
+ assert.equal(claimPosAdd(recent,'product:tea',1350),true);
+});
+test('single-date items inherit main schedule; explicit overrides and full weeks retain dates',()=>{
+ assert.deepEqual(posDeliveryDates([{selection:{productId:'tea'}},{date:'2020-01-01',selection:{productId:'tea'}},{date:'2026-10-26',selection:{productId:'week'}}],[{id:'tea'},{id:'week',productType:'weekly_meal_plan'}],'2030-12-31'),['2020-01-01','2026-10-26','2026-10-27','2026-10-28','2026-10-29','2026-10-30','2030-12-31']);
+});
+test('quote responses from an older address or schedule and expired quotes are unusable immediately',()=>{
+ const quote={id:'q',expiresAt:'2026-11-04T04:00:10Z'} as PosQuote;
+ const now=Date.parse('2026-11-04T04:00:00Z');
+ assert.equal(currentPosQuote(quote,'same','same',now),quote);
+ assert.equal(currentPosQuote(quote,'old','changed',now),null);
+ assert.equal(currentPosQuote(quote,'same','same',now+5000),null);
+});

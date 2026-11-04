@@ -436,7 +436,7 @@ test('external delivery confirmation is concurrent-idempotent, optional-contact 
   await db.collection('storeProducts').doc(`${workspaceId}-rice`).set({workspaceId,storeId:workspaceId,name:'Rice',price:11,available:true,optionGroupIds:[]});
   const now=new Date('2026-10-18T04:00:00Z');
   for(const source of ['shopeefood','whatsapp','walk_in','other']) {
-   const input={workspaceId,storeId:workspaceId,slug,source,paymentLabel:source==='shopeefood'?'shopeefood_platform_paid':source==='walk_in'?'walk_in_paid':'other_paid',requestId:`external-delivery-${source}-123456`,customerName:'',phone:'',fulfilmentMethod:'delivery',deliveryAddress:'Unit 12, Full delivery address',fulfilmentDate:'2026-10-20',fulfilmentTime:'13:17',selections:[{productId:`${workspaceId}-rice`,quantity:2,selectedOptions:[]},{productId:`${workspaceId}-rice`,quantity:1,selectedOptions:[]}],lineSchedules:[{date:'2026-10-19',time:'12:13'},{date:'',time:''}]};
+   const input={workspaceId,storeId:workspaceId,slug,source,paymentLabel:source==='shopeefood'?'shopeefood_platform_paid':source==='walk_in'?'walk_in_paid':'other_paid',requestId:`external-delivery-${source}-123456`,customerName:'',phone:'',fulfilmentMethod:'delivery',deliveryAddress:'Unit 12, Full delivery address',deliveryFeeOverride:{amount:0,reason:'Historical external platform delivery included; provider quotation unavailable'},fulfilmentDate:'2026-10-20',fulfilmentTime:'13:17',selections:[{productId:`${workspaceId}-rice`,quantity:2,selectedOptions:[]},{productId:`${workspaceId}-rice`,quantity:1,selectedOptions:[]}],lineSchedules:[{date:'2026-10-19',time:'12:13'},{date:'',time:''}]};
    const results=await Promise.all([1,2].map(()=>createExternalPosOrder({db,uid,input,deliveryProvider,now})));
    assert.equal(new Set(results.map(result=>result.orderId)).size,1);
    const order=(await db.collection('storeOrders').doc(results[0].orderId).get()).data();
@@ -452,4 +452,35 @@ test('external delivery confirmation is concurrent-idempotent, optional-contact 
   assert.equal(providerCalls,0);
   assert.equal((await db.collection('storeOrders').where('workspaceId','==',workspaceId).get()).size,4);
  } finally {await deleteApp(app);}
+});
+
+test('POS delivery checkout uses stored quote totals, rejects stale/forged fees, and audits historical Manager overrides',async()=>{
+ const {createPosDeliveryQuote}=await import('../functions/posDeliveryQuotes.js');
+ const {loadStoreCheckoutData}=await import('../functions/storePayments.js');
+ const {assertOperator}=await import('../functions/externalPosOrders.js');
+ const app=initializeApp({projectId:'demo-misechef-store-payment-rules'},`pos-delivery-quote-${process.pid}`),db=getFirestore(app);
+ const workspaceId=`pos-delivery-quote-${process.pid}`,uid=`${workspaceId}-owner`,manager=`${workspaceId}-manager`,chef=`${workspaceId}-chef`;
+ try{
+  await db.collection('workspaces').doc(workspaceId).set({ownerId:uid,subscriptionPlan:'professional',subscriptionStatus:'active'});
+  for(const [userId,role]of[[manager,'Manager'],[chef,'Chef']])await db.collection('workspaceMembers').doc(`${workspaceId}_${userId}`).set({workspaceId,userId,status:'Active',role});
+  await db.collection('stores').doc(workspaceId).set({workspaceId,slug:workspaceId,name:'Disposable delivery Store',currency:'MYR',pickupLocations:[{id:'counter',name:'Counter',address:'QA pickup'}],delivery:{enabled:true,provider:'lalamove',environment:'sandbox',market:'MY',serviceType:'MOTORCYCLE',pickup:{address:'QA pickup',latitude:'4.6',longitude:'101.1'},freeDelivery:{enabled:false}}});
+  await db.collection('storeProducts').doc(`${workspaceId}-meal`).set({workspaceId,storeId:workspaceId,name:'QA meal',price:12,available:true,optionGroupIds:[]});
+  const input={workspaceId,storeId:workspaceId,slug:workspaceId,source:'whatsapp',paymentLabel:'other_paid',requestId:'pos-quoted-request-12345',fulfilmentMethod:'delivery',fulfilmentDate:'2099-01-01',fulfilmentTime:'00:01',deliveryAddress:'Corrected QA address',destination:{placeId:'qa-place',formattedAddress:'Corrected QA address',latitude:'0',longitude:'0'},selections:[{productId:`${workspaceId}-meal`,quantity:2,selectedOptions:[]}],total:1,deliveryFee:0};
+  let bookings=0;
+  const provider={environment:'sandbox',createQuote:async()=>({quotationId:'qa-quote',expiresAt:new Date(Date.now()+300000).toISOString(),serviceType:'MOTORCYCLE',priceBreakdown:{total:9.5,currency:'MYR'},stops:[]}),createOrder:()=>{bookings++;}};
+  const quote=await createPosDeliveryQuote({db,uid:manager,input,provider,authorize:assertOperator,loadCheckout:loadStoreCheckoutData,resolvePlace:async()=>({latitude:4.61,longitude:101.11})});
+  const args={db,uid:manager,input:{...input,posDeliveryQuoteId:quote.id}};
+  const result=await createExternalPosOrder(args);
+  const saved=(await db.collection('storeOrders').doc(result.orderId).get()).data();
+  assert.equal(saved.total,33.5);assert.equal(saved.payment.amountMinor,3350);assert.equal(saved.payment.status,'paid');assert.equal(saved.totals.deliveryFee,9.5);assert.equal(saved.posDeliveryPricing.providerDeliveryFee,9.5);assert.equal(saved.delivery.arrangedExternally,true);assert.equal(saved.fulfilments[0].destination.latitude,'4.61');assert.equal(bookings,0);
+  assert.equal((await createExternalPosOrder(args)).orderId,result.orderId);
+  await assert.rejects(createExternalPosOrder({...args,input:{...args.input,requestId:'pos-changed-request-12345',fulfilmentTime:'00:02'}}),/changed/);
+  await db.collection('storePosDeliveryQuotes').doc(quote.id).update({expiresAt:new Date(Date.now()-1).toISOString()});
+  await assert.rejects(createExternalPosOrder({...args,input:{...args.input,requestId:'pos-expired-request-12345'}}),/expired/);
+  const historical={...input,requestId:'pos-manual-request-12345',fulfilmentDate:'2020-01-01',deliveryFeeOverride:{amount:5,reason:'Historical record; provider quotation unavailable'}};
+  await assert.rejects(createExternalPosOrder({db,uid:chef,input:historical}));
+  const manual=await createExternalPosOrder({db,uid:manager,input:historical});
+  const order=(await db.collection('storeOrders').doc(manual.orderId).get()).data();
+  assert.equal(order.total,29);assert.equal(order.fulfilments[0].date,'2020-01-01');assert.equal(order.totals.deliveryFee,5);assert.equal(order.posDeliveryPricing.providerDeliveryFee,null);assert.equal(order.posDeliveryPricing.authorizedBy,manager);assert.equal(bookings,0);
+ }finally{await deleteApp(app);}
 });

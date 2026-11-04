@@ -186,9 +186,12 @@ const makeExternalOrderHarness = (overrides: Record<string, unknown> = {}) => {
   const requests: Record<string, unknown>[] = [];
   const scope = {
     externalSubmitInFlightRef: lock,
+    externalAddTimes:{current:new Map()},
     externalRequestIdRef: {current: 'request-1234567890'},
     externalCart: state.cart,
     creatingExternal: false,
+    externalFeeReady:true,externalManualFee:false,externalFeeAmount:'',externalFeeReason:'',externalQuote:{id:'quote-1234567890',expiresAt:'2099-01-01T00:00:00Z'},
+    setExternalDestination:()=>{},setExternalDestinations:()=>{},setExternalQuoteState:()=>{},
     externalMethod:'pickup', externalAddress:'', externalDate:'', externalTime:'',
     setExternalMethod:()=>{}, setExternalAddress:()=>{}, setExternalDate:()=>{}, setExternalTime:()=>{},
     externalSource: 'walk_in', externalName: '', externalPhone: '', externalNotes: '', externalNumber: '',
@@ -207,6 +210,8 @@ const makeExternalOrderHarness = (overrides: Record<string, unknown> = {}) => {
     printWalkInReceipt: () => { state.printed += 1; },
     ...overrides
   };
+  const scoped=scope as typeof scope & {externalOrderInput?:unknown};
+  scoped.externalOrderInput={workspaceId:scope.workspaceId,storeId:scope.storeId,slug:'store-a',source:scope.externalSource,customerName:scope.externalName,phone:scope.externalPhone,notes:scope.externalNotes,externalOrderNumber:scope.externalNumber,fulfilmentMethod:scope.externalMethod,deliveryAddress:scope.externalAddress,fulfilmentDate:scope.externalDate,fulfilmentTime:scope.externalTime,selections:(scope.externalCart as Array<{selection:object;quantity:number}>).map(item=>({...item.selection,quantity:item.quantity})),lineSchedules:(scope.externalCart as Array<{date?:string;time?:string}>).map(item=>({date:item.date||'',time:item.time||''}))};
   assert.ok(createExternalOrderSource.startsWith('  const createExternalOrder = async () => {'));
   const submit = new Function(...Object.keys(scope), `${createExternalOrderSource}\nreturn createExternalOrder;`)(...Object.values(scope)) as () => Promise<void>;
   return { state, lock, requests, submit };

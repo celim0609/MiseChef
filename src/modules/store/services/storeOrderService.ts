@@ -175,6 +175,10 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
 };
 
 export const storeOrderService = {
+  async quotePosDelivery(order: Record<string, unknown>): Promise<import('../posOrderEntryModel').PosQuote> {
+    if (!functions) throw new Error('Delivery quotation is unavailable.');
+    return (await httpsCallable<{order: Record<string, unknown>}, import('../posOrderEntryModel').PosQuote>(functions, 'quoteStorePosDelivery', {timeout:120000})({order})).data;
+  },
   async saveManualPosOrder(order: Record<string, unknown>) {
     if (!functions) throw new Error('Store ordering is unavailable.');
     return (await httpsCallable<{order: Record<string, unknown>}, {orderId: string}>(functions, 'saveStoreManualPosOrder')({order})).data;

@@ -1,3 +1,4 @@
+import { resolvePosDeliveryCharge } from './posDeliveryQuotes.js';
 import { buildExternalOrderItems } from './externalPosOrderModel.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
@@ -61,7 +62,7 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
   if (readString(checkout.store.workspaceId) !== workspaceId || (readString(checkout.store.id) || workspaceId) !== storeId) throw new HttpsError('permission-denied', 'This Store does not match the active Workspace.');
   const idempotencyReference = externalOrderNumber ? db.collection('storeExternalOrderReferences').doc(idempotencyId({ storeId, source, externalOrderNumber })) : null;
   const requestReference = requestId ? db.collection('storeExternalOrderReferences').doc(createHash('sha256').update(`${storeId}:${uid}:${requestId}`).digest('hex')) : null;
-  const fingerprint = createHash('sha256').update(JSON.stringify({source,externalOrderNumber,paymentLabel,customerName:readString(input.customerName),phone,notes:readString(input.notes),selections:input.selections,lineSchedules:input.lineSchedules,pickupLocationId:input.pickupLocationId,fulfilmentMethod:input.fulfilmentMethod,deliveryAddress:input.deliveryAddress,fulfilmentDate:input.fulfilmentDate,fulfilmentTime:input.fulfilmentTime})).digest('hex');
+  const fingerprint = createHash('sha256').update(JSON.stringify({source,externalOrderNumber,paymentLabel,customerName:readString(input.customerName),phone,notes:readString(input.notes),selections:input.selections,lineSchedules:input.lineSchedules,pickupLocationId:input.pickupLocationId,fulfilmentMethod:input.fulfilmentMethod,deliveryAddress:input.deliveryAddress,fulfilmentDate:input.fulfilmentDate,fulfilmentTime:input.fulfilmentTime,destination:input.destination,deliveryDestinations:input.deliveryDestinations,posDeliveryQuoteId:input.posDeliveryQuoteId,deliveryFeeOverride:input.deliveryFeeOverride})).digest('hex');
   const orderReference = db.collection('storeOrders').doc();
   const commit = () => db.runTransaction(async transaction => {
     const currentPosFullAccess = await assertOperator({ db, uid, workspaceId, posFullAccess: true, transaction });
@@ -82,7 +83,16 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
     try { built = buildExternalOrderItems(input, posCheckout, now, { owner: posFullAccess }); } catch(error) { throw externalError(error.message || 'Check the items and fulfilment dates.'); }
     const {items} = built;
     const merchandiseSubtotal = money(items.reduce((sum, item) => sum + item.lineTotal, 0));
-    const total = merchandiseSubtotal;
+    const charge = await resolvePosDeliveryCharge({ db, transaction, input, checkout, built, uid, fullAccess: currentPosFullAccess, now: new Date(Math.max(now.getTime(), Date.now())) });
+    if (charge.snapshot) {
+      built.posDeliveryPricing = charge.snapshot;
+      built.fulfilments = built.fulfilments.map(day => {
+        const quoted = charge.snapshot.days?.find(entry => entry.date === day.date && entry.time === day.time);
+        const address = input.deliveryDestinations?.[day.date] || input.destination;
+        return { ...day, destination: quoted ? { formattedAddress: quoted.destination.address, latitude: quoted.destination.latitude, longitude: quoted.destination.longitude } : { formattedAddress: readString(address?.formattedAddress) || readString(input.deliveryAddress) } };
+      });
+    }
+    const total = money(merchandiseSubtotal + charge.fee);
     if (!Number.isSafeInteger(Math.round(total * 100))) throw externalError('Order amount is unsafe.');
     if (total <= 0) throw externalError('Order total must be greater than zero.');
     const reference = await createAvailableOrderReference({ date: now, exists: async ({ orderNumber, pickupCode, businessDateKey }) => {
@@ -94,7 +104,7 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
     } });
     const createdAt = now.toISOString();
     const paymentMethodName = paymentLabel === 'shopeefood_platform_paid' ? 'ShopeeFood / Platform Paid' : paymentLabel === 'walk_in_paid' ? 'Walk-in / Paid' : source === 'whatsapp' ? 'WhatsApp / Paid' : 'Other / Paid';
-    const order = { id: orderReference.id, orderNumber: reference.orderNumber, pickupCode: reference.pickupCode, storeId, workspaceId, orderSource: 'pos', externalOrder: { source, ...(externalOrderNumber ? { externalOrderNumber } : {}) }, storeName: readString(checkout.store.name), currency: readString(checkout.store.currency), paymentMethodId: paymentLabel, paymentMethodName, customerName: readString(input.customerName, source === 'walk_in' ? 'Walk-in customer' : 'Customer'), phone, fulfilmentMethod: 'pickup', notes: readString(input.notes), ...built, itemCount: items.reduce((sum, item) => sum + item.quantity, 0), totals: { merchandiseSubtotal, discountTotal: 0, discountedMerchandiseTotal: merchandiseSubtotal, deliveryFee: 0, grandTotal: total, currency: readString(checkout.store.currency) }, total, status: 'Paid externally', fulfilmentStatus: 'New', fulfilmentUpdatedAt: null, fulfilmentUpdatedBy: '', payment: { provider: 'external', providerMode: 'platform_handled', status: 'paid', amountMinor: Math.round(total * 100), currency: readString(checkout.store.currency), providerPaymentId: '', providerTransactionId: '', providerPaymentMethod: paymentLabel, failureCode: '', refundStatus: 'none', refundedAmountMinor: 0, refundFailureCode: '', createdAt, updatedAt: createdAt }, createdAt, updatedAt: createdAt };
+    const order = { id: orderReference.id, orderNumber: reference.orderNumber, pickupCode: reference.pickupCode, storeId, workspaceId, orderSource: 'pos', externalOrder: { source, ...(externalOrderNumber ? { externalOrderNumber } : {}) }, storeName: readString(checkout.store.name), currency: readString(checkout.store.currency), paymentMethodId: paymentLabel, paymentMethodName, customerName: readString(input.customerName, source === 'walk_in' ? 'Walk-in customer' : 'Customer'), phone, fulfilmentMethod: 'pickup', notes: readString(input.notes), ...built, itemCount: items.reduce((sum, item) => sum + item.quantity, 0), totals: { merchandiseSubtotal, discountTotal: 0, discountedMerchandiseTotal: merchandiseSubtotal, deliveryFee: charge.fee, grandTotal: total, currency: readString(checkout.store.currency) }, total, status: 'Paid externally', fulfilmentStatus: 'New', fulfilmentUpdatedAt: null, fulfilmentUpdatedBy: '', payment: { provider: 'external', providerMode: 'platform_handled', status: 'paid', amountMinor: Math.round(total * 100), currency: readString(checkout.store.currency), providerPaymentId: '', providerTransactionId: '', providerPaymentMethod: paymentLabel, failureCode: '', refundStatus: 'none', refundedAmountMinor: 0, refundFailureCode: '', createdAt, updatedAt: createdAt }, createdAt, updatedAt: createdAt };
     const reservation = db.collection('stores').doc(storeId).collection('orderNumberReservations').doc(`${reference.businessDateKey}_${reference.pickupCode}`);
     transaction.create(reservation, { orderId: orderReference.id, orderNumber: reference.orderNumber, pickupCode: reference.pickupCode, createdAt: FieldValue.serverTimestamp() });
     transaction.create(orderReference, order);

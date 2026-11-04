@@ -1,10 +1,10 @@
-import {useState} from 'react';
+import {useState, type ReactNode} from 'react';
 import HealthyLunchMenu, {type HealthyLunchChoice} from './HealthyLunchMenu';
 import {getValidPickupDates,getPickupTimeSlots} from './storeModel';
 import {weekRangeLabel,datedWeeks,fullWeekDateStore,getWeeklyDates,getWeeklyPickupTimes,hasDatedMenu,isDatedWeekOpen,isHealthyLunchWeekBlocked,validateWeeklyMealPlan,resolveHealthyLunchDay,hasEmbeddedMenu} from '../../../functions/storeWeeklyMealPlan.js';
 import type {StoreProduct,WorkspaceStore} from './types';
 
-export default function PosWeeklyMenu({product,products,store,onAdd,disabled=false,exactTime=false,unrestricted=false}:{product:StoreProduct;products:StoreProduct[];store:WorkspaceStore;onAdd:(choice:HealthyLunchChoice,time:string)=>void;disabled?:boolean;exactTime?:boolean;unrestricted?:boolean}) {
+export default function PosWeeklyMenu({product,products,store,onAdd,disabled=false,exactTime=false,unrestricted=false,cartFeedback}:{product:StoreProduct;products:StoreProduct[];store:WorkspaceStore;onAdd:(choice:HealthyLunchChoice,time:string)=>void;disabled?:boolean;exactTime?:boolean;unrestricted?:boolean;cartFeedback?:ReactNode}) {
  const [choice,setChoice]=useState<HealthyLunchChoice>({mode:'week',date:''});
  const [time,setTime]=useState('');
  if (unrestricted) { product={...product,healthyLunchBlockedDates:[]}; products=products.map(p=>({...p,healthyLunchBlockedDates:[]})); }
@@ -26,6 +26,7 @@ export default function PosWeeklyMenu({product,products,store,onAdd,disabled=fal
   {!hasDatedMenu(product) && <label className="mb-2 block text-sm font-bold">Week starting<select aria-label={`${product.name} week`} value={monday} onChange={event=>setChoice({...choice,date:event.target.value})} className="ml-2 rounded border p-2">{!weeks.length&&<option value="">No available dates</option>}{weeks.map(date=><option key={date} value={date}>{weekRangeLabel(date)}</option>)}</select></label>}
   <label className="text-sm font-bold">Fulfilment time<>{exactTime ? <input type="time" aria-label={`${product.name} fulfilment time`} value={selectedTime} onChange={event=>setTime(event.target.value)} className="ml-2 rounded-lg border p-2" /> : <select aria-label={`${product.name} fulfilment time`} value={selectedTime} onChange={event=>setTime(event.target.value)} className="ml-2 rounded-lg border p-2">{!times.length&&<option value="">No available times</option>}{times.map(time=><option key={time}>{time}</option>)}</select>}</></label>
   <HealthyLunchMenu product={product} products={products} currency={store.currency} weeks={weeks} dayDates={dayDates} choice={{...choice,date:monday}} monday={monday} canOrder={Boolean(selectedTime)&&!disabled} onChange={setChoice} onAdd={choice=>onAdd(choice,selectedTime)}/>
+  {cartFeedback}
   {!hasEmbeddedMenu(product)&&!weeks.length&&<p>No available menu dates. Review Store configuration.</p>}
  </section>;
 }

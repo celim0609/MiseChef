@@ -57,7 +57,8 @@ export function buildExternalOrderItems(input, checkout, now = new Date(), { own
     items.push(item);
     const entries = daily?.fulfilments || [{date:immediateDate,time:immediateTime,method:'pickup',pickupLocationId:checkout.store.pickupLocations?.[0]?.id || '',pickupLocationName:checkout.store.pickupLocations?.[0]?.name || '',pickupLocationAddress:checkout.store.pickupLocations?.[0]?.address || '',allocations:[{itemIndex:0,quantity:selection.quantity}]}];
     for (const original of entries) {
-      const entry = method === 'delivery' ? {...original, method, pickupLocationId:'', pickupLocationName:'', pickupLocationAddress:'', destination:{formattedAddress:address}} : original;
+      const dayAddress = input.deliveryDestinations?.[original.date]?.formattedAddress || address;
+      const entry = method === 'delivery' ? {...original, method, pickupLocationId:'', pickupLocationName:'', pickupLocationAddress:'', destination:{formattedAddress:dayAddress}} : original;
       const key = `${entry.date.replaceAll('-','')}_${entry.time.replace(':','')}`;
       const day = days.get(key) || {...entry,id:`external_${key}`,allocations:[]};
       day.allocations.push(...entry.allocations.map(allocation => ({...allocation,itemIndex:index})));
