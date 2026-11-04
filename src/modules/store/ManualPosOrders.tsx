@@ -590,12 +590,12 @@ export default function ManualPosOrders({
               </p>
             )}
             {draft.lines.map((line, i) => {
-              const product = products.find(
+              const product = posProducts.find(
                 (p) => p.id === line.selection?.productId,
               );
               const set = sets.find((s) => s.id === line.selection?.setId);
               const plan =
-                products.find(
+                posProducts.find(
                   (p) => p.id === line.selection?.healthyLunchPlanId,
                 ) || product;
               const mealDays =
@@ -606,7 +606,7 @@ export default function ManualPosOrders({
                           date: line.date,
                           meal: resolveHealthyLunchDay(
                             plan,
-                            products,
+                            posProducts,
                             line.date,
                           ),
                         },
@@ -615,7 +615,7 @@ export default function ManualPosOrders({
                         date,
                         meal: resolvePlanMeal(
                           plan,
-                          products,
+                          posProducts,
                           line.date,
                           WEEKLY_DAYS[index],
                         ),
