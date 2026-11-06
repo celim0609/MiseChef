@@ -49,6 +49,7 @@ export default function ManualPosOrders({
   canRecordReminders = false,
   pasteRequest,
   onPasteConsumed,
+  onOrderChanged,
 }: {
   workspaceId: string;
   storeId: string;
@@ -57,6 +58,7 @@ export default function ManualPosOrders({
   canRecordReminders?: boolean;
   pasteRequest?: {id:string;draft:PasteDraft} | null;
   onPasteConsumed?: ()=>void;
+  onOrderChanged?: ()=>void;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(empty);
@@ -270,6 +272,7 @@ export default function ManualPosOrders({
       });
       setSaved(await storeOrderService.getOrder(result.orderId));
       setOpen(false);
+      onOrderChanged?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to save.");
     } finally {
@@ -293,6 +296,7 @@ export default function ManualPosOrders({
       });
       setSaved(await storeOrderService.getOrder(pay.id));
       setPay(null);
+      onOrderChanged?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to confirm payment.");
     } finally {
@@ -1097,8 +1101,8 @@ export default function ManualPosOrders({
                   <button type="button" disabled={busy || quoting} onClick={() => void quoteDelivery()}>{quoting ? 'Estimating…' : 'Refresh delivery estimate'}</button>
                   {usableQuote ? <p role="status">Customer charge {money(Math.round(usableQuote.customerDeliveryFee * 100))} · provider cost {money(Math.round(usableQuote.providerDeliveryFee * 100))}. Expires {new Date(usableQuote.expiresAt).toLocaleTimeString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })} MYT.</p> : <p>Refresh after changing items, addresses or schedules.</p>}
                 </> : <>
-                  <label>Customer delivery charge<input type="number" min="0" max="100000" step="0.01" value={draft.deliveryFeeOverride?.amount ?? ''} onChange={e => setDraft({ ...draft, deliveryFeeOverride: { amount: e.target.value === '' ? NaN : Number(e.target.value), reason: draft.deliveryFeeOverride?.reason || '' } })} /></label>
-                  <label>Audit reason / agreed fee reference<input maxLength={240} value={draft.deliveryFeeOverride?.reason || ''} onChange={e => setDraft({ ...draft, deliveryFeeOverride: { amount: draft.deliveryFeeOverride?.amount ?? NaN, reason: e.target.value } })} /></label>
+                  <label>Customer delivery charge<input disabled={busy} type="number" min="0" max="100000" step="0.01" value={draft.deliveryFeeOverride?.amount ?? ''} onChange={e => setDraft({ ...draft, deliveryFeeOverride: { amount: e.target.value === '' ? NaN : Number(e.target.value), reason: draft.deliveryFeeOverride?.reason || '' } })} /></label>
+                  <label>Audit reason / agreed fee reference<input disabled={busy} maxLength={240} value={draft.deliveryFeeOverride?.reason || ''} onChange={e => setDraft({ ...draft, deliveryFeeOverride: { amount: draft.deliveryFeeOverride?.amount ?? NaN, reason: e.target.value } })} /></label>
                 </>}
               </fieldset>}
               <div className="manual-summary-row"><span>Product subtotal</span><span>{preview.totalMinor === null ? 'Incomplete' : money(preview.totalMinor)}</span></div>

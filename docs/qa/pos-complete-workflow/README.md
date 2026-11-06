@@ -34,3 +34,16 @@ Completed-order cancellation remains on its existing terminal-state policy to av
 ## Candidate status
 
 This candidate is not yet deployed. Live Beta AI, end-to-end order management, responsive/mobile QA and full protected workflow verification remain required. No phase is declared complete by this document.
+
+## Final QA follow-up — 2026-11-06
+
+Current live Beta was reverified at `276f666e6acd45d62630aeb4de22d44cde3220c2`. Production authority remains `97230ff607c8af3825c59bbdc0517c625f0c015b`; no Production changes are permitted.
+
+Remaining delivery QA passed on disposable order `MC-1106-64WP`: Malaysian Places suggestions and selection, map-pin retention after address correction, two dates/two public destinations, automatic provider quotations, quote-expiry checkout blocking, and exact saved quote total MYR 11.80 (products MYR 0.20 + customer/provider delivery MYR 11.60). Switching both lines to customer-arranged delivery saved MYR 0.20 with zero automatic charges. A customer-agreed MYR 5.00 fee with an explicit audit reason then saved MYR 5.20, still Pending Payment. No driver booking or real payment was initiated. This disposable order must be cancelled after QA.
+
+Narrow fixes from live QA:
+- Preserve original before/sebelum/之前 deadline qualifiers when the model returns a bare time; label deadlines explicitly and flag ambiguous source matches.
+- Refresh existing POS History after successful manual save/payment confirmation.
+- Lock manual fee amount/reason while the save is busy.
+
+Affected validation passed: TypeScript, 31 POS/model tests, 5 extraction tests and Functions syntax checks. A protected Beta release must rerun its mandatory complete gate before deployment; unrelated passed live scenarios need not be repeated. Retest deadline persistence and immediate History refresh on the new deployed SHA. Current browser is an Active Manager, verified in Team UI; user will provide the existing Owner session for paid deletion and Deleted Orders checks. No role changes, real customer changes or Production changes were made.

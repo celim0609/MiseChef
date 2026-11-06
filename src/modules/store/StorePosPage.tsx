@@ -728,7 +728,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
         {(!dailyHistory || dailyHistory.hasMore) && <button type="button" className="mt-3 rounded border px-4 py-2 underline" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()}>{loadingDailyHistory ? 'Loading…' : 'Load older orders for reprint'}</button>}
       </main> : <main className="flex-1 min-w-0">
       {posSection !== 'group-delivery' && activeView === 'history' && <DeletedOrders workspaceId={workspaceId} storeId={storeId} />}
-      {posSection !== 'group-delivery' && activeView === 'history' && <ManualPosOrders pasteRequest={pasteRequest} onPasteConsumed={()=>setPasteRequest(null)} workspaceId={workspaceId} storeId={storeId} country={storeCountry || 'MY'} storeName={storeNameForMessages} canRecordReminders={canRecordReminders} />}
+      {posSection !== 'group-delivery' && activeView === 'history' && <ManualPosOrders onOrderChanged={()=>setHistoryRefreshKey(key=>key+1)} pasteRequest={pasteRequest} onPasteConsumed={()=>setPasteRequest(null)} workspaceId={workspaceId} storeId={storeId} country={storeCountry || 'MY'} storeName={storeNameForMessages} canRecordReminders={canRecordReminders} />}
       {errorMessage && <p role="alert" className="mx-4 mt-3 rounded-xl border border-red-400 bg-red-950 px-5 py-3 text-sm font-black text-red-100 lg:mx-6">{errorMessage}</p>}
 
       {activeView === 'live' ? dailyView === 'History' ? (

@@ -10,9 +10,28 @@ export const pasteOrderSchema = {
  type:'OBJECT', properties:{
   customerName:{type:'STRING'},phone:{type:'STRING'},remarks:{type:'STRING'},paymentStatement:{type:'STRING'},deliveryFee:{type:'NUMBER',nullable:true},
   warnings:{type:'ARRAY',items:{type:'STRING'}},
-  lines:{type:'ARRAY',items:{type:'OBJECT',properties:{name:{type:'STRING'},quantity:{type:'NUMBER'},unitPrice:{type:'NUMBER',nullable:true},lineTotal:{type:'NUMBER',nullable:true},date:{type:'STRING'},time:{type:'STRING'},deadline:{type:'STRING'},method:{type:'STRING'},address:{type:'STRING'},remarks:{type:'STRING'},evidence:{type:'STRING'}},required:['name','quantity','date','time','method','address','evidence']}}
+  lines:{type:'ARRAY',items:{type:'OBJECT',properties:{name:{type:'STRING'},quantity:{type:'NUMBER'},unitPrice:{type:'NUMBER',nullable:true},lineTotal:{type:'NUMBER',nullable:true},date:{type:'STRING'},time:{type:'STRING'},deadline:{type:'STRING',description:'Verbatim source deadline phrase including Before, sebelum or 之前; never a bare replacement clock time.'},method:{type:'STRING'},address:{type:'STRING'},remarks:{type:'STRING'},evidence:{type:'STRING'}},required:['name','quantity','date','time','method','address','evidence']}}
  }, required:['customerName','phone','remarks','paymentStatement','lines','warnings']
 };
+
+// Preserve source qualifiers even when AI reduces a deadline to a bare clock time.
+export function pasteDeadlineNote(line, original, issues) {
+ const supplied=text(line.deadline,120);
+ if (!supplied) return '';
+ const patterns=[/\bbefore\s+(?:\d{1,2}[:.]\d{2}|\d{1,2}\s*(?:am|pm))\s*(?:a\.?m\.?|p\.?m\.?)?/gi,/\bsebelum\s+(?:jam\s*)?\d{1,2}[:.]\d{2}\s*(?:pagi|petang|malam|tengah\s+hari)?/gi,/(?:上午|下午|中午|晚上|早上|凌晨)?\s*\d{1,2}[:：]\d{2}\s*(?:之前|以前|前)/g];
+ const phrases=[...new Set(patterns.flatMap(pattern=>[...original.matchAll(pattern)].map(match=>match[0].trim())))];
+ const norm=value=>value.normalize('NFKC').replace(/\s+/g,'').toLowerCase();
+ let matches=phrases.filter(phrase=>norm(phrase).includes(norm(supplied)) || norm(supplied).includes(norm(phrase)));
+ if (!matches.length && /^([01]\d|2[0-3]):[0-5]\d$/.test(line.time || '')) matches=phrases.filter(phrase=>{
+  const clock=phrase.normalize('NFKC').match(/(\d{1,2})[:.](\d{2})/); if(!clock)return false;
+  let hour=Number(clock[1]); if(/pm|p\.m|下午|晚上|petang|malam/i.test(phrase)&&hour<12)hour+=12;
+  if(/am|a\.m|上午|早上|凌晨|pagi/i.test(phrase)&&hour===12)hour=0;
+  return `${String(hour).padStart(2,'0')}:${clock[2]}`===line.time;
+ });
+ if (matches.length===1) return `Deadline: ${matches[0]}`;
+ issues.push('Verify the original deadline wording; no ambiguous deadline has been substituted.');
+ return `Deadline (review): ${supplied}`;
+}
 
 // Model output is untrusted data. Only these fields enter an editable preview.
 // Catalog IDs, prices and payment state cannot be supplied by the model.
@@ -39,7 +58,7 @@ export function validatePastePreview(raw, catalog, original) {
   const unitPrice=amount(line.unitPrice), lineTotal=amount(line.lineTotal);
   if (match && unitPrice!==null && Math.round(unitPrice*100)!==Math.round(match.price*100)) issues.push('Pasted unit price differs from the catalog. Catalog pricing applies.');
   if (unitPrice!==null && lineTotal!==null && Math.round(unitPrice*quantity*100)!==Math.round(lineTotal*100)) issues.push('Pasted quantity, price and line total conflict.');
-  return {key:`paste-${index}`,name,quantity,date,time,method,address:text(line.address,500),notes:[text(line.deadline,120),text(line.remarks,300)].filter(Boolean).join(' · '),unitPrice,lineTotal,match:match?{id:match.id,kind:match.kind}:null,issues};
+  return {key:`paste-${index}`,name,quantity,date,time,method,address:text(line.address,500),notes:[pasteDeadlineNote(line,original,issues),text(line.remarks,300)].filter(Boolean).join(' · '),unitPrice,lineTotal,match:match?{id:match.id,kind:match.kind}:null,issues};
  });
  return {customerName:text(raw.customerName,120),phone:text(raw.phone,40),notes:text(raw.remarks,500),paymentStatement:text(raw.paymentStatement,300),deliveryFee:amount(raw.deliveryFee),warnings,lines};
 }
