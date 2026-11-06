@@ -134,6 +134,7 @@ export const updateStoreOrderFulfilment = async ({
     if (!orderSnapshot.exists) throw new HttpsError('not-found', 'This order could not be found.');
 
     const order = orderSnapshot.data() || {};
+    if (order.deletedAt) throw new HttpsError("failed-precondition", "This order has been deleted.");
     if (!order.manualOrder && order.delivery?.arrangedExternally !== true && order.fulfilmentMethod === 'delivery'
       && normalizedNextStatus === STORE_FULFILMENT_STATUS.completed
       && readString(order.delivery?.providerOrder?.status) !== 'COMPLETED') {

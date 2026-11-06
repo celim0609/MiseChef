@@ -2,13 +2,14 @@ import {useState, type ReactNode} from 'react';
 import HealthyLunchMenu, {type HealthyLunchChoice} from './HealthyLunchMenu';
 import {getValidPickupDates,getPickupTimeSlots} from './storeModel';
 import {weekRangeLabel,datedWeeks,fullWeekDateStore,getWeeklyDates,getWeeklyPickupTimes,hasDatedMenu,isDatedWeekOpen,isHealthyLunchWeekBlocked,validateWeeklyMealPlan,resolveHealthyLunchDay,hasEmbeddedMenu} from '../../../functions/storeWeeklyMealPlan.js';
+import {posInitialItemDate} from './posOrderEntryModel';
 import type {StoreProduct,WorkspaceStore} from './types';
 
 export default function PosWeeklyMenu({product,products,store,onAdd,disabled=false,exactTime=false,unrestricted=false,cartFeedback,defaultDate='',defaultTime=''}:{product:StoreProduct;products:StoreProduct[];store:WorkspaceStore;onAdd:(choice:HealthyLunchChoice,time:string)=>void;disabled?:boolean;exactTime?:boolean;unrestricted?:boolean;cartFeedback?:ReactNode;defaultDate?:string;defaultTime?:string}) {
  const [choice,setChoice]=useState<HealthyLunchChoice>({mode:'week',date:''});
  const [time,setTime]=useState('');
  if (unrestricted) { product={...product,healthyLunchBlockedDates:[]}; products=products.map(p=>({...p,healthyLunchBlockedDates:[]})); }
- const requestedDate=choice.date || (getWeeklyDates(defaultDate).length===5 ? defaultDate : '');
+ const requestedDate=choice.date || posInitialItemDate(product,defaultDate);
  const dates=getValidPickupDates(fullWeekDateStore(store,product));
  const weeks=[...new Set((product.weeklyWeeks!==undefined?datedWeeks(product).map(week=>week.startMonday):[...(unrestricted && getWeeklyDates(requestedDate).length===5 ? [requestedDate] : []),...dates.filter(date=>getWeeklyDates(date).length===5)])
   .filter(date=>!validateWeeklyMealPlan(product,products,store.id,date)&&(unrestricted||((!hasDatedMenu(product)||isDatedWeekOpen(store,date))&&!isHealthyLunchWeekBlocked(product,date)&&getWeeklyPickupTimes(fullWeekDateStore(store,product),date,getValidPickupDates,getPickupTimeSlots,new Date(),product).length))))];

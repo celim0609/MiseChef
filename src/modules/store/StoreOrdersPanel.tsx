@@ -1,3 +1,4 @@
+import OrderManagementActions, {DeletedOrders} from './OrderManagementActions';
 import ManualDeliveryBooking from './ManualDeliveryBooking';
 import OrderFulfilmentDetails from './OrderFulfilmentDetails';
 import { canonicalOrderFulfilmentLabel } from '../../../functions/storeFulfilmentCanonical.js';
@@ -290,6 +291,7 @@ export default function StoreOrdersPanel({
         </p>
       )}
 
+      <DeletedOrders workspaceId={workspaceId} storeId={storeId} />
       <div className="flex flex-wrap items-center gap-2" aria-label="Order periods">
         {(['Today', 'Upcoming', 'History'] as const).map(value => <button type="button" key={value} aria-pressed={period === value} onClick={() => { setPeriod(value); setActiveFilter('All'); setSelectedOrderId(''); }} className={`rounded-full border px-5 py-3 font-bold ${period === value ? 'border-primary bg-primary text-on-primary' : 'border-surface-container-high bg-white text-primary'}`}>{value}</button>)}
       </div>
@@ -519,13 +521,9 @@ export default function StoreOrdersPanel({
                 storeName={storeName}
                 className="flex-1"
               /></div>
-              {canProcessOrders && !selectedOrder.weeklyFulfilments && !selectedOrder.fulfilments && selectedOrder.payment.refundStatus === 'refunded'
-                && !['Completed', 'Cancelled'].includes(selectedOrder.fulfilmentStatus) && (
-                <button type="button" disabled={isUpdating} onClick={() => updateStatus('Cancelled')} className="rounded-full bg-error/10 px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">
-                  Mark Cancelled
-                </button>
-              )}
+
             </div>
+            <OrderManagementActions order={selectedOrder} onChanged={()=>setSelectedOrderId('')} />
           </article>
         ) : (
           <div className="hidden rounded-3xl border border-dashed border-outline-variant px-6 py-14 text-center lg:block">

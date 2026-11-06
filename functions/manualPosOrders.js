@@ -9,6 +9,7 @@ import {
   getPickupTimeSlots,
 } from "./storePaymentsCore.js";
 import { loadStoreCheckoutData } from "./storePayments.js";
+import { resolvePosDeliveryCharge } from './posDeliveryQuotes.js';
 import { assertOperator } from "./externalPosOrders.js";
 import { productAllowsFulfilmentDate } from "./storeProductAvailability.js";
 import {
@@ -63,7 +64,7 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
       !["pickup", "delivery"].includes(line.method)
     )
       fail("Choose a valid fulfilment time and method.");
-    // Manual delivery is customer-arranged. Never book or quote Lalamove here.
+    // Building items never calls a provider. Store delivery fees are resolved at save.
     if (
       !owner && line.method === "pickup" &&
       !getPickupTimeSlots(checkout.store, date, now).includes(line.time)
@@ -71,19 +72,21 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
       fail("Choose an available pickup time.");
     if (!owner && !getValidPickupDates(checkout.store, now).includes(date))
       fail("Choose an available Store date.");
-    const key = `${date}_${line.time.replace(":", "")}_${line.method}`;
+    const arrangement = line.method === "delivery" && line.deliveryArrangement === "store" ? "store" : "customer";
+    const key = `${date}_${line.time.replace(":", "")}_${line.method}${arrangement === "store" ? "_store" : ""}`;
     const entry = days.get(key) || {
       id: `manual_${key}`,
       date,
       time: line.time,
       method: line.method,
+      deliveryArrangement: arrangement,
       pickupLocationId:
         line.method === "pickup"
           ? checkout.store.pickupLocations?.[0]?.id || ""
           : "",
       pickupLocationName:
         line.method === "delivery"
-          ? "Customer-arranged delivery"
+          ? (arrangement === "store" ? "Store delivery" : "Customer-arranged delivery")
           : checkout.store.pickupLocations?.[0]?.name || "",
       pickupLocationAddress:
         line.method === "pickup"
@@ -237,6 +240,25 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
   };
 }
 
+// Normalize from line schedules; callers cannot label customer-arranged delivery as chargeable.
+export function manualDeliveryInput(input, products = []) {
+  if (!Array.isArray(input?.lines) || !input.lines.length || input.lines.length > 50) fail('Choose 1–50 items.');
+  const destinations = {};
+  let storeDelivery = false;
+  for (const line of input.lines || []) {
+    if (line.method !== 'delivery' || line.deliveryArrangement !== 'store') continue;
+    storeDelivery = true;
+    const weekly = products.find(product => product.id === line.selection?.productId)?.productType === 'weekly_meal_plan' && !line.selection?.healthyLunchDate;
+    const dates = weekly ? getWeeklyDates(line.date) : [line.date];
+    for (const date of dates) {
+      const destination = { ...line.destination, formattedAddress: line.deliveryAddress };
+      if (destinations[date] && JSON.stringify(destinations[date]) !== JSON.stringify(destination)) fail('Use one store delivery address per date.');
+      destinations[date] = destination;
+    }
+  }
+  return { ...input, fulfilmentMethod: storeDelivery ? 'delivery' : 'pickup', deliveryDestinations: destinations };
+}
+
 export async function saveManualPosOrder({
   db,
   uid,
@@ -261,10 +283,10 @@ export async function saveManualPosOrder({
   if (!/^[a-zA-Z0-9_-]{16,100}$/.test(input.requestId || ""))
     fail("A stable request ID is required.");
   const posCheckout = posFullAccess ? { ...checkout, products: checkout.products.map(product => ({ ...product, available: true })) } : checkout;
-  const built = buildManualOrder(input, posCheckout, now, { owner: posFullAccess });
   const referenceId = createHash("sha256")
     .update(`${workspaceId}:${uid}:${input.requestId}`)
     .digest("hex");
+  const fingerprint = createHash("sha256").update(JSON.stringify(input)).digest("hex");
   const requestRef = db.collection("storeManualOrderRequests").doc(referenceId);
   const orderRef = input.orderId
     ? db.collection("storeOrders").doc(text(input.orderId, 150, true))
@@ -274,13 +296,26 @@ export async function saveManualPosOrder({
     if (posFullAccess && !transactionPosFullAccess)
       throw new HttpsError("permission-denied", "POS ordering access changed. Reload and try again.");
     const request = await tx.get(requestRef);
-    if (request.exists)
+    if (request.exists) {
+      if (request.data().fingerprint && request.data().fingerprint !== fingerprint) fail("This request already saved different order details. Review the saved order before retrying.");
       return { orderId: request.data().orderId, duplicate: true };
+    }
+    const built = buildManualOrder(input, posCheckout, now, { owner: transactionPosFullAccess });
+    const deliveryInput = manualDeliveryInput(input, checkout.products);
+    const delivery = await resolvePosDeliveryCharge({ db, transaction: tx, input: deliveryInput, checkout, built, uid, fullAccess: transactionPosFullAccess, now: new Date(Math.max(now.getTime(), Date.now())) });
+    const grandTotal = money(built.total + delivery.fee);
+    if (!Number.isSafeInteger(Math.round(grandTotal * 100)) || grandTotal > 1000000) fail('Order amount is unsafe.');
+    if (delivery.snapshot) built.fulfilments = built.fulfilments.map(day => {
+      if (day.method !== 'delivery' || day.deliveryArrangement !== 'store') return day;
+      const quoted = delivery.snapshot.days?.find(entry => entry.date === day.date && entry.time === day.time);
+      return { ...day, destination: quoted ? { formattedAddress: quoted.destination.address, latitude: quoted.destination.latitude, longitude: quoted.destination.longitude } : { formattedAddress: deliveryInput.deliveryDestinations[day.date].formattedAddress } };
+    });
     const existing = input.orderId ? await tx.get(orderRef) : null;
     const previous = existing?.data();
     if (
       input.orderId &&
       (!previous ||
+        previous.deletedAt ||
         previous.workspaceId !== workspaceId ||
         !previous.manualOrder ||
         previous.payment.status !== "pending" ||
@@ -318,6 +353,8 @@ export async function saveManualPosOrder({
     const currency = checkout.store.currency || "MYR";
     const order = {
       ...snapshot,
+      total: grandTotal,
+      ...(delivery.snapshot ? { deliveryPricingSnapshot: delivery.snapshot } : previous?.deliveryPricingSnapshot ? { deliveryPricingSnapshot: FieldValue.delete() } : {}),
       id: orderRef.id,
       storeId,
       workspaceId,
@@ -335,6 +372,7 @@ export async function saveManualPosOrder({
           phone: built.phone,
           notes: built.notes,
           lines: input.lines,
+          ...(input.deliveryFeeOverride ? { deliveryFeeOverride: input.deliveryFeeOverride } : {}),
         },
         createdBy: previous?.manualOrder.createdBy || uid,
       },
@@ -351,8 +389,8 @@ export async function saveManualPosOrder({
         merchandiseSubtotal: built.total,
         discountTotal: 0,
         discountedMerchandiseTotal: built.total,
-        deliveryFee: 0,
-        grandTotal: built.total,
+        deliveryFee: delivery.fee,
+        grandTotal,
         currency,
       },
       paymentMethodId: "manual_pos",
@@ -362,7 +400,7 @@ export async function saveManualPosOrder({
         provider: "manual_pos",
         providerMode: "manual",
         status: "pending",
-        amountMinor: Math.round(built.total * 100),
+        amountMinor: Math.round(grandTotal * 100),
         currency,
         refundStatus: "none",
         refundedAmountMinor: 0,
@@ -389,7 +427,7 @@ export async function saveManualPosOrder({
         },
       );
     }
-    tx.create(requestRef, { orderId: orderRef.id, workspaceId, createdAt: at });
+    tx.create(requestRef, { orderId: orderRef.id, workspaceId, fingerprint, createdAt: at });
     tx.create(db.collection("storeOrderTimeline").doc(), {
       orderId: orderRef.id,
       workspaceId,
@@ -400,7 +438,8 @@ export async function saveManualPosOrder({
         : "Manual order pending payment",
       actingUserId: uid,
       revision: order.manualOrder.revision,
-      total: built.total,
+      total: grandTotal,
+      ...(delivery.snapshot ? { deliveryFeeAudit: delivery.snapshot } : {}),
       ...(previous ? { previousRevision: previous.manualOrder.revision, previousTotal: previous.total, previousItems: previous.items, previousFulfilments: previous.fulfilments } : {}),
       createdAt: FieldValue.serverTimestamp(),
     });
@@ -441,6 +480,7 @@ export async function confirmManualPosPayment({
     await assertOperator({ db, uid, workspaceId, financial: true, transaction: tx });
     const snap = await tx.get(ref);
     const order = snap.data();
+    if (order?.deletedAt) fail("This order has been deleted.");
     if (
       order.workspaceId !== workspaceId ||
       !order.manualOrder ||

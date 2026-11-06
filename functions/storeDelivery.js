@@ -312,7 +312,7 @@ export const dispatchStoreDelivery = async ({ db, provider, uid, orderId, fulfil
     const kitchenEligible = instant
       ? ['Preparing', 'Ready'].includes(readString(order.fulfilmentStatus))
       : readString(order.fulfilmentStatus) === 'Ready';
-    if (order.payment?.status !== 'paid' || !kitchenEligible || delivery.fulfilmentMethod !== 'delivery') throw deliveryError(instant ? 'Only preparing or ready, paid instant delivery orders can find a driver.' : 'Only ready, paid pre-order delivery orders can be dispatched.');
+    if (order.deletedAt || order.payment?.status !== 'paid' || !kitchenEligible || delivery.fulfilmentMethod !== 'delivery') throw deliveryError(instant ? 'Only preparing or ready, paid instant delivery orders can find a driver.' : 'Only ready, paid pre-order delivery orders can be dispatched.');
     if (TERMINAL_DELIVERY_STATES.has(readString(delivery.lifecycle?.state))) throw deliveryError('This delivery is terminal. Merchant review is required before requesting a replacement.');
     if (delivery.dispatch?.status === 'created') return { order, alreadyCreated: true };
     if (['creating', 'outcome_unknown', 'cancel_requested'].includes(delivery.dispatch?.status)) return { order, alreadyCreating: true, status: delivery.dispatch.status };
@@ -496,7 +496,7 @@ export const dispatchFulfilmentDelivery = async args => {
   const claim = await db.runTransaction(async transaction => {
     const snapshot = await transaction.get(ref); const order = snapshot.data();
     const operation = order.fulfilmentOperations?.[entry.id] || {};
-    if (order.payment?.status !== 'paid' || order.fulfilmentStatus === 'Cancelled' || operation.kitchenStatus !== 'Ready') throw deliveryError('Only ready, paid delivery fulfilments can be dispatched. Mark this delivery day Ready in Orders or POS before requesting Lalamove.');
+    if (order.deletedAt || order.payment?.status !== 'paid' || order.fulfilmentStatus === 'Cancelled' || operation.kitchenStatus !== 'Ready') throw deliveryError('Only ready, paid delivery fulfilments can be dispatched. Mark this delivery day Ready in Orders or POS before requesting Lalamove.');
     if ((args.internal && operation.dispatch?.status) || ['creating', 'created', 'outcome_unknown', 'completed', 'cancel_requested', 'cancelled', 'provider_terminal'].includes(operation.dispatch?.status)) return { reused: operation.dispatch.status };
     if (order.fulfilmentStatus === 'Completed' || order.fulfilmentCompletion?.[entry.id]) throw deliveryError('This fulfilment is already completed.');
     const currentEntry = order.fulfilments.find(day => day.id === entry.id);

@@ -484,3 +484,62 @@ test('POS delivery checkout uses stored quote totals, rejects stale/forged fees,
   assert.equal(order.total,29);assert.equal(order.fulfilments[0].date,'2020-01-01');assert.equal(order.totals.deliveryFee,5);assert.equal(order.posDeliveryPricing.providerDeliveryFee,null);assert.equal(order.posDeliveryPricing.authorizedBy,manager);assert.equal(bookings,0);
  }finally{await deleteApp(app);}
 });
+
+test('manual store delivery saves a server quotation into pending totals and confirms the same amount once',async()=>{
+ const {createPosDeliveryQuote}=await import('../functions/posDeliveryQuotes.js');
+ const {buildManualOrder,manualDeliveryInput}=await import('../functions/manualPosOrders.js');
+ const {loadStoreCheckoutData}=await import('../functions/storePayments.js');
+ const {assertOperator}=await import('../functions/externalPosOrders.js');
+ const app=initializeApp({projectId:'demo-misechef-store-payment-rules'},`manual-delivery-${process.pid}`),db=getFirestore(app);
+ const workspaceId=`manual-delivery-${process.pid}`,uid=`${workspaceId}-owner`;
+ try {
+  await db.collection('workspaces').doc(workspaceId).set({ownerId:uid,subscriptionPlan:'professional',subscriptionStatus:'active'});
+  await db.collection('stores').doc(workspaceId).set({workspaceId,slug:workspaceId,name:'Disposable manual delivery Store',currency:'MYR',pickupLocations:[{id:'counter',name:'Counter',address:'QA pickup'}],delivery:{enabled:true,provider:'lalamove',environment:'sandbox',market:'MY',serviceType:'MOTORCYCLE',pickup:{address:'QA pickup',latitude:'4.6',longitude:'101.1'},freeDelivery:{enabled:false}}});
+  const input={workspaceId,storeId:workspaceId,slug:workspaceId,source:'whatsapp',customerName:'Disposable QA',phone:'',notes:'',requestId:'manual-quoted-request-12345',manualPos:true,lines:[{custom:{name:'QA custom meal',unitPrice:12},quantity:2,date:'2099-01-01',time:'00:01',method:'delivery',deliveryArrangement:'store',deliveryAddress:'QA unit 2',destination:{placeId:'qa-place',formattedAddress:'QA unit 2',latitude:'0',longitude:'0'},notes:''}]};
+  let bookings=0;
+  const provider={environment:'sandbox',createQuote:async()=>({quotationId:'qa-quote',expiresAt:new Date(Date.now()+300000).toISOString(),serviceType:'MOTORCYCLE',priceBreakdown:{total:9.5,currency:'MYR'},stops:[]}),createOrder:()=>{bookings++;}};
+  const quote=await createPosDeliveryQuote({db,uid,input,provider,authorize:assertOperator,loadCheckout:loadStoreCheckoutData,buildItems:buildManualOrder,normalizeInput:manualDeliveryInput,resolvePlace:async()=>({latitude:4.61,longitude:101.11})});
+  const args={db,uid,input:{...input,posDeliveryQuoteId:quote.id,payment:{status:'paid'},total:1}};
+  const saved=await saveManualPosOrder(args);
+  let order=(await db.collection('storeOrders').doc(saved.orderId).get()).data();
+  assert.equal(order.total,33.5);assert.equal(order.payment.status,'pending');assert.equal(order.payment.amountMinor,3350);assert.equal(order.totals.deliveryFee,9.5);assert.equal(order.fulfilments[0].destination.latitude,'4.61');assert.equal(bookings,0);
+  assert.equal((await saveManualPosOrder(args)).duplicate,true);
+  await assert.rejects(saveManualPosOrder({...args,input:{...args.input,requestId:'manual-changed-request-12345',lines:input.lines.map(line=>({...line,time:'00:02'}))}}),/changed/);
+  await confirmManualPosPayment({db,uid,input:{orderId:saved.orderId,expectedRevision:1,amountMinor:3350,received:true,method:'bank_transfer',reference:'QA only'}});
+  order=(await db.collection('storeOrders').doc(saved.orderId).get()).data();
+  assert.equal(order.payment.status,'paid');assert.equal(order.payment.amountMinor,3350);assert.equal(bookings,0);
+ }finally{await deleteApp(app);}
+});
+
+test('POS cancel and soft-delete enforce roles, preserve financial/provider records, reject stale actions and expose deleted list only to Owner',async()=>{
+ const {managePosOrder,listDeletedPosOrders}=await import('../functions/posOrderManagement.js');
+ const app=initializeApp({projectId:'demo-misechef-store-payment-rules'},`pos-management-${process.pid}`),db=getFirestore(app);
+ const workspaceId=`pos-management-${process.pid}`,owner=`${workspaceId}-owner`,manager=`${workspaceId}-manager`,chef=`${workspaceId}-chef`;
+ const store={id:workspaceId,workspaceId,name:'Disposable POS Store',currency:'MYR',pickupLocations:[{id:'counter',name:'Counter',address:'QA'}]};
+ try{
+  await db.collection('workspaces').doc(workspaceId).set({ownerId:owner,subscriptionPlan:'professional',subscriptionStatus:'active'});
+  await db.collection('stores').doc(workspaceId).set(store);
+  for(const [userId,role]of[[manager,'Manager'],[chef,'Chef']])await db.collection('workspaceMembers').doc(`${workspaceId}_${userId}`).set({workspaceId,userId,status:'Active',role});
+  const create=async suffix=>saveManualPosOrder({db,uid:owner,loadCheckout:async()=>({store,products:[],sets:[],optionGroups:[]}),input:{workspaceId,storeId:workspaceId,slug:workspaceId,source:'whatsapp',customerName:'Disposable QA',requestId:`pos-management-${suffix}-123456`,lines:[{custom:{name:'QA meal',unitPrice:12},quantity:2,date:'2020-01-01',time:'00:01',method:'pickup',notes:''}]}});
+  const paid=await create('paid'),unpaid=await create('unpaid'),cancelled=await create('cancelled');
+  await confirmManualPosPayment({db,uid:owner,input:{orderId:paid.orderId,received:true,expectedRevision:1,amountMinor:2400,method:'cash',reference:'Disposable synthetic QA'}});
+  const paidRef=db.collection('storeOrders').doc(paid.orderId),before=(await paidRef.get()).data();
+  await paidRef.update({delivery:{providerOrder:{orderId:'existing-QA-provider-reference'},dispatch:{status:'created'}}});
+  const input={action:'delete',reason:'Disposable QA completed',orderId:paid.orderId};
+  await assert.rejects(managePosOrder({db,uid:manager,input}),e=>e.code==='permission-denied');
+  await assert.rejects(managePosOrder({db,uid:chef,input:{...input,orderId:unpaid.orderId}}),e=>e.code==='permission-denied');
+  await assert.rejects(managePosOrder({db,uid:'foreign',input}),e=>e.code==='permission-denied');
+  await managePosOrder({db,uid:owner,input});
+  assert.equal((await managePosOrder({db,uid:owner,input})).duplicate,true);
+  const after=(await paidRef.get()).data();assert.ok(after.deletedAt);assert.equal(after.fulfilmentStatus,before.fulfilmentStatus);assert.deepEqual(after.payment,before.payment);assert.deepEqual(after.totals,before.totals);assert.deepEqual(after.items,before.items);assert.equal(after.delivery.providerOrder.orderId,'existing-QA-provider-reference');assert.equal(after.delivery.dispatch.status,'created');
+  assert.equal((await db.collection('storeOrderTimeline').where('orderId','==',paid.orderId).where('type','==','order_deleted').get()).size,1);
+  await assert.rejects(updateStoreOrderFulfilment({db,uid:owner,orderId:paid.orderId,nextStatus:'Ready'}),/deleted/);
+  await managePosOrder({db,uid:manager,input:{...input,orderId:unpaid.orderId}});
+  await assert.rejects(confirmManualPosPayment({db,uid:owner,input:{orderId:unpaid.orderId,received:true,expectedRevision:1,amountMinor:2400,method:'cash',reference:'QA'}}),/deleted/);
+  await managePosOrder({db,uid:manager,input:{action:'cancel',orderId:cancelled.orderId,reason:'Customer request'}});
+  const cancel=(await db.collection('storeOrders').doc(cancelled.orderId).get()).data();assert.equal(cancel.fulfilmentStatus,'Cancelled');assert.equal(cancel.deletedAt,undefined);assert.equal(cancel.payment.status,'pending');
+  const args={db,input:{workspaceId,storeId:workspaceId}};
+  await assert.rejects(listDeletedPosOrders({...args,uid:manager}),e=>e.code==='permission-denied');await assert.rejects(listDeletedPosOrders({...args,uid:chef}),e=>e.code==='permission-denied');
+  const list=await listDeletedPosOrders({...args,uid:owner});assert.equal(list.orders.length,2);assert.equal(list.cursor,null);
+ }finally{await deleteApp(app);}
+});
