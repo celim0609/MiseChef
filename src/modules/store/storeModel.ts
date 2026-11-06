@@ -237,7 +237,7 @@ export const getValidPickupDates = (
   const dates: string[] = [];
 
   for (
-    let offset = Math.max(1, store.earliestPickupDays + (isAfterOrderCutoff(store, currentDate) ? 1 : 0));
+    let offset = store.earliestPickupDays + (isAfterOrderCutoff(store, currentDate) ? 1 : 0);
     offset <= store.maximumAdvanceDays;
     offset += 1
   ) {

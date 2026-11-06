@@ -27,7 +27,7 @@ const buildOrder = ({ customerUid = '', groupOrder = null, spoofedUid = '' } = {
     pickupLocationId: 'counter', notes: '', selections: [{ productId: 'meal', quantity: 1, selectedOptions: [] }],
     customerUid: spoofedUid
   },
-  now: new Date('2026-08-28T01:00:00.000Z')
+  now: new Date('2026-08-29T01:00:00.000Z')
 });
 
 const snapshot = (id, data) => ({ id, data: () => data });

@@ -703,7 +703,7 @@ test('pickup cut-off uses store clock, strict boundary, calendar offset and unch
   assert.equal(getValidPickupDates(store, after).at(-1), '2026-10-19');
   for (const disabled of [undefined, null, '']) assert.equal(getValidPickupDates({ ...store, orderCutoffTime: disabled }, after)[0], '2026-10-13');
   assert.equal(getValidPickupDates(store, new Date('2026-10-12T16:00:00Z'))[0], '2026-10-14');
-  assert.equal(getValidPickupDates({ ...store, earliestPickupDays: 0, orderCutoffTime: '00:00' }, new Date('2026-10-12T16:00:00Z'))[0], '2026-10-14');
+  assert.equal(getValidPickupDates({ ...store, earliestPickupDays: 0, orderCutoffTime: '00:00' }, new Date('2026-10-12T16:00:00Z'))[0], '2026-10-13');
   assert.equal(getValidPickupDates({ ...store, unavailableDates: ['2026-10-14'], orderDays: ['friday'] }, after)[0], '2026-10-16');
   assert.deepEqual(getValidPickupDates({ ...store, orderDays: [] }, after), []);
 });
@@ -726,10 +726,10 @@ test('embedded day financial lines ignore client meal details and reject missing
   assert.throws(() => buildOrderItems([{ ...selection, healthyLunchDate: '2026-10-26' }], [plan], []), /does not match/);
 });
 
-test('public pickup always starts tomorrow even with zero advance days and spoofed POS access', () => {
-  const now=new Date('2026-11-04T04:00:00Z');
-  const store={country:'MY',earliestPickupDays:0,maximumAdvanceDays:7,owner:true,posFullAccess:true};
-  const dates=getValidPickupDates(store,now);
-  assert.equal(dates[0],'2026-11-05');
-  assert.ok(dates.every(date=>date>'2026-11-04'));
+test('POS-only release preserves zero-day public pickup eligibility and ignores spoofed POS access', () => {
+  const now = new Date('2026-11-04T04:00:00Z');
+  const configured = { ...store, earliestPickupDays: 0, maximumAdvanceDays: 7, orderDays: ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'], unavailableDates: [], orderCutoffTime: '' };
+  assert.equal(getValidPickupDates(configured, now)[0], '2026-11-04');
+  const blocked = { ...configured, unavailableDates: ['2026-11-04'], owner: true, posFullAccess: true };
+  assert.equal(getValidPickupDates(blocked, now)[0], '2026-11-05');
 });

@@ -593,7 +593,7 @@ test('pickup windows follow the Store region instead of the customer device or U
     unavailableDates: []
   }, malaysiaAfterMidnight);
 
-  assert.equal(dates[0], '2026-07-27');
+  assert.equal(dates[0], '2026-07-26');
   assert.equal(dates.at(-1), '2026-08-02');
 });
 
@@ -682,7 +682,7 @@ test('pickup cut-off uses store clock, strict boundary, calendar offset and unch
   assert.equal(getValidPickupDates(store, after).at(-1), '2026-10-19');
   for (const disabled of [undefined, null, '']) assert.equal(getValidPickupDates({ ...store, orderCutoffTime: disabled }, after)[0], '2026-10-13');
   assert.equal(getValidPickupDates(store, new Date('2026-10-12T16:00:00Z'))[0], '2026-10-14');
-  assert.equal(getValidPickupDates({ ...store, earliestPickupDays: 0, orderCutoffTime: '00:00' }, new Date('2026-10-12T16:00:00Z'))[0], '2026-10-14');
+  assert.equal(getValidPickupDates({ ...store, earliestPickupDays: 0, orderCutoffTime: '00:00' }, new Date('2026-10-12T16:00:00Z'))[0], '2026-10-13');
   assert.equal(getValidPickupDates({ ...store, unavailableDates: ['2026-10-14'], orderDays: ['friday'] }, after)[0], '2026-10-16');
   assert.deepEqual(getValidPickupDates({ ...store, orderDays: [] }, after), []);
 });
@@ -714,9 +714,9 @@ test('free delivery defaults stay disabled and merchant policy round-trips witho
   assert.deepEqual(buildStoreSettingsUpdate({ ...baseline }, baseline, normalized).delivery, normalized.delivery);
 });
 
-test('public pickup dates exclude today and past dates with zero-day settings', () => {
-  const store={...createDefaultWorkspaceStore({id:'public',name:'Public',country:'MY'},'owner','2026-11-04T04:00:00Z'),orderDays:[...DEFAULT_STORE_ORDER_DAYS],earliestPickupDays:0 as const,maximumAdvanceDays:7 as const,unavailableDates:[]};
-  const dates=getValidPickupDates(store,new Date('2026-11-04T04:00:00Z'));
-  assert.equal(dates[0],'2026-11-05');
-  assert.ok(dates.every(date=>date>'2026-11-04'));
+test('POS-only release preserves configured same-day public ordering without POS bypass', () => {
+  const now = new Date('2026-11-04T04:00:00Z');
+  const store = { ...createDefaultWorkspaceStore({id:'public',name:'Public',country:'MY'},'owner',now.toISOString()), orderDays: [...DEFAULT_STORE_ORDER_DAYS], earliestPickupDays: 0 as const, maximumAdvanceDays: 7 as const, unavailableDates: [], orderCutoffTime: '' };
+  assert.equal(getValidPickupDates(store, now)[0], '2026-11-04');
+  assert.equal(getValidPickupDates({...store,unavailableDates:['2026-11-04']}, now)[0], '2026-11-05');
 });

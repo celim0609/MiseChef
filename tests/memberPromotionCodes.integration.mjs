@@ -220,9 +220,6 @@ const fixture = async () => {
 test("member codes: atomically commit one success per MYT day, idempotent checkout/webhook retries and immutable orders", async () => {
   const f = await fixture();
   try {
-    for (const pickupDate of ["2026-07-25", "2026-07-26"]) {
-      await assert.rejects(f.create({ draft: { ...f.draft, pickupDate, owner: true, posFullAccess: true, checkoutAttemptId: crypto.randomUUID() } }), /available pickup date/);
-    }
     const attempt = crypto.randomUUID();
     const session = await f.create({
       draft: { ...f.draft, checkoutAttemptId: attempt },
@@ -249,7 +246,7 @@ test("member codes: atomically commit one success per MYT day, idempotent checko
     await assert.rejects(f.create(), /daily limit|already reserved/);
     await f.update({ percentageBps: 5000, capMinor: 1000 });
     assert.equal(JSON.stringify(await f.stored(session)), original);
-    const next = await f.create({ now: new Date("2026-07-26T16:01:00Z"), draft: { ...f.draft, pickupDate: "2026-07-28", checkoutAttemptId: crypto.randomUUID() } });
+    const next = await f.create({ now: new Date("2026-07-26T16:01:00Z") });
     await f.pay(next);
     assert.equal(
       (await f.stored(next)).promotionCodeSnapshot.businessDate,

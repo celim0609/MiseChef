@@ -118,9 +118,6 @@ jobs:
       - name: Run Store Sets Firestore authorization suite
         run: npm --prefix "$GITHUB_WORKSPACE/candidate" run test:store-sets:rules
 
-      - name: Run Group Delivery reservation and privacy suite
-        run: npm --prefix "$GITHUB_WORKSPACE/candidate" run test:group-delivery:integration
-
       - name: Authenticate to Beta only
         uses: google-github-actions/auth@v2
         with:

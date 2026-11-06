@@ -37,9 +37,7 @@
     "test:chef-profile:rules": "firebase emulators:exec --config firebase.rules-test.json --only firestore,storage --project demo-misechef-chef-profile-rules \"node --test tests/chefProfileAccessControl.test.mjs\"",
     "test:homepage-promotions:rules": "firebase emulators:exec --config firebase.rules-test.json --only firestore,storage --project demo-misechef-homepage-promotion-rules \"node --test tests/homepagePromotionAccessControl.test.mjs\"",
     "test:store-sets:rules": "firebase emulators:exec --config firebase.rules-test.json --only firestore,storage --project demo-misechef-store-sets-rules \"node --test tests/storeSetsAccessControl.test.mjs\"",
-    "test:recipes:rules": "firebase emulators:exec --config firebase.rules-test.json --only firestore --project demo-misechef-recipe-rules \"node --test tests/recipeWorkspaceAccessControl.test.mjs\"",
-    "test:group-delivery": "node --test functions/groupDelivery.test.js && tsx --test src/modules/store/groupDeliveryPhase1.test.tsx",
-    "test:group-delivery:integration": "firebase emulators:exec --config firebase.rules-test.json --only firestore --project demo-misechef-group-delivery \"node --test tests/groupDeliveryIntegration.test.mjs\""
+    "test:recipes:rules": "firebase emulators:exec --config firebase.rules-test.json --only firestore --project demo-misechef-recipe-rules \"node --test tests/recipeWorkspaceAccessControl.test.mjs\""
   },
   "dependencies": {
     "@stripe/react-stripe-js": "^6.8.0",

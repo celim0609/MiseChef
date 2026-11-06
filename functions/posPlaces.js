@@ -2,8 +2,9 @@ import { applicationDefault } from 'firebase-admin/app';
 import { HttpsError } from 'firebase-functions/v2/https';
 
 // Reuse Places API (New), with server credentials; no browser key or client pin trust.
-export const createGroupDeliveryPlaces = ({ accessToken = async () => (await applicationDefault().getAccessToken()).access_token,
-  projectId = 'misechef-beta-fa4bf', fetchImpl = fetch } = {}) => {
+export const createPosPlaces = ({ accessToken = async () => (await applicationDefault().getAccessToken()).access_token,
+  projectId = process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT, fetchImpl = fetch } = {}) => {
+  if (!['misechef-beta-fa4bf', 'misechef-fa4bf'].includes(projectId)) throw new HttpsError('failed-precondition', 'POS Places requires a configured Firebase project.');
   const request = async (path, body, fields) => {
     const token = await accessToken();
     const response = await fetchImpl(`https://places.googleapis.com/v1/${path}`, {
@@ -29,8 +30,8 @@ export const createGroupDeliveryPlaces = ({ accessToken = async () => (await app
   };
 };
 
-export const consumeGroupDeliveryRate = async ({ db, uid, now = new Date() }) => {
-  const ref = db.collection('groupDeliveryRateLimits').doc(uid);
+export const consumePosQuoteRate = async ({ db, uid, now = new Date() }) => {
+  const ref = db.collection('posQuoteRateLimits').doc(uid);
   await db.runTransaction(async tx => {
     const prior = (await tx.get(ref)).data();
     const sameWindow = prior && now.getTime() - prior.windowStart < 60000;

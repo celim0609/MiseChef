@@ -1,4 +1,3 @@
-import { GroupDeliveryStoreLink } from './PublicGroupDeliveryPage';
 import { readWeeklyShare, weeklyShareChoice, weeklySharePhoto, weeklySharePreviewDate } from '../../../functions/weeklyMenuSharing.js';
 import {promotionCodeService} from './services/promotionCodeService';
 import type {PromotionCodeSnapshot} from './promotionCodeTypes';
@@ -1395,8 +1394,6 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
           </div>
         </div>
       </section>
-
-      {!groupOrder && <GroupDeliveryStoreLink slug={slug} />}
 
       {promotionId && arePromotionsLoaded && (requestedPromotion ? (
         <section aria-label="Featured promotion" className="rounded-3xl border border-secondary/30 bg-secondary/5 p-5 shadow-sm sm:p-6">

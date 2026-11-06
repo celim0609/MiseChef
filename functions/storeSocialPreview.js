@@ -166,13 +166,13 @@ export const injectStoreSocialMetadata = (appShell, metadata) => {
 };
 
 const readStoreRequest = path => {
-  const match = /^\/store\/([^/?#]+)(?:\/(product|promotion)\/([^/?#]+)|\/(group-delivery))?\/?$/.exec(readPublicText(path));
+  const match = /^\/store\/([^/?#]+)(?:\/(product|promotion)\/([^/?#]+))?\/?$/.exec(readPublicText(path));
   if (!match) return '';
   try {
     const slug = decodeURIComponent(match[1]).trim().slice(0, 240);
     const routeType = match[2] || '';
     const routeValue = match[3] ? decodeURIComponent(match[3]).trim().slice(0, 240) : '';
-    return slug ? { slug, productSlug: routeType === 'product' ? routeValue : '', promotionId: routeType === 'promotion' ? routeValue : '', groupDelivery: match[4] === 'group-delivery' } : null;
+    return slug ? { slug, productSlug: routeType === 'product' ? routeValue : '', promotionId: routeType === 'promotion' ? routeValue : '' } : null;
   } catch {
     return null;
   }
@@ -213,11 +213,6 @@ export const createStoreSocialPreviewHandler = ({
       : promotion
         ? buildPromotionSocialMetadata({ store, promotion, origin, slug: route.slug, promotionId: route.promotionId })
         : buildStoreSocialMetadata({ store, origin, slug: route.slug });
-    if (route.groupDelivery) {
-      metadata.title = `Group lunch delivery / 午餐团购配送 | ${metadata.siteName}`;
-      metadata.description = 'Pakatan / Bercham Raya · 10 lunch portions · RM0 delivery after approval / 满10份指定午餐，获批后免费配送。';
-      metadata.canonicalUrl = new URL(`/store/${encodeURIComponent(route.slug)}/group-delivery`, origin).toString();
-    }
     const html = injectStoreSocialMetadata(appShell, metadata);
 
     response.status(200);
