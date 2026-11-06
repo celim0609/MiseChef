@@ -2583,18 +2583,18 @@ export const recordStoreCustomerReminder = onCall({ region: REGION, timeoutSecon
 // No pilot endpoints are exported to Production; no Group Delivery feature is released.
 // These shells cannot read or mutate group delivery, orders, payments or bookings.
 const retiredGroupDelivery = () => { throw new HttpsError('failed-precondition', 'This Beta pilot is retired.'); };
-export const configureMiseChefGroupDelivery = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : undefined;
-export const getMiseChefGroupDelivery = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : undefined;
-export const searchMiseChefGroupDeliveryAddresses = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : undefined;
-export const checkMiseChefGroupDeliveryAddress = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : undefined;
-export const reserveMiseChefGroupDelivery = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : undefined;
-export const cancelMiseChefGroupDeliveryReservation = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : undefined;
-export const expireMiseChefGroupDeliveryReservations = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onSchedule({ region: REGION, schedule: 'every 15 minutes', timeZone: 'Asia/Kuala_Lumpur', maxInstances: 1 }, async () => undefined) : undefined;
-export const getMiseChefGroupDeliveryConfiguration = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : undefined;
-export const listMiseChefGroupDeliveryReview = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : undefined;
-export const getMiseChefGroupDeliveryReview = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : undefined;
-export const estimateMiseChefGroupDelivery = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : undefined;
-export const approveMiseChefGroupDelivery = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : undefined;
+export const configureMiseChefGroupDelivery = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
+export const getMiseChefGroupDelivery = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
+export const searchMiseChefGroupDeliveryAddresses = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
+export const checkMiseChefGroupDeliveryAddress = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
+export const reserveMiseChefGroupDelivery = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
+export const cancelMiseChefGroupDeliveryReservation = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
+export const expireMiseChefGroupDeliveryReservations = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onSchedule({ region: REGION, schedule: 'every 15 minutes', timeZone: 'Asia/Kuala_Lumpur', maxInstances: 1 }, async () => undefined) : async () => undefined;
+export const getMiseChefGroupDeliveryConfiguration = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
+export const listMiseChefGroupDeliveryReview = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
+export const getMiseChefGroupDeliveryReview = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
+export const estimateMiseChefGroupDelivery = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
+export const approveMiseChefGroupDelivery = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
 
 export const extractStorePosPasteOrder = onCall({ region: REGION, secrets: [geminiApiKey], timeoutSeconds: 60, memory: '256MiB' }, request => extractPasteOrder({
  db, uid: request.auth?.uid, input: request.data, authorize: assertOperator, loadCheckout: loadStoreCheckoutData,
