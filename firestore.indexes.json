@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "storePromotionCodeReservations",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "state", "order": "ASCENDING" },
+        { "fieldPath": "nextCheckAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "storePromotions",
       "queryScope": "COLLECTION",
       "fields": [

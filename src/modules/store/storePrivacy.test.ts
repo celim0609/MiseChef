@@ -118,10 +118,16 @@ test('order timelines and notifications are private server-created Store team da
   assert.match(storeOrderService, /where\('orderId', '==', orderId\)/);
 });
 
-test('Payment Review and operational New orders use their respective status fields', () => {
-  assert.match(storeOrdersPanel, /activeFilter === 'Payment Review'.*order\.payment\.status === 'pending_verification'/s);
-  assert.match(storeOrdersPanel, /activeFilter === 'Paid'.*order\.payment\.status === 'paid'/s);
-  assert.match(storeOrdersPanel, /activeFilter === 'New'.*order\.payment\.status === 'paid'.*order\.fulfilmentStatus === 'New'/s);
+test('Payment Review and operational New orders use their respective status fields', async () => {
+  const { orderMatchesStatusInPeriod } = await import('./dailyOrderModel');
+  const order = { id: 'privacy', fulfilmentStatus: 'New', payment: {status:'pending_verification'}, pickupDate:'2026-10-20', createdAt:'2026-10-20T01:00:00Z',items:[] } as import('./types').StoreOrder;
+  assert.equal(orderMatchesStatusInPeriod(order, 'Today', 'Payment Review', '2026-10-20'), true);
+  assert.equal(orderMatchesStatusInPeriod(order, 'Today', 'Paid', '2026-10-20'), false);
+  assert.equal(orderMatchesStatusInPeriod(order, 'Today', 'New', '2026-10-20'), false);
+  const paid = {...order,payment:{...order.payment,status:'paid' as const}};
+  assert.equal(orderMatchesStatusInPeriod(paid, 'Today', 'New', '2026-10-20'), true);
+  assert.equal(orderMatchesStatusInPeriod(paid, 'Today', 'Paid', '2026-10-20'), true);
+  assert.match(storeOrdersPanel, /orderMatchesStatusInPeriod\(order, period, activeFilter/);
   assert.match(storeOrdersPanel, /New: 'Preparing'/);
   assert.match(storeOrdersPanel, /isOrderOperationallyEligible\(selectedOrder\)/);
   assert.match(storeOrdersPanel, />Confirm Payment</);

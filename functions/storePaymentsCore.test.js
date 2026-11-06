@@ -725,3 +725,11 @@ test('embedded day financial lines ignore client meal details and reject missing
   assert.throws(() => buildOrderItems([{ ...selection, healthyLunchPlanId: undefined }], [plan], []), /Healthy Lunch/);
   assert.throws(() => buildOrderItems([{ ...selection, healthyLunchDate: '2026-10-26' }], [plan], []), /does not match/);
 });
+
+test('POS-only release preserves zero-day public pickup eligibility and ignores spoofed POS access', () => {
+  const now = new Date('2026-11-04T04:00:00Z');
+  const configured = { ...store, earliestPickupDays: 0, maximumAdvanceDays: 7, orderDays: ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'], unavailableDates: [], orderCutoffTime: '' };
+  assert.equal(getValidPickupDates(configured, now)[0], '2026-11-04');
+  const blocked = { ...configured, unavailableDates: ['2026-11-04'], owner: true, posFullAccess: true };
+  assert.equal(getValidPickupDates(blocked, now)[0], '2026-11-05');
+});

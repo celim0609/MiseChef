@@ -1,0 +1,210 @@
+[
+  {
+    "width": 1440,
+    "day": "Full Set",
+    "cards": [
+      {
+        "date": "Mon, 26 Oct",
+        "name": "Passion Citrus Fizz",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-21fe8258-ee59-49e1-9da8-fd68c80bcfbc.jpg?alt=media&token=a107583b-7680-4419-9faf-69b9bffc7c07"
+      },
+      {
+        "date": "Tue, 27 Oct",
+        "name": "Chicken wrap",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-f37513b9-0c53-46d3-adea-f6eb878f2bd7.jpg?alt=media&token=429015d2-1d21-4fcb-b2a3-2f2123e39f20"
+      },
+      {
+        "date": "Wed, 28 Oct",
+        "name": "Banana Muffin",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-837b03c1-746a-4b1b-945c-ac41eda922b8.jpg?alt=media&token=daed73cf-7c12-40db-9352-99ffe3840641"
+      },
+      {
+        "date": "Thu, 29 Oct",
+        "name": "Chicken wrap",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-c192066e-de4b-4629-a62e-4f20b66dfea5.jpg?alt=media&token=a92095fb-0fa7-4b09-9531-cf6bfd2e71d0"
+      },
+      {
+        "date": "Fri, 30 Oct",
+        "name": "Cloudy Coconut Coffee",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-31234f8e-427a-43e4-aedc-28f07476ce2f.jpg?alt=media&token=c3072a88-fa82-43ff-995d-7f9a42825e0b"
+      }
+    ],
+    "pressed": [
+      "5-Day Plan"
+    ]
+  },
+  {
+    "width": 1440,
+    "day": "mon",
+    "cards": [
+      {
+        "date": "Mon, 26 Oct",
+        "name": "Passion Citrus Fizz",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-21fe8258-ee59-49e1-9da8-fd68c80bcfbc.jpg?alt=media&token=a107583b-7680-4419-9faf-69b9bffc7c07"
+      }
+    ],
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "width": 1440,
+    "day": "tue",
+    "cards": [
+      {
+        "date": "Tue, 27 Oct",
+        "name": "Chicken wrap",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-f37513b9-0c53-46d3-adea-f6eb878f2bd7.jpg?alt=media&token=429015d2-1d21-4fcb-b2a3-2f2123e39f20"
+      }
+    ],
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "width": 1440,
+    "day": "wed",
+    "cards": [
+      {
+        "date": "Wed, 28 Oct",
+        "name": "Banana Muffin",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-837b03c1-746a-4b1b-945c-ac41eda922b8.jpg?alt=media&token=daed73cf-7c12-40db-9352-99ffe3840641"
+      }
+    ],
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "width": 1440,
+    "day": "thu",
+    "cards": [
+      {
+        "date": "Thu, 29 Oct",
+        "name": "Chicken wrap",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-c192066e-de4b-4629-a62e-4f20b66dfea5.jpg?alt=media&token=a92095fb-0fa7-4b09-9531-cf6bfd2e71d0"
+      }
+    ],
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "width": 1440,
+    "day": "fri",
+    "cards": [
+      {
+        "date": "Fri, 30 Oct",
+        "name": "Cloudy Coconut Coffee",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-31234f8e-427a-43e4-aedc-28f07476ce2f.jpg?alt=media&token=c3072a88-fa82-43ff-995d-7f9a42825e0b"
+      }
+    ],
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "width": 375,
+    "day": "Full Set",
+    "cards": [
+      {
+        "date": "Mon, 26 Oct",
+        "name": "Passion Citrus Fizz",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-21fe8258-ee59-49e1-9da8-fd68c80bcfbc.jpg?alt=media&token=a107583b-7680-4419-9faf-69b9bffc7c07"
+      },
+      {
+        "date": "Tue, 27 Oct",
+        "name": "Chicken wrap",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-f37513b9-0c53-46d3-adea-f6eb878f2bd7.jpg?alt=media&token=429015d2-1d21-4fcb-b2a3-2f2123e39f20"
+      },
+      {
+        "date": "Wed, 28 Oct",
+        "name": "Banana Muffin",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-837b03c1-746a-4b1b-945c-ac41eda922b8.jpg?alt=media&token=daed73cf-7c12-40db-9352-99ffe3840641"
+      },
+      {
+        "date": "Thu, 29 Oct",
+        "name": "Chicken wrap",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-c192066e-de4b-4629-a62e-4f20b66dfea5.jpg?alt=media&token=a92095fb-0fa7-4b09-9531-cf6bfd2e71d0"
+      },
+      {
+        "date": "Fri, 30 Oct",
+        "name": "Cloudy Coconut Coffee",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-31234f8e-427a-43e4-aedc-28f07476ce2f.jpg?alt=media&token=c3072a88-fa82-43ff-995d-7f9a42825e0b"
+      }
+    ],
+    "pressed": [
+      "5-Day Plan"
+    ]
+  },
+  {
+    "width": 375,
+    "day": "mon",
+    "cards": [
+      {
+        "date": "Mon, 26 Oct",
+        "name": "Passion Citrus Fizz",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-21fe8258-ee59-49e1-9da8-fd68c80bcfbc.jpg?alt=media&token=a107583b-7680-4419-9faf-69b9bffc7c07"
+      }
+    ],
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "width": 375,
+    "day": "tue",
+    "cards": [
+      {
+        "date": "Tue, 27 Oct",
+        "name": "Chicken wrap",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-f37513b9-0c53-46d3-adea-f6eb878f2bd7.jpg?alt=media&token=429015d2-1d21-4fcb-b2a3-2f2123e39f20"
+      }
+    ],
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "width": 375,
+    "day": "wed",
+    "cards": [
+      {
+        "date": "Wed, 28 Oct",
+        "name": "Banana Muffin",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-837b03c1-746a-4b1b-945c-ac41eda922b8.jpg?alt=media&token=daed73cf-7c12-40db-9352-99ffe3840641"
+      }
+    ],
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "width": 375,
+    "day": "thu",
+    "cards": [
+      {
+        "date": "Thu, 29 Oct",
+        "name": "Chicken wrap",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-c192066e-de4b-4629-a62e-4f20b66dfea5.jpg?alt=media&token=a92095fb-0fa7-4b09-9531-cf6bfd2e71d0"
+      }
+    ],
+    "pressed": [
+      "Order by Day"
+    ]
+  },
+  {
+    "width": 375,
+    "day": "fri",
+    "cards": [
+      {
+        "date": "Fri, 30 Oct",
+        "name": "Cloudy Coconut Coffee",
+        "photo": "https://firebasestorage.googleapis.com/v0/b/misechef-beta-fa4bf.firebasestorage.app/o/stores%2Fn7zlkIAtOogOuRX4AZ3QFKRHKI02%2Fproducts%2Fm8dDv9HVRZXSktZsiX4B%2Fmeal-31234f8e-427a-43e4-aedc-28f07476ce2f.jpg?alt=media&token=c3072a88-fa82-43ff-995d-7f9a42825e0b"
+      }
+    ],
+    "pressed": [
+      "Order by Day"
+    ]
+  }
+]
