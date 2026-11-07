@@ -16,6 +16,8 @@ export function GroupDeliveryStoreLink({ slug }: { slug: string }) {
 export default function PublicGroupDeliveryPage({ slug, currentUser }: { slug: string; currentUser: User | null }) {
   const [areaId, setAreaId] = useState(() => new URLSearchParams(window.location.search).get('area') || '');
   const [date, setDate] = useState(() => new URLSearchParams(window.location.search).get('date') || '');
+  const [fallbackTime, setFallbackTime] = useState('11:30');
+  const [fallbackQuote, setFallbackQuote] = useState<{ customerDeliveryFee: number; expiresAt: string }>();
   const [progress, setProgress] = useState<DeliveryProgress>();
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [busy, setBusy] = useState(false);
   const [selections, setSelections] = useState<Record<string, DeliverySelection>>({});
@@ -36,7 +38,7 @@ export default function PublicGroupDeliveryPage({ slug, currentUser }: { slug: s
     const timer = setTimeout(() => { void api.search(query, session.current, language).then(r => { if (live && request === generation.current) setSuggestions(r.suggestions); }).catch(e => { if (live) setError(message(e)); }); }, 400);
     return () => { live = false; clearTimeout(timer); };
   }, [query, place, language, currentUser]);
-  const changeDate = (next: string) => { generation.current++; setDate(next); setProgress(undefined); setSelections({}); setNotice(''); setError(''); pending.current = undefined; const url = new URL(window.location.href); url.searchParams.set('date', next); const area = url.searchParams.get('area'); if (area) { url.searchParams.delete('area'); url.searchParams.set('area', area); } window.history.replaceState(null, '', url); };
+  const changeDate = (next: string) => { generation.current++; setDate(next); setFallbackQuote(undefined); setProgress(undefined); setSelections({}); setNotice(''); setError(''); pending.current = undefined; const url = new URL(window.location.href); url.searchParams.set('date', next); const area = url.searchParams.get('area'); if (area) { url.searchParams.delete('area'); url.searchParams.set('area', area); } window.history.replaceState(null, '', url); };
   const choose = async (placeId: string) => {
     const request = ++generation.current; setError('');
     try { const p = await api.check(placeId, areaId || undefined); if (request !== generation.current) return; setPlace({ placeId, ...p }); setQuery(p.formattedAddress); setSuggestions([]); session.current = crypto.randomUUID(); }
@@ -87,8 +89,34 @@ export default function PublicGroupDeliveryPage({ slug, currentUser }: { slug: s
       </select></label>
       {progress.date && <><GroupDeliveryProgress progress={progress} />
       {progress.sharePath && <div className="space-y-2"><button type="button" className={action} onClick={share}>Copy group link / 复制团购链接</button><a className="block break-all text-sm underline" href={progress.sharePath}>{new URL(progress.sharePath, window.location.origin).href}</a></div>}
-      {progress.mine && <div className="rounded-xl border p-4"><p>Your reservation / 您的预订：{progress.mine.portions} · {reserved ? 'Reserved / 已预订' : progress.mine.status === 'expired' ? 'Expired / 已过期' : 'Cancelled / 已取消'}</p>
-        {reserved && progress.status !== 'approved' && <button type="button" disabled={busy} className="mt-3 underline" onClick={async () => { setBusy(true); try { await api.cancel(slug, date, areaId || undefined); pending.current = undefined; await load(); setNotice('Reservation cancelled. / 预订已取消。'); } catch(e) { setError(message(e)); } finally { setBusy(false); } }}>Cancel reservation / 取消预订</button>}
+      {progress.mine && <div className="rounded-xl border p-4"><p>Your reservation / 您的预订：{progress.mine.portions} · {progress.mine.cancellationRequested ? 'Cancellation requested / 已申请取消' : progress.mine.deliveryFeeVerified ? 'Delivery fee verified / 配送费已确认' : progress.mine.paymentConfirmed ? 'Meal paid / 午餐已付款' : reserved ? 'Reserved / 已预订' : progress.mine.status === 'expired' ? 'Expired / 已过期' : 'Cancelled / 已取消'}</p>
+        {reserved && !progress.mine.paymentConfirmed && progress.status !== 'approved' && <button type="button" disabled={busy} className="mt-3 underline" onClick={async () => { setBusy(true); try { await api.cancel(slug, date, areaId || undefined); pending.current = undefined; await load(); setNotice('Reservation cancelled. / 预订已取消。'); } catch(e) { setError(message(e)); } finally { setBusy(false); } }}>Cancel reservation / 取消预订</button>}
+      </div>}
+      {progress.canChooseFallback && <div className="space-y-2 rounded-xl border p-3">
+        <p>Group target missed. Check a paid delivery quote or request cancellation.</p>
+        <label>Delivery time (MYT)<input className={field} type="time" min="11:00" max="12:59" value={fallbackTime} disabled={busy} onChange={event => {
+          setFallbackTime(event.target.value);
+          setFallbackQuote(undefined);
+        }} /></label>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" className={action} disabled={busy} onClick={async () => {
+            setBusy(true); setError(''); setFallbackQuote(undefined);
+            try { setFallbackQuote(await api.quoteFallback(slug, date, areaId || undefined, fallbackTime)); }
+            catch (error) { setError(message(error)); }
+            finally { setBusy(false); }
+          }}>Get delivery quote</button>
+          <button type="button" className="underline" disabled={busy} onClick={async () => {
+            setBusy(true); setError('');
+            try {
+              await api.requestCancellation(slug, date, areaId || undefined);
+              setFallbackQuote(undefined);
+              setNotice('Cancellation requested. The Store will review your payment.');
+              await load();
+            } catch (error) { setError(message(error)); }
+            finally { setBusy(false); }
+          }}>Request cancellation</button>
+        </div>
+        {fallbackQuote && <p>Delivery RM{fallbackQuote.customerDeliveryFee.toFixed(2)} · Quote expires {new Date(fallbackQuote.expiresAt).toLocaleTimeString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })} MYT. Contact the Store to arrange payment and share your receipt.</p>}
       </div>}
       {!currentUser ? <a className={action + ' inline-block'} href={`/login?returnTo=${encodeURIComponent(`/store/${slug}/group-delivery?date=${date}&area=${encodeURIComponent(areaId || progress.areaId || '')}`)}`}>Sign in to join / 登录参加</a> : !reserved && !closed && <form onSubmit={submit} className="space-y-5">
         <h2 className="text-xl font-bold">Choose lunch / 选择午餐</h2>

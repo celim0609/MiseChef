@@ -1818,6 +1818,10 @@ service cloud.firestore {
         allow read, write: if false;
       }
     }
+    match /groupDeliveryFeeReceipts/{receiptId} {
+      allow read, write: if false;
+    }
+
     match /groupDeliveryRateLimits/{customerId} {
       allow read, write: if false;
     }

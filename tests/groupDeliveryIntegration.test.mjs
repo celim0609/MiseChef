@@ -5,13 +5,13 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { initializeTestEnvironment, assertFails } from '@firebase/rules-unit-testing';
 import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
-import { reserveGroupDelivery, cancelGroupDelivery, expireGroupDelivery, getGroupDelivery, configureGroupDelivery, groupDeliveryKey, GROUP_DELIVERY_PILOT as pilot } from '../functions/groupDelivery.js';
+import { reserveGroupDelivery, cancelGroupDelivery, expireGroupDelivery, getGroupDelivery, configureGroupDelivery, quoteGroupDeliveryFallback, requestGroupDeliveryCancellation, verifyGroupDeliveryFee, groupDeliveryKey, GROUP_DELIVERY_PILOT as pilot } from '../functions/groupDelivery.js';
 const require = createRequire(new URL('../functions/package.json', import.meta.url));
 const { initializeApp, deleteApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const projectId = 'demo-misechef-group-delivery';
 const now = new Date('2026-11-01T00:00:00Z'), date = '2026-11-03';
-const config = { enabled: true, dates: { [date]: { closesAt: '2026-11-03T02:00:00.000Z' } }, eligibleProducts: { lunch: 1 } };
+const config = { enabled: true, dates: { [date]: { closesAt: '2026-11-02T09:00:00.000Z' } }, eligibleProducts: { lunch: 1 } };
 const input = { date, selections: [{ productId: 'lunch', quantity: 3 }], placeId: 'qa-customer-place', requestId: 'request-one', name: 'QA Customer', phone: '+60123456789', unit: 'PRIVATE UNIT' };
 const resolvePlace = async () => ({ ...pilot.center, formattedAddress: 'PRIVATE CUSTOMER ADDRESS' });
 let env, app, db;
@@ -45,9 +45,9 @@ test('new request IDs cannot duplicate an active customer; changed payload canno
   await assert.rejects(reserve('customer', { ...input, selections:[{productId:'lunch',quantity:5}] }), { code: 'already-exists' });
   assert.equal((await progress()).joinedPortions,3);
 });
-test('10 portions is ready for review, never approved or paid automatically', async () => {
+test('10 unpaid portions do not qualify for free-delivery review', async () => {
   await Promise.all([reserve('customer-a', {...input,selections:[{productId:'lunch',quantity:6}]}), reserve('customer-b',{...input,selections:[{productId:'lunch',quantity:4}]})]);
-  const p = await progress(); assert.equal(p.joinedPortions,10); assert.equal(p.status,'ready_for_review');
+  const p = await progress(); assert.equal(p.joinedPortions,10); assert.equal(p.paidPortions,0); assert.equal(p.status,'collecting');
   assert.equal((await db.doc(`deliveryGroups/${groupDeliveryKey('store',date)}`).get()).data().status,'collecting');
 });
 test('public and other-customer responses never contain private addresses, contacts, UID or request ID', async () => {
@@ -133,10 +133,29 @@ test('corrected-center eligibility is enforced by reservation backend; Store kit
 
 const reviewArgs=()=>({db,uid:'owner',storeId:'store',workspaceId:'workspace',groupId:groupDeliveryKey('store',date),now});
 const fakeQuoteProvider=(changes={})=>({environment:'sandbox',createQuote:async request=>({quotationId:'quote-phase2',serviceType:request.data.serviceType,stops:request.data.stops,expiresAt:new Date(now.getTime()+60000).toISOString(),priceBreakdown:{total:'18.40',currency:'MYR'},...changes}),createOrder:async()=>{throw new Error('Booking must never be called');}});
+const linkPaidFixture = async (uid, options = {}) => {
+ const groupId = groupDeliveryKey('store', date);
+ const reservation = db.doc(`deliveryGroups/${groupId}/groupDeliveryReservations/${uid}`);
+ const { fingerprint, portions } = (await reservation.get()).data();
+ const orderId = `meal-${uid}`;
+ await db.doc(`storeOrders/${orderId}`).set({
+   storeId: 'store', workspaceId: 'workspace', customerUid: uid,
+   groupDelivery: { groupId, reservationFingerprint: fingerprint, date, portions },
+   payment: { status: 'paid', refundStatus: 'none', refundedAmountMinor: 0, amountMinor: portions * 1200 },
+   ...options
+ });
+ await db.doc(`storeOrderTimeline/${orderId}_payment-received`).set({
+   orderId, storeId: 'store', workspaceId: 'workspace', type: 'payment_received', createdAt: now.toISOString()
+ });
+ await reservation.update({ mealOrderId: orderId });
+};
 const seedReview=async(quantities=[6,4])=>{
  await db.doc('stores/store').update({delivery:{provider:'lalamove',market:'MY',environment:'sandbox',serviceType:'MOTORCYCLE',pickup:{address:'Separate QA kitchen',latitude:4.60,longitude:101.10}}});
  // Fixture setup is sequential; concurrency is exercised explicitly in the approval test.
- for (const [i,quantity] of quantities.entries()) await reserve('member-'+i,{...input,selections:[{productId:'lunch',quantity}]});
+ for (const [i,quantity] of quantities.entries()) {
+   await reserve('member-'+i,{...input,selections:[{productId:'lunch',quantity}]});
+   await linkPaidFixture('member-'+i);
+ }
  return reviewArgs();
 };
 const makeEstimate=async(args)=>estimateGroupDelivery({...args,provider:fakeQuoteProvider(),pickupTime:'11:30'});
@@ -170,20 +189,21 @@ test('Phase 2 quote includes kitchen plus customer stops, price is server-owned,
  const pub=await progress();assert.equal(pub.status,'approved');assert.equal(JSON.stringify(pub).includes('PRIVATE'),false);assert.equal(JSON.stringify(pub).includes('approvedBy'),false);
  await assert.rejects(reserve('late',{...input,requestId:'late'}),{code:'failed-precondition'});
  await assert.rejects(cancelGroupDelivery({db,uid:'member-0',slug:'qa-store',date,now}),{code:'failed-precondition'});
- for(const collection of ['storeOrders','storePaymentEvents','storeNotifications'])assert.equal((await db.collection(collection).get()).size,0);
+ for(const collection of ['storePaymentEvents','storeNotifications'])assert.equal((await db.collection(collection).get()).size,0);
 });
 
 test('Phase 2 concurrent approvals and retries record one approval and charge nobody',async()=>{
  const args=await seedReview();const estimate=await makeEstimate(args);
  const results=await Promise.all(Array.from({length:5},(_,i)=>approveEstimate(args,estimate,{requestId:'approval-'+i})));
  assert.equal(results.filter(r=>!r.duplicate).length,1);assert.equal((await getGroupDeliveryReview(args)).history.length,1);
- assert.equal((await db.collection('storeOrders').get()).size,0);
+ assert.equal((await db.collection('storeOrders').get()).size,2);
 });
 
 test('Phase 2 changed reservations, pickup, eligibility config or expired quote block stale approval',async()=>{
  const args=await seedReview();
  let estimate=await makeEstimate(args);
  await reserve('new-member',{...input,requestId:'new-member'});
+ await linkPaidFixture('new-member');
  await assert.rejects(approveEstimate(args,estimate),{code:'failed-precondition'});
  estimate=await makeEstimate(args);await db.doc('stores/store').update({'delivery.pickup.address':'Changed kitchen'});
  await assert.rejects(approveEstimate(args,estimate),{code:'failed-precondition'});
@@ -194,11 +214,13 @@ test('Phase 2 changed reservations, pickup, eligibility config or expired quote 
  assert.equal((await getGroupDeliveryReview(args)).history.length,0);
 });
 
-test('Phase 2 minimum and expired reservations are enforced by backend before approval',async()=>{
+test('Paid minimum and refunds are enforced by backend before approval',async()=>{
  const args=await seedReview([6]);let estimate=await makeEstimate(args);
  await assert.rejects(approveEstimate(args,estimate),{code:'failed-precondition'});
- await reserve('another',{...input,selections:[{productId:'lunch',quantity:4}]});estimate=await makeEstimate(args);
- await db.doc(`deliveryGroups/${args.groupId}/groupDeliveryReservations/another`).update({expiresAt:now.toISOString()});
+ await reserve('another',{...input,selections:[{productId:'lunch',quantity:4}]});
+ await linkPaidFixture('another');
+ estimate=await makeEstimate(args);
+ await db.doc('storeOrders/meal-another').update({'payment.refundStatus':'partial','payment.refundedAmountMinor':100});
  await assert.rejects(approveEstimate(args,estimate),{code:'failed-precondition'});
  assert.equal((await getGroupDeliveryReview(args)).group.activePortions,6);
 });
@@ -223,4 +245,49 @@ test('Phase 2 estimates and approval histories remain inaccessible through direc
    await assertFails(getDoc(ref));await assertFails(setDoc(ref,{customerDeliveryFeeMinor:999}));
   }
  }
+});
+
+
+test('Below target: Store quote, role-checked receipt verification, cancellation request and no payment mutation', async () => {
+ const args = await seedReview([4, 3]);
+ const cutoff = new Date(config.dates[date].closesAt);
+ let draft;
+ const quote = async request => {
+   draft = request.draft;
+   return { pricingSnapshotId: 'quote-snapshot', quote: { customerDeliveryFee: 5.25, currency: 'MYR',
+     expiresAt: new Date(cutoff.getTime() + 60000).toISOString() } };
+ };
+ const input = { db, uid: 'member-0', slug: 'qa-store', date, time: '11:30', quote, now: cutoff };
+ await assert.rejects(quoteGroupDeliveryFallback({ ...input, now }), { code: 'failed-precondition' });
+ await assert.rejects(quoteGroupDeliveryFallback({ ...input, uid: 'another' }), { code: 'permission-denied' });
+ await assert.rejects(quoteGroupDeliveryFallback({ ...input, time: '13:00' }), { code: 'invalid-argument' });
+ const before = (await db.doc('storeOrders/meal-member-0').get()).data();
+ assert.equal((await quoteGroupDeliveryFallback(input)).customerDeliveryFee, 5.25);
+ assert.equal(draft.destination.formattedAddress, 'PRIVATE CUSTOMER ADDRESS');
+ assert.deepEqual(draft.selections, [{ productId: 'lunch', quantity: 4 }]);
+ const verification = { ...args, customerId: 'member-0', quoteId: 'quote-snapshot',
+   amountMinor: 525, receipt: 'EXTERNAL-QA-01', now: cutoff };
+ await assert.rejects(verifyGroupDeliveryFee({ ...verification, uid: 'member-0' }), { code: 'permission-denied' });
+ await assert.rejects(verifyGroupDeliveryFee({ ...verification, amountMinor: 524 }), { code: 'failed-precondition' });
+ await assert.rejects(verifyGroupDeliveryFee({ ...verification, now: new Date(cutoff.getTime() + 60000) }), { code: 'failed-precondition' });
+ assert.equal((await verifyGroupDeliveryFee(verification)).duplicate, false);
+ assert.equal((await verifyGroupDeliveryFee(verification)).duplicate, true);
+ assert.deepEqual((await db.doc('storeOrders/meal-member-0').get()).data(), before);
+ assert.equal((await requestGroupDeliveryCancellation({ ...input, uid: 'member-1' })).requested, true);
+ const closed = await getGroupDelivery({ db, uid: 'member-1', slug: 'qa-store', date, now: cutoff });
+ assert.equal(closed.paidPortions, 4);
+ assert.equal(closed.mine.cancellationRequested, true);
+ const receipts = await db.collection('groupDeliveryFeeReceipts').get();
+ assert.equal(receipts.size, 1);
+ await assertFails(getDoc(doc(env.authenticatedContext('owner').firestore(), receipts.docs[0].ref.path)));
+ assert.equal((await db.collection('storePaymentEvents').get()).size, 0);
+});
+
+test('Paid portions survive cutoff, while a payment confirmed at cutoff cannot qualify', async () => {
+ const args = await seedReview([6, 4]);
+ const cutoff = new Date(config.dates[date].closesAt);
+ await expireGroupDelivery({ db, now: cutoff });
+ assert.equal((await getGroupDeliveryReview({ ...args, now: cutoff })).group.activePortions, 10);
+ await db.doc('storeOrderTimeline/meal-member-1_payment-received').update({ createdAt: cutoff.toISOString() });
+ assert.equal((await getGroupDeliveryReview({ ...args, now: cutoff })).group.activePortions, 6);
 });

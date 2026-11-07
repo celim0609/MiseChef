@@ -1,5 +1,5 @@
 import { listGroupDeliveryReview, getGroupDeliveryReview, estimateGroupDelivery, approveGroupDelivery } from './groupDeliveryReview.js';
-import { getGroupDeliveryConfiguration, requireGroupDeliveryBeta, requireCustomer, eligibility, configureGroupDelivery, getGroupDelivery, reserveGroupDelivery, cancelGroupDelivery, expireGroupDelivery } from './groupDelivery.js';
+import { getGroupDeliveryConfiguration, requireGroupDeliveryBeta, requireCustomer, eligibility, configureGroupDelivery, getGroupDelivery, reserveGroupDelivery, cancelGroupDelivery, expireGroupDelivery, quoteGroupDeliveryFallback, requestGroupDeliveryCancellation, verifyGroupDeliveryFee } from './groupDelivery.js';
 import { createGroupDeliveryPlaces, consumeGroupDeliveryRate } from './groupDeliveryPlaces.js';
 import { createPosPlaces, consumePosQuoteRate } from './posPlaces.js';
 import { managePosOrder, listDeletedPosOrders } from './posOrderManagement.js';
@@ -2624,7 +2624,23 @@ export const reserveMiseChefGroupDelivery = groupDeliveryCall(groupDeliveryOptio
 });
 export const cancelMiseChefGroupDeliveryReservation = groupDeliveryCall(groupDeliveryOptions, async request => {
   await groupDeliveryCustomer(request);
-  return cancelGroupDelivery({ db, uid: request.auth.uid, slug: request.data?.slug, date: request.data?.date });
+  return cancelGroupDelivery({ db, uid: request.auth.uid, slug: request.data?.slug, date: request.data?.date, areaId: request.data?.areaId });
+});
+export const quoteMiseChefGroupDeliveryFallback = groupDeliveryCall({ ...groupDeliveryOptions, secrets: [lalamoveApiKey, lalamoveApiSecret] }, async request => {
+  await groupDeliveryCustomer(request);
+  return quoteGroupDeliveryFallback({ db, uid: request.auth.uid, slug: request.data?.slug,
+    date: request.data?.date, areaId: request.data?.areaId, time: request.data?.time,
+    quote: args => createStoreDeliveryQuote({ ...args, provider: createRuntimeLalamoveProvider() }) });
+});
+export const requestMiseChefGroupDeliveryCancellation = groupDeliveryCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  return requestGroupDeliveryCancellation({ db, uid: request.auth.uid, slug: request.data?.slug,
+    date: request.data?.date, areaId: request.data?.areaId });
+});
+export const verifyMiseChefGroupDeliveryFee = groupDeliveryCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  const { storeId, groupId, customerId, quoteId, amountMinor, receipt } = request.data || {};
+  return verifyGroupDeliveryFee({ db, uid: request.auth.uid, storeId, groupId, customerId, quoteId, amountMinor, receipt });
 });
 export const expireMiseChefGroupDeliveryReservations = groupDeliverySchedule({ region: REGION, schedule: 'every 15 minutes', timeZone: 'Asia/Kuala_Lumpur', maxInstances: 1 }, async () => {
   assertGroupDeliveryProject();

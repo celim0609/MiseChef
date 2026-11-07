@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { HttpsError } from 'firebase-functions/v2/https';
-import { GROUP_DELIVERY_PILOT, activePortions, eligibility, getGroupDeliveryArea, listGroupDeliveryAreas, requireGroupDeliveryManager, validateDeliveryDate } from './groupDelivery.js';
+import { GROUP_DELIVERY_PILOT, paidGroupMembers, eligibility, getGroupDeliveryArea, groupDeliveryCutoff, listGroupDeliveryAreas, requireGroupDeliveryManager } from './groupDelivery.js';
 import { lalamoveCoordinate } from './storeDelivery.js';
 
 const text = value => typeof value === 'string' ? value.trim() : '';
@@ -10,7 +10,6 @@ const read = (tx, ref) => tx ? tx.get(ref) : ref.get();
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
   ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
 const digest = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
-const isActive = (r, now) => r.status === 'reserved' && Date.parse(r.expiresAt) > now.getTime();
 export const loadReviewStore = async ({ db, uid, storeId, workspaceId, transaction }) => {
   if (!validId(storeId) || !validId(workspaceId)) fail('invalid-argument', 'Choose a Store and Workspace. / 请选择店铺与工作区。');
   const doc = await read(transaction, db.collection('stores').doc(storeId));
@@ -28,18 +27,25 @@ const loadReview = async ({ db, store, groupId, transaction, now }) => {
   ]);
   const data = group.data();
   if (!group.exists || data.storeId !== store.id || data.workspaceId !== (store.workspaceId || store.id)) fail('permission-denied', 'Group does not belong to this Store. / 此团不属于该店铺。');
-  const members = reservations.docs.map(d => ({ ...d.data(), id: d.id })).filter(r => isActive(r, now)).sort((a,b) => a.id.localeCompare(b.id));
+  const members = await paidGroupMembers({ db, transaction, groupId, store, date: data.date,
+    reservations: reservations.docs.map(d => ({ ...d.data(), id: d.id })), now });
+  members.sort((a,b) => a.id.localeCompare(b.id));
   const config = configuration.data();
   const fingerprint = digest({ storeId: store.id, workspaceId: store.workspaceId || store.id, date: data.date,
     areaId: data.areaId, config, delivery: store.delivery || null, members });
-  return { reference, group: data, config, members, fingerprint, activePortions: activePortions(members, now),
-    expiresAt: config?.dates?.[data.date]?.closesAt || members.map(r => r.expiresAt).sort()[0] || '' };
+  return { reference, group: data, config, members,
+    cancellationRequests: reservations.docs.filter(doc => doc.data().cancellationRequestedAt)
+      .map(doc => ({ customerId: doc.id, mealOrderId: doc.data().mealOrderId, requestedAt: doc.data().cancellationRequestedAt })),
+    fingerprint, activePortions: members.reduce((sum, member) => sum + member.portions, 0),
+    expiresAt: groupDeliveryCutoff(data.date) };
 };
 const summary = (id, state) => ({ id, date: state.group.date, areaId: state.group.areaId, areaName: getGroupDeliveryArea(state.group.areaId).areaName,
   status: state.group.status, activePortions: state.activePortions, target: GROUP_DELIVERY_PILOT.minimumPortions,
   expiresAt: state.expiresAt, ...(state.group.approval ? { approval: state.group.approval } : {}) });
 const managerMember = member => ({ id: member.id, name: member.name, phone: member.phone, unit: member.unit,
-  address: member.address, items: member.items, portions: member.portions, expiresAt: member.expiresAt });
+  address: member.address, items: member.items, portions: member.portions, expiresAt: member.expiresAt,
+  ...(member.fallbackQuote ? { fallbackQuote: member.fallbackQuote } : {}),
+  ...(member.deliveryFeeVerification ? { deliveryFeeVerified: true } : {}) });
 export const listGroupDeliveryReview = async args => {
   const { db, now = new Date(), cursor = '', date = '', areaId = '' } = args;
   const store = await loadReviewStore(args);
@@ -57,15 +63,15 @@ export const listGroupDeliveryReview = async args => {
   }
   const page = await query.limit(26).get();
   const documents = page.docs.slice(0,25);
-  const config = (await db.collection('groupDeliveryConfigs').doc(store.id).get()).data();
   const groups = await Promise.all(documents.map(async doc => {
     const group = doc.data();
     const reservations = await doc.ref.collection('groupDeliveryReservations')
-      .select('status', 'expiresAt', 'portions').get();
+      .select('status', 'uid', 'fingerprint', 'mealOrderId', 'portions').get();
+    const paid = await paidGroupMembers({ db, groupId: doc.id, store, date: group.date, reservations: reservations.docs.map(reservation => reservation.data()), now });
     return summary(doc.id, {
       group,
-      activePortions: activePortions(reservations.docs.map(reservation => reservation.data()), now),
-      expiresAt: config?.dates?.[group.date]?.closesAt || ''
+      activePortions: paid.reduce((sum, member) => sum + member.portions, 0),
+      expiresAt: groupDeliveryCutoff(group.date)
     });
   }));
   return { groups, areas: listGroupDeliveryAreas(), cursor: page.size > 25 ? documents.at(-1).id : '' };
@@ -79,14 +85,17 @@ export const getGroupDeliveryReview = async args => {
   ]);
   const last = estimates.docs[0];
   const estimate = last ? last.data() : null;
-  return { group: summary(groupId,state), members: state.members.map(managerMember),
+  return { group: summary(groupId,state), members: state.members.map(managerMember), cancellationRequests: state.cancellationRequests,
     pickup: store.delivery?.pickup ? { address: store.delivery.pickup.address, latitude: store.delivery.pickup.latitude, longitude: store.delivery.pickup.longitude } : null,
     estimate: estimate ? { id: last.id, ...estimate, valid: estimate.fingerprint === state.fingerprint && Date.parse(estimate.expiresAt) > now.getTime() && state.group.status === 'collecting' } : null,
     history: history.docs.map(d => ({ id:d.id,...d.data() })).sort((a,b) => b.approvedAt.localeCompare(a.approvedAt)) };
 };
 const validateCollecting = (store, state, now) => {
   if (state.group.status !== 'collecting') fail('failed-precondition', 'This group is already approved or closed. / 此团已获批或截止。');
-  validateDeliveryDate(store, state.config, state.group.date, now);
+  if (!state.config?.enabled || !state.config.dates?.[state.group.date]
+    || now.getTime() >= Date.parse(`${state.group.date}T13:00:00+08:00`)) {
+    fail('failed-precondition', 'This delivery group is unavailable.');
+  }
   for (const r of state.members) {
     if (!r.address || !eligibility(r.address, state.group.areaId).eligible || !Number.isSafeInteger(r.portions) || r.portions < 1
       || !Array.isArray(r.items) || r.items.length < 1 || r.items.some(item => !Number.isInteger(item.quantity) || item.quantity < 1 || !Number.isInteger(state.config.eligibleProducts?.[item.productId]) || item.portionsPerUnit !== state.config.eligibleProducts[item.productId])
@@ -133,7 +142,7 @@ export const estimateGroupDelivery = async args => {
     const current = await loadReview({db,store:currentStore,groupId,transaction,now:checkedAt});
     validateCollecting(currentStore,current,checkedAt);
     if (current.fingerprint !== state.fingerprint) fail('failed-precondition','Reservations or pickup changed. Refresh the estimate. / 预订或取件设置已更改，请刷新报价。');
-    const expiresAt = new Date(Math.min(Date.parse(quote.providerExpiresAt),checkedAt.getTime()+10*60000,...current.members.map(r=>Date.parse(r.expiresAt)),Date.parse(current.expiresAt))).toISOString();
+    const expiresAt = new Date(Math.min(Date.parse(quote.providerExpiresAt),checkedAt.getTime()+10*60000,Date.parse(request.data.scheduleAt))).toISOString();
     if (Date.parse(expiresAt) <= checkedAt.getTime()) fail('failed-precondition','Estimate expired. / 报价已过期。');
     const estimate = {...quote,fingerprint:current.fingerprint,groupId,storeId:currentStore.id,workspaceId:currentStore.workspaceId || currentStore.id,
       portions:current.activePortions,expiresAt,createdBy:args.uid,createdAt:checkedAt.toISOString()};
@@ -150,22 +159,24 @@ export const approveGroupDelivery = async args => {
     const state=await loadReview({db,store,groupId,transaction,now:checkedAt});
     const approvalRef=state.reference.collection('approvals').doc('free-delivery');
     const [existing,estimateDoc]=await Promise.all([transaction.get(approvalRef),transaction.get(state.reference.collection('estimates').doc(estimateId))]);
-    if (existing.exists) return {duplicate:true,approval:{id:existing.id,...existing.data()}};
+    if (existing.exists) {
+      if (existing.data().paidPolicy !== true) fail('failed-precondition', 'This legacy approval did not verify meal payments.');
+      return {duplicate:true,approval:{id:existing.id,...existing.data()}};
+    }
     validateCollecting(store,state,checkedAt);
     const estimate=estimateDoc.data();
     const commitAt=now || clock();
     validateCollecting(store,state,commitAt);
-    if (state.members.some(r=>Date.parse(r.expiresAt)<=commitAt.getTime())) fail('failed-precondition','Reservations expired during review. Refresh the estimate. / 审核期间预订已过期，请刷新报价。');
-    if (state.activePortions < GROUP_DELIVERY_PILOT.minimumPortions) fail('failed-precondition','At least 10 active lunch portions are required. / 至少需要10份有效午餐预订。');
+    if (state.activePortions < GROUP_DELIVERY_PILOT.minimumPortions) fail('failed-precondition','At least 10 paid lunch portions are required. / 至少需要10份有效午餐预订。');
     if (!estimateDoc.exists || estimate.groupId !== groupId || estimate.storeId !== store.id || estimate.workspaceId !== (store.workspaceId || store.id)
       || estimate.fingerprint !== state.fingerprint || Date.parse(estimate.expiresAt) <= commitAt.getTime() || estimate.feeMinor !== expectedFeeMinor
       || estimate.currency !== 'MYR' || estimate.environment !== 'sandbox' || Date.parse(estimate.scheduleAt) <= commitAt.getTime()) fail('failed-precondition','Estimate expired or group changed. Review and refresh before approving. / 报价已过期或团购已更改，请重新审核报价。');
     const approval={groupId,storeId:store.id,workspaceId:store.workspaceId || store.id,approvedBy:args.uid,approvedAt:commitAt.toISOString(),
       requestId,estimateId,estimatedDeliveryCostMinor:estimate.feeMinor,currency:'MYR',customerDeliveryFeeMinor:0,approvedPortions:state.activePortions,
-      reservationExpiresAt:state.expiresAt,quotationId:estimate.quotationId,environment:estimate.environment,scheduleAt:estimate.scheduleAt,
+      paidPolicy:true,reservationExpiresAt:state.expiresAt,quotationId:estimate.quotationId,environment:estimate.environment,scheduleAt:estimate.scheduleAt,
       route:estimate.route,members:state.members.map(managerMember)};
     transaction.create(approvalRef,approval);
-    transaction.update(state.reference,{status:'approved',updatedAt:checkedAt.toISOString(),approval:{id:'free-delivery',approvedBy:args.uid,
+    transaction.update(state.reference,{status:'approved',updatedAt:checkedAt.toISOString(),approval:{id:'free-delivery',paidPolicy:true,approvedBy:args.uid,
       approvedAt:approval.approvedAt,approvedPortions:approval.approvedPortions,estimatedDeliveryCostMinor:estimate.feeMinor,currency:'MYR',customerDeliveryFeeMinor:0}});
     return {duplicate:false,approval:{id:'free-delivery',...approval}};
   });

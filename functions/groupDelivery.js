@@ -15,6 +15,7 @@ export const GROUP_DELIVERY_PILOT = Object.freeze({
   centerMapsUrl: 'https://www.google.com/maps?q=4.6413277,101.1445881',
   // Area eligibility center only. Kitchen pickup stays in the existing Store configuration.
   centerVerifiedAt: '2026-11-01', radiusMetres: 1000, minimumPortions: 10,
+  deliveryWindow: { start: '11:00', end: '13:00' },
   customerDeliveryFeeMinor: 0, currency: 'MYR', timeZone: 'Asia/Kuala_Lumpur'
 });
 // Preserve the original Bercham key so existing Beta reservations remain readable.
@@ -44,16 +45,50 @@ const configRef = (db, storeId) => db.collection('groupDeliveryConfigs').doc(sto
 const groupRef = (db, storeId, date, areaId) => db.collection('deliveryGroups').doc(groupDeliveryKey(storeId, date, areaId));
 const active = (reservation, now) => reservation.status === 'reserved' && Date.parse(reservation.expiresAt) > now.getTime();
 export const activePortions = (reservations, now = new Date()) => reservations.filter(r => active(r, now)).reduce((sum, r) => sum + r.portions, 0);
+// Order links and payment events are server-owned. Legacy reservations have no link.
+export const paidGroupMembers = async ({ db, transaction, groupId, store, date, reservations, now }) => {
+  const read = ref => transaction ? transaction.get(ref) : ref.get();
+  const cutoff = Date.parse(groupDeliveryCutoff(date));
+  const members = [];
+  const seen = new Set();
+  for (const reservation of reservations) {
+    const orderId = reservation.mealOrderId;
+    if (!id(orderId) || seen.has(orderId) || !['reserved', 'expired'].includes(reservation.status)
+      || !Number.isSafeInteger(reservation.portions) || reservation.portions < 1) continue;
+    const order = (await read(db.collection('storeOrders').doc(orderId))).data();
+    const binding = order?.groupDelivery;
+    if (!order || order.storeId !== store.id || order.workspaceId !== (store.workspaceId || store.id)
+      || order.customerUid !== reservation.uid || binding?.groupId !== groupId
+      || binding?.reservationFingerprint !== reservation.fingerprint
+      || binding?.date !== date || binding?.portions !== reservation.portions
+      || order.deletedAt || order.status === 'Cancelled' || order.fulfilmentStatus === 'Cancelled'
+      || order.payment?.status !== 'paid' || order.payment?.refundStatus !== 'none'
+      || order.payment?.refundedAmountMinor !== 0 || !(order.payment?.amountMinor > 0)) continue;
+    const event = (await read(db.collection('storeOrderTimeline').doc(`${orderId}_payment-received`))).data();
+    const paidAt = event?.createdAt?.toMillis?.() ?? Date.parse(event?.createdAt);
+    if (event?.type !== 'payment_received' || event.orderId !== orderId
+      || event.storeId !== store.id || event.workspaceId !== order.workspaceId
+      || !Number.isFinite(paidAt) || paidAt >= cutoff || paidAt > now.getTime()) continue;
+    seen.add(orderId);
+    members.push(reservation);
+  }
+  return members;
+};
+
 export const eligibility = (point, areaId) => {
   const area = getGroupDeliveryArea(areaId);
   const distanceMetres = deliveryDistanceKm(area.center, point) * 1000;
   // One micrometre absorbs floating-point error at the inclusive spherical boundary.
   return { eligible: distanceMetres <= area.radiusMetres + 1e-6, distanceMetres: Math.round(distanceMetres) };
 };
+export const groupDeliveryCutoff = date => {
+  if (!validCalendarDate(date)) fail('invalid-argument', 'Invalid delivery date.');
+  return new Date(Date.parse(`${date}T17:00:00+08:00`) - 86400000).toISOString();
+};
 export const validateDeliveryDate = (store, config, date, now = new Date()) => {
   if (!validCalendarDate(date) || config?.enabled !== true || !config.dates?.[date]
     || !getValidPickupDates(store, now).includes(date)) fail('failed-precondition', 'This lunch date is unavailable. / 此午餐日期暂不可用。');
-  const closesAt = config.dates[date].closesAt;
+  const closesAt = groupDeliveryCutoff(date);
   if (!Number.isFinite(Date.parse(closesAt)) || Date.parse(closesAt) <= now.getTime()) fail('failed-precondition', 'Reservations have closed. / 预订已截止。');
   return closesAt;
 };
@@ -111,9 +146,8 @@ export const configureGroupDelivery = async ({ db, uid, slug, input, now = new D
   const dates = Object.entries(input.dates);
   const products = Object.entries(input.eligibleProducts);
   if (dates.length > 30 || products.length > 30 || input.enabled && (!dates.length || !products.length)) fail('invalid-argument', 'Configure lunch products and dates.');
-  for (const [date, entry] of dates) {
-    const deadline = Date.parse(entry?.closesAt);
-    if (!validCalendarDate(date) || !Number.isFinite(deadline) || deadline >= Date.parse(`${date}T11:00:00+08:00`) || deadline <= now.getTime() || !getValidPickupDates(store, now).includes(date)) fail('invalid-argument', 'Closing time must be in the future and before lunch on an available date.');
+  for (const [date] of dates) {
+    if (!getValidPickupDates(store, now).includes(date) || Date.parse(groupDeliveryCutoff(date)) <= now.getTime()) fail('invalid-argument', 'Choose an available delivery date before its cutoff.');
   }
   for (const [productId, portions] of products) {
     if (!id(productId) || !Number.isInteger(portions) || portions < 1 || portions > 10) fail('invalid-argument', 'Invalid main-meal portions per unit.');
@@ -121,7 +155,7 @@ export const configureGroupDelivery = async ({ db, uid, slug, input, now = new D
     if (!p.exists || p.data().storeId !== store.id || p.data().available !== true || (p.data().productType === 'weekly_meal_plan' ? !hasEmbeddedMenu(p.data()) : Boolean(p.data().optionGroupIds?.length))) fail('invalid-argument', 'Choose available lunch products from this Store.');
   }
   // All geographic and fee policy fields come from the reviewed pilot, never input.
-  const config = { enabled: input.enabled, dates: Object.fromEntries(dates.map(([date, entry]) => [date, { closesAt: new Date(entry.closesAt).toISOString() }])),
+  const config = { enabled: input.enabled, dates: Object.fromEntries(dates.map(([date]) => [date, { closesAt: groupDeliveryCutoff(date) }])),
     eligibleProducts: Object.fromEntries(products), ...GROUP_DELIVERY_PILOT, storeId: store.id,
     workspaceId: store.workspaceId || store.id, updatedBy: uid, updatedAt: now.toISOString() };
   await configRef(db, store.id).set(config);
@@ -135,7 +169,7 @@ export const getGroupDelivery = async ({ db, slug, date, areaId, uid, now = new 
   const availableDates = Object.keys(config.dates).filter(d => {
     try { validateDeliveryDate(store, config, d, now); return true; } catch { return false; }
   }).sort();
-  const selectedDate = date || availableDates[0] || Object.keys(config.dates || {}).sort().find(d => Date.parse(config.dates[d].closesAt) > now.getTime());
+  const selectedDate = date || availableDates[0] || Object.keys(config.dates || {}).sort().find(d => validCalendarDate(d) && Date.parse(`${d}T13:00:00+08:00`) > now.getTime());
   if (!selectedDate || !config.dates[selectedDate] || !validCalendarDate(selectedDate)) return { available: true, dates: availableDates, date: '', menu: [], joinedPortions: 0, ...area, areas: listGroupDeliveryAreas() };
   const reference = groupRef(db, store.id, selectedDate, area.areaId);
   const [group, reservations, products] = await Promise.all([
@@ -143,15 +177,21 @@ export const getGroupDelivery = async ({ db, slug, date, areaId, uid, now = new 
     db.collection('storeProducts').where('storeId', '==', store.id).where('available', '==', true).get()
   ]);
   const joinedPortions = activePortions(reservations.docs.map(d => d.data()), now);
+  const paid = await paidGroupMembers({ db, groupId: reference.id, store, date: selectedDate, reservations: reservations.docs.map(d => d.data()), now });
+  const paidPortions = paid.reduce((sum, member) => sum + member.portions, 0);
   const mine = uid ? reservations.docs.find(d => d.id === uid)?.data() : null;
+  const paidMine = paid.some(member => member.uid === uid);
   const open = availableDates.includes(selectedDate) && (!group.exists || group.data().status === 'collecting');
   // Explicit projection. Neither customer identities nor locations leave this endpoint.
   return { available: true, ...area, areas: listGroupDeliveryAreas(), dates: availableDates, date: selectedDate,
-    closesAt: config.dates[selectedDate].closesAt, joinedPortions,
-    status: group.data()?.status === 'approved' ? 'approved' : !open ? 'closed' : joinedPortions >= 10 ? 'ready_for_review' : 'collecting',
+    closesAt: groupDeliveryCutoff(selectedDate), joinedPortions, paidPortions,
+    canChooseFallback: paidMine && !mine?.deliveryFeeVerification && paidPortions < 10 && group.data()?.status !== 'approved'
+      && now.getTime() >= Date.parse(groupDeliveryCutoff(selectedDate))
+      && now.getTime() < Date.parse(`${selectedDate}T13:00:00+08:00`),
+    status: group.data()?.approval?.paidPolicy === true && paidPortions >= 10 ? 'approved' : paidPortions >= 10 ? 'ready_for_review' : !open ? 'closed' : 'collecting',
     menu: open ? lunchMenu(products.docs.map(d => ({ ...d.data(), id: d.id })), config, selectedDate) : [],
     sharePath: `/store/${encodeURIComponent(slug)}/group-delivery?date=${selectedDate}&area=${area.areaId}`,
-    mine: mine ? { status: active(mine, now) ? 'reserved' : mine.status === 'cancelled' ? 'cancelled' : 'expired',
+    mine: mine ? { paymentConfirmed: paidMine, deliveryFeeVerified: Boolean(mine.deliveryFeeVerification), cancellationRequested: Boolean(mine.cancellationRequestedAt), status: active(mine, now) ? 'reserved' : mine.status === 'cancelled' ? 'cancelled' : 'expired',
       portions: mine.portions, expiresAt: mine.expiresAt } : null };
 };
 export const reserveGroupDelivery = async ({ db, uid, slug, input, resolvePlace, now, clock = () => new Date() }) => {
@@ -213,6 +253,7 @@ export const cancelGroupDelivery = async ({ db, uid, slug, date, areaId, now = n
   return db.runTransaction(async tx => {
     const group = await tx.get(ref), reservation = await tx.get(ref.collection('groupDeliveryReservations').doc(uid));
     if (group.exists && group.data().status !== 'collecting') fail('failed-precondition', 'This group is closed. / 此团已截止。');
+    if (reservation.data()?.mealOrderId) fail('failed-precondition', 'Use the paid reservation cancellation workflow.');
     if (reservation.exists && reservation.data().status === 'reserved') {
       tx.update(reservation.ref, { status: 'cancelled', cancelledAt: now.toISOString() });
       tx.update(ref, { updatedAt: now.toISOString() });
@@ -243,7 +284,128 @@ export const getGroupDeliveryConfiguration = async ({ db, uid, slug, now = new D
     db.collection('storeProducts').where('storeId', '==', store.id).where('available', '==', true).get()]);
   const config = configuration.data();
   return { config: config ? { enabled: config.enabled, dates: config.dates, eligibleProducts: config.eligibleProducts } : { enabled: false, dates: {}, eligibleProducts: {} },
-    dates: getValidPickupDates(store, now),
+    dates: getValidPickupDates(store, now).filter(date => Date.parse(groupDeliveryCutoff(date)) > now.getTime()),
     products: products.docs.filter(d => { const p = d.data(); return p.productType === 'weekly_meal_plan' ? hasEmbeddedMenu(p) : !p.optionGroupIds?.length; })
       .map(d => ({ productId: d.id, name: d.data().name })), ...GROUP_DELIVERY_PILOT };
+};
+
+const loadPaidFallback = async ({ db, uid, slug, date, areaId, now, transaction }) => {
+  requireCustomer(uid);
+  const cutoff = Date.parse(groupDeliveryCutoff(date));
+  if (now.getTime() < cutoff || now.getTime() >= Date.parse(`${date}T13:00:00+08:00`)) {
+    fail('failed-precondition', 'Delivery choices are available after cutoff and before the delivery window ends.');
+  }
+  const store = await loadStore(db, slug);
+  const reference = groupRef(db, store.id, date, areaId);
+  const read = ref => transaction ? transaction.get(ref) : ref.get();
+  const group = (await read(reference)).data();
+  if (!group || group.storeId !== store.id || group.workspaceId !== (store.workspaceId || store.id) || group.status === 'approved') {
+    fail('failed-precondition', 'This group is not eligible for delivery choices.');
+  }
+  const reservations = await read(reference.collection('groupDeliveryReservations'));
+  const members = await paidGroupMembers({ db, transaction, groupId: reference.id, store, date,
+    reservations: reservations.docs.map(doc => doc.data()), now });
+  const mine = members.find(member => member.uid === uid);
+  if (!mine) fail('permission-denied', 'A confirmed meal payment is required.');
+  if (mine.deliveryFeeVerification) fail('failed-precondition', 'The delivery fee is already verified.');
+  if (members.reduce((total, member) => total + member.portions, 0) >= GROUP_DELIVERY_PILOT.minimumPortions) {
+    fail('failed-precondition', 'The group has reached its target and is awaiting review.');
+  }
+  return { reference, mine };
+};
+
+export const quoteGroupDeliveryFallback = async ({ db, uid, slug, date, areaId, time, quote, now, clock = () => new Date() }) => {
+  const startedAt = now || clock();
+  if (!/^\d{2}:[0-5]\d$/.test(time || '') || time < '11:00' || time >= '13:00') {
+    fail('invalid-argument', 'Choose a time within the delivery window.');
+  }
+  const { mine } = await loadPaidFallback({ db, uid, slug, date, areaId, now: startedAt });
+  const selections = await Promise.all(mine.items.map(async item => {
+    const product = (await db.collection('storeProducts').doc(item.productId).get()).data();
+    const options = item.selectedMealOptions?.map(({ serviceDate, optionGroupId, optionId }) => ({ serviceDate, optionGroupId, optionId }));
+    if (!hasEmbeddedMenu(product)) return { productId: item.productId, quantity: item.quantity };
+    const meal = resolveHealthyLunchDay(product, [product], date);
+    if (!meal?.id) fail('failed-precondition', 'This meal is unavailable for a delivery quote.');
+    return { productId: meal.id, healthyLunchPlanId: item.productId, healthyLunchDate: date,
+      quantity: item.quantity, ...(options?.length ? { selectedMealOptions: options } : {}) };
+  }));
+  const result = await quote({ db, slug, customerUid: uid, draft: {
+    fulfilmentMethod: 'delivery', deliveryMode: 'preorder', deliveryDate: date, deliveryTime: time,
+    selections, destination: { ...mine.address, deliveryInstructions: mine.unit || '' }
+  } });
+  const { customerDeliveryFee, expiresAt, currency, minimumValidityMs } = result.quote || {};
+  if (currency !== 'MYR' || !Number.isFinite(customerDeliveryFee) || customerDeliveryFee < 0
+    || !Number.isFinite(Date.parse(expiresAt))
+    || Date.parse(expiresAt) <= (now || clock()).getTime() + (minimumValidityMs || 0)) {
+    fail('failed-precondition', 'A valid delivery quote is unavailable.');
+  }
+  const quoteId = result.pricingSnapshotId;
+  const amountMinor = Math.round(customerDeliveryFee * 100);
+  if (!id(quoteId) || !Number.isSafeInteger(amountMinor)) fail('failed-precondition', 'A valid delivery quote is unavailable.');
+  await db.runTransaction(async transaction => {
+    const checkedAt = now || clock();
+    const current = await loadPaidFallback({ db, uid, slug, date, areaId, now: checkedAt, transaction });
+    if (current.mine.mealOrderId !== mine.mealOrderId || current.mine.fingerprint !== mine.fingerprint
+      || Date.parse(expiresAt) <= checkedAt.getTime() + (minimumValidityMs || 0)) {
+      fail('failed-precondition', 'The reservation or quote changed. Request a fresh quote.');
+    }
+    transaction.update(current.reference.collection('groupDeliveryReservations').doc(uid), {
+      fallbackQuote: { quoteId, amountMinor, expiresAt, currency, time, mealOrderId: mine.mealOrderId }
+    });
+  });
+  return { customerDeliveryFee, expiresAt, currency };
+};
+
+export const requestGroupDeliveryCancellation = async ({ db, uid, slug, date, areaId, now = new Date() }) =>
+  db.runTransaction(async transaction => {
+    const { reference } = await loadPaidFallback({ db, uid, slug, date, areaId, now, transaction });
+    transaction.update(reference.collection('groupDeliveryReservations').doc(uid), {
+      status: 'cancelled', cancellationRequestedAt: now.toISOString()
+    });
+    transaction.update(reference, { updatedAt: now.toISOString() });
+    return { requested: true };
+  });
+
+// Staff record receipt of a separately paid fee. No payment adapter is invoked.
+export const verifyGroupDeliveryFee = async ({ db, uid, storeId, groupId, customerId, quoteId, amountMinor, receipt, now }) => {
+  requireCustomer(uid);
+  if (![storeId, groupId, customerId, quoteId].every(id) || !Number.isSafeInteger(amountMinor) || amountMinor < 0
+    || typeof receipt !== 'string' || !receipt.trim() || receipt.trim().length > 120) {
+    fail('invalid-argument', 'Provide the reviewed quote, exact amount and external receipt reference.');
+  }
+  const receiptReference = receipt.trim();
+  return db.runTransaction(async transaction => {
+    const storeDoc = await transaction.get(db.collection('stores').doc(storeId));
+    if (!storeDoc.exists || storeDoc.data().country !== 'MY') fail('not-found', 'Store unavailable.');
+    const store = { ...storeDoc.data(), id: storeId };
+    await requireGroupDeliveryManager({ db, uid, store, transaction });
+    const groupRef = db.collection('deliveryGroups').doc(groupId);
+    const group = (await transaction.get(groupRef)).data();
+    if (!group || group.storeId !== storeId || group.workspaceId !== (store.workspaceId || storeId)
+      || groupDeliveryKey(storeId, group.date, group.areaId) !== groupId) fail('permission-denied', 'Group unavailable.');
+    const memberRef = groupRef.collection('groupDeliveryReservations').doc(customerId);
+    const member = (await transaction.get(memberRef)).data();
+    const previous = member?.deliveryFeeVerification;
+    if (previous) {
+      if (previous.quoteId === quoteId && previous.amountMinor === amountMinor && previous.receiptReference === receiptReference) {
+        return { verified: true, duplicate: true };
+      }
+      fail('already-exists', 'A delivery fee is already recorded.');
+    }
+    const current = await loadPaidFallback({ db, uid: customerId, slug: store.slug, date: group.date, areaId: group.areaId,
+      now: now || new Date(), transaction });
+    const quote = current.mine.fallbackQuote;
+    const verifiedAt = now || new Date();
+    if (quote?.quoteId !== quoteId || quote.amountMinor !== amountMinor || quote.currency !== 'MYR'
+      || quote.mealOrderId !== current.mine.mealOrderId || !(Date.parse(quote.expiresAt) > verifiedAt.getTime())) {
+      fail('failed-precondition', 'The quote is expired or the amount changed.');
+    }
+    const receiptRef = db.collection('groupDeliveryFeeReceipts').doc(hash([storeId, receiptReference.toLowerCase()]));
+    if ((await transaction.get(receiptRef)).exists) fail('already-exists', 'This receipt reference was already recorded.');
+    const record = { quoteId, amountMinor, currency: 'MYR', receiptReference, verifiedBy: uid,
+      verifiedAt: verifiedAt.toISOString(), mealOrderId: current.mine.mealOrderId };
+    transaction.create(receiptRef, { ...record, storeId, groupId, customerId });
+    transaction.update(memberRef, { deliveryFeeVerification: record });
+    return { verified: true, duplicate: false };
+  });
 };

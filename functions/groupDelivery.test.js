@@ -4,7 +4,7 @@ import { GROUP_DELIVERY_PILOT as pilot, eligibility, activePortions, snapshotLun
 import { createGroupDeliveryPlaces } from './groupDeliveryPlaces.js';
 
 const product = { id: 'lunch', name: 'Lunch', price: 12, available: true, optionGroupIds: [] };
-const config = { enabled: true, eligibleProducts: { lunch: 1, combo: 2 }, dates: { '2026-11-03': { closesAt: '2026-11-03T02:00:00Z' } } };
+const config = { enabled: true, eligibleProducts: { lunch: 1, combo: 2 }, dates: { '2026-11-03': { closesAt: '2026-11-02T09:00:00.000Z' } } };
 const store = { country: 'MY', orderDays: ['tuesday'], earliestPickupDays: 0, maximumAdvanceDays: 14 };
 const now = new Date('2026-11-01T00:00:00Z');
 test('user-confirmed Pakatan Jaya pin, 1000m radius, 10 portions and zero customer delivery charge', () => {
@@ -38,8 +38,8 @@ test('expired at exact deadline and cancelled reservations never count', () => {
   assert.equal(activePortions([r, { ...r, status: 'cancelled', expiresAt: '2027-01-01' }, { ...r, expiresAt: '2027-01-01', portions: 4 }], now), 4);
 });
 test('date and store availability are authoritative; never accepts Production', () => {
-  assert.equal(validateDeliveryDate(store, config, '2026-11-03', now), '2026-11-03T02:00:00Z');
-  assert.throws(() => validateDeliveryDate(store, config, '2026-11-03', new Date('2026-11-03T02:00:00Z')));
+  assert.equal(validateDeliveryDate(store, config, '2026-11-03', now), '2026-11-02T09:00:00.000Z');
+  assert.throws(() => validateDeliveryDate(store, config, '2026-11-03', new Date('2026-11-02T09:00:00.000Z')));
   assert.throws(() => validateDeliveryDate(store, { ...config, enabled: false }, '2026-11-03', now));
   assert.throws(() => validateDeliveryDate(store, config, '2026-11-31', now));
   assert.throws(() => requireGroupDeliveryBeta('misechef-fa4bf'));

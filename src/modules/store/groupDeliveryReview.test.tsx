@@ -13,9 +13,9 @@ test('POS review shows private address, quantities, separate kitchen, sandbox bu
  assert.doesNotMatch(render({confirmed:true}),/<button[^>]*disabled=""[^>]*>Approve free delivery/);
  assert.match(render({confirmed:true,now:Date.parse('2026-11-01T00:02:00Z')}),/<button[^>]*disabled=""[^>]*>Approve free delivery/);
 });
-test('approved public state remains unpaid and unconfirmed, and POS tab is role-gated independently of normal orders',()=>{
- const html=renderToStaticMarkup(<GroupDeliveryProgress progress={{available:true,status:'approved',joinedPortions:10}}/>);
- assert.match(html,/Free delivery approved/);assert.match(html,/order not confirmed/);
+test('approved public state displays paid portions, and POS tab is role-gated independently of normal orders',()=>{
+ const html=renderToStaticMarkup(<GroupDeliveryProgress progress={{available:true,status:'approved',paidPortions:10}}/>);
+ assert.match(html,/Free delivery approved/);assert.match(html,/Only confirmed meal payments count/);
  const pos=readFileSync(new URL('./StorePosPage.tsx',import.meta.url),'utf8');assert.match(pos,/canReviewGroupDelivery &&/);assert.match(pos,/posSection === 'group-delivery' && canReviewGroupDelivery \? <GroupDeliveryReviewPanel/);assert.match(pos,/setPosSection\('orders'\); \}, \[storeId, workspaceId, canReviewGroupDelivery\]/);assert.match(pos,/GroupDeliveryReviewPanel storeId=\{storeId\} workspaceId=\{workspaceId\}/);
  const app=readFileSync(new URL('../../App.tsx',import.meta.url),'utf8');assert.match(app,/canReviewGroupDelivery=\{import\.meta\.env\.VITE_FIREBASE_PROJECT_ID === 'misechef-beta-fa4bf' && getStorePermissions\(currentWorkspaceRole\).manageStoreSettings\}/);
 });
