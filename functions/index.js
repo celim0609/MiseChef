@@ -1,3 +1,6 @@
+import { listGroupDeliveryReview, getGroupDeliveryReview, estimateGroupDelivery, approveGroupDelivery } from './groupDeliveryReview.js';
+import { getGroupDeliveryConfiguration, requireGroupDeliveryBeta, requireCustomer, eligibility, configureGroupDelivery, getGroupDelivery, reserveGroupDelivery, cancelGroupDelivery, expireGroupDelivery } from './groupDelivery.js';
+import { createGroupDeliveryPlaces, consumeGroupDeliveryRate } from './groupDeliveryPlaces.js';
 import { createPosPlaces, consumePosQuoteRate } from './posPlaces.js';
 import { managePosOrder, listDeletedPosOrders } from './posOrderManagement.js';
 import { extractPasteOrder, pasteOrderSchema } from './posPasteOrder.js';
@@ -2579,22 +2582,79 @@ export const expireStorePromotionCodeReservations = onSchedule({region:REGION,sc
 });
 export const recordStoreCustomerReminder = onCall({ region: REGION, timeoutSeconds: 20, memory: '256MiB' }, request => recordCustomerReminder({ db, uid: request.auth?.uid, orderId: request.data?.orderId, date: request.data?.date, status: request.data?.status }));
 
-// Retired Beta-only pilot names prevent unreviewed deletion of existing Beta Functions.
-// No pilot endpoints are exported to Production; no Group Delivery feature is released.
-// These shells cannot read or mutate group delivery, orders, payments or bookings.
-const retiredGroupDelivery = () => { throw new HttpsError('failed-precondition', 'This Beta pilot is retired.'); };
-export const configureMiseChefGroupDelivery = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
-export const getMiseChefGroupDelivery = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
-export const searchMiseChefGroupDeliveryAddresses = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
-export const checkMiseChefGroupDeliveryAddress = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
-export const reserveMiseChefGroupDelivery = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
-export const cancelMiseChefGroupDeliveryReservation = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
-export const expireMiseChefGroupDeliveryReservations = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onSchedule({ region: REGION, schedule: 'every 15 minutes', timeZone: 'Asia/Kuala_Lumpur', maxInstances: 1 }, async () => undefined) : async () => undefined;
-export const getMiseChefGroupDeliveryConfiguration = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
-export const listMiseChefGroupDeliveryReview = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
-export const getMiseChefGroupDeliveryReview = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
-export const estimateMiseChefGroupDelivery = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
-export const approveMiseChefGroupDelivery = dispatchCompatibilityProject() === 'misechef-beta-fa4bf' ? onCall({ region: REGION, maxInstances: 1, timeoutSeconds: 10 }, retiredGroupDelivery) : retiredGroupDelivery;
+const isGroupDeliveryBeta = dispatchCompatibilityProject() === 'misechef-beta-fa4bf';
+const unavailableGroupDelivery = () => { throw new HttpsError('failed-precondition', 'Group Delivery is available on Beta only.'); };
+const groupDeliveryCall = (options, handler) => isGroupDeliveryBeta ? onCall(options, handler) : unavailableGroupDelivery;
+const groupDeliverySchedule = (options, handler) => isGroupDeliveryBeta ? onSchedule(options, handler) : unavailableGroupDelivery;
+
+// Beta-only Phase 1. No Store order, payment, notification or delivery side effects.
+const groupDeliveryOptions = { region: REGION, invoker: 'public', maxInstances: 5, timeoutSeconds: 30 };
+const assertGroupDeliveryProject = () => requireGroupDeliveryBeta(process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT);
+const groupDeliveryCustomer = async request => {
+  assertGroupDeliveryProject();
+  requireCustomer(request.auth?.uid);
+  if (request.auth?.token?.firebase?.sign_in_provider === 'anonymous') throw new HttpsError('unauthenticated', 'Sign in to join. / 请先登录。');
+  await consumeGroupDeliveryRate({ db, uid: request.auth.uid });
+};
+export const configureMiseChefGroupDelivery = groupDeliveryCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  return configureGroupDelivery({ db, uid: request.auth.uid, slug: request.data?.slug, input: request.data?.config });
+});
+export const getMiseChefGroupDelivery = groupDeliveryCall(groupDeliveryOptions, async request => {
+  assertGroupDeliveryProject();
+  return getGroupDelivery({ db, uid: request.auth?.uid, slug: request.data?.slug, date: request.data?.date, areaId: request.data?.areaId });
+});
+export const searchMiseChefGroupDeliveryAddresses = groupDeliveryCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  const input = request.data?.input;
+  const sessionToken = request.data?.sessionToken;
+  if (typeof input !== 'string' || input.trim().length < 3 || input.length > 200 || typeof sessionToken !== 'string' || !/^[\w-]{1,64}$/.test(sessionToken)) throw new HttpsError('invalid-argument', 'Enter an address. / 请输入地址。');
+  return { suggestions: await createGroupDeliveryPlaces().search(input.trim(), request.data?.language, sessionToken) };
+});
+export const checkMiseChefGroupDeliveryAddress = groupDeliveryCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  if (typeof request.data?.placeId !== 'string' || !/^[\w-]{1,160}$/.test(request.data.placeId)) throw new HttpsError('invalid-argument', 'Select an address. / 请选择地址。');
+  const place = await createGroupDeliveryPlaces().resolve(request.data.placeId);
+  return { ...eligibility(place, request.data?.areaId), formattedAddress: place.formattedAddress };
+});
+export const reserveMiseChefGroupDelivery = groupDeliveryCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  return reserveGroupDelivery({ db, uid: request.auth.uid, slug: request.data?.slug, input: request.data?.reservation,
+    resolvePlace: placeId => createGroupDeliveryPlaces().resolve(placeId) });
+});
+export const cancelMiseChefGroupDeliveryReservation = groupDeliveryCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  return cancelGroupDelivery({ db, uid: request.auth.uid, slug: request.data?.slug, date: request.data?.date });
+});
+export const expireMiseChefGroupDeliveryReservations = groupDeliverySchedule({ region: REGION, schedule: 'every 15 minutes', timeZone: 'Asia/Kuala_Lumpur', maxInstances: 1 }, async () => {
+  assertGroupDeliveryProject();
+  await expireGroupDelivery({ db });
+});
+
+export const getMiseChefGroupDeliveryConfiguration = groupDeliveryCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  return getGroupDeliveryConfiguration({ db, uid: request.auth.uid, slug: request.data?.slug });
+});
+
+export const listMiseChefGroupDeliveryReview = groupDeliveryCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  return listGroupDeliveryReview({db,uid:request.auth.uid,storeId:request.data?.storeId,workspaceId:request.data?.workspaceId,date:request.data?.date,areaId:request.data?.areaId,cursor:request.data?.cursor});
+});
+export const getMiseChefGroupDeliveryReview = groupDeliveryCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  return getGroupDeliveryReview({db,uid:request.auth.uid,storeId:request.data?.storeId,workspaceId:request.data?.workspaceId,groupId:request.data?.groupId});
+});
+export const estimateMiseChefGroupDelivery = groupDeliveryCall({...groupDeliveryOptions,secrets:[lalamoveApiKey,lalamoveApiSecret]}, async request => {
+  await groupDeliveryCustomer(request);
+  return estimateGroupDelivery({db,uid:request.auth.uid,storeId:request.data?.storeId,workspaceId:request.data?.workspaceId,
+    groupId:request.data?.groupId,pickupTime:request.data?.pickupTime,provider:createRuntimeLalamoveProvider()});
+});
+export const approveMiseChefGroupDelivery = groupDeliveryCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  return approveGroupDelivery({db,uid:request.auth.uid,storeId:request.data?.storeId,workspaceId:request.data?.workspaceId,
+    groupId:request.data?.groupId,estimateId:request.data?.estimateId,requestId:request.data?.requestId,
+    confirmFreeDelivery:request.data?.confirmFreeDelivery,expectedFeeMinor:request.data?.expectedFeeMinor});
+});
 
 export const extractStorePosPasteOrder = onCall({ region: REGION, secrets: [geminiApiKey], timeoutSeconds: 60, memory: '256MiB' }, request => extractPasteOrder({
  db, uid: request.auth?.uid, input: request.data, authorize: assertOperator, loadCheckout: loadStoreCheckoutData,

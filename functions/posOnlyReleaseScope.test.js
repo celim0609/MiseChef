@@ -12,10 +12,9 @@ test('Production exports every new POS endpoint and no retired Group Delivery pi
  assert.ok(beta.includes('reserveMiseChefGroupDelivery'));
 });
 
-test('POS-only release removes pilot route and navigation while retaining existing Host Group Orders',()=>{
- const text=path=>readFileSync(new URL(path,import.meta.url),'utf8');
- for(const path of ['../src/App.tsx','../src/modules/public/publicRoutes.ts','../src/modules/public/PublicLayout.tsx','../src/modules/store/StorePosPage.tsx']){
-  assert.doesNotMatch(text(path),/PublicGroupDeliveryPage|GroupDeliveryReviewPanel|canReviewGroupDelivery|group-delivery/);
- }
- assert.match(text('../src/modules/public/publicRoutes.ts'),/page: 'group'/);
+test('Group Delivery entry points require the Beta project and preserve Host Group Orders', () => {
+ const text = path => readFileSync(new URL(path, import.meta.url), 'utf8');
+ assert.match(text('../src/App.tsx'), /canReviewGroupDelivery=\{import.meta.env.VITE_FIREBASE_PROJECT_ID === 'misechef-beta-fa4bf'/);
+ assert.match(text('../src/modules/public/PublicLayout.tsx'), /route.page === 'group-delivery'\) return import.meta.env.VITE_FIREBASE_PROJECT_ID === 'misechef-beta-fa4bf'/);
+ assert.match(text('../src/modules/public/publicRoutes.ts'), /page: 'group'/);
 });

@@ -1,3 +1,4 @@
+import PublicGroupDeliveryPage from '../store/PublicGroupDeliveryPage';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ChefHat, Moon, Search, Sun } from 'lucide-react';
 import type { User } from 'firebase/auth';
@@ -66,8 +67,11 @@ export default function PublicLayout({ pathname, currentUser, onSignOut }: { pat
     || route.page === 'store-product'
     || route.page === 'store-promotion'
     || route.page === 'group'
-    || route.page === 'orders';
-  const accountReturnTo = route.page === 'store'
+    || route.page === 'orders'
+    || route.page === 'group-delivery';
+  const accountReturnTo = route.page === 'group-delivery'
+    ? `/store/${encodeURIComponent(route.slug)}/group-delivery${window.location.search}`
+    : route.page === 'store'
     ? `/store/${encodeURIComponent(route.slug)}`
     : route.page === 'store-product'
       ? `/store/${encodeURIComponent(route.storeSlug)}/product/${encodeURIComponent(route.productSlug)}`
@@ -230,6 +234,10 @@ export default function PublicLayout({ pathname, currentUser, onSignOut }: { pat
     if (route.page === 'stores') {
       return <PublicStoreHomePage stores={publicDiscoverStores} status={storeStatus} />;
     }
+
+    if (route.page === 'group-delivery') return import.meta.env.VITE_FIREBASE_PROJECT_ID === 'misechef-beta-fa4bf'
+      ? <PublicGroupDeliveryPage slug={route.slug} currentUser={currentUser} />
+      : <PublicStorePage slug={route.slug} currentUser={currentUser} />;
 
     if (route.page === 'store') {
       return <PublicStorePage slug={route.slug} currentUser={currentUser} />;

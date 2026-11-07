@@ -7,7 +7,8 @@ const POST_REGISTRATION_DESTINATION_KEY = 'misechef_post_registration_destinatio
 export type RegistrationIntent = 'chef' | 'ordering';
 
 export const isValidPublicAccountReturnTo = (returnTo: string) => (
-  HOST_RETURN_TO_PATTERN.test(returnTo)
+  /^\/store\/[a-zA-Z0-9-]+\/group-delivery(?:\?date=\d{4}-\d{2}-\d{2}(?:&area=[a-z0-9-]{1,80})?)?$/.test(returnTo)
+  || HOST_RETURN_TO_PATTERN.test(returnTo)
   || CUSTOMER_ORDERS_RETURN_TO_PATTERN.test(returnTo)
   || GROUP_ORDER_RETURN_TO_PATTERN.test(returnTo)
   || STORE_RETURN_TO_PATTERN.test(returnTo)
