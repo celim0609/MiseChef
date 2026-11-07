@@ -23,7 +23,8 @@ export const GROUP_DELIVERY_PILOT = Object.freeze({
 const GROUP_DELIVERY_AREAS = Object.freeze({
   [GROUP_DELIVERY_PILOT.areaId]: GROUP_DELIVERY_PILOT
 });
-export const getGroupDeliveryArea = (areaId = GROUP_DELIVERY_PILOT.areaId) => {
+export const getGroupDeliveryArea = requestedArea => {
+  const areaId = requestedArea ?? GROUP_DELIVERY_PILOT.areaId;
   if (typeof areaId !== 'string' || !Object.hasOwn(GROUP_DELIVERY_AREAS, areaId)) {
     throw new HttpsError('invalid-argument', 'Choose a configured delivery area.');
   }

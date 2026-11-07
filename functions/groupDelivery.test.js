@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { GROUP_DELIVERY_PILOT as pilot, eligibility, activePortions, snapshotLunchSelections, validateDeliveryDate, requireGroupDeliveryBeta, groupDeliveryKey } from './groupDelivery.js';
+import { GROUP_DELIVERY_PILOT as pilot, eligibility, activePortions, snapshotLunchSelections, validateDeliveryDate, requireGroupDeliveryBeta, groupDeliveryKey, getGroupDeliveryArea } from './groupDelivery.js';
 import { createGroupDeliveryPlaces } from './groupDeliveryPlaces.js';
 
 const product = { id: 'lunch', name: 'Lunch', price: 12, available: true, optionGroupIds: [] };
@@ -79,4 +79,13 @@ test('new north-side customer pin uses corrected center and does not change kitc
   assert.equal(eligibility({ latitude: 4.649421594453269, longitude: 101.1445881 }).eligible, true);
   assert.equal(Object.hasOwn(pilot, 'pickup'), false);
   assert.equal(Object.hasOwn(pilot, 'pickupLocationId'), false);
+});
+
+
+test('Callable null area uses Bercham while explicit unconfigured areas are rejected', () => {
+  assert.equal(getGroupDeliveryArea(null), pilot);
+  assert.equal(groupDeliveryKey('store', '2026-11-10', null), groupDeliveryKey('store', '2026-11-10'));
+  for (const area of ['tambun', 'ulu-kinta', '']) {
+    assert.throws(() => getGroupDeliveryArea(area), { code: 'invalid-argument' });
+  }
 });
