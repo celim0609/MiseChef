@@ -158,6 +158,9 @@ export const updateStoreOrderFulfilment = async ({
       throw new HttpsError('permission-denied', 'Your Workspace role cannot process Store orders.');
     }
 
+    if (order.groupDelivery && !order.groupDelivery.releasedAt) {
+      throw new HttpsError('failed-precondition', 'Resolve this order in Group Delivery before fulfilment.');
+    }
     const currentStatus = readString(order.fulfilmentStatus);
     const legacy = legacyDailyFulfilments(order);
     if (legacy) order.fulfilments = legacy;

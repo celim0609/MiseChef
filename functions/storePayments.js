@@ -388,7 +388,7 @@ export const reconcileStorePayment = async ({ db, payment }) => {
     const writeCodeTransition = codeTerminal ? await prepareCodeTransition({db,transaction,order:{...order,id:orderId},nextState:paymentStatus === PAYMENT_STATUS.paid ? 'committed' : 'released',reason:paymentStatus,paidAt:payment.paidAt}) : ()=>{};
     writeCodeTransition();
     transaction.update(orderReference, update);
-    if (isNewPaidOrder && notificationReference && !notificationSnapshot.exists) {
+    if (isNewPaidOrder && !order.groupDelivery && notificationReference && !notificationSnapshot.exists) {
       transaction.create(notificationReference, buildStoreNotification({
         id: notificationReference.id,
         type: STORE_NOTIFICATION_TYPE.newOrder,
@@ -482,6 +482,7 @@ export const createStorePayment = async ({
   draft,
   returnUrl,
   deliveryProvider,
+  groupMealCheckout,
   now = new Date()
 }) => {
   const checkoutData = await loadStoreCheckoutData(db, slug);
@@ -505,14 +506,24 @@ export const createStorePayment = async ({
   const groupOrder = await resolveCheckoutGroup({ db, store: checkoutData.store, draft, now });
   const paymentMethod = getEnabledStorePaymentMethod(checkoutData.store, draft?.paymentMethodId);
   const activeAdapter = adapter || resolveAdapter(paymentMethod);
+  if (groupMealCheckout && !['stripe', 'curlec'].includes(activeAdapter.provider)) throw new HttpsError('failed-precondition', 'Choose an online payment method for group meals.');
   if (activeAdapter.requiresSellingWorkspace) {
     assertSellingWorkspace(checkoutData.store, sellingWorkspaceId);
   }
   if (draft?.promotionCode && activeAdapter.promotionCodeLifecycle !== true) throw new HttpsError('failed-precondition', 'Promotion code: This payment method cannot safely release unpaid code reservations. Choose a supported online checkout method or remove the code.');
   if(draft?.promotionCode && activeAdapter.mode==='payment_link' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(readString(draft.customerEmail))) throw new HttpsError('failed-precondition','Email is required for secure payment.');
-  const checkoutReturnUrl = activeAdapter.provider === 'stripe' || activeAdapter.mode === 'payment_link'
+  let checkoutReturnUrl = activeAdapter.provider === 'stripe' || activeAdapter.mode === 'payment_link'
     ? validateStoreCheckoutReturnUrl(returnUrl)
     : '';
+  if (groupMealCheckout && checkoutReturnUrl) {
+    const url = new URL(checkoutReturnUrl);
+    if (url.pathname !== `/store/${encodeURIComponent(slug)}/group-delivery`) {
+      throw new HttpsError('invalid-argument', 'Invalid Group Delivery return path.');
+    }
+    url.searchParams.set('date', groupMealCheckout.date);
+    url.searchParams.set('area', groupMealCheckout.areaId);
+    checkoutReturnUrl = url.href;
+  }
   // Current clients always provide a UUID. Keep older deployed clients
   // compatible during a rolling release, but they cannot select an attempt id.
   const checkoutAttemptId = isCheckoutAttemptId(draft?.checkoutAttemptId)
@@ -532,6 +543,7 @@ export const createStorePayment = async ({
   const priorAttempt = await checkoutAttemptReference.get();
   if (priorAttempt.exists) {
     const prior = priorAttempt.data();
+    if (prior.groupMealCustomerUid && prior.groupMealCustomerUid !== customerUid) throw new HttpsError('permission-denied', 'Checkout belongs to another account.');
     if (prior.promotionCodeMemberUid && prior.promotionCodeMemberUid !== customerUid) throw new HttpsError('permission-denied','This member code checkout belongs to another account.');
     if (!readString(prior?.providerPaymentId) || !prior?.checkout || !readString(prior?.checkoutAccessToken)) {
       const recovered = await recoverIncompleteStoreCheckoutAttempt({
@@ -585,6 +597,9 @@ export const createStorePayment = async ({
       }
     });
     const codeReservation = await readCheckoutCode({db,transaction,storeId,code:draft.promotionCode,memberUid:promotionMemberUid,now,currency:checkoutData.store.currency,orderId:orderReference.id});
+    const groupMeal = groupMealCheckout
+      ? await groupMealCheckout.readBinding({ transaction, checkoutData, orderId: orderReference.id })
+      : null;
     const pendingOrder = buildPendingOrder({
       id: orderReference.id,
       orderNumber: reference.orderNumber,
@@ -597,7 +612,8 @@ export const createStorePayment = async ({
       promotions: freshPromotions,
       promotionCodeConfig: codeReservation?.config,
       customerUid,
-      draft,
+      draft: groupMeal ? { ...draft, selections: groupMeal.selections } : draft,
+      groupMeal: groupMeal?.binding,
       requireCustomerEmail: activeAdapter.mode === 'payment_link',
       now
     });
@@ -640,10 +656,12 @@ export const createStorePayment = async ({
       orderId: orderReference.id,
       storeId,
       ...(codeReservation ? {promotionCodeMemberUid:customerUid} : {}),
+      ...(groupMeal ? { groupMealCustomerUid: customerUid } : {}),
       createdAt: now.toISOString()
     });
     writeCodeReservation(transaction,codeReservation,pendingOrder.promotionCodeSnapshot,{returnUrl:checkoutReturnUrl,checkoutAccessToken});
     transaction.create(orderReference, pendingOrder);
+    groupMeal?.link();
     incrementGroupLifetimeOrderCountInTransaction({
       db,
       transaction,
@@ -699,7 +717,8 @@ export const createStorePayment = async ({
     } else await orderReference.update({
       status: 'Payment Failed',
       'payment.status': PAYMENT_STATUS.failed,
-      'payment.failureCode': 'provider_creation_failed',
+      'payment.failureCode': groupMealCheckout && !providerPaymentId && error.promotionDefinitelyNotCreated === true
+        ? 'group_checkout_not_created' : 'provider_creation_failed',
       'payment.updatedAt': new Date().toISOString(),
       updatedAt: new Date().toISOString()
     }).catch(() => undefined);

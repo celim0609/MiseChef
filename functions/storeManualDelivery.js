@@ -7,7 +7,7 @@ import { canonicalFulfilmentView, resolveDeliveryDispatchData, deliveryBlockedMe
 const blocked = message => new HttpsError('failed-precondition', message);
 const fingerprint = (order, entry, resolved) => createHash('sha256').update(JSON.stringify({ entry, resolved, environment: order.delivery?.environment })).digest('hex');
 const assertReady = (order, entry) => {
-  if (order.manualOrder || order.payment?.status !== 'paid' || ['Completed', 'Cancelled'].includes(order.fulfilmentStatus) || order.fulfilmentCompletion?.[entry.id] || order.fulfilmentOperations?.[entry.id]?.kitchenStatus !== 'Ready') throw blocked('Only paid, Ready delivery fulfilments can request Lalamove.');
+  if (order.groupDelivery || order.manualOrder || order.payment?.status !== 'paid' || ['Completed', 'Cancelled'].includes(order.fulfilmentStatus) || order.fulfilmentCompletion?.[entry.id] || order.fulfilmentOperations?.[entry.id]?.kitchenStatus !== 'Ready') throw blocked('Only paid, Ready delivery fulfilments can request Lalamove.');
 };
 const assertUnbooked = operation => {
   if (operation?.providerOrder?.orderId || !['not_requested', 'failed'].includes(operation?.dispatch?.status || 'not_requested')) throw blocked('An existing or uncertain booking is locked. Reconcile it before requesting a replacement.');

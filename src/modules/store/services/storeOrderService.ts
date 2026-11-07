@@ -93,6 +93,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
       readString(data.pickupCode)
     ),
     deletedAt: readString(data.deletedAt),
+    ...(data.groupDelivery ? { groupDelivery: { releasedAt: readString((data.groupDelivery as { releasedAt?: unknown }).releasedAt) } } : {}),
     deletedBy: readString(data.deletedBy),
     deletionReason: readString(data.deletionReason),
     storeId: readString(data.storeId),

@@ -16,6 +16,6 @@ test('dedicated delivery route and sign-in return preserve date without changing
 });
 test('bilingual progress clearly distinguishes unpaid portions, owner review and free delivery', () => {
   const markup=renderToStaticMarkup(<GroupDeliveryProgress progress={{available:true,paidPortions:10,status:'ready_for_review',closesAt:'2026-11-03T02:00:00.000Z'}} />);
-  for(const label of ['10 / 10','午餐份数','Awaiting Owner/Manager review','仅计入已确认付款的午餐','RM0','获批','MYT']) assert.ok(markup.includes(label),label);
+  for(const label of ['10 / 10','午餐份数','Awaiting Approval','仅计入已确认付款的午餐','RM0','获批','MYT']) assert.ok(markup.includes(label),label);
   assert.ok(!markup.includes('pay now'));
 });

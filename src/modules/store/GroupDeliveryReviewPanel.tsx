@@ -35,7 +35,15 @@ export default function GroupDeliveryReviewPanel({storeId,workspaceId}:{storeId:
       {!groups.length&&!busy&&<p>No groups for this date. / 此日期暂无团购。</p>}
       {groups.map(g=><button type="button" key={g.id} disabled={busy} aria-pressed={detail?.group.id===g.id} onClick={()=>void select(g.id)} className={`block w-full rounded-lg border p-3 text-left ${detail?.group.id===g.id?'border-blue-600 bg-blue-50':'border-slate-300 bg-white'}`}><strong>{g.date} · {g.areaName}</strong><span className="mt-2 block">{g.activePortions} / {g.target} paid portions / 已付款午餐份数</span><span className="block">{g.status==='approved'?'Approved / 已获批':g.activePortions>=g.target?'Ready for review / 等待审核':Date.parse(g.expiresAt)<=now?'Cutoff passed / 已截止':'Collecting / 收集中'}</span><span className="block text-sm">Expiry / 截止：{g.expiresAt?new Date(g.expiresAt).toLocaleString('en-MY',{timeZone:'Asia/Kuala_Lumpur'}):'—'} MYT</span></button>)}
       {cursor&&<button disabled={busy} className="underline" onClick={async()=>{setBusy(true);try{const r=await api.list(storeId,workspaceId,date,cursor,areaId);setGroups(old=>[...old,...r.groups]);setCursor(r.cursor);}catch(e){setError(message(e));}finally{setBusy(false);}}}>Load more / 加载更多</button>}
-    </section><section>{detail?<GroupDeliveryReviewDetails detail={detail} pickupTime={pickupTime} setPickupTime={value=>{setPickupTime(value);setConfirmed(false);setDetail(old=>old?{...old,estimate:old.estimate?{...old.estimate,valid:false}:null}:old);}} confirmed={confirmed} setConfirmed={setConfirmed} now={now} busy={busy} onEstimate={()=>void estimate()} onApprove={()=>void approve()} onVerifyFee={async (customerId, quoteId, amountMinor, receipt) => {
+    </section><section>{detail?<GroupDeliveryReviewDetails detail={detail} pickupTime={pickupTime} setPickupTime={value=>{setPickupTime(value);setConfirmed(false);setDetail(old=>old?{...old,estimate:old.estimate?{...old.estimate,valid:false}:null}:old);}} confirmed={confirmed} setConfirmed={setConfirmed} now={now} busy={busy} onEstimate={()=>void estimate()} onApprove={()=>void approve()} onReleaseMeal={async customerId => {
+      setBusy(true); setError('');
+      try {
+        await api.releaseMeal(storeId, detail.group.id, customerId);
+        setDetail(await api.detail(storeId, workspaceId, detail.group.id));
+        setNotice('Meal released to preparation.');
+      } catch (error) { setError(message(error)); }
+      finally { setBusy(false); }
+    }} onVerifyFee={async (customerId, quoteId, amountMinor, receipt) => {
       setBusy(true); setError('');
       try {
         await api.verifyFee(storeId, detail.group.id, customerId, quoteId, amountMinor, receipt);

@@ -1,3 +1,6 @@
+import StorePaymentCheckout from './StorePaymentCheckout';
+import { storePaymentService } from './services/paymentService';
+import type { StorePaymentSession } from './types';
 import GroupDeliveryProgress from './GroupDeliveryProgress';
 import GroupDeliveryConfiguration from './GroupDeliveryConfiguration';
 import React, { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
@@ -16,6 +19,8 @@ export function GroupDeliveryStoreLink({ slug }: { slug: string }) {
 export default function PublicGroupDeliveryPage({ slug, currentUser }: { slug: string; currentUser: User | null }) {
   const [areaId, setAreaId] = useState(() => new URLSearchParams(window.location.search).get('area') || '');
   const [date, setDate] = useState(() => new URLSearchParams(window.location.search).get('date') || '');
+  const [paymentMethod, setPaymentMethod] = useState('stripe');
+  const [paymentSession, setPaymentSession] = useState<StorePaymentSession>();
   const [fallbackTime, setFallbackTime] = useState('11:30');
   const [fallbackQuote, setFallbackQuote] = useState<{ customerDeliveryFee: number; expiresAt: string }>();
   const [progress, setProgress] = useState<DeliveryProgress>();
@@ -30,6 +35,18 @@ export default function PublicGroupDeliveryPage({ slug, currentUser }: { slug: s
     const p = await api.get(slug, date, areaId || undefined); setProgress(p);
     if (!date && p.date) setDate(p.date);
   }, [slug, date, areaId, currentUser?.uid]);
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const provider = url.searchParams.get('payment_provider');
+    const session = url.searchParams.get('payment_session_id');
+    const token = url.searchParams.get('payment_access_token');
+    if (!currentUser || (provider !== 'stripe' && provider !== 'curlec') || !session || !token) return;
+    void storePaymentService.getResult(slug, provider, session, token).then(async () => {
+      for (const key of ['payment_provider', 'payment_session_id', 'payment_access_token']) url.searchParams.delete(key);
+      window.history.replaceState(null, '', url);
+      await load();
+    }).catch(error => setError(message(error)));
+  }, [slug, currentUser?.uid, load]);
   useEffect(() => { let live = true; const refresh = () => api.get(slug, date, areaId || undefined).then(p => { if (live) { setProgress(p); if (!date && p.date) setDate(p.date); } }).catch(e => { if (live) setError(message(e)); }); void refresh(); const timer = setInterval(refresh, 30000); return () => { live = false; clearInterval(timer); }; }, [slug, date, areaId, currentUser?.uid]);
   useEffect(() => {
     if (!currentUser || place || query.trim().length < 3) return;
@@ -38,7 +55,7 @@ export default function PublicGroupDeliveryPage({ slug, currentUser }: { slug: s
     const timer = setTimeout(() => { void api.search(query, session.current, language).then(r => { if (live && request === generation.current) setSuggestions(r.suggestions); }).catch(e => { if (live) setError(message(e)); }); }, 400);
     return () => { live = false; clearTimeout(timer); };
   }, [query, place, language, currentUser]);
-  const changeDate = (next: string) => { generation.current++; setDate(next); setFallbackQuote(undefined); setProgress(undefined); setSelections({}); setNotice(''); setError(''); pending.current = undefined; const url = new URL(window.location.href); url.searchParams.set('date', next); const area = url.searchParams.get('area'); if (area) { url.searchParams.delete('area'); url.searchParams.set('area', area); } window.history.replaceState(null, '', url); };
+  const changeDate = (next: string) => { generation.current++; setDate(next); setPaymentSession(undefined); setFallbackQuote(undefined); setProgress(undefined); setSelections({}); setNotice(''); setError(''); pending.current = undefined; const url = new URL(window.location.href); url.searchParams.set('date', next); const area = url.searchParams.get('area'); if (area) { url.searchParams.delete('area'); url.searchParams.set('area', area); } window.history.replaceState(null, '', url); };
   const choose = async (placeId: string) => {
     const request = ++generation.current; setError('');
     try { const p = await api.check(placeId, areaId || undefined); if (request !== generation.current) return; setPlace({ placeId, ...p }); setQuery(p.formattedAddress); setSuggestions([]); session.current = crypto.randomUUID(); }
@@ -90,8 +107,49 @@ export default function PublicGroupDeliveryPage({ slug, currentUser }: { slug: s
       {progress.date && <><GroupDeliveryProgress progress={progress} />
       {progress.sharePath && <div className="space-y-2"><button type="button" className={action} onClick={share}>Copy group link / 复制团购链接</button><a className="block break-all text-sm underline" href={progress.sharePath}>{new URL(progress.sharePath, window.location.origin).href}</a></div>}
       {progress.mine && <div className="rounded-xl border p-4"><p>Your reservation / 您的预订：{progress.mine.portions} · {progress.mine.cancellationRequested ? 'Cancellation requested / 已申请取消' : progress.mine.deliveryFeeVerified ? 'Delivery fee verified / 配送费已确认' : progress.mine.paymentConfirmed ? 'Meal paid / 午餐已付款' : reserved ? 'Reserved / 已预订' : progress.mine.status === 'expired' ? 'Expired / 已过期' : 'Cancelled / 已取消'}</p>
-        {reserved && !progress.mine.paymentConfirmed && progress.status !== 'approved' && <button type="button" disabled={busy} className="mt-3 underline" onClick={async () => { setBusy(true); try { await api.cancel(slug, date, areaId || undefined); pending.current = undefined; await load(); setNotice('Reservation cancelled. / 预订已取消。'); } catch(e) { setError(message(e)); } finally { setBusy(false); } }}>Cancel reservation / 取消预订</button>}
+        {reserved && !progress.mine.checkoutLinked && !progress.mine.paymentConfirmed && progress.status !== 'approved' && <button type="button" disabled={busy} className="mt-3 underline" onClick={async () => { setBusy(true); try { await api.cancel(slug, date, areaId || undefined); pending.current = undefined; await load(); setNotice('Reservation cancelled. / 预订已取消。'); } catch(e) { setError(message(e)); } finally { setBusy(false); } }}>Cancel reservation / 取消预订</button>}
       </div>}
+      {progress.mine?.paymentConfirmed && <p role="status" className="font-bold">{
+        progress.mine.mealReleased ? 'Delivery Confirmed' :
+        progress.status === 'approved' ? 'Free Delivery Confirmed' :
+        progress.canChooseFallback ? 'Additional Delivery Payment Required' :
+        progress.mine.deliveryFeeVerified ? 'Awaiting fulfilment release' :
+        progress.status === 'ready_for_review' ? 'Group Qualified · Awaiting Approval' : 'Waiting for Group'
+      }</p>}
+      {currentUser && reserved && !progress.mine?.paymentConfirmed && !closed && Boolean(progress.paymentMethods?.length) &&
+        (paymentSession ? <StorePaymentCheckout session={paymentSession} customerName={name} phone={phone}
+          customerEmail={currentUser.email || ''} currency="MYR" total={paymentSession.orderSummary?.totals.grandTotal || 0}
+          storeSlug={slug} storeName={slug} storeWhatsApp="" country="MY"
+          returnUrl={(() => {
+            const url = new URL(progress.sharePath || window.location.pathname, window.location.origin);
+            url.searchParams.set('payment_provider', paymentSession.provider);
+            url.searchParams.set('payment_session_id', paymentSession.paymentSessionId);
+            url.searchParams.set('payment_access_token', paymentSession.checkoutAccessToken);
+            return url.href;
+          })()}
+          onComplete={async paymentSessionId => {
+            await storePaymentService.getResult(slug, paymentSession.provider, paymentSessionId, paymentSession.checkoutAccessToken);
+            await load(); setPaymentSession(undefined);
+          }} onBack={() => setPaymentSession(undefined)} />
+          : <div className="flex flex-wrap items-end gap-2">
+            <label>Meal payment<select className={field} value={progress.paymentMethods?.includes(paymentMethod as 'stripe' | 'curlec') ? paymentMethod : progress.paymentMethods?.[0]}
+              onChange={event => setPaymentMethod(event.target.value)} disabled={busy}>
+              {progress.paymentMethods?.map(method => <option key={method} value={method}>{method === 'stripe' ? 'Stripe' : 'Curlec'}</option>)}
+            </select></label>
+            <button type="button" className={action} disabled={busy} onClick={async () => {
+              setBusy(true); setError('');
+              try {
+                const selected = progress.paymentMethods?.find(method => method === paymentMethod) || progress.paymentMethods?.[0];
+                if (!selected) return;
+                const returnUrl = new URL(progress.sharePath || window.location.pathname, window.location.origin).href;
+                const session = await api.checkout(slug, { date, areaId: areaId || undefined, paymentMethodId: selected,
+                  customerEmail: currentUser.email || '' }, returnUrl);
+                if (session.checkout.type === 'provider_redirect' || session.checkout.type === 'curlec_payment_link') window.location.assign(session.checkout.redirectUrl);
+                else setPaymentSession(session);
+              } catch (error) { setError(message(error)); }
+              finally { setBusy(false); }
+            }}>Pay for reserved meals</button>
+          </div>)}
       {progress.canChooseFallback && <div className="space-y-2 rounded-xl border p-3">
         <p>Group target missed. Check a paid delivery quote or request cancellation.</p>
         <label>Delivery time (MYT)<input className={field} type="time" min="11:00" max="12:59" value={fallbackTime} disabled={busy} onChange={event => {

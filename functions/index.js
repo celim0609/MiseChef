@@ -1,5 +1,5 @@
 import { listGroupDeliveryReview, getGroupDeliveryReview, estimateGroupDelivery, approveGroupDelivery } from './groupDeliveryReview.js';
-import { getGroupDeliveryConfiguration, requireGroupDeliveryBeta, requireCustomer, eligibility, configureGroupDelivery, getGroupDelivery, reserveGroupDelivery, cancelGroupDelivery, expireGroupDelivery, quoteGroupDeliveryFallback, requestGroupDeliveryCancellation, verifyGroupDeliveryFee } from './groupDelivery.js';
+import { getGroupDeliveryConfiguration, requireGroupDeliveryBeta, requireCustomer, eligibility, configureGroupDelivery, getGroupDelivery, reserveGroupDelivery, cancelGroupDelivery, expireGroupDelivery, quoteGroupDeliveryFallback, requestGroupDeliveryCancellation, verifyGroupDeliveryFee, prepareGroupMealCheckout, releaseGroupMeal } from './groupDelivery.js';
 import { createGroupDeliveryPlaces, consumeGroupDeliveryRate } from './groupDeliveryPlaces.js';
 import { createPosPlaces, consumePosQuoteRate } from './posPlaces.js';
 import { managePosOrder, listDeletedPosOrders } from './posOrderManagement.js';
@@ -437,6 +437,13 @@ export const createPublicStorePayment = onCall({
   memory: '256MiB'
 }, async request => {
   try {
+    let groupMealCheckout;
+    if (request.data?.groupDelivery) {
+      await groupDeliveryCustomer(request);
+      const { date, areaId, paymentMethodId, customerEmail } = request.data.groupDelivery;
+      groupMealCheckout = await prepareGroupMealCheckout({ db, uid: request.auth.uid, slug: request.data.slug,
+        date, areaId, paymentMethodId, customerEmail });
+    }
     return await createStorePayment({
       db,
       resolveAdapter: paymentMethod => createPaymentAdapter(paymentMethod.provider, {
@@ -449,13 +456,14 @@ export const createPublicStorePayment = onCall({
           && isCurlecPaymentLinkRolloutEnabled(curlecPaymentLinkRolloutEnabled.value())
       }),
       sellingWorkspaceId: sellingWorkspaceId.value(),
-      ...(request.data?.order?.fulfilmentMethod === 'delivery' ? {
+      ...(!groupMealCheckout && request.data?.order?.fulfilmentMethod === 'delivery' ? {
         deliveryProvider: createRuntimeLalamoveProvider()
       } : {}),
       customerUid: request.auth?.uid || '',
       promotionMemberUid:verifiedPromotionMember(request.auth),
       slug: request.data?.slug,
-      draft: request.data?.order,
+      draft: groupMealCheckout?.draft || request.data?.order,
+      groupMealCheckout,
       returnUrl: request.data?.returnUrl
     });
   } catch (error) {
@@ -2641,6 +2649,11 @@ export const verifyMiseChefGroupDeliveryFee = groupDeliveryCall(groupDeliveryOpt
   await groupDeliveryCustomer(request);
   const { storeId, groupId, customerId, quoteId, amountMinor, receipt } = request.data || {};
   return verifyGroupDeliveryFee({ db, uid: request.auth.uid, storeId, groupId, customerId, quoteId, amountMinor, receipt });
+});
+export const releaseMiseChefGroupMeal = groupDeliveryCall(groupDeliveryOptions, async request => {
+  await groupDeliveryCustomer(request);
+  const { storeId, groupId, customerId } = request.data || {};
+  return releaseGroupMeal({ db, uid: request.auth.uid, storeId, groupId, customerId });
 });
 export const expireMiseChefGroupDeliveryReservations = groupDeliverySchedule({ region: REGION, schedule: 'every 15 minutes', timeZone: 'Asia/Kuala_Lumpur', maxInstances: 1 }, async () => {
   assertGroupDeliveryProject();

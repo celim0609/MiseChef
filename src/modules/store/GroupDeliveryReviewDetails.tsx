@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import type { GroupReviewDetail } from './services/groupDeliveryReviewService';
 const money=(minor:number)=>`RM${(minor/100).toFixed(2)}`;
 const when=(iso:string)=>new Date(iso).toLocaleString('en-MY',{timeZone:'Asia/Kuala_Lumpur'});
-export default function GroupDeliveryReviewDetails({detail,pickupTime,setPickupTime,confirmed,setConfirmed,now,busy,onEstimate,onApprove,onVerifyFee}:{detail:GroupReviewDetail;pickupTime:string;setPickupTime:(v:string)=>void;confirmed:boolean;setConfirmed:(v:boolean)=>void;now:number;busy:boolean;onEstimate:()=>void;onApprove:()=>void;onVerifyFee?:(customerId:string,quoteId:string,amountMinor:number,receipt:string)=>Promise<void>}) {
+export default function GroupDeliveryReviewDetails({detail,pickupTime,setPickupTime,confirmed,setConfirmed,now,busy,onEstimate,onApprove,onVerifyFee,onReleaseMeal}:{detail:GroupReviewDetail;pickupTime:string;setPickupTime:(v:string)=>void;confirmed:boolean;setConfirmed:(v:boolean)=>void;now:number;busy:boolean;onEstimate:()=>void;onApprove:()=>void;onVerifyFee?:(customerId:string,quoteId:string,amountMinor:number,receipt:string)=>Promise<void>;onReleaseMeal?:(customerId:string)=>Promise<void>}) {
   const [receipts, setReceipts] = useState<Record<string, string>>({});
   const approved=detail.group.status==='approved';
   const estimate=detail.estimate;
@@ -16,6 +16,13 @@ export default function GroupDeliveryReviewDetails({detail,pickupTime,setPickupT
     <p>Kitchen pickup / 厨房取件：{detail.pickup?.address||'Configure Store kitchen pickup first / 请先设置店铺厨房取件地址'}</p>
     <p className="rounded bg-slate-100 p-3 text-sm">Private customer details — Owner/Manager only. / 顾客资料保密，仅供店主或经理审核。</p>
     {live.map((m,index)=><article key={m.id} className="rounded-xl border p-4"><strong>{index+1}. {m.name} · {m.portions} portion(s) / 份</strong><p>{m.address.formattedAddress}</p>{m.unit&&<p>{m.unit}</p>}<p>{m.phone}</p><ul className="mt-2 list-inside list-disc">{m.items.map((item,i)=><li key={i}>{item.quantity} × {item.name}{item.selectedMealOptions?.length?` · ${item.selectedMealOptions.map(o=>o.optionName).join(', ')}`:''}</li>)}</ul><p className="mt-2 text-sm">Expires / 截止：{when(m.expiresAt)} MYT</p></article>)}
+    {onReleaseMeal && live.filter(member => approved || member.deliveryFeeVerified).map(member =>
+      <div key={member.id} className="flex flex-wrap items-center gap-2">
+        <span>{member.name} · {member.mealReleased ? 'Released to preparation' : 'Ready to release'}</span>
+        {!member.mealReleased && <button type="button" className="rounded border px-3 py-2"
+          disabled={busy} onClick={() => void onReleaseMeal(member.id)}>Release meal</button>}
+      </div>
+    )}
     {live.filter(member => member.fallbackQuote).map(member => {
       const quote = member.fallbackQuote!;
       const receipt = receipts[member.id]?.trim() || '';

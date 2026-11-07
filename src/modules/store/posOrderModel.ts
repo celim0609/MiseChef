@@ -14,11 +14,11 @@ export const toActivePosStatus = (
 };
 
 export const isOrderOperationallyEligible = (
-  order: Pick<StoreOrder, 'orderSource' | 'paymentMethodId' | 'payment' | 'deletedAt'>
+  order: Pick<StoreOrder, 'orderSource' | 'paymentMethodId' | 'payment' | 'deletedAt' | 'groupDelivery'>
 ) => (
   // POS-created orders are only kitchen-ready once payment is recorded.
   // Preserve the existing cash-on-pickup exception for online orders.
-  !order.deletedAt && (order.payment.status === 'paid'
+  !order.deletedAt && (!order.groupDelivery || Boolean(order.groupDelivery.releasedAt)) && (order.payment.status === 'paid'
   || (order.orderSource !== 'pos' && order.paymentMethodId === 'cash_on_pickup'))
 );
 

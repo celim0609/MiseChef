@@ -35,10 +35,10 @@ export default function StorePaymentCheckout({
           <dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-secondary">Order Number</dt>
           <dd className="mt-1 font-sans text-sm font-extrabold text-primary">{session.orderNumber}</dd>
         </div>
-        <div>
+        {!session.orderSummary?.groupMeal && <div>
           <dt className="font-sans text-[10px] font-extrabold uppercase tracking-wider text-secondary">Pickup Code</dt>
           <dd className="mt-1 font-display text-2xl font-bold tracking-[0.16em] text-primary">{session.pickupCode}</dd>
-        </div>
+        </div>}
       </dl>
       {session.orderSummary?.fulfilmentMethod === 'pickup' && session.orderSummary.pickupDetails && (
         <dl aria-label="Pickup Details" className="space-y-1 rounded-2xl bg-surface-container-low p-4 font-sans text-sm font-bold text-primary">

@@ -216,10 +216,10 @@ export const getValidPickupDates = (store, currentDate = new Date()) => {
   return dates;
 };
 
-const validateDraft = (store, draft, currentDate, isLegacyGroupOrder = false, validatedSchedule = false) => {
+const validateDraft = (store, draft, currentDate, isLegacyGroupOrder = false, validatedSchedule = false, groupMeal = false) => {
   const isDelivery = readString(draft.fulfilmentMethod) === 'delivery';
   if (isDelivery && draft.fulfilmentMode === 'instant' && isAfterOrderCutoff(store, currentDate)) throw new Error('Orders placed after the cut-off require a future delivery date.');
-  if (!isDelivery && store.pickupEnabled !== true) throw new Error('Pickup ordering is not available.');
+  if (!groupMeal && !isDelivery && store.pickupEnabled !== true) throw new Error('Pickup ordering is not available.');
   if (!readString(draft.customerName)) throw new Error('Name is required.');
   if (readString(draft.customerName).length > 120) throw new Error('Name must be 120 characters or fewer.');
   const phone = readString(draft.phone);
@@ -228,16 +228,16 @@ const validateDraft = (store, draft, currentDate, isLegacyGroupOrder = false, va
   if (customerEmail && (customerEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail))) {
     throw new Error('Enter a valid email address.');
   }
-  if (!isDelivery && !validatedSchedule && !getValidPickupDates(store, currentDate).includes(readString(draft.pickupDate))) {
+  if (!groupMeal && !isDelivery && !validatedSchedule && !getValidPickupDates(store, currentDate).includes(readString(draft.pickupDate))) {
     throw new Error('Choose an available pickup date.');
   }
-  if (!isDelivery && !validatedSchedule && !isLegacyGroupOrder && !getPickupTimeSlots(store, readString(draft.pickupDate), currentDate).includes(readString(draft.pickupTime))) {
+  if (!groupMeal && !isDelivery && !validatedSchedule && !isLegacyGroupOrder && !getPickupTimeSlots(store, readString(draft.pickupDate), currentDate).includes(readString(draft.pickupTime))) {
     throw new Error('Choose a valid pickup time.');
   }
   if (!isDelivery && isLegacyGroupOrder && (!Array.isArray(store.pickupSessions) || !store.pickupSessions.includes(readString(draft.pickupSession)))) {
     throw new Error('Choose a valid pickup session.');
   }
-  if (!isDelivery && (!Array.isArray(store.pickupLocations)
+  if (!groupMeal && !isDelivery && (!Array.isArray(store.pickupLocations)
     || !store.pickupLocations.some(location => readString(location.id) === readString(draft.pickupLocationId)))) {
     throw new Error('Choose a valid pickup location.');
   }
@@ -431,6 +431,7 @@ export const buildPendingOrder = ({
   paymentProviderMode,
   paymentMethod,
   groupOrder = null,
+  groupMeal,
   customerUid = '',
   promotionCodeConfig = null,
   draft,
@@ -438,7 +439,7 @@ export const buildPendingOrder = ({
 }) => {
   const scheduled = buildOrderFulfilments({ store, draft, products, groupOrder, getDates: getValidPickupDates, getTimes: getPickupTimeSlots, now });
   if (scheduled) draft = { ...draft, pickupDate: scheduled.fulfilments[0].date, pickupTime: scheduled.fulfilments[0].time };
-  validateDraft(store, draft, now, Boolean(groupOrder), Boolean(scheduled));
+  validateDraft(store, draft, now, Boolean(groupOrder), Boolean(scheduled), Boolean(groupMeal));
   if (draft.deliverySnapshot) {
     const phoneE164 = normalizeDeliveryPhone(draft.phone, store.country);
     if (!phoneE164) throw new Error('Delivery requires a valid recipient phone with country code.');
@@ -457,7 +458,7 @@ export const buildPendingOrder = ({
     id: 'stripe',
     name: 'Secure online payment'
   };
-  const weekly = scheduled ? null : buildWeeklyOrderDetails({ store, draft, products, groupOrder, now, getDates: getValidPickupDates, getTimes: getPickupTimeSlots });
+  const weekly = scheduled || groupMeal ? null : buildWeeklyOrderDetails({ store, draft, products, groupOrder, now, getDates: getValidPickupDates, getTimes: getPickupTimeSlots });
   const items = buildOrderItems(draft.selections, products, optionGroups, sets, scheduled?.fulfilments[0]?.date || draft.pickupDate);
   if (weekly || scheduled?.weeklyPlanSnapshot) items[0].weeklyPlanSnapshot = mergeMealOptionSnapshots(weekly?.weeklyPlanSnapshot || scheduled.weeklyPlanSnapshot, resolveSelectionMealOptions(draft.selections[0], products, scheduled?.fulfilments[0]?.date || draft.pickupDate));
   const fulfilmentDate = draft.deliverySnapshot
@@ -502,6 +503,7 @@ export const buildPendingOrder = ({
     storeId: readString(store.id) || readString(store.workspaceId),
     workspaceId: readString(store.workspaceId) || readString(store.id),
     orderSource: 'online',
+    ...(groupMeal ? { groupDelivery: groupMeal } : {}),
     ...(readString(customerUid) ? { customerUid: readString(customerUid) } : {}),
     ...(groupOrder ? {
       groupOrder: {
@@ -519,7 +521,7 @@ export const buildPendingOrder = ({
     paymentMethodName: readString(resolvedPaymentMethod.name) || 'Secure online payment',
     customerName: readString(draft.customerName),
     phone: readString(draft.phone),
-    fulfilmentMethod: draft.deliverySnapshot ? 'delivery' : 'pickup',
+    fulfilmentMethod: draft.deliverySnapshot || groupMeal ? 'delivery' : 'pickup',
     ...(readString(draft.customerEmail) ? { customerEmail: readString(draft.customerEmail).toLowerCase() } : {}),
     pickupDate: readString(draft.pickupDate),
     pickupTime: readString(draft.pickupTime),
@@ -621,6 +623,7 @@ export const toPublicPaymentOrderSummary = order => {
   return {
     ...(order.fulfilments ? { fulfilments: publicOrderFulfilments(order) } : {}),
     fulfilmentMethod,
+    ...(order.groupDelivery ? { groupMeal: true } : {}),
     ...(fulfilmentMethod === 'pickup' ? {
       pickupDetails: {
         locationName: readString(order.pickupLocationName),

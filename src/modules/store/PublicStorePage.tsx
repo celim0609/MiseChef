@@ -1793,6 +1793,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
               </section>
 
               <form id="store-checkout-form" onSubmit={startPayment} className="mt-5 flex flex-col gap-5 pb-28">
+                {import.meta.env.VITE_FIREBASE_PROJECT_ID === 'misechef-beta-fa4bf' && !groupOrder && <GroupDeliveryStoreLink slug={slug} />}
                 {paymentMethods.length === 1 ? (
                   <section aria-label="Payment method" className="order-4 flex items-center justify-between rounded-xl border border-surface-container-high px-3 py-3">
                     <span className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-secondary">Payment</span>

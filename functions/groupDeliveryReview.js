@@ -42,7 +42,7 @@ const loadReview = async ({ db, store, groupId, transaction, now }) => {
 const summary = (id, state) => ({ id, date: state.group.date, areaId: state.group.areaId, areaName: getGroupDeliveryArea(state.group.areaId).areaName,
   status: state.group.status, activePortions: state.activePortions, target: GROUP_DELIVERY_PILOT.minimumPortions,
   expiresAt: state.expiresAt, ...(state.group.approval ? { approval: state.group.approval } : {}) });
-const managerMember = member => ({ id: member.id, name: member.name, phone: member.phone, unit: member.unit,
+const managerMember = member => ({ id: member.id, mealOrderId: member.mealOrderId, mealReleased: member.mealReleased, name: member.name, phone: member.phone, unit: member.unit,
   address: member.address, items: member.items, portions: member.portions, expiresAt: member.expiresAt,
   ...(member.fallbackQuote ? { fallbackQuote: member.fallbackQuote } : {}),
   ...(member.deliveryFeeVerification ? { deliveryFeeVerified: true } : {}) });

@@ -1,3 +1,5 @@
+import { createStorePayment, reconcileStorePayment } from '../functions/storePayments.js';
+import { updateStoreOrderFulfilment } from '../functions/storeFulfilment.js';
 import { listGroupDeliveryReview, getGroupDeliveryReview, estimateGroupDelivery, approveGroupDelivery } from '../functions/groupDeliveryReview.js';
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
@@ -5,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { initializeTestEnvironment, assertFails } from '@firebase/rules-unit-testing';
 import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
-import { reserveGroupDelivery, cancelGroupDelivery, expireGroupDelivery, getGroupDelivery, configureGroupDelivery, quoteGroupDeliveryFallback, requestGroupDeliveryCancellation, verifyGroupDeliveryFee, groupDeliveryKey, GROUP_DELIVERY_PILOT as pilot } from '../functions/groupDelivery.js';
+import { reserveGroupDelivery, cancelGroupDelivery, expireGroupDelivery, getGroupDelivery, configureGroupDelivery, quoteGroupDeliveryFallback, requestGroupDeliveryCancellation, verifyGroupDeliveryFee, prepareGroupMealCheckout, releaseGroupMeal, groupDeliveryKey, GROUP_DELIVERY_PILOT as pilot } from '../functions/groupDelivery.js';
 const require = createRequire(new URL('../functions/package.json', import.meta.url));
 const { initializeApp, deleteApp } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
@@ -139,7 +141,7 @@ const linkPaidFixture = async (uid, options = {}) => {
  const { fingerprint, portions } = (await reservation.get()).data();
  const orderId = `meal-${uid}`;
  await db.doc(`storeOrders/${orderId}`).set({
-   storeId: 'store', workspaceId: 'workspace', customerUid: uid,
+   storeId: 'store', workspaceId: 'workspace', customerUid: uid, items: [{ productId: 'lunch', quantity: portions }],
    groupDelivery: { groupId, reservationFingerprint: fingerprint, date, portions },
    payment: { status: 'paid', refundStatus: 'none', refundedAmountMinor: 0, amountMinor: portions * 1200 },
    ...options
@@ -270,9 +272,16 @@ test('Below target: Store quote, role-checked receipt verification, cancellation
  await assert.rejects(verifyGroupDeliveryFee({ ...verification, uid: 'member-0' }), { code: 'permission-denied' });
  await assert.rejects(verifyGroupDeliveryFee({ ...verification, amountMinor: 524 }), { code: 'failed-precondition' });
  await assert.rejects(verifyGroupDeliveryFee({ ...verification, now: new Date(cutoff.getTime() + 60000) }), { code: 'failed-precondition' });
+ const release = { ...args, customerId: 'member-0', now: cutoff };
+ await assert.rejects(releaseGroupMeal(release), { code: 'failed-precondition' });
  assert.equal((await verifyGroupDeliveryFee(verification)).duplicate, false);
  assert.equal((await verifyGroupDeliveryFee(verification)).duplicate, true);
  assert.deepEqual((await db.doc('storeOrders/meal-member-0').get()).data(), before);
+ assert.equal((await releaseGroupMeal(release)).duplicate, false);
+ const released = (await db.doc('storeOrders/meal-member-0').get()).data();
+ assert.deepEqual(released.payment, before.payment);
+ assert.equal(released.groupDelivery.decision, 'external_fee');
+
  assert.equal((await requestGroupDeliveryCancellation({ ...input, uid: 'member-1' })).requested, true);
  const closed = await getGroupDelivery({ db, uid: 'member-1', slug: 'qa-store', date, now: cutoff });
  assert.equal(closed.paidPortions, 4);
@@ -290,4 +299,94 @@ test('Paid portions survive cutoff, while a payment confirmed at cutoff cannot q
  assert.equal((await getGroupDeliveryReview({ ...args, now: cutoff })).group.activePortions, 10);
  await db.doc('storeOrderTimeline/meal-member-1_payment-received').update({ createdAt: cutoff.toISOString() });
  assert.equal((await getGroupDeliveryReview({ ...args, now: cutoff })).group.activePortions, 6);
+});
+
+
+test('Canonical meal checkout links once, reconciles payment and holds kitchen fulfilment until approved release', async () => {
+ await db.doc('stores/store').update({ name: 'QA Store', currency: 'MYR',
+   pickupLocations: [], pickupEnabled: false,
+   delivery: { provider:'lalamove', market:'MY', environment:'sandbox', serviceType:'MOTORCYCLE',
+     pickup:{address:'QA kitchen', latitude:4.60, longitude:101.10} } });
+ await reserve('customer', { ...input, selections: [{ productId: 'lunch', quantity: 10 }] });
+ let providerCalls = 0;
+ const adapter = { provider: 'stripe', mode: 'single_merchant',
+   createPayment: async () => {
+     providerCalls++;
+     return { providerPaymentId: 'qa-group-payment', checkout: { type: 'provider_redirect', redirectUrl: 'https://example.test/qa' } };
+   } };
+ const checkout = async () => {
+   const groupMealCheckout = await prepareGroupMealCheckout({ db, uid: 'customer', slug: 'qa-store', date,
+     paymentMethodId: 'stripe', now, clock: () => now });
+   return createStorePayment({ db, slug: 'qa-store', customerUid: 'customer', draft: groupMealCheckout.draft,
+     groupMealCheckout, adapter, now, returnUrl: 'https://misechef-beta-fa4bf.web.app/store/qa-store/group-delivery' });
+ };
+ const session = await checkout();
+ const retry = await checkout();
+ assert.equal(retry.paymentSessionId, session.paymentSessionId);
+ assert.equal(providerCalls, 1);
+ assert.equal((await db.collection('storeOrders').get()).size, 1);
+ const { mealOrderId } = (await db.doc(reservationPath).get()).data();
+ const orderRef = db.doc(`storeOrders/${mealOrderId}`);
+ const pending = (await orderRef.get()).data();
+ assert.equal(pending.groupDelivery.groupId, groupDeliveryKey('store', date));
+ assert.equal(pending.payment.amountMinor, 12000);
+ assert.equal((await progress('customer')).paidPortions, 0);
+ const payment = { orderId: mealOrderId, providerPaymentId: session.paymentSessionId, amountMinor: 12000, currency: 'MYR' };
+ await reconcileStorePayment({ db, payment: { ...payment, status: 'failed' } });
+ assert.equal((await progress('customer')).paidPortions, 0);
+ await reconcileStorePayment({ db, payment: { ...payment, status: 'paid' } });
+ // Firestore serverTimestamp uses the emulator's actual clock; fix the
+ // historical fixture's receipt time without bypassing reconciliation.
+ const eventRef = db.doc(`storeOrderTimeline/${mealOrderId}_payment-received`);
+ assert.equal((await eventRef.get()).data().type, 'payment_received');
+ await eventRef.update({ createdAt: now.toISOString() });
+ assert.equal((await progress('customer')).paidPortions, 10);
+ assert.equal((await db.collection('storeNotifications').get()).size, 0);
+ await assert.rejects(updateStoreOrderFulfilment({ db, uid:'owner', orderId:mealOrderId, nextStatus:'Preparing' }), { code:'failed-precondition' });
+ const release = { ...reviewArgs(), customerId:'customer' };
+ await assert.rejects(releaseGroupMeal(release), { code:'failed-precondition' });
+ await assert.rejects(releaseGroupMeal({ ...release, uid:'customer' }), { code:'permission-denied' });
+ await approveEstimate(reviewArgs(), await makeEstimate(reviewArgs()));
+ const paid = (await orderRef.get()).data().payment;
+ assert.equal((await releaseGroupMeal(release)).duplicate, false);
+ assert.equal((await releaseGroupMeal(release)).duplicate, true);
+ const released = (await orderRef.get()).data();
+ assert.deepEqual(released.payment, paid);
+ assert.equal(released.fulfilments[0].method, 'delivery');
+ assert.equal(released.delivery.arrangedExternally, true);
+ assert.equal(released.fulfilments[0].allocations[0].quantity, 10);
+});
+
+
+test('A definitive provider rejection can be retried without counting the failed order', async () => {
+ await db.doc('stores/store').update({ name: 'QA Store', currency: 'MYR', pickupLocations: [] });
+ await reserve();
+ let calls = 0;
+ const adapter = { provider: 'stripe', mode: 'single_merchant', createPayment: async () => {
+   if (++calls === 1) throw Object.assign(new Error('QA provider rejected before session creation'), { promotionDefinitelyNotCreated: true });
+   return { providerPaymentId: 'qa-retry', checkout: { type: 'provider_redirect', redirectUrl: 'https://example.test/qa' } };
+ } };
+ const checkout = async () => {
+   const groupMealCheckout = await prepareGroupMealCheckout({ db, uid: 'customer', slug: 'qa-store', date,
+     paymentMethodId: 'stripe', now, clock: () => now });
+   return createStorePayment({ db, slug: 'qa-store', customerUid: 'customer', draft: groupMealCheckout.draft,
+     groupMealCheckout, adapter, now, returnUrl: 'https://misechef-beta-fa4bf.web.app/store/qa-store/group-delivery' });
+ };
+ await assert.rejects(checkout(), /provider rejected/);
+ const first = (await db.doc(reservationPath).get()).data().mealOrderId;
+ assert.equal((await checkout()).paymentSessionId, 'qa-retry');
+ const second = (await db.doc(reservationPath).get()).data().mealOrderId;
+ assert.notEqual(first, second);
+ assert.equal((await checkout()).paymentSessionId, 'qa-retry');
+ assert.equal(calls, 2);
+ assert.equal((await progress('customer')).paidPortions, 0);
+});
+
+
+test('Concurrent reservations cannot exceed the 15-destination quote capacity', async () => {
+ for (let i = 0; i < 14; i++) await reserve(`capacity-${i}`);
+ const results = await Promise.allSettled([reserve('last-a'), reserve('last-b')]);
+ assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+ assert.equal(results.find(result => result.status === 'rejected').reason.code, 'resource-exhausted');
+ assert.equal((await progress()).joinedPortions, 45);
 });

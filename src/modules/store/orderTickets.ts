@@ -20,7 +20,7 @@ const ticketItem = (item: StoreOrderItem, quantity = item.quantity) => ({
 });
 // Explicit projection: financial and provider fields never enter the print document.
 export function getOrderTickets(order: StoreOrder): OrderTicket[] {
-  if (order.deletedAt) return [];
+  if (order.deletedAt || (order.groupDelivery && !order.groupDelivery.releasedAt)) return [];
   const base = { orderId: order.id, storeName: order.storeName, orderNumber: order.orderNumber, pickupCode: order.pickupCode || '', customerName: order.customerName, notes: [order.notes, order.delivery?.recipient?.instructions].filter(Boolean).join(' · '), source: ({whatsapp:'WhatsApp',phone:'Phone',walk_in:'Walk-in',shopeefood:'ShopeeFood',other:'Other'} as Record<string,string>)[order.externalOrder?.source || ''] || 'Online Store', paid: order.payment?.status === 'paid' };
   if (order.fulfilments?.some(day => !validCalendarDate(day.date) || !day.allocations?.length || day.allocations.some(allocation => !Number.isInteger(allocation.itemIndex) || !order.items[allocation.itemIndex] || !(allocation.quantity > 0) || (allocation.componentDay && !order.items[allocation.itemIndex].weeklyPlanSnapshot?.meals.some(meal => meal.day === allocation.componentDay))))) return [];
   if (order.fulfilments?.length) return order.fulfilments.map(day => ({ ...base, ...canonicalFulfilmentView(order, day), key: `${order.id}:${day.id}`, fulfilmentId: day.id, notes: [base.notes, ...(!order.manualOrder || day.method !== 'delivery' ? [day.notes] : [])].filter(Boolean).join(' · '),

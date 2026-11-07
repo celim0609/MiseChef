@@ -527,6 +527,7 @@ export interface StoreNotification {
 }
 
 export interface StoreOrder {
+  groupDelivery?: { releasedAt?: string };
   promotionCodeSnapshot?: import('./promotionCodeTypes').PromotionCodeSnapshot;
   customerReminders?: Record<string, { status: 'draft_opened' | 'owner_confirmed_sent'; updatedAt: string; updatedBy: string }>;
   fulfilments?: OrderFulfilment[];
@@ -739,6 +740,7 @@ export interface PublicOrderGroupContext {
 }
 
 export interface StorePaymentOrderSummary {
+  groupMeal?: boolean;
   promotionCodeSnapshot?: import('./promotionCodeTypes').PromotionCodeSnapshot;
   fulfilments?: PublicOrderFulfilment[];
   fulfilmentMethod: 'pickup' | 'delivery';
