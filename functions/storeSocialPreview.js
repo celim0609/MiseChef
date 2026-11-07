@@ -166,13 +166,13 @@ export const injectStoreSocialMetadata = (appShell, metadata) => {
 };
 
 const readStoreRequest = path => {
-  const match = /^\/store\/([^/?#]+)(?:\/(product|promotion)\/([^/?#]+))?\/?$/.exec(readPublicText(path));
+  const match = /^\/store\/([^/?#]+)(?:\/(product|promotion)\/([^/?#]+)|\/(group-delivery))?\/?$/.exec(readPublicText(path));
   if (!match) return '';
   try {
     const slug = decodeURIComponent(match[1]).trim().slice(0, 240);
     const routeType = match[2] || '';
     const routeValue = match[3] ? decodeURIComponent(match[3]).trim().slice(0, 240) : '';
-    return slug ? { slug, productSlug: routeType === 'product' ? routeValue : '', promotionId: routeType === 'promotion' ? routeValue : '' } : null;
+    return slug ? { slug, productSlug: routeType === 'product' ? routeValue : '', promotionId: routeType === 'promotion' ? routeValue : '', groupDelivery: match[4] === 'group-delivery' } : null;
   } catch {
     return null;
   }
@@ -193,7 +193,7 @@ export const createStoreSocialPreviewHandler = ({
   }
 
   const route = readStoreRequest(request.path || request.url || '');
-  if (!route) {
+  if (!route || (route.groupDelivery && projectId !== 'misechef-beta-fa4bf')) {
     response.status(404).send('Store not found');
     return;
   }

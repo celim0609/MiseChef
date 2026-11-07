@@ -279,3 +279,20 @@ test('Weekly Menu metadata keeps selection and uses the week cover or original d
   assert.equal(day.title,'Friday Meal | Chef');
   assert.match(day.canonicalUrl,/week=week2&day=fri$/);
 });
+
+test('Group Delivery deep links serve the app shell only in Beta', async () => {
+  for (const [projectId, expected] of [['misechef-beta-fa4bf', 200], ['misechef-fa4bf', 404]]) {
+    const response = createResponse();
+    let storeReads = 0;
+    const handler = createStoreSocialPreviewHandler({
+      projectId,
+      loadStore: async () => { storeReads++; return { id: 'qa', slug: 'qa-store', name: 'QA' }; },
+      loadAppShell: async () => appShell
+    });
+    await handler({ method: 'GET', path: '/store/qa-store/group-delivery',
+      originalUrl: '/store/qa-store/group-delivery?date=2026-11-10', get: () => '' }, response);
+    assert.equal(response.statusCode, expected);
+    assert.equal(storeReads, expected === 200 ? 1 : 0);
+    if (expected === 200) assert.match(response.body, /assets\/app.js/);
+  }
+});
