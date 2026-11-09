@@ -1,12 +1,19 @@
 import { canonicalFulfilmentView } from '../../../functions/storeFulfilmentCanonical.js';
-import type { StoreOrder } from './types';
+import { legacyDailyFulfilments } from '../../../functions/legacyDailyFulfilments.js';
+import { getStoreOrderBreakdown } from './storeOrderBreakdown';
+import { formatRegionCurrency } from '../../regions';
+import type { StoreOrder, StoreOrderItem, MealOptionSnapshot } from './types';
 import type { RegionCode } from '../../regions';
-import { normalizeCustomerWhatsAppDestination } from './whatsappOrderConfirmation';
+import { normalizeCustomerWhatsAppDestination, whatsappStoreSignature } from './whatsappOrderConfirmation';
 
 export type CustomerAction = 'confirm' | 'reminder' | 'delivery';
+export type DeliveryProvider = 'Lalamove' | 'Grab' | 'Private Driver';
+export interface DeliveryMessageOptions { provider: DeliveryProvider; tracking?: string }
+interface MessageItem { name: string; quantity: number; remarks?: string[]; complimentary?: boolean }
 export interface MessageSchedule {
   id: string; date: string; time: string; method: 'pickup' | 'delivery'; address: string;
-  items: Array<{ name: string; quantity: number }>;
+  items: MessageItem[];
+  remarks?: string[];
   status: string; tracking?: string;
 }
 // Strip presentation syntax without encoding customer content as HTML.
@@ -21,21 +28,41 @@ export const plainText = (value: string = '') => value
   .replace(/&[a-z][a-z0-9]+;/gi, ' ')
   .replace(/[*_`~\uFFFD\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
 
-const safeTracking = (value?: string) => {
+export const safeTracking = (value?: string) => {
   try { const url = new URL(value || ''); return url.protocol === 'https:' ? url.href : undefined; } catch { return undefined; }
 };
 const terminalMessageStatus = (order: StoreOrder, completed = false) => order.fulfilmentStatus === 'Cancelled' ? 'Cancelled'
   : order.fulfilmentStatus === 'Completed' || completed ? 'Completed' : undefined;
 
+const remarks = (...values: Array<string | undefined>) => [...new Set(values.map(value => plainText(value)).filter(Boolean))];
+const mealOptions = (meal?: MealOptionSnapshot) => meal?.selectedMealOptions?.map(option => `${option.optionGroupName}: ${option.optionName}`) ?? [];
+const messageItem = (item: StoreOrderItem, quantity: number, includeCustomerNotes: boolean, meal?: MealOptionSnapshot & { productName: string }): MessageItem => ({
+  name: plainText(meal?.productName || item.productName),
+  quantity,
+  complimentary: item.complimentary === true,
+  remarks: remarks(includeCustomerNotes ? item.notes : undefined, ...mealOptions(meal ?? item.healthyLunchSnapshot),
+    ...(item.selectedOptions ?? []).map(option => `${option.groupName}: ${option.optionName}${(option.quantity ?? 1) > 1 ? ` × ${option.quantity}` : ''}`),
+    ...(item.setSnapshot?.selectedGroups ?? []).map(group => `${group.groupName}: ${group.productName}`))
+});
+
+// Staff-entered POS notes have no saved customer visibility flag.
+const hasCustomerNotes = (order: StoreOrder) => order.orderSource === 'online'
+  && order.hasSavedOnlineSource !== false && !order.manualOrder && !order.externalOrder;
+
 export function customerMessageSchedule(order: StoreOrder): MessageSchedule[] {
-  if (order.fulfilments?.length) return order.fulfilments.map(entry => {
+  const includeCustomerNotes = hasCustomerNotes(order);
+  const fulfilments = order.fulfilments?.length ? order.fulfilments : legacyDailyFulfilments(order) as StoreOrder['fulfilments'];
+  if (fulfilments?.length) return fulfilments.map(entry => {
     const op = order.fulfilmentOperations?.[entry.id];
     const view = canonicalFulfilmentView(order, entry);
-    return { id: entry.id, date: view.date, time: view.time, method: view.method, address: view.address,
+    return { id: entry.id, date: view.date, time: view.time, method: view.method,
+      address: view.method === 'delivery' && entry.destination ? entry.destination.formattedAddress : view.address,
+      remarks: remarks(view.method === 'delivery'
+        ? entry.destination?.deliveryInstructions ?? order.delivery?.recipient?.instructions : undefined),
       items: entry.allocations.flatMap(allocation => {
         const item = order.items[allocation.itemIndex];
-        const meal = allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(m => m.day === allocation.componentDay) : item;
-        return meal ? [{ name: meal.productName, quantity: allocation.quantity }] : [];
+        const meal = item?.weeklyPlanSnapshot?.meals.find(m => m.day === allocation.componentDay);
+        return item && (!allocation.componentDay || meal) ? [messageItem(item, allocation.quantity, includeCustomerNotes, meal)] : [];
       }),
       status: terminalMessageStatus(order, Boolean(order.fulfilmentCompletion?.[entry.id])) || op?.lifecycle?.state || op?.providerOrder?.status || op?.dispatch?.status || op?.kitchenStatus || 'Status unavailable',
       // Never reuse the parent delivery link/status for an independent date.
@@ -45,14 +72,16 @@ export function customerMessageSchedule(order: StoreOrder): MessageSchedule[] {
   if (order.weeklyFulfilments?.length) return order.weeklyFulfilments.map(entry => ({
     id: entry.day, date: entry.date, time: entry.pickupTime, method: order.fulfilmentMethod === 'delivery' ? 'delivery' : 'pickup',
     address: order.fulfilmentMethod === 'delivery' ? order.delivery?.recipient?.address || '' : entry.pickupLocationAddress || entry.pickupLocationName,
-    items: [{ name: entry.productName, quantity: entry.quantity }],
+    items: [{ name: plainText(entry.productName), quantity: entry.quantity, remarks: remarks(...mealOptions(entry)) }],
     status: terminalMessageStatus(order, Boolean(order.weeklyCompletion?.[entry.day])) || 'Status unavailable'
   }));
-  const delivery = order.fulfilmentMethod === 'delivery';
-  return [{ id: 'single', date: delivery ? order.delivery?.schedule?.date || '' : order.pickupDate,
+  const delivery = order.fulfilmentMethod === 'delivery' || order.delivery?.fulfilmentMethod === 'delivery';
+  const hasUnresolvedSchedule = order.items?.some(item => item.healthyLunchSnapshot?.date || item.weeklyPlanSnapshot);
+  return [{ id: 'single', date: hasUnresolvedSchedule ? '' : delivery ? order.delivery?.schedule?.date || order.pickupDate || '' : order.pickupDate,
     time: delivery ? order.delivery?.schedule?.time || order.delivery?.schedule?.session || '' : order.pickupTime || order.pickupSession,
     method: delivery ? 'delivery' : 'pickup', address: delivery ? order.delivery?.recipient?.address || '' : order.pickupLocationAddress || order.pickupLocationName,
-    items: (order.items || []).map(item => ({ name: item.productName, quantity: item.quantity })),
+    items: (order.items || []).map(item => messageItem(item, item.quantity, includeCustomerNotes)),
+    remarks: remarks(delivery ? order.delivery?.recipient?.instructions : undefined),
     status: terminalMessageStatus(order) || (delivery ? order.delivery?.lifecycle?.state || order.delivery?.providerOrder?.status || order.delivery?.dispatch?.status || 'Status unavailable' : order.fulfilmentStatus || 'Status unavailable'),
     tracking: delivery ? safeTracking(order.delivery?.providerOrder?.shareLink) : undefined
   }];
@@ -97,27 +126,47 @@ const messageStatus = (value: string) => {
   };
   return labels[value.toLowerCase()] || plainText(value) || 'Status unavailable';
 };
-// Only display the saved order total. Payment amounts and item arithmetic are not substitutes.
-const savedOrderTotal = (order: StoreOrder) => order.hasSavedCommunicationTotal !== false
-  && typeof order.total === 'number' && Number.isFinite(order.total) && order.total >= 0
-  && ['MYR', 'SGD'].includes(order.currency)
-    ? `${order.currency} ${order.total.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '';
-
-export function customerActionMessage(order: StoreOrder, action: CustomerAction, date: string, today: string, storeName: string) {
-  const schedule = customerMessageSchedule(order).filter(entry => action === 'confirm' || entry.date === (action === 'delivery' ? today : date));
-  if (!schedule.length || (action !== 'confirm' && !(action === 'delivery' ? today : date))) return '';
-  const brand = plainText(order.storeName || storeName);
+export function customerActionMessage(order: StoreOrder, action: CustomerAction, date: string, today: string, storeName: string, deliveryOptions?: DeliveryMessageOptions) {
+  const selectedDate = action === 'delivery' ? today : date;
+  const schedule = customerMessageSchedule(order).filter(entry => action === 'confirm'
+    || (selectedDate && entry.date === selectedDate && (action !== 'delivery' || entry.method === 'delivery')));
+  if (!schedule.length) return '';
+  const brand = plainText(order.storeName) || plainText(storeName);
   const customer = plainText(order.customerName);
-  const intro = action === 'confirm' ? `Thank you for your order${brand ? ` with ${brand}` : ''}!`
-    : action === 'reminder' ? `A friendly reminder about your order${brand ? ` from ${brand}` : ''}.`
-      : `Here's the latest update on your order${brand ? ` from ${brand}` : ''}.`;
-  const lines = [customer ? `Hi ${customer},` : 'Hi there,', '', intro];
-  if (plainText(order.orderNumber)) lines.push(`Order number: ${plainText(order.orderNumber)}`);
-  if (action === 'confirm') {
-    const total = savedOrderTotal(order);
-    if (total) lines.push(`Order total: ${total}`);
-    lines.push(order.payment.status === 'paid' ? 'Payment confirmed. Thank you!' : 'Payment has not been confirmed.');
+  const pickupOnly = schedule.every(entry => entry.method === 'pickup');
+  const paid = order.payment.status === 'paid';
+  const title = action === 'confirm' ? (paid ? '✅ *Order Confirmation*' : '*Order Confirmation*')
+    : action === 'delivery' ? '🚗 *Delivery Update*'
+      : pickupOnly ? '📅 *Pickup Reminder*' : '📅 *Order Reminder*';
+  const intro = action === 'confirm' ? 'Thanks for ordering with us!'
+    : action === 'reminder' ? `A quick reminder about your ${pickupOnly ? 'pickup' : 'order'}.`
+      : 'Here’s the latest on your delivery.';
+  const lines = [title, '', customer ? `Hi ${customer}! 😊` : 'Hi there! 😊', intro];
+  if (plainText(order.orderNumber)) lines.push(`🧾 Order number: ${plainText(order.orderNumber)}`);
+  const breakdown = action === 'confirm' ? getStoreOrderBreakdown(order) : undefined;
+  const money = (amount?: number) => amount !== undefined && breakdown?.currency && ['MYR', 'SGD'].includes(breakdown.currency)
+    ? formatRegionCurrency(amount, breakdown.currency) : 'Not available';
+  const dailyFees = breakdown?.dailyDeliveryFees ?? [];
+  const hasDailyFees = dailyFees.some(day => day.amount !== undefined);
+  if (breakdown) {
+    const { subtotal, deliveryFee, discount, finalTotal } = breakdown;
+    lines.push('', '💰 *Payment Summary*', `Payment status: ${order.payment.status.replaceAll('_', ' ')}`,
+      `Subtotal: ${money(subtotal)}`, `${dailyFees.length ? 'Total Delivery Fee' : 'Delivery Fee'}: ${money(deliveryFee)}`);
+    if (hasDailyFees) {
+      for (const day of dailyFees.filter(fee => !schedule.some(entry => entry.date === fee.date))) {
+        lines.push(`Delivery Fee · ${messageDate(day.date)}: ${money(day.amount)}`);
+      }
+    } else if (dailyFees.length) {
+      lines.push('Daily delivery breakdown: Not available');
+    }
+    if (discount) lines.push(`Discounts: −${money(discount)}`);
+    lines.push(`Final Total: ${money(finalTotal)}`);
+    const promotions = remarks(...(order.promotionSnapshot?.appliedPromotions ?? []).map(promotion => promotion.name),
+      order.promotionCodeSnapshot?.code);
+    if (promotions.length) lines.push(`Promotions: ${promotions.join(', ')}`);
   }
+  if (action === 'delivery' && deliveryOptions) lines.push(`Delivery provider: ${deliveryOptions.provider}`);
+  const suppliedTracking = safeTracking(deliveryOptions?.tracking);
   const methodLabel = (entry: MessageSchedule) => entry.method === 'delivery' ? 'Delivery' : 'Pickup';
   const times = schedule.map(entry => messageTime(entry.time));
   const addresses = schedule.map(entry => plainText(entry.address));
@@ -128,26 +177,49 @@ export function customerActionMessage(order: StoreOrder, action: CustomerAction,
   const addressLabel = sameMethod ? `${methodLabel(schedule[0])} address` : 'Address';
   const allDates = new Set(schedule.map(entry => entry.date)).size > 1 ? ' for all dates' : '';
   if (commonTime || commonAddress) lines.push('');
-  if (commonTime) lines.push(`${timeLabel}${allDates}: ${commonTime}`);
-  if (commonAddress) lines.push(`${addressLabel}${allDates}: ${commonAddress}`);
+  if (commonTime) lines.push(`🕒 ${timeLabel}${allDates}: ${commonTime}`);
+  if (commonAddress) lines.push(`📍 ${addressLabel}${allDates}: ${commonAddress}`);
   const groups = new Map<string, MessageSchedule[]>();
   for (const entry of schedule) groups.set(entry.date, [...(groups.get(entry.date) || []), entry]);
+  const usedTracking = new Set<string>();
   for (const [day, entries] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
-    lines.push('', messageDate(day));
+    lines.push('', `📅 *${messageDate(day)}*`);
+    const dayFee = hasDailyFees ? dailyFees.find(fee => fee.date === day) : undefined;
+    if (dayFee) lines.push(`Delivery Fee: ${money(dayFee.amount)}`);
     for (const entry of entries) {
       const method = methodLabel(entry);
-      lines.push(method);
-      if (!commonTime && messageTime(entry.time)) lines.push(`${method} time: ${messageTime(entry.time)}`);
-      lines.push(...entry.items.map(item => `${item.quantity} x ${plainText(item.name)}`));
-      if (!commonAddress && plainText(entry.address)) lines.push(`${method} address: ${plainText(entry.address)}`);
+      lines.push(`🍱 *${method}*`);
+      if (!commonTime && messageTime(entry.time)) lines.push(`🕒 ${method} time: ${messageTime(entry.time)}`);
+      const items = new Map<string, MessageItem>();
+      for (const item of entry.items) {
+        const key = JSON.stringify([item.name, item.complimentary, item.remarks]);
+        const previous = items.get(key);
+        items.set(key, { ...item, quantity: (previous?.quantity ?? 0) + item.quantity });
+      }
+      for (const item of items.values()) {
+        lines.push(`${item.complimentary ? '🍹 ' : '• '}${item.quantity} x ${item.name}${item.complimentary ? ' (complimentary)' : ''}`);
+        if (item.remarks?.length) lines.push(`  ${item.remarks.join(' · ')}`);
+      }
+      for (const remark of entry.remarks ?? []) lines.push(`📝 Special request: ${remark}`);
+      if (!commonAddress && plainText(entry.address)) lines.push(`📍 ${method} address: ${plainText(entry.address)}`);
       if (action === 'delivery') {
-        lines.push(`${method} status: ${messageStatus(entry.status)}`);
-        if (entry.method === 'delivery' && entry.tracking) lines.push(`Track your delivery: ${entry.tracking}`);
+        if (!deliveryOptions || deliveryOptions.provider === 'Lalamove') {
+          lines.push(`${method} status: ${messageStatus(entry.status)}`);
+          if (!suppliedTracking && entry.tracking && !usedTracking.has(entry.tracking)) {
+            lines.push(`Track your delivery: ${entry.tracking}`);
+            usedTracking.add(entry.tracking);
+          }
+        }
       }
     }
   }
-  if (order.pickupCode && schedule.some(entry => entry.method === 'pickup')) lines.push('', `Pickup code: ${plainText(order.pickupCode)}`);
-  lines.push('', 'Thank you for choosing us. Enjoy your meals!', brand);
+  if (action === 'delivery' && suppliedTracking) lines.push('', `Track your delivery: ${suppliedTracking}`);
+  if (hasCustomerNotes(order) && plainText(order.notes)) {
+    lines.push('', `📝 Order remarks: ${plainText(order.notes)}`);
+  }
+  if (order.pickupCode && schedule.some(entry => entry.method === 'pickup')) lines.push('', `🔑 Pickup code: ${plainText(order.pickupCode)}`);
+  lines.push('', 'Enjoy your meals! 💚');
+  lines.push(whatsappStoreSignature(brand));
   return lines.join('\n').trim();
 }
 export function customerActionUrl(order: StoreOrder, country: RegionCode, message: string) {

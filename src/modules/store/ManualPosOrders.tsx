@@ -47,6 +47,7 @@ export default function ManualPosOrders({
   country = "MY",
   storeName = "",
   canRecordReminders = false,
+  canPreviewWhatsApp = false,
   pasteRequest,
   onPasteConsumed,
   onOrderChanged,
@@ -56,6 +57,7 @@ export default function ManualPosOrders({
   country?: "MY" | "SG";
   storeName?: string;
   canRecordReminders?: boolean;
+  canPreviewWhatsApp?: boolean;
   pasteRequest?: {id:string;draft:PasteDraft} | null;
   onPasteConsumed?: ()=>void;
   onOrderChanged?: ()=>void;
@@ -428,7 +430,7 @@ export default function ManualPosOrders({
               ))}
             </div>
           ))}
-          <div key={saved.id}><WhatsAppCustomerActions order={saved} country={country} storeName={storeName} canRecordReminder={canRecordReminders} /></div>
+          <div key={saved.id}><WhatsAppCustomerActions order={saved} country={country} storeName={storeName} canRecordReminder={canRecordReminders} canPreview={canPreviewWhatsApp} /></div>
           <div className="manual-actions">
             {saved.payment.status === "paid" ? (
               <button

@@ -74,6 +74,7 @@ export const normalizeStoreOrderItem = (value: unknown): StoreOrderItem => {
   const item = value && typeof value === 'object' ? value as Record<string, unknown> : {};
   const setSnapshot = normalizeSetSnapshot(item.setSnapshot);
   return {
+    ...(item.complimentary === true ? { complimentary: true } : {}),
     ...(readString(item.notes) ? { notes: readString(item.notes) } : {}),
     ...(item.itemType === 'custom' ? { itemType: 'custom' as const } : {}),
     productId: readString(item.productId),

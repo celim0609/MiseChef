@@ -2156,6 +2156,7 @@ export default function App() {
         return (
           <StorePosPage
             canRecordReminders={getStorePermissions(currentWorkspaceRole).processOrders}
+            canPreviewWhatsApp={getStorePermissions(currentWorkspaceRole).manageStoreSettings}
             storeId={currentWorkspace.id}
             workspaceId={currentWorkspace.id}
             workspaceName={currentWorkspace.name}

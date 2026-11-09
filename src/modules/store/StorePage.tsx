@@ -1594,6 +1594,7 @@ export default function StorePage({
           notifications={notifications.filter(notification => !notification.readAt)}
           onNotificationClick={onNotificationClick}
           canProcessOrders={permissions.processOrders}
+          canPreviewWhatsApp={permissions.manageStoreSettings}
           canReviewPayments={permissions.refundFinancialActions}
         />
       )}

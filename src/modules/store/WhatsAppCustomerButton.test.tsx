@@ -53,7 +53,7 @@ test('confirmation message inserts every actual order field', () => {
     pickupCode: 'A7K2',
     storeName: 'MiseChef Test Store'
   });
-  assert.match(message, /Hi Aina! Thank you for your order!/);
+  assert.match(message, /Hi Aina! 😊\nThanks for ordering with us!/);
   assert.match(message, /Order: \*MC-0822-A7K2\*/);
   assert.match(message, /22 Aug 2026 · 2:00 PM – 3:00 PM/);
   assert.match(message, /Pickup Address\*\nMain Counter/);
@@ -116,7 +116,7 @@ test('staff action performs no order/payment writes and customer Store keeps onl
   const publicStoreSource = readFileSync(new URL('./PublicStorePage.tsx', import.meta.url), 'utf8');
   const posSource = readFileSync(new URL('./StorePosPage.tsx', import.meta.url), 'utf8');
   const ownerSource = readFileSync(new URL('./StoreOrdersPanel.tsx', import.meta.url), 'utf8');
-  assert.doesNotMatch(buttonSource, /updateFulfilment|reviewManualPayment|updateDoc|httpsCallable|onClick/);
+  assert.doesNotMatch(buttonSource, /updateFulfilment|reviewManualPayment|updateDoc|httpsCallable/);
   assert.doesNotMatch(buttonSource, /WhatsApp Sent|delivered/);
   assert.doesNotMatch(publicStoreSource, /<StoreContactButton/);
   assert.match(publicStoreSource, /Need a Bulk Order\?/);
@@ -162,11 +162,11 @@ test('persisted per-day details and saved order total reach the shared customer 
   for (const day of [19, 20, 21, 22]) assert.match(message, new RegExp(`${day} Oct`));
   assert.match(message, /4:00 PM/);
   assert.match(message, /3:30 PM/);
-  assert.match(message, /Order total: MYR 999.00/);
-  assert.match(message, /Payment confirmed. Thank you!/);
+  assert.match(message, /Final Total: MYR 999.00/);
+  assert.match(message, /Payment status: paid/);
   assert.match(message, /44 Example Road, Ipoh/);
   assert.match(message, /Snapshot Store/);
-  assert.doesNotMatch(message, /92.30|Renamed Store|22 Aug|[*_`]|2026-/);
+  assert.doesNotMatch(message, /92.30|Renamed Store|22 Aug|[_`]|2026-/);
   assert.deepEqual(order, before);
 });
 
@@ -175,7 +175,7 @@ test('single-day pickup formats the saved time and order total', () => {
   const message = decodeURIComponent(renderToStaticMarkup(<WhatsAppCustomerButton order={order} country="MY" storeName="Shop" />));
   assert.match(message, /3:45 PM/);
   assert.doesNotMatch(message, /2:00 PM/);
-  assert.match(message, /Order total: MYR 12.00/);
+  assert.match(message, /Final Total: MYR 12.00/);
 });
 
 test('multi-day delivery uses all fulfilments and recipient address without pickup details', () => {
@@ -216,11 +216,24 @@ test('POS Live uses the exact shared clean confirmation with saved dates, destin
  const html=renderToStaticMarkup(<WhatsAppCustomerButton order={o} country="MY" storeName="GG Grab&Go" />);
  const href=html.match(/href="([^"]+)"/)![1].replace(/&amp;/g,'&');const url=new URL(href);const text=url.searchParams.get('text')!;
  assert.equal(url.origin,'https://web.whatsapp.com');assert.equal(text,customerActionMessage(o,'confirm','','','GG Grab&Go'));
- for(const value of ['Hana & Ali','Order total: MYR 32.00','Sunday, 1 Nov','Monday, 2 Nov','4:30 PM','12:00 PM','2 x Chicken & Rice Special','1 x Soup','Saved Home & Office','Saved Counter'])assert.ok(text.includes(value),value);
- assert.doesNotMatch(text,/&amp;|[*_`�]|Wrong parent|Total Paid|2026-/);
+ for(const value of ['Hana & Ali','Final Total: MYR 32.00','Sunday, 1 Nov','Monday, 2 Nov','4:30 PM','12:00 PM','2 x Chicken & Rice Special','1 x Soup','Saved Home & Office','Saved Counter'])assert.ok(text.includes(value),value);
+ assert.doesNotMatch(text,/&amp;|[_`�]|Wrong parent|Total Paid|2026-/);
  const source=readFileSync(new URL('./WhatsAppCustomerButton.tsx',import.meta.url),'utf8');assert.doesNotMatch(source,/getWhatsAppOrderConfirmation|paymentAmount:|wa\.me/);
 });
 
 test('shared POS Live formatter preserves cancelled/refunded and unconfirmed action restrictions',()=>{
  for(const o of [createOrder('paid',{fulfilmentStatus:'Cancelled'}),createOrder('paid',{payment:{status:'paid',refundStatus:'refunded'} as StoreOrder['payment']}),createOrder('pending'),createOrder('failed')])assert.equal(renderToStaticMarkup(<WhatsAppCustomerButton order={o} country="MY" storeName="Shop" />),'');
+});
+
+
+test('standalone confirmation uses the same store signatures as the editable templates', () => {
+  for (const [storeName, signature] of [
+    ['GG Grab&Go', '*MiseChef | GG Grab&Go*'],
+    ['Corner Café', '*Corner Café*\nPowered by MiseChef'],
+    ['MiseChef Test Store', '*MiseChef Test Store*']
+  ]) {
+    const text = buildWhatsAppOrderConfirmationMessage({ customerName: 'Aina', storeName });
+    assert.ok(text.endsWith(signature));
+    assert.doesNotMatch(text.slice(0, -signature.length), /GG Grab&Go|Corner Café|MiseChef/);
+  }
 });

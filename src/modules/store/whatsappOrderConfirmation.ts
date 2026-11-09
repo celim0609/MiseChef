@@ -53,6 +53,13 @@ export const normalizeCustomerWhatsAppDestination = (
   return { ok: false, destination: '', error: INVALID_PHONE_MESSAGE };
 };
 
+export const whatsappStoreSignature = (storeName: string) => {
+  const name = storeName.trim();
+  if (!name) return '';
+  if (/^(?:misechef\s*\|\s*)?gg grab\s*&\s*go$/i.test(name)) return '*MiseChef | GG Grab&Go*';
+  return /\bmisechef\b/i.test(name) ? `*${name}*` : `*${name}*\nPowered by MiseChef`;
+};
+
 export const buildWhatsAppOrderConfirmationMessage = ({
   customerName = '',
   orderNumber = '',
@@ -82,16 +89,19 @@ export const buildWhatsAppOrderConfirmationMessage = ({
     ? `${currency === 'MYR' ? 'RM' : currency === 'SGD' ? 'SGD ' : currency + ' '}${paymentAmount.toFixed(2)}`
     : 'Unavailable';
   const lines = [
-    paid ? '*Order Confirmed* ✅' : '*Order Details*',
+    paid ? '✅ *Order Confirmed*' : '*Order Details*',
     '',
-    name ? `Hi ${name}! Thank you for your order! 🥰` : 'Thank you for your order! 🥰',
+    name ? `Hi ${name}! 😊` : 'Hi there! 😊',
+    'Thanks for ordering with us!',
     '',
     orderNumber.trim() ? `🧾 Order: *${orderNumber.trim()}*` : '',
-    `💳 Total Paid: *${paid ? amount : 'Unavailable'}*`,
+    '',
+    '💰 *Payment Summary*',
+    `Total Paid: *${paid ? amount : 'Unavailable'}*`,
     `Payment Status: *${paid ? 'Paid' : paymentStatus ? paymentStatus.replaceAll('_', ' ') : 'Not confirmed'}*`,
     !delivery && pickupCode.trim() ? `🔑 Pickup Code: *${pickupCode.trim()}*` : '',
     '',
-    delivery ? '🚚 *Delivery Schedule*' : '📅 *Pickup Schedule*',
+    delivery ? '🚗 *Delivery Schedule*' : '📅 *Pickup Schedule*',
     ...entries.map(entry => [entry.date.trim(), entry.time.trim()].filter(Boolean).join(' · ')),
     '',
     addresses.length <= 1 && address ? `📍 *${delivery ? 'Delivery' : 'Pickup'} Address*\n${address}` : '',
@@ -99,8 +109,8 @@ export const buildWhatsAppOrderConfirmationMessage = ({
       ? ['', '*Addresses by date*', ...entries.filter(entry => entry.address?.trim()).map(entry => `${entry.date}: ${entry.address}`)]
       : []),
     '',
-    'Thank you! 💚',
-    storeName.trim() ? `*${storeName.trim()}*` : ''
+    'Enjoy your meals! 💚',
+    whatsappStoreSignature(storeName)
   ];
   return lines.filter((line, index) => line !== '' || (index > 0 && lines[index - 1] !== '')).join('\n').trim();
 };

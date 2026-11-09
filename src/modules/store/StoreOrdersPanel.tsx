@@ -1,3 +1,4 @@
+import StoreOrderTotals from './StoreOrderTotals';
 import OrderManagementActions, {DeletedOrders} from './OrderManagementActions';
 import ManualDeliveryBooking from './ManualDeliveryBooking';
 import OrderFulfilmentDetails from './OrderFulfilmentDetails';
@@ -90,6 +91,7 @@ interface StoreOrdersPanelProps {
   notifications: StoreNotification[];
   onNotificationClick: (notification: StoreNotification) => void;
   canProcessOrders: boolean;
+  canPreviewWhatsApp?: boolean;
   canReviewPayments: boolean;
 }
 
@@ -103,6 +105,7 @@ export default function StoreOrdersPanel({
   notifications,
   onNotificationClick,
   canProcessOrders,
+  canPreviewWhatsApp = false,
   canReviewPayments
 }: StoreOrdersPanelProps) {
   const [operationalOrders, setOperationalOrders] = useState<StoreOrder[]>([]);
@@ -421,10 +424,7 @@ export default function StoreOrdersPanel({
               ))}
             </div>
 
-            <div className="mt-5 flex justify-between border-t border-surface-container-high pt-4">
-              <span className="font-sans text-sm font-extrabold text-primary">Final Total</span>
-              <span className="font-display text-2xl font-bold text-primary">{formatRegionCurrency(selectedOrder.total, currency)}</span>
-            </div>
+            <StoreOrderTotals order={selectedOrder} currency={currency} country={country} />
 
             {selectedOrder.notes && (
               <div className="mt-5 rounded-2xl bg-yellow-50 p-4">
@@ -514,15 +514,14 @@ export default function StoreOrdersPanel({
               {selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && <div className="mt-3 rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>Delivery: {deliveryLifecycleLabel(selectedOrder.delivery?.lifecycle?.state)}</p>{selectedOrder.delivery?.lifecycle?.state === 'assigning_driver' && deliveryElapsed(selectedOrder.delivery.lifecycle.history) && <p className="mt-1 text-xs">Searching for {deliveryElapsed(selectedOrder.delivery.lifecycle.history)}</p>}{selectedOrder.delivery?.providerOrder?.driver?.name && <p className="mt-1 text-xs">Driver: {selectedOrder.delivery.providerOrder.driver.name}{selectedOrder.delivery.providerOrder.driver.plateNumber ? ` · ${selectedOrder.delivery.providerOrder.driver.plateNumber}` : ''}</p>}{selectedOrder.delivery?.providerOrder?.driver?.phone && <p className="mt-1 text-xs">{selectedOrder.delivery.providerOrder.driver.phone}</p>}{selectedOrder.delivery?.providerOrder?.shareLink && <a className="mt-2 inline-block text-xs underline" href={selectedOrder.delivery.providerOrder.shareLink} target="_blank" rel="noreferrer">Track delivery</a>}{['expired', 'rejected', 'canceled'].includes(selectedOrder.delivery?.lifecycle?.state || '') && <p className="mt-2 text-xs">Merchant review required. A replacement is never created automatically.</p>}</div>}
               {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && activeDeliveryLifecycle(selectedOrder.delivery?.lifecycle?.state) && <button type="button" disabled={isUpdating} onClick={() => refreshDelivery(selectedOrder.id)} className="mt-3 rounded-full border border-outline px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-50">Refresh delivery</button>}
               {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && ['assigning_driver', 'driver_assigned'].includes(selectedOrder.delivery?.lifecycle?.state || '') && <button type="button" disabled={isUpdating} onClick={() => cancelDelivery(selectedOrder.id)} className="mt-3 rounded-full border border-error px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">Cancel Lalamove delivery</button>}
-              <div key={selectedOrder.id} className="w-full"><WhatsAppCustomerButton
-                canRecordReminder={canProcessOrders}
-                order={selectedOrder}
-                country={country}
-                storeName={storeName}
-                className="flex-1"
-              /></div>
-
             </div>
+            <div key={selectedOrder.id} className="mt-3 w-full min-w-0"><WhatsAppCustomerButton
+              canRecordReminder={canProcessOrders}
+              canPreview={canPreviewWhatsApp}
+              order={selectedOrder}
+              country={country}
+              storeName={storeName}
+            /></div>
             <OrderManagementActions order={selectedOrder} onChanged={()=>setSelectedOrderId('')} />
           </article>
         ) : (

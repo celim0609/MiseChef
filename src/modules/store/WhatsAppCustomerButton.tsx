@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import WhatsAppMessagePreview from './WhatsAppMessagePreview';
 import { MessageCircle } from 'lucide-react';
 import type { RegionCode } from '../../regions';
 import type { StoreOrder } from './types';
@@ -11,13 +13,16 @@ export default function WhatsAppCustomerButton({
   order,
   country,
   storeName,
-  className = ''
+  className = '',
+  canPreview = false
 }: {
   order: StoreOrder;
   country: RegionCode;
   storeName: string;
   className?: string;
+  canPreview?: boolean;
 }) {
+  const [draft, setDraft] = useState<string | null>(null);
   if (!canWhatsAppCustomer(order)) return null;
   const message = customerActionMessage(order, 'confirm', '', '', storeName);
   const href = customerActionUrl(order, country, message);
@@ -33,6 +38,14 @@ export default function WhatsAppCustomerButton({
       </span>
     );
   }
+  if (canPreview) return (
+    <div className="min-w-0">
+      <button type="button" className={`${sharedClasses} border-green-700 bg-white text-green-800`} onClick={() => setDraft(message)}>
+        <MessageCircle className="h-4 w-4" /> WhatsApp Customer
+      </button>
+      {draft !== null && <WhatsAppMessagePreview order={order} country={country} message={draft} onChange={setDraft} onClose={() => setDraft(null)} />}
+    </div>
+  );
   return (
     <a
       href={href}
