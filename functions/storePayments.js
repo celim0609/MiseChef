@@ -793,7 +793,7 @@ export const cancelStorePayment = async ({
 
 export const handleStorePaymentWebhook = async ({ db, adapter, event, onRejectionStage }) => {
   // This callback is diagnostic-only. It does not alter webhook processing or
-  // reconciliation and is omitted by every existing provider call path.
+  // reconciliation.
   onRejectionStage?.('captured_event_validation');
   const update = await adapter.readWebhookUpdate(event);
   if (update.kind === 'ignored') {
@@ -826,15 +826,16 @@ export const handleStorePaymentWebhook = async ({ db, adapter, event, onRejectio
     update.payment.orderId = orders.docs[0].id;
   }
   const eventReference = db.collection('storePaymentEvents').doc(event.id);
-    onRejectionStage?.('event_dedupe_read');
+  onRejectionStage?.('event_dedupe_read');
   const priorEvent = await eventReference.get();
   if (priorEvent.exists) return { received: true, duplicate: true };
-    onRejectionStage?.('reconciliation');
+  onRejectionStage?.('reconciliation');
   if (update.kind === 'refund') {
     await reconcileStoreRefund({ db, payment: update.payment });
   } else {
     await reconcileStorePayment({ db, payment: update.payment });
   }
+  onRejectionStage?.('event_receipt_write');
   await eventReference.set({
     provider: adapter.provider,
     providerMode: adapter.mode,

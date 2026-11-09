@@ -1,4 +1,5 @@
-import { createStorePayment, reconcileStorePayment } from '../functions/storePayments.js';
+import { createStripeSingleMerchantAdapter } from '../functions/paymentProviders/stripeSingleMerchant.js';
+import { createStorePayment, handleStorePaymentWebhook } from '../functions/storePayments.js';
 import { updateStoreOrderFulfilment } from '../functions/storeFulfilment.js';
 import { listGroupDeliveryReview, getGroupDeliveryReview, estimateGroupDelivery, approveGroupDelivery } from '../functions/groupDeliveryReview.js';
 import assert from 'node:assert/strict';
@@ -331,10 +332,32 @@ test('Canonical meal checkout links once, reconciles payment and holds kitchen f
  assert.equal(pending.groupDelivery.groupId, groupDeliveryKey('store', date));
  assert.equal(pending.payment.amountMinor, 12000);
  assert.equal((await progress('customer')).paidPortions, 0);
- const payment = { orderId: mealOrderId, providerPaymentId: session.paymentSessionId, amountMinor: 12000, currency: 'MYR' };
- await reconcileStorePayment({ db, payment: { ...payment, status: 'failed' } });
+ const stripe = new (require('stripe'))('sk_test_fixture');
+ const webhookSecret = 'whsec_local_fixture';
+ const providerSession = {
+   id: session.paymentSessionId, amount_total: 12000, currency: 'myr',
+   metadata: { misechefOrderId: mealOrderId },
+   status: 'expired', payment_status: 'unpaid'
+ };
+ const webhookAdapter = createStripeSingleMerchantAdapter('sk_test_fixture', {
+   stripeClient: { webhooks: stripe.webhooks, checkout: { sessions: { retrieve: async () => providerSession } } }
+ });
+ const deliver = (id, type, signingSecret = webhookSecret) => {
+   const payload = JSON.stringify({ id, type, data: { object: { id: providerSession.id } } });
+   const signature = stripe.webhooks.generateTestHeaderString({ payload, secret: signingSecret });
+   const event = webhookAdapter.constructWebhookEvent(Buffer.from(payload), signature, webhookSecret);
+   return handleStorePaymentWebhook({ db, adapter: webhookAdapter, event });
+ };
+ assert.throws(() => deliver('evt_paid', 'checkout.session.completed', 'whsec_wrong_fixture'),
+   { type: 'StripeSignatureVerificationError' });
+ await deliver('evt_expired', 'checkout.session.expired');
  assert.equal((await progress('customer')).paidPortions, 0);
- await reconcileStorePayment({ db, payment: { ...payment, status: 'paid' } });
+ Object.assign(providerSession, { status: 'complete', payment_status: 'paid', amount_total: 11999 });
+ await assert.rejects(deliver('evt_paid', 'checkout.session.completed'), /Payment amount does not match/);
+ assert.equal((await db.doc('storePaymentEvents/evt_paid').get()).exists, false);
+ providerSession.amount_total = 12000;
+ await deliver('evt_paid', 'checkout.session.completed');
+ assert.equal((await deliver('evt_paid', 'checkout.session.completed')).duplicate, true);
  // Firestore serverTimestamp uses the emulator's actual clock; fix the
  // historical fixture's receipt time without bypassing reconciliation.
  const eventRef = db.doc(`storeOrderTimeline/${mealOrderId}_payment-received`);

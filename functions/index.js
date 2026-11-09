@@ -723,22 +723,32 @@ export const stripeStorePaymentWebhook = onRequest({
     response.status(405).send('Method not allowed');
     return;
   }
+  const signature = request.get('stripe-signature');
+  const rawBodyPresent = Buffer.isBuffer(request.rawBody) && request.rawBody.length > 0;
+  let rejectionStage = 'adapter_setup';
   try {
     const adapter = createPaymentAdapter('stripe', {
       stripeSecretKey: stripeSecretKey.value()
     });
+    rejectionStage = 'signature_verification';
     const event = adapter.constructWebhookEvent(
       request.rawBody,
-      request.get('stripe-signature'),
+      signature,
       stripeWebhookSecret.value()
     );
-    const result = await handleStorePaymentWebhook({ db, adapter, event });
+    const result = await handleStorePaymentWebhook({
+      db,
+      adapter,
+      event,
+      onRejectionStage: stage => { rejectionStage = stage; }
+    });
     response.status(200).json(result);
   } catch (error) {
     logger.warn('Stripe Store payment webhook rejected', {
-      name: error?.name || '',
-      code: error?.code || '',
-      message: error?.message || ''
+      rejectionStage,
+      signaturePresent: Boolean(signature),
+      rawBodyPresent,
+      signatureVerificationError: error?.type === 'StripeSignatureVerificationError'
     });
     response.status(400).send('Webhook rejected');
   }
