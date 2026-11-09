@@ -124,6 +124,9 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     ...(data.deliveryPricingSnapshot && typeof data.deliveryPricingSnapshot === 'object'
       ? { deliveryPricingSnapshot: data.deliveryPricingSnapshot as StoreOrder['deliveryPricingSnapshot'] }
       : {}),
+    posDeliveryPricing: data.posDeliveryPricing && typeof data.posDeliveryPricing === 'object'
+      ? data.posDeliveryPricing as StoreOrder['posDeliveryPricing']
+      : undefined,
     customerReminders: data.customerReminders as StoreOrder['customerReminders'],
     fulfilments: normalizeOrderFulfilments(Array.isArray(data.fulfilments) ? data.fulfilments.map(entry => ({ ...entry, method: canonicalFulfilmentMethod(data, entry) })) : undefined),
     fulfilmentCompletion: data.fulfilmentCompletion as StoreOrder['fulfilmentCompletion'],

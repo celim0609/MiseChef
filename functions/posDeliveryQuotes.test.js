@@ -47,6 +47,14 @@ test('multi-date addresses get distinct provider quotations and existing free de
  const q=await createPosDeliveryQuote({...f.args,input:request,loadCheckout:async()=>config});
  assert.equal(f.requests.length,2);assert.equal(f.requests[1].data.stops[1].address,'Different destination');
  assert.equal(q.providerDeliveryFee,19);assert.equal(q.customerDeliveryFee,9.5);assert.equal(q.days[0].freeDeliveryApplied,true);assert.equal(q.days[1].freeDeliveryApplied,false);
+ const {buildExternalOrderItems}=await import('./externalPosOrderModel.js');
+ const built=buildExternalOrderItems(request,config,now,{owner:true});
+ const charge=await resolvePosDeliveryCharge({db:f.args.db,transaction:f.transaction,
+   input:{...request,posDeliveryQuoteId:q.id},checkout:config,built,uid:'manager',fullAccess:true,now});
+ assert.equal(charge.fee,9.5);
+ assert.deepEqual(charge.snapshot.days.map(({date,customerDeliveryFee})=>({date,customerDeliveryFee})),[
+   {date:'2026-11-05',customerDeliveryFee:0},{date:'2026-11-06',customerDeliveryFee:9.5}
+ ]);
 });
 
 test('saved quotes validate exact canonical items, schedule, destination, policy, operator and expiry at checkout',async()=>{

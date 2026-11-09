@@ -143,12 +143,22 @@ export function customerActionMessage(order: StoreOrder, action: CustomerAction,
       : 'Here’s the latest on your delivery.';
   const lines = [title, '', customer ? `Hi ${customer}! 😊` : 'Hi there! 😊', intro];
   if (plainText(order.orderNumber)) lines.push(`🧾 Order number: ${plainText(order.orderNumber)}`);
-  if (action === 'confirm') {
-    const { subtotal, deliveryFee, discount, finalTotal, currency } = getStoreOrderBreakdown(order);
-    const money = (amount?: number) => amount !== undefined && ['MYR', 'SGD'].includes(currency)
-      ? formatRegionCurrency(amount, currency) : 'Not available';
+  const breakdown = action === 'confirm' ? getStoreOrderBreakdown(order) : undefined;
+  const money = (amount?: number) => amount !== undefined && breakdown?.currency && ['MYR', 'SGD'].includes(breakdown.currency)
+    ? formatRegionCurrency(amount, breakdown.currency) : 'Not available';
+  const dailyFees = breakdown?.dailyDeliveryFees ?? [];
+  const hasDailyFees = dailyFees.some(day => day.amount !== undefined);
+  if (breakdown) {
+    const { subtotal, deliveryFee, discount, finalTotal } = breakdown;
     lines.push('', '💰 *Payment Summary*', `Payment status: ${order.payment.status.replaceAll('_', ' ')}`,
-      `Subtotal: ${money(subtotal)}`, `Delivery Fee: ${money(deliveryFee)}`);
+      `Subtotal: ${money(subtotal)}`, `${dailyFees.length ? 'Total Delivery Fee' : 'Delivery Fee'}: ${money(deliveryFee)}`);
+    if (hasDailyFees) {
+      for (const day of dailyFees.filter(fee => !schedule.some(entry => entry.date === fee.date))) {
+        lines.push(`Delivery Fee · ${messageDate(day.date)}: ${money(day.amount)}`);
+      }
+    } else if (dailyFees.length) {
+      lines.push('Daily delivery breakdown: Not available');
+    }
     if (discount) lines.push(`Discounts: −${money(discount)}`);
     lines.push(`Final Total: ${money(finalTotal)}`);
     const promotions = remarks(...(order.promotionSnapshot?.appliedPromotions ?? []).map(promotion => promotion.name),
@@ -174,6 +184,8 @@ export function customerActionMessage(order: StoreOrder, action: CustomerAction,
   const usedTracking = new Set<string>();
   for (const [day, entries] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
     lines.push('', `📅 *${messageDate(day)}*`);
+    const dayFee = hasDailyFees ? dailyFees.find(fee => fee.date === day) : undefined;
+    if (dayFee) lines.push(`Delivery Fee: ${money(dayFee.amount)}`);
     for (const entry of entries) {
       const method = methodLabel(entry);
       lines.push(`🍱 *${method}*`);

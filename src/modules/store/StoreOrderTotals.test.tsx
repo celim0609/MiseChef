@@ -36,7 +36,7 @@ test('renders saved date charges, discount and final total independently', () =>
 
 test('does not infer missing charges from the final total or a provider quote', () => {
   const html = render({ delivery: { fulfilmentMethod: 'delivery', quote: { fee: 2 } } });
-  assert.equal(html.match(/Not available/g)?.length, 3);
+  assert.equal(html.match(/Not available/g)?.length, 2);
   assert.match(html, /Final Total.*RM52\.00/);
 });
 
@@ -46,15 +46,16 @@ test('shows a zero delivery fee on legacy pickup orders', () => {
   assert.doesNotMatch(html, /Discounts|Not available/);
 });
 
-test('uses the saved flat rate for older multi-date checkout snapshots', () => {
+test('does not extrapolate the first-day charge to other dates', () => {
   const html = render({ deliveryPricingSnapshot: { firstDayFee: 4, fulfilmentCount: 2, finalDeliveryTotal: 8 } });
-  assert.equal(html.match(/RM4\.00/g)?.length, 2);
+  assert.doesNotMatch(html, /RM4\.00/);
+  assert.match(html, /Daily delivery breakdown.*Not available/);
   assert.match(html, /Total Delivery Fee.*RM8\.00/);
 });
 
 test('shows a saved order-level override without allocating it across dates', () => {
   const html = render({ deliveryPricingSnapshot: { customerDeliveryFee: 8 } });
-  assert.equal(html.match(/Not available/g)?.length, 2);
+  assert.equal(html.match(/Not available/g)?.length, 1);
   assert.match(html, /Total Delivery Fee.*RM8\.00/);
 });
 
@@ -74,4 +75,42 @@ test('Order Details and WhatsApp agree on the saved charge and final total', () 
     assert.ok(html.includes(label) && html.includes(`RM${amount}`));
     assert.ok(message.includes(`${label}: ${label === 'Discounts' ? '−' : ''}MYR ${amount}`));
   }
+});
+
+
+test('external POS snapshots display saved daily charges in Order Details and WhatsApp', () => {
+  const dates = ['2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20'];
+  const order = {
+    currency: 'MYR', orderSource: 'pos', payment: { status: 'paid' }, fulfilmentMethod: 'delivery',
+    items: [{ productName: 'Lunch', quantity: 5, lineTotal: 60 }],
+    fulfilments: dates.map(date => ({ date, time: '16:00', method: 'delivery',
+      allocations: [{ itemIndex: 0, quantity: 1 }] })),
+    totals: { currency: 'MYR', merchandiseSubtotal: 60, discountTotal: 0, deliveryFee: 63 },
+    total: 123
+  } as StoreOrder;
+  for (const hasDays of [true, false]) {
+    const input = { ...order, posDeliveryPricing: {
+      customerDeliveryFee: 63,
+      ...(hasDays ? { days: dates.map(date => ({ date, customerDeliveryFee: 12.6 })) } : {})
+    } };
+    const html = render(input);
+    const text = customerActionMessage(input, 'confirm', '', '', 'Shop');
+    assert.match(html, /Total Delivery Fee.*RM63\.00/);
+    assert.match(html, /Final Total.*RM123\.00/);
+    assert.match(text, /Total Delivery Fee: MYR 63\.00/);
+    assert.match(text, /Final Total: MYR 123\.00/);
+    assert.equal(html.match(/RM12\.60/g)?.length ?? 0, hasDays ? 5 : 0);
+    assert.equal(text.match(/MYR 12\.60/g)?.length ?? 0, hasDays ? 5 : 0);
+    assert.equal(/Daily delivery breakdown.*Not available/.test(html), !hasDays);
+    assert.equal(text.includes('Daily delivery breakdown: Not available'), !hasDays);
+  }
+});
+
+test('a partial saved breakdown keeps known dates, including zero, and marks missing dates', () => {
+  const html = render({
+    posDeliveryPricing: { customerDeliveryFee: 7, days: [{ date: '2026-11-12', customerDeliveryFee: 0 }] }
+  });
+  assert.match(html, /Delivery Fee · [^<]*12 Nov.*RM0\.00/);
+  assert.match(html, /Delivery Fee · [^<]*13 Nov.*Not available/);
+  assert.match(html, /Total Delivery Fee.*RM7\.00/);
 });

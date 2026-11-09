@@ -533,6 +533,7 @@ interface SavedDeliveryCharge {
 }
 
 export interface StoreOrder {
+  posDeliveryPricing?: SavedDeliveryCharge;
   deliveryPricingSnapshot?: SavedDeliveryCharge & {
     firstDayFee?: number;
     fulfilmentCount?: number;
