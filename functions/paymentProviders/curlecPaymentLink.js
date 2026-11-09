@@ -25,6 +25,28 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
   if (!readString(keyId) || !readString(keySecret)) throw new Error('Curlec is not configured.');
   return {
     provider: 'curlec', mode: CURLEC_PAYMENT_LINK_MODE, requiresSellingWorkspace: true,
+    promotionCodeLifecycle: true,
+    async expirePromotionPayment({order}) {
+      let id=readString(order.payment.providerPaymentId);
+      if(!id) {
+        const response=await fetchImpl(`${API_URL}?reference_id=${encodeURIComponent(paymentLinkReferenceId(order))}`,{headers:{authorization:authorizationHeader(keyId,keySecret)}});
+        const body=await response.json();
+        if(!response.ok) throw new CurlecPaymentLookupError();
+        const links=(body.payment_links || []).filter(link=>link.reference_id===paymentLinkReferenceId(order));
+        if(links.length!==1) throw new Error('Ambiguous provider creation requires reconciliation.');
+        id=links[0].id;
+      }
+      const read=async()=>{const response=await fetchImpl(`${API_URL}/${encodeURIComponent(id)}`,{headers:{authorization:authorizationHeader(keyId,keySecret)}});if(!response.ok) throw new CurlecPaymentLookupError();return response.json();};
+      let link=await read();
+      if(link.status==='created') {
+        await fetchImpl(`${API_URL}/${encodeURIComponent(id)}/cancel`,{method:'POST',headers:{authorization:authorizationHeader(keyId,keySecret)}});
+        link=await read();
+      }
+      if(link.id!==id || link.notes?.misechefOrderId!==order.id || Number(link.amount)!==order.payment.amountMinor || link.currency!==order.currency) throw new CurlecPaymentLookupError();
+      if(link.status==='paid') return await this.retrieveVerifiedCapturedPayment({order:{...order,payment:{...order.payment,providerPaymentId:id}}});
+      if(!['cancelled','expired'].includes(link.status) || Number(link.amount_paid)!==0) throw new Error('Payment is still pending.');
+      return {providerPaymentId:id,orderId:order.id,amountMinor:order.payment.amountMinor,currency:order.currency,status:PAYMENT_STATUS.cancelled,promotionTerminal:true};
+    },
     async createPayment({ order, returnUrl, checkoutAccessToken }) {
       const customerEmail = readString(order.customerEmail);
       if (!customerEmail) throw new Error('A valid customer email is required for a Curlec Payment Link.');
@@ -36,6 +58,7 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
           body: JSON.stringify({
             // Derived exclusively from the server-built order.
             amount: order.payment.amountMinor, currency: order.currency, accept_partial: false,
+            ...(order.promotionCodeSnapshot ? {expire_by:Math.floor(Date.parse(order.promotionCodeSnapshot.reservationExpiresAt)/1000)} : {}),
             reference_id: paymentLinkReferenceId(order), description: `Order ${order.orderNumber}`,
             customer: {
               name: readString(order.customerName), contact: normalizeCurlecContact(order.phone),
@@ -51,7 +74,9 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
       } catch { throw new CurlecOrderCreationError(); }
       const paymentLink = await response.json().catch(() => ({}));
       if (!response.ok || !readString(paymentLink?.id) || !readString(paymentLink?.short_url)) {
-        throw new CurlecOrderCreationError({ httpStatus: response.status, errorCode: paymentLink?.error?.code, errorDescription: paymentLink?.error?.description || paymentLink?.error?.message });
+        const error=new CurlecOrderCreationError({ httpStatus: response.status, errorCode: paymentLink?.error?.code, errorDescription: paymentLink?.error?.description || paymentLink?.error?.message });
+        error.promotionDefinitelyNotCreated = [400,401,403,422].includes(response.status) && !/reference|duplicate/i.test(paymentLink?.error?.description || '');
+        throw error;
       }
       if (Number(paymentLink.amount) !== Number(order.payment.amountMinor) || readString(paymentLink.currency).toUpperCase() !== readString(order.currency)) throw new Error('Curlec payment link amount validation failed.');
       return { providerPaymentId: paymentLink.id, checkout: { type: 'curlec_payment_link', redirectUrl: paymentLink.short_url } };
@@ -95,20 +120,31 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
         providerTransactionId: readString(capturedPayment.payment_id),
         orderId: readString(order.id), amountMinor: Number(order.payment.amountMinor),
         currency: readString(order.currency).toUpperCase(), status: PAYMENT_STATUS.paid,
+        ...(Number.isFinite(capturedPayment.created_at) ? {paidAt:new Date(capturedPayment.created_at*1000).toISOString()} : {}),
         providerStatus: 'captured', paymentMethod: readString(capturedPayment.method), failureCode: ''
       };
     },
-    async cancelPayment() { throw new Error('Curlec payment link cancellation is not available from checkout.'); },
+    async cancelPayment(providerPaymentId,{db}={}) {
+      const snapshot=await db.collection('storeOrders').where('payment.providerPaymentId','==',providerPaymentId).limit(1).get();
+      const doc=snapshot.docs[0];
+      if(!doc || !doc.data().promotionCodeSnapshot) throw new Error('Curlec payment link cancellation is not available from checkout.');
+      return this.expirePromotionPayment({order:{id:doc.id,...doc.data()}});
+    },
     readWebhookUpdate(event) {
       if (readString(event?.event) !== 'payment_link.paid') return { kind: 'ignored' };
       const paymentLink = event?.payload?.payment_link?.entity;
       const payment = event?.payload?.payment?.entity;
       if (!paymentLink || !payment || payment.status !== 'captured' || payment.captured !== true) throw new Error('Curlec paid event does not contain a captured payment.');
+      const paymentEntry=Array.isArray(paymentLink.payments) ? paymentLink.payments.find(row=>row.payment_id===payment.id && row.status==='captured' && Number(row.amount)===Number(payment.amount)) : null;
+      // The signed paid entity records its payment time; root event creation
+      // time is not necessarily the capture day. API recovery uses payments[].created_at.
+      const paidAt=paymentEntry?.created_at ?? paymentLink.updated_at;
       return { kind: 'payment', payment: {
         // Persisted Payment Link ID is the only gateway-to-order lookup key.
         providerPaymentId: readString(paymentLink.id), providerTransactionId: readString(payment.id),
         orderId: readString(paymentLink.notes?.misechefOrderId), amountMinor: Number(payment.amount),
         currency: readString(payment.currency).toUpperCase(), status: PAYMENT_STATUS.paid,
+        ...(Number.isFinite(paidAt) ? {paidAt:new Date(paidAt*1000).toISOString()} : {}),
         providerStatus: readString(payment.status), paymentMethod: readString(payment.method), failureCode: ''
       } };
     }
