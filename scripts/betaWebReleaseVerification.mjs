@@ -4,7 +4,19 @@ import { readLiveBetaFingerprint } from './betaLiveRelease.mjs';
 const origin = 'https://misechef-beta-fa4bf.web.app';
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 export const stylesheetPaths = html => [...html.matchAll(/<link[^>]*href=["'](\/assets\/[^"']+\.css)["']/gi)].map(match=>match[1]).sort();
-export async function verifyBetaWebRelease({manifest, expectedCss = [], readLive = readLiveBetaFingerprint, fetchImpl = fetch}) {
+export async function verifyBetaWebRelease({manifest, expectedCss = [], readLive = readLiveBetaFingerprint, fetchImpl = fetch, timeoutMs = 120000, retryDelayMs = 2000, sleep = ms => new Promise(resolve => setTimeout(resolve, ms))}) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      return await verifyBetaWebReleaseOnce({manifest, expectedCss, readLive, fetchImpl});
+    } catch (error) {
+      if (Date.now() >= deadline) throw error;
+      await sleep(Math.min(retryDelayMs, deadline - Date.now()));
+    }
+  }
+}
+
+async function verifyBetaWebReleaseOnce({manifest, expectedCss, readLive, fetchImpl}) {
   const live = await readLive();
   for (const [key,value] of Object.entries({releaseCommit:manifest.sourceCommit,releaseSourceTree:manifest.sourceTree,releaseProtectedBaseline:manifest.protectedBaseline,releaseBuildId:manifest.buildId,rootAsset:manifest.entryAsset,storeAsset:manifest.entryAsset})) assert.equal(live[key],value,`Live Beta ${key} differs from built release`);
   const nonce = encodeURIComponent(manifest.buildId);

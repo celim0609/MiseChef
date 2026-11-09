@@ -25,7 +25,7 @@ for(const [name,change] of [
  ['missing JavaScript with HTML fallback',f=>{const fetch=f.args.fetchImpl;f.args.fetchImpl=async url=>url.endsWith('.js')?new Response('<html>',{headers:{'content-type':'text/html'}}):fetch(url);}],
  ['changed asset bytes',f=>{const fetch=f.args.fetchImpl;f.args.fetchImpl=async url=>url.endsWith('.js')?new Response('wrong',{headers:{'content-type':'text/javascript'}}):fetch(url);}],
  ['missing CSS',f=>{const fetch=f.args.fetchImpl;f.args.fetchImpl=async url=>url.endsWith('.css')?new Response('missing',{status:404}):fetch(url);}]
-]) test(`post-release gate rejects ${name}`,async()=>{const f=fixture();change(f);await assert.rejects(verifyBetaWebRelease(f.args));});
+]) test(`post-release gate rejects ${name}`,async()=>{const f=fixture();change(f);await assert.rejects(verifyBetaWebRelease({...f.args,timeoutMs:0}));});
 test('canonical release runs immutable tests before any exact incident repair and still requires live coherence',()=>{
  const source=readFileSync(new URL('./deployBeta.mjs',import.meta.url),'utf8');
  const tests=source.indexOf("path.join(trustedGateRoot, 'scripts', 'runBetaProtectedTests.mjs')");
@@ -35,4 +35,11 @@ test('canonical release runs immutable tests before any exact incident repair an
  const verify=source.indexOf('await verifyBetaWebRelease(');
  assert.ok(tests<repair && repair<coherence && coherence<deploy && deploy<verify);
  assert.match(source,/&& !verifyOnly/);
+});
+
+test('post-release gate waits for a coherent candidate without accepting a stale first read',async()=>{
+ const f=fixture();let reads=0;const live=f.args.readLive;
+ f.args.readLive=async()=>++reads===1?{...f.live,releaseCommit:'old'}:live();
+ await verifyBetaWebRelease({...f.args,retryDelayMs:0,sleep:async()=>{}});
+ assert.equal(reads,2);assert.equal(f.seen.length,6);
 });
