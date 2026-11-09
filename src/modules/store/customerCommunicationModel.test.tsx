@@ -20,8 +20,8 @@ const fulfilments = [
 test('confirmation includes every date, allocated quantity and items without claiming unpaid payment', () => {
   const text = message(order({ fulfilments }), 'confirm');
   for (const value of ['Thursday, 29 Oct', 'Friday, 30 Oct', '1 x Rice', '1 x Soup', '12:30 PM', '6:00 PM', 'Counter B']) assert.ok(text.includes(value));
-  assert.doesNotMatch(text, /Payment confirmed|[*_`]|&amp;|�/);
-  assert.match(text, /Hi Aina & Ali,/);
+  assert.doesNotMatch(text, /Payment confirmed|[_`]|&amp;|�/);
+  assert.match(text, /Hi Aina & Ali!/);
   assert.match(message(order({ payment: { status: 'paid' } as StoreOrder['payment'] }), 'confirm'), /Payment status: paid/);
 });
 test('reminder uses only the selected date and quantities, and has no entire-week fallback', () => {
@@ -72,9 +72,9 @@ test('all multi-day delivery messages use the selected date snapshot address, ti
     { ...fulfilments![1], method: 'delivery', destination: { formattedAddress: 'Day Two Address', latitude: '4.6', longitude: '101.2' } }
   ] });
   const confirmation = message(o,'confirm');
-  assert.match(confirmation,/Thursday, 29 Oct\nDelivery\nDelivery time: 12:30 PM\n1 x Rice\nDelivery address: Day One & Address/);
-  assert.match(confirmation,/Friday, 30 Oct\nDelivery\nDelivery time: 6:00 PM\n1 x Soup\nDelivery address: Day Two Address/);
-  assert.doesNotMatch(confirmation,/Stale parent|&amp;|[*_`�]/);
+  assert.match(confirmation,/Thursday, 29 Oct\*\n🍱 \*Delivery\*\n🕒 Delivery time: 12:30 PM\n• 1 x Rice\n📍 Delivery address: Day One & Address/);
+  assert.match(confirmation,/Friday, 30 Oct\*\n🍱 \*Delivery\*\n🕒 Delivery time: 6:00 PM\n• 1 x Soup\n📍 Delivery address: Day Two Address/);
+  assert.doesNotMatch(confirmation,/Stale parent|&amp;|[_`�]/);
   const reminder = message(o,'reminder','2026-10-30');
   assert.match(reminder,/Day Two Address/); assert.doesNotMatch(reminder,/Day One|Rice|Stale parent/);
   const update = message(o,'delivery','2026-10-30');
@@ -107,14 +107,14 @@ test('single-day confirmation is warm, readable and omits internal timestamps', 
   const o = order({storeName:'GG Grab&Go',pickupDate:'2026-11-02',pickupTime:'16:30',createdAt:'2026-10-29T14:27:09.401Z',payment:{status:'paid'} as StoreOrder['payment']});
   const text = message(o,'confirm');
   assert.equal(text, [
-    'Hi Aina & Ali,', '', 'Thank you for your order with GG Grab&Go!',
-    'Order number: MC-1', 'Payment status: paid', 'Subtotal: Not available',
+    '✅ *Order Confirmation*', '', 'Hi Aina & Ali! 😊', 'Thanks for ordering with us!',
+    '🧾 Order number: MC-1', '', '💰 *Payment Summary*', 'Payment status: paid', 'Subtotal: Not available',
     'Delivery Fee: Not available', 'Final Total: Not available', '',
-    'Pickup time: 4:30 PM', 'Pickup address: Counter A', '',
-    'Monday, 2 Nov', 'Pickup', '2 x Rice', '1 x Soup', '',
-    'Thank you for choosing us. Enjoy your meals!', 'GG Grab&Go'
+    '🕒 Pickup time: 4:30 PM', '📍 Pickup address: Counter A', '',
+    '📅 *Monday, 2 Nov*', '🍱 *Pickup*', '• 2 x Rice', '• 1 x Soup', '',
+    'Enjoy your meals! 💚', '*MiseChef | GG Grab&Go*'
   ].join('\n'));
-  assert.doesNotMatch(text,/2026-|16:30|Order placed|[*_`~�]|&amp;/);
+  assert.doesNotMatch(text,/2026-|16:30|Order placed|[_`~�]|&amp;/);
 });
 
 test('multi-day shared address and time appear once while meals stay grouped by date', () => {
@@ -126,7 +126,7 @@ test('multi-day shared address and time appear once while meals stay grouped by 
   assert.equal(text.split('Shared counter').length-1,1);
   assert.equal(text.split('4:30 PM').length-1,1);
   assert.match(text,/Pickup time for all dates: 4:30 PM/);
-  assert.match(text,/Monday, 2 Nov\nPickup\n1 x Rice\n\nTuesday, 3 Nov\nPickup\n1 x Soup/);
+  assert.match(text,/Monday, 2 Nov\*\n🍱 \*Pickup\*\n• 1 x Rice\n\n📅 \*Tuesday, 3 Nov\*\n🍱 \*Pickup\*\n• 1 x Soup/);
 });
 
 test('different addresses and times remain attached to their saved dates', () => {
@@ -134,8 +134,8 @@ test('different addresses and times remain attached to their saved dates', () =>
     {...fulfilments![0],method:'pickup',date:'2026-11-02',time:'09:05',pickupLocationAddress:'Counter A'},
     {...fulfilments![1],date:'2026-11-03',time:'16:30',pickupLocationAddress:'Counter B'}
   ]}),'confirm');
-  assert.match(text,/Monday, 2 Nov\nPickup\nPickup time: 9:05 AM\n1 x Rice\nPickup address: Counter A/);
-  assert.match(text,/Tuesday, 3 Nov\nPickup\nPickup time: 4:30 PM\n1 x Soup\nPickup address: Counter B/);
+  assert.match(text,/Monday, 2 Nov\*\n🍱 \*Pickup\*\n🕒 Pickup time: 9:05 AM\n• 1 x Rice\n📍 Pickup address: Counter A/);
+  assert.match(text,/Tuesday, 3 Nov\*\n🍱 \*Pickup\*\n🕒 Pickup time: 4:30 PM\n• 1 x Soup\n📍 Pickup address: Counter B/);
   assert.doesNotMatch(text,/for all dates/);
 });
 
@@ -159,12 +159,12 @@ test('mixed pickup and delivery retain the method, address and time for every da
     {...fulfilments![1],date:'2026-11-03',time:'12:00'}
   ]});
   const text=message(o,'confirm');
-  assert.match(text,/Monday, 2 Nov\nDelivery\nDelivery time: 4:30 PM\n1 x Rice\nDelivery address: Saved home address/);
-  assert.match(text,/Tuesday, 3 Nov\nPickup\nPickup time: 12:00 PM\n1 x Soup\nPickup address: Counter B/);
+  assert.match(text,/Monday, 2 Nov\*\n🍱 \*Delivery\*\n🕒 Delivery time: 4:30 PM\n• 1 x Rice\n📍 Delivery address: Saved home address/);
+  assert.match(text,/Tuesday, 3 Nov\*\n🍱 \*Pickup\*\n🕒 Pickup time: 12:00 PM\n• 1 x Soup\n📍 Pickup address: Counter B/);
   const shared=message(order({fulfilments:o.fulfilments!.map(f=>({...f,time:'16:30',destination:undefined,pickupLocationAddress:'Same saved address'})),delivery:{recipient:{address:'Same saved address'}} as StoreOrder['delivery']}),'confirm');
   assert.equal(shared.split('Same saved address').length-1,1);
   assert.equal(shared.split('4:30 PM').length-1,1);
-  assert.match(shared,/\nDelivery\n/);assert.match(shared,/\nPickup\n/);
+  assert.match(shared,/\n🍱 \*Delivery\*\n/);assert.match(shared,/\n🍱 \*Pickup\*\n/);
 });
 
 test('same-date meals group together and all actions use matching customer-friendly formatting', () => {
@@ -175,13 +175,13 @@ test('same-date meals group together and all actions use matching customer-frien
     assert.equal(text.split('4:30 PM').length-1,1);
     for(const value of ['1 x Rice','Order number: MC-1','Enjoy your meals!','GG Grab&Go'])assert.ok(text.includes(value));
     assert.equal(text.includes('1 x Soup'), action !== 'delivery');
-    assert.doesNotMatch(text,/2026-|16:30|[*_`~�]|&amp;|Order placed/);
+    assert.doesNotMatch(text,/2026-|16:30|[_`~�]|&amp;|Order placed/);
   }
 });
 
 test('date-only formatting is calendar-safe and missing information stays unspecified', () => {
   const text=message(order({customerName:'',orderNumber:'',pickupDate:'2026-02-30',pickupTime:'2026-10-29T14:27:09.401Z',pickupLocationAddress:''}),'confirm');
-  assert.match(text,/Hi there,/);assert.match(text,/Date not specified/);
+  assert.match(text,/Hi there!/);assert.match(text,/Date not specified/);
   assert.doesNotMatch(text,/2026-|March|Order number:|time:|address:/);
   for(const [saved,expected] of [['00:00','12:00 AM'],['12:00','12:00 PM'],['23:59','11:59 PM'],['4:30 pm','4:30 PM'],['Lunch','Lunch'],['4 PM','4:00 PM'],['16:30 - 18:00','4:30 PM - 6:00 PM']]){
     assert.ok(message(order({pickupTime:saved}),'confirm').includes(`Pickup time: ${expected}`));
@@ -256,7 +256,7 @@ test('isolated Healthy Lunch fixture keeps the gift, notes and address on their 
     'Final Total: MYR 43.00', 'Promotions: 11.11 Lunch deal', 'Pack separately', 'No onions',
     'Sauce on the side', 'Less ice']) assert.ok(confirmation.includes(value), value);
   assert.doesNotMatch(confirmation.split('Friday, 30 Oct')[0], /Iced Lime Tea/);
-  assert.match(confirmation.split('Friday, 30 Oct')[1], /2 x Iced Lime Tea \(complimentary\)/);
+  assert.match(confirmation.split('Friday, 30 Oct')[1], /🍹 2 x Iced Lime Tea \(complimentary\)/);
   const firstReminder = message(o, 'reminder');
   assert.match(firstReminder, /Healthy Lunch Chicken Rice/);
   assert.match(firstReminder, /No onions/);
@@ -317,6 +317,57 @@ test('staff-only and ambiguous notes are excluded from every customer action', (
       const text = message({ ...base, ...source }, action);
       assert.match(text, /Ring the bell/);
       assert.doesNotMatch(text, /STAFF/);
+    }
+  }
+});
+
+test('each WhatsApp action keeps its emoji heading and bold syntax in the editable draft and link', () => {
+  const pickup = order({ storeName: 'Corner Café', pickupCode: 'P123' });
+  const delivery = order({ storeName: 'Corner Café', fulfilments: [fulfilments![0]] });
+  const cases = [
+    [pickup, 'confirm', '*Order Confirmation*'],
+    [delivery, 'reminder', '📅 *Order Reminder*'],
+    [pickup, 'reminder', '📅 *Pickup Reminder*'],
+    [delivery, 'delivery', '🚗 *Delivery Update*']
+  ] as const;
+
+  for (const [o, action, heading] of cases) {
+    const text = message(o, action);
+    assert.ok(text.startsWith(heading));
+    assert.match(text, /Hi Aina & Ali! 😊/);
+    assert.match(text, /🧾 Order number: MC-1/);
+    assert.match(text, /📅 \*Thursday, 29 Oct\*/);
+    assert.match(text, /Enjoy your meals! 💚\n\*Corner Café\*\nPowered by MiseChef$/);
+    assert.doesNotMatch(text, /GG Grab&Go/);
+
+    const markup = renderToStaticMarkup(<WhatsAppMessagePreview order={o} country="MY" message={text}
+      onChange={() => {}} onClose={() => {}} />);
+    assert.ok(markup.match(/<textarea[^>]*>([\s\S]*?)<\/textarea>/)?.[1].includes(heading));
+    const href = markup.match(/href="([^"]+)"/)?.[1]?.replaceAll('&amp;', '&');
+    assert.ok(href);
+    assert.equal(new URL(href).searchParams.get('text'), text);
+  }
+
+  assert.match(message(pickup, 'reminder'), /🔑 Pickup code: P123/);
+  assert.match(message(pickup, 'confirm'), /💰 \*Payment Summary\*/);
+  assert.match(message(order({ storeName: ' ', fulfilments: [fulfilments![0]] }), 'confirm'), /\*Shop\*\nPowered by MiseChef$/);
+});
+
+
+test('all four message templates keep store branding in a single closing signature', () => {
+  for (const [storeName, signature] of [
+    ['GG Grab&Go', '*MiseChef | GG Grab&Go*'],
+    ['MiseChef | GG Grab&Go', '*MiseChef | GG Grab&Go*'],
+    ['Corner Café', '*Corner Café*\nPowered by MiseChef'],
+    ['MiseChef Test Store', '*MiseChef Test Store*']
+  ]) {
+    const pickup = order({ storeName });
+    const delivery = order({ storeName, fulfilments: [fulfilments![0]] });
+    for (const text of [message(pickup, 'confirm'), message(delivery, 'reminder'),
+      message(pickup, 'reminder'), message(delivery, 'delivery')]) {
+      assert.ok(text.endsWith(signature));
+      assert.doesNotMatch(text.slice(0, -signature.length), /GG Grab&Go|Corner Café|MiseChef/);
+      assert.equal(text.match(/MiseChef/g)?.length, 1);
     }
   }
 });

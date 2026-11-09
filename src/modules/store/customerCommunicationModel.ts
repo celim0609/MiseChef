@@ -4,7 +4,7 @@ import { getStoreOrderBreakdown } from './storeOrderBreakdown';
 import { formatRegionCurrency } from '../../regions';
 import type { StoreOrder, StoreOrderItem, MealOptionSnapshot } from './types';
 import type { RegionCode } from '../../regions';
-import { normalizeCustomerWhatsAppDestination } from './whatsappOrderConfirmation';
+import { normalizeCustomerWhatsAppDestination, whatsappStoreSignature } from './whatsappOrderConfirmation';
 
 export type CustomerAction = 'confirm' | 'reminder' | 'delivery';
 export type DeliveryProvider = 'Lalamove' | 'Grab' | 'Private Driver';
@@ -131,18 +131,23 @@ export function customerActionMessage(order: StoreOrder, action: CustomerAction,
   const schedule = customerMessageSchedule(order).filter(entry => action === 'confirm'
     || (selectedDate && entry.date === selectedDate && (action !== 'delivery' || entry.method === 'delivery')));
   if (!schedule.length) return '';
-  const brand = plainText(order.storeName || storeName);
+  const brand = plainText(order.storeName) || plainText(storeName);
   const customer = plainText(order.customerName);
-  const intro = action === 'confirm' ? `Thank you for your order${brand ? ` with ${brand}` : ''}!`
-    : action === 'reminder' ? `A friendly reminder about your order${brand ? ` from ${brand}` : ''}.`
-      : `Here's the latest update on your order${brand ? ` from ${brand}` : ''}.`;
-  const lines = [customer ? `Hi ${customer},` : 'Hi there,', '', intro];
-  if (plainText(order.orderNumber)) lines.push(`Order number: ${plainText(order.orderNumber)}`);
+  const pickupOnly = schedule.every(entry => entry.method === 'pickup');
+  const paid = order.payment.status === 'paid';
+  const title = action === 'confirm' ? (paid ? '✅ *Order Confirmation*' : '*Order Confirmation*')
+    : action === 'delivery' ? '🚗 *Delivery Update*'
+      : pickupOnly ? '📅 *Pickup Reminder*' : '📅 *Order Reminder*';
+  const intro = action === 'confirm' ? 'Thanks for ordering with us!'
+    : action === 'reminder' ? `A quick reminder about your ${pickupOnly ? 'pickup' : 'order'}.`
+      : 'Here’s the latest on your delivery.';
+  const lines = [title, '', customer ? `Hi ${customer}! 😊` : 'Hi there! 😊', intro];
+  if (plainText(order.orderNumber)) lines.push(`🧾 Order number: ${plainText(order.orderNumber)}`);
   if (action === 'confirm') {
     const { subtotal, deliveryFee, discount, finalTotal, currency } = getStoreOrderBreakdown(order);
     const money = (amount?: number) => amount !== undefined && ['MYR', 'SGD'].includes(currency)
       ? formatRegionCurrency(amount, currency) : 'Not available';
-    lines.push(`Payment status: ${order.payment.status.replaceAll('_', ' ')}`,
+    lines.push('', '💰 *Payment Summary*', `Payment status: ${order.payment.status.replaceAll('_', ' ')}`,
       `Subtotal: ${money(subtotal)}`, `Delivery Fee: ${money(deliveryFee)}`);
     if (discount) lines.push(`Discounts: −${money(discount)}`);
     lines.push(`Final Total: ${money(finalTotal)}`);
@@ -162,17 +167,17 @@ export function customerActionMessage(order: StoreOrder, action: CustomerAction,
   const addressLabel = sameMethod ? `${methodLabel(schedule[0])} address` : 'Address';
   const allDates = new Set(schedule.map(entry => entry.date)).size > 1 ? ' for all dates' : '';
   if (commonTime || commonAddress) lines.push('');
-  if (commonTime) lines.push(`${timeLabel}${allDates}: ${commonTime}`);
-  if (commonAddress) lines.push(`${addressLabel}${allDates}: ${commonAddress}`);
+  if (commonTime) lines.push(`🕒 ${timeLabel}${allDates}: ${commonTime}`);
+  if (commonAddress) lines.push(`📍 ${addressLabel}${allDates}: ${commonAddress}`);
   const groups = new Map<string, MessageSchedule[]>();
   for (const entry of schedule) groups.set(entry.date, [...(groups.get(entry.date) || []), entry]);
   const usedTracking = new Set<string>();
   for (const [day, entries] of [...groups].sort(([a], [b]) => a.localeCompare(b))) {
-    lines.push('', messageDate(day));
+    lines.push('', `📅 *${messageDate(day)}*`);
     for (const entry of entries) {
       const method = methodLabel(entry);
-      lines.push(method);
-      if (!commonTime && messageTime(entry.time)) lines.push(`${method} time: ${messageTime(entry.time)}`);
+      lines.push(`🍱 *${method}*`);
+      if (!commonTime && messageTime(entry.time)) lines.push(`🕒 ${method} time: ${messageTime(entry.time)}`);
       const items = new Map<string, MessageItem>();
       for (const item of entry.items) {
         const key = JSON.stringify([item.name, item.complimentary, item.remarks]);
@@ -180,11 +185,11 @@ export function customerActionMessage(order: StoreOrder, action: CustomerAction,
         items.set(key, { ...item, quantity: (previous?.quantity ?? 0) + item.quantity });
       }
       for (const item of items.values()) {
-        lines.push(`${item.quantity} x ${item.name}${item.complimentary ? ' (complimentary)' : ''}`);
+        lines.push(`${item.complimentary ? '🍹 ' : '• '}${item.quantity} x ${item.name}${item.complimentary ? ' (complimentary)' : ''}`);
         if (item.remarks?.length) lines.push(`  ${item.remarks.join(' · ')}`);
       }
-      for (const remark of entry.remarks ?? []) lines.push(`Special request: ${remark}`);
-      if (!commonAddress && plainText(entry.address)) lines.push(`${method} address: ${plainText(entry.address)}`);
+      for (const remark of entry.remarks ?? []) lines.push(`📝 Special request: ${remark}`);
+      if (!commonAddress && plainText(entry.address)) lines.push(`📍 ${method} address: ${plainText(entry.address)}`);
       if (action === 'delivery') {
         if (!deliveryOptions || deliveryOptions.provider === 'Lalamove') {
           lines.push(`${method} status: ${messageStatus(entry.status)}`);
@@ -198,10 +203,11 @@ export function customerActionMessage(order: StoreOrder, action: CustomerAction,
   }
   if (action === 'delivery' && suppliedTracking) lines.push('', `Track your delivery: ${suppliedTracking}`);
   if (hasCustomerNotes(order) && plainText(order.notes)) {
-    lines.push('', `Order remarks: ${plainText(order.notes)}`);
+    lines.push('', `📝 Order remarks: ${plainText(order.notes)}`);
   }
-  if (order.pickupCode && schedule.some(entry => entry.method === 'pickup')) lines.push('', `Pickup code: ${plainText(order.pickupCode)}`);
-  lines.push('', 'Thank you for choosing us. Enjoy your meals!', brand);
+  if (order.pickupCode && schedule.some(entry => entry.method === 'pickup')) lines.push('', `🔑 Pickup code: ${plainText(order.pickupCode)}`);
+  lines.push('', 'Enjoy your meals! 💚');
+  lines.push(whatsappStoreSignature(brand));
   return lines.join('\n').trim();
 }
 export function customerActionUrl(order: StoreOrder, country: RegionCode, message: string) {
