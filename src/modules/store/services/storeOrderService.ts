@@ -99,6 +99,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     storeId: readString(data.storeId),
     workspaceId: readString(data.workspaceId),
     orderSource: data.orderSource === 'pos' ? 'pos' : 'online',
+    hasSavedOnlineSource: data.orderSource === 'online',
     ...(externalOrder && ['shopeefood', 'walk_in', 'other', 'whatsapp', 'phone'].includes(readString(externalOrder.source)) ? { externalOrder: {
       source: readString(externalOrder.source) as NonNullable<StoreOrder['externalOrder']>['source'],
       ...(readString(externalOrder.externalOrderNumber) ? { externalOrderNumber: readString(externalOrder.externalOrderNumber) } : {})
@@ -120,6 +121,9 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     fulfilmentMethod: canonicalFulfilmentMethod(data),
     totals: data.totals && typeof data.totals === 'object' ? data.totals as StoreOrder['totals'] : undefined,
     delivery: data.delivery && typeof data.delivery === 'object' ? data.delivery as StoreOrder['delivery'] : undefined,
+    ...(data.deliveryPricingSnapshot && typeof data.deliveryPricingSnapshot === 'object'
+      ? { deliveryPricingSnapshot: data.deliveryPricingSnapshot as StoreOrder['deliveryPricingSnapshot'] }
+      : {}),
     customerReminders: data.customerReminders as StoreOrder['customerReminders'],
     fulfilments: normalizeOrderFulfilments(Array.isArray(data.fulfilments) ? data.fulfilments.map(entry => ({ ...entry, method: canonicalFulfilmentMethod(data, entry) })) : undefined),
     fulfilmentCompletion: data.fulfilmentCompletion as StoreOrder['fulfilmentCompletion'],
@@ -134,6 +138,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     pickupLocationAddress: readString(data.pickupLocationAddress),
     pickupLocationNotes: readString(data.pickupLocationNotes),
     notes: readString(data.notes),
+    ...(data.promotionSnapshot ? { promotionSnapshot: data.promotionSnapshot as StoreOrder['promotionSnapshot'] } : {}),
     ...(data.promotionCodeSnapshot ? {promotionCodeSnapshot:structuredClone(data.promotionCodeSnapshot) as StoreOrder['promotionCodeSnapshot']} : {}),
     items: Array.isArray(data.items) ? data.items.map(normalizeStoreOrderItem) : [],
     itemCount: readNumber(data.itemCount),

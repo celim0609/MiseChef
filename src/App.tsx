@@ -2157,6 +2157,7 @@ export default function App() {
           <StorePosPage
             canReviewGroupDelivery={import.meta.env.VITE_FIREBASE_PROJECT_ID === 'misechef-beta-fa4bf' && getStorePermissions(currentWorkspaceRole).manageStoreSettings}
             canRecordReminders={getStorePermissions(currentWorkspaceRole).processOrders}
+            canPreviewWhatsApp={getStorePermissions(currentWorkspaceRole).manageStoreSettings}
             storeId={currentWorkspace.id}
             workspaceId={currentWorkspace.id}
             workspaceName={currentWorkspace.name}

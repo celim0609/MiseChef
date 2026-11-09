@@ -461,6 +461,7 @@ export interface StoreOrderItemOption {
 }
 
 export interface StoreOrderItem {
+  complimentary?: boolean;
   calories?: number;
   description?: string;
   healthyLunchSnapshot?: { planId: string; date: string } & MealOptionSnapshot;
@@ -526,7 +527,17 @@ export interface StoreNotification {
   createdAt: string;
 }
 
+interface SavedDeliveryCharge {
+  customerDeliveryFee?: number;
+  days?: Array<{ date: string; customerDeliveryFee?: number }>;
+}
+
 export interface StoreOrder {
+  deliveryPricingSnapshot?: SavedDeliveryCharge & {
+    firstDayFee?: number;
+    fulfilmentCount?: number;
+    finalDeliveryTotal?: number;
+  };
   groupDelivery?: { releasedAt?: string };
   promotionCodeSnapshot?: import('./promotionCodeTypes').PromotionCodeSnapshot;
   customerReminders?: Record<string, { status: 'draft_opened' | 'owner_confirmed_sent'; updatedAt: string; updatedBy: string }>;
@@ -541,6 +552,7 @@ export interface StoreOrder {
   storeId: string;
   workspaceId: string;
   orderSource: StoreOrderSource;
+  hasSavedOnlineSource?: boolean;
   externalOrder?: StoreExternalOrder;
   deletedAt?: string;
   deletedBy?: string;
@@ -554,7 +566,7 @@ export interface StoreOrder {
     fulfilmentMethod: 'delivery';
     fulfilmentMode?: 'preorder' | 'instant';
     schedule?: { mode?: 'preorder' | 'instant'; date?: string; time?: string; session?: string };
-    // Checkout pricing/address snapshots are created server-side at payment time.
+    pricing?: SavedDeliveryCharge;
     // The fields below are server-controlled mutable delivery operations only.
     dispatch?: { status?: string; errorCode?: string; attempt?: number };
     lifecycle?: { state?: 'not_started' | 'assigning_driver' | 'driver_assigned' | 'picked_up' | 'completed' | 'canceled' | 'expired' | 'rejected'; providerStatus?: string; changedAt?: string; history?: Array<{ state: string; providerStatus: string; source: string; occurredAt: string }> };
