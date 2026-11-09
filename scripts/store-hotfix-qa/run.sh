@@ -7,6 +7,15 @@ expected=a00cd7fd7d16d3e898bc2e763619d526e5b849e1
 test "$(git -C "$candidate" rev-parse HEAD)" = "$expected"
 test -z "$(git -C "$candidate" status --porcelain)"
 : "${QA_TOOLS:?path to pinned QA dependencies}"
+# Fail before starting if a local run would reuse any existing service.
+node --input-type=module <<'JS'
+import { createServer } from 'node:net';
+for (const port of [5179, 8080, 9099, 5001]) {
+  const server = createServer();
+  await new Promise((resolve, reject) => server.once('error', reject).listen(port, '127.0.0.1', resolve));
+  await new Promise(resolve => server.close(resolve));
+}
+JS
 scratch=$(mktemp -d)
 entry=$(mktemp -d "$candidate/store-hotfix-qa.XXXXXX")
 cleanup() {
