@@ -13,7 +13,7 @@ export interface FulfilmentOperation {
   kitchenStatus?: string;
   dispatch?: { status?: string; errorCode?: string; identity?: string };
   lifecycle?: { state?: string; providerStatus?: string };
-  providerOrder?: { orderId?: string; status?: string; priceBreakdown?: Record<string, unknown> };
+  providerOrder?: { orderId?: string; status?: string; shareLink?: string; priceBreakdown?: Record<string, unknown> };
 }
 import type { RegionCode, RegionCurrency } from '../../regions';
 
@@ -521,6 +521,7 @@ export interface StoreNotification {
 }
 
 export interface StoreOrder {
+  customerReminders?: Record<string, { status: 'draft_opened' | 'owner_confirmed_sent'; updatedAt: string; updatedBy: string }>;
   fulfilments?: OrderFulfilment[];
   fulfilmentCompletion?: Record<string, { completedAt: string; completedBy: string }>;
   fulfilmentOperations?: Record<string, FulfilmentOperation>;
