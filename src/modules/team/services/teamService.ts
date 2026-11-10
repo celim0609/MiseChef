@@ -138,10 +138,12 @@ const ensureOwnerMember = async (
   return ownerMember;
 };
 
-const loadWorkspaceMembers = async (workspaceId: string) => {
+const loadWorkspaceMembers = async (workspaceId: string, activeOnly = false) => {
   if (!db) return [];
 
-  const membersQuery = query(collection(db, 'workspaceMembers'), where('workspaceId', '==', workspaceId));
+  const membersQuery = query(collection(db, 'workspaceMembers'), where('workspaceId', '==', workspaceId),
+    ...(activeOnly ? [where('status', '==', 'Active')] : [])
+  );
   const snapshot = await getDocs(membersQuery);
 
   return snapshot.docs
@@ -243,6 +245,10 @@ const logTeamEvent = async ({
 };
 
 export const teamService = {
+  loadActiveWorkspaceMembers(workspaceId: string) {
+    return loadWorkspaceMembers(workspaceId, true);
+  },
+
   getDefaultRoles() {
     return TEAM_ROLE_ORDER.map(name => ({ name, description: TEAM_ROLE_DESCRIPTIONS[name] }));
   },

@@ -1875,6 +1875,9 @@ service cloud.firestore {
         );
       allow read: if resource.data.userId == request.auth.uid
         || (isWorkspaceManagerLevel(resource.data.workspaceId) && hasProfessionalWorkspaceEntitlement(resource.data.workspaceId));
+      allow list: if resource.data.status == 'Active'
+        && isWorkspaceOwnerOrManager(resource.data.workspaceId)
+        && hasActiveBusinessEntitlement(resource.data.workspaceId);
       allow update: if isWorkspaceManagerLevel(resource.data.workspaceId)
         && hasProfessionalWorkspaceEntitlement(resource.data.workspaceId)
         && request.resource.data.id == resource.data.id
