@@ -214,9 +214,8 @@ export function customerActionMessage(order: StoreOrder, action: CustomerAction,
     }
   }
   if (action === 'delivery' && suppliedTracking) lines.push('', `Track your delivery: ${suppliedTracking}`);
-  if (hasCustomerNotes(order) && plainText(order.notes)) {
-    lines.push('', `📝 Order remarks: ${plainText(order.notes)}`);
-  }
+  const customerRemarks = plainText(order.customerRemarks ?? (hasCustomerNotes(order) ? order.notes : ''));
+  if (customerRemarks) lines.push('', `📝 Order remarks: ${customerRemarks}`);
   if (order.pickupCode && schedule.some(entry => entry.method === 'pickup')) lines.push('', `🔑 Pickup code: ${plainText(order.pickupCode)}`);
   lines.push('', 'Enjoy your meals! 💚');
   lines.push(whatsappStoreSignature(brand));

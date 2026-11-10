@@ -58,7 +58,7 @@ const customerOrder = document => {
     ...(data.promotionCodeSnapshot ? {promotionCodeSnapshot:structuredClone(data.promotionCodeSnapshot)} : {}),
     itemCount: Math.max(0, readNumber(data.itemCount)),
     items,
-    remarks: readString(data.notes),
+    remarks: typeof data.customerRemarks === 'string' ? data.customerRemarks : readString(data.notes),
     total: Math.max(0, readNumber(data.total)),
     fulfilmentMethod: data.fulfilmentMethod === 'delivery' ? 'delivery' : 'pickup',
     ...(hasNumber(totals.grandTotal) ? { totals: {

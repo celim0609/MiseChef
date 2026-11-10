@@ -316,6 +316,7 @@ export const dispatchStoreDelivery = async ({ db, provider, uid, orderId, fulfil
     if (TERMINAL_DELIVERY_STATES.has(readString(delivery.lifecycle?.state))) throw deliveryError('This delivery is terminal. Merchant review is required before requesting a replacement.');
     if (delivery.dispatch?.status === 'created') return { order, alreadyCreated: true };
     if (['creating', 'outcome_unknown', 'cancel_requested'].includes(delivery.dispatch?.status)) return { order, alreadyCreating: true, status: delivery.dispatch.status };
+    if (order.deliveryFeeReviewRequired) throw deliveryError('Delivery address changed. Review the saved delivery fee and coordinate the booking manually.');
     const resolved = resolveDeliveryDispatchData(order);
     if (resolved.issues.length) throw new HttpsError('failed-precondition', deliveryBlockedMessage(resolved.issues), { fields: resolved.issues.map(issue => issue.field) });
     transaction.update(orderRef, {
@@ -501,6 +502,7 @@ export const dispatchFulfilmentDelivery = async args => {
     if (order.fulfilmentStatus === 'Completed' || order.fulfilmentCompletion?.[entry.id]) throw deliveryError('This fulfilment is already completed.');
     const currentEntry = order.fulfilments.find(day => day.id === entry.id);
     if (!currentEntry || canonicalFulfilmentMethod(order, currentEntry) !== 'delivery') throw deliveryError('Choose a delivery fulfilment.');
+    if (order.deliveryFeeReviewRequired) throw deliveryError('Delivery address changed. Review the saved delivery fee and coordinate the booking manually.');
     const resolved = resolveDeliveryDispatchData(order, currentEntry);
     if (args.validateConfirmation) args.validateConfirmation(order, currentEntry, resolved);
     if (resolved.issues.length) throw new HttpsError('failed-precondition', deliveryBlockedMessage(resolved.issues), { fields: resolved.issues.map(issue => issue.field) });

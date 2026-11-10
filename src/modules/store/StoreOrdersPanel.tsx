@@ -426,10 +426,10 @@ export default function StoreOrdersPanel({
 
             <StoreOrderTotals order={selectedOrder} currency={currency} country={country} />
 
-            {selectedOrder.notes && (
+            {(selectedOrder.customerRemarks ?? selectedOrder.notes) && (
               <div className="mt-5 rounded-2xl bg-yellow-50 p-4">
                 <p className="font-sans text-[10px] font-extrabold uppercase text-yellow-800">Customer Notes</p>
-                <p className="mt-1 font-sans text-sm font-bold text-yellow-950">{selectedOrder.notes}</p>
+                <p className="mt-1 font-sans text-sm font-bold text-yellow-950">{selectedOrder.customerRemarks ?? selectedOrder.notes}</p>
               </div>
             )}
 
@@ -515,6 +515,7 @@ export default function StoreOrdersPanel({
               {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && activeDeliveryLifecycle(selectedOrder.delivery?.lifecycle?.state) && <button type="button" disabled={isUpdating} onClick={() => refreshDelivery(selectedOrder.id)} className="mt-3 rounded-full border border-outline px-5 py-3 font-sans text-xs font-extrabold text-primary disabled:opacity-50">Refresh delivery</button>}
               {canProcessOrders && selectedOrder.fulfilmentMethod === 'delivery' && !selectedOrder.fulfilments && ['assigning_driver', 'driver_assigned'].includes(selectedOrder.delivery?.lifecycle?.state || '') && <button type="button" disabled={isUpdating} onClick={() => cancelDelivery(selectedOrder.id)} className="mt-3 rounded-full border border-error px-5 py-3 font-sans text-xs font-extrabold text-error disabled:opacity-50">Cancel Lalamove delivery</button>}
             </div>
+            {selectedOrder.deliveryFeeReviewRequired && <p role="status" className="mt-3 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-950">Delivery address changed. Review the original delivery fee and coordinate the booking manually.</p>}
             <div key={selectedOrder.id} className="mt-3 w-full min-w-0"><WhatsAppCustomerButton
               canRecordReminder={canProcessOrders}
               canPreview={canPreviewWhatsApp}

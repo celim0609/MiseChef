@@ -758,3 +758,13 @@ test('deployed trigger is inert and the sole booking callable requires manual co
   const callable=source.slice(source.indexOf('export const dispatchStoreLalamoveDelivery'),source.indexOf('export const refreshStoreLalamoveDelivery'));
   assert.match(callable,/confirmMerchantDelivery/);assert.match(callable,/confirmed: request.data/);
 });
+
+test('address edits that require manual fee review stop dispatch before any provider call', async () => {
+  const fixture = dispatchFixture();
+  const order = fixture.db.documents['storeOrders/multi'];
+  order.deliveryFeeReviewRequired = true;
+  const before = structuredClone(order);
+  await assert.rejects(dispatchStoreDelivery(fixture.args), /Review the saved delivery fee/);
+  assert.deepEqual(fixture.counts(), { quotes: 0, creations: 0 });
+  assert.deepEqual(order, before);
+});

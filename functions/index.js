@@ -1,3 +1,4 @@
+import { editStoreOrder } from './storeOrderEdits.js';
 import { createPosPlaces, consumePosQuoteRate } from './posPlaces.js';
 import { managePosOrder, listDeletedPosOrders } from './posOrderManagement.js';
 import { extractPasteOrder, pasteOrderSchema } from './posPasteOrder.js';
@@ -2609,3 +2610,6 @@ export const extractStorePosPasteOrder = onCall({ region: REGION, secrets: [gemi
 
 export const manageStorePosOrder = onCall({region:REGION,timeoutSeconds:30},request=>managePosOrder({db,uid:request.auth?.uid,input:request.data}));
 export const listDeletedStorePosOrders = onCall({region:REGION,timeoutSeconds:30},request=>listDeletedPosOrders({db,uid:request.auth?.uid,input:request.data}));
+
+export const editStoreOrderDetails = onCall({ region: REGION, timeoutSeconds: 30 }, request =>
+  editStoreOrder({ db, uid: request.auth?.uid, input: request.data }));

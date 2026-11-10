@@ -543,3 +543,107 @@ test('POS cancel and soft-delete enforce roles, preserve financial/provider reco
   const list=await listDeletedPosOrders({...args,uid:owner});assert.equal(list.orders.length,2);assert.equal(list.cursor,null);
  }finally{await deleteApp(app);}
 });
+
+test('Phase 1 edits preserve paid multi-day snapshots and keep the audit private', async () => {
+  assert.ok(process.env.FIRESTORE_EMULATOR_HOST, 'Firestore emulator is required.');
+  const { editStoreOrder } = await import('../functions/storeOrderEdits.js');
+  const { initializeTestEnvironment, assertFails } = await import('@firebase/rules-unit-testing');
+  const { doc, getDoc, setDoc } = await import('firebase/firestore');
+  const projectId = 'demo-misechef-store-payment-rules';
+  const app = initializeApp({ projectId }, 'store-edit-phase-1');
+  const env = await initializeTestEnvironment({ projectId });
+  const db = getFirestore(app);
+  const workspaceId = 'qa-phase-one-workspace';
+  const ownerId = 'qa-phase-one-owner';
+  const managerId = 'qa-phase-one-manager';
+  const chefId = 'qa-phase-one-chef';
+  const ref = db.collection('storeOrders').doc('qa-phase-one-order');
+  const dates = ['2026-08-24', '2026-08-25'];
+  const now = new Date('2026-08-22T02:00:00Z');
+  const original = {
+    workspaceId, storeId: workspaceId, orderSource: 'online', fulfilmentMethod: 'delivery',
+    fulfilmentStatus: 'New', customerName: 'Original name', phone: '0123456789', notes: 'Original request',
+    total: 44, totals: { merchandiseSubtotal: 30, deliveryFee: 14, grandTotal: 44 },
+    payment: { status: 'paid', amountMinor: 4400, providerTransactionId: 'synthetic-payment', refundStatus: 'partial' },
+    items: [{ productName: 'Lunch', quantity: 2, lineTotal: 30 }],
+    deliveryPricingSnapshot: { days: dates.map(date => ({ date, customerDeliveryFee: 7 })) },
+    posDeliveryPricing: { days: dates.map(date => ({ date, time: '12:00', customerDeliveryFee: 7 })) },
+    fulfilments: dates.map((date, i) => ({
+      id: `slot-${i}`, date, time: '12:00', method: 'delivery', allocations: [{ itemIndex: 0, quantity: 1 }],
+      destination: { formattedAddress: 'Original synthetic address', latitude: '4.5', longitude: '101.1', deliveryInstructions: 'Ring bell' }
+    }))
+  };
+  const edit = (uid, input = {}) => editStoreOrder({ db, uid, now, input: { orderId: ref.id, ...input } });
+  try {
+    await db.collection('workspaces').doc(workspaceId).set({ ownerId, subscriptionPlan: 'professional', subscriptionStatus: 'active' });
+    await db.collection('stores').doc(workspaceId).set({ workspaceId, country: 'MY' });
+    for (const [uid, role] of [[managerId, 'Manager'], [chefId, 'Chef']]) {
+      await db.collection('workspaceMembers').doc(`${workspaceId}_${uid}`).set({ userId: uid, workspaceId, role, status: 'Active' });
+    }
+    await ref.set(original);
+    await assert.rejects(edit(''), { code: 'unauthenticated' });
+    await assert.rejects(edit(chefId), { code: 'permission-denied' });
+    await assert.rejects(edit('unrelated-user'), { code: 'permission-denied' });
+    const { revision } = await edit(ownerId);
+    await assert.rejects(edit(managerId, { revision, changes: { total: 0 } }), { code: 'invalid-argument' });
+    await assert.rejects(edit(managerId, { revision, changes: { slots: [{ id: 'slot-0', date: '2026-08-26' }] } }), { code: 'invalid-argument' });
+    await assert.rejects(edit(managerId, { revision, changes: { slots: [{ id: 'slot-0', time: '99:99' }] } }), { code: 'invalid-argument' });
+    await edit(managerId, { revision, changes: {
+      customerName: 'Updated name', phone: '0191234567', customerRemarks: 'Pack separately', internalNotes: 'Staff only',
+      slots: [{ id: 'slot-0', time: '13:30', address: 'Updated synthetic address' }]
+    } });
+    await assert.rejects(edit(ownerId, { revision, changes: { customerName: 'Stale write' } }), { code: 'failed-precondition' });
+    const saved = (await ref.get()).data();
+    for (const field of ['items', 'total', 'totals', 'payment', 'deliveryPricingSnapshot', 'posDeliveryPricing']) {
+      assert.deepEqual(saved[field], original[field]);
+    }
+    assert.deepEqual(saved.fulfilments.map(day => day.date), dates);
+    assert.deepEqual(saved.fulfilments.map(day => day.allocations), original.fulfilments.map(day => day.allocations));
+    assert.equal(saved.fulfilments[0].time, '13:30');
+    assert.equal(saved.fulfilments[0].destination.formattedAddress, 'Updated synthetic address');
+    assert.equal(saved.fulfilments[0].destination.deliveryInstructions, 'Ring bell');
+    assert.equal(saved.fulfilments[0].destination.latitude, undefined);
+    assert.deepEqual(saved.fulfilments[1], original.fulfilments[1]);
+    assert.equal(saved.deliveryFeeReviewRequired, true);
+    assert.equal(saved.internalNotes, undefined);
+    const current = await edit(ownerId);
+    assert.equal(current.internalNotes, 'Staff only');
+    assert.equal(current.audit.length, 1);
+    assert.equal(current.audit[0].actor, managerId);
+    assert.deepEqual(current.audit[0].changes[0], { field: 'customerName', before: 'Original name', after: 'Updated name' });
+    const auditRef = (await ref.collection('editAudit').get()).docs[0].ref;
+    const clientDb = env.authenticatedContext(ownerId).firestore();
+    await assertFails(getDoc(doc(clientDb, auditRef.path)));
+    await assertFails(getDoc(doc(clientDb, ref.collection('editPrivate').doc('notes').path)));
+    await assertFails(setDoc(doc(clientDb, auditRef.path), { actor: ownerId }));
+    for (const status of ['creating', 'created', 'outcome_unknown', 'cancel_requested']) {
+      await ref.update({ fulfilmentOperations: { 'slot-1': { dispatch: { status } } } });
+      const locked = await edit(ownerId);
+      assert.ok(locked.slots.every(slot => slot.blocked));
+      await assert.rejects(edit(ownerId, { revision: locked.revision,
+        changes: { slots: [{ id: 'slot-0', address: 'Another synthetic address' }] } }), { code: 'failed-precondition' });
+      await assert.rejects(edit(ownerId, { revision: locked.revision,
+        changes: { slots: [{ id: 'slot-0', time: '14:00' }] } }), { code: 'failed-precondition' });
+    }
+    for (const state of [
+      { fulfilmentStatus: 'Completed' }, { fulfilmentStatus: 'Cancelled' }, { deletedAt: now.toISOString() },
+      { groupDelivery: {} }, { groupOrder: {} }, { manualOrder: { revision: 1 }, payment: { status: 'pending' } }
+    ]) {
+      await ref.set({ ...original, ...state });
+      await assert.rejects(edit(ownerId), { code: 'failed-precondition' });
+    }
+    const { fulfilments, ...base } = original;
+    await ref.set({ ...base, orderSource: 'pos', fulfilmentMethod: 'pickup', pickupDate: '2026-08-22', pickupTime: '12:00' });
+    const pickup = await edit(managerId);
+    await assert.rejects(edit(managerId, { revision: pickup.revision,
+      changes: { slots: [{ id: 'single', time: '09:00' }] } }), { code: 'invalid-argument' });
+    await edit(managerId, { revision: pickup.revision, changes: { slots: [{ id: 'single', time: '11:30' }] } });
+    const updatedPickup = (await ref.get()).data();
+    assert.equal(updatedPickup.pickupDate, '2026-08-22');
+    assert.equal(updatedPickup.pickupTime, '11:30');
+    assert.deepEqual(updatedPickup.payment, original.payment);
+  } finally {
+    await env.cleanup();
+    await deleteApp(app);
+  }
+});
