@@ -66,18 +66,27 @@ export default function PersonalExpensesPage({
 }: PersonalExpensesPageProps) {
   const region = useWorkspaceRegion();
   const canManage = workspaceRole === 'Owner' || workspaceRole === 'Manager';
-  const [teamMembers, setTeamMembers] = useState<WorkspaceMemberSummary[]>([]);
+  const [team, setTeam] = useState<{
+    workspaceId: string;
+    userId: string;
+    members: WorkspaceMemberSummary[];
+  } | null>(null);
+  const [teamError, setTeamError] = useState('');
+  const currentTeam = canManage && team?.workspaceId === workspaceId && team.userId === userId ? team : null;
   const activeMembers = useMemo(
-    () => (teamMembers.length ? teamMembers : workspaceMembers).filter(member => member.status === 'Active'),
-    [teamMembers, workspaceMembers]
+    () => (currentTeam?.members ?? workspaceMembers).filter(member => member.status === 'Active'),
+    [currentTeam, workspaceMembers]
   );
   useEffect(() => {
     let cancelled = false;
-    setTeamMembers([]);
+    setTeam(null);
+    setTeamError('');
     if (!canManage || !userId) return;
-    void teamService.loadTeam({ userId, workspaceId }).then(data => {
-      if (!cancelled) setTeamMembers(data.members.map(member => ({ userId: member.userId, email: member.email, displayName: member.displayName, role: member.role, status: member.status })));
-    }).catch(() => undefined);
+    void teamService.loadActiveWorkspaceMembers(workspaceId).then(members => {
+      if (!cancelled) setTeam({ workspaceId, userId, members });
+    }).catch(() => {
+      if (!cancelled) setTeamError('Unable to load workspace members.');
+    });
     return () => { cancelled = true; };
   }, [canManage, userId, workspaceId]);
   const defaultMemberId = useMemo(() => {
@@ -131,9 +140,10 @@ export default function PersonalExpensesPage({
   };
 
   useEffect(() => { void loadRecords(); }, [workspaceId, canManage]);
+  const hasSelectedMember = activeMembers.some(member => form.memberId === `${workspaceId}_${member.userId}`);
   useEffect(() => {
-    setForm(current => current.memberId ? current : { ...current, memberId: defaultMemberId });
-  }, [defaultMemberId]);
+    if (!hasSelectedMember) setForm(current => ({ ...current, memberId: defaultMemberId }));
+  }, [defaultMemberId, hasSelectedMember]);
 
   const resetForm = () => {
     setForm({ amount: '', expenseDate: today(), description: '', category: '', merchant: '', memberId: defaultMemberId });
@@ -207,7 +217,7 @@ export default function PersonalExpensesPage({
 
   const saveExpense = async (event: FormEvent) => {
     event.preventDefault();
-    if (!userId) return;
+    if (!userId || !hasSelectedMember || (canManage && !currentTeam)) return;
     setIsSaving(true);
     setFormError('');
     try {
@@ -380,15 +390,18 @@ export default function PersonalExpensesPage({
                 <datalist id="personal-expense-categories">{EXPENSE_CATEGORIES.map(category => <option key={category} value={category} />)}</datalist>
               </label>
               <label className="font-sans text-xs font-extrabold text-primary">Paid by
-                <select required value={form.memberId} onChange={event => setForm({ ...form, memberId: event.target.value })} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-3 py-3 text-sm outline-none focus:border-secondary">
+                <select required disabled={canManage && !currentTeam} value={form.memberId} onChange={event => setForm({ ...form, memberId: event.target.value })} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-3 py-3 text-sm outline-none focus:border-secondary">
                   <option value="">Select member</option>
                   {activeMembers.map(member => <option key={member.userId} value={`${workspaceId}_${member.userId}`}>{member.displayName}</option>)}
                 </select>
+                {canManage && !currentTeam && (
+                  <span className="mt-1 block" role="status">{teamError || 'Loading workspace members…'}</span>
+                )}
               </label>
             </div>
             <div className="flex gap-3 pt-3">
               <button type="button" onClick={() => cancelEntry('choice')} className="rounded-full border border-surface-container-high px-5 py-3 font-sans text-sm font-extrabold text-primary">Back</button>
-              <button type="submit" disabled={isSaving || isExtracting || activeMembers.length === 0} className="flex-1 rounded-full bg-primary px-5 py-3 font-sans text-sm font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : 'Save Expense'}</button>
+              <button type="submit" disabled={isSaving || isExtracting || !hasSelectedMember || (canManage && !currentTeam)} className="flex-1 rounded-full bg-primary px-5 py-3 font-sans text-sm font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : 'Save Expense'}</button>
             </div>
           </form>
         </Modal>
