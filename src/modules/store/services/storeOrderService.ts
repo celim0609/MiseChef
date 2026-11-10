@@ -141,6 +141,8 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     pickupLocationAddress: readString(data.pickupLocationAddress),
     pickupLocationNotes: readString(data.pickupLocationNotes),
     notes: readString(data.notes),
+    customerRemarks: typeof data.customerRemarks === 'string' ? data.customerRemarks : undefined,
+    deliveryFeeReviewRequired: data.deliveryFeeReviewRequired === true,
     ...(data.promotionSnapshot ? { promotionSnapshot: data.promotionSnapshot as StoreOrder['promotionSnapshot'] } : {}),
     ...(data.promotionCodeSnapshot ? {promotionCodeSnapshot:structuredClone(data.promotionCodeSnapshot) as StoreOrder['promotionCodeSnapshot']} : {}),
     items: Array.isArray(data.items) ? data.items.map(normalizeStoreOrderItem) : [],

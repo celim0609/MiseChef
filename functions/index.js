@@ -1,3 +1,4 @@
+import { editStoreOrder } from './storeOrderEdits.js';
 import { listGroupDeliveryReview, getGroupDeliveryReview, estimateGroupDelivery, approveGroupDelivery } from './groupDeliveryReview.js';
 import { getGroupDeliveryConfiguration, requireGroupDeliveryBeta, requireCustomer, eligibility, configureGroupDelivery, getGroupDelivery, reserveGroupDelivery, cancelGroupDelivery, expireGroupDelivery, quoteGroupDeliveryFallback, requestGroupDeliveryCancellation, verifyGroupDeliveryFee, prepareGroupMealCheckout, releaseGroupMeal } from './groupDelivery.js';
 import { createGroupDeliveryPlaces, consumeGroupDeliveryRate } from './groupDeliveryPlaces.js';
@@ -2708,3 +2709,6 @@ export const extractStorePosPasteOrder = onCall({ region: REGION, secrets: [gemi
 
 export const manageStorePosOrder = onCall({region:REGION,timeoutSeconds:30},request=>managePosOrder({db,uid:request.auth?.uid,input:request.data}));
 export const listDeletedStorePosOrders = onCall({region:REGION,timeoutSeconds:30},request=>listDeletedPosOrders({db,uid:request.auth?.uid,input:request.data}));
+
+export const editStoreOrderDetails = onCall({ region: REGION, timeoutSeconds: 30 }, request =>
+  editStoreOrder({ db, uid: request.auth?.uid, input: request.data }));

@@ -371,3 +371,20 @@ test('all four message templates keep store branding in a single closing signatu
     }
   }
 });
+
+test('future WhatsApp drafts use edited customer details and explicit visible remarks', () => {
+  const updated = order({
+    orderSource: 'pos', customerName: 'Updated name', phone: '0191234567', customerRemarks: 'Pack separately',
+    notes: 'Private legacy note', fulfilments: [
+      { ...fulfilments![0], time: '13:30', destination: { formattedAddress: 'Updated synthetic address', latitude: '', longitude: '' } },
+      fulfilments![1]
+    ]
+  });
+  for (const action of ['confirm', 'reminder', 'delivery'] as const) {
+    const text = message(updated, action);
+    for (const value of ['Updated name', 'Pack separately', '1:30 PM', 'Updated synthetic address']) assert.ok(text.includes(value), value);
+    assert.doesNotMatch(text, /Private legacy note/);
+    assert.equal(new URL(customerActionUrl(updated, 'MY', text)).searchParams.get('phone'), '60191234567');
+  }
+  assert.doesNotMatch(message({ ...updated, customerRemarks: '' }, 'confirm'), /Pack separately|Private legacy note/);
+});

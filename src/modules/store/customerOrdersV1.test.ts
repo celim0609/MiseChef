@@ -72,7 +72,7 @@ test('My Orders renders each owned order item snapshot without mixing cards', ()
   assert.doesNotMatch(ordersPage, /replaceAll\('_', ' '\)|order\.fulfilmentStatus \|\| order\.orderStatus/);
   assert.match(customerBackend, /const items = \(Array\.isArray\(data\.items\)/);
   assert.match(customerBackend, /promotionSnapshot/);
-  assert.match(customerBackend, /remarks: readString\(data\.notes\)/);
+  assert.match(customerBackend, /remarks: typeof data\.customerRemarks === 'string' \? data\.customerRemarks : readString\(data\.notes\)/);
   assert.doesNotMatch(customerBackend, /productId:|setId:|optionId:|receiptPath:/);
 });
 

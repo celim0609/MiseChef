@@ -1,3 +1,4 @@
+import EditOrderDialog, { canEditOrderDetails } from './EditOrderDialog';
 import {useEffect,useRef,useState} from 'react';
 import {doc,getDoc} from 'firebase/firestore';
 import {httpsCallable} from 'firebase/functions';
@@ -14,19 +15,24 @@ function useAccess(workspaceId:string){
   void permissions.get(key)!.then(result=>{if(active)setAccess(result);});return()=>{active=false;};
  },[workspaceId]);return access;
 }
-export default function OrderManagementActions({order,onChanged}:{order:StoreOrder;onChanged?:()=>void}){
+export default function OrderManagementActions({order,onChanged,editOnly=false}:{order:StoreOrder;onChanged?:()=>void;editOnly?:boolean}){
  const access=useAccess(order.workspaceId),[action,setAction]=useState<'cancel'|'delete'|null>(null),[reason,setReason]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);const inFlight=useRef(false);
+ const [editingOrderId,setEditingOrderId]=useState('');
  const allowed=access.owner||access.manager;
  if(!allowed||order.deletedAt||order.groupOrder)return null;
  const submit=async()=>{
   if(inFlight.current||!reason.trim()||!action)return;inFlight.current=true;setBusy(true);setError('');
   try{if(!functions)throw Error('Order management unavailable.');await httpsCallable(functions,'manageStorePosOrder')({orderId:order.id,action,reason});setAction(null);setReason('');onChanged?.();}catch(e){setError(e instanceof Error?e.message:'Unable to update the order.');}finally{inFlight.current=false;setBusy(false);}
  };
+ const editable = canEditOrderDetails(order);
+ if (editOnly && !editable) return null;
  return <>
-  <details className="mt-2"><summary className="cursor-pointer rounded border px-3 py-2 text-sm font-bold">More Actions</summary>
+  {editable && <button type="button" className="mt-2 min-h-11 rounded border px-4 text-sm font-bold" onClick={() => setEditingOrderId(order.id)}>Edit Order</button>}
+  {editingOrderId === order.id && <EditOrderDialog orderId={order.id} onClose={() => setEditingOrderId('')} onSaved={onChanged} />}
+  {!editOnly && <details className="mt-2"><summary className="cursor-pointer rounded border px-3 py-2 text-sm font-bold">More Actions</summary>
    {!['Completed','Cancelled'].includes(order.fulfilmentStatus)&&<button type="button" onClick={()=>{setAction('cancel');setReason('');setError('');}} className="m-1 rounded border px-3 py-2 text-sm">Cancel Order</button>}
    {(access.owner||order.payment.status!=='paid')&&<button type="button" onClick={()=>{setAction('delete');setReason('');setError('');}} className="m-1 rounded border border-red-300 px-3 py-2 text-sm text-red-700">Delete Order</button>}
-  </details>
+  </details>}
   {action&&<div className="fixed inset-0 z-[160] flex items-center justify-center overflow-y-auto bg-black/60 p-3"><section role="dialog" aria-modal="true" aria-label={action==='delete'?'Delete order confirmation':'Cancel order confirmation'} className="w-full max-w-lg rounded-xl bg-white p-5 text-slate-950">
    <h3 className="text-lg font-bold">{action==='delete'?'Delete':'Cancel'} {order.orderNumber}?</h3>
    <p className="my-2 text-sm">{action==='delete'?'This hides the order from operational queues and retains its financial and audit records.':'This cancels fulfilment and retains the order in history.'} Payments are not refunded and external delivery bookings are not cancelled by this action.</p>

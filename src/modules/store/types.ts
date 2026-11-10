@@ -533,6 +533,8 @@ interface SavedDeliveryCharge {
 }
 
 export interface StoreOrder {
+  customerRemarks?: string;
+  deliveryFeeReviewRequired?: boolean;
   posDeliveryPricing?: SavedDeliveryCharge;
   deliveryPricingSnapshot?: SavedDeliveryCharge & {
     firstDayFee?: number;
