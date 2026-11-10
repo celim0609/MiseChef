@@ -67,6 +67,36 @@ const seedWorkspaces = async () => testEnv.withSecurityRulesDisabled(async rules
 });
 
 describe('personal expense integrity and workspace isolation', () => {
+  test('Starter Owners and Managers can list active teammates and save expenses for them', async () => {
+    await seedWorkspaces();
+    const manager = 'manager-a';
+    await testEnv.withSecurityRulesDisabled(async rulesDisabled => {
+      const db = rulesDisabled.firestore();
+      await updateDoc(doc(db, 'workspaces', workspaceA), { subscriptionPlan: 'starter' });
+      await setDoc(doc(db, 'workspaceMembers', `${workspaceA}_${manager}`), {
+        workspaceId: workspaceA, userId: manager, role: 'Manager', status: 'Active'
+      });
+      await setDoc(doc(db, 'workspaceMembers', `${workspaceA}_removed`), {
+        workspaceId: workspaceA, userId: 'removed', role: 'Chef', status: 'Removed'
+      });
+    });
+
+    const activeTeam = (db, workspaceId) => query(collection(db, 'workspaceMembers'),
+      where('workspaceId', '==', workspaceId), where('status', '==', 'Active'));
+    for (const userId of [ownerA, manager]) {
+      const db = context(userId).firestore();
+      const roster = await assertSucceeds(getDocs(activeTeam(db, workspaceA)));
+      assert.deepEqual(roster.docs.map(member => member.id).sort(),
+        [memberAId, financeAId, `${workspaceA}_${ownerA}`, `${workspaceA}_${manager}`].sort());
+      await assertFails(getDocs(activeTeam(db, workspaceB)));
+      const id = `expense-by-${userId}`;
+      const reference = doc(db, 'personalExpenses', id);
+      await assertSucceeds(setDoc(reference, expense(id, { createdBy: userId, memberId: financeAId })));
+      assert.equal((await assertSucceeds(getDoc(reference))).data().memberId, financeAId);
+    }
+    await assertFails(getDocs(activeTeam(context('member-a').firestore(), workspaceA)));
+  });
+
   test('an active workspace member records the selected payer and can read the saved expense', async () => {
     await seedWorkspaces();
     const memberDb = context('member-a').firestore();
