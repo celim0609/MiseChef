@@ -16,6 +16,7 @@ import { useWorkspaceRegion } from '../../regions';
 import { deriveMoneyOwed, formatPersonalExpenseCurrency, getTotalMoneyOwed } from './model';
 import { PERSONAL_EXPENSE_MERCHANT_MAX_LENGTH } from './merchant';
 import { personalExpenseService } from './services/personalExpenseService';
+import { teamService } from '../team/services/teamService';
 import type { MemberMoneyOwed, PersonalExpense, PersonalExpenseSettlement } from './types';
 
 const EXPENSE_CATEGORIES = ['Food & Ingredients', 'Equipment', 'Transport', 'Utilities', 'Office', 'Repairs & Maintenance', 'Other'];
@@ -65,10 +66,20 @@ export default function PersonalExpensesPage({
 }: PersonalExpensesPageProps) {
   const region = useWorkspaceRegion();
   const canManage = workspaceRole === 'Owner' || workspaceRole === 'Manager';
+  const [teamMembers, setTeamMembers] = useState<WorkspaceMemberSummary[]>([]);
   const activeMembers = useMemo(
-    () => workspaceMembers.filter(member => member.status === 'Active'),
-    [workspaceMembers]
+    () => (teamMembers.length ? teamMembers : workspaceMembers).filter(member => member.status === 'Active'),
+    [teamMembers, workspaceMembers]
   );
+  useEffect(() => {
+    let cancelled = false;
+    setTeamMembers([]);
+    if (!canManage || !userId) return;
+    void teamService.loadTeam({ userId, workspaceId }).then(data => {
+      if (!cancelled) setTeamMembers(data.members.map(member => ({ userId: member.userId, email: member.email, displayName: member.displayName, role: member.role, status: member.status })));
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [canManage, userId, workspaceId]);
   const defaultMemberId = useMemo(() => {
     const member = activeMembers.find(item => item.userId === userId) || activeMembers[0];
     return member ? `${workspaceId}_${member.userId}` : '';
