@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { after, before, test } from 'node:test';
 import { assertFails, assertSucceeds, initializeTestEnvironment } from '@firebase/rules-unit-testing';
-import { Timestamp, doc, getDoc, setDoc } from 'firebase/firestore';
+import { Timestamp, deleteDoc, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes } from 'firebase/storage';
 
 const projectId = 'demo-misechef-business-entitlement-rules';
@@ -78,4 +78,18 @@ test('public Store browsing remains subscription-free and customer writes remain
     workspaceId: 'workspace-active',
     storeId: 'workspace-active'
   }));
+});
+
+test('legacy manual sales are readable by the owning workspace and immutable for clients', async () => {
+  const sale = { id: 'legacy-sale', workspaceId: 'workspace-active', createdBy: 'owner-active', date: '2026-11-02', amount: 58 };
+  await environment.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'businessSales', sale.id), sale);
+  });
+  const db = owner('active').firestore();
+  const legacy = doc(db, 'businessSales', sale.id);
+  await assertSucceeds(getDoc(legacy));
+  await assertFails(getDoc(doc(owner('trial').firestore(), 'businessSales', sale.id)));
+  await assertFails(setDoc(doc(db, 'businessSales', 'new-sale'), { ...sale, id: 'new-sale' }));
+  await assertFails(updateDoc(legacy, { amount: 59 }));
+  await assertFails(deleteDoc(legacy));
 });

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { projectDailyDeliveries, projectDailySales, type DailySalesOrder } from './dailySalesProjection';
+import { projectDailyDeliveries, projectDailySales, projectOrderSalesRecords, type DailySalesOrder } from './dailySalesProjection';
 
 const weekly = (): DailySalesOrder => ({
   id: 'weekly-1', total: 60,
@@ -165,4 +165,50 @@ test('external POS delivery uses the saved per-day fee and provider quote', () =
   };
   assert.deepEqual(projectDailySales(order).map(entry => entry.deliveryMinor), [0, 500, 0]);
   assert.deepEqual(projectDailyDeliveries(order).map(entry => entry.quotedCostMinor), [1000, 700]);
+});
+
+test('sales records preserve unrecognized rows and separate original charges from recognized amounts', () => {
+  const order = scheduled();
+  order.orderSource = 'pos';
+  order.externalOrder = { source: 'walk_in' };
+  order.paymentMethodId = 'cash_on_pickup';
+  order.paymentMethodName = 'Cash';
+  order.totals!.discountTotal = 10;
+  order.payment = { status: 'paid', refundStatus: 'partial', refundedAmountMinor: 701 };
+  const rows = projectOrderSalesRecords(order);
+  assert.deepEqual(rows.map(row => [row.grossMinor, row.discountMinor, row.focQuantity]), [[2000, 1000, 0], [1901, 0, 0], [0, 0, 2]]);
+  assert.equal(rows[0].scheduledDate, '2026-11-09');
+  assert.equal(rows[0].completedAt, '2026-11-09T06:00:00Z');
+  assert.equal(rows[0].source, 'Walk-in');
+  assert.equal(rows[0].paymentMethod, 'Cash');
+  assert.equal(rows.reduce((total, row) => total + row.totalMinor, 0), 2200);
+  order.fulfilmentStatus = 'Cancelled';
+  assert(projectOrderSalesRecords(order).every(row => row.fulfilmentStatus === 'Cancelled' && !row.recognized && row.totalMinor === 0));
+  assert.deepEqual(projectDailySales(order), []);
+});
+
+test('late completion preserves its actual action timestamp and weekly meal snapshot name', () => {
+  const order = weekly();
+  order.weeklyFulfilments![0].date = '2026-11-09';
+  order.weeklyCompletion!.mon!.completedAt = '2026-11-12T05:00:00Z';
+  order.items[0].weeklyPlanSnapshot = { meals: [{ day: 'mon', productId: 'meal', productName: 'Monday set', photoUrl: '' }] };
+  const rows = projectOrderSalesRecords(order);
+  assert.deepEqual([rows[0].scheduledDate, rows[0].completedAt, rows[0].items[0].name, rows[0].totalMinor],
+    ['2026-11-09', '2026-11-12T05:00:00Z', 'Monday set', 1200]);
+  assert.equal(rows[2].recognized, false);
+  assert.equal(rows[2].grossMinor, 1200);
+});
+
+test('FOC promotion quantity comes from saved terms and excludes paid add-ons', () => {
+  const order = scheduled();
+  order.items[0] = { productId: 'meal', productName: 'Meal', quantity: 3, lineTotal: 30, basePrice: 10 };
+  order.fulfilments![0].allocations[0].quantity = 3;
+  const promotion = order.promotionSnapshot!;
+  promotion.lineAdjustments[0] = { ...promotion.lineAdjustments[0], quantity: 3, originalLineTotal: 30,
+    discountAmount: 10, finalLineTotal: 20, promotionId: 'buy2' };
+  promotion.appliedPromotions = [{ promotionId: 'buy2', name: 'Buy two get one', type: 'buy_x_get_y',
+    terms: { buyQuantity: 2, getQuantity: 1 }, savings: 10 }];
+  assert.equal(projectOrderSalesRecords(order)[0].focQuantity, 1);
+  order.items[0].basePrice = 8;
+  assert.equal(projectOrderSalesRecords(order)[0].focQuantity, 0);
 });

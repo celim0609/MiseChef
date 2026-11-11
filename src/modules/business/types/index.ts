@@ -26,7 +26,7 @@ export interface BusinessDashboardSummary {
   };
 }
 
-export type BusinessDashboardPeriod = 'today' | 'this-week' | 'this-month' | 'last-month' | 'custom';
+export type BusinessDashboardPeriod = 'today' | 'yesterday' | 'this-week' | 'this-month' | 'last-month' | 'custom';
 
 export interface BusinessDateRange {
   from: string;
@@ -41,6 +41,9 @@ export interface BusinessDailyTrend {
   merchandiseSales: number;
   deliveryRevenue: number;
   refundAdjustments: number;
+  focQuantity: number;
+  deliveryCount: number;
+  legacySales: number;
   sales: number;
   purchases: number;
   purchaseCostPercentage: number | null;
