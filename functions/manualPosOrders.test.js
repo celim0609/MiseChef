@@ -303,6 +303,50 @@ const workspace = {
   subscriptionPlan: "professional",
   subscriptionStatus: "active",
 };
+test("manual save restarts a closed collision lookup and rechecks the request ledger", async () => {
+  const { db, docs, writes } = database({ "workspaces/s": workspace });
+  const runTransaction = db.runTransaction;
+  const closed = Object.assign(new Error("3 INVALID_ARGUMENT: Transaction is invalid or closed."), { code: 3 });
+  let attempts = 0;
+  db.runTransaction = (handler) => runTransaction(async (transaction) => {
+    attempts++;
+    if (attempts === 1) {
+      const get = transaction.get;
+      transaction.get = async (reference) => {
+        if (reference.query) throw closed;
+        return get(reference);
+      };
+      return handler(transaction);
+    }
+    const saved = await handler(transaction);
+    if (attempts === 2) throw closed; // A committed request can lose its response.
+    return saved;
+  });
+  const result = await saveManualPosOrder({ db, uid: "owner", input: input(), now, loadCheckout: async () => checkout });
+  assert.equal(attempts, 3);
+  assert.equal(result.duplicate, true);
+  assert.equal(docs[`storeOrders/${result.orderId}`].payment.status, "pending");
+  for (const collection of ["storeOrders", "storeManualOrderRequests", "storeOrderTimeline", "stores/s/orderNumberReservations"]) {
+    assert.equal(writes.filter((path) => path.startsWith(`${collection}/`)).length, 1);
+  }
+});
+
+test("manual save bounds closed transaction retries and preserves other invalid arguments", async () => {
+  const args = { uid: "owner", input: input(), now, loadCheckout: async () => checkout };
+  for (const [message, attemptsExpected] of [["Transaction is invalid or closed.", 3], ["Invalid query.", 1]]) {
+    const { db, writes } = database({ "workspaces/s": workspace });
+    const error = Object.assign(new Error(message), { code: 3 });
+    let attempts = 0;
+    db.runTransaction = async () => {
+      attempts++;
+      throw error;
+    };
+    await assert.rejects(saveManualPosOrder({ ...args, db }), (failure) => failure === error);
+    assert.equal(attempts, attemptsExpected);
+    assert.equal(writes.length, 0);
+  }
+});
+
 test("saved Owner and Manager Custom Items above 20 use canonical prices; staff and cross-store requests fail", async () => {
   const { db, docs } = database({
     "workspaces/s": workspace,
