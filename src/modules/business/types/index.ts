@@ -1,3 +1,5 @@
+import type { DailyDeliveryRecord } from '../dailySalesProjection';
+
 export interface BusinessSale {
   id: string;
   date: string;
@@ -15,6 +17,7 @@ export interface BusinessDashboardSummary {
   netResult: number;
   purchaseCostPercentage: number | null;
   trend: BusinessDailyTrend[];
+  deliveries: DailyDeliveryRecord[];
   topSuppliers: BusinessTopSupplier[];
   alerts: BusinessAlert[];
   availability: {
@@ -32,6 +35,12 @@ export interface BusinessDateRange {
 
 export interface BusinessDailyTrend {
   date: string;
+  orderCount: number;
+  fulfilmentCount: number;
+  itemQuantity: number;
+  merchandiseSales: number;
+  deliveryRevenue: number;
+  refundAdjustments: number;
   sales: number;
   purchases: number;
   purchaseCostPercentage: number | null;

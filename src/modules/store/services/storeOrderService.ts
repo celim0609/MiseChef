@@ -113,7 +113,12 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     phone: readString(data.phone),
     fulfilmentMethod: data.fulfilmentMethod === 'delivery' ? 'delivery' : 'pickup',
     totals: data.totals && typeof data.totals === 'object' ? data.totals as StoreOrder['totals'] : undefined,
+    promotionSnapshot: data.promotionSnapshot && typeof data.promotionSnapshot === 'object' ? data.promotionSnapshot as StoreOrder['promotionSnapshot'] : undefined,
     delivery: data.delivery && typeof data.delivery === 'object' ? data.delivery as StoreOrder['delivery'] : undefined,
+    deliveryPricingSnapshot: data.deliveryPricingSnapshot && typeof data.deliveryPricingSnapshot === 'object'
+      ? data.deliveryPricingSnapshot as StoreOrder['deliveryPricingSnapshot'] : undefined,
+    posDeliveryPricing: data.posDeliveryPricing && typeof data.posDeliveryPricing === 'object'
+      ? data.posDeliveryPricing as StoreOrder['posDeliveryPricing'] : undefined,
     fulfilments: normalizeOrderFulfilments(data.fulfilments),
     fulfilmentCompletion: data.fulfilmentCompletion as StoreOrder['fulfilmentCompletion'],
     fulfilmentOperations: data.fulfilmentOperations as StoreOrder['fulfilmentOperations'],
@@ -344,41 +349,14 @@ export const storeOrderService = {
     ));
   },
 
-  async getCompletedWorkspaceOrdersForBusinessDate(
-    workspaceId: string,
-    start: Date,
-    end: Date
-  ): Promise<StoreOrder[]> {
+  async listWorkspaceOrdersForBusiness(workspaceId: string): Promise<StoreOrder[]> {
     if (!db || !workspaceId) return [];
-    const baseConstraints = [
-      where('workspaceId', '==', workspaceId),
-      where('fulfilmentStatus', '==', 'Completed')
-    ] as const;
-    const [canonicalSnapshot, legacySnapshot] = await Promise.all([
-      getDocs(query(
-        collection(db, 'storeOrders'),
-        ...baseConstraints,
-        where('completedAt', '>=', Timestamp.fromDate(start)),
-        where('completedAt', '<', Timestamp.fromDate(end)),
-        orderBy('completedAt', 'desc'),
-        limit(STORE_ORDER_DATE_QUERY_LIMIT)
-      )),
-      getDocs(query(
-        collection(db, 'storeOrders'),
-        ...baseConstraints,
-        where('completedAt', '>=', start.toISOString()),
-        where('completedAt', '<', end.toISOString()),
-        orderBy('completedAt', 'desc'),
-        limit(STORE_ORDER_DATE_QUERY_LIMIT)
-      ))
-    ]);
-    const ordersById = new Map(
-      [...canonicalSnapshot.docs, ...legacySnapshot.docs]
-        .map(snapshot => [snapshot.id, normalizeOrder(snapshot)] as const)
-    );
-    return [...ordersById.values()].sort((a, b) => (
-      getOrderCompletionTimestamp(b).localeCompare(getOrderCompletionTimestamp(a))
+    // Child completion timestamps are stored under dynamic fulfilment IDs.
+    const snapshot = await getDocs(query(
+      collection(db, 'storeOrders'),
+      where('workspaceId', '==', workspaceId)
     ));
+    return snapshot.docs.map(normalizeOrder);
   },
 
   subscribeTimeline(

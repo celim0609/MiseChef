@@ -9,11 +9,21 @@ export interface PublicOrderFulfilment {
   pickupLocationName: string; completed: boolean;
   meals: Array<{ productName: string; quantity: number } & MealOptionSnapshot>;
 }
+export interface StoreDeliveryProviderOrder {
+  orderId?: string;
+  status?: string;
+  shareLink?: string;
+  priceBreakdown?: { total?: string | number };
+}
+
+export type StoreDeliveryProvider = 'lalamove' | 'grab' | 'private_driver';
+
 export interface FulfilmentOperation {
+  provider?: StoreDeliveryProvider;
   kitchenStatus?: string;
   dispatch?: { status?: string; errorCode?: string; identity?: string };
   lifecycle?: { state?: string; providerStatus?: string };
-  providerOrder?: { orderId?: string; status?: string; priceBreakdown?: Record<string, unknown> };
+  providerOrder?: StoreDeliveryProviderOrder;
 }
 import type { RegionCode, RegionCurrency } from '../../regions';
 
@@ -520,7 +530,17 @@ export interface StoreNotification {
   createdAt: string;
 }
 
+interface SavedDeliveryCharge {
+  customerDeliveryFee?: number;
+  providerDeliveryFee?: number | null;
+  days?: Array<{ date: string; merchandiseSubtotal?: number; customerDeliveryFee?: number; providerDeliveryFee?: number; freeDeliveryApplied?: boolean }>;
+}
+
 export interface StoreOrder {
+  posDeliveryPricing?: SavedDeliveryCharge;
+  deliveryPricingSnapshot?: SavedDeliveryCharge & {
+    finalDeliveryTotal?: number;
+  };
   fulfilments?: OrderFulfilment[];
   fulfilmentCompletion?: Record<string, { completedAt: string; completedBy: string }>;
   fulfilmentOperations?: Record<string, FulfilmentOperation>;
@@ -538,15 +558,17 @@ export interface StoreOrder {
   promotionSnapshot?: StoreOrderPromotionSnapshot;
   delivery?: {
     fulfilmentMethod: 'delivery';
+    provider?: StoreDeliveryProvider;
+    pricing?: SavedDeliveryCharge;
     fulfilmentMode?: 'preorder' | 'instant';
     schedule?: { mode?: 'preorder' | 'instant'; date?: string; time?: string; session?: string };
     // Checkout pricing/address snapshots are created server-side at payment time.
     // The fields below are server-controlled mutable delivery operations only.
     dispatch?: { status?: string; errorCode?: string; attempt?: number };
     lifecycle?: { state?: 'not_started' | 'assigning_driver' | 'driver_assigned' | 'picked_up' | 'completed' | 'canceled' | 'expired' | 'rejected'; providerStatus?: string; changedAt?: string; history?: Array<{ state: string; providerStatus: string; source: string; occurredAt: string }> };
-    providerOrder?: { orderId?: string; status?: string; driverId?: string; shareLink?: string; driver?: { name?: string; phone?: string; plateNumber?: string; photo?: string; coordinates?: { lat?: string; lng?: string; updatedAt?: string } } };
+    providerOrder?: StoreDeliveryProviderOrder & { driverId?: string; driver?: { name?: string; phone?: string; plateNumber?: string; photo?: string; coordinates?: { lat?: string; lng?: string; updatedAt?: string } } };
     recipient?: { address?: string };
-    quote?: { fee?: number; expiresAt?: string };
+    quote?: { fee?: number; quotationId?: string; expiresAt?: string };
   };
   customerUid?: string;
   groupOrder?: {
