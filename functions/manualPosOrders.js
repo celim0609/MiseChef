@@ -291,7 +291,7 @@ export async function saveManualPosOrder({
   const orderRef = input.orderId
     ? db.collection("storeOrders").doc(text(input.orderId, 150, true))
     : db.collection("storeOrders").doc();
-  return db.runTransaction(async (tx) => {
+  const save = () => db.runTransaction(async (tx) => {
     const transactionPosFullAccess = await assertOperator({ db, uid, workspaceId, posFullAccess: true, transaction: tx });
     if (posFullAccess && !transactionPosFullAccess)
       throw new HttpsError("permission-denied", "POS ordering access changed. Reload and try again.");
@@ -329,23 +329,22 @@ export async function saveManualPosOrder({
       (await createAvailableOrderReference({
         date: now,
         exists: async ({ orderNumber, pickupCode, businessDateKey }) => {
-          const [reserved, matches] = await Promise.all([
-            tx.get(
-              db
-                .collection("stores")
-                .doc(storeId)
-                .collection("orderNumberReservations")
-                .doc(`${businessDateKey}_${pickupCode}`),
-            ),
-            tx.get(
-              db
-                .collection("storeOrders")
-                .where("storeId", "==", storeId)
-                .where("orderNumber", "==", orderNumber)
-                .limit(1),
-            ),
-          ]);
-          return reserved.exists || !matches.empty;
+          const reserved = await tx.get(
+            db
+              .collection("stores")
+              .doc(storeId)
+              .collection("orderNumberReservations")
+              .doc(`${businessDateKey}_${pickupCode}`),
+          );
+          if (reserved.exists) return true;
+          const matches = await tx.get(
+            db
+              .collection("storeOrders")
+              .where("storeId", "==", storeId)
+              .where("orderNumber", "==", orderNumber)
+              .limit(1),
+          );
+          return !matches.empty;
         },
       }));
     const { privateItems, ...snapshot } = built;
@@ -461,6 +460,22 @@ export async function saveManualPosOrder({
       duplicate: false,
     };
   });
+
+  // A contended Firestore query can close the transaction with code 3.
+  // The SDK retries ABORTED and expired transactions, but not this response.
+  // Restart the whole transaction so the request ledger and authorization are read again.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await save();
+    } catch (error) {
+      if (
+        attempt === 3 ||
+        error.code !== 3 ||
+        !error.message?.includes("Transaction is invalid or closed.")
+      )
+        throw error;
+    }
+  }
 }
 
 export async function confirmManualPosPayment({
