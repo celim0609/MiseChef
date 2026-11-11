@@ -1,28 +1,43 @@
-/**
- * Read-only daily sales projection. Does not write to orders or accounting.
- * Monetary values are allocated in integer sen to avoid rounding drift.
- */
-export interface DailySalesItem {
-  quantity: number;
-  lineTotal: number;
-}
-export interface DailySalesFulfilment {
-  id: string;
-  allocations: Array<{ itemIndex: number; quantity: number; componentDay?: string }>;
-}
+import type { StoreDeliveryProvider, StoreOrder } from '../store/types';
+
+type OrderItem = Pick<StoreOrder['items'][number], 'quantity' | 'lineTotal' | 'weeklyPlanSnapshot'> & { productId?: string };
+type Allocation = { itemIndex: number; quantity: number; componentDay?: string };
+
 export interface DailySalesOrder {
   id: string;
+  orderNumber?: string;
   total: number;
-  items: DailySalesItem[];
+  items: OrderItem[];
   totals?: { discountedMerchandiseTotal?: number; deliveryFee?: number };
-  payment: { status: string; refundedAmountMinor?: number };
+  payment: { status: string; refundedAmountMinor?: number; refundStatus?: string };
   fulfilmentStatus: string;
   completedAt?: string;
-  fulfilments?: DailySalesFulfilment[];
+  fulfilmentMethod?: StoreOrder['fulfilmentMethod'];
+  pickupDate?: string;
+  createdAt?: string;
+  delivery?: StoreOrder['delivery'];
+  promotionSnapshot?: StoreOrder['promotionSnapshot'];
+  fulfilmentOperations?: StoreOrder['fulfilmentOperations'];
+  fulfilments?: Array<{ id: string; date?: string; method?: string; allocations: Allocation[] }>;
   fulfilmentCompletion?: Record<string, { completedAt: string }>;
-  weeklyFulfilments?: Array<{ day: string; quantity?: number }>;
-  weeklyCompletion?: Record<string, { completedAt: string }>;
+  weeklyFulfilments?: Array<{ day: string; date?: string; quantity?: number }>;
+  weeklyCompletion?: Partial<Record<string, { completedAt: string }>>;
 }
+
+export interface DailyDeliveryRecord {
+  orderId: string;
+  orderNumber?: string;
+  fulfilmentId: string;
+  date: string;
+  provider?: StoreDeliveryProvider;
+  status: string;
+  trackingReference?: string;
+  customerFeeMinor: number;
+  actualCostMinor?: number;
+  quotedCostMinor?: number;
+  subsidyMinor?: number;
+}
+
 export interface DailySalesEntry {
   key: string;
   orderId: string;
@@ -31,48 +46,164 @@ export interface DailySalesEntry {
   itemQuantity: number;
   merchandiseMinor: number;
   deliveryMinor: number;
+  refundMinor: number;
   totalMinor: number;
 }
-const minor = (value: number) => Math.round(value * 100);
+
+type SalesDay = {
+  id: string;
+  date?: string;
+  completedAt?: string;
+  method?: string;
+  allocations: Allocation[];
+};
+
+const minor = (value: number | undefined) => {
+  const amount = Math.round(Number(value) * 100);
+  return Number.isSafeInteger(amount) ? Math.max(0, amount) : 0;
+};
+const count = (value: number) => Number.isSafeInteger(value) ? Math.max(0, value) : 0;
+const sum = (values: number[]) => values.reduce((total, value) => total + value, 0);
+
 const distribute = (amount: number, weights: number[]): number[] => {
   if (!weights.length) return [];
-  const safe = weights.map(weight => Math.max(0, weight));
-  const sum = safe.reduce((a, b) => a + b, 0);
-  const bases = sum ? safe.map(weight => Math.floor(amount * weight / sum)) : safe.map(() => Math.floor(amount / safe.length));
-  let remainder = amount - bases.reduce((a, b) => a + b, 0);
-  for (let i = 0; remainder > 0; i = (i + 1) % bases.length) { bases[i]++; remainder--; }
-  return bases;
+  const totalWeight = sum(weights);
+  const denominator = BigInt(totalWeight || weights.length);
+  const shares = weights.map((weight, index) => {
+    const numerator = BigInt(amount) * BigInt(totalWeight ? weight : 1);
+    return { index, base: Number(numerator / denominator), remainder: numerator % denominator };
+  });
+  const unallocated = amount - sum(shares.map(share => share.base));
+  const result = shares.map(share => share.base);
+  shares.sort((a, b) => a.remainder === b.remainder ? a.index - b.index : a.remainder > b.remainder ? -1 : 1);
+  shares.slice(0, unallocated).forEach(share => { result[share.index]++; });
+  return result;
 };
+
+const getDays = (order: DailySalesOrder): SalesDay[] => {
+  if (order.fulfilments?.length) {
+    return [...new Map(order.fulfilments.map(day => [day.id, day])).values()]
+      .map(day => ({ ...day, completedAt: order.fulfilmentCompletion?.[day.id]?.completedAt }));
+  }
+  if (order.weeklyFulfilments?.length) {
+    return [...new Map(order.weeklyFulfilments.map(day => [day.day, day])).values()].map(day => ({
+      id: day.day,
+      date: day.date,
+      completedAt: order.weeklyCompletion?.[day.day]?.completedAt,
+      allocations: [{ itemIndex: 0, quantity: day.quantity ?? order.items[0]?.quantity ?? 1, componentDay: day.day }]
+    }));
+  }
+  return [{
+    id: 'single',
+    date: order.delivery?.schedule?.date || order.pickupDate,
+    completedAt: order.fulfilmentStatus === 'Completed' ? order.completedAt : undefined,
+    allocations: order.items.map((item, itemIndex) => ({ itemIndex, quantity: item.quantity }))
+  }];
+};
+
+const getMerchandiseShares = (order: DailySalesOrder, days: SalesDay[], total: number) => {
+  const savedDays = days.map(day => order.delivery?.pricing?.days?.find(price => price.date === day.date));
+  const savedShares = savedDays.map(day => minor(day?.merchandiseSubtotal));
+  if (savedDays.every(day => day?.merchandiseSubtotal !== undefined) && sum(savedShares) === total) return savedShares;
+  const adjustments = order.promotionSnapshot?.lineAdjustments;
+  const lineWeights = order.items.map((item, index) => {
+    const adjustment = adjustments?.[index];
+    return minor(adjustment && adjustment.productId === item.productId
+      && adjustment.quantity === item.quantity && minor(adjustment.originalLineTotal) === minor(item.lineTotal)
+      ? adjustment.finalLineTotal : item.lineTotal);
+  });
+  const lineAmounts = distribute(total, lineWeights);
+  const shares = days.map(() => 0);
+  order.items.forEach((item, itemIndex) => {
+    const allocations = days.flatMap((day, index) => day.allocations
+      .filter(allocation => allocation.itemIndex === itemIndex)
+      .map(allocation => ({ ...allocation, index })));
+    const extras = allocations.map(allocation => {
+      const meal = item.weeklyPlanSnapshot?.meals.find(meal => meal.day === allocation.componentDay);
+      return Math.round(meal?.optionSurchargeUnitMinor || 0) * count(allocation.quantity);
+    });
+    const base = lineAmounts[itemIndex] - sum(extras);
+    const baseShares = distribute(Math.max(0, base), allocations.map(allocation => count(allocation.quantity)));
+    allocations.forEach((allocation, index) => {
+      shares[allocation.index] += Math.max(0, baseShares[index] + extras[index]);
+    });
+  });
+  // Reconcile older snapshots with incomplete line details to the charged total.
+  return sum(shares) === total ? shares : distribute(total, shares);
+};
+
+const getDeliveryShares = (order: DailySalesOrder, days: SalesDay[], total: number) => {
+  const pricing = order.delivery?.pricing?.days;
+  const weights = days.map(day => minor(pricing?.find(price => price.date === day.date)?.customerDeliveryFee));
+  if (sum(weights) === total) return weights;
+  if (sum(weights) > 0) return distribute(total, weights);
+  const deliveryDays = days.map(day => Number(day.method === 'delivery' || (!day.method && order.fulfilmentMethod === 'delivery')));
+  return distribute(total, deliveryDays);
+};
+
+const getDeliveryTotal = (order: DailySalesOrder) => Math.min(minor(order.total), minor(
+  order.totals?.deliveryFee ?? order.delivery?.pricing?.customerDeliveryFee
+    ?? (order.totals?.discountedMerchandiseTotal === undefined
+      ? 0 : order.total - order.totals.discountedMerchandiseTotal)
+));
+
 export const projectDailySales = (order: DailySalesOrder): DailySalesEntry[] => {
   if (order.payment.status !== 'paid' || order.fulfilmentStatus === 'Cancelled') return [];
-  const deliveryMinor = minor(Math.max(0, order.totals?.deliveryFee ?? 0));
-  const merchandiseMinor = minor(Math.max(0, order.totals?.discountedMerchandiseTotal ?? (order.total - deliveryMinor / 100)));
-  const refundMinor = Math.min(merchandiseMinor + deliveryMinor, Math.max(0, order.payment.refundedAmountMinor ?? 0));
-  const refundAllocation = distribute(refundMinor, [merchandiseMinor, deliveryMinor]);
-  const netMerchandise = merchandiseMinor - refundAllocation[0];
-  const netDelivery = deliveryMinor - refundAllocation[1];
-  const source = order.fulfilments?.length
-    ? order.fulfilments.map(day => ({
-        id: day.id,
-        completedAt: order.fulfilmentCompletion?.[day.id]?.completedAt,
-        quantity: day.allocations.reduce((sum, a) => sum + Math.max(0, a.quantity), 0),
-        weight: day.allocations.reduce((sum, a) => sum + Math.max(0, a.quantity) * Math.max(0, order.items[a.itemIndex]?.lineTotal ?? 0) / Math.max(1, order.items[a.itemIndex]?.quantity ?? 1), 0)
-      }))
-    : order.weeklyFulfilments?.length
-      ? order.weeklyFulfilments.map(day => ({
-          id: day.day, completedAt: order.weeklyCompletion?.[day.day]?.completedAt,
-          quantity: Math.max(0, day.quantity ?? 1), weight: Math.max(0, day.quantity ?? 1)
-        }))
-      : [{ id: 'single', completedAt: order.fulfilmentStatus === 'Completed' ? order.completedAt : undefined,
-           quantity: order.items.reduce((sum, item) => sum + Math.max(0, item.quantity), 0),
-           weight: 1 }];
-  // Allocate against ALL scheduled days, not just completed ones.
-  const merch = distribute(netMerchandise, source.map(day => day.weight));
-  const delivery = distribute(netDelivery, source.map(day => day.weight));
-  return source.flatMap((day, index) => day.completedAt ? [{
-    key: `${order.id}:${day.id}`, orderId: order.id, fulfilmentId: day.id,
-    completedAt: day.completedAt, itemQuantity: day.quantity,
-    merchandiseMinor: merch[index], deliveryMinor: delivery[index],
-    totalMinor: merch[index] + delivery[index]
-  }] : []);
+  const days = getDays(order);
+  const total = minor(order.total);
+  const deliveryTotal = getDeliveryTotal(order);
+  const merchandise = getMerchandiseShares(order, days, total - deliveryTotal);
+  const delivery = getDeliveryShares(order, days, deliveryTotal);
+  const refund = order.payment.refundStatus === 'refunded' ? total
+    : Math.min(total, count(Math.round(order.payment.refundedAmountMinor || 0)));
+  // Allocate refunds over the original charges so the adjustment stays on each completion date.
+  const refunds = distribute(refund, [...merchandise, ...delivery]);
+  return days.flatMap((day, index) => {
+    if (!day.completedAt || !/(?:Z|[+-]\d{2}:\d{2})$/i.test(day.completedAt) || !Number.isFinite(Date.parse(day.completedAt))) return [];
+    const merchandiseMinor = merchandise[index] - refunds[index];
+    const deliveryMinor = delivery[index] - refunds[index + days.length];
+    return [{
+      key: JSON.stringify([order.id, day.id]),
+      orderId: order.id,
+      fulfilmentId: day.id,
+      completedAt: day.completedAt,
+      itemQuantity: sum(day.allocations.map(allocation => count(allocation.quantity))),
+      merchandiseMinor,
+      deliveryMinor,
+      refundMinor: refunds[index] + refunds[index + days.length],
+      totalMinor: merchandiseMinor + deliveryMinor
+    }];
+  });
+};
+
+export const projectDailyDeliveries = (order: DailySalesOrder): DailyDeliveryRecord[] => {
+  const days = getDays(order);
+  const fees = getDeliveryShares(order, days, getDeliveryTotal(order));
+  return days.flatMap((day, index) => {
+    if ((day.method || order.fulfilmentMethod || order.delivery?.fulfilmentMethod) !== 'delivery') return [];
+    const operation = order.fulfilmentOperations?.[day.id] ?? (days.length === 1 ? order.delivery : undefined);
+    const providerOrder = operation?.providerOrder;
+    const actualCost = providerOrder?.priceBreakdown?.total;
+    const quotedCost = order.delivery?.pricing?.providerDeliveryFee ?? order.delivery?.quote?.fee;
+    const actualCostMinor = actualCost != null && String(actualCost).trim() && Number.isFinite(Number(actualCost))
+      ? minor(Number(actualCost)) : undefined;
+    const quotedCostMinor = quotedCost === undefined ? undefined : minor(quotedCost);
+    const cost = actualCostMinor ?? quotedCostMinor;
+    return [{
+      orderId: order.id,
+      fulfilmentId: day.id,
+      orderNumber: order.orderNumber,
+      date: day.date || day.completedAt || (order.delivery?.fulfilmentMode === 'instant' ? order.createdAt : '') || '',
+      provider: operation?.provider ?? order.delivery?.provider
+        ?? (order.delivery?.quote?.quotationId ? 'lalamove' : undefined),
+      status: order.fulfilmentStatus === 'Cancelled' ? 'Cancelled'
+        : operation?.lifecycle?.state || providerOrder?.status || operation?.dispatch?.status
+          || (day.completedAt ? 'Completed' : 'Pending'),
+      trackingReference: providerOrder?.orderId,
+      customerFeeMinor: fees[index],
+      actualCostMinor,
+      quotedCostMinor,
+      subsidyMinor: cost === undefined ? undefined : Math.max(0, cost - fees[index])
+    }];
+  });
 };
