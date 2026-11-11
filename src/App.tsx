@@ -1034,7 +1034,8 @@ export default function App() {
             setSelectedCostingInvoiceId(getCostingInvoiceIdFromPath(pathname));
             setActiveTab(targetTab);
             if (nextTab !== 'costingInvoiceDetail') {
-              window.history.replaceState(null, '', ROOT_TAB_PATHS[targetTab]);
+              const search = targetTab === 'businessSales' ? window.location.search : '';
+              window.history.replaceState(null, '', ROOT_TAB_PATHS[targetTab] + search);
             }
             return;
           }
