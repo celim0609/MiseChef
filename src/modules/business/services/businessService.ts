@@ -65,13 +65,10 @@ export const businessService = {
     if (!userId || !workspaceId || !from || !to || from > to) {
       return calculateBusinessAccounting({ from: '1970-01-01', to: '1970-01-01', invoices: [], manualSales: [], storeOrders: [], timeZone });
     }
-    const start = new Date(`${from}T00:00:00Z`);
-    const end = new Date(`${to}T00:00:00Z`);
-    end.setUTCDate(end.getUTCDate() + 1);
     const [manualSales, invoices, storeOrders] = await Promise.all([
       this.listSales(workspaceId, { from, to }),
       invoiceService.listInvoices(userId, { workspaceId }),
-      storeOrderService.getCompletedWorkspaceOrdersForBusinessDate(workspaceId, start, end)
+      storeOrderService.listWorkspaceOrdersForBusiness(workspaceId)
     ]);
     return calculateBusinessAccounting({ from, to, invoices, manualSales, storeOrders, timeZone });
   },
