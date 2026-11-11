@@ -1,5 +1,5 @@
 import type { CostingInvoice } from '../costing/types';
-import { projectDailyDeliveries, projectDailySales } from './dailySalesProjection';
+import { projectDailyDeliveries, projectDailySales, projectOrderSalesRecords } from './dailySalesProjection';
 import type { StoreOrder } from '../store/types';
 import type {
   BusinessDashboardPeriod,
@@ -18,6 +18,8 @@ export interface BusinessAccountingReport {
   purchaseCostPercentage: number | null;
   salesTrend: BusinessDailyTrend[];
   salesEntries: ReturnType<typeof projectDailySales>;
+  salesRecords: Array<ReturnType<typeof projectOrderSalesRecords>[number] & { date: string }>;
+  legacySales: BusinessSale[];
   deliveries: ReturnType<typeof projectDailyDeliveries>;
   purchaseTrend: BusinessDailyTrend[];
   supplierSpend: BusinessTopSupplier[];
@@ -34,6 +36,8 @@ interface BusinessAccountingDay {
   merchandiseMinor: number;
   deliveryMinor: number;
   refundMinor: number;
+  focQuantity: number;
+  deliveryCount: number;
 }
 
 const shiftDateKey = (dateKey: string, days: number) => {
@@ -58,6 +62,10 @@ export const getBusinessDashboardPeriodRange = ({
   const today = getBusinessDateKey(now, timeZone);
   if (!today) return null;
   if (period === 'today') return { from: today, to: today };
+  if (period === 'yesterday') {
+    const date = shiftDateKey(today, -1);
+    return { from: date, to: date };
+  }
   if (period === 'this-month') return { from: `${today.slice(0, 7)}-01`, to: today };
   if (period === 'this-week') {
     const day = new Date(`${today}T00:00:00Z`).getUTCDay();
@@ -103,24 +111,34 @@ export const calculateBusinessAccounting = ({
   for (let cursor = new Date(`${from}T00:00:00Z`); cursor <= new Date(`${to}T00:00:00Z`); cursor.setUTCDate(cursor.getUTCDate() + 1)) {
     days.set(cursor.toISOString().slice(0, 10), {
       manualSalesMinor: 0, purchases: 0, orderIds: new Set(), fulfilmentCount: 0,
-      itemQuantity: 0, merchandiseMinor: 0, deliveryMinor: 0, refundMinor: 0
+      itemQuantity: 0, merchandiseMinor: 0, deliveryMinor: 0, refundMinor: 0, focQuantity: 0, deliveryCount: 0
     });
   }
   const eligibleInvoices = invoices.filter(invoice => isPurchaseKpiEligible(invoice) && isInDateRange(getInvoiceKpiDate(invoice, timeZone), from, to, timeZone));
-  const eligibleManualSales = manualSales.filter(sale => isInDateRange(sale.date, from, to, timeZone));
+  const eligibleManualSales = [...new Map(manualSales.map(sale => [sale.id, sale])).values()].filter(sale => isInDateRange(sale.date, from, to, timeZone));
   const orders = [...new Map(storeOrders.map(order => [order.id, order])).values()];
   const salesEntries: ReturnType<typeof projectDailySales> = [];
   const deliveries = orders.flatMap(projectDailyDeliveries).flatMap(delivery => {
     const date = normalizeInvoiceDate(delivery.date, timeZone);
     return days.has(date) ? [{ ...delivery, date }] : [];
   }).sort((a, b) => b.date.localeCompare(a.date) || a.orderId.localeCompare(b.orderId));
+  deliveries.forEach(delivery => {
+    if (['canceled', 'cancelled', 'expired', 'rejected'].includes(delivery.status.toLowerCase())) return;
+    const day = days.get(delivery.date);
+    if (day) day.deliveryCount++;
+  });
+  const salesRecords = orders.flatMap(projectOrderSalesRecords).flatMap(entry => {
+    const date = entry.completedAt ? getBusinessDateKey(new Date(entry.completedAt), timeZone)
+      : normalizeInvoiceDate(entry.scheduledDate, timeZone) || normalizeInvoiceDate(entry.orderDate, timeZone);
+    return days.has(date) ? [{ ...entry, date }] : [];
+  }).sort((a, b) => b.date.localeCompare(a.date) || a.key.localeCompare(b.key));
   eligibleManualSales.forEach(sale => {
     const day = days.get(normalizeInvoiceDate(sale.date, timeZone));
     if (day) day.manualSalesMinor += Math.round(Number(sale.amount || 0) * 100);
   });
-  orders.flatMap(projectDailySales).forEach(entry => {
-    const day = days.get(getBusinessDateKey(new Date(entry.completedAt), timeZone));
-    if (!day) return;
+  salesRecords.forEach(({ date, ...entry }) => {
+    const day = days.get(date);
+    if (!day || !entry.recognized) return;
     salesEntries.push(entry);
     day.orderIds.add(entry.orderId);
     day.fulfilmentCount++;
@@ -128,6 +146,7 @@ export const calculateBusinessAccounting = ({
     day.merchandiseMinor += entry.merchandiseMinor;
     day.deliveryMinor += entry.deliveryMinor;
     day.refundMinor += entry.refundMinor;
+    day.focQuantity += entry.focQuantity;
   });
   eligibleInvoices.forEach(invoice => {
     const day = days.get(getInvoiceKpiDate(invoice, timeZone));
@@ -149,7 +168,10 @@ export const calculateBusinessAccounting = ({
     itemQuantity: day.itemQuantity,
     merchandiseSales: day.merchandiseMinor / 100,
     deliveryRevenue: day.deliveryMinor / 100,
-    refundAdjustments: day.refundMinor / 100
+    refundAdjustments: day.refundMinor / 100,
+    focQuantity: day.focQuantity,
+    deliveryCount: day.deliveryCount,
+    legacySales: day.manualSalesMinor / 100
   }));
   const supplierMap = new Map<string, BusinessTopSupplier>();
   eligibleInvoices.forEach(invoice => {
@@ -166,6 +188,8 @@ export const calculateBusinessAccounting = ({
     purchaseCostPercentage: getPurchaseCostPercentage(totalPurchases, totalSales),
     salesTrend: trends,
     salesEntries,
+    salesRecords,
+    legacySales: eligibleManualSales,
     deliveries,
     purchaseTrend: trends,
     supplierSpend: [...supplierMap.values()].sort((a, b) => b.totalSpend - a.totalSpend),

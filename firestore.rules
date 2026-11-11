@@ -1457,15 +1457,8 @@ service cloud.firestore {
     }
 
     match /businessSales/{saleId} {
-      allow create: if ownsIncomingDocument()
-        && request.resource.data.id == saleId
-        && canAccessBusiness(incomingWorkspaceId());
       allow read: if canAccessBusiness(existingWorkspaceId());
-      allow update: if canAccessBusiness(existingWorkspaceId())
-        && request.resource.data.createdBy == resource.data.createdBy
-        && request.resource.data.workspaceId == resource.data.workspaceId
-        && request.resource.data.id == resource.data.id;
-      allow delete: if false;
+      allow write: if false;
     }
 
     match /tasks/{taskId} {

@@ -117,7 +117,7 @@ test('one selected period drives every Dashboard metric consistently', () => {
 test('Dashboard exposes all period controls and passes one range to the shared accounting report', () => {
   const dashboardSource = readFileSync(new URL('./pages/Dashboard/index.tsx', import.meta.url), 'utf8');
   const serviceSource = readFileSync(new URL('./services/businessService.ts', import.meta.url), 'utf8');
-  for (const label of ['Today', 'This Week', 'This Month', 'Last Month', 'Custom']) {
+  for (const label of ['Today', 'Yesterday', 'This Week', 'This Month', 'Last Month', 'Custom']) {
     assert.match(dashboardSource, new RegExp(`label: '${label}'`));
   }
   assert.match(dashboardSource, /type="date" value=\{customFrom\}/);
@@ -154,4 +154,27 @@ test('daily accounting uses local completion time, deduplicates orders and count
   partiallyCompleted.fulfilmentCompletion!.wed = { completedAt: partiallyCompleted.completedAt, completedBy: 'owner' };
   assert.deepEqual(calculateBusinessAccounting(parameters), before);
   assert.equal(calculateBusinessAccounting({ ...parameters, to: '2026-08-16' }).totalSales, 60);
+});
+
+test('Dashboard Yesterday uses the previous workspace date across a month boundary', () => {
+  assert.deepEqual(getBusinessDashboardPeriodRange({ period: 'yesterday', now: new Date('2026-08-31T16:15:00Z'), timeZone: 'Asia/Kuala_Lumpur' }),
+    { from: '2026-08-31', to: '2026-08-31' });
+});
+
+test('Dashboard reconciles to recognized records plus distinct legacy entries', () => {
+  const dated = { from: '2026-08-15', to: '2026-08-15', timeZone: 'Asia/Kuala_Lumpur' };
+  const sale = manual(dated.from, 1.23);
+  const deliveryOrder = order({ fulfilmentMethod: 'delivery', pickupDate: dated.from, totals: {
+    merchandiseSubtotal: 95, discountTotal: 0, discountedMerchandiseTotal: 95, deliveryFee: 5, grandTotal: 100, currency: 'MYR'
+  } });
+  const cancelled = order({ id: 'cancelled', fulfilmentStatus: 'Cancelled', pickupDate: dated.from });
+  const report = calculateBusinessAccounting({ ...dated, invoices: [], manualSales: [sale, sale],
+    storeOrders: [deliveryOrder, deliveryOrder, cancelled] });
+  assert.equal(report.salesRecords.length, 2);
+  assert.equal(report.salesEntries.length, 1);
+  assert.equal(report.legacySales.length, 1);
+  assert.equal(report.salesTrend[0].deliveryCount, 1);
+  assert.equal(report.salesTrend[0].legacySales, 1.23);
+  assert.equal(report.totalSales, 101.23);
+  assert.equal(report.totalSales, (report.salesRecords.reduce((total, row) => total + row.totalMinor, 0) + 123) / 100);
 });

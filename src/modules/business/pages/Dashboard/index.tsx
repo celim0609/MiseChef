@@ -6,6 +6,7 @@ import type { BusinessDashboardPeriod, BusinessDashboardSummary } from '../../ty
 import { formatRegionCurrency, useWorkspaceRegion } from '../../../../regions';
 import { formatPurchaseCostPercentage } from '../../purchaseKpi';
 import { getBusinessDashboardPeriodRange } from '../../accounting';
+import DeliveryRecords from '../Sales/DeliveryRecords';
 
 interface BusinessDashboardPageProps {
   userId?: string;
@@ -26,6 +27,7 @@ const emptySummary: BusinessDashboardSummary = {
 
 const periodOptions: Array<{ value: BusinessDashboardPeriod; label: string }> = [
   { value: 'today', label: 'Today' },
+  { value: 'yesterday', label: 'Yesterday' },
   { value: 'this-week', label: 'This Week' },
   { value: 'this-month', label: 'This Month' },
   { value: 'last-month', label: 'Last Month' },
@@ -34,11 +36,8 @@ const periodOptions: Array<{ value: BusinessDashboardPeriod; label: string }> = 
 
 const formatDateKey = (date: string) => date.split('-').reverse().join('/');
 
-const deliveryProviderLabels = { lalamove: 'Lalamove', grab: 'Grab', private_driver: 'Private driver' };
 const reportCell = 'whitespace-nowrap px-4 py-3';
-const dailySalesHeaders = ['Date', 'Unique completed orders', 'Completed fulfilments', 'Items sold', 'Net merchandise', 'Net delivery revenue', 'Refunds deducted', 'Total sales'];
-const deliveryHeaders = ['Date', 'Order', 'Fulfilment', 'Provider', 'Status', 'Customer fee', 'Actual driver cost', 'Quoted cost', 'Subsidy', 'Tracking reference'];
-
+const dailySalesHeaders = ['Date', 'Unique completed orders', 'Completed fulfilments', 'Items sold', 'FOC quantity', 'Delivery count', 'Net merchandise', 'Net delivery revenue', 'Refunds deducted', 'Legacy manual sales', 'Total sales'];
 const getCostBadgeClass = (percentage: number | null) => {
   if (percentage === null) return 'bg-surface-container-high text-on-surface-variant';
   if (percentage <= 30) return 'bg-green-100 text-green-800';
@@ -69,6 +68,9 @@ export default function BusinessDashboardPage({ userId, workspaceId }: BusinessD
     customFrom,
     customTo
   }), [customFrom, customTo, period, region.timeZone]);
+  const salesLink = (view = 'sales', order = '', fulfilment = '') => '/app/business/sales?' + new URLSearchParams({
+    view, ...(periodRange || {}), ...(order ? { order, fulfilment } : {})
+  }).toString();
   const periodLabel = periodOptions.find(option => option.value === period)?.label || 'Selected Period';
 
   useEffect(() => {
@@ -102,12 +104,10 @@ export default function BusinessDashboardPage({ userId, workspaceId }: BusinessD
 
     loadSummary();
     window.addEventListener('misechef:invoice-lifecycle-changed', loadSummary);
-    window.addEventListener('misechef:sales-changed', loadSummary);
 
     return () => {
       isCancelled = true;
       window.removeEventListener('misechef:invoice-lifecycle-changed', loadSummary);
-      window.removeEventListener('misechef:sales-changed', loadSummary);
     };
   }, [periodRange?.from, periodRange?.to, region.timeZone, reloadKey, userId, workspaceId]);
 
@@ -115,7 +115,7 @@ export default function BusinessDashboardPage({ userId, workspaceId }: BusinessD
   const maxTrendValue = useMemo(() => Math.max(1, ...dashboardSummary.trend.flatMap(day => [day.sales, day.purchases])), [dashboardSummary.trend]);
 
   const kpiCards = [
-    { label: 'Sales', value: formatMoney(dashboardSummary.sales), hasData: dashboardSummary.availability.sales, icon: <WalletCards className="h-5 w-5" /> },
+    { label: 'Total Sales', value: formatMoney(dashboardSummary.sales), hasData: dashboardSummary.availability.sales, icon: <WalletCards className="h-5 w-5" /> },
     { label: 'Purchases', value: formatMoney(dashboardSummary.purchases), hasData: dashboardSummary.availability.purchases, icon: <ReceiptText className="h-5 w-5" /> },
     { label: 'Purchase Cost %', value: formatPurchaseCostPercentage(dashboardSummary.purchaseCostPercentage), hasData: dashboardSummary.availability.sales, icon: <BarChart3 className="h-5 w-5" />, badgeClass: getCostBadgeClass(dashboardSummary.purchaseCostPercentage) },
     { label: 'Net Result', value: formatMoney(dashboardSummary.netResult), hasData: dashboardSummary.availability.sales || dashboardSummary.availability.purchases, icon: <TrendingUp className="h-5 w-5" /> }
@@ -244,7 +244,8 @@ export default function BusinessDashboardPage({ userId, workspaceId }: BusinessD
         <>
           <section aria-labelledby="daily-sales-heading" className="rounded-2xl border border-surface-container-high bg-white p-5 shadow-sm">
             <h3 id="daily-sales-heading" className="font-display text-xl font-bold text-primary">Daily sales</h3>
-            <p className="mt-2 text-sm text-on-surface-variant">Each order counts once per completion date. Refunds reduce sales on those dates. Total sales includes manual entries.</p>
+            <p className="mt-2 text-sm text-on-surface-variant">Each order counts once per completion date. Delivery count uses saved delivery dates. Refunds reduce sales on the original completion date.</p>
+            <a className="mt-2 inline-block text-sm font-bold underline" href={salesLink()}>View Sales Records</a>
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="bg-surface-container-low text-primary">
@@ -257,9 +258,12 @@ export default function BusinessDashboardPage({ userId, workspaceId }: BusinessD
                       <td className={reportCell}>{day.orderCount}</td>
                       <td className={reportCell}>{day.fulfilmentCount}</td>
                       <td className={reportCell}>{day.itemQuantity}</td>
+                      <td className={reportCell}>{day.focQuantity}</td>
+                      <td className={reportCell}>{day.deliveryCount}</td>
                       <td className={reportCell}>{formatMoney(day.merchandiseSales)}</td>
                       <td className={reportCell}>{formatMoney(day.deliveryRevenue)}</td>
                       <td className={reportCell}>{formatMoney(day.refundAdjustments)}</td>
+                      <td className={reportCell}>{formatMoney(day.legacySales)}</td>
                       <td className={reportCell}>{formatMoney(day.sales)}</td>
                     </tr>
                   ))}
@@ -268,34 +272,8 @@ export default function BusinessDashboardPage({ userId, workspaceId }: BusinessD
             </div>
           </section>
 
-          <section aria-labelledby="deliveries-heading" className="rounded-2xl border border-surface-container-high bg-white p-5 shadow-sm">
-            <h3 id="deliveries-heading" className="font-display text-xl font-bold text-primary">Deliveries</h3>
-            {summary.deliveries.length === 0 ? <p className="mt-2 text-sm text-on-surface-variant">No deliveries in this period.</p> : (
-              <div className="mt-4 overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-surface-container-low text-primary">
-                    <tr>{deliveryHeaders.map(label => <th key={label} scope="col" className={reportCell}>{label}</th>)}</tr>
-                  </thead>
-                  <tbody>
-                    {summary.deliveries.map(delivery => (
-                      <tr key={JSON.stringify([delivery.orderId, delivery.fulfilmentId])} className="border-b border-surface-container-high">
-                        <td className={reportCell}>{formatDateKey(delivery.date)}</td>
-                        <td className={reportCell}>{delivery.orderNumber || delivery.orderId}</td>
-                        <td className={reportCell}>{delivery.fulfilmentId}</td>
-                        <td className={reportCell}>{(delivery.provider && deliveryProviderLabels[delivery.provider]) || 'Unknown'}</td>
-                        <td className={reportCell}>{delivery.status.replaceAll('_', ' ')}</td>
-                        <td className={reportCell}>{formatMoney(delivery.customerFeeMinor / 100)}</td>
-                        <td className={reportCell}>{delivery.actualCostMinor === undefined ? '—' : formatMoney(delivery.actualCostMinor / 100)}</td>
-                        <td className={reportCell}>{delivery.quotedCostMinor === undefined ? '—' : formatMoney(delivery.quotedCostMinor / 100)}</td>
-                        <td className={reportCell}>{delivery.subsidyMinor === undefined ? '—' : formatMoney(delivery.subsidyMinor / 100)}</td>
-                        <td className={reportCell}>{delivery.trackingReference || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+          <a className="inline-block text-sm font-bold underline" href={salesLink('deliveries')}>Open Delivery Records</a>
+          <DeliveryRecords deliveries={summary.deliveries} formatMoney={formatMoney} orderLink={(id, fulfilment) => salesLink('deliveries', id, fulfilment)} />
         </>
       )}
     </div>
