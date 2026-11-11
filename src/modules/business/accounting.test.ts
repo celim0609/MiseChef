@@ -32,16 +32,9 @@ test('workspace-level Store accounting accepts a completed order whose Store id 
   const result = calculateBusinessAccounting({ from: '2026-08-01', to: '2026-08-31', invoices: [], manualSales: [], storeOrders: [completedOrder], timeZone: 'Asia/Kuala_Lumpur' });
   assert.equal(result.totalSales, 100);
   const serviceSource = readFileSync(new URL('../store/services/storeOrderService.ts', import.meta.url), 'utf8');
-  assert.match(serviceSource, /getCompletedWorkspaceOrdersForBusinessDate/);
-  assert.match(serviceSource, /where\('workspaceId', '==', workspaceId\)/);
-  assert.match(serviceSource, /where\('fulfilmentStatus', '==', 'Completed'\)/);
-  assert.match(serviceSource, /where\('completedAt', '>=', Timestamp\.fromDate\(start\)\)/);
-  assert.match(serviceSource, /limit\(STORE_ORDER_DATE_QUERY_LIMIT\)/);
-  const indexes = JSON.parse(readFileSync(new URL('../../../firestore.indexes.json', import.meta.url), 'utf8')) as { indexes: Array<{ collectionGroup: string; fields: Array<{ fieldPath: string }> }> };
-  assert.equal(indexes.indexes.some(index => (
-    index.collectionGroup === 'storeOrders'
-    && index.fields.map(field => field.fieldPath).join(',') === 'workspaceId,fulfilmentStatus,completedAt'
-  )), true);
+  const businessQuery = serviceSource.split('async listWorkspaceOrdersForBusiness(')[1].split('subscribeTimeline(')[0];
+  assert.match(businessQuery, /where\('workspaceId', '==', workspaceId\)/);
+  assert.doesNotMatch(businessQuery, /completedAt|limit\(/);
 });
 
 test('subtracts partial and full refunds and excludes cancelled orders', () => {
@@ -124,7 +117,7 @@ test('one selected period drives every Dashboard metric consistently', () => {
 test('Dashboard exposes all period controls and passes one range to the shared accounting report', () => {
   const dashboardSource = readFileSync(new URL('./pages/Dashboard/index.tsx', import.meta.url), 'utf8');
   const serviceSource = readFileSync(new URL('./services/businessService.ts', import.meta.url), 'utf8');
-  for (const label of ['Today', 'This Week', 'This Month', 'Last Month', 'Custom']) {
+  for (const label of ['Today', 'Yesterday', 'This Week', 'This Month', 'Last Month', 'Custom']) {
     assert.match(dashboardSource, new RegExp(`label: '${label}'`));
   }
   assert.match(dashboardSource, /type="date" value=\{customFrom\}/);
@@ -136,4 +129,58 @@ test('soft-deleted completed orders retain net revenue and original refund accou
  const deleted=order({deletedAt:'2026-11-04T08:00:00Z'});
  assert.equal(getStoreOrderNetSale(deleted),100);
  assert.equal(getStoreOrderNetSale({...deleted,payment:{...deleted.payment,refundStatus:'partial',refundedAmountMinor:2500}}),75);
+});
+
+test('daily accounting uses local completion time, deduplicates orders and counts same-day fulfilments separately', () => {
+  const partiallyCompleted = order({
+    total: 60,
+    fulfilmentStatus: 'Preparing',
+    fulfilments: ['mon', 'tue', 'wed'].map(id => ({
+      id, method: 'pickup', date: '', time: '', pickupLocationId: '', pickupLocationName: '',
+      pickupLocationAddress: '', allocations: [{ itemIndex: 0, quantity: 1 }]
+    })),
+    fulfilmentCompletion: {
+      mon: { completedAt: '2026-08-14T16:00:00Z', completedBy: 'owner' },
+      tue: { completedAt: '2026-08-15T08:00:00Z', completedBy: 'owner' }
+    }
+  });
+  const parameters = {
+    from: '2026-08-15', to: '2026-08-15', invoices: [], manualSales: [],
+    storeOrders: [partiallyCompleted, partiallyCompleted], timeZone: 'Asia/Kuala_Lumpur'
+  };
+  const before = calculateBusinessAccounting(parameters);
+  assert.equal(before.totalSales, 40);
+  assert.equal(before.salesRecordCount, 1);
+  assert.equal(before.salesTrend[0].orderCount, 1);
+  assert.equal(before.salesTrend[0].fulfilmentCount, 2);
+  assert.equal(before.salesTrend[0].itemQuantity, 2);
+  assert.deepEqual(before.salesEntries.map(entry => entry.fulfilmentId), ['mon', 'tue']);
+  partiallyCompleted.fulfilmentStatus = 'Completed';
+  partiallyCompleted.completedAt = '2026-08-16T08:00:00Z';
+  partiallyCompleted.fulfilmentCompletion!.wed = { completedAt: partiallyCompleted.completedAt, completedBy: 'owner' };
+  assert.deepEqual(calculateBusinessAccounting(parameters), before);
+  assert.equal(calculateBusinessAccounting({ ...parameters, to: '2026-08-16' }).totalSales, 60);
+});
+
+test('Dashboard Yesterday uses the previous workspace date across a month boundary', () => {
+  assert.deepEqual(getBusinessDashboardPeriodRange({ period: 'yesterday', now: new Date('2026-08-31T16:15:00Z'), timeZone: 'Asia/Kuala_Lumpur' }),
+    { from: '2026-08-31', to: '2026-08-31' });
+});
+
+test('Dashboard reconciles to recognized records plus distinct legacy entries', () => {
+  const dated = { from: '2026-08-15', to: '2026-08-15', timeZone: 'Asia/Kuala_Lumpur' };
+  const sale = manual(dated.from, 1.23);
+  const deliveryOrder = order({ fulfilmentMethod: 'delivery', pickupDate: dated.from, totals: {
+    merchandiseSubtotal: 95, discountTotal: 0, discountedMerchandiseTotal: 95, deliveryFee: 5, grandTotal: 100, currency: 'MYR'
+  } });
+  const cancelled = order({ id: 'cancelled', fulfilmentStatus: 'Cancelled', pickupDate: dated.from });
+  const report = calculateBusinessAccounting({ ...dated, invoices: [], manualSales: [sale, sale],
+    storeOrders: [deliveryOrder, deliveryOrder, cancelled] });
+  assert.equal(report.salesRecords.length, 2);
+  assert.equal(report.salesEntries.length, 1);
+  assert.equal(report.legacySales.length, 1);
+  assert.equal(report.salesTrend[0].deliveryCount, 1);
+  assert.equal(report.salesTrend[0].legacySales, 1.23);
+  assert.equal(report.totalSales, 101.23);
+  assert.equal(report.totalSales, (report.salesRecords.reduce((total, row) => total + row.totalMinor, 0) + 123) / 100);
 });

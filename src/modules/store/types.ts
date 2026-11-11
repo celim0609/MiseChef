@@ -11,11 +11,21 @@ export interface PublicOrderFulfilment {
   pickupLocationName: string; completed: boolean;
   meals: Array<{ productName: string; quantity: number } & MealOptionSnapshot>;
 }
+export interface StoreDeliveryProviderOrder {
+  orderId?: string;
+  status?: string;
+  shareLink?: string;
+  priceBreakdown?: { total?: string | number };
+}
+
+export type StoreDeliveryProvider = 'lalamove' | 'grab' | 'private_driver';
+
 export interface FulfilmentOperation {
+  provider?: StoreDeliveryProvider;
   kitchenStatus?: string;
   dispatch?: { status?: string; errorCode?: string; identity?: string; fields?: string[]; providerCode?: string; requestId?: string };
   lifecycle?: { state?: string; providerStatus?: string };
-  providerOrder?: { shareLink?: string; driverId?: string; driver?: { name?: string; phone?: string; plateNumber?: string }; orderId?: string; status?: string; priceBreakdown?: Record<string, unknown> };
+  providerOrder?: StoreDeliveryProviderOrder & { driverId?: string; driver?: { name?: string; phone?: string; plateNumber?: string } };
 }
 import type { RegionCode, RegionCurrency } from '../../regions';
 
@@ -529,7 +539,8 @@ export interface StoreNotification {
 
 interface SavedDeliveryCharge {
   customerDeliveryFee?: number;
-  days?: Array<{ date: string; customerDeliveryFee?: number }>;
+  providerDeliveryFee?: number | null;
+  days?: Array<{ date: string; merchandiseSubtotal?: number; customerDeliveryFee?: number; providerDeliveryFee?: number; freeDeliveryApplied?: boolean }>;
 }
 
 export interface StoreOrder {
@@ -567,15 +578,16 @@ export interface StoreOrder {
   delivery?: {
     arrangedExternally?: boolean;
     fulfilmentMethod: 'delivery';
+    provider?: StoreDeliveryProvider;
+    pricing?: SavedDeliveryCharge;
     fulfilmentMode?: 'preorder' | 'instant';
     schedule?: { mode?: 'preorder' | 'instant'; date?: string; time?: string; session?: string };
-    pricing?: SavedDeliveryCharge;
     // The fields below are server-controlled mutable delivery operations only.
     dispatch?: { status?: string; errorCode?: string; attempt?: number };
     lifecycle?: { state?: 'not_started' | 'assigning_driver' | 'driver_assigned' | 'picked_up' | 'completed' | 'canceled' | 'expired' | 'rejected'; providerStatus?: string; changedAt?: string; history?: Array<{ state: string; providerStatus: string; source: string; occurredAt: string }> };
-    providerOrder?: { orderId?: string; status?: string; driverId?: string; shareLink?: string; driver?: { name?: string; phone?: string; plateNumber?: string; photo?: string; coordinates?: { lat?: string; lng?: string; updatedAt?: string } } };
+    providerOrder?: StoreDeliveryProviderOrder & { driverId?: string; driver?: { name?: string; phone?: string; plateNumber?: string; photo?: string; coordinates?: { lat?: string; lng?: string; updatedAt?: string } } };
     recipient?: { address?: string; instructions?: string };
-    quote?: { fee?: number; expiresAt?: string };
+    quote?: { fee?: number; quotationId?: string; expiresAt?: string };
   };
   customerUid?: string;
   groupOrder?: {
