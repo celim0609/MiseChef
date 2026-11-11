@@ -16,6 +16,8 @@ export interface DailySalesOrder {
   pickupDate?: string;
   createdAt?: string;
   delivery?: StoreOrder['delivery'];
+  posDeliveryPricing?: StoreOrder['posDeliveryPricing'];
+  deliveryPricingSnapshot?: StoreOrder['deliveryPricingSnapshot'];
   promotionSnapshot?: StoreOrder['promotionSnapshot'];
   fulfilmentOperations?: StoreOrder['fulfilmentOperations'];
   fulfilments?: Array<{ id: string; date?: string; method?: string; allocations: Allocation[] }>;
@@ -101,8 +103,14 @@ const getDays = (order: DailySalesOrder): SalesDay[] => {
   }];
 };
 
+const getSavedDeliveryDays = (order: DailySalesOrder) => (
+  [order.posDeliveryPricing?.days, order.deliveryPricingSnapshot?.days, order.delivery?.pricing?.days]
+    .find(days => days?.length)
+);
+
 const getMerchandiseShares = (order: DailySalesOrder, days: SalesDay[], total: number) => {
-  const savedDays = days.map(day => order.delivery?.pricing?.days?.find(price => price.date === day.date));
+  const pricing = getSavedDeliveryDays(order);
+  const savedDays = days.map(day => pricing?.find(price => price.date === day.date));
   const savedShares = savedDays.map(day => minor(day?.merchandiseSubtotal));
   if (savedDays.every(day => day?.merchandiseSubtotal !== undefined) && sum(savedShares) === total) return savedShares;
   const adjustments = order.promotionSnapshot?.lineAdjustments;
@@ -133,16 +141,23 @@ const getMerchandiseShares = (order: DailySalesOrder, days: SalesDay[], total: n
 };
 
 const getDeliveryShares = (order: DailySalesOrder, days: SalesDay[], total: number) => {
-  const pricing = order.delivery?.pricing?.days;
-  const weights = days.map(day => minor(pricing?.find(price => price.date === day.date)?.customerDeliveryFee));
-  if (sum(weights) === total) return weights;
-  if (sum(weights) > 0) return distribute(total, weights);
+  const pricing = getSavedDeliveryDays(order);
+  const charges = days.map(day => pricing?.find(price => price.date === day.date)?.customerDeliveryFee);
+  const weights = charges.map(minor);
+  const savedTotal = sum(weights);
+  if (savedTotal === total) return weights;
   const deliveryDays = days.map(day => Number(day.method === 'delivery' || (!day.method && order.fulfilmentMethod === 'delivery')));
-  return distribute(total, deliveryDays);
+  const missing = deliveryDays.map((weight, index) => charges[index] === undefined ? weight : 0);
+  if (savedTotal < total && sum(missing) > 0) {
+    return distribute(total - savedTotal, missing).map((share, index) => share + weights[index]);
+  }
+  return distribute(total, savedTotal > 0 ? weights : deliveryDays);
 };
 
 const getDeliveryTotal = (order: DailySalesOrder) => Math.min(minor(order.total), minor(
-  order.totals?.deliveryFee ?? order.delivery?.pricing?.customerDeliveryFee
+  order.totals?.deliveryFee ?? order.posDeliveryPricing?.customerDeliveryFee
+    ?? order.deliveryPricingSnapshot?.finalDeliveryTotal ?? order.delivery?.pricing?.customerDeliveryFee
+    ?? order.deliveryPricingSnapshot?.customerDeliveryFee
     ?? (order.totals?.discountedMerchandiseTotal === undefined
       ? 0 : order.total - order.totals.discountedMerchandiseTotal)
 ));
@@ -179,12 +194,15 @@ export const projectDailySales = (order: DailySalesOrder): DailySalesEntry[] => 
 export const projectDailyDeliveries = (order: DailySalesOrder): DailyDeliveryRecord[] => {
   const days = getDays(order);
   const fees = getDeliveryShares(order, days, getDeliveryTotal(order));
+  const pricing = getSavedDeliveryDays(order);
   return days.flatMap((day, index) => {
     if ((day.method || order.fulfilmentMethod || order.delivery?.fulfilmentMethod) !== 'delivery') return [];
     const operation = order.fulfilmentOperations?.[day.id] ?? (days.length === 1 ? order.delivery : undefined);
     const providerOrder = operation?.providerOrder;
     const actualCost = providerOrder?.priceBreakdown?.total;
-    const quotedCost = order.delivery?.pricing?.providerDeliveryFee ?? order.delivery?.quote?.fee;
+    const quotedCost = pricing?.find(price => price.date === day.date)?.providerDeliveryFee
+      ?? (days.length === 1 ? order.posDeliveryPricing?.providerDeliveryFee : undefined)
+      ?? order.delivery?.pricing?.providerDeliveryFee ?? order.delivery?.quote?.fee;
     const actualCostMinor = actualCost != null && String(actualCost).trim() && Number.isFinite(Number(actualCost))
       ? minor(Number(actualCost)) : undefined;
     const quotedCostMinor = quotedCost === undefined ? undefined : minor(quotedCost);

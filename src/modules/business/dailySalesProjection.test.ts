@@ -151,3 +151,18 @@ test('delivery operations preserve tracking, status and the difference between q
   assert.deepEqual([first.customerFeeMinor, first.actualCostMinor, first.quotedCostMinor, first.subsidyMinor], [0, 925, 800, 925]);
   assert.deepEqual([second.provider, second.customerFeeMinor, second.actualCostMinor, second.quotedCostMinor], ['private_driver', 500, undefined, 800]);
 });
+
+test('external POS delivery uses the saved per-day fee and provider quote', () => {
+  const order = scheduled();
+  order.totals = undefined;
+  order.posDeliveryPricing = {
+    customerDeliveryFee: 5,
+    providerDeliveryFee: 17,
+    days: [
+      { date: '2026-11-09', customerDeliveryFee: 0, providerDeliveryFee: 10 },
+      { date: '2026-11-10', customerDeliveryFee: 5, providerDeliveryFee: 7 }
+    ]
+  };
+  assert.deepEqual(projectDailySales(order).map(entry => entry.deliveryMinor), [0, 500, 0]);
+  assert.deepEqual(projectDailyDeliveries(order).map(entry => entry.quotedCostMinor), [1000, 700]);
+});

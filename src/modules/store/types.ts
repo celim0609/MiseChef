@@ -530,7 +530,17 @@ export interface StoreNotification {
   createdAt: string;
 }
 
+interface SavedDeliveryCharge {
+  customerDeliveryFee?: number;
+  providerDeliveryFee?: number | null;
+  days?: Array<{ date: string; merchandiseSubtotal?: number; customerDeliveryFee?: number; providerDeliveryFee?: number; freeDeliveryApplied?: boolean }>;
+}
+
 export interface StoreOrder {
+  posDeliveryPricing?: SavedDeliveryCharge;
+  deliveryPricingSnapshot?: SavedDeliveryCharge & {
+    finalDeliveryTotal?: number;
+  };
   fulfilments?: OrderFulfilment[];
   fulfilmentCompletion?: Record<string, { completedAt: string; completedBy: string }>;
   fulfilmentOperations?: Record<string, FulfilmentOperation>;
@@ -549,11 +559,7 @@ export interface StoreOrder {
   delivery?: {
     fulfilmentMethod: 'delivery';
     provider?: StoreDeliveryProvider;
-    pricing?: {
-      customerDeliveryFee?: number;
-      providerDeliveryFee?: number;
-      days?: Array<{ date: string; merchandiseSubtotal?: number; customerDeliveryFee: number; freeDeliveryApplied?: boolean }>;
-    };
+    pricing?: SavedDeliveryCharge;
     fulfilmentMode?: 'preorder' | 'instant';
     schedule?: { mode?: 'preorder' | 'instant'; date?: string; time?: string; session?: string };
     // Checkout pricing/address snapshots are created server-side at payment time.

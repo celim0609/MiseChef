@@ -115,6 +115,10 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     totals: data.totals && typeof data.totals === 'object' ? data.totals as StoreOrder['totals'] : undefined,
     promotionSnapshot: data.promotionSnapshot && typeof data.promotionSnapshot === 'object' ? data.promotionSnapshot as StoreOrder['promotionSnapshot'] : undefined,
     delivery: data.delivery && typeof data.delivery === 'object' ? data.delivery as StoreOrder['delivery'] : undefined,
+    deliveryPricingSnapshot: data.deliveryPricingSnapshot && typeof data.deliveryPricingSnapshot === 'object'
+      ? data.deliveryPricingSnapshot as StoreOrder['deliveryPricingSnapshot'] : undefined,
+    posDeliveryPricing: data.posDeliveryPricing && typeof data.posDeliveryPricing === 'object'
+      ? data.posDeliveryPricing as StoreOrder['posDeliveryPricing'] : undefined,
     fulfilments: normalizeOrderFulfilments(data.fulfilments),
     fulfilmentCompletion: data.fulfilmentCompletion as StoreOrder['fulfilmentCompletion'],
     fulfilmentOperations: data.fulfilmentOperations as StoreOrder['fulfilmentOperations'],
