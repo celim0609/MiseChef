@@ -66,3 +66,37 @@ test('discounted weekly total is allocated per day and cannot qualify all five d
   assert.equal(result.customerDeliveryFee, 42);
   assert.equal(price({ items, promotionPricing, fulfilments, config: { freeDelivery: { ...policy, minimumSubtotalWithin: 24 } } }).customerDeliveryFee, 0);
 });
+
+const buffer = { provider: 'lalamove', market: 'MY', fixedDeliveryBuffer: { enabled: true, amountMinor: 300, maximumExtraCostMinor: 500 } };
+
+test('fixed buffer rounds in sen and records only the amount actually collected', () => {
+  const args = { providerFee: 6.236, serviceType: 'MOTORCYCLE', config: buffer };
+  const result = price(args);
+  assert.equal(result.customerDeliveryFee, 9.24);
+  assert.equal(result.days[0].collectedBufferMinor, 300);
+  assert.equal(result.days[0].providerDeliveryFee, 6.236);
+  assert.deepEqual(price(args), result);
+  const capped = price({ ...args, config: { ...buffer, subsidy: { enabled: true, minimumMerchandiseSpend: 50, maximumCustomerDeliveryCharge: 7 } } });
+  assert.equal(capped.customerDeliveryFee, 7);
+  assert.equal(capped.days[0].collectedBufferMinor, 76);
+  for (const changes of [
+    { serviceType: 'CAR' },
+    { config: { ...buffer, provider: 'grab' } },
+    { config: { ...buffer, fixedDeliveryBuffer: { ...buffer.fixedDeliveryBuffer, enabled: false } } },
+    { config: {} },
+  ]) assert.equal(price({ ...args, ...changes }).customerDeliveryFee, 6.24);
+  assert.equal(price({ ...args, providerFee: 0 }).customerDeliveryFee, 0);
+});
+
+test('weekly trips apply free delivery independently using discounted merchandise', () => {
+  const fulfilments = Array.from({ length: 5 }, (_, index) => ({ date: `2026-10-${19 + index}`, allocations: [{ itemIndex: 0 }] }));
+  const dayQuotes = fulfilments.map(({ date }) => ({ date, destination, quote: { fee: 6, serviceType: 'MOTORCYCLE' } }));
+  const args = { serviceType: 'MOTORCYCLE', fulfilments, dayQuotes, config: { ...buffer, freeDelivery: { ...policy, minimumSubtotalWithin: 24.01 } },
+    items: [{ lineTotal: 150 }], promotionPricing: { discountedMerchandiseTotal: 120.02, promotionSnapshot: { lineAdjustments: [{ finalLineTotal: 120.02 }] } } };
+  const result = price(args);
+  assert.deepEqual(result.days.map(day => day.customerDeliveryFee), [0, 0, 9, 9, 9]);
+  assert.deepEqual(result.days.map(day => day.collectedBufferMinor), [0, 0, 300, 300, 300]);
+  assert.equal(result.customerDeliveryFee, 27);
+  assert.throws(() => price({ ...args, dayQuotes: dayQuotes.slice(1) }), /every delivery day/);
+  assert.throws(() => price({ ...args, dayQuotes: dayQuotes.map(day => ({ ...day, quote: { ...day.quote, fee: NaN } })) }), /Invalid provider/);
+});

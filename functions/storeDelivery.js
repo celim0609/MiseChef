@@ -114,7 +114,7 @@ const customerPricing = ({ providerFee, config, merchandiseSubtotal }) => {
   const customerDeliveryFee = eligible ? money(Math.min(providerFee, Number(subsidy.maximumCustomerDeliveryCharge || 0))) : providerFee;
   return { providerDeliveryFee: providerFee, customerDeliveryFee, storeAbsorbedDeliveryFee: money(Math.max(providerFee - customerDeliveryFee, 0)), subsidyEnabled: subsidy.enabled === true, subsidyApplied: eligible, minimumMerchandiseSpend: money(Math.max(0, Number(subsidy.minimumMerchandiseSpend || 0))), deliveryFeeCap: money(Math.max(0, Number(subsidy.maximumCustomerDeliveryCharge || 0))), currency: 'MYR' };
 };
-export const quoteSnapshot = quote => ({ quotationId: readString(quote.quotationId), expiresAt: readString(quote.expiresAt), serviceType: readString(quote.serviceType), fee: money(quote.priceBreakdown?.total), currency: readString(quote.priceBreakdown?.currency), priceBreakdown: quote.priceBreakdown || {}, stops: quote.stops || [] });
+export const quoteSnapshot = quote => ({ quotationId: readString(quote.quotationId), expiresAt: readString(quote.expiresAt), serviceType: readString(quote.serviceType), fee: quote.priceBreakdown?.total == null || !String(quote.priceBreakdown.total).trim() ? NaN : money(quote.priceBreakdown.total), currency: readString(quote.priceBreakdown?.currency), priceBreakdown: quote.priceBreakdown || {}, stops: quote.stops || [] });
 const assertDispatchQuote = quote => {
   const fields = [];
   if (!readString(quote.quotationId)) fields.push('quotationId');
@@ -139,14 +139,14 @@ export const quoteMatchesDestination = ({ quote, destination }) => {
 };
 const sameQuoteRoute = (left, right) => left.stops.length === 2 && right.stops.length === 2 && left.stops.every((stop, index) => sameDeliveryCoordinates(stop.coordinates?.lat, right.stops[index].coordinates?.lat) && sameDeliveryCoordinates(stop.coordinates?.lng, right.stops[index].coordinates?.lng));
 const ACTIVE_OPERATOR_ROLES = new Set(['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef']);
-const assertWorkspaceOperator = async ({ db, uid, order }) => {
+const assertWorkspaceOperator = async ({ db, uid, order, ownerManagerOnly = false }) => {
   const workspaceId = readString(order.workspaceId);
   const [workspaceSnapshot, membershipSnapshot] = await Promise.all([
     db.collection('workspaces').doc(workspaceId).get(),
     db.collection('workspaceMembers').doc(`${workspaceId}_${uid}`).get()
   ]);
   const workspace = workspaceSnapshot.data() || {}; const membership = membershipSnapshot.data() || {};
-  if (readString(workspace.ownerId) !== uid && !(membership.userId === uid && membership.workspaceId === workspaceId && membership.status === 'Active' && ACTIVE_OPERATOR_ROLES.has(readString(membership.role)))) throw new HttpsError('permission-denied', 'Your Workspace role cannot manage this delivery.');
+  if (readString(workspace.ownerId) !== uid && !(membership.userId === uid && membership.workspaceId === workspaceId && membership.status === 'Active' && (ownerManagerOnly ? ['Owner', 'Manager'].includes(membership.role) : ACTIVE_OPERATOR_ROLES.has(readString(membership.role))))) throw new HttpsError('permission-denied', 'Your Workspace role cannot manage this delivery.');
 };
 export const mapLalamoveStatus = status => ({
   ASSIGNING_DRIVER: 'Finding driver', ON_GOING: 'Driver assigned', PICKED_UP: 'Picked up / On the way', COMPLETED: 'Delivered',
@@ -219,14 +219,14 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft, cust
   dayQuotes.sort((a, b) => a.date.localeCompare(b.date));
   const quotation = dayQuotes[0] ? { ...dayQuotes[0].quote, priceBreakdown: dayQuotes[0].quote.priceBreakdown } : await provider.createQuote(buildLalamoveQuoteRequest({ config, pickup, destination, schedule }));
   const quote = quoteSnapshot(quotation);
-  if (!quote.quotationId || quote.currency !== 'MYR' || !Number.isFinite(quote.fee) || quote.fee < 0 || !Number.isFinite(Date.parse(quote.expiresAt))) throw new Error('Lalamove returned an invalid quotation.');
+  if (!quote.quotationId || quote.serviceType !== config.serviceType || quote.currency !== 'MYR' || !Number.isFinite(quote.fee) || quote.fee < 0 || !(Date.parse(quote.expiresAt) > Date.now() + DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS)) throw new Error('Lalamove returned an invalid quotation.');
   const routingDestination = providerRoutingDestination({ quote, destination });
   const automaticPricing = calculatePromotionPricing({ items, promotions: checkout.promotions });
   const code = await readCheckoutCode({db,storeId:checkout.store.id,code:draft.promotionCode,memberUid:customerUid,currency:checkout.store.currency});
   const promotionPricing = code ? pricePromotionCode({items,pricing:automaticPricing,config:code.config,memberUid:customerUid,currency:checkout.store.currency,now:new Date(),groupOrder:Boolean(draft.groupShareCode)}) : automaticPricing;
   const fulfilmentCount = fulfilments?.fulfilments.length || 1;
   const pricing = fulfilmentCount > 1 ? { customerDeliveryFee: money(quote.fee * fulfilmentCount) } : customerPricing({ providerFee: quote.fee, config, merchandiseSubtotal: promotionPricing.discountedMerchandiseTotal });
-  const dayPricing = calculateDeliveryDayPricing({ dayQuotes, config, providerFee: quote.fee, items, fulfilments: fulfilments?.fulfilments, pickup, destination: routingDestination, promotionPricing, date: schedule.date || '' });
+  const dayPricing = calculateDeliveryDayPricing({ dayQuotes, config, providerFee: quote.fee, serviceType: quote.serviceType, items, fulfilments: fulfilments?.fulfilments, pickup, destination: routingDestination, promotionPricing, date: schedule.date || '' });
   pricing.customerDeliveryFee = dayPricing.customerDeliveryFee;
   // Bind the displayed promotion/delivery price to a server record. The
   // browser receives only an opaque id and cannot author a price baseline.
@@ -396,7 +396,7 @@ const buildProviderDetailUpdate = async ({ provider, order, detail, source }) =>
     'delivery.providerOrder.status': providerStatus,
     'delivery.providerOrder.driverId': readString(detail.driverId),
     'delivery.providerOrder.shareLink': readString(detail.shareLink),
-    'delivery.providerOrder.priceBreakdown': detail.priceBreakdown || {},
+    'delivery.providerOrder.priceBreakdown': detail.priceBreakdown?.total != null ? detail.priceBreakdown : order.delivery?.providerOrder?.priceBreakdown || {},
     'delivery.providerOrder.lastSyncedAt': FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp()
   };
@@ -474,13 +474,13 @@ export const reconcileActiveDeliveries = async ({ db, provider, limit = 50 }) =>
 
 // Multi-day operations never write order.total, totals, deliveryPricingSnapshot,
 // payment or the immutable fulfilments array.
-export const fulfilmentContext = async ({ db, provider, uid, orderId, fulfilmentId, internal = false }) => {
+export const fulfilmentContext = async ({ db, provider, uid, orderId, fulfilmentId, internal = false, ownerManagerOnly = false }) => {
   if (!internal && !uid) throw new HttpsError('unauthenticated', 'Sign in to manage this delivery.');
   const ref = db.collection('storeOrders').doc(readString(orderId));
   const snapshot = await ref.get();
   if (!snapshot.exists) throw new HttpsError('not-found', 'This order could not be found.');
   const order = snapshot.data();
-  if (!internal) await assertWorkspaceOperator({ db, uid, order });
+  if (!internal) await assertWorkspaceOperator({ db, uid, order, ownerManagerOnly });
   const entry = order.fulfilments?.find(entry => entry.id === fulfilmentId && canonicalFulfilmentMethod(order, entry) === 'delivery');
   if (order.delivery?.arrangedExternally === true) throw deliveryError('This delivery is arranged externally. No Lalamove booking is needed.');
   if (!entry || canonicalFulfilmentMethod(order, entry) !== 'delivery') throw deliveryError('Choose a delivery fulfilment.');
@@ -499,6 +499,7 @@ export const dispatchFulfilmentDelivery = async args => {
     const operation = order.fulfilmentOperations?.[entry.id] || {};
     if (order.deletedAt || order.payment?.status !== 'paid' || order.fulfilmentStatus === 'Cancelled' || operation.kitchenStatus !== 'Ready') throw deliveryError('Only ready, paid delivery fulfilments can be dispatched. Mark this delivery day Ready in Orders or POS before requesting Lalamove.');
     if ((args.internal && operation.dispatch?.status) || ['creating', 'created', 'outcome_unknown', 'completed', 'cancel_requested', 'cancelled', 'provider_terminal'].includes(operation.dispatch?.status)) return { reused: operation.dispatch.status };
+    if (operation.providerOrder?.orderId) throw deliveryError('This delivery already has a provider booking. Reconcile it before retrying.');
     if (order.fulfilmentStatus === 'Completed' || order.fulfilmentCompletion?.[entry.id]) throw deliveryError('This fulfilment is already completed.');
     const currentEntry = order.fulfilments.find(day => day.id === entry.id);
     if (!currentEntry || canonicalFulfilmentMethod(order, currentEntry) !== 'delivery') throw deliveryError('Choose a delivery fulfilment.');
@@ -526,7 +527,7 @@ export const dispatchFulfilmentDelivery = async args => {
     assertDispatchQuote(fresh);
     if (!fresh.quotationId || !Number.isFinite(fresh.fee) || fresh.fee < 0 || fresh.currency !== 'MYR' || fresh.stops.length !== 2 || fresh.stops.some(stop => !readString(stop.stopId))) throw deliveryError('Invalid dispatch quotation.');
     const baselineFee = claim.order.deliveryPricingSnapshot?.days?.find(day => day.date === entry.date)?.providerDeliveryFee;
-    if (Number.isFinite(baselineFee) && fresh.fee - baselineFee > 5) {
+    if (!args.validateConfirmation && Number.isFinite(baselineFee) && fresh.fee - baselineFee > 5) {
       await ref.update({ [`${key}.dispatch.status`]: 'failed', [`${key}.dispatch.errorCode`]: 'requote_exceeds_absorption_limit' });
       return { status: 'dispatch_blocked_requote' };
     }
@@ -534,6 +535,7 @@ export const dispatchFulfilmentDelivery = async args => {
     // Persist submission intent before the external side effect. A crash here
     // remains locked; reconciliation never automatically resubmits it.
     await ref.update({ [`${key}.dispatch.submissionStartedAt`]: new Date().toISOString(), [`${key}.dispatch.operationalQuote`]: fresh });
+    if (args.approvedQuote && !(Date.parse(fresh.expiresAt) > Date.now())) throw deliveryError('Lalamove quotation expired. Request and review a new quotation.');
     submitted = true;
     created = await provider.createOrder({ market: 'MY', data: { quotationId: fresh.quotationId,
       sender: { stopId: sender.stopId, name: pickup.contactName, phone: pickup.contactPhoneE164 },
@@ -576,7 +578,7 @@ export const refreshFulfilmentDelivery = async args => {
     const fresh = (await transaction.get(ref)).data(); const current = fresh.fulfilmentOperations?.[entry.id] || {};
     if (current.providerOrder?.orderId !== providerOrderId) throw deliveryError('Dispatch changed; refresh again.');
     if (TERMINAL_DELIVERY_STATES.has(current.lifecycle?.state)) return { status: current.providerOrder.status, lifecycleState: current.lifecycle.state };
-    const update = { [`${key}.providerOrder.status`]: readString(detail.status), [`${key}.providerOrder.shareLink`]: readString(detail.shareLink), [`${key}.providerOrder.driverId`]: readString(detail.driverId), [`${key}.providerOrder.priceBreakdown`]: detail.priceBreakdown || {},
+    const update = { [`${key}.providerOrder.status`]: readString(detail.status), [`${key}.providerOrder.shareLink`]: readString(detail.shareLink), [`${key}.providerOrder.driverId`]: readString(detail.driverId), [`${key}.providerOrder.priceBreakdown`]: detail.priceBreakdown?.total != null ? detail.priceBreakdown : current.providerOrder.priceBreakdown || {},
       ...(driver ? { [`${key}.providerOrder.driver`]: driver } : {}),
       [`${key}.lifecycle`]: { state: nextState, providerStatus: readString(detail.status), changedAt: new Date().toISOString() },
       [`${key}.dispatch.status`]: nextState === 'completed' ? 'completed' : TERMINAL_DELIVERY_STATES.has(nextState) ? 'provider_terminal' : 'created', updatedAt: FieldValue.serverTimestamp() };

@@ -15,7 +15,14 @@ export const validFreeDelivery = value => value && typeof value.enabled === 'boo
   && Number.isFinite(value.distanceThresholdKm) && value.distanceThresholdKm > 0 && value.distanceThresholdKm <= 500
   && [value.minimumSubtotalWithin, value.minimumSubtotalBeyond].every(amount => Number.isFinite(amount) && amount >= 0 && amount <= 100000);
 
-export const calculateDeliveryDayPricing = ({ dayQuotes = [], config, providerFee, items, fulfilments, pickup, destination, promotionPricing, date = '' }) => {
+export const fixedDeliveryBuffer = (config, serviceType) => {
+  const policy = config?.fixedDeliveryBuffer;
+  return config?.provider === 'lalamove' && config.market === 'MY' && serviceType === 'MOTORCYCLE'
+    && policy?.enabled === true && [policy.amountMinor, policy.maximumExtraCostMinor].every(value => Number.isInteger(value) && value >= 0 && value <= 10000000)
+    ? policy : null;
+};
+
+export const calculateDeliveryDayPricing = ({ dayQuotes = [], config, providerFee, serviceType, items, fulfilments, pickup, destination, promotionPricing, date = '' }) => {
   if (!Number.isFinite(providerFee) || providerFee < 0) throw new Error('Invalid provider delivery fee.');
   const free = config.freeDelivery;
   if (free?.enabled === true && !validFreeDelivery(free)) throw new Error('Invalid free delivery settings.');
@@ -55,8 +62,15 @@ export const calculateDeliveryDayPricing = ({ dayQuotes = [], config, providerFe
     const threshold = free?.enabled === true ? (dayDistance <= free.distanceThresholdKm ? free.minimumSubtotalWithin : free.minimumSubtotalBeyond) : null;
     const freeDeliveryApplied = threshold !== null && money(subtotalMinor[index]) >= threshold;
     const eligibleSubsidy = (entries.length === 1 || dayQuotes.length > 0) && subsidy.enabled === true && money(subtotalMinor[index]) >= Number(subsidy.minimumMerchandiseSpend || 0);
-    const customerFee = eligibleSubsidy ? Math.min(fee, Number(subsidy.maximumCustomerDeliveryCharge || 0)) : fee;
-    return { date: entry.date, providerDeliveryFee: fee, merchandiseSubtotal: money(subtotalMinor[index]), customerDeliveryFee: freeDeliveryApplied ? 0 : money(minor(customerFee)), freeDeliveryApplied };
+    const policy = fixedDeliveryBuffer(config, dayQuote ? dayQuote.quote.serviceType : serviceType);
+    if (policy && entries.length > 1 && !dayQuote) throw new Error('Refresh the Lalamove quotation for every delivery day.');
+    if (!Number.isFinite(fee) || fee < 0) throw new Error('Invalid provider delivery fee.');
+    const providerMinor = minor(fee);
+    const withBufferMinor = providerMinor + (providerMinor > 0 ? policy?.amountMinor || 0 : 0);
+    const cappedMinor = eligibleSubsidy ? Math.min(withBufferMinor, minor(subsidy.maximumCustomerDeliveryCharge || 0)) : withBufferMinor;
+    const customerMinor = freeDeliveryApplied ? 0 : cappedMinor;
+    return { date: entry.date, providerDeliveryFee: fee, merchandiseSubtotal: money(subtotalMinor[index]), customerDeliveryFee: money(customerMinor), freeDeliveryApplied,
+      ...(policy ? { collectedBufferMinor: Math.max(0, customerMinor - providerMinor), maximumExtraCostMinor: policy.maximumExtraCostMinor } : {}) };
   });
   return { days, distanceKm, customerDeliveryFee: money(days.reduce((sum, day) => sum + minor(day.customerDeliveryFee), 0)) };
 };

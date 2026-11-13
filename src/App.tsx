@@ -2156,6 +2156,7 @@ export default function App() {
         if (!currentUser || !currentWorkspace || !hasBusinessEntitlement) return null;
         return (
           <StorePosPage
+            canBookDelivery={getStorePermissions(currentWorkspaceRole).manageStoreSettings}
             canRecordReminders={getStorePermissions(currentWorkspaceRole).processOrders}
             canPreviewWhatsApp={getStorePermissions(currentWorkspaceRole).manageStoreSettings}
             storeId={currentWorkspace.id}

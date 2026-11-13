@@ -98,3 +98,21 @@ test('Manual Order reuses quote-only pricing for store delivery and excludes pic
  await assert.rejects(resolvePosDeliveryCharge({...args,built:{...built,total:1,items:built.items.map(i=>({...i,quantity:10}))}}),/changed/);
  assert.equal(f.requests[0].data.stops[1].coordinates.lat,'4.61');
 });
+
+test('quoted POS and manual overrides preserve distinct raw and final amounts with the fixed buffer', async () => {
+ const { buildExternalOrderItems } = await import('./externalPosOrderModel.js');
+ const f = fixture();
+ const store = { ...checkout.store, delivery: { ...checkout.store.delivery, fixedDeliveryBuffer: { enabled: true, amountMinor: 300, maximumExtraCostMinor: 500 } } };
+ const config = { ...checkout, store };
+ const q = await createPosDeliveryQuote({ ...f.args, loadCheckout: async () => config });
+ assert.equal(q.customerDeliveryFee, 12.5);
+ assert.equal(q.providerDeliveryFee, 9.5);
+ const built = buildExternalOrderItems(input, config, now, { owner: true });
+ const args = { db: f.args.db, transaction: f.transaction, checkout: config, built, uid: 'manager', fullAccess: true, now };
+ const charge = await resolvePosDeliveryCharge({ ...args, input: { ...input, posDeliveryQuoteId: q.id } });
+ assert.equal(charge.fee, 12.5);
+ assert.equal(charge.snapshot.days[0].collectedBufferMinor, 300);
+ const override = await resolvePosDeliveryCharge({ ...args, input: { ...input, deliveryFeeOverride: { amount: 4, reason: 'Agreed fee' } } });
+ assert.equal(override.fee, 4);
+ assert.equal(override.snapshot.providerDeliveryFee, null);
+});
