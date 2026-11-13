@@ -24,7 +24,7 @@ export interface DailySalesOrder {
   deliveryPricingSnapshot?: StoreOrder['deliveryPricingSnapshot'];
   promotionSnapshot?: StoreOrder['promotionSnapshot'];
   fulfilmentOperations?: StoreOrder['fulfilmentOperations'];
-  fulfilments?: Array<{ id: string; date?: string; method?: string; allocations: Allocation[] }>;
+  fulfilments?: Array<{ id: string; date?: string; time?: string; method?: string; allocations: Allocation[] }>;
   fulfilmentCompletion?: Record<string, { completedAt: string }>;
   weeklyFulfilments?: Array<{ day: string; date?: string; quantity?: number }>;
   weeklyCompletion?: Partial<Record<string, { completedAt: string }>>;
@@ -73,6 +73,7 @@ export interface DailySalesEntry {
 type SalesDay = {
   id: string;
   date?: string;
+  time?: string;
   completedAt?: string;
   method?: string;
   allocations: Allocation[];
@@ -281,7 +282,9 @@ export const projectDailyDeliveries = (order: DailySalesOrder): DailyDeliveryRec
     const operation = order.fulfilmentOperations?.[day.id] ?? (days.length === 1 ? order.delivery : undefined);
     const providerOrder = operation?.providerOrder;
     const actualCost = providerOrder?.priceBreakdown?.total;
-    const quotedCost = pricing?.find(price => price.date === day.date)?.providerDeliveryFee
+    const savedTrip = pricing?.find(price => price.date === day.date && (!price.time || price.time === day.time));
+    const customerFeeMinor = savedTrip?.customerDeliveryFee === undefined ? fees[index] : minor(savedTrip.customerDeliveryFee);
+    const quotedCost = savedTrip?.providerDeliveryFee
       ?? (days.length === 1 ? order.posDeliveryPricing?.providerDeliveryFee : undefined)
       ?? order.delivery?.pricing?.providerDeliveryFee ?? order.delivery?.quote?.fee;
     const actualCostMinor = actualCost != null && String(actualCost).trim() && Number.isFinite(Number(actualCost))
@@ -299,10 +302,10 @@ export const projectDailyDeliveries = (order: DailySalesOrder): DailyDeliveryRec
         : operation?.lifecycle?.state || providerOrder?.status || operation?.dispatch?.status
           || (day.completedAt ? 'Completed' : 'Pending'),
       trackingReference: providerOrder?.orderId,
-      customerFeeMinor: fees[index],
+      customerFeeMinor,
       actualCostMinor,
       quotedCostMinor,
-      subsidyMinor: cost === undefined ? undefined : Math.max(0, cost - fees[index])
+      subsidyMinor: cost === undefined ? undefined : Math.max(0, cost - customerFeeMinor)
     }];
   });
 };

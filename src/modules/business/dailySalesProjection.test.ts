@@ -212,3 +212,21 @@ test('FOC promotion quantity comes from saved terms and excludes paid add-ons', 
   order.items[0].basePrice = 8;
   assert.equal(projectOrderSalesRecords(order)[0].focQuantity, 0);
 });
+
+test('delivery records use the saved time slot for same-date POS quotes and charges', () => {
+  const date = '2026-11-13';
+  const order: DailySalesOrder = {
+    id: 'same-date-deliveries', total: 36, totals: { deliveryFee: 16 },
+    items: [{ quantity: 1, lineTotal: 10 }, { quantity: 1, lineTotal: 10 }],
+    payment: { status: 'paid' }, fulfilmentStatus: 'New', fulfilmentMethod: 'delivery',
+    fulfilments: ['10:00', '12:00'].map((time, itemIndex) => ({
+      id: `trip-${itemIndex}`, date, time, method: 'delivery', allocations: [{ itemIndex, quantity: 1 }],
+    })),
+    posDeliveryPricing: { days: [
+      { date, time: '10:00', providerDeliveryFee: 6, customerDeliveryFee: 9 },
+      { date, time: '12:00', providerDeliveryFee: 4, customerDeliveryFee: 7 },
+    ] },
+  };
+  assert.deepEqual(projectDailyDeliveries(order).map(record => [record.customerFeeMinor, record.quotedCostMinor]),
+    [[900, 600], [700, 400]]);
+});

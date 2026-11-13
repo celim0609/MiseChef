@@ -681,7 +681,12 @@ const { previewMerchantDelivery, confirmMerchantDelivery, reconcileMerchantDeliv
 const manualFixture = () => {
   const fixture = dispatchFixture();
   const original = fixture.provider.createQuote;
-  fixture.provider.createQuote = async request => ({...await original(request), expiresAt: new Date(Date.now()+300000).toISOString()});
+  let latest;
+  fixture.provider.createQuote = async request => {
+    latest = {...await original(request), expiresAt: new Date(Date.now()+300000).toISOString()};
+    return latest;
+  };
+  fixture.provider.retrieveQuote = async () => structuredClone(latest);
   return fixture;
 };
 
@@ -767,4 +772,71 @@ test('address edits that require manual fee review stop dispatch before any prov
   await assert.rejects(dispatchStoreDelivery(fixture.args), /Review the saved delivery fee/);
   assert.deepEqual(fixture.counts(), { quotes: 0, creations: 0 });
   assert.deepEqual(order, before);
+});
+
+test('Store quote and payment recalculate the same fixed buffer from the raw quote for single and multi-day delivery', async () => {
+  for (const count of [1, 3]) {
+    const fixture = quoteFixture(6, count);
+    fixture.store.delivery.fixedDeliveryBuffer = { enabled: true, amountMinor: 300, maximumExtraCostMinor: 500 };
+    if (count === 1) Object.assign(fixture.draft, { fulfilments: undefined, deliveryDate: fixture.dates[0], deliveryTime: '10:00' });
+    const result = await createStoreDeliveryQuote({ ...fixture, slug: 'test' });
+    assert.equal(result.quote.customerDeliveryFee, count * 9);
+    assert.equal(result.quote.days[0].collectedBufferMinor, undefined);
+    const draft = { ...fixture.draft, deliveryQuoteId: result.quote.quotationId, deliveryPricingSnapshotId: result.pricingSnapshotId };
+    const deliverySnapshot = await revalidateDeliveryForPayment({ ...fixture, draft });
+    const order = buildPendingOrder({ id: 'buffer-order', orderNumber: 'TEST', store: { ...fixture.store, pickupLocations: [], pickupSessions: [] },
+      products: Object.values(fixture.db.documents).filter(value => value.price === 10), optionGroups: [],
+      draft: { ...draft, customerName: 'Guest', phone: '+60123456789', fulfilmentMethod: 'delivery', deliverySnapshot },
+      paymentProvider: 'stripe', paymentProviderMode: 'single_merchant' });
+    assert.equal(order.totals.deliveryFee, result.quote.customerDeliveryFee);
+    assert.equal(order.payment.amountMinor, count * 2900);
+    assert.equal(order.delivery.quote.fee, 6);
+    assert.deepEqual(order.delivery.pricing.days.map(day => day.collectedBufferMinor), Array(count).fill(300));
+  }
+});
+
+test('manual review counts collected buffer against the saved baseline, blocks excess and preserves paid totals', async () => {
+  const f = manualFixture();
+  const order = f.db.documents['storeOrders/multi'];
+  order.totals.deliveryFee = 9;
+  order.deliveryPricingSnapshot.days = [
+    { date: order.fulfilments[0].date, customerDeliveryFee: 9, providerDeliveryFee: 6, collectedBufferMinor: 300, maximumExtraCostMinor: 250 },
+    { date: order.fulfilments[1].date, customerDeliveryFee: 0, providerDeliveryFee: 6, collectedBufferMinor: 0, maximumExtraCostMinor: 500 },
+  ];
+  const original = structuredClone(order);
+  const createQuote = f.provider.createQuote;
+  f.provider.createQuote = async request => {
+    const quote = await createQuote(request);
+    quote.priceBreakdown.total = 11.5;
+    return quote;
+  };
+  const secondDay = { ...f.args, fulfilmentId: 'day_1' };
+  const blocked = await previewMerchantDelivery(secondDay);
+  assert.equal(blocked.limitExceeded, true);
+  assert.equal(blocked.estimatedStoreBalance, -11.5);
+  await assert.rejects(confirmMerchantDelivery({ ...secondDay, previewId: blocked.id, confirmed: true }), /Maximum Extra Cost/);
+  const preview = await previewMerchantDelivery(f.args);
+  assert.equal(preview.estimatedCost, 11.5);
+  assert.equal(preview.customerDeliveryFee, 9);
+  assert.equal(preview.estimatedStoreBalance, -2.5);
+  assert.equal(preview.limitExceeded, false);
+  assert.equal(f.counts().creations, 0);
+  await confirmMerchantDelivery({ ...f.args, previewId: preview.id, confirmed: true });
+  assert.equal(f.counts().creations, 1);
+  for (const key of ['totals', 'payment', 'deliveryPricingSnapshot', 'delivery']) assert.deepEqual(order[key], original[key]);
+});
+
+test('changed provider quote and kitchen roles cannot submit a reviewed booking', async () => {
+  const f = manualFixture();
+  f.db.documents['workspaceMembers/s_chef'] = { role: 'Chef', status: 'Active', workspaceId: 's', userId: 'chef' };
+  await assert.rejects(previewMerchantDelivery({ ...f.args, uid: 'chef' }), error => error.code === 'permission-denied');
+  const p = await previewMerchantDelivery(f.args);
+  const retrieve = f.provider.retrieveQuote;
+  f.provider.retrieveQuote = async () => {
+    const quote = await retrieve();
+    quote.priceBreakdown.total += 0.01;
+    return quote;
+  };
+  await assert.rejects(confirmMerchantDelivery({ ...f.args, confirmed: true, previewId: p.id }), /changed or expired/);
+  assert.equal(f.counts().creations, 0);
 });
