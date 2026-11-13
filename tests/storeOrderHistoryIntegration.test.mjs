@@ -406,8 +406,32 @@ test('legacy delivery compatibility preserves a DV47-shaped paid order through R
  try {
   await db.collection('workspaces').doc(workspaceId).set({ownerId,subscriptionPlan:'professional',subscriptionStatus:'active'});
   const ref=db.collection('storeOrders').doc(orderId);await ref.set(order);
-  let quotes=0,bookings=0;
-  const provider={environment:'sandbox',createQuote:async request=>{quotes++;assert.equal(request.data.stops[1].address,order.delivery.recipient.address);return {quotationId:'fake-fresh-quote',expiresAt:new Date(Date.now()+300000).toISOString(),serviceType:'MOTORCYCLE',priceBreakdown:{total:9,currency:'MYR'},stops:request.data.stops.map((stop,index)=>({...stop,stopId:`fake-${index}`}))};},createOrder:async request=>{bookings++;assert.equal(request.data.recipients[0].phone,'+60123456789');return {orderId:'fake-booking',status:'ASSIGNING_DRIVER'};}};
+  let quotes = 0;
+  let bookings = 0;
+  let reviewedQuote;
+  const provider = {
+    environment: 'sandbox',
+    createQuote: async request => {
+      quotes++;
+      assert.equal(request.data.stops[1].address, order.delivery.recipient.address);
+      reviewedQuote = {
+        quotationId: 'fake-fresh-quote', expiresAt: new Date(Date.now() + 300000).toISOString(),
+        serviceType: 'MOTORCYCLE', priceBreakdown: { total: 9, currency: 'MYR' },
+        stops: request.data.stops.map((stop, index) => ({ ...stop, stopId: `fake-${index}` })),
+      };
+      return reviewedQuote;
+    },
+    retrieveQuote: async ({ quotationId }) => {
+      assert.equal(quotationId, reviewedQuote.quotationId);
+      return reviewedQuote;
+    },
+    createOrder: async request => {
+      bookings++;
+      assert.equal(request.data.quotationId, reviewedQuote.quotationId);
+      assert.equal(request.data.recipients[0].phone, '+60123456789');
+      return { orderId: 'fake-booking', status: 'ASSIGNING_DRIVER' };
+    },
+  };
   const args={db,provider,uid:ownerId,orderId,fulfilmentId:'day_20261022'};
   await assert.rejects(previewMerchantDelivery(args),/Ready/);assert.equal(quotes,0);
   await assert.rejects(updateStoreOrderFulfilment({db,uid:ownerId,orderId,nextStatus:'Ready',fulfilmentId:'day_20261022'}),/Preparing before Ready/);
