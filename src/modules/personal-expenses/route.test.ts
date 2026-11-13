@@ -49,8 +49,8 @@ test('every active Workspace role can enter the expense page while management re
   }
 });
 
-test('the recovered service persists payer identity and uses the existing expense and settlement collections', () => {
-  assert.match(serviceSource, /memberId: draft\.memberId/);
+test('the service keeps the existing expense and settlement collections and uses the edit callable', () => {
+  assert.match(serviceSource, /'editPersonalExpense'/);
   assert.match(serviceSource, /collection\(db, 'personalExpenses'\)/);
   assert.match(serviceSource, /collection\(db, 'personalExpenseSettlements'\)/);
   assert.match(serviceSource, /'recordPersonalExpenseSettlement'/);

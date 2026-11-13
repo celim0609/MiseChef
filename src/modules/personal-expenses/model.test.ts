@@ -45,3 +45,14 @@ test('uses the RM prefix for Malaysian personal expenses only', () => {
   assert.equal(formatPersonalExpenseCurrency(100, 'MYR'), 'RM100.00');
   assert.equal(formatPersonalExpenseCurrency(100, 'SGD'), 'SGD 100.00');
 });
+
+test('recalculates both member balances and the outstanding total after an amount and payer edit', () => {
+  const expenses = [expense('e1', 'm1', 100), expense('e2', 'm1', 50), expense('e3', 'm2', 40)];
+  const repayments = [settlement('s1', 'm2', 25)];
+  assert.equal(getTotalMoneyOwed(deriveMoneyOwed(expenses, repayments)), 165);
+  const updated = expenses.map(item => item.id === 'e1' ? { ...item, memberId: 'm2', amount: 81.23 } : item);
+  const balances = deriveMoneyOwed(updated, repayments);
+  assert.equal(balances.find(item => item.memberId === 'm1')?.outstanding, 50);
+  assert.equal(balances.find(item => item.memberId === 'm2')?.outstanding, 96.23);
+  assert.equal(getTotalMoneyOwed(balances), 146.23);
+});

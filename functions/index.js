@@ -89,6 +89,7 @@ import {
 } from './resumeExtractionReliability.js';
 import { generateGeminiJsonWithRetry } from './geminiReliability.js';
 import { createStoreSocialPreviewHandler } from './storeSocialPreview.js';
+import { editPersonalExpense as editPersonalExpenseCore } from './personalExpenseEdits.js';
 import { recordPersonalExpenseSettlement as recordPersonalExpenseSettlementCore } from './personalExpenseSettlements.js';
 import { sanitizeExtractedPersonalExpenseMerchant } from './personalExpenseReceipt.js';
 import { loadPublicDiscoverStores } from './publicDiscover.js';
@@ -2192,6 +2193,19 @@ export const extractPersonalExpenseReceipt = onCall({
     throw wrapInternalError('AI receipt extraction failed. You can enter the details manually.', err, includeDiagnostics);
   }
 });
+
+export const editPersonalExpense = onCall({
+  region: REGION,
+  timeoutSeconds: 30,
+  memory: '256MiB'
+}, async request => editPersonalExpenseCore({
+  db,
+  requesterId: requireAuthenticatedUser(request),
+  workspaceId: request.data?.workspaceId,
+  expenseId: request.data?.expenseId,
+  expectedVersion: request.data?.expectedVersion,
+  draft: request.data?.draft
+}));
 
 export const recordPersonalExpenseSettlement = onCall({
   region: REGION,
