@@ -12,6 +12,7 @@ export interface PersonalExpense {
   receiptFileName?: string;
   createdBy: string;
   createdAt: string;
+  editVersion?: string;
 }
 
 export interface PersonalExpenseSettlement {

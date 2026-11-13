@@ -1,9 +1,16 @@
 import { after, afterEach, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { editPersonalExpense } from '../functions/personalExpenseEdits.js';
+import { recordPersonalExpenseSettlement } from '../functions/personalExpenseSettlements.js';
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing';
 import { collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from 'firebase/firestore';
 import { deleteObject, getBytes, ref, uploadBytes } from 'firebase/storage';
+
+const requireFromFunctions = createRequire(new URL('../functions/package.json', import.meta.url));
+const { deleteApp, initializeApp } = requireFromFunctions('firebase-admin/app');
+const { getFirestore } = requireFromFunctions('firebase-admin/firestore');
 
 const projectId = 'demo-misechef-personal-expense-rules';
 const firestoreRules = readFileSync(new URL('../firestore.rules', import.meta.url), 'utf8');
@@ -18,6 +25,8 @@ const financeAId = `${workspaceA}_${financeA}`;
 const receiptPath = `personal-expenses/${workspaceA}/${ownerA}/expense-with-receipt/receipt.pdf`;
 
 let testEnv;
+let adminApp;
+let adminDb;
 
 const context = userId => testEnv.authenticatedContext(userId, { email: `${userId}@example.test` });
 const expense = (id, overrides = {}) => ({
@@ -38,6 +47,9 @@ const expense = (id, overrides = {}) => ({
 });
 
 before(async () => {
+  assert.ok(process.env.FIRESTORE_EMULATOR_HOST, 'Tests require the Firestore emulator');
+  adminApp = initializeApp({ projectId });
+  adminDb = getFirestore(adminApp);
   testEnv = await initializeTestEnvironment({
     projectId,
     firestore: { rules: firestoreRules },
@@ -52,6 +64,7 @@ afterEach(async () => {
 
 after(async () => {
   await testEnv.cleanup();
+  await deleteApp(adminApp);
 });
 
 const seedWorkspaces = async () => testEnv.withSecurityRulesDisabled(async rulesDisabled => {
@@ -148,13 +161,14 @@ describe('personal expense integrity and workspace isolation', () => {
     }));
   });
 
-  test('protected financial fields are immutable after creation', async () => {
+  test('clients cannot bypass the expense edit callable', async () => {
     await seedWorkspaces();
     const ownerDb = context(ownerA).firestore();
     const reference = doc(ownerDb, 'personalExpenses', 'immutable-expense');
     await assertSucceeds(setDoc(reference, expense('immutable-expense')));
 
     await assertFails(updateDoc(reference, { amount: 101 }));
+    await assertFails(updateDoc(reference, { description: 'Bypassed the callable' }));
     await assertFails(updateDoc(reference, { memberId: `${workspaceA}_${ownerA}` }));
     await assertFails(updateDoc(reference, { workspaceId: workspaceB }));
   });
@@ -250,5 +264,99 @@ describe('personal expense integrity and workspace isolation', () => {
       new Uint8Array([0x25, 0x50, 0x44, 0x46]),
       { contentType: 'application/pdf' }
     ));
+  });
+});
+
+describe('personal expense edit transactions', () => {
+  const expenseId = 'expense-with-receipt';
+  const reference = () => adminDb.collection('personalExpenses').doc(expenseId);
+  const original = expense(expenseId);
+  const edit = (overrides = {}) => editPersonalExpense({
+    db: adminDb,
+    requesterId: ownerA,
+    workspaceId: workspaceA,
+    expenseId,
+    expectedVersion: '',
+    draft: original,
+    ...overrides
+  });
+
+  test('Starter Manager edits an existing record with an atomic audit and idempotent retries', async () => {
+    await seedWorkspaces();
+    await adminDb.collection('workspaces').doc(workspaceA).update({ subscriptionPlan: 'starter' });
+    const manager = 'manager-a';
+    await adminDb.collection('workspaceMembers').doc(`${workspaceA}_${manager}`).set({
+      workspaceId: workspaceA, userId: manager, role: 'Manager', status: 'Active'
+    });
+    await reference().set(original);
+    const draft = { ...original, amount: 70.23, memberId: financeAId, expenseDate: '2026-08-17',
+      description: 'Corrected description', category: 'Equipment' };
+    const submit = () => edit({ requesterId: manager, draft });
+    await Promise.all([submit(), submit()]);
+    const edited = (await reference().get()).data();
+    assert.deepEqual(edited, { ...draft, editVersion: edited.editVersion });
+    const history = await reference().collection('editHistory').get();
+    assert.equal(history.size, 1);
+    const audit = history.docs[0].data();
+    assert.equal(audit.editedBy, manager);
+    assert.equal(audit.previous.amount, 100);
+    assert.equal(audit.updated.amount, 70.23);
+    assert.equal(audit.previous.memberId, memberAId);
+    assert.equal(audit.updated.memberId, financeAId);
+    await assert.rejects(edit({ draft: { ...draft, amount: 99 } }), { code: 'failed-precondition' });
+    await edit({ expectedVersion: edited.editVersion, draft: { ...draft, description: 'Second edit' } });
+    await submit();
+    assert.equal((await reference().get()).data().description, 'Second edit');
+    assert.equal((await reference().collection('editHistory').get()).size, 2);
+
+    const clientAudit = doc(context(ownerA).firestore(), 'personalExpenses', expenseId, 'editHistory', 'original');
+    await assertFails(updateDoc(clientAudit, { editedBy: ownerA }));
+    await assertFails(setDoc(clientAudit, { editedBy: ownerA }));
+  });
+
+  test('denies Finance, foreign workspaces, invalid paying members and invalid dates', async () => {
+    await seedWorkspaces();
+    await reference().set(original);
+    await assert.rejects(edit({ requesterId: financeA }), { code: 'permission-denied' });
+    await assert.rejects(edit({ requesterId: ownerB }), { code: 'permission-denied' });
+    await assert.rejects(edit({ requesterId: ownerB, workspaceId: workspaceB }), { code: 'not-found' });
+    await assert.rejects(edit({ draft: { ...original, memberId: `${workspaceB}_${ownerB}` } }),
+      { code: 'failed-precondition' });
+    await assert.rejects(edit({ draft: { ...original, expenseDate: '2026-02-30' } }), { code: 'invalid-argument' });
+    await assert.rejects(edit({ draft: { ...original, amount: -1 } }), { code: 'invalid-argument' });
+    assert.deepEqual((await reference().get()).data(), original);
+    assert.equal((await reference().collection('editHistory').get()).size, 0);
+  });
+
+  for (const amount of [25, 100]) {
+    test(`protects financial fields after a ${amount === 100 ? 'full' : 'partial'} repayment`, async () => {
+      await seedWorkspaces();
+      await reference().set(original);
+      await recordPersonalExpenseSettlement({ db: adminDb, requesterId: ownerA, workspaceId: workspaceA, memberId: memberAId, amount });
+      for (const change of [{ amount: 70 }, { expenseDate: '2026-08-17' }, { memberId: financeAId }]) {
+        await assert.rejects(edit({ draft: { ...original, ...change } }), { code: 'failed-precondition' });
+      }
+      await edit({ draft: { ...original, description: 'New description', category: 'Equipment' } });
+      const saved = (await reference().get()).data();
+      assert.equal(saved.description, 'New description');
+      assert.equal(saved.category, 'Equipment');
+      assert.equal(saved.amount, original.amount);
+      assert.equal(saved.expenseDate, original.expenseDate);
+      assert.equal(saved.memberId, original.memberId);
+    });
+  }
+
+  test('concurrent edits and repayments cannot create an overpayment', async () => {
+    await seedWorkspaces();
+    await reference().set(original);
+    const results = await Promise.allSettled([
+      edit({ draft: { ...original, amount: 40 } }),
+      recordPersonalExpenseSettlement({ db: adminDb, requesterId: ownerA, workspaceId: workspaceA, memberId: memberAId, amount: 80 })
+    ]);
+    assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+    assert.equal(results.find(result => result.status === 'rejected').reason.code, 'failed-precondition');
+    const saved = (await reference().get()).data();
+    const repayments = await adminDb.collection('personalExpenseSettlements').get();
+    assert.ok(repayments.docs.reduce((sum, item) => sum + item.data().amount, 0) <= saved.amount);
   });
 });

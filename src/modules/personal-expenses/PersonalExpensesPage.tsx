@@ -100,7 +100,8 @@ export default function PersonalExpensesPage({
   const [notice, setNotice] = useState('');
   const [addStep, setAddStep] = useState<'choice' | 'form' | null>(null);
   const [entryMode, setEntryMode] = useState<'upload' | 'manual'>('manual');
-  const [selectedBalance, setSelectedBalance] = useState<MemberMoneyOwed | null>(null);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [editingExpense, setEditingExpense] = useState<PersonalExpense | null>(null);
   const [settlingBalance, setSettlingBalance] = useState<MemberMoneyOwed | null>(null);
   const [settlementAmount, setSettlementAmount] = useState('');
   const [isSettling, setIsSettling] = useState(false);
@@ -114,10 +115,14 @@ export default function PersonalExpensesPage({
   const [isSaving, setIsSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const savingRef = useRef(false);
   const entrySessionRef = useRef(0);
 
   const formatMoney = (amount: number) => formatPersonalExpenseCurrency(amount, region.currency);
   const balances = useMemo(() => deriveMoneyOwed(expenses, settlements), [expenses, settlements]);
+  const selectedBalance = balances.find(balance => balance.memberId === selectedMemberId);
+  const repaymentLocked = editingExpense !== null
+    && settlements.some(settlement => settlement.workspaceId === workspaceId && settlement.memberId === editingExpense.memberId);
   const totalOwed = useMemo(() => getTotalMoneyOwed(balances), [balances]);
   const memberName = (memberId: string) => {
     const userIdFromMember = memberId.startsWith(`${workspaceId}_`) ? memberId.slice(workspaceId.length + 1) : memberId;
@@ -142,10 +147,11 @@ export default function PersonalExpensesPage({
   useEffect(() => { void loadRecords(); }, [workspaceId, canManage]);
   const hasSelectedMember = activeMembers.some(member => form.memberId === `${workspaceId}_${member.userId}`);
   useEffect(() => {
-    if (!hasSelectedMember) setForm(current => ({ ...current, memberId: defaultMemberId }));
-  }, [defaultMemberId, hasSelectedMember]);
+    if (!editingExpense && !hasSelectedMember) setForm(current => ({ ...current, memberId: defaultMemberId }));
+  }, [defaultMemberId, editingExpense, hasSelectedMember]);
 
   const resetForm = () => {
+    setEditingExpense(null);
     setForm({ amount: '', expenseDate: today(), description: '', category: '', merchant: '', memberId: defaultMemberId });
     setReceiptFile(null);
     setReceiptRecord(null);
@@ -164,8 +170,23 @@ export default function PersonalExpensesPage({
     if (mode === 'upload') setTimeout(() => fileInputRef.current?.click(), 50);
   };
 
+  const openEdit = (expense: PersonalExpense) => {
+    resetForm();
+    setNotice('');
+    setForm({
+      amount: expense.amount.toFixed(2),
+      expenseDate: expense.expenseDate,
+      description: expense.description,
+      category: expense.category,
+      merchant: expense.merchant ?? '',
+      memberId: expense.memberId
+    });
+    setEditingExpense(expense);
+    setAddStep('form');
+  };
+
   const cancelEntry = (nextStep: 'choice' | null) => {
-    if (isSaving) return;
+    if (savingRef.current) return;
     const temporaryReceiptPath = receiptRecord?.receiptPath;
     entrySessionRef.current += 1;
     setAddStep(nextStep);
@@ -215,34 +236,47 @@ export default function PersonalExpensesPage({
     }
   };
 
+  const payerUnchanged = editingExpense?.memberId === form.memberId;
+  const canSavePayer = payerUnchanged || (hasSelectedMember && (!canManage || Boolean(currentTeam)));
+
   const saveExpense = async (event: FormEvent) => {
     event.preventDefault();
-    if (!userId || !hasSelectedMember || (canManage && !currentTeam)) return;
+    if (savingRef.current || !userId || !canSavePayer
+      || (editingExpense && (!canManage || editingExpense.workspaceId !== workspaceId))) return;
+    savingRef.current = true;
     setIsSaving(true);
     setFormError('');
+    const draft = {
+      memberId: form.memberId,
+      amount: Number(form.amount),
+      expenseDate: form.expenseDate,
+      description: form.description,
+      category: form.category,
+      merchant: form.merchant
+    };
     try {
-      let receipt = receiptRecord;
-      if (receiptFile && !receipt) {
-        receipt = await personalExpenseService.uploadReceipt(workspaceId, userId, draftExpenseId, receiptFile);
-        setReceiptRecord(receipt);
+      if (editingExpense) {
+        await personalExpenseService.editExpense(workspaceId, editingExpense, draft);
+      } else {
+        let receipt = receiptRecord;
+        if (receiptFile && !receipt) {
+          receipt = await personalExpenseService.uploadReceipt(workspaceId, userId, draftExpenseId, receiptFile);
+          setReceiptRecord(receipt);
+        }
+        await personalExpenseService.addExpense(draftExpenseId, workspaceId, userId, { ...draft, ...receipt });
       }
-      await personalExpenseService.addExpense(draftExpenseId, workspaceId, userId, {
-        memberId: form.memberId,
-        amount: Number(form.amount),
-        expenseDate: form.expenseDate,
-        description: form.description,
-        category: form.category,
-        merchant: form.merchant,
-        ...receipt
-      });
       entrySessionRef.current += 1;
       setAddStep(null);
       resetForm();
-      setNotice('Personal expense saved. The company balance owed has been updated.');
+      setNotice(editingExpense ? 'Personal expense updated.' : 'Personal expense saved. The company balance owed has been updated.');
       if (canManage) await loadRecords();
     } catch (error) {
       setFormError(error instanceof Error ? error.message : 'Unable to save this expense.');
+      if (editingExpense && (error as { code?: string })?.code === 'functions/failed-precondition') {
+        await loadRecords();
+      }
     } finally {
+      savingRef.current = false;
       setIsSaving(false);
     }
   };
@@ -261,7 +295,7 @@ export default function PersonalExpensesPage({
     try {
       await personalExpenseService.settle(workspaceId, settlingBalance.memberId, Number(settlementAmount));
       setSettlingBalance(null);
-      setSelectedBalance(null);
+      setSelectedMemberId(null);
       setNotice('Payment recorded. The remaining outstanding balance carries forward automatically.');
       await loadRecords();
     } catch (error) {
@@ -317,7 +351,7 @@ export default function PersonalExpensesPage({
           ) : (
             <div className="divide-y divide-surface-container-high">
               {balances.map(balance => (
-                <button key={balance.memberId} type="button" onClick={() => setSelectedBalance(balance)} className="flex w-full items-center gap-4 py-5 text-left transition hover:px-2">
+                <button key={balance.memberId} type="button" onClick={() => setSelectedMemberId(balance.memberId)} className="flex w-full items-center gap-4 py-5 text-left transition hover:px-2">
                   <span className="flex h-11 w-11 items-center justify-center rounded-full bg-secondary/15 text-secondary"><UserRound className="h-5 w-5" /></span>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-sans text-sm font-extrabold text-primary">{memberName(balance.memberId)}</span>
@@ -359,39 +393,47 @@ export default function PersonalExpensesPage({
       )}
 
       {addStep === 'form' && (
-        <Modal title={entryMode === 'upload' ? 'Review Receipt Details' : 'Enter Personal Expense'} onClose={() => cancelEntry(null)}>
+        <Modal title={editingExpense ? 'Edit Personal Expense' : entryMode === 'upload' ? 'Review Receipt Details' : 'Enter Personal Expense'} onClose={() => cancelEntry(null)}>
           <form onSubmit={saveExpense} className="space-y-4">
-            <input ref={fileInputRef} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" className="hidden" onChange={event => void handleReceipt(event.target.files?.[0])} />
-            <button type="button" onClick={() => fileInputRef.current?.click()} className="flex w-full items-center gap-3 rounded-2xl border border-dashed border-outline/50 bg-surface-container-low p-4 text-left">
-              <Upload className="h-5 w-5 text-secondary" />
-              <span className="flex-1 font-sans text-sm font-extrabold text-primary">{receiptFile?.name || (entryMode === 'upload' ? 'Choose receipt image or PDF' : 'Add receipt (optional)')}</span>
-              {isExtracting && <span className="font-sans text-xs font-bold text-secondary">Reading receipt…</span>}
-            </button>
-            {formError && <p className="rounded-xl bg-error/10 px-3 py-2 font-sans text-xs font-bold text-error">{formError}</p>}
+            {!editingExpense && (
+              <>
+                <input ref={fileInputRef} type="file" accept="application/pdf,image/jpeg,image/png,image/webp" className="hidden" onChange={event => void handleReceipt(event.target.files?.[0])} />
+                <button type="button" onClick={() => fileInputRef.current?.click()} className="flex w-full items-center gap-3 rounded-2xl border border-dashed border-outline/50 bg-surface-container-low p-4 text-left">
+                  <Upload className="h-5 w-5 text-secondary" />
+                  <span className="flex-1 font-sans text-sm font-extrabold text-primary">{receiptFile?.name || (entryMode === 'upload' ? 'Choose receipt image or PDF' : 'Add receipt (optional)')}</span>
+                  {isExtracting && <span className="font-sans text-xs font-bold text-secondary">Reading receipt…</span>}
+                </button>
+              </>
+            )}
+            {repaymentLocked && <p className="font-sans text-xs font-bold text-on-surface-variant">Repayments have been recorded for this member. Amount, date and payer are locked.</p>}
+            {formError && <p role="alert" className="rounded-xl bg-error/10 px-3 py-2 font-sans text-xs font-bold text-error">{formError}</p>}
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <label className="font-sans text-xs font-extrabold text-primary">Amount
-                <input required min="0.01" step="0.01" inputMode="decimal" value={form.amount} onChange={event => setForm({ ...form, amount: event.target.value })} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-3 py-3 text-sm outline-none focus:border-secondary" placeholder="0.00" />
+              <label className="font-sans text-xs font-extrabold text-primary">Amount ({region.currency})
+                <input required disabled={repaymentLocked} min="0.01" step="0.01" inputMode="decimal" value={form.amount} onChange={event => setForm({ ...form, amount: event.target.value })} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-3 py-3 text-sm outline-none focus:border-secondary" placeholder="0.00" />
               </label>
               <label className="font-sans text-xs font-extrabold text-primary">Date
-                <input required type="date" value={form.expenseDate} onChange={event => setForm({ ...form, expenseDate: event.target.value })} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-3 py-3 text-sm outline-none focus:border-secondary" />
+                <input required disabled={repaymentLocked} type="date" value={form.expenseDate} onChange={event => setForm({ ...form, expenseDate: event.target.value })} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-3 py-3 text-sm outline-none focus:border-secondary" />
               </label>
             </div>
-            <label className="block font-sans text-xs font-extrabold text-primary">Merchant / Supplier <span className="text-outline">(optional)</span>
+            {!editingExpense && <label className="block font-sans text-xs font-extrabold text-primary">Merchant / Supplier <span className="text-outline">(optional)</span>
               <input maxLength={PERSONAL_EXPENSE_MERCHANT_MAX_LENGTH} value={form.merchant} onChange={event => setForm({ ...form, merchant: event.target.value })} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-3 py-3 text-sm outline-none focus:border-secondary" placeholder="Where was it purchased?" />
               <span className="mt-1 block font-sans text-[11px] font-bold text-on-surface-variant">One business name, up to {PERSONAL_EXPENSE_MERCHANT_MAX_LENGTH} characters.</span>
-            </label>
+            </label>}
             <label className="block font-sans text-xs font-extrabold text-primary">What / Description
-              <input required value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-3 py-3 text-sm outline-none focus:border-secondary" placeholder="What was purchased?" />
+              <input required maxLength={500} value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-3 py-3 text-sm outline-none focus:border-secondary" placeholder="What was purchased?" />
             </label>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="font-sans text-xs font-extrabold text-primary">Category
-                <input required list="personal-expense-categories" value={form.category} onChange={event => setForm({ ...form, category: event.target.value })} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-3 py-3 text-sm outline-none focus:border-secondary" placeholder="Choose or enter category" />
+                <input required maxLength={100} list="personal-expense-categories" value={form.category} onChange={event => setForm({ ...form, category: event.target.value })} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-3 py-3 text-sm outline-none focus:border-secondary" placeholder="Choose or enter category" />
                 <datalist id="personal-expense-categories">{EXPENSE_CATEGORIES.map(category => <option key={category} value={category} />)}</datalist>
               </label>
               <label className="font-sans text-xs font-extrabold text-primary">Paid by
-                <select required disabled={canManage && !currentTeam} value={form.memberId} onChange={event => setForm({ ...form, memberId: event.target.value })} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-3 py-3 text-sm outline-none focus:border-secondary">
+                <select required disabled={repaymentLocked || (canManage && !currentTeam)} value={form.memberId} onChange={event => setForm({ ...form, memberId: event.target.value })} className="mt-2 w-full rounded-xl border border-surface-container-high bg-surface-container-low px-3 py-3 text-sm outline-none focus:border-secondary">
                   <option value="">Select member</option>
+                  {editingExpense && !activeMembers.some(member => editingExpense.memberId === `${workspaceId}_${member.userId}`) && (
+                    <option value={editingExpense.memberId}>{memberName(editingExpense.memberId)} (current payer)</option>
+                  )}
                   {activeMembers.map(member => <option key={member.userId} value={`${workspaceId}_${member.userId}`}>{member.displayName}</option>)}
                 </select>
                 {canManage && !currentTeam && (
@@ -400,16 +442,16 @@ export default function PersonalExpensesPage({
               </label>
             </div>
             <div className="flex gap-3 pt-3">
-              <button type="button" onClick={() => cancelEntry('choice')} className="rounded-full border border-surface-container-high px-5 py-3 font-sans text-sm font-extrabold text-primary">Back</button>
-              <button type="submit" disabled={isSaving || isExtracting || !hasSelectedMember || (canManage && !currentTeam)} className="flex-1 rounded-full bg-primary px-5 py-3 font-sans text-sm font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : 'Save Expense'}</button>
+              <button type="button" disabled={isSaving} onClick={() => cancelEntry(editingExpense ? null : 'choice')} className="rounded-full border border-surface-container-high px-5 py-3 font-sans text-sm font-extrabold text-primary">{editingExpense ? 'Cancel' : 'Back'}</button>
+              <button type="submit" disabled={isSaving || isExtracting || !canSavePayer} className="flex-1 rounded-full bg-primary px-5 py-3 font-sans text-sm font-extrabold text-on-primary disabled:opacity-50">{isSaving ? 'Saving…' : editingExpense ? 'Save Changes' : 'Save Expense'}</button>
             </div>
           </form>
         </Modal>
       )}
 
-      {selectedBalance && (
-        <Modal title={memberName(selectedBalance.memberId)} onClose={() => setSelectedBalance(null)}>
-          <button type="button" onClick={() => setSelectedBalance(null)} className="mb-4 inline-flex items-center gap-1 font-sans text-xs font-extrabold text-secondary"><ArrowLeft className="h-4 w-4" /> Money Owed</button>
+      {canManage && selectedBalance && !editingExpense && (
+        <Modal title={memberName(selectedBalance.memberId)} onClose={() => setSelectedMemberId(null)}>
+          <button type="button" onClick={() => setSelectedMemberId(null)} className="mb-4 inline-flex items-center gap-1 font-sans text-xs font-extrabold text-secondary"><ArrowLeft className="h-4 w-4" /> Money Owed</button>
           <div className="rounded-3xl bg-primary p-5 text-on-primary">
             <p className="font-sans text-xs font-bold uppercase tracking-[0.14em] opacity-75">Total outstanding</p>
             <p className="mt-2 font-display text-3xl font-semibold">{formatMoney(selectedBalance.outstanding)}</p>
@@ -426,7 +468,10 @@ export default function PersonalExpensesPage({
                     <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">{expense.expenseDate} · {expense.category}{expense.merchant ? ` · ${expense.merchant}` : ''}</p>
                     {expense.receiptUrl && <a href={expense.receiptUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 font-sans text-xs font-extrabold text-secondary"><ReceiptText className="h-3.5 w-3.5" /> View receipt</a>}
                   </div>
-                  <p className="font-display text-lg font-semibold text-primary">{formatMoney(expense.amount)}</p>
+                  <div className="shrink-0 text-right">
+                    <p className="font-display text-lg font-semibold text-primary">{formatMoney(expense.amount)}</p>
+                    <button type="button" onClick={() => openEdit(expense)} aria-label={`Edit ${expense.description}`} className="mt-1 min-h-11 rounded-full px-3 font-sans text-sm font-extrabold text-secondary hover:bg-secondary/10">Edit</button>
+                  </div>
                 </div>
               </article>
             ))}

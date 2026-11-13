@@ -1,6 +1,7 @@
 import { collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { deleteObject, getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { validatePersonalExpenseFields } from '../../../../functions/personalExpenseFields.js';
 import { db, functions, storage } from '../../../firebase';
 import type {
   PersonalExpense,
@@ -32,7 +33,8 @@ const normalizeExpense = (id: string, value: Record<string, unknown>): PersonalE
   receiptPath: readString(value.receiptPath) || undefined,
   receiptFileName: readString(value.receiptFileName) || undefined,
   createdBy: readString(value.createdBy),
-  createdAt: readString(value.createdAt)
+  createdAt: readString(value.createdAt),
+  editVersion: readString(value.editVersion) || undefined
 });
 const normalizeSettlement = (id: string, value: Record<string, unknown>): PersonalExpenseSettlement => ({
   id,
@@ -90,20 +92,12 @@ export const personalExpenseService = {
   async addExpense(expenseId: string, workspaceId: string, userId: string, draft: PersonalExpenseDraft) {
     if (!db) throw new Error('Personal Expenses are temporarily unavailable.');
     if (!expenseId) throw new Error('Personal Expense ID is required.');
-    const amount = Math.round(Number(draft.amount) * 100) / 100;
-    if (!Number.isFinite(amount) || amount <= 0) throw new Error('Enter an amount greater than zero.');
-    if (!draft.memberId || !draft.expenseDate || !draft.description.trim() || !draft.category.trim()) {
-      throw new Error('Amount, date, description, category, and paid by are required.');
-    }
+    const fields = validatePersonalExpenseFields(draft);
     const createdAt = new Date().toISOString();
     const merchant = validateMerchantForSave(draft.merchant);
     const payload = Object.fromEntries(Object.entries({
       workspaceId,
-      memberId: draft.memberId,
-      amount,
-      expenseDate: draft.expenseDate,
-      description: draft.description.trim(),
-      category: draft.category.trim(),
+      ...fields,
       merchant: merchant || undefined,
       receiptUrl: draft.receiptUrl,
       receiptPath: draft.receiptPath,
@@ -113,6 +107,13 @@ export const personalExpenseService = {
     }).filter(([, value]) => value !== undefined));
     await setDoc(doc(db, 'personalExpenses', expenseId), payload);
     return normalizeExpense(expenseId, payload);
+  },
+
+  async editExpense(workspaceId: string, expense: PersonalExpense, draft: PersonalExpenseDraft) {
+    if (!functions) throw new Error('Personal Expense editing is temporarily unavailable.');
+    const fields = validatePersonalExpenseFields(draft);
+    const edit = httpsCallable(functions, 'editPersonalExpense');
+    await edit({ workspaceId, expenseId: expense.id, expectedVersion: expense.editVersion ?? '', draft: fields });
   },
 
   async listWorkspaceRecords(workspaceId: string) {
