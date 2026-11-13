@@ -10,7 +10,7 @@ const getFunctions = () => {
 export type DeliveryDestination = { formattedAddress: string; latitude: string; longitude: string; deliveryInstructions?: string };
 export type DeliveryQuote = { quote: { quotationId: string; expiresAt: string; customerDeliveryFee: number; currency: 'MYR'; days?: { date: string; customerDeliveryFee: number; freeDeliveryApplied: boolean }[]; minimumValidityMs: number; firstDayFee?: number; fulfilmentCount?: number }; pricingSnapshotId: string; merchandiseSubtotal: number; destination: { address: string; latitude: string; longitude: string; instructions: string } };
 
-export type MerchantDeliveryPreview = { id: string; quotationId: string; expiresAt: string; serviceType: string; pickupAddress: string; dropoffAddress: string; date: string; time: string; bookingTime: string; estimatedCost: number; currency: string };
+export type MerchantDeliveryPreview = { id: string; quotationId: string; expiresAt: string; serviceType: string; pickupAddress: string; dropoffAddress: string; date: string; time: string; bookingTime: string; estimatedCost: number; customerDeliveryFee: number | null; estimatedStoreBalance: number | null; maximumExtraCost: number; limitExceeded: boolean; currency: string };
 export const storeDeliveryService = {
   async preview(orderId: string, fulfilmentId: string): Promise<MerchantDeliveryPreview> {
     return (await httpsCallable<{orderId: string; fulfilmentId: string}, MerchantDeliveryPreview>(getFunctions(), 'previewStoreLalamoveDelivery')({orderId, fulfilmentId})).data;

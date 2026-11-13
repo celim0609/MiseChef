@@ -193,6 +193,7 @@ const createAlertToneUrl = () => {
 };
 
 interface StorePosPageProps {
+  canBookDelivery?: boolean;
   canReviewGroupDelivery?: boolean;
   canRecordReminders?: boolean;
   canPreviewWhatsApp?: boolean;
@@ -203,7 +204,7 @@ interface StorePosPageProps {
   notificationAction?: ReactNode;
 }
 
-export default function StorePosPage({ storeId, workspaceId, workspaceName, onBack, notificationAction, canRecordReminders = false, canPreviewWhatsApp = false, canReviewGroupDelivery = false }: StorePosPageProps) {
+export default function StorePosPage({ storeId, workspaceId, workspaceName, onBack, notificationAction, canBookDelivery = false, canRecordReminders = false, canPreviewWhatsApp = false, canReviewGroupDelivery = false }: StorePosPageProps) {
   const [posSection, setPosSection] = useState<'orders' | 'tickets' | 'group-delivery'>('orders');
   useEffect(() => { setPosSection('orders'); }, [storeId, workspaceId, canReviewGroupDelivery]);
   const [orders, setOrders] = useState<StoreOrder[]>([]);
@@ -733,7 +734,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       {errorMessage && <p role="alert" className="mx-4 mt-3 rounded-xl border border-red-400 bg-red-950 px-5 py-3 text-sm font-black text-red-100 lg:mx-6">{errorMessage}</p>}
 
       {activeView === 'live' ? dailyView === 'History' ? (
-        <div className="p-4 lg:p-6"><DailyFulfilmentQueue view={dailyView} onUpdated={() => setHistoryRefreshKey(value => value + 1)} orders={dailyOrders} />{(!dailyHistory || dailyHistory.hasMore) && <button type="button" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()} className="mt-4 min-h-11 rounded-xl border px-4 py-2 font-bold">{loadingDailyHistory ? 'Loading…' : 'Load older fulfilments'}</button>}</div>
+        <div className="p-4 lg:p-6"><DailyFulfilmentQueue canBookDelivery={canBookDelivery} view={dailyView} onUpdated={() => setHistoryRefreshKey(value => value + 1)} orders={dailyOrders} />{(!dailyHistory || dailyHistory.hasMore) && <button type="button" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()} className="mt-4 min-h-11 rounded-xl border px-4 py-2 font-bold">{loadingDailyHistory ? 'Loading…' : 'Load older fulfilments'}</button>}</div>
       ) : (
         <div className="p-4 lg:p-6" aria-label="Daily fulfilments">
           <h2 className="text-xl font-bold">Daily fulfilments · {dailyView} {dailyView === 'Today' ? `(${todayKey}, Malaysia)` : ''}</h2>
@@ -749,7 +750,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                   <section key={column.status} aria-labelledby={`pos-column-${column.status}`} className={`flex min-w-0 flex-col rounded-2xl border border-t-4 ${column.border} ${isNightMode ? 'bg-[#0b1727]/90 text-white' : `${column.tint} text-slate-950`} p-2 shadow-sm`}>
                     <div className="mb-3 flex items-center justify-between gap-3 px-1"><h2 data-status={column.status.toLowerCase()} id={`pos-column-${column.status}`} className="pos-status-heading flex items-center gap-2 text-xl font-black tracking-tight"><Icon className="h-6 w-6" /> {column.label}</h2><span className={`flex h-9 min-w-9 items-center justify-center rounded-full px-2.5 text-base font-black ${column.badge}`}>{columnOrders.length + dailyColumn.length}</span></div>
                     <div className="grid min-w-0 grid-cols-1 items-start gap-2">
-                      {dailyColumn.map(({order,ticket}) => <div key={ticket.key}><DailyFulfilmentCard order={order} ticket={ticket} onUpdated={()=>setHistoryRefreshKey(value=>value+1)} /></div>)}
+                      {dailyColumn.map(({order,ticket}) => <div key={ticket.key}><DailyFulfilmentCard canBookDelivery={canBookDelivery} order={order} ticket={ticket} onUpdated={()=>setHistoryRefreshKey(value=>value+1)} /></div>)}
                       {columnOrders.map(entry => entry.kind === 'group' ? (
                         <article key={entry.key} data-group-order-id={entry.groupId} className={`pos-light-surface rounded-xl border p-3 shadow-sm ${isNightMode ? 'border-blue-500/60 bg-[#081321]' : 'border-blue-300 bg-white'}`}>
                           <div className="flex items-start justify-between gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase tracking-wide ${column.badge}`}>Group Order · {column.label}</span><span className={`text-sm font-black ${isNightMode ? 'text-blue-200' : 'text-blue-800'}`}>{entry.memberCount} members</span></div>

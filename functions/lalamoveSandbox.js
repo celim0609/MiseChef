@@ -43,6 +43,7 @@ const signedRequest = async ({ host, apiKey, apiSecret, method, path, market, bo
     const providerCode = text(payload?.errors?.[0]?.id) || text(payload?.message);
     const messages = {
       ERR_INSUFFICIENT_CREDIT: 'Lalamove rejected the booking because the merchant wallet has insufficient credit. Top up the correct Lalamove account, then request and confirm a new quotation.',
+      ERR_INVALID_QUOTATION_ID: 'Lalamove quotation expired or is no longer valid. Request and review a new quotation.',
       ERR_MISSING_FIELD: 'Lalamove rejected a missing required booking field. Check the quotation stop IDs, sender and recipient contacts. No replacement is submitted automatically.',
       ERR_INVALID_FIELD: 'Lalamove rejected a booking field format. Check map coordinates, service type, quotation stop IDs and contact phone country codes.',
       ERR_OUT_OF_SERVICE_AREA: 'Lalamove does not serve this route. Choose another delivery location.',
@@ -90,4 +91,4 @@ export const createLalamoveSandboxProvider = credentials => createLalamoveProvid
 // Only an actual structured non-retryable provider response proves rejection.
 // Timeouts, transport errors, 429s and 5xx remain uncertain after submission.
 export const isConfirmedProviderRejection = error => [400, 401, 402, 403, 422].includes(error?.status)
-  && ['ERR_INSUFFICIENT_CREDIT', 'ERR_MISSING_FIELD', 'ERR_INVALID_FIELD', 'ERR_INVALID_PHONE_NUMBER', 'ERR_INVALID_SERVICE_TYPE', 'ERR_INVALID_SCHEDULE_TIME', 'ERR_OUT_OF_SERVICE_AREA'].includes(error?.details?.providerCode);
+  && ['ERR_INVALID_QUOTATION_ID', 'ERR_INSUFFICIENT_CREDIT', 'ERR_MISSING_FIELD', 'ERR_INVALID_FIELD', 'ERR_INVALID_PHONE_NUMBER', 'ERR_INVALID_SERVICE_TYPE', 'ERR_INVALID_SCHEDULE_TIME', 'ERR_OUT_OF_SERVICE_AREA'].includes(error?.details?.providerCode);

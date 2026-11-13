@@ -134,8 +134,18 @@ const settingsChanges = {
   'Order Days': { orderDays: ['monday', 'wednesday'] },
   'Pickup configuration': { pickupSessions: ['Morning'], pickupLocations: [{ id: 'pickup-b', name: 'Counter B', address: '2 Test Street', notes: '' }] },
   'Pickup operating hours': { pickupOperatingHours: { start: '10:00', end: '17:00' } },
+  'Fixed Delivery Buffer': { delivery: { ...delivery(), fixedDeliveryBuffer: { enabled: true, amountMinor: 300, maximumExtraCostMinor: 500 } } },
   'Free delivery': { delivery: { ...delivery(), freeDelivery: { enabled: true, distanceThresholdKm: 8, minimumSubtotalWithin: 60, minimumSubtotalBeyond: 120 } } },
   'Delivery settings': { delivery: delivery({ maximumDistanceKm: 10, sessions: ['Morning'] }) },
+  'combined Pickup, Delivery & Fixed Delivery Buffer': {
+    orderCutoffTime: '18:00',
+    earliestPickupDays: 0, maximumAdvanceDays: 14, orderDays: ['monday', 'wednesday'],
+    pickupOperatingHours: { start: '10:00', end: '17:00' },
+    pickupSessions: ['Morning'],
+    delivery: { ...delivery({ maximumDistanceKm: 10, sessions: ['Morning'] }),
+      fixedDeliveryBuffer: { enabled: true, amountMinor: 300, maximumExtraCostMinor: 500 },
+      freeDelivery: { enabled: true, distanceThresholdKm: 8, minimumSubtotalWithin: 60, minimumSubtotalBeyond: 120 } }
+  },
   'combined Pickup & Delivery': {
     orderCutoffTime: '18:00',
     earliestPickupDays: 0, maximumAdvanceDays: 14, orderDays: ['monday', 'wednesday'],
@@ -170,6 +180,8 @@ for (const [label, changes] of Object.entries(settingsChanges)) {
 
 test('complete Store: invalid settings and protected fields remain denied', async () => {
   for (const changes of [
+    { delivery: { ...delivery(), fixedDeliveryBuffer: { enabled: true, amountMinor: -1, maximumExtraCostMinor: 500 } } },
+    { delivery: { ...delivery(), fixedDeliveryBuffer: { enabled: true, amountMinor: 300, maximumExtraCostMinor: 5.5 } } },
     { orderCutoffTime: '24:00' }, { orderCutoffTime: 1800 }, { earliestPickupDays: 2 }, { maximumAdvanceDays: 365 }, { orderDays: ['holiday'] },
     { pickupOperatingHours: { start: '18:00', end: '09:00' } },
     { delivery: delivery({ maximumDistanceKm: 501, sessions: Array(21).fill('Morning') }) },

@@ -91,6 +91,7 @@ interface StoreOrdersPanelProps {
   notifications: StoreNotification[];
   onNotificationClick: (notification: StoreNotification) => void;
   canProcessOrders: boolean;
+  canBookDelivery?: boolean;
   canPreviewWhatsApp?: boolean;
   canReviewPayments: boolean;
 }
@@ -105,6 +106,7 @@ export default function StoreOrdersPanel({
   notifications,
   onNotificationClick,
   canProcessOrders,
+  canBookDelivery = false,
   canPreviewWhatsApp = false,
   canReviewPayments
 }: StoreOrdersPanelProps) {
@@ -477,7 +479,7 @@ export default function StoreOrdersPanel({
                 const canAct = canProcessOrders && selectedOrder.payment.status === 'paid' && !['Completed', 'Cancelled'].includes(selectedOrder.fulfilmentStatus);
                 return <div key={day.id} className="rounded-xl bg-surface-container-low p-3 text-sm font-bold text-primary"><p>{ticket?.date || day.date} · {ticket?.time || day.time} · {ticket?.method || day.method} · {ticket?.method === 'delivery' ? ticket.address || 'Delivery address missing' : day.pickupLocationName}</p>{day.allocations.map((allocation, index) => { const item = selectedOrder.items[allocation.itemIndex]; const meal = allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(meal => meal.day === allocation.componentDay) : item; return <div key={index}><p>{allocation.quantity} × {meal?.productName}</p><MealOptionSummary snapshot={allocation.componentDay ? item?.weeklyPlanSnapshot?.meals.find(meal => meal.day === allocation.componentDay) : item?.healthyLunchSnapshot} /></div>; })}
                   {complete ? <span>Completed</span> : canAct && <><p>{operation?.kitchenStatus || 'New'}</p>{next && <button type="button" disabled={isUpdating} onClick={() => updateStatus(next, undefined, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">{next === 'Preparing' ? 'Prepare' : `Mark ${next}`} {day.date}</button>}{next === 'Preparing' && ticket?.method !== 'delivery' && <button type="button" disabled={isUpdating} onClick={() => updateStatus('Ready', undefined, day.id)} className="m-2 rounded-full bg-primary px-4 py-2 text-on-primary">Mark Ready {day.date}</button>}{(ticket?.method || day.method) === 'delivery' && !selectedOrder.manualOrder && <div><p>{operation?.kitchenStatus || 'Scheduled'} · {dispatchStatus} · {operation?.lifecycle?.state || ''}</p>{operation?.providerOrder?.orderId && <p>Lalamove: {operation.providerOrder.orderId}</p>}{operation?.providerOrder?.shareLink && <a href={operation.providerOrder.shareLink} target="_blank" rel="noreferrer" className="underline">Track delivery</a>}{operation?.providerOrder?.driver && <p>Rider: {operation.providerOrder.driver.name} · {operation.providerOrder.driver.phone} · {operation.providerOrder.driver.plateNumber}</p>}
-                    <ManualDeliveryBooking order={selectedOrder} fulfilmentId={day.id} disabled={isUpdating} />
+                    <ManualDeliveryBooking canBookDelivery={canBookDelivery} order={selectedOrder} fulfilmentId={day.id} disabled={isUpdating} />
                     {['creating', 'created', 'outcome_unknown', 'cancel_requested'].includes(dispatchStatus) && <button type="button" disabled={isUpdating} onClick={() => refreshDelivery(selectedOrder.id, day.id)} className="m-2 rounded-full border px-4 py-2">Refresh dispatch</button>}
                     {dispatchStatus === 'created' && <button type="button" disabled={isUpdating} onClick={() => cancelDelivery(selectedOrder.id, day.id)} className="m-2 rounded-full border px-4 py-2">Cancel dispatch</button>}
                     {operation?.dispatch?.errorCode && <p role="alert">Dispatch: {operation.dispatch.errorCode}{operation.dispatch.fields?.length ? ` Fields: ${operation.dispatch.fields.join(', ')}` : ''}{operation.dispatch.requestId ? ` Request ID: ${operation.dispatch.requestId}` : ''}</p>}

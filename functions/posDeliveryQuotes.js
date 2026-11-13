@@ -47,7 +47,7 @@ export async function createPosDeliveryQuote({ db, uid, input, provider, authori
     // Address corrections never change the server-resolved Places pin.
     const destination = validateDestination({ ...choice, latitude: pin.latitude, longitude: pin.longitude });
     const quote = quoteSnapshot(await provider.createQuote(buildLalamoveQuoteRequest({ config, pickup, destination, schedule: { mode: 'preorder', date: day.date, time: day.time } })));
-    if (!quote.quotationId || quote.currency !== 'MYR' || !validMoney(quote.fee) || !Number.isFinite(Date.parse(quote.expiresAt)) || Date.parse(quote.expiresAt) <= now.getTime() + 5000) fail('Lalamove returned an invalid or expired quotation.');
+    if (!quote.quotationId || quote.serviceType !== config.serviceType || quote.currency !== 'MYR' || !validMoney(quote.fee) || !Number.isFinite(Date.parse(quote.expiresAt)) || Date.parse(quote.expiresAt) <= now.getTime() + 5000) fail('Lalamove returned an invalid or expired quotation.');
     dayQuotes.push({ key: posSlotKey(day), date: day.date, time: day.time, destination, quote });
   }
   // The existing policy allocates package cents across service days. Slot keys also

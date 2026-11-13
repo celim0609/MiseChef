@@ -1594,6 +1594,7 @@ export default function StorePage({
           notifications={notifications.filter(notification => !notification.readAt)}
           onNotificationClick={onNotificationClick}
           canProcessOrders={permissions.processOrders}
+          canBookDelivery={permissions.manageStoreSettings}
           canPreviewWhatsApp={permissions.manageStoreSettings}
           canReviewPayments={permissions.refundFinancialActions}
         />
@@ -1908,7 +1909,7 @@ export default function StorePage({
           <section aria-label="Delivery settings" hidden={settingsTab !== 'pickup-delivery'} className="mt-8 rounded-3xl bg-surface-container-low p-5">
             <h2 className="font-display text-2xl font-bold text-primary">Delivery</h2>
             <p className="mt-1 text-sm font-bold text-on-surface-variant">Choose how customers receive their orders.</p>
-            {(() => { const environment = resolveStoreDeliveryEnvironment(); const delivery = { ...(settingsDraft.delivery || createDefaultStoreDelivery(environment)), environment }; const environmentLabel = environment === 'production' ? 'Production only' : 'Sandbox only'; const update = (next: typeof delivery) => updateSettings('delivery', { ...next, environment }); return <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {(() => { const environment = resolveStoreDeliveryEnvironment(); const delivery = { ...(settingsDraft.delivery || createDefaultStoreDelivery(environment)), environment }; const buffer = delivery.fixedDeliveryBuffer || { enabled: false, amountMinor: 0, maximumExtraCostMinor: 500 }; const environmentLabel = environment === 'production' ? 'Production only' : 'Sandbox only'; const update = (next: typeof delivery) => updateSettings('delivery', { ...next, environment }); return <div className="mt-4 grid gap-3 md:grid-cols-2">
               <label className="flex items-center gap-2 md:col-span-2"><input type="checkbox" checked={delivery.enabled} onChange={event => update({ ...delivery, enabled: event.target.checked })} /><span className="font-bold">Enable delivery</span></label>
               <fieldset className="grid gap-3 md:col-span-2 md:grid-cols-2"><legend className="mb-3 text-sm font-bold">Delivery setup</legend>
               <label><span className="text-xs font-bold">Pickup location</span><select value={delivery.pickupLocationId} onChange={event => { const location = settingsDraft.pickupLocations.find(item => item.id === event.target.value); update({ ...delivery, pickupLocationId: event.target.value, pickup: { ...delivery.pickup, name: location?.name || delivery.pickup.name, address: location?.address || delivery.pickup.address } }); }} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold"><option value="">Choose existing location</option>{settingsDraft.pickupLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
@@ -1936,6 +1937,16 @@ export default function StorePage({
               <label><span className="text-xs font-bold">Provider</span><input disabled value="Lalamove" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
               <label><span className="text-xs font-bold">Environment</span><input disabled value={environmentLabel} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
               <label><span className="text-xs font-bold">Lalamove service type</span><input value={delivery.serviceType} onChange={event => update({ ...delivery, serviceType: event.target.value })} placeholder="Select after City Info" className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
+              <fieldset className="grid gap-3 md:col-span-2 md:grid-cols-2">
+                <label className="md:col-span-2"><input type="checkbox" checked={buffer.enabled} onChange={event => update({ ...delivery, fixedDeliveryBuffer: { ...buffer, enabled: event.target.checked } })} /> Fixed Delivery Buffer for Lalamove MOTORCYCLE</label>
+                {([['amountMinor', 'Buffer amount (MYR)'], ['maximumExtraCostMinor', 'Maximum Extra Cost (MYR)']] as const).map(([key, label]) => (
+                  <label key={key}><span className="text-xs font-bold">{label}</span>
+                    <input type="number" min="0" max="100000" step="0.01" value={buffer[key] / 100}
+                      onChange={event => update({ ...delivery, fixedDeliveryBuffer: { ...buffer, [key]: Math.round(Number(event.target.value) * 100) } })}
+                      className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" />
+                  </label>
+                ))}
+              </fieldset>
               <label className="md:col-span-2"><span className="text-xs font-bold">Pickup address</span><input value={delivery.pickup.address} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, address: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
               <label><span className="text-xs font-bold">Latitude</span><input inputMode="decimal" value={delivery.pickup.latitude} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, latitude: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Longitude</span><input inputMode="decimal" value={delivery.pickup.longitude} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, longitude: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>
               <label><span className="text-xs font-bold">Sender name</span><input value={delivery.pickup.contactName} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, contactName: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label><label><span className="text-xs font-bold">Sender phone (E.164)</span><input value={delivery.pickup.contactPhoneE164} onChange={event => update({ ...delivery, pickup: { ...delivery.pickup, contactPhoneE164: event.target.value } })} className="mt-1 w-full rounded-xl bg-white px-3 py-2 font-bold" /></label>

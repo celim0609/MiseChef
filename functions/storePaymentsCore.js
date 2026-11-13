@@ -1,7 +1,7 @@
 import { pricePromotionCode, promotionCodeError } from './promotionCodePricing.js';
 import { normalizeDeliveryPhone } from './storeFulfilmentCanonical.js';
 import { resolveSelectionMealOptions, mealOptionSurcharge, mergeMealOptionSnapshots, publicMealOptionSnapshot } from './healthyLunchOptions.js';
-import { calculateDeliveryDayPricing } from './storeDeliveryPricing.js';
+import { calculateDeliveryDayPricing, fixedDeliveryBuffer } from './storeDeliveryPricing.js';
 import { buildOrderFulfilments, publicOrderFulfilments } from './storeOrderFulfilments.js';
 import { weeklyPricing, buildWeeklyOrderDetails, isWeeklyMealPlan, publicWeeklyFulfilments, validateHealthyLunchDay, hasEmbeddedMenu } from './storeWeeklyMealPlan.js';
 import { cartAllowsFulfilmentDate, currentFulfilmentDate } from './storeProductAvailability.js';
@@ -486,8 +486,8 @@ export const buildPendingOrder = ({
   const fulfilmentCount = scheduled?.fulfilments.length || 1;
   let firstDayFee = draft.deliverySnapshot ? (scheduled && fulfilmentCount > 1 ? providerDeliveryFee : (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee)) : 0;
   let deliveryFee = scheduled ? roundMoney(firstDayFee * fulfilmentCount) : draft.deliverySnapshot ? (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee) : 0;
-  const dayPricing = draft.deliverySnapshot && (store.delivery?.freeDelivery?.enabled === true || draft.deliverySnapshot.dayQuotes?.length)
-    ? calculateDeliveryDayPricing({ dayQuotes: draft.deliverySnapshot.dayQuotes, config: store.delivery, providerFee: providerDeliveryFee, items, fulfilments: scheduled?.fulfilments, pickup: draft.deliverySnapshot.pickup, destination: draft.deliverySnapshot.recipient, promotionPricing, date: fulfilmentDate }) : null;
+  const dayPricing = draft.deliverySnapshot && (store.delivery?.freeDelivery?.enabled === true || draft.deliverySnapshot.dayQuotes?.length || fixedDeliveryBuffer(store.delivery, draft.deliverySnapshot.quote?.serviceType))
+    ? calculateDeliveryDayPricing({ dayQuotes: draft.deliverySnapshot.dayQuotes, config: store.delivery, providerFee: providerDeliveryFee, serviceType: draft.deliverySnapshot.quote?.serviceType, items, fulfilments: scheduled?.fulfilments, pickup: draft.deliverySnapshot.pickup, destination: draft.deliverySnapshot.recipient, promotionPricing, date: fulfilmentDate }) : null;
   if (dayPricing) { deliveryFee = dayPricing.customerDeliveryFee; firstDayFee = dayPricing.days[0].customerDeliveryFee; }
   const storeAbsorbedDeliveryFee = roundMoney(Math.max((dayPricing ? dayPricing.days.reduce((sum, day) => sum + day.providerDeliveryFee, 0) : providerDeliveryFee) - deliveryFee, 0));
   const total = roundMoney(discountedMerchandiseTotal + deliveryFee);

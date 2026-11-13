@@ -2156,6 +2156,7 @@ export default function App() {
         if (!currentUser || !currentWorkspace || !hasBusinessEntitlement) return null;
         return (
           <StorePosPage
+            canBookDelivery={getStorePermissions(currentWorkspaceRole).manageStoreSettings}
             canReviewGroupDelivery={import.meta.env.VITE_FIREBASE_PROJECT_ID === 'misechef-beta-fa4bf' && getStorePermissions(currentWorkspaceRole).manageStoreSettings}
             canRecordReminders={getStorePermissions(currentWorkspaceRole).processOrders}
             canPreviewWhatsApp={getStorePermissions(currentWorkspaceRole).manageStoreSettings}
