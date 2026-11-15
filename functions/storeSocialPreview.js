@@ -1,3 +1,5 @@
+import { readWeeklyShare, weeklySharePhoto, weeklyShareUrl } from './weeklyMenuSharing.js';
+
 const SITE_NAME = 'MiseChef';
 const DEFAULT_STORE_DESCRIPTION = 'Browse this MiseChef Store and order ahead for pickup.';
 const DEFAULT_STORE_IMAGE_PATH = '/assets/store-share-default.png';
@@ -81,12 +83,14 @@ export const buildStoreSocialMetadata = ({ store, origin, slug }) => {
   return { title, description, image, canonicalUrl, siteName: SITE_NAME };
 };
 
-export const buildProductSocialMetadata = ({ store, product, origin, slug, productSlug }) => {
+export const buildProductSocialMetadata = ({ store, product, origin, slug, productSlug, search = '' }) => {
   const safeOrigin = normalizeOrigin(origin) || 'https://misechef.ai';
   const canonicalStoreSlug = readPublicText(store?.slug) || readPublicText(slug);
   const canonicalProductSlug = readPublicText(product?.productSlug) || readPublicText(productSlug);
   const canonicalUrl = new URL(`/store/${encodeURIComponent(canonicalStoreSlug)}/product/${encodeURIComponent(canonicalProductSlug)}`, safeOrigin).toString();
-  const productName = readPublicText(product?.name, 'Product');
+  const share = readWeeklyShare(product, search);
+  const sharedUrl = share ? weeklyShareUrl(canonicalUrl, share.slot, share.day) : canonicalUrl;
+  const productName = share?.day ? readPublicText(share.week.meals?.[share.day]?.name, product?.name) : readPublicText(product?.name, 'Product');
   const storeName = readPublicText(store?.name, 'MiseChef Store');
   const price = Number(product?.price);
   const currency = ['MYR', 'SGD'].includes(readPublicText(store?.currency)) ? readPublicText(store?.currency) : 'MYR';
@@ -94,14 +98,14 @@ export const buildProductSocialMetadata = ({ store, product, origin, slug, produ
     ? new Intl.NumberFormat('en', { style: 'currency', currency }).format(price)
     : '';
   const description = readPublicText(product?.description, [productName, priceText, `from ${storeName}`].filter(Boolean).join(' · '));
-  const productImage = toHttpsImageUrl(product?.socialImageUrl) || toHttpsImageUrl(product?.photoUrl);
+  const productImage = toHttpsImageUrl(weeklySharePhoto(product, share)) || toHttpsImageUrl(product?.socialImageUrl) || toHttpsImageUrl(product?.photoUrl);
   const storeImage = toHttpsImageUrl(store?.coverImageUrl) || toHttpsImageUrl(store?.logoUrl);
   const image = productImage
     ? withStoreImageVersion(productImage, product?.updatedAt)
     : storeImage
       ? withStoreImageVersion(storeImage, store?.updatedAt)
       : new URL(DEFAULT_STORE_IMAGE_PATH, safeOrigin).toString();
-  return { title: `${productName} | ${storeName}`, description, image, canonicalUrl, siteName: SITE_NAME, type: 'product' };
+  return { title: `${productName} | ${storeName}`, description, image, canonicalUrl: sharedUrl, siteName: SITE_NAME, type: 'product' };
 };
 
 const promotionOffer = promotion => {
@@ -205,7 +209,7 @@ export const createStoreSocialPreviewHandler = ({
     const product = route.productSlug && store ? await loadProduct(store.id, route.productSlug) : null;
     const promotion = route.promotionId && store ? await loadPromotion(store.id, route.promotionId) : null;
     const metadata = product
-      ? buildProductSocialMetadata({ store, product, origin, slug: route.slug, productSlug: route.productSlug })
+      ? buildProductSocialMetadata({ store, product, origin, slug: route.slug, productSlug: route.productSlug, search: new URL(request.originalUrl || request.url, origin).search })
       : promotion
         ? buildPromotionSocialMetadata({ store, promotion, origin, slug: route.slug, promotionId: route.promotionId })
         : buildStoreSocialMetadata({ store, origin, slug: route.slug });
