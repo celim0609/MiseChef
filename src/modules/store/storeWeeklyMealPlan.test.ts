@@ -46,14 +46,15 @@ test('public and merchant UI wire weekly schedule controls and preserve legacy d
   assert.match(page, /renderWeeklyMeals\(requestedProduct\)/);
   assert.match(page, /weeklyCheckoutError/);
   assert.match(page, /placedOrder.weeklyFulfilments.map/);
-  assert.match(orders, /updateStatus\('Completed', day.day\)/);
+  assert.match(orders, /nextDailyStatus\(selectedOrder,ticket\)/);
+  assert.match(orders, /updateStatus\(next,ticket.weeklyDay,ticket.fulfilmentId\)/);
   assert.match(orders, /&& !selectedOrder.weeklyFulfilments/);
 });
 
-test('weekly and selected-day UI is read-only per meal and uses one shared time for pickup and delivery', () => {
+test('weekly and selected-day UI is read-only per meal and keeps shared pickup time and supports independent delivery times', () => {
   const page = readFileSync(new URL('./PublicStorePage.tsx', import.meta.url), 'utf8');
-  assert.match(page, /groupFulfilmentSchedule\(applySharedTime\(/);
-  assert.match(page, /fulfilmentMethod === 'delivery' \? deliveryTime : pickupTime/);
+  assert.match(page, /groupFulfilmentSchedule\(scheduleRows.map/);
+  assert.match(page, /deliveryDays\[date\]\?\.time \|\| deliveryTime/);
   assert.match(page, /!weeklyCartPlan && group.dates.length > 1/);
   assert.match(page, /'Weekly schedule' : 'Selected days'/);
   assert.doesNotMatch(page, /aria-label=\{`(?:Time|Date) for \$\{row.label\}/);

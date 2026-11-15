@@ -1,5 +1,7 @@
-export interface DraftFulfilment { date: string; time: string; itemIndexes: number[] }
+export interface DraftFulfilment { destination?: import('./services/deliveryService').DeliveryDestination; date: string; time: string; itemIndexes: number[] }
 export interface OrderFulfilment {
+  destination?: import('./services/deliveryService').DeliveryDestination;
+  notes?: string;
   id: string; method: 'pickup' | 'delivery'; date: string; time: string;
   pickupLocationId: string; pickupLocationName: string; pickupLocationAddress: string;
   allocations: Array<{ itemIndex: number; quantity: number; componentDay?: WeeklyDay }>;
@@ -13,7 +15,7 @@ export interface FulfilmentOperation {
   kitchenStatus?: string;
   dispatch?: { status?: string; errorCode?: string; identity?: string };
   lifecycle?: { state?: string; providerStatus?: string };
-  providerOrder?: { orderId?: string; status?: string; priceBreakdown?: Record<string, unknown> };
+  providerOrder?: { shareLink?: string; driverId?: string; driver?: { name?: string; phone?: string; plateNumber?: string }; orderId?: string; status?: string; priceBreakdown?: Record<string, unknown> };
 }
 import type { RegionCode, RegionCurrency } from '../../regions';
 
@@ -461,7 +463,8 @@ export interface StoreOrderItem {
   description?: string;
   healthyLunchSnapshot?: { planId: string; date: string } & MealOptionSnapshot;
   weeklyPlanSnapshot?: { meals: WeeklyMealSnapshot[]; startMonday?: string };
-  itemType?: 'product' | 'set';
+  itemType?: 'product' | 'set' | 'custom';
+  notes?: string;
   productId: string;
   productName: string;
   photoUrl: string;
@@ -476,7 +479,7 @@ export interface StoreOrderItem {
 export type StoreOrderSource = 'online' | 'pos';
 
 export interface StoreExternalOrder {
-  source: 'shopeefood' | 'walk_in' | 'other';
+  source: 'shopeefood' | 'walk_in' | 'other' | 'whatsapp' | 'phone';
   externalOrderNumber?: string;
 }
 
@@ -533,6 +536,7 @@ export interface StoreOrder {
   workspaceId: string;
   orderSource: StoreOrderSource;
   externalOrder?: StoreExternalOrder;
+  manualOrder?: { revision: number; draft: Record<string, unknown>; createdBy: string };
   fulfilmentMethod?: 'pickup' | 'delivery';
   totals?: { merchandiseSubtotal: number; discountTotal: number; discountedMerchandiseTotal: number; deliveryFee: number; grandTotal: number; currency: RegionCurrency };
   promotionSnapshot?: StoreOrderPromotionSnapshot;
@@ -545,7 +549,7 @@ export interface StoreOrder {
     dispatch?: { status?: string; errorCode?: string; attempt?: number };
     lifecycle?: { state?: 'not_started' | 'assigning_driver' | 'driver_assigned' | 'picked_up' | 'completed' | 'canceled' | 'expired' | 'rejected'; providerStatus?: string; changedAt?: string; history?: Array<{ state: string; providerStatus: string; source: string; occurredAt: string }> };
     providerOrder?: { orderId?: string; status?: string; driverId?: string; shareLink?: string; driver?: { name?: string; phone?: string; plateNumber?: string; photo?: string; coordinates?: { lat?: string; lng?: string; updatedAt?: string } } };
-    recipient?: { address?: string };
+    recipient?: { address?: string; instructions?: string };
     quote?: { fee?: number; expiresAt?: string };
   };
   customerUid?: string;

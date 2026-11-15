@@ -805,3 +805,16 @@ test('per-meal option groups save/reload in v2/v3 with existing merchant permiss
     assert.equal((await ref.get()).data()[menuKey].week1.meals.mon.optionGroups,undefined);
   }
 });
+
+test('manual orders, payment confirmations and private POS catalog remain server-owned and Workspace-private', async () => {
+  await environment.withSecurityRulesDisabled(async context => {
+    await context.firestore().doc('storePrivatePosItems/private-soup').set({workspaceId:WORKSPACE_A,storeId:WORKSPACE_A,name:'Private soup',unitPrice:5});
+  });
+  for(const context of [ownerA,managerA,headChefA]) await assertSucceeds(context.firestore().doc('storePrivatePosItems/private-soup').get());
+  for(const context of [anonymous,ownerB,customerA]) await assertFails(context.firestore().doc('storePrivatePosItems/private-soup').get());
+  for(const context of [ownerA,managerA,headChefA,ownerB,anonymous]) {
+    await assertFails(context.firestore().doc('storePrivatePosItems/private-soup').update({unitPrice:1}));
+    await assertFails(context.firestore().doc(`storeOrders/${ORDER_A}`).update({'payment.status':'paid',manualOrder:{revision:1},fulfilmentOperations:{monday:{kitchenStatus:'Ready'}}}));
+    await assertFails(context.firestore().doc('storeManualOrderRequests/forged').set({workspaceId:WORKSPACE_A,orderId:ORDER_A}));
+  }
+});

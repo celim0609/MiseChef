@@ -74,6 +74,8 @@ export const normalizeStoreOrderItem = (value: unknown): StoreOrderItem => {
   const item = value && typeof value === 'object' ? value as Record<string, unknown> : {};
   const setSnapshot = normalizeSetSnapshot(item.setSnapshot);
   return {
+    ...(readString(item.notes) ? { notes: readString(item.notes) } : {}),
+    ...(item.itemType === 'custom' ? { itemType: 'custom' as const } : {}),
     productId: readString(item.productId),
     productName: readString(item.productName, 'Product'),
     photoUrl: readString(item.photoUrl),
@@ -116,6 +118,8 @@ export const normalizeWeeklyFulfilments = (value: unknown): WeeklyFulfilment[] |
 export const normalizeOrderFulfilments = (value: unknown): import('./types').OrderFulfilment[] | undefined => {
   if (!Array.isArray(value)) return undefined;
   return value.filter(entry => entry && typeof entry.id === 'string' && Array.isArray(entry.allocations)).map(entry => ({
+    ...(readString(entry.notes) ? {notes: readString(entry.notes)} : {}),
+    ...(entry.destination ? { destination: { formattedAddress: readString(entry.destination.formattedAddress), latitude: readString(entry.destination.latitude), longitude: readString(entry.destination.longitude), deliveryInstructions: readString(entry.destination.deliveryInstructions) } } : {}),
     id: readString(entry.id), method: entry.method === 'delivery' ? 'delivery' : 'pickup', date: readString(entry.date), time: readString(entry.time),
     pickupLocationId: readString(entry.pickupLocationId), pickupLocationName: readString(entry.pickupLocationName), pickupLocationAddress: readString(entry.pickupLocationAddress),
     allocations: entry.allocations.map(allocation => ({ itemIndex: readNumber(allocation.itemIndex), quantity: readNumber(allocation.quantity), ...(allocation.componentDay ? { componentDay: allocation.componentDay } : {}) }))

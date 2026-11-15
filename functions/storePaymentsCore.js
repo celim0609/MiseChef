@@ -473,10 +473,10 @@ export const buildPendingOrder = ({
   const fulfilmentCount = scheduled?.fulfilments.length || 1;
   let firstDayFee = draft.deliverySnapshot ? (scheduled && fulfilmentCount > 1 ? providerDeliveryFee : (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee)) : 0;
   let deliveryFee = scheduled ? roundMoney(firstDayFee * fulfilmentCount) : draft.deliverySnapshot ? (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee) : 0;
-  const dayPricing = draft.deliverySnapshot && store.delivery?.freeDelivery?.enabled === true
-    ? calculateDeliveryDayPricing({ config: store.delivery, providerFee: providerDeliveryFee, items, fulfilments: scheduled?.fulfilments, pickup: draft.deliverySnapshot.pickup, destination: draft.deliverySnapshot.recipient, promotionPricing, date: fulfilmentDate }) : null;
+  const dayPricing = draft.deliverySnapshot && (store.delivery?.freeDelivery?.enabled === true || draft.deliverySnapshot.dayQuotes?.length)
+    ? calculateDeliveryDayPricing({ dayQuotes: draft.deliverySnapshot.dayQuotes, config: store.delivery, providerFee: providerDeliveryFee, items, fulfilments: scheduled?.fulfilments, pickup: draft.deliverySnapshot.pickup, destination: draft.deliverySnapshot.recipient, promotionPricing, date: fulfilmentDate }) : null;
   if (dayPricing) { deliveryFee = dayPricing.customerDeliveryFee; firstDayFee = dayPricing.days[0].customerDeliveryFee; }
-  const storeAbsorbedDeliveryFee = roundMoney(Math.max(providerDeliveryFee * (dayPricing ? fulfilmentCount : 1) - deliveryFee, 0));
+  const storeAbsorbedDeliveryFee = roundMoney(Math.max((dayPricing ? dayPricing.days.reduce((sum, day) => sum + day.providerDeliveryFee, 0) : providerDeliveryFee) - deliveryFee, 0));
   const total = roundMoney(discountedMerchandiseTotal + deliveryFee);
   items.forEach(item => { delete item.mealOptionDays; });
   const amountMinor = Math.round(total * 100);
@@ -523,7 +523,7 @@ export const buildPendingOrder = ({
     itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
     totals: { merchandiseSubtotal, discountTotal, discountedMerchandiseTotal, deliveryFee, grandTotal: total, currency: region.currency },
     ...(promotionSnapshot.appliedPromotions.length ? { promotionSnapshot } : {}),
-    ...(draft.deliverySnapshot ? { delivery: { ...draft.deliverySnapshot, pricing: { providerDeliveryFee, customerDeliveryFee: deliveryFee, storeAbsorbedDeliveryFee, subsidyEnabled: subsidy.enabled === true, subsidyApplied, ...(dayPricing ? { freeDeliveryEnabled: true, days: dayPricing.days, distanceKm: dayPricing.distanceKm } : {}), minimumMerchandiseSpend: roundMoney(Math.max(0, readNumber(subsidy.minimumMerchandiseSpend))), deliveryFeeCap, currency: region.currency } } } : {}),
+    ...(draft.deliverySnapshot ? { delivery: { ...draft.deliverySnapshot, pricing: { providerDeliveryFee, customerDeliveryFee: deliveryFee, storeAbsorbedDeliveryFee, subsidyEnabled: subsidy.enabled === true, subsidyApplied, ...(dayPricing ? { freeDeliveryEnabled: store.delivery?.freeDelivery?.enabled === true, days: dayPricing.days, distanceKm: dayPricing.distanceKm } : {}), minimumMerchandiseSpend: roundMoney(Math.max(0, readNumber(subsidy.minimumMerchandiseSpend))), deliveryFeeCap, currency: region.currency } } } : {}),
     total,
     status: 'Awaiting Payment',
     fulfilmentStatus: 'New',
