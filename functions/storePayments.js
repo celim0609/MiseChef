@@ -1,3 +1,4 @@
+import { readCheckoutCode, writeCodeReservation, prepareCodeTransition } from './storePromotionCodes.js';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
@@ -25,7 +26,7 @@ import {
 } from './groupOrders.js';
 import { DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS, revalidateDeliveryForPayment } from './storeDelivery.js';
 
-export const loadStoreCheckoutData = async (db, slug) => {
+export const loadStoreCheckoutData = async (db, slug, { includeUnavailable = false } = {}) => {
   const storeSnapshot = await db.collection('stores')
     .where('slug', '==', readString(slug).toLowerCase())
     .limit(1)
@@ -35,10 +36,7 @@ export const loadStoreCheckoutData = async (db, slug) => {
 
   const store = { id: storeDocument.id, ...storeDocument.data() };
   const [productSnapshot, optionGroupSnapshot, setSnapshot, promotionSnapshot] = await Promise.all([
-    db.collection('storeProducts')
-      .where('storeId', '==', storeDocument.id)
-      .where('available', '==', true)
-      .get(),
+    (includeUnavailable ? db.collection('storeProducts').where('storeId', '==', storeDocument.id) : db.collection('storeProducts').where('storeId', '==', storeDocument.id).where('available', '==', true)).get(),
     db.collection('storeOptionGroups')
       .where('storeId', '==', storeDocument.id)
       .get(),
@@ -386,6 +384,9 @@ export const reconcileStorePayment = async ({ db, payment }) => {
       ]);
     }
 
+    const codeTerminal = paymentStatus === PAYMENT_STATUS.paid || paymentStatus === PAYMENT_STATUS.cancelled && payment.promotionTerminal === true;
+    const writeCodeTransition = codeTerminal ? await prepareCodeTransition({db,transaction,order:{...order,id:orderId},nextState:paymentStatus === PAYMENT_STATUS.paid ? 'committed' : 'released',reason:paymentStatus,paidAt:payment.paidAt}) : ()=>{};
+    writeCodeTransition();
     transaction.update(orderReference, update);
     if (isNewPaidOrder && notificationReference && !notificationSnapshot.exists) {
       transaction.create(notificationReference, buildStoreNotification({
@@ -476,6 +477,7 @@ export const createStorePayment = async ({
   resolveAdapter,
   sellingWorkspaceId,
   customerUid = '',
+  promotionMemberUid = customerUid,
   slug,
   draft,
   returnUrl,
@@ -506,6 +508,8 @@ export const createStorePayment = async ({
   if (activeAdapter.requiresSellingWorkspace) {
     assertSellingWorkspace(checkoutData.store, sellingWorkspaceId);
   }
+  if (draft?.promotionCode && activeAdapter.promotionCodeLifecycle !== true) throw new HttpsError('failed-precondition', 'Promotion code: This payment method cannot safely release unpaid code reservations. Choose a supported online checkout method or remove the code.');
+  if(draft?.promotionCode && activeAdapter.mode==='payment_link' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(readString(draft.customerEmail))) throw new HttpsError('failed-precondition','Email is required for secure payment.');
   const checkoutReturnUrl = activeAdapter.provider === 'stripe' || activeAdapter.mode === 'payment_link'
     ? validateStoreCheckoutReturnUrl(returnUrl)
     : '';
@@ -528,6 +532,7 @@ export const createStorePayment = async ({
   const priorAttempt = await checkoutAttemptReference.get();
   if (priorAttempt.exists) {
     const prior = priorAttempt.data();
+    if (prior.promotionCodeMemberUid && prior.promotionCodeMemberUid !== customerUid) throw new HttpsError('permission-denied','This member code checkout belongs to another account.');
     if (!readString(prior?.providerPaymentId) || !prior?.checkout || !readString(prior?.checkoutAccessToken)) {
       const recovered = await recoverIncompleteStoreCheckoutAttempt({
         db, checkoutAttemptReference, priorAttempt: prior, activeAdapter
@@ -579,6 +584,7 @@ export const createStorePayment = async ({
         return reservationSnapshot.exists || !existingOrderSnapshot.empty;
       }
     });
+    const codeReservation = await readCheckoutCode({db,transaction,storeId,code:draft.promotionCode,memberUid:promotionMemberUid,now,currency:checkoutData.store.currency,orderId:orderReference.id});
     const pendingOrder = buildPendingOrder({
       id: orderReference.id,
       orderNumber: reference.orderNumber,
@@ -589,13 +595,16 @@ export const createStorePayment = async ({
       paymentMethod,
       groupOrder: currentGroupOrder,
       promotions: freshPromotions,
+      promotionCodeConfig: codeReservation?.config,
       customerUid,
       draft,
       requireCustomerEmail: activeAdapter.mode === 'payment_link',
       now
     });
+    if(pendingOrder.promotionCodeSnapshot && draft.promotionCodeExpected && ['configRevision','eligibleSubtotalMinor','discountMinor'].some(key=>draft.promotionCodeExpected[key]!==pendingOrder.promotionCodeSnapshot[key])) throw new HttpsError('failed-precondition','Promotion code: Prices or code terms changed. Reapply the code before payment.');
     if (draft.deliverySnapshot) {
       const displayed = deliveryPricingSnapshot?.exists ? deliveryPricingSnapshot.data() : null;
+      if (pendingOrder.promotionCodeSnapshot && (!displayed?.promotionCodeSnapshot || displayed.promotionCodeSnapshot.codeId !== pendingOrder.promotionCodeSnapshot.codeId || displayed.promotionCodeSnapshot.configRevision !== pendingOrder.promotionCodeSnapshot.configRevision || displayed.memberUid !== promotionMemberUid)) throw new HttpsError('failed-precondition','Promotion or delivery pricing changed. Refresh your delivery quote before checkout.');
       if (!displayed || readString(displayed.storeId) !== storeId
         || readString(displayed.quotationId) !== readString(draft.deliveryQuoteId)
         || Number(displayed.discountedMerchandiseTotal) !== Number(pendingOrder.totals.discountedMerchandiseTotal)
@@ -603,6 +612,11 @@ export const createStorePayment = async ({
         || Number(displayed.grandTotal) !== Number(pendingOrder.totals.grandTotal)) {
         throw new HttpsError('failed-precondition', 'Promotion or delivery pricing changed. Refresh your delivery quote before checkout.');
       }
+    }
+    if (codeReservation) {
+      pendingOrder.promotionCodeSnapshot.reservationExpiresAt = new Date(now.getTime()+60*60*1000).toISOString();
+      // Recovery uses the exact original provider request and idempotency key.
+      // The raw capability is stored only in the server-only reservation queue.
     }
     pendingOrder.payment.checkoutAccessTokenHash = hashCheckoutAccessToken(checkoutAccessToken);
     // Store Order History performs Firestore Timestamp range queries. Keep the
@@ -625,8 +639,10 @@ export const createStorePayment = async ({
     transaction.create(checkoutAttemptReference, {
       orderId: orderReference.id,
       storeId,
+      ...(codeReservation ? {promotionCodeMemberUid:customerUid} : {}),
       createdAt: now.toISOString()
     });
+    writeCodeReservation(transaction,codeReservation,pendingOrder.promotionCodeSnapshot,{returnUrl:checkoutReturnUrl,checkoutAccessToken});
     transaction.create(orderReference, pendingOrder);
     incrementGroupLifetimeOrderCountInTransaction({
       db,
@@ -669,7 +685,18 @@ export const createStorePayment = async ({
     if (providerPaymentId) {
       await activeAdapter.cancelPayment(providerPaymentId, { db }).catch(() => undefined);
     }
-    await orderReference.update({
+    if(order.promotionCodeSnapshot) {
+      const released = await db.runTransaction(async transaction=>{
+        const fresh=await transaction.get(orderReference);
+        if(fresh.data()?.payment?.status===PAYMENT_STATUS.paid) return false;
+        const write=error.promotionDefinitelyNotCreated===true && !fresh.data()?.payment?.providerPaymentId
+          ? await prepareCodeTransition({db,transaction,order:{...fresh.data(),id:orderReference.id},nextState:'released',reason:'provider_rejected_creation'}) : ()=>{};
+        write();
+        transaction.update(orderReference,{status:error.promotionDefinitelyNotCreated===true?'Payment Failed':'Payment Processing','payment.status':error.promotionDefinitelyNotCreated===true?PAYMENT_STATUS.failed:PAYMENT_STATUS.processing,'payment.failureCode':error.promotionDefinitelyNotCreated===true?'provider_creation_failed':'provider_creation_uncertain','payment.updatedAt':new Date().toISOString(),updatedAt:new Date().toISOString()});
+        return error.promotionDefinitelyNotCreated===true && !fresh.data()?.payment?.providerPaymentId;
+      });
+      if(released) throw new HttpsError('failed-precondition','Promotion code: Payment could not be created; the reservation was released. Reapply the code to try again.');
+    } else await orderReference.update({
       status: 'Payment Failed',
       'payment.status': PAYMENT_STATUS.failed,
       'payment.failureCode': 'provider_creation_failed',

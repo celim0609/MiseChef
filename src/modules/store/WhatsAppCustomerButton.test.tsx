@@ -20,6 +20,9 @@ const createOrder = (
   pickupCode: 'A7K2',
   customerName: 'Aina',
   phone: '0123456789',
+  currency: 'MYR',
+  total: 12,
+  items: ['Meal A','Meal B','Meal C'].map(productName=>({productName,quantity:2,selectedOptions:[]})),
   pickupDate: '2026-08-22',
   pickupSession: '2:00 PM – 3:00 PM',
   pickupLocationName: 'Main Counter',
@@ -144,7 +147,7 @@ test('multiple dates are listed in the selected schedule order', () => {
   assert.ok(message.indexOf('Mon 19 Oct') < message.indexOf('Tue 20 Oct'));
 });
 
-test('persisted per-day fulfilments survive normalization and reach the customer link', async () => {
+test('persisted per-day details and saved order total reach the shared customer link', async () => {
   const { normalizeOrderFulfilments } = await import('./storeOrderSnapshot');
   const fulfilments = normalizeOrderFulfilments([
     { id: 'day_a', method: 'pickup', date: '2026-10-19', time: '15:30', pickupLocationAddress: '44 Example Road, Ipoh', allocations: [{ itemIndex: 0, quantity: 1 }] },
@@ -156,23 +159,23 @@ test('persisted per-day fulfilments survive normalization and reach the customer
   const before = structuredClone(order);
   const html = renderToStaticMarkup(<WhatsAppCustomerButton order={order} country="MY" storeName="Renamed Store" />);
   const message = decodeURIComponent(html.match(/text=([^" ]+)/)![1]);
-  for (const day of [19, 20, 21, 22]) assert.match(message, new RegExp(`${day} Oct 2026`));
-  assert.match(message, /16:00/);
-  assert.match(message, /15:30/);
-  assert.match(message, /RM92.30/);
-  assert.match(message, /Payment Status: \*Paid\*/);
+  for (const day of [19, 20, 21, 22]) assert.match(message, new RegExp(`${day} Oct`));
+  assert.match(message, /4:00 PM/);
+  assert.match(message, /3:30 PM/);
+  assert.match(message, /Order total: MYR 999.00/);
+  assert.match(message, /Payment confirmed. Thank you!/);
   assert.match(message, /44 Example Road, Ipoh/);
   assert.match(message, /Snapshot Store/);
-  assert.doesNotMatch(message, /999|Renamed Store|22 Aug/);
+  assert.doesNotMatch(message, /92.30|Renamed Store|22 Aug|[*_`]|2026-/);
   assert.deepEqual(order, before);
 });
 
-test('single-day pickup uses exact time and confirmed payment amount', () => {
+test('single-day pickup formats the saved time and order total', () => {
   const order = createOrder('paid', { pickupTime: '15:45', payment: { status: 'paid', refundStatus: 'none', amountMinor: 1200, currency: 'MYR' } as StoreOrder['payment'] });
   const message = decodeURIComponent(renderToStaticMarkup(<WhatsAppCustomerButton order={order} country="MY" storeName="Shop" />));
-  assert.match(message, /15:45/);
+  assert.match(message, /3:45 PM/);
   assert.doesNotMatch(message, /2:00 PM/);
-  assert.match(message, /RM12.00/);
+  assert.match(message, /Order total: MYR 12.00/);
 });
 
 test('multi-day delivery uses all fulfilments and recipient address without pickup details', () => {
@@ -182,8 +185,10 @@ test('multi-day delivery uses all fulfilments and recipient address without pick
     fulfilments: [19, 22].map(day => ({ id: `day_${day}`, method: 'delivery', date: `2026-10-${day}`, time: day === 19 ? '10:00' : '11:45', pickupLocationId: '', pickupLocationName: 'Wrong pickup', pickupLocationAddress: 'Wrong address', allocations: [] }))
   });
   const message = decodeURIComponent(renderToStaticMarkup(<WhatsAppCustomerButton order={order} country="MY" storeName="Shop" />));
-  assert.match(message, /19 Oct 2026 · 10:00/);
-  assert.match(message, /22 Oct 2026 · 11:45/);
+  assert.match(message, /Monday, 19 Oct/);
+  assert.match(message, /10:00 AM/);
+  assert.match(message, /Thursday, 22 Oct/);
+  assert.match(message, /11:45 AM/);
   assert.match(message, /88 Recipient Street, Singapore/);
   assert.doesNotMatch(message, /Wrong|Pickup Code|20 Oct|21 Oct/);
 });
@@ -203,4 +208,19 @@ test('unconfirmed payments and missing amounts never fabricate Paid or a total',
   const message = buildWhatsAppOrderConfirmationMessage({ paymentStatus: 'paid' });
   assert.match(message, /Total Paid: \*Unavailable\*/);
   assert.doesNotMatch(message, /RM0/);
+});
+
+test('POS Live uses the exact shared clean confirmation with saved dates, destinations and total',async()=>{
+ const {customerActionMessage}=await import('./customerCommunicationModel');
+ const o=createOrder('paid',{customerName:'Hana &amp; Ali',currency:'MYR',total:32,items:[{productName:'Chicken &amp; Rice *Special*',quantity:2},{productName:'Soup',quantity:1}] as StoreOrder['items'],fulfilments:[{id:'a',date:'2026-11-01',time:'16:30',method:'delivery',destination:{formattedAddress:'Saved Home &amp; Office'},allocations:[{itemIndex:0,quantity:2}]},{id:'b',date:'2026-11-02',time:'12:00',method:'pickup',pickupLocationAddress:'Saved Counter',allocations:[{itemIndex:1,quantity:1}]}] as StoreOrder['fulfilments'],delivery:{recipient:{address:'Wrong parent'}} as StoreOrder['delivery']});
+ const html=renderToStaticMarkup(<WhatsAppCustomerButton order={o} country="MY" storeName="GG Grab&Go" />);
+ const href=html.match(/href="([^"]+)"/)![1].replace(/&amp;/g,'&');const url=new URL(href);const text=url.searchParams.get('text')!;
+ assert.equal(url.origin,'https://web.whatsapp.com');assert.equal(text,customerActionMessage(o,'confirm','','','GG Grab&Go'));
+ for(const value of ['Hana & Ali','Order total: MYR 32.00','Sunday, 1 Nov','Monday, 2 Nov','4:30 PM','12:00 PM','2 x Chicken & Rice Special','1 x Soup','Saved Home & Office','Saved Counter'])assert.ok(text.includes(value),value);
+ assert.doesNotMatch(text,/&amp;|[*_`�]|Wrong parent|Total Paid|2026-/);
+ const source=readFileSync(new URL('./WhatsAppCustomerButton.tsx',import.meta.url),'utf8');assert.doesNotMatch(source,/getWhatsAppOrderConfirmation|paymentAmount:|wa\.me/);
+});
+
+test('shared POS Live formatter preserves cancelled/refunded and unconfirmed action restrictions',()=>{
+ for(const o of [createOrder('paid',{fulfilmentStatus:'Cancelled'}),createOrder('paid',{payment:{status:'paid',refundStatus:'refunded'} as StoreOrder['payment']}),createOrder('pending'),createOrder('failed')])assert.equal(renderToStaticMarkup(<WhatsAppCustomerButton order={o} country="MY" storeName="Shop" />),'');
 });
