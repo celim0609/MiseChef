@@ -36,7 +36,7 @@ export const businessService = {
     return calculateBusinessAccounting({ from, to, invoices: [], manualSales, storeOrders, timeZone });
   },
 
-  async getAccountingReport(userId?: string, workspaceId = userId, from = '', to = '', timeZone = DEFAULT_REGION_CONFIGURATION.timeZone) {
+  async getAccountingReport(userId?: string, workspaceId = userId, from = '', to = '', timeZone: string = DEFAULT_REGION_CONFIGURATION.timeZone) {
     if (!userId || !workspaceId || !from || !to || from > to) {
       return calculateBusinessAccounting({ from: '1970-01-01', to: '1970-01-01', invoices: [], manualSales: [], storeOrders: [], timeZone });
     }
@@ -51,7 +51,7 @@ export const businessService = {
   async getDashboardSummary(
     userId?: string,
     workspaceId = userId,
-    timeZone = DEFAULT_REGION_CONFIGURATION.timeZone,
+    timeZone: string = DEFAULT_REGION_CONFIGURATION.timeZone,
     dateRange?: BusinessDateRange
   ): Promise<BusinessDashboardSummary> {
     if (!userId || !workspaceId) {

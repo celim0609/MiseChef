@@ -38,15 +38,7 @@ import { selectProvisionedDisplayName } from '../services/newUserProvisioningMod
 import { formatRegionCurrency, useWorkspaceRegion } from '../regions';
 import type { OnboardingGoal } from '../modules/onboarding';
 import type { QuickAddActionDefinition, QuickAddActionId } from '../navigation/quickAdd';
-import {
-  formatPurchaseCostPercentage,
-  getInvoiceKpiDate,
-  getInvoiceKpiTotal,
-  getPurchaseCostPercentage,
-  isPurchaseKpiEligible,
-  isSameBusinessDay,
-  isSameBusinessMonth
-} from '../modules/business/purchaseKpi';
+import { formatPurchaseCostPercentage, isSameBusinessDay } from '../modules/business/purchaseKpi';
 
 interface HomePortfolioSummary {
   professionalTitle?: string;
@@ -173,7 +165,7 @@ export default function HomeTab({
         setDashboard(null);
         return;
       }
-      const nextDashboard = await dashboardService.loadOwnerDashboard(userId, activeWorkspaceId);
+      const nextDashboard = await dashboardService.loadOwnerDashboard(userId, activeWorkspaceId, region.timeZone);
       setDashboard(nextDashboard);
       const sources = Object.values(nextDashboard);
       const permissionFailures = sources.filter(source => source.status === 'permission-denied').length;
@@ -186,7 +178,7 @@ export default function HomeTab({
     } finally {
       setIsLoading(false);
     }
-  }, [activeWorkspaceId, businessEnabled, isChefHome, userId]);
+  }, [activeWorkspaceId, businessEnabled, isChefHome, region.timeZone, userId]);
 
   useEffect(() => {
     loadDashboard();
@@ -211,15 +203,12 @@ export default function HomeTab({
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
   const todaySalesRecords = sales.filter(sale => isSameBusinessDay(sale.date, now, region.timeZone));
   const yesterdaySalesRecords = sales.filter(sale => isSameBusinessDay(sale.date, yesterday, region.timeZone));
-  const monthSalesRecords = sales.filter(sale => isSameBusinessMonth(sale.date, now, region.timeZone));
   const todaySales = todaySalesRecords.reduce((sum, sale) => sum + Number(sale.amount || 0), 0);
   const yesterdaySales = yesterdaySalesRecords.reduce((sum, sale) => sum + Number(sale.amount || 0), 0);
-  const monthSales = monthSalesRecords.reduce((sum, sale) => sum + Number(sale.amount || 0), 0);
-
-  const approvedMonthInvoices = invoices
-    .filter(isPurchaseKpiEligible)
-    .filter(invoice => isSameBusinessMonth(getInvoiceKpiDate(invoice, region.timeZone), now, region.timeZone));
-  const monthPurchases = approvedMonthInvoices.reduce((sum, invoice) => sum + getInvoiceKpiTotal(invoice), 0);
+  const monthlySource = dashboard?.monthlyAccounting;
+  const monthlySummary = monthlySource?.data;
+  const monthSales = monthlySummary?.sales ?? 0;
+  const monthPurchases = monthlySummary?.purchases ?? 0;
   const pendingOcr = invoices.filter(invoice => ['Pending', 'Processing'].includes(getInvoiceStatus(invoice))).length;
   const pendingInvoiceRecords = invoices.filter(invoice => getInvoiceStatus(invoice) === 'Processed');
   const pendingInvoices = pendingInvoiceRecords.length;
@@ -243,20 +232,16 @@ export default function HomeTab({
 
   const todaySalesState = getMetricState(dashboard?.sales, todaySalesRecords.length > 0, isLoading);
   const yesterdaySalesState = getMetricState(dashboard?.sales, yesterdaySalesRecords.length > 0, isLoading);
-  const monthSalesState = getMetricState(dashboard?.sales, monthSalesRecords.length > 0, isLoading);
-  const purchaseState = getMetricState(dashboard?.invoices, approvedMonthInvoices.length > 0, isLoading);
+  const monthSalesState = getMetricState(monthlySource, Boolean(monthlySummary?.availability.sales), isLoading);
+  const purchaseState = getMetricState(monthlySource, Boolean(monthlySummary?.availability.purchases), isLoading);
   const invoiceCountState = getMetricState(dashboard?.invoices, invoices.length > 0, isLoading);
   const aiUsageState = getMetricState(dashboard?.aiUsage, aiUsage.recordCount > 0, isLoading);
-  const purchaseRatioState: OwnerMetricState = isLoading
-    ? 'loading'
-    : dashboard?.sales.status === 'permission-denied' || purchaseState === 'permission-denied'
-      ? 'permission-denied'
-      : dashboard?.sales.status === 'error' || purchaseState === 'error'
-        ? 'error'
-        : !dashboard?.sales || purchaseState === 'no-data'
-          ? 'no-data'
-          : 'ready';
-  const purchaseRatio = purchaseRatioState === 'ready' ? getPurchaseCostPercentage(monthPurchases, monthSales) : null;
+  const purchaseRatioState = getMetricState(
+    monthlySource,
+    Boolean(monthlySummary && (monthlySummary.availability.purchases || monthSales <= 0)),
+    isLoading
+  );
+  const purchaseRatio = monthlySummary?.purchaseCostPercentage ?? null;
 
   const alertSources = [
     dashboard?.invoices,
@@ -321,7 +306,7 @@ export default function HomeTab({
     { label: 'Yesterday Sales', value: formatRegionCurrency(yesterdaySales, region.currency), icon: <TrendingUp className="h-5 w-5" />, helper: 'Recorded sales for yesterday', tone: 'secondary', state: yesterdaySalesState },
     { label: 'This Month Sales', value: formatRegionCurrency(monthSales, region.currency), icon: <TrendingUp className="h-5 w-5" />, helper: 'Recorded sales this month', tone: 'secondary', state: monthSalesState },
     { label: 'Total Purchases', value: formatRegionCurrency(monthPurchases, region.currency), icon: <ReceiptText className="h-5 w-5" />, helper: 'Approved imported invoices this month', tone: 'primary', state: purchaseState },
-    { label: 'Purchase Ratio', value: formatPurchaseCostPercentage(purchaseRatio), icon: <ClipboardList className="h-5 w-5" />, helper: purchaseRatioState === 'ready' && monthSales === 0 ? 'Approved purchases exist, but no sales are recorded this month' : 'Total purchases divided by total sales', tone: 'secondary', state: purchaseRatioState }
+    { label: 'Purchase Ratio', value: formatPurchaseCostPercentage(purchaseRatio), icon: <ClipboardList className="h-5 w-5" />, helper: purchaseRatioState === 'ready' && purchaseRatio === null ? 'A positive sales total is needed for the ratio' : 'Total purchases divided by total sales', tone: 'secondary', state: purchaseRatioState }
   ];
 
   const recentActivity = useMemo<ActivityItem[]>(() => {
@@ -391,7 +376,7 @@ export default function HomeTab({
         : purchaseRatioState === 'no-data'
           ? { value: 'No data available', label: 'No data', className: 'bg-surface-container-high text-on-surface-variant' }
           : purchaseRatio === null
-            ? { value: 'No sales yet', label: 'Sales total is zero', className: 'bg-surface-container-high text-on-surface-variant' }
+            ? { value: 'No sales yet', label: 'No positive sales total', className: 'bg-surface-container-high text-on-surface-variant' }
             : { value: `${purchaseRatio.toFixed(1)}%`, label: 'Monthly actuals', className: 'bg-primary/10 text-primary' };
 
   if (!businessEnabled) {
