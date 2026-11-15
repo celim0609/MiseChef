@@ -3,7 +3,8 @@ import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '../firebase';
 import type { Recipe } from '../types';
 import { businessService } from '../modules/business/services';
-import type { BusinessSale } from '../modules/business/types';
+import { getBusinessDashboardPeriodRange } from '../modules/business/accounting';
+import type { BusinessDashboardSummary, BusinessSale } from '../modules/business/types';
 import { ingredientService, invoiceService } from '../modules/costing/services';
 import type { CostingIngredient, CostingInvoice, PendingRecipeCostRecalculation } from '../modules/costing/types';
 import { supplierService } from '../modules/suppliers/services';
@@ -32,6 +33,7 @@ export interface OwnerDashboardData {
   suppliers: DashboardSource<Supplier[]>;
   quotations: DashboardSource<SupplierQuotation[]>;
   sales: DashboardSource<BusinessSale[]>;
+  monthlyAccounting: DashboardSource<BusinessDashboardSummary | null>;
   recipes: DashboardSource<Recipe[]>;
   aiUsage: DashboardSource<DashboardAiUsage>;
   recalculations: DashboardSource<PendingRecipeCostRecalculation[]>;
@@ -150,8 +152,9 @@ const getWorkspaceAiUsage = async (workspaceId: string): Promise<DashboardAiUsag
 };
 
 export const dashboardService = {
-  async loadOwnerDashboard(userId: string, workspaceId: string): Promise<OwnerDashboardData> {
-    const [invoices, ingredients, suppliers, quotations, sales, recipes, aiUsage, recalculations] = await Promise.all([
+  async loadOwnerDashboard(userId: string, workspaceId: string, timeZone: string): Promise<OwnerDashboardData> {
+    const range = getBusinessDashboardPeriodRange({ period: 'this-month', now: new Date(), timeZone })!;
+    const [invoices, ingredients, suppliers, quotations, sales, monthlyAccounting, recipes, aiUsage, recalculations] = await Promise.all([
       loadSource(() => {
         requireFirestore();
         return invoiceService.listInvoices(userId, { includeArchived: false, workspaceId });
@@ -169,11 +172,15 @@ export const dashboardService = {
         requireFirestore();
         return businessService.listSales(workspaceId);
       }, [] as BusinessSale[]),
+      loadSource(() => {
+        requireFirestore();
+        return businessService.getDashboardSummary(userId, workspaceId, timeZone, range);
+      }, null),
       loadSource(() => listWorkspaceRecipes(workspaceId), [] as Recipe[]),
       loadSource(() => getWorkspaceAiUsage(workspaceId), emptyAiUsage),
       loadSource(() => listPendingRecalculations(workspaceId), [] as PendingRecipeCostRecalculation[])
     ]);
 
-    return { invoices, ingredients, suppliers, quotations, sales, recipes, aiUsage, recalculations };
+    return { invoices, ingredients, suppliers, quotations, sales, monthlyAccounting, recipes, aiUsage, recalculations };
   }
 };

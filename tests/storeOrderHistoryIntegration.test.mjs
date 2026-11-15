@@ -260,14 +260,36 @@ test('multi-day pickup creates one financial order/payment and checkout retries 
   } finally { await deleteApp(app); }
 });
 
+const getWeeklyDeliveryFixtureDates = (now, timeZone) => {
+  const localDate = new Intl.DateTimeFormat('en-CA', { timeZone }).format(now);
+  // Use UTC only for date arithmetic after choosing the Store's calendar day.
+  const monday = new Date(`${localDate}T00:00:00Z`);
+  // Leave a day of slack so setup crossing local midnight still meets the lead time.
+  monday.setUTCDate(monday.getUTCDate() + 2);
+  while (monday.getUTCDay() !== 1) monday.setUTCDate(monday.getUTCDate() + 1);
+  return Array.from({ length: 5 }, (_, index) => {
+    const day = new Date(monday);
+    day.setUTCDate(day.getUTCDate() + index);
+    return day.toISOString().slice(0, 10);
+  });
+};
+
+test('weekly delivery fixture keeps lead time across Kuala Lumpur midnight', () => {
+  const timeZone = 'Asia/Kuala_Lumpur';
+  assert.deepEqual(getWeeklyDeliveryFixtureDates(new Date('2026-11-14T15:59:59Z'), timeZone),
+    ['2026-11-16', '2026-11-17', '2026-11-18', '2026-11-19', '2026-11-20']);
+  assert.deepEqual(getWeeklyDeliveryFixtureDates(new Date('2026-11-14T16:00:00Z'), timeZone),
+    ['2026-11-23', '2026-11-24', '2026-11-25', '2026-11-26', '2026-11-27']);
+  assert.equal(getWeeklyDeliveryFixtureDates(new Date('2026-11-15T16:00:00Z'), timeZone)[0], '2026-11-23');
+});
+
 test('Weekly delivery persists one payment, five fulfilments and immutable per-day quote sum through dispatch completion', async () => {
   const { createStoreDeliveryQuote, dispatchStoreDelivery, refreshStoreDelivery } = await import('../functions/storeDelivery.js');
   // The unchanged payment boundary uses the Functions default Firestore app.
   const app = initializeApp({ projectId: 'demo-misechef-store-payment-rules' });
   const db = getFirestore(app); const workspaceId = `weekly-delivery-${process.pid}`; const ownerId = `${workspaceId}-owner`;
-  const now = new Date(); const monday = new Date(now.getTime() + 86400000);
-  while (monday.getUTCDay() !== 1) monday.setUTCDate(monday.getUTCDate() + 1);
-  const dates = Array.from({ length: 5 }, (_, index) => new Date(monday.getTime() + index * 86400000).toISOString().slice(0,10));
+  const now = new Date();
+  const dates = getWeeklyDeliveryFixtureDates(now, 'Asia/Kuala_Lumpur');
   const days = ['mon','tue','wed','thu','fri'];
   const paymentMethod = { id: 'touch_n_go_qr', enabled: true, qrCodeUrl: 'data:image/png;base64,aA==', instructions: 'Upload proof.', name: 'Touch ’n Go eWallet', receiptAllowed: true };
   const pickup = { name: 'Kitchen', address: 'Kitchen address', latitude: '4.6', longitude: '101.1', contactName: 'Chef', contactPhoneE164: '+60123456789' };
