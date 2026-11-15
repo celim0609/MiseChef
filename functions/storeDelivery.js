@@ -259,6 +259,7 @@ export const dispatchStoreDelivery = async ({ db, provider, uid, orderId, fulfil
     const order = snap.data();
     if (order.fulfilments) throw deliveryError('Choose a fulfilment to dispatch.');
     const delivery = order.delivery || {};
+    assertDeliveryEnvironment({ delivery, provider });
     const instant = delivery.fulfilmentMode === 'instant';
     const kitchenEligible = instant
       ? ['Preparing', 'Ready'].includes(readString(order.fulfilmentStatus))
@@ -266,7 +267,7 @@ export const dispatchStoreDelivery = async ({ db, provider, uid, orderId, fulfil
     if (order.payment?.status !== 'paid' || !kitchenEligible || delivery.fulfilmentMethod !== 'delivery') throw deliveryError(instant ? 'Only preparing or ready, paid instant delivery orders can find a driver.' : 'Only ready, paid pre-order delivery orders can be dispatched.');
     if (TERMINAL_DELIVERY_STATES.has(readString(delivery.lifecycle?.state))) throw deliveryError('This delivery is terminal. Merchant review is required before requesting a replacement.');
     if (delivery.dispatch?.status === 'created') return { order, alreadyCreated: true };
-    if (delivery.dispatch?.status === 'creating') return { order, alreadyCreating: true };
+    if (['creating', 'outcome_unknown', 'cancel_requested'].includes(delivery.dispatch?.status)) return { order, alreadyCreating: true, status: delivery.dispatch.status };
     transaction.update(orderRef, {
       'delivery.dispatch.status': 'creating',
       'delivery.dispatch.requestedBy': uid,
@@ -280,16 +281,25 @@ export const dispatchStoreDelivery = async ({ db, provider, uid, orderId, fulfil
     return { order, alreadyCreated: false };
   });
   if (result.alreadyCreated) return { status: 'created' };
-  if (result.alreadyCreating) return { status: 'creating' };
+  if (result.alreadyCreating) return { status: result.status };
   const delivery = result.order.delivery;
   assertDeliveryEnvironment({ delivery, provider });
-  // Always quote again at dispatch; GG may absorb at most RM5.
+  // Preserve future preorder slots when refreshing the operational quotation.
+  // An elapsed slot uses immediate dispatch, as in the daily fulfilment path.
+  let submitted = false; let created;
   try {
-  const fresh = await provider.createQuote({ market: 'MY', data: { serviceType: delivery.quote.serviceType, language: 'en_MY', stops: delivery.quote.stops.map(stop => ({ coordinates: stop.coordinates, address: stop.address })) } });
+  const schedule = delivery.schedule;
+  const scheduled = delivery.fulfilmentMode !== 'instant' && schedule?.date && schedule?.time
+    && Date.parse(malaysiaPreorderScheduleAt(schedule)) > Date.now();
+  const fresh = await provider.createQuote({ market: 'MY', data: { serviceType: delivery.quote.serviceType, language: 'en_MY', ...(scheduled ? { scheduleAt: malaysiaPreorderScheduleAt(schedule) } : {}), stops: delivery.quote.stops.map(stop => ({ coordinates: stop.coordinates, address: stop.address })) } });
   const freshQuote = quoteSnapshot(fresh); const difference = money(freshQuote.fee - Number(delivery.quote.fee));
   if (difference > 5) { await orderRef.update({ 'delivery.dispatch.status': 'dispatch_blocked_requote', 'delivery.dispatch.errorCode': 'requote_exceeds_absorption_limit', 'delivery.dispatch.requoteFee': freshQuote.fee }); return { status: 'dispatch_blocked_requote', difference }; }
+  if (!freshQuote.quotationId || freshQuote.currency !== 'MYR' || !Number.isFinite(freshQuote.fee) || freshQuote.fee < 0 || freshQuote.stops.length !== 2 || freshQuote.stops.some(stop => !readString(stop.stopId))) throw deliveryError('Invalid dispatch quotation.');
   const [senderStop, recipientStop] = freshQuote.stops;
-  const created = await provider.createOrder({ market: 'MY', data: { quotationId: freshQuote.quotationId, sender: { stopId: senderStop.stopId, name: delivery.pickup.contactName, phone: delivery.pickup.contactPhoneE164 }, recipients: [{ stopId: recipientStop.stopId, name: delivery.recipient.name, phone: delivery.recipient.phoneE164, remarks: delivery.recipient.instructions }], isPODEnabled: true, metadata: { misechefOrderId: result.order.id, misechefOrderNumber: result.order.orderNumber } } });
+  await orderRef.update({ 'delivery.dispatch.submissionStartedAt': new Date().toISOString(), 'delivery.dispatch.operationalQuote': freshQuote });
+  submitted = true;
+  created = await provider.createOrder({ market: 'MY', data: { quotationId: freshQuote.quotationId, sender: { stopId: senderStop.stopId, name: delivery.pickup.contactName, phone: delivery.pickup.contactPhoneE164 }, recipients: [{ stopId: recipientStop.stopId, name: delivery.recipient.name, phone: delivery.recipient.phoneE164, remarks: delivery.recipient.instructions }], isPODEnabled: true, metadata: { misechefOrderId: result.order.id, misechefOrderNumber: result.order.orderNumber } } });
+  if (!readString(created.orderId)) throw new Error('Provider did not return an order ID.');
   const lifecycleState = projectLalamoveLifecycle(created);
   await orderRef.update({
     'delivery.dispatch.status': 'created',
@@ -302,7 +312,7 @@ export const dispatchStoreDelivery = async ({ db, provider, uid, orderId, fulfil
   });
   return { status: 'created', orderId: created.orderId };
   } catch (error) {
-    await orderRef.update({ 'delivery.dispatch.status': 'failed', 'delivery.dispatch.errorCode': readString(error?.message).slice(0, 120) || 'provider_error', 'delivery.lifecycle.state': 'not_started', updatedAt: FieldValue.serverTimestamp() }).catch(() => undefined);
+    await orderRef.update({ 'delivery.dispatch.status': submitted ? 'outcome_unknown' : 'failed', ...(created?.orderId ? { 'delivery.providerOrder.orderId': created.orderId } : {}), 'delivery.dispatch.errorCode': readString(error?.message).slice(0, 120) || 'provider_error', 'delivery.lifecycle.state': submitted ? 'assigning_driver' : 'not_started', updatedAt: FieldValue.serverTimestamp() }).catch(() => undefined);
     throw error;
   }
 };
@@ -398,7 +408,7 @@ export const cancelStoreDelivery = async ({ db, provider, uid, orderId, fulfilme
 
 export const reconcileActiveDeliveries = async ({ db, provider, limit = 50 }) => {
   await reconcileFulfilmentDeliveries({ db, provider, limit });
-  const active = await db.collection('storeOrders').where('delivery.dispatch.status', 'in', ['created', 'cancel_requested']).limit(limit).get();
+  const active = await db.collection('storeOrders').where('delivery.dispatch.status', 'in', ['created', 'cancel_requested', 'outcome_unknown']).limit(limit).get();
   return Promise.all(active.docs.map(async doc => {
     const order = doc.data(); const providerOrderId = readString(order.delivery?.providerOrder?.orderId); if (!providerOrderId) return null;
     try {

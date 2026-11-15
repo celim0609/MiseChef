@@ -1,3 +1,4 @@
+import { HttpsError } from 'firebase-functions/v2/https';
 import { createHmac, randomUUID } from 'node:crypto';
 
 // Hosts are deliberately fixed here. Neither Store data nor a browser request
@@ -24,7 +25,9 @@ const signedRequest = async ({ host, apiKey, apiSecret, method, path, market, bo
   const timestamp = Date.now().toString();
   const source = `${timestamp}\r\n${method}\r\n${path}\r\n\r\n${serialized}`;
   const signature = createHmac('sha256', apiSecret).update(source).digest('hex');
-  const response = await fetch(`${host}${path}`, {
+  let response;
+  try { response = await fetch(`${host}${path}`, {
+    signal: AbortSignal.timeout(15_000),
     method,
     headers: {
       Authorization: `hmac ${apiKey}:${timestamp}:${signature}`,
@@ -33,10 +36,21 @@ const signedRequest = async ({ host, apiKey, apiSecret, method, path, market, bo
       'Request-ID': randomUUID()
     },
     ...(body ? { body: serialized } : {})
-  });
+  }); } catch { throw new HttpsError('unavailable', 'Delivery provider did not respond. Refresh the quote; check existing dispatch status before requesting a replacement.'); }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(text(payload?.errors?.[0]?.id) || text(payload?.message) || 'Lalamove request failed.');
+    const providerCode = text(payload?.errors?.[0]?.id) || text(payload?.message);
+    const messages = {
+      ERR_OUT_OF_SERVICE_AREA: 'Lalamove does not serve this route. Choose another delivery location.',
+      ERR_INVALID_SERVICE_TYPE: 'The Store delivery vehicle is unavailable for this route. Ask the Store to review its Lalamove service type.',
+      ERR_INVALID_SCHEDULE_TIME: 'The delivery time is unavailable. Choose a future delivery time.',
+      ERR_INVALID_PHONE_NUMBER: 'Check the sender and recipient phone numbers, including country codes.'
+    };
+    const code = response.status === 401 || response.status === 403 ? 'failed-precondition' : response.status === 429 || response.status >= 500 ? 'unavailable' : 'invalid-argument';
+    const message = response.status === 401 || response.status === 403
+      ? 'Lalamove authentication failed. The Store must check its delivery credentials for this environment.'
+      : messages[providerCode] || (code === 'unavailable' ? 'Lalamove is temporarily unavailable. Please try again later.' : 'Lalamove rejected the delivery request. Review the route, service and schedule.');
+    const error = new HttpsError(code, message, { providerCode, requestId: text(payload?.meta?.requestId) });
     error.status = response.status;
     error.requestId = text(payload?.meta?.requestId);
     throw error;

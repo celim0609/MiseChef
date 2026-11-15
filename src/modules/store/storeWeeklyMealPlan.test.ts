@@ -46,7 +46,8 @@ test('public and merchant UI wire weekly schedule controls and preserve legacy d
   assert.match(page, /renderWeeklyMeals\(requestedProduct\)/);
   assert.match(page, /weeklyCheckoutError/);
   assert.match(page, /placedOrder.weeklyFulfilments.map/);
-  assert.match(orders, /updateStatus\('Completed', day.day\)/);
+  assert.match(orders, /nextDailyStatus\(selectedOrder,ticket\)/);
+  assert.match(orders, /updateStatus\(next,ticket.weeklyDay,ticket.fulfilmentId\)/);
   assert.match(orders, /&& !selectedOrder.weeklyFulfilments/);
 });
 
