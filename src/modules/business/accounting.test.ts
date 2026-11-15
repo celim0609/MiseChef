@@ -184,3 +184,69 @@ test('Dashboard reconciles to recognized records plus distinct legacy entries', 
   assert.equal(report.totalSales, 101.23);
   assert.equal(report.totalSales, (report.salesRecords.reduce((total, row) => total + row.totalMinor, 0) + 123) / 100);
 });
+
+test('Home monthly metrics use the same scoped period and accounting as Sales Records', () => {
+  const home = readFileSync(new URL('../../components/HomeTab.tsx', import.meta.url), 'utf8');
+  const ownerService = readFileSync(new URL('../../services/dashboardService.ts', import.meta.url), 'utf8');
+  const salesPage = readFileSync(new URL('./pages/Sales/index.tsx', import.meta.url), 'utf8');
+  const businessService = readFileSync(new URL('./services/businessService.ts', import.meta.url), 'utf8');
+
+  assert.match(home, /loadOwnerDashboard\(userId, activeWorkspaceId, region\.timeZone\)/);
+  assert.match(home, /monthSales = monthlySummary\?\.sales/);
+  assert.match(home, /purchaseRatio = monthlySummary\?\.purchaseCostPercentage/);
+  assert.match(ownerService, /getBusinessDashboardPeriodRange\(\{ period: 'this-month', now: new Date\(\), timeZone \}\)/);
+  assert.match(ownerService, /getDashboardSummary\(userId, workspaceId, timeZone, range\)/);
+  assert.match(salesPage, /period: 'this-month', now: new Date\(\), timeZone: region\.timeZone/);
+  assert.match(salesPage, /getSalesReport\(workspace, validRange, region\.timeZone\)/);
+  assert.match(businessService, /calculateBusinessAccounting\(\{ from, to, invoices: \[\], manualSales, storeOrders, timeZone \}\)/);
+  assert.match(businessService, /calculateBusinessAccounting\(\{ from, to, invoices, manualSales, storeOrders, timeZone \}\)/);
+});
+
+test('month-to-date purchase ratio reconciles to recognized sales and legacy sales', () => {
+  const timeZone = 'Asia/Kuala_Lumpur';
+  const range = getBusinessDashboardPeriodRange({ period: 'this-month', now: new Date('2026-11-14T16:15:00Z'), timeZone })!;
+  assert.deepEqual(range, { from: '2026-11-01', to: '2026-11-15' });
+  const completedAt = '2026-11-14T16:00:00Z';
+  const store = order({ id: 'store', total: 232.12, completedAt,
+    totals: { merchandiseSubtotal: 246.10, discountTotal: 13.98, discountedMerchandiseTotal: 232.12, deliveryFee: 0, grandTotal: 232.12, currency: 'MYR' }
+  });
+  store.payment.refundStatus = 'partial';
+  store.payment.refundedAmountMinor = 1000;
+  const pos = order({ id: 'pos', orderSource: 'pos', total: 732.60, completedAt });
+  const walkIn = order({ id: 'walk-in', orderSource: 'pos', externalOrder: { source: 'walk_in' }, total: 45, completedAt });
+  const weekly = order({
+    id: 'weekly', total: 100,
+    weeklyFulfilments: (['mon', 'tue'] as const).map(day => ({
+      day, date: '2026-11-15', productId: 'meal', productName: 'Meal', photoUrl: '',
+      pickupTime: '', pickupLocationId: '', pickupLocationName: '', pickupLocationAddress: '', quantity: 1
+    })),
+    weeklyCompletion: {
+      mon: { completedAt, completedBy: 'owner' },
+      tue: { completedAt: '2026-11-15T16:00:00Z', completedBy: 'owner' }
+    }
+  });
+  const inputs = { ...range, timeZone,
+    manualSales: [manual('2026-11-04', 86), manual('2026-11-16', 100)],
+    storeOrders: [store, pos, walkIn, weekly, order({ id: 'future', completedAt: '2026-11-15T16:00:00Z' })]
+  };
+  const invoices = [
+    invoice({ invoiceDate: '2026-11-11', total: 462.15 }),
+    invoice({ id: 'old-date', invoiceDate: '2020-11-09', total: 48.05 }),
+    invoice({ id: 'future', invoiceDate: '2026-11-16', total: 50 }),
+    invoice({ id: 'pending', invoiceDate: '2026-11-11', processingStatus: 'Processed', total: 100 })
+  ];
+
+  const salesRecords = calculateBusinessAccounting({ ...inputs, invoices: [] });
+  const home = createBusinessDashboardSummary(calculateBusinessAccounting({ ...inputs, invoices }));
+  assert.deepEqual(salesRecords.salesEntries.map(entry => entry.source).sort(), ['POS', 'Store', 'Store', 'Walk-in']);
+  assert.deepEqual(salesRecords.salesEntries.filter(entry => entry.orderId === 'weekly').map(entry => entry.fulfilmentId), ['mon']);
+  assert.equal(salesRecords.totalSales, 1135.72);
+  assert.equal(home.sales, salesRecords.totalSales);
+  assert.equal(home.purchases, 462.15);
+  assert.equal(home.purchaseCostPercentage?.toFixed(1), '40.7');
+
+  const noSales = createBusinessDashboardSummary(calculateBusinessAccounting({ ...inputs, invoices, manualSales: [], storeOrders: [] }));
+  assert.equal(noSales.purchases, 462.15);
+  assert.equal(noSales.sales, 0);
+  assert.equal(noSales.purchaseCostPercentage, null);
+});
