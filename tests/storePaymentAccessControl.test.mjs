@@ -805,3 +805,51 @@ test('per-meal option groups save/reload in v2/v3 with existing merchant permiss
     assert.equal((await ref.get()).data()[menuKey].week1.meals.mon.optionGroups,undefined);
   }
 });
+
+test('manual orders, payment confirmations and private POS catalog remain server-owned and Workspace-private', async () => {
+  await environment.withSecurityRulesDisabled(async context => {
+    await context.firestore().doc('storePrivatePosItems/private-soup').set({workspaceId:WORKSPACE_A,storeId:WORKSPACE_A,name:'Private soup',unitPrice:5});
+  });
+  for(const context of [ownerA,managerA,headChefA]) await assertSucceeds(context.firestore().doc('storePrivatePosItems/private-soup').get());
+  for(const context of [anonymous,ownerB,customerA]) await assertFails(context.firestore().doc('storePrivatePosItems/private-soup').get());
+  for(const context of [ownerA,managerA,headChefA,ownerB,anonymous]) {
+    await assertFails(context.firestore().doc('storePrivatePosItems/private-soup').update({unitPrice:1}));
+    await assertFails(context.firestore().doc(`storeOrders/${ORDER_A}`).update({'payment.status':'paid',manualOrder:{revision:1},fulfilmentOperations:{monday:{kitchenStatus:'Ready'}}}));
+    await assertFails(context.firestore().doc('storeManualOrderRequests/forged').set({workspaceId:WORKSPACE_A,orderId:ORDER_A}));
+  }
+});
+
+test('independent weekly discounts save with merchant permissions and reject invalid discount schemas', async () => {
+  const id = 'weekly-discounts';
+  const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+  const meals = Object.fromEntries(weeklyDays.map(day => [day, embeddedMealRecord(day)]));
+  const record = { ...createProductRecord(id), productType: 'weekly_meal_plan', weeklyMenuVersion: 3, rotationStartMonday: '2026-10-19', healthyLunchBlockedDates: [], availableDay: 'all', optionGroupIds: [],
+    rotationWeeks: { week1: { meals, legacyWeeklyPrice: 55 }, week2: { meals, discount: { type: 'percentage', value: 10 } } } };
+  await assertSucceeds(ref.set(record));
+  await assertSucceeds(ref.update({ rotationWeeks: Object.fromEntries([1,2,3,4].map(i => [`week${i}`, {meals, discount:{type:'percentage',value:10}}])) }));
+  const { rotationStartMonday, rotationWeeks, healthyLunchBlockedDates, ...datedRecord } = record;
+  await assertSucceeds(ref.set({ ...datedRecord, weeklyMenuVersion: 2, weeklyWeeks: Object.fromEntries(['2026-10-19','2026-10-26','2026-11-02','2026-11-09'].map((startMonday, i) => [`week${i+1}`, {startMonday, meals, discount:{type:'percentage',value:10}}])) }));
+  await assertSucceeds(ref.set(record));
+  for (const type of ['none', 'percentage', 'fixed_amount', 'fixed_weekly_price']) await assertSucceeds(ref.update({ rotationWeeks: { week1: { meals, discount: { type, value: 0 } } } }));
+  for (const discount of [{type:'fixed_amount',value:-1},{type:'unknown',value:0},{type:'percentage',value:10,unexpected:true}]) await assertFails(ref.update({ rotationWeeks: { week1: { meals, discount } } }));
+  await assertFails(customerA.firestore().doc(`storeProducts/${id}`).update({ rotationWeeks: { week1: { meals, discount: {type:'none',value:0} } } }));
+});
+
+test('promotion code configuration, counters, reservations and audit records are server-only even for Store owners',async()=>{
+ const paths=['storePromotionCodes/code','storePromotionCodes/code/redemptions/order','storePromotionCodes/code/redemptionEvents/event','storePromotionCodeIndex/hash','storePromotionCodeMembers/hash','storePromotionCodeDays/hash','storePromotionCodeReservations/order'];
+ await environment.withSecurityRulesDisabled(async context=>{for(const path of paths)await context.firestore().doc(path).set({storeId:WORKSPACE_A,memberUid:'customer-a',reserved:1});});
+ for(const context of [anonymous,ownerA,managerA,customerA,ownerB])for(const path of paths){await assertFails(context.firestore().doc(path).get());await assertFails(context.firestore().doc(path).set({reserved:0}));}
+});
+
+
+test('weekly cover images preserve merchant-only permissions and validate source URL', async () => {
+  const id = 'weekly-cover-sharing';
+  const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+  const meals = Object.fromEntries(weeklyDays.map(day => [day, embeddedMealRecord(day)]));
+  const record = { ...createProductRecord(id), productType: 'weekly_meal_plan', weeklyMenuVersion: 3, rotationStartMonday: '2026-10-19', healthyLunchBlockedDates: [], availableDay: 'all', optionGroupIds: [], rotationWeeks: {week1:{meals,coverPhotoUrl:'https://cdn.example/original.jpg'}} };
+  await assertSucceeds(ref.set(record));
+  await assertSucceeds(ref.update({'rotationWeeks.week1.coverPhotoUrl':'https://cdn.example/replacement.jpg'}));
+  await assertFails(ref.update({'rotationWeeks.week1.coverPhotoUrl':'javascript:bad'}));
+  await assertFails(customerA.firestore().doc(`storeProducts/${id}`).update({'rotationWeeks.week1.coverPhotoUrl':'https://cdn.example/forged.jpg'}));
+  await assertFails(ownerB.firestore().doc(`storeProducts/${id}`).update({'rotationWeeks.week1.coverPhotoUrl':'https://cdn.example/forged.jpg'}));
+});

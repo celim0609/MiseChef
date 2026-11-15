@@ -5,6 +5,8 @@ import {
   filterHistoryOrders,
   getMalaysiaDateRange,
   getOrderCompletionTimestamp,
+  isOrderOperationallyEligible,
+  isAdvancePreorderDate,
   isOrderCompletedOnMalaysiaDate,
   shiftDateKey,
   toActivePosStatus,
@@ -114,4 +116,27 @@ test('history filters status and order ID within the already date-scoped result'
   assert.deepEqual(filterHistoryOrders(orders, 'paid', '').map(value => value.id), ['completed', 'cancelled']);
   assert.deepEqual(filterHistoryOrders(orders, 'pending', '').map(value => value.id), ['pending']);
   assert.deepEqual(filterHistoryOrders(orders, 'all', 'MC-CANCEL').map(value => value.id), ['cancelled']);
+});
+
+test('POS orders require recorded payment before entering the kitchen', () => {
+ const pending = { ...order('manual', 'New', 'pending', 'pos'), paymentMethodId: 'other_paid' } as StoreOrder;
+ assert.equal(isOrderOperationallyEligible(pending), false);
+ assert.equal(isOrderOperationallyEligible({ ...pending, payment: { ...pending.payment, status: 'paid' } }), true);
+ assert.equal(isOrderOperationallyEligible({ ...pending, paymentMethodId: 'cash_on_pickup' }), false);
+});
+
+test('legacy online cash-on-pickup remains eligible', () => {
+ const onlineCash = { ...order('online-cash', 'New', 'pending', 'online'), paymentMethodId: 'cash_on_pickup' } as StoreOrder;
+ assert.equal(isOrderOperationallyEligible(onlineCash), true);
+});
+
+test('one-day advance preorder follows Malaysia calendar at UTC boundary', () => {
+ const now = '2026-10-18T16:30:00.000Z'; // Already 19 October in Malaysia
+ assert.equal(isAdvancePreorderDate('2026-10-19',now),false);
+ assert.equal(isAdvancePreorderDate('2026-10-20',now),true);
+ assert.equal(isAdvancePreorderDate('2026-10-21',now),true);
+ assert.equal(isAdvancePreorderDate('2026-10-18',now),false);
+ assert.equal(isAdvancePreorderDate('not-a-date',now),false);
+ assert.equal(isAdvancePreorderDate('2026-02-30',now),false);
+ assert.equal(isAdvancePreorderDate('2026-13-01',now),false);
 });

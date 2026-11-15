@@ -1,0 +1,230 @@
+[
+  {
+    "width": 1440,
+    "week": "week1",
+    "day": "Full Set",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "week": "week1",
+    "day": "mon",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "week": "week1",
+    "day": "tue",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "week": "week1",
+    "day": "wed",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "week": "week1",
+    "day": "thu",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "week": "week1",
+    "day": "fri",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "week": "week2",
+    "day": "Full Set",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "week": "week2",
+    "day": "mon",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "week": "week2",
+    "day": "tue",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "week": "week2",
+    "day": "wed",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "week": "week2",
+    "day": "thu",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "week": "week2",
+    "day": "fri",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "week": "week3",
+    "day": "Full Set",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "week": "week3",
+    "day": "mon",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "week": "week3",
+    "day": "tue",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "week": "week3",
+    "day": "wed",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "week": "week3",
+    "day": "thu",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "week": "week3",
+    "day": "fri",
+    "failedFeedback": true
+  },
+  {
+    "width": 1440,
+    "retrySuccess": true,
+    "duplicateClickBlocked": true,
+    "resetObservedMs": 2126
+  },
+  {
+    "width": 375,
+    "week": "week1",
+    "day": "Full Set",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "week": "week1",
+    "day": "mon",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "week": "week1",
+    "day": "tue",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "week": "week1",
+    "day": "wed",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "week": "week1",
+    "day": "thu",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "week": "week1",
+    "day": "fri",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "week": "week2",
+    "day": "Full Set",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "week": "week2",
+    "day": "mon",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "week": "week2",
+    "day": "tue",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "week": "week2",
+    "day": "wed",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "week": "week2",
+    "day": "thu",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "week": "week2",
+    "day": "fri",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "week": "week3",
+    "day": "Full Set",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "week": "week3",
+    "day": "mon",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "week": "week3",
+    "day": "tue",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "week": "week3",
+    "day": "wed",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "week": "week3",
+    "day": "thu",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "week": "week3",
+    "day": "fri",
+    "failedFeedback": true
+  },
+  {
+    "width": 375,
+    "retrySuccess": true,
+    "duplicateClickBlocked": true,
+    "resetObservedMs": 2128
+  }
+]

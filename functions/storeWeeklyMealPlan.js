@@ -118,13 +118,19 @@ export const weekRangeLabel = monday => {
 };
 
 export const validateWeeklyStructure = product => {
+  for (const week of Object.values(product.rotationWeeks || product.weeklyWeeks || {})) {
+    if (week?.coverPhotoUrl !== undefined && (typeof week.coverPhotoUrl !== 'string' || week.coverPhotoUrl.length > 4096 || !/^https:\/\//.test(week.coverPhotoUrl))) return 'Choose a valid week cover photo.';
+    if (week?.legacyWeeklyPrice !== undefined && (!Number.isFinite(week.legacyWeeklyPrice) || week.legacyWeeklyPrice < 0)) return 'Invalid existing weekly price.';
+    const total = hasEmbeddedMenu(product) ? WEEKLY_DAYS.reduce((sum, day) => sum + Math.round((week?.meals?.[day]?.price ?? 0) * 100), 0) : Infinity;
+    if (week?.discount !== undefined && !validWeeklyDiscount(week.discount, total)) return 'Enter a valid weekly discount within the original weekly total.';
+  }
   if (hasEmbeddedMenu(product) && Object.values(product.rotationWeeks || product.weeklyWeeks || {}).some(week => Object.values(week?.meals || {}).some(meal => meal?.optionGroups !== undefined && !validMealOptionGroups(meal.optionGroups)))) return 'Each meal option group needs a name, valid choices and prices, and an active option when required.';
   if (product.weeklyMenuVersion !== undefined && ![2, 3].includes(product.weeklyMenuVersion)) return 'Choose a supported Healthy Lunch menu format.';
   if (hasRotationMenu(product)) {
     if (product.weeklyWeeks !== undefined || product.weeklyMeals !== undefined || getWeeklyDates(product.rotationStartMonday).length !== 5) return 'Choose a valid rotation start Monday.';
     const weeks = product.rotationWeeks;
     if (!weeks || typeof weeks !== 'object' || Array.isArray(weeks) || !Object.keys(weeks).length || Object.keys(weeks).some(key => !WEEK_SLOTS.includes(key))) return 'Configure at least one rotation week.';
-    if (Object.values(weeks).some(week => !week || Object.keys(week).length !== 1 || !Object.hasOwn(week, 'meals') || !week.meals || Object.keys(week.meals).length !== 5 || !WEEKLY_DAYS.every(day => validEmbeddedMeal(week.meals[day])))) return 'Each rotation week needs five meals.';
+    if (Object.values(weeks).some(week => !week || Object.keys(week).some(key => !['meals', 'discount', 'legacyWeeklyPrice', 'coverPhotoUrl'].includes(key)) || !Object.hasOwn(week, 'meals') || !week.meals || Object.keys(week.meals).length !== 5 || !WEEKLY_DAYS.every(day => validEmbeddedMeal(week.meals[day])))) return 'Each rotation week needs five meals.';
     const blocked = product.healthyLunchBlockedDates || [];
     if (!Array.isArray(blocked) || blocked.length > 120 || blocked.some(date => !validCalendarDate(date)) || new Set(blocked).size !== blocked.length || blocked.some((date, index) => index && blocked[index - 1] >= date)) return 'Choose unique, sorted Healthy Lunch blocked dates.';
     return '';
@@ -138,7 +144,7 @@ export const validateWeeklyStructure = product => {
     || Object.keys(weeks).some(key => !WEEK_SLOTS.includes(key))) return 'Configure at least one of the four weeks.';
   const starts = new Set();
   for (const week of Object.values(weeks)) {
-    if (!week || Object.keys(week).some(key => !['startMonday', 'meals'].includes(key))
+    if (!week || Object.keys(week).some(key => !['startMonday', 'meals', 'discount', 'legacyWeeklyPrice', 'coverPhotoUrl'].includes(key))
       || getWeeklyDates(week.startMonday).length !== 5 || starts.has(week.startMonday) || !validMeals(week.meals)) return 'Each week needs a distinct Monday and five meals.';
     starts.add(week.startMonday);
   }
@@ -241,3 +247,31 @@ export const publicWeeklyFulfilments = order => Array.isArray(order.weeklyFulfil
     pickupTime: day.pickupTime, pickupLocationName: day.pickupLocationName,
     quantity: day.quantity, completed: Boolean(order.weeklyCompletion?.[day.day])
   })) : undefined;
+
+// All amounts are calculated in minor units. Missing configuration retains the
+// historical package price; explicit `none` uses the five current daily prices.
+export const weeklyPricing = (plan, products, monday) => {
+  const week = hasRotationMenu(plan) ? rotationWeekForMonday(plan, monday)
+    : datedWeeks(plan).find(week => week.startMonday === monday);
+  const prices = WEEKLY_DAYS.map(day => resolvePlanMeal(plan, products, monday, day)?.price);
+  if (prices.some(price => !Number.isFinite(price) || price < 0)) throw new Error('Choose five valid daily prices.');
+  const originalMinor = prices.reduce((sum, price) => sum + Math.round(price * 100), 0);
+  const config = week?.discount || { type: 'fixed_weekly_price', value: week?.legacyWeeklyPrice ?? plan.price };
+  if (!validWeeklyDiscount(config, originalMinor, !week?.discount)) throw new Error('Enter a valid weekly discount.');
+  let finalMinor = originalMinor;
+  if (config.type === 'percentage') finalMinor -= Math.round(originalMinor * config.value / 100);
+  if (config.type === 'fixed_amount') finalMinor -= Math.round(config.value * 100);
+  if (config.type === 'fixed_weekly_price') finalMinor = Math.round(config.value * 100);
+  if (![originalMinor, finalMinor].every(Number.isSafeInteger) || finalMinor < 0) throw new Error('Invalid weekly price.');
+  return { version: 1, discount: { ...config }, legacyPrice: !week?.discount,
+    originalPrice: originalMinor / 100, discountAmount: Math.max(0, originalMinor - finalMinor) / 100, finalWeeklyPrice: finalMinor / 100 };
+};
+export const validWeeklyDiscount = (config, originalMinor = Infinity, legacy = false) => Boolean(config
+  && typeof config === 'object' && !Array.isArray(config)
+  && Object.keys(config).every(key => ['type', 'value'].includes(key))
+  && ['none', 'percentage', 'fixed_amount', 'fixed_weekly_price'].includes(config.type)
+  && Number.isFinite(config.value) && config.value >= 0
+  && (config.type !== 'none' || config.value === 0)
+  && (config.type !== 'percentage' || config.value <= 100)
+  && (config.type === 'percentage' || (Number.isSafeInteger(Math.round(config.value * 100)) && Math.abs(config.value * 100 - Math.round(config.value * 100)) < 0.000001))
+  && (legacy || !['fixed_amount', 'fixed_weekly_price'].includes(config.type) || Math.round(config.value * 100) <= originalMinor));
