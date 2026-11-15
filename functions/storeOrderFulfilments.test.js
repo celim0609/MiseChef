@@ -91,7 +91,7 @@ test('customer projection includes meals/schedules but omits IDs, costs and oper
   assert.equal(JSON.stringify(projection).includes('itemIndex'), false);
 });
 
-test('weekly delivery rejects different daily times and shifted weekdays while standalone locks remain', () => {
+test('weekly delivery supports different daily times and shifted weekdays while standalone locks remain', () => {
   const days = ['mon','tue','wed','thu','fri'];
   const plan = { id: 'plan', name: 'Week', price: 45, available: true, storeId: 's', workspaceId: 's', productType: 'weekly_meal_plan', optionGroupIds: [], weeklyMeals: Object.fromEntries(days.map(day => [day,day])) };
   const fulfilments = days.map((day, index) => ({ date: `2026-07-${27 + index}`, time: '13:30', itemIndexes: [0] }));
@@ -101,7 +101,7 @@ test('weekly delivery rejects different daily times and shifted weekdays while s
   const cutoffStore = { ...store, orderCutoffTime: '18:00', delivery: { ...store.delivery, fulfilment: { ...store.delivery.fulfilment, preOrder: { ...store.delivery.fulfilment.preOrder, earliestDays: 1 } } } };
   assert.ok(build({ ...overrides, store: cutoffStore, now: new Date('2026-07-26T10:00:00Z') }));
   assert.throws(() => build({ ...overrides, store: cutoffStore, now: new Date('2026-07-26T10:00:01Z') }), /available fulfilment date/);
-  assert.throws(() => build({ ...overrides, draft: { ...weeklyDraft, fulfilments: fulfilments.map((entry, i) => i === 3 ? { ...entry, time: '14:00' } : entry) } }), /one delivery time/);
+  assert.equal(build({ ...overrides, draft: { ...weeklyDraft, fulfilments: fulfilments.map((entry, i) => i === 3 ? { ...entry, time: '14:00' } : entry) } }).fulfilments[3].time, '14:00');
   assert.throws(() => build({ ...overrides, draft: { ...weeklyDraft, fulfilments: fulfilments.map((entry, i) => ({ ...entry, date: ['2026-07-28','2026-07-29','2026-07-30','2026-07-31','2026-08-01'][i] })) } }), /starting Monday/);
   assert.throws(() => build({ draft: { ...draft, fulfilments: [{ ...schedule[0], date: '2026-07-28' }, schedule[1]] } }), /Available day/);
 });
@@ -300,4 +300,11 @@ test('blocked rotation date refuses a full week and that individual date without
   assert.throws(() => financial({ products: [plan], draft: dayDraft, now: new Date('2026-07-26T04:00:00Z') }), /Healthy Lunch|available/);
   plan.healthyLunchBlockedDates = [];
   assert.equal(financial({ products: [plan], draft: dayDraft, now: new Date('2026-07-26T04:00:00Z') }).items[0].productName, 'A wed lunch');
+});
+
+test('new delivery payment snapshots normalize Malaysian contact phones while preserving raw customer phone',()=>{
+ const deliveryDraft={...draft,phone:'0123456789',fulfilmentMethod:'delivery',fulfilmentMode:'preorder',deliverySnapshot:{quote:{fee:7},schedule:{date:'2026-07-27'},fulfilmentMode:'preorder',recipient:{phoneE164:'0123456789'}}};
+ const order=financial({draft:deliveryDraft});
+ assert.equal(order.phone,'0123456789');assert.equal(order.delivery.recipient.phoneE164,'+60123456789');
+ assert.throws(()=>financial({draft:{...deliveryDraft,phone:'12345678'}}),/recipient phone with country code/);
 });

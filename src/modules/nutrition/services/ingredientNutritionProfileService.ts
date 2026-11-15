@@ -13,7 +13,7 @@ export type IngredientNutritionSelection =
 export const loadIngredientNutritionProfiles = async (_ingredientIds: string[], workspaceId?: string) => {
   if (!workspaceId) return {} as Record<string, IngredientNutritionProfile | undefined>;
   if (!functions) throw new Error('Nutrition service is unavailable.');
-  const call = httpsCallable<{ workspaceId: string }, { profiles: Record<string, IngredientNutritionProfile> }>(functions, 'getWorkspaceNutritionProfiles');
+  const call = httpsCallable<{ workspaceId: string }, { profiles: Record<string, IngredientNutritionProfile> }>(functions, 'getWorkspaceNutritionProfiles', { timeout: 15_000 });
   return (await call({ workspaceId })).data.profiles;
 };
 

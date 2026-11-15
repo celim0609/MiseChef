@@ -34,6 +34,133 @@ test('legacy weekly fulfilments retain day snapshots and missing weekly schedule
  assert.deepEqual(getOrderTickets({...order,items:[{...order.items[0],weeklyPlanSnapshot:{meals:[]}}]}),[]);
 });
 test('kitchen ticket uses selected preparation snapshot without financial fields', () => {
- const html=buildTicketDocument([getOrderTickets(order)[0]],'kitchen');assert.ok(html.includes('Kitchen Ticket'));assert.ok(html.includes('No chilli'));assert.ok(!html.includes('98765'));
+ const html=buildTicketDocument([getOrderTickets(order)[0]],'kitchen');assert.ok(html.includes('KITCHEN TICKET'));assert.ok(html.includes('No chilli'));assert.ok(!html.includes('98765'));
 });
 test('empty batches fail before opening a print window', () => {assert.throws(()=>buildTicketDocument([]),/Select/);});
+
+test('customer bag ticket includes reorder contacts but kitchen ticket does not', () => {
+ const ticket = getOrderTickets(order)[0];
+ const customer = buildTicketDocument([ticket], 'customer');
+ const kitchen = buildTicketDocument([ticket], 'kitchen');
+ for (const value of ['Thank You!', 'Enjoy Your Healthy Lunch!', 'Scan to Order Again', '016-4209116', '@misechef.ai', 'by MiseChef']) {
+   assert.ok(customer.includes(value), value);
+   assert.ok(!kitchen.includes(value), value);
+ }
+});
+
+test('Py Monday prawn and Tuesday burrito remain separate customer and kitchen tickets', () => {
+ const py = { ...order, id: 'py-order', orderNumber: 'MC-1018-5RPA', customerName: 'Py', pickupCode: '5RPA',
+   items: [{productName:'Vietnam Prawn Noodle Salad',quantity:1,selectedOptions:[]},{productName:'Chicken Burrito Bowl',quantity:2,selectedOptions:[]}],
+   fulfilments: [
+     {id:'monday',date:'2026-10-19',time:'15:30',method:'pickup',allocations:[{itemIndex:0,quantity:1}]},
+     {id:'tuesday',date:'2026-10-20',time:'15:30',method:'pickup',allocations:[{itemIndex:1,quantity:2}]}
+   ] } as StoreOrder;
+ const tickets = getOrderTickets(py);
+ assert.equal(tickets.length,2);
+ for (const kind of ['customer','kitchen'] as const) {
+   const monday = buildTicketDocument([tickets[0]],kind);
+   const tuesday = buildTicketDocument([tickets[1]],kind);
+   assert.ok(monday.includes('1 × Vietnam Prawn Noodle Salad'));
+   assert.ok(!monday.includes('Chicken Burrito Bowl'));
+   assert.ok(tuesday.includes('2 × Chicken Burrito Bowl'));
+   assert.ok(!tuesday.includes('Vietnam Prawn Noodle Salad'));
+   assert.ok(monday.includes('2026-10-19 15:30'));
+   assert.ok(tuesday.includes('2026-10-20 15:30'));
+ }
+});
+
+test('QR is a self-contained vector with quiet zone, Paid is explicit, reprint label is opt-in',()=>{
+ const ticket=getOrderTickets(order)[0];const html=buildTicketDocument([ticket]);
+ assert.match(html,/<svg class="qr"/);assert.match(html,/aria-label="Scan to order again"/);assert.match(html,/>PAID</);
+ assert.ok(!html.includes('REPRINT OK'));assert.ok(!html.includes('class="reprint"> · REPRINT'));
+ assert.ok(buildTicketDocument([ticket],'kitchen',true).includes('class="reprint"> · REPRINT'));
+ assert.ok(!buildTicketDocument([ticket],'kitchen').includes('<svg'));
+});
+test('legacy Py per-item dates get independent fulfilment identities; ambiguous mixed dates fail closed',()=>{
+ const py={...order,orderNumber:'MC-1018-5RPA',items:[{...order.items[0],productName:'Vietnam Prawn Noodle Salad',quantity:1,healthyLunchSnapshot:{planId:'plan',date:'2026-10-19'}},{...order.items[1],productName:'Chicken Burrito Bowl',quantity:2,healthyLunchSnapshot:{planId:'plan',date:'2026-10-20'}}]} as StoreOrder;
+ const tickets=getOrderTickets(py);assert.equal(tickets.length,2);assert.equal(tickets[0].fulfilmentId,'legacy_20261019');assert.equal(tickets[1].items[0].quantity,2);assert.equal(tickets[0].items.length,1);
+ assert.deepEqual(getOrderTickets({...py,items:[py.items[0],order.items[1]]}),[]);
+ assert.deepEqual(getOrderTickets({...py,items:[{...py.items[0],healthyLunchSnapshot:{planId:'plan',date:'2026-02-30'}}]}),[]);
+});
+test('one, three, eight and nine tickets paginate with no trailing page break',()=>{
+ for(const count of [1,3,8,9]){const html=buildTicketDocument(Array(count).fill(getOrderTickets(order)[0]));assert.equal((html.match(/class="sheet"/g)||[]).length,Math.ceil(count/8));assert.ok(html.includes('.sheet:last-of-type{break-after:auto}'));}
+});
+
+
+test('pending and all unconfirmed payment states are visibly unpaid, never green Paid', () => {
+ for (const status of ['pending','processing','failed','cancelled','pending_verification','rejected']) {
+  const ticket = getOrderTickets({...order,payment:{...order.payment,status}} as StoreOrder)[0];
+  for (const kind of ['customer','kitchen'] as const) { const html=buildTicketDocument([ticket],kind);assert.match(html,/class="payment unpaid">PENDING \/ UNPAID/);assert.ok(!html.includes('class="payment paid"')); }
+ }
+ assert.ok(buildTicketDocument(getOrderTickets(order)).includes('class="payment paid">PAID'));
+});
+test('source is projected and escaped while unknown orders default to Online Store', () => {
+ assert.equal(getOrderTickets({...order,externalOrder:{source:'whatsapp'}} as StoreOrder)[0].source,'WhatsApp');
+ assert.equal(getOrderTickets(order)[0].source,'Online Store');
+ assert.ok(buildTicketDocument([{...getOrderTickets(order)[0],source:'<script>'}]).includes('&lt;script&gt;'));
+});
+test('official logo remains byte-identical and QR encodes the exact direct store URL', async () => {
+ const { readFileSync } = await import('node:fs');
+ const { officialTicketLogo } = await import('./officialTicketLogo');
+ const { REORDER_URL, reorderQrSvg } = await import('./orderTickets');
+ const QRCode = (await import('qrcode')).default;
+ assert.equal(officialTicketLogo,readFileSync(new URL('../../../public/assets/logo/logo-black.svg',import.meta.url),'utf8'));
+ assert.equal(REORDER_URL,'https://misechef.ai/store/misechef-s-grab-go-store');
+ const qr=QRCode.create(REORDER_URL,{errorCorrectionLevel:'M'});const cells:string[]=[];
+ for(let y=0;y<qr.modules.size;y++)for(let x=0;x<qr.modules.size;x++)if(qr.modules.get(y,x))cells.push(`M${x+4},${y+4}h1v1h-1z`);
+ assert.ok(reorderQrSvg().includes(`d="${cells.join('')}"`));
+ const kitchen=buildTicketDocument(getOrderTickets(order),'kitchen');assert.ok(!kitchen.includes('<svg'));assert.ok(!kitchen.includes('Scan to Order Again'));
+});
+
+test('document type classes cannot collide with customer row flex layout',()=>{
+ assert.ok(buildTicketDocument(getOrderTickets(order)).includes('<body class="ticket-customer">'));
+ assert.ok(buildTicketDocument(getOrderTickets(order),'kitchen').includes('<body class="ticket-kitchen">'));
+});
+
+
+test('manual per-day delivery addresses survive snapshots and never fall back to an unrelated destination', async () => {
+ const { normalizeOrderFulfilments } = await import('./storeOrderSnapshot');
+ const manual = {...order, manualOrder: {revision:1,draft:{},createdBy:'owner'}, delivery: {recipient:{address:'Wrong neighbourhood'}}, fulfilments: normalizeOrderFulfilments([
+  {id:'one',date:'2026-10-19',time:'12:00',method:'delivery',notes:'Unit 10, 25 Jalan Full, 31400 Ipoh',allocations:[{itemIndex:0,quantity:1}]},
+  {id:'two',date:'2026-10-20',time:'12:00',method:'delivery',notes:'',allocations:[{itemIndex:1,quantity:1}]}
+ ])} as StoreOrder;
+ const tickets = getOrderTickets(manual);
+ assert.equal(tickets[0].address,'Unit 10, 25 Jalan Full, 31400 Ipoh');
+ assert.equal(tickets[1].address,'');
+ const html=buildTicketDocument(tickets);
+ assert.ok(html.includes('ADDRESS MISSING — VERIFY BEFORE DISPATCH'));
+ assert.ok(!html.includes('Wrong neighbourhood'));
+});
+
+test('online delivery preserves full recipient address and unit instructions on both ticket types', () => {
+ const delivery = {...order,fulfilmentMethod:'delivery',delivery:{recipient:{address:'25 Jalan Full, 31400 Ipoh, Perak',instructions:'Unit / Floor: B-12-3\nInstructions: Ring bell'}}} as StoreOrder;
+ for(const kind of ['customer','kitchen'] as const) {
+  const html=buildTicketDocument(getOrderTickets(delivery),kind);
+  for(const value of ['25 Jalan Full, 31400 Ipoh, Perak','B-12-3','Ring bell']) assert.ok(html.includes(value));
+ }
+});
+
+test('external five-day menus print actual allocated dishes and quantities without duplicating package price',async()=>{
+ const {buildExternalOrderItems}=await import('../../../functions/externalPosOrderModel.js');
+ const days=['mon','tue','wed','thu','fri'];
+ const dishes=days.map(day=>({id:day,storeId:'s',workspaceId:'s',name:`${day} actual dish`,price:12,available:true,optionGroupIds:[]}));
+ const plan={...dishes[0],id:'plan',name:'Weekly package',price:65,productType:'weekly_meal_plan',weeklyMeals:Object.fromEntries(days.map(day=>[day,day]))};
+ const built=buildExternalOrderItems({selections:[{productId:'plan',quantity:3,selectedOptions:[]}],lineSchedules:[{date:'2026-10-19',time:'12:00'}]},{products:[...dishes,plan],sets:[],optionGroups:[],store:{id:'s',workspaceId:'s',country:'MY',orderDays:['monday','tuesday','wednesday','thursday','friday'],earliestPickupDays:0,maximumAdvanceDays:30,pickupOperatingHours:{start:'09:00',end:'18:00'},pickupLocations:[{id:'loc',name:'Kitchen'}]}},new Date('2026-10-18T04:00:00Z'));
+ const tickets=getOrderTickets({...order,...built,externalOrder:{source:'shopeefood'}} as StoreOrder);
+ assert.equal(tickets.length,5);
+ for(const [i,ticket] of tickets.entries()) {
+  const html=buildTicketDocument([ticket],'kitchen');assert.ok(html.includes(`3 × ${days[i]} actual dish`));
+  assert.ok(!html.includes('Weekly package'));assert.equal(ticket.items.length,1);
+ }
+});
+
+test('external multi-date deliveries print the same exact fulfilment details on customer and kitchen tickets', async()=>{
+ const {buildExternalOrderItems}=await import('../../../functions/externalPosOrderModel.js');
+ const built=buildExternalOrderItems({fulfilmentMethod:'delivery',deliveryAddress:'Unit 12, Full Street',selections:[{productId:'rice',quantity:1,selectedOptions:[]},{productId:'rice',quantity:2,selectedOptions:[]}],lineSchedules:[{date:'2026-10-19',time:'12:13'},{date:'2026-10-20',time:'13:17'}]}, {store:{id:'s',workspaceId:'s',orderDays:['monday','tuesday'],earliestPickupDays:0,maximumAdvanceDays:30},products:[{id:'rice',name:'Rice',price:11,available:true,optionGroupIds:[]}],sets:[],optionGroups:[]},new Date('2026-10-18T04:00:00Z'));
+ const external={...order,...built,id:'external-delivery',externalOrder:{source:'shopeefood'},payment:{status:'paid'}} as StoreOrder;
+ const tickets=getOrderTickets(external);
+ assert.deepEqual(tickets.map(ticket=>[ticket.date,ticket.time,ticket.method,ticket.address]),[['2026-10-19','12:13','delivery','Unit 12, Full Street'],['2026-10-20','13:17','delivery','Unit 12, Full Street']]);
+ for(const kind of ['customer','kitchen'] as const) {
+  const html=buildTicketDocument(tickets,kind);assert.match(html,/Unit 12, Full Street/);assert.match(html,/2026-10-19 12:13/);assert.match(html,/2026-10-20 13:17/);assert.match(html,/ShopeeFood/);assert.match(html,/>Delivery</);
+ }
+});
