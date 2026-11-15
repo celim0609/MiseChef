@@ -1,7 +1,9 @@
+import { pricePromotionCode, promotionCodeError } from './promotionCodePricing.js';
+import { normalizeDeliveryPhone } from './storeFulfilmentCanonical.js';
 import { resolveSelectionMealOptions, mealOptionSurcharge, mergeMealOptionSnapshots, publicMealOptionSnapshot } from './healthyLunchOptions.js';
 import { calculateDeliveryDayPricing } from './storeDeliveryPricing.js';
 import { buildOrderFulfilments, publicOrderFulfilments } from './storeOrderFulfilments.js';
-import { buildWeeklyOrderDetails, isWeeklyMealPlan, publicWeeklyFulfilments, validateHealthyLunchDay, hasEmbeddedMenu } from './storeWeeklyMealPlan.js';
+import { weeklyPricing, buildWeeklyOrderDetails, isWeeklyMealPlan, publicWeeklyFulfilments, validateHealthyLunchDay, hasEmbeddedMenu } from './storeWeeklyMealPlan.js';
 import { cartAllowsFulfilmentDate, currentFulfilmentDate } from './storeProductAvailability.js';
 import { randomBytes } from 'node:crypto';
 import { calculatePromotionPricing } from './storePromotionPricing.js';
@@ -389,7 +391,8 @@ export const buildOrderItems = (selections, products, optionGroups, sets = [], s
     throw new Error(`An option for ${readString(product.name) || 'this product'} is no longer available.`);
   }
 
-  const basePrice = roundMoney(Math.max(0, readNumber(product.price)));
+  const weeklyPriceSnapshot = isWeeklyMealPlan(product) && !selection.healthyLunchDate ? weeklyPricing(product, products, serviceMonday) : null;
+  const basePrice = weeklyPriceSnapshot?.finalWeeklyPrice ?? roundMoney(Math.max(0, readNumber(product.price)));
   const legacyUnitPrice = roundMoney(Math.max(
     0,
     basePrice + selectedOptions.reduce((sum, option) => sum + option.priceAdjustment * (option.quantity || 1), 0)
@@ -399,6 +402,7 @@ export const buildOrderItems = (selections, products, optionGroups, sets = [], s
   if (mealOptionDays.length && !Number.isSafeInteger(unitMinor * selection.quantity)) throw new Error('Invalid meal total.');
   return {
     itemType: 'product',
+    ...(weeklyPriceSnapshot ? { weeklyPriceSnapshot } : {}),
     ...(selection.healthyLunchPlanId ? { healthyLunchSnapshot: { planId: selection.healthyLunchPlanId, date: selection.healthyLunchDate, ...mealOptionDays[0] } } : {}),
     productId: product.id,
     productName: readString(product.name),
@@ -428,12 +432,18 @@ export const buildPendingOrder = ({
   paymentMethod,
   groupOrder = null,
   customerUid = '',
+  promotionCodeConfig = null,
   draft,
   now = new Date()
 }) => {
   const scheduled = buildOrderFulfilments({ store, draft, products, groupOrder, getDates: getValidPickupDates, getTimes: getPickupTimeSlots, now });
   if (scheduled) draft = { ...draft, pickupDate: scheduled.fulfilments[0].date, pickupTime: scheduled.fulfilments[0].time };
   validateDraft(store, draft, now, Boolean(groupOrder), Boolean(scheduled));
+  if (draft.deliverySnapshot) {
+    const phoneE164 = normalizeDeliveryPhone(draft.phone, store.country);
+    if (!phoneE164) throw new Error('Delivery requires a valid recipient phone with country code.');
+    draft = { ...draft, deliverySnapshot: { ...draft.deliverySnapshot, recipient: { ...draft.deliverySnapshot.recipient, phoneE164 } } };
+  }
   if (draft.selections?.some(selection => selection.healthyLunchPlanId) && (groupOrder || draft.groupShareCode || draft.fulfilmentMode === 'instant')) throw new Error('Healthy Lunch dates require scheduled ordering.');
   if (!scheduled) for (const selection of draft.selections || []) validateHealthyLunchDay(selection, products, draft.fulfilmentMethod === 'delivery' ? (draft.deliveryDate || draft.deliverySnapshot?.schedule?.date) : draft.pickupDate, store.workspaceId || store.id);
   const region = REGIONS[readString(store.country)];
@@ -464,7 +474,9 @@ export const buildPendingOrder = ({
   );
   // Group Orders and Sets are deliberately outside Promotion V1.  Pricing is
   // recomputed exclusively from current server catalogue data.
-  const promotionPricing = calculatePromotionPricing({ items, promotions, now, excluded: Boolean(groupOrder) });
+  if (draft.promotionCode && !promotionCodeConfig) promotionCodeError('This code must be validated by the server.');
+  const automaticPricing = calculatePromotionPricing({ items, promotions, now, excluded: Boolean(groupOrder) });
+  const promotionPricing = draft.promotionCode ? pricePromotionCode({items, pricing:automaticPricing, config:promotionCodeConfig, memberUid:customerUid, now, currency:region.currency, groupOrder:Boolean(groupOrder)}) : automaticPricing;
   const { merchandiseSubtotal, discountTotal, discountedMerchandiseTotal, promotionSnapshot } = promotionPricing;
   const providerDeliveryFee = draft.deliverySnapshot ? roundMoney(Math.max(0, readNumber(draft.deliverySnapshot.quote?.fee))) : 0;
   const subsidy = store.delivery?.subsidy || {};
@@ -473,10 +485,10 @@ export const buildPendingOrder = ({
   const fulfilmentCount = scheduled?.fulfilments.length || 1;
   let firstDayFee = draft.deliverySnapshot ? (scheduled && fulfilmentCount > 1 ? providerDeliveryFee : (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee)) : 0;
   let deliveryFee = scheduled ? roundMoney(firstDayFee * fulfilmentCount) : draft.deliverySnapshot ? (subsidyApplied ? roundMoney(Math.min(providerDeliveryFee, deliveryFeeCap)) : providerDeliveryFee) : 0;
-  const dayPricing = draft.deliverySnapshot && store.delivery?.freeDelivery?.enabled === true
-    ? calculateDeliveryDayPricing({ config: store.delivery, providerFee: providerDeliveryFee, items, fulfilments: scheduled?.fulfilments, pickup: draft.deliverySnapshot.pickup, destination: draft.deliverySnapshot.recipient, promotionPricing, date: fulfilmentDate }) : null;
+  const dayPricing = draft.deliverySnapshot && (store.delivery?.freeDelivery?.enabled === true || draft.deliverySnapshot.dayQuotes?.length)
+    ? calculateDeliveryDayPricing({ dayQuotes: draft.deliverySnapshot.dayQuotes, config: store.delivery, providerFee: providerDeliveryFee, items, fulfilments: scheduled?.fulfilments, pickup: draft.deliverySnapshot.pickup, destination: draft.deliverySnapshot.recipient, promotionPricing, date: fulfilmentDate }) : null;
   if (dayPricing) { deliveryFee = dayPricing.customerDeliveryFee; firstDayFee = dayPricing.days[0].customerDeliveryFee; }
-  const storeAbsorbedDeliveryFee = roundMoney(Math.max(providerDeliveryFee * (dayPricing ? fulfilmentCount : 1) - deliveryFee, 0));
+  const storeAbsorbedDeliveryFee = roundMoney(Math.max((dayPricing ? dayPricing.days.reduce((sum, day) => sum + day.providerDeliveryFee, 0) : providerDeliveryFee) - deliveryFee, 0));
   const total = roundMoney(discountedMerchandiseTotal + deliveryFee);
   items.forEach(item => { delete item.mealOptionDays; });
   const amountMinor = Math.round(total * 100);
@@ -523,7 +535,8 @@ export const buildPendingOrder = ({
     itemCount: items.reduce((sum, item) => sum + item.quantity, 0),
     totals: { merchandiseSubtotal, discountTotal, discountedMerchandiseTotal, deliveryFee, grandTotal: total, currency: region.currency },
     ...(promotionSnapshot.appliedPromotions.length ? { promotionSnapshot } : {}),
-    ...(draft.deliverySnapshot ? { delivery: { ...draft.deliverySnapshot, pricing: { providerDeliveryFee, customerDeliveryFee: deliveryFee, storeAbsorbedDeliveryFee, subsidyEnabled: subsidy.enabled === true, subsidyApplied, ...(dayPricing ? { freeDeliveryEnabled: true, days: dayPricing.days, distanceKm: dayPricing.distanceKm } : {}), minimumMerchandiseSpend: roundMoney(Math.max(0, readNumber(subsidy.minimumMerchandiseSpend))), deliveryFeeCap, currency: region.currency } } } : {}),
+    ...(promotionPricing.promotionCodeSnapshot ? { promotionCodeSnapshot: promotionPricing.promotionCodeSnapshot } : {}),
+    ...(draft.deliverySnapshot ? { delivery: { ...draft.deliverySnapshot, pricing: { providerDeliveryFee, customerDeliveryFee: deliveryFee, storeAbsorbedDeliveryFee, subsidyEnabled: subsidy.enabled === true, subsidyApplied, ...(dayPricing ? { freeDeliveryEnabled: store.delivery?.freeDelivery?.enabled === true, days: dayPricing.days, distanceKm: dayPricing.distanceKm } : {}), minimumMerchandiseSpend: roundMoney(Math.max(0, readNumber(subsidy.minimumMerchandiseSpend))), deliveryFeeCap, currency: region.currency } } } : {}),
     total,
     status: 'Awaiting Payment',
     fulfilmentStatus: 'New',
@@ -597,6 +610,7 @@ export const toPublicPaymentOrderSummary = order => {
     )) : [];
     return {
       productName: readString(item.productName), quantity, lineTotal, selectedOptions,
+      ...(item.weeklyPriceSnapshot ? { weeklyPriceSnapshot: structuredClone(item.weeklyPriceSnapshot) } : {}),
       ...publicMealOptionSnapshot(item.healthyLunchSnapshot),
       ...(readString(item?.setSnapshot?.setName) && selectedGroups.length
         ? { setSnapshot: { setName: readString(item.setSnapshot.setName), selectedGroups } }
@@ -615,6 +629,7 @@ export const toPublicPaymentOrderSummary = order => {
       }
     } : {}),
     items,
+    ...(order.promotionCodeSnapshot ? { promotionCodeSnapshot: structuredClone(order.promotionCodeSnapshot) } : {}),
     totals: {
       merchandiseSubtotal: totals.merchandiseSubtotal,
       discountTotal: totals.discountTotal,
@@ -627,6 +642,7 @@ export const toPublicPaymentOrderSummary = order => {
 };
 
 export const toPublicOrderResult = order => ({
+  ...(order.promotionCodeSnapshot ? { promotionCodeSnapshot: structuredClone(order.promotionCodeSnapshot) } : {}),
   ...(order.fulfilments ? { fulfilments: publicOrderFulfilments(order) } : {}),
   ...(order.weeklyFulfilments ? { weeklyFulfilments: publicWeeklyFulfilments(order) } : {}),
   orderNumber: readString(order.orderNumber),

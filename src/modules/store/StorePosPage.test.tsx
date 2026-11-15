@@ -14,15 +14,15 @@ const firestoreIndexes = JSON.parse(readFileSync(new URL('../../../firestore.ind
   indexes: Array<{ collectionGroup: string; fields: Array<{ fieldPath: string; order: string }> }>;
 };
 
-test('POS prioritizes three active kitchen columns and moves Completed to a compact summary', () => {
+test('POS groups three active kitchen statuses and moves Completed to a compact summary', () => {
   for (const label of ['New', 'Preparing', 'Ready']) {
     assert.match(pageSource, new RegExp(`label: '${label}'`));
   }
   assert.doesNotMatch(pageSource, /status: 'Completed', label: 'Completed'/);
-  assert.match(pageSource, /completedTodayCount/);
+  assert.match(pageSource, /completedPeriodEntries/);
   assert.match(pageSource, /View Completed/);
   assert.match(pageSource, /<audio ref=\{audioRef\}/);
-  assert.match(pageSource, /grid-cols-\[1\.1fr_1\.1fr_0\.9fr\]/);
+  assert.match(pageSource, /grid-cols-1 items-start gap-3 lg:grid-cols-3/);
 });
 
 test('Walk-in POS uses canonical external-order metadata, option selections, and paid-only receipt actions', () => {
@@ -31,7 +31,7 @@ test('Walk-in POS uses canonical external-order metadata, option selections, and
   assert.match(pageSource, /createExternalPosOrder/);
   assert.match(pageSource, /selectedOptions/);
   assert.match(pageSource, /hasRequiredExternalOptions/);
-  assert.match(pageSource, /externalSource !== 'walk_in' && \(!externalName \|\| !externalPhone\)/);
+  assert.doesNotMatch(pageSource, /externalSource !== 'walk_in' && \(!externalName/);
   assert.match(pageSource, /isWalkInOrder\(order\) && order\.payment\.status === "paid"/);
   assert.match(pageSource, /printWalkInReceipt\(createdOrder\)/);
   assert.match(pageSource, /catch \{\s*\/\/ The persisted order remains available for POS-card reprint/s);
@@ -186,8 +186,11 @@ const makeExternalOrderHarness = (overrides: Record<string, unknown> = {}) => {
   const requests: Record<string, unknown>[] = [];
   const scope = {
     externalSubmitInFlightRef: lock,
+    externalRequestIdRef: {current: 'request-1234567890'},
     externalCart: state.cart,
     creatingExternal: false,
+    externalMethod:'pickup', externalAddress:'', externalDate:'', externalTime:'',
+    setExternalMethod:()=>{}, setExternalAddress:()=>{}, setExternalDate:()=>{}, setExternalTime:()=>{},
     externalSource: 'walk_in', externalName: '', externalPhone: '', externalNotes: '', externalNumber: '',
     workspaceId: 'workspace-a', storeId: 'workspace-a',
     setCreatingExternal: (value: boolean) => { state.loading = value; },
@@ -260,11 +263,12 @@ test('empty carts never acquire the submission lock or call the API', async () =
 
 for (const [source, paymentLabel] of [['walk_in', 'walk_in_paid'], ['shopeefood', 'shopeefood_platform_paid'], ['other', 'other_paid']]) {
   test(`${source} keeps its existing payload and payment label`, async () => {
-    const customerName = source === 'walk_in' ? '' : 'POS QA';
-    const phone = source === 'walk_in' ? '' : '60123456789';
+    const customerName = '';
+    const phone = '';
     const harness = makeExternalOrderHarness({ externalSource: source, externalName: customerName, externalPhone: phone });
     await harness.submit();
     assert.equal(harness.requests.length, 1);
+    assert.equal(harness.requests[0].requestId, 'request-1234567890');
     assert.equal(harness.requests[0].source, source);
     assert.equal(harness.requests[0].paymentLabel, paymentLabel);
     assert.equal(harness.requests[0].customerName, customerName);
@@ -290,12 +294,12 @@ test('POS modal keeps errors directly above the full-width action and separates 
   assert.match(modal, /flex h-\[92dvh\].*flex-col overflow-hidden/);
   assert.match(modal, /<header className="[^"]*shrink-0/);
   assert.match(modal, /aria-label="Store products" className="min-h-0 flex-1 overflow-y-auto/);
-  assert.match(modal, /aria-label="Order cart" className="min-h-0 overflow-y-auto/);
+  assert.match(modal, /aria-label="Order cart" className="min-h-0 flex-1 overflow-y-auto/);
   assert.match(modal, /md:w-\[90vw\] max-w-\[1440px\]/);
-  assert.match(modal, /md:grid md:grid-cols-\[minmax\(0,1fr\)_minmax\(360px,420px\)\]/);
+  assert.match(modal, /md:grid-cols-\[minmax\(0,1fr\)_minmax\(320px,420px\)\]/);
   assert.match(modal, /grid grid-cols-2 items-start gap-3 xl:grid-cols-3/);
-  assert.match(modal, /md:flex-1/);
-  assert.match(modal, /md:max-h-none md:overflow-visible/);
+  assert.match(modal, /Search POS products and sets/);
+  assert.match(modal, /grid-rows-\[minmax\(0,1fr\)_minmax\(0,1fr\)\]/);
   assert.match(modal, /Cart is empty/);
   assert.match(modal, /item\.unitPrice\.toFixed\(2\)/);
   assert.match(modal, /item\.lineTotal\.toFixed\(2\)/);
@@ -310,7 +314,7 @@ test('POS modal keeps errors directly above the full-width action and separates 
 
 test('cart preview preserves option adjustments, Set upgrades, quantities and rounded subtotal', () => {
   const pricingSource = pageSource.slice(pageSource.indexOf('  const externalCartLines ='), pageSource.indexOf('\n  const advanceGroup ='));
-  const calculate = new Function('externalCart', 'externalProducts', 'externalOptionGroups', 'externalSets', 'calculateStoreOptionAdjustedPrice', 'calculateStoreSetAnalysis', `${pricingSource}\nreturn { externalCartLines, externalSubtotal };`);
+  const calculate = new Function('externalCart', 'externalProducts', 'externalOptionGroups', 'externalSets', 'calculateStoreOptionAdjustedPrice', 'calculateStoreSetAnalysis', 'externalStore', 'externalDate', 'externalTime', `${pricingSource}\nreturn { externalCartLines, externalSubtotal };`);
   const products = [{ id: 'tea', name: 'Tea', available: true, price: 10 }];
   const groups = [{ id: 'flavour', available: true, options: [{ id: 'milk', available: true, priceAdjustment: 2.5 }] }];
   const sets = [{ id: 'set-a', price: 20, groups: [{ id: 'drink', options: [{ productId: 'tea', priceAdjustment: 3 }] }] }];
@@ -335,4 +339,51 @@ test('a Store lookup failure is displayed in the modal and releases the submit l
   assert.equal(harness.state.open, true);
   assert.equal(harness.state.loading, false);
   assert.equal(harness.lock.current, false);
+});
+
+
+test('POS puts one header and unified section navigation before its content', () => {
+  const layout = pageSource.slice(pageSource.indexOf('  return (\n    <section data-pos-theme'));
+  assert.ok(layout.indexOf('<header') < layout.indexOf('aria-label="POS sections"'));
+  assert.ok(layout.indexOf('aria-label="POS sections"') < layout.indexOf('aria-label="Fulfilment period"'));
+  assert.ok(layout.indexOf('aria-label="Fulfilment period"') < layout.indexOf('<main'));
+  assert.match(layout, /id:'live',label:'POS Live'.*id:'history',label:'View Orders'.*id:'tickets',label:'Print Tickets'/);
+  assert.equal((layout.match(/<OrderTicketPanel /g) || []).length, 1);
+  assert.doesNotMatch(layout, /min-w-\[1040px\]|min-h-\[65vh\]|Live Queue/);
+  assert.match(layout, /grid-cols-1 items-start gap-3 lg:grid-cols-3/);
+});
+
+test('fulfilment history renders its grid instead of mounting empty live columns', () => {
+  assert.match(pageSource, /activeView === 'live' \? dailyView === 'History' \? \(/);
+  assert.match(pageSource, /view=\{dailyView\}.*orders=\{dailyOrders\}/);
+  assert.match(pageSource, /if\(view === 'History' && !dailyHistory\) void loadDailyHistory/);
+  const queue = readFileSync(new URL('./DailyFulfilmentQueue.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(queue, /onViewChange|aria-pressed/);
+  assert.match(queue, /sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4/);
+});
+
+
+test('kitchen Kanban keeps compact single stacks and a collapsed Completed section below active statuses', () => {
+  const board = pageSource.slice(pageSource.indexOf('<div aria-label="Active kitchen board"'), pageSource.indexOf('<details'));
+  assert.match(board, /grid-cols-1 items-start gap-3 lg:grid-cols-3/);
+  assert.match(board, /grid min-w-0 grid-cols-1 items-start gap-2/);
+  assert.doesNotMatch(board, /min-h-\[|min-w-\[|sm:grid-cols|2xl:grid-cols/);
+  assert.match(board, /columnOrders.length === 0 && dailyColumn.length === 0/);
+  assert.match(board, /No orders/);
+  assert.match(board, /order.customerName/);
+  assert.match(board, /ticket.date.*ticket.time/);
+  assert.match(pageSource, /<details onToggle=[\s\S]*<summary[^>]*>Completed · \{completedPeriodEntries.length\}/);
+  assert.doesNotMatch(pageSource, /<details[^>]* open/);
+  assert.match(pageSource, /event.currentTarget.open && !dailyHistory && !loadingDailyHistory/);
+  assert.match(pageSource, /Load older completed fulfilments/);
+  assert.equal((pageSource.match(/aria-label="Fulfilment period"/g) || []).length, 1);
+});
+
+
+test('external delivery payload preserves each selected meal date and exact time',async()=>{
+ const cart=[{selection:{productId:'plan',healthyLunchDate:'2026-10-26',selectedOptions:[]},quantity:1,date:'2026-10-26',time:'12:13'},{selection:{productId:'plan',healthyLunchDate:'2026-10-28',selectedOptions:[]},quantity:2,date:'2026-10-28',time:'13:17'}];
+ const harness=makeExternalOrderHarness({externalSource:'whatsapp',externalMethod:'delivery',externalAddress:'Unit 12, Full Street',externalDate:'2026-10-30',externalTime:'15:17',externalCart:cart});
+ await harness.submit();assert.equal(harness.state.error,'');assert.equal(harness.requests.length,1);
+ const payload=harness.requests[0];assert.equal(payload.source,'whatsapp');assert.equal(payload.fulfilmentMethod,'delivery');assert.equal(payload.deliveryAddress,'Unit 12, Full Street');
+ assert.deepEqual(payload.lineSchedules,[{date:'2026-10-26',time:'12:13'},{date:'2026-10-28',time:'13:17'}]);assert.equal(payload.customerName,'');assert.equal(payload.phone,'');
 });

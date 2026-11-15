@@ -1,3 +1,8 @@
+import { dispatchCompatibilityProject, retiredDispatchHttp, inertDispatchEvent } from './legacyDispatchCompatibility.js';
+import { managePromotionCodes, verifiedPromotionMember } from './storePromotionCodes.js';
+import { previewStorePromotionCode, expirePromotionCodeReservations } from './storePromotionCodeCheckout.js';
+import { previewMerchantDelivery, confirmMerchantDelivery, reconcileMerchantDelivery } from './storeManualDelivery.js';
+import { saveManualPosOrder, confirmManualPosPayment } from './manualPosOrders.js';
 import { createRecipePipelineService } from './recipePipelineService.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import { readFileSync } from 'node:fs';
@@ -59,7 +64,7 @@ import {
   updateStoreOrderFulfilment
 } from './storeFulfilment.js';
 import { createLalamoveProvider, resolveLalamoveEnvironment } from './lalamoveSandbox.js';
-import { createStoreDeliveryQuote, dispatchStoreDelivery, refreshStoreDelivery, cancelStoreDelivery, reconcileActiveDeliveries, getLalamoveSandboxCityInfo } from './storeDelivery.js';
+import { createStoreDeliveryQuote, refreshStoreDelivery, cancelStoreDelivery, reconcileActiveDeliveries, getLalamoveSandboxCityInfo } from './storeDelivery.js';
 import { listCustomerOrders } from './customerOrders.js';
 import {
   activateHostProfile,
@@ -161,6 +166,10 @@ const publicStorePreviewHandler = createStoreSocialPreviewHandler({
     if (snapshot.empty) return null;
     const data = snapshot.docs[0].data();
     return {
+      productType: data.productType,
+      weeklyMenuVersion: data.weeklyMenuVersion,
+      rotationWeeks: data.rotationWeeks,
+      weeklyWeeks: data.weeklyWeeks,
       productSlug: typeof data.productSlug === 'string' ? data.productSlug : '',
       name: typeof data.name === 'string' ? data.name : '',
       description: typeof data.description === 'string' ? data.description : '',
@@ -405,7 +414,7 @@ const toStorePaymentError = error => {
     'This QR payment method is not configured correctly.',
     'Touch ’n Go eWallet is available only for Malaysia Stores.',
     'Bank Transfer is not configured correctly.'
-  ].includes(message) || message.startsWith('Choose one ') || message.startsWith('Options for ')) {
+  ].includes(message) || message.startsWith('Promotion code:') || message.startsWith('Choose one ') || message.startsWith('Options for ')) {
     return new HttpsError('failed-precondition', message);
   }
   return new HttpsError('internal', 'Secure payment could not be started. Please try again.');
@@ -427,7 +436,7 @@ export const createPublicStorePayment = onCall({
         curlecKeySecret: curlecKeySecret.value(),
         method: paymentMethod,
         curlecPaymentLink: paymentMethod.provider === 'curlec'
-          && request.data?.order?.curlecPaymentLink === true
+          && (request.data?.order?.curlecPaymentLink === true || Boolean(request.data?.order?.promotionCode))
           && isCurlecPaymentLinkRolloutEnabled(curlecPaymentLinkRolloutEnabled.value())
       }),
       sellingWorkspaceId: sellingWorkspaceId.value(),
@@ -435,6 +444,7 @@ export const createPublicStorePayment = onCall({
         deliveryProvider: createRuntimeLalamoveProvider()
       } : {}),
       customerUid: request.auth?.uid || '',
+      promotionMemberUid:verifiedPromotionMember(request.auth),
       slug: request.data?.slug,
       draft: request.data?.order,
       returnUrl: request.data?.returnUrl
@@ -466,7 +476,7 @@ export const createPublicStoreDeliveryQuote = onCall({
   memory: '256MiB'
 }, async request => {
   const provider = createRuntimeLalamoveProvider();
-  return createStoreDeliveryQuote({ db, provider, slug: request.data?.slug, draft: request.data?.delivery });
+  return createStoreDeliveryQuote({ db, provider, slug: request.data?.slug, draft: request.data?.delivery, customerUid:verifiedPromotionMember(request.auth) });
 });
 
 export const getStoreLalamoveSandboxCityInfo = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => {
@@ -481,7 +491,11 @@ export const dispatchStoreLalamoveDelivery = onCall({
   memory: '256MiB'
 }, async request => {
   const provider = createRuntimeLalamoveProvider();
-  return dispatchStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId });
+  try { return await confirmMerchantDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId, previewId: request.data?.previewId, confirmed: request.data?.confirmed }); }
+  catch (error) {
+    logger.warn('Store delivery dispatch blocked', { orderId: typeof request.data?.orderId === 'string' ? request.data.orderId : '', fulfilmentId: typeof request.data?.fulfilmentId === 'string' ? request.data.fulfilmentId : '', providerCode: error.details?.providerCode || '', fields: error.details?.fields || [], requestId: error.requestId || '', code: error.code || 'dispatch_failed' });
+    throw error;
+  }
 });
 
 export const refreshStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => {
@@ -493,6 +507,12 @@ export const cancelStoreLalamoveDelivery = onCall({ region: REGION, secrets: [la
   const provider = createRuntimeLalamoveProvider();
   return cancelStoreDelivery({ db, provider, uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId });
 });
+
+// Production already owns an HTTPS endpoint under this name; Beta owns a
+// Firestore trigger. Preserve both without deletion, new triggers, or booking access.
+export const dispatchReadyStoreFulfilments = dispatchCompatibilityProject() === 'misechef-fa4bf'
+  ? onRequest({ region: REGION, invoker: 'private', timeoutSeconds: 30, memory: '256MiB' }, retiredDispatchHttp)
+  : onDocumentWritten({ document: 'storeOrders/{orderId}', region: REGION, timeoutSeconds: 120, memory: '256MiB' }, inertDispatchEvent);
 
 // No webhook endpoint is enabled yet. Scheduled order-detail reconciliation is
 // authoritative until a dedicated, replay-safe v3 signature verifier is shipped.
@@ -2524,4 +2544,21 @@ export const processResumeImportJob = onDocumentCreated({
     });
     await logRequest({ requesterId, companyId, action, status: 'failed', attempts, errorCode, responseTime: Date.now() - startedAt, model: RESUME_MODEL }).catch(() => undefined);
   }
+});
+
+export const saveStoreManualPosOrder = onCall({ region: REGION, timeoutSeconds: 30 }, request => saveManualPosOrder({ db, uid: request.auth?.uid, input: request.data?.order }));
+export const confirmStoreManualPosPayment = onCall({ region: REGION, timeoutSeconds: 30 }, request => confirmManualPosPayment({ db, uid: request.auth?.uid, input: request.data }));
+
+export const previewStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => previewMerchantDelivery({ db, provider: createRuntimeLalamoveProvider(), uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId }));
+export const reconcileStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => reconcileMerchantDelivery({ db, provider: createRuntimeLalamoveProvider(), uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId, providerOrderId: request.data?.providerOrderId }));
+
+
+export const manageStorePromotionCodes = onCall({region:REGION,timeoutSeconds:30}, async request => managePromotionCodes({db,uid:request.auth?.uid,input:request.data}));
+export const previewPublicStorePromotionCode = onCall({region:REGION,invoker:'public',timeoutSeconds:30}, async request => {
+  try {return await previewStorePromotionCode({db,slug:request.data?.slug,draft:request.data?.order,memberUid:verifiedPromotionMember(request.auth)});}
+  catch(error) {if(error instanceof HttpsError) throw error;throw toStorePaymentError(error);}
+});
+export const expireStorePromotionCodeReservations = onSchedule({region:REGION,schedule:'every 5 minutes',secrets:[stripeSecretKey,curlecKeyId,curlecKeySecret],timeoutSeconds:180}, async ()=>{
+  const results=await expirePromotionCodeReservations({db,resolveAdapter:order=>createPaymentAdapter(order.payment.provider,{stripeSecretKey:stripeSecretKey.value(),curlecKeyId:curlecKeyId.value(),curlecKeySecret:curlecKeySecret.value(),curlecPaymentLink:order.payment.providerMode==='payment_link'})});
+  logger.info('Promotion code reservation reconciliation',{processed:results.length,requiresReview:results.filter(item=>item.status==='requires_review').length});
 });

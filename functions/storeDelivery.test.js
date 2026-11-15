@@ -146,10 +146,10 @@ test('promotion delivery pricing is bound to an opaque server snapshot and must 
 test('dispatch is tenant guarded, idempotent, recovers provider failures, and applies exact RM5 limit', () => {
   assert.match(source, /assertWorkspaceOperator/);
   assert.match(source, /delivery\.dispatch\?\.status === 'created'/);
-  assert.match(source, /delivery\.dispatch\?\.status === 'creating'/);
+  assert.match(source, /\['creating', 'outcome_unknown', 'cancel_requested'\]\.includes/);
   assert.match(source, /difference > 5/);
   assert.match(source, /dispatch_blocked_requote/);
-  assert.match(source, /delivery\.dispatch\.status': 'failed'/);
+  assert.match(source, /submitted \? 'outcome_unknown' : 'failed'/);
 });
 test('refresh, cancellation, reconciliation, and completion remain server-authoritative', () => {
   assert.match(source, /cancelStoreDelivery/);
@@ -368,16 +368,16 @@ const quoteFixture = (actualFee = 7, dayCount = 5) => {
   return { store, db, provider, draft, dates, quoteCount: () => quotes };
 };
 
-test('five-day checkout quotes earliest day exactly once, persists ×5 and binds all dates/address/cart', async () => {
+test('five-day checkout quotes every date and persists the sum and binds all dates/address/cart', async () => {
   const fixture = quoteFixture();
   const result = await createStoreDeliveryQuote({ ...fixture, slug: 'test', draft: { ...fixture.draft, fulfilments: [...fixture.draft.fulfilments].reverse(), fulfilmentCount: 999, deliveryFee: 0 } });
-  assert.equal(fixture.quoteCount(), 1); assert.equal(result.quote.customerDeliveryFee, 35); assert.equal(result.quote.fulfilmentCount, 5);
+  assert.equal(fixture.quoteCount(), fixture.draft.fulfilments.length); assert.equal(result.quote.customerDeliveryFee, 35); assert.equal(result.quote.fulfilmentCount, 5);
   assert.equal(result.schedule.date, fixture.dates[0]);
   const draft = { ...fixture.draft, deliveryQuoteId: result.quote.quotationId, deliveryPricingSnapshotId: result.pricingSnapshotId };
   const snapshot = fixture.db.documents[`storeDeliveryQuoteSnapshots/${result.pricingSnapshotId}`];
   assert.equal(snapshot.firstQuote.fee, 7); assert.equal(snapshot.finalDeliveryTotal, 35);
   await revalidateDeliveryForPayment({ ...fixture, draft });
-  assert.equal(fixture.quoteCount(), 1);
+  assert.equal(fixture.quoteCount(), fixture.draft.fulfilments.length);
   await assert.rejects(revalidateDeliveryForPayment({ ...fixture, draft: { ...draft, fulfilments: draft.fulfilments.map((entry, index) => index === 4 ? { ...entry, time: '11:00' } : entry) } }), /schedule or delivery pricing/);
   await assert.rejects(revalidateDeliveryForPayment({ ...fixture, draft: { ...draft, selections: draft.selections.map(selection => ({ ...selection, quantity: 3 })) } }), /schedule or delivery pricing/);
   await assert.rejects(revalidateDeliveryForPayment({ ...fixture, draft: { ...draft, destination: { ...draft.destination, formattedAddress: 'Other' } } }), /schedule or delivery pricing/);
@@ -392,7 +392,7 @@ for (const [dayCount, expectedTotal] of [[3, 25.2], [5, 42]]) {
       return createQuote(request);
     };
     const result = await createStoreDeliveryQuote({ ...fixture, slug: 'test', draft: fixture.draft });
-    assert.equal(fixture.quoteCount(), 1);
+    assert.equal(fixture.quoteCount(), fixture.draft.fulfilments.length);
     assert.equal(result.schedule.date, fixture.dates[0]);
     assert.equal(result.quote.customerDeliveryFee, expectedTotal);
     const snapshot = fixture.db.documents[`storeDeliveryQuoteSnapshots/${result.pricingSnapshotId}`];
@@ -400,7 +400,7 @@ for (const [dayCount, expectedTotal] of [[3, 25.2], [5, 42]]) {
     assert.equal(snapshot.fulfilmentCount, dayCount);
     assert.equal(snapshot.finalDeliveryTotal, expectedTotal);
     await revalidateDeliveryForPayment({ ...fixture, draft: { ...fixture.draft, deliveryQuoteId: result.quote.quotationId, deliveryPricingSnapshotId: result.pricingSnapshotId } });
-    assert.equal(fixture.quoteCount(), 1);
+    assert.equal(fixture.quoteCount(), fixture.draft.fulfilments.length);
     assert.equal(snapshot.finalDeliveryTotal, expectedTotal);
   });
 }
@@ -445,7 +445,7 @@ test('quote and submission agree on free delivery per day without changing actua
   fixture.db.documents['stores/s'].delivery.freeDelivery = { enabled: true, distanceThresholdKm: 500, minimumSubtotalWithin: 15, minimumSubtotalBeyond: 120 };
   fixture.draft.selections.forEach((selection, index) => { selection.quantity = index === 0 ? 2 : 1; });
   const result = await createStoreDeliveryQuote({ ...fixture, slug: 'test', draft: { ...fixture.draft, deliveryFee: 0, distanceKm: 0 } });
-  assert.equal(fixture.quoteCount(), 1);
+  assert.equal(fixture.quoteCount(), fixture.draft.fulfilments.length);
   assert.deepEqual(result.quote.days.map(day => day.customerDeliveryFee), [0,8.4,8.4]);
   assert.equal(result.quote.customerDeliveryFee, 16.8);
   const deliverySnapshot = await revalidateDeliveryForPayment({ ...fixture, draft: { ...fixture.draft, deliveryQuoteId: result.quote.quotationId, deliveryPricingSnapshotId: result.pricingSnapshotId } });
@@ -479,7 +479,7 @@ test('dated full-week quote and payment revalidation use Sunday cutoff instead o
   const atCutoff = await revalidateDeliveryForPayment({ ...options, now: cutoff });
   assert.equal(atCutoff.schedule.date, monday);
   await assert.rejects(revalidateDeliveryForPayment({ ...options, now: cutoff + 1 }), /closed/);
-  assert.equal(fixture.quoteCount(), 1);
+  assert.equal(fixture.quoteCount(), fixture.draft.fulfilments.length);
 });
 
 test('embedded full-week and single-day Lalamove quotes share menu data but keep distinct cutoff and fee rules', async (t) => {
@@ -504,7 +504,7 @@ test('embedded full-week and single-day Lalamove quotes share menu data but keep
   const options = { db: fixture.db, provider, store: fixture.store, products: [plan], draft: { ...singleDraft, deliveryQuoteId: single.quote.quotationId, deliveryPricingSnapshotId: single.pricingSnapshotId } };
   assert.equal((await revalidateDeliveryForPayment({ ...options, now: mondayAfterCutoff })).schedule.date, dates[2]);
   await assert.rejects(revalidateDeliveryForPayment({ ...options, now: mondayAfterCutoff + 86400000 }), /available/);
-  assert.equal(fixture.quoteCount(), 2);
+  assert.equal(fixture.quoteCount(), 6);
 });
 
 test('rotating Healthy Lunch delivery keeps per-day free delivery and excludes blocked dates', async () => {
@@ -525,4 +525,236 @@ test('rotating Healthy Lunch delivery keeps per-day free delivery and excludes b
   assert.equal(quote.quote.fulfilmentCount, 1);
   plan.healthyLunchBlockedDates = [dates[2]];
   await assert.rejects(createStoreDeliveryQuote({ ...fixture, slug: 'test', draft }), /Healthy Lunch|available/);
+});
+
+const legacyDispatchFixture = () => {
+  const fixture = dispatchFixture();
+  const order = fixture.db.documents['storeOrders/multi'];
+  delete order.fulfilments;
+  order.fulfilmentStatus = 'Ready';
+  order.delivery.fulfilmentMode = 'preorder';
+  order.delivery.schedule = { mode: 'preorder', date: new Date(Date.now() + 86400000).toISOString().slice(0,10), time: '12:00' };
+  order.delivery.quote.fee = 40;
+  order.delivery.quote.stops = [order.delivery.pickup, order.delivery.recipient].map((stop,index) => ({stopId:`old-${index}`,address:stop.address,coordinates:{lat:stop.latitude,lng:stop.longitude}}));
+  return {...fixture,args:{db:fixture.db,provider:fixture.provider,uid:'owner',orderId:'multi'}};
+};
+
+test('legacy preorder dispatch retains UTC schedule and paid totals while refreshing its quote', async () => {
+ const f=legacyDispatchFixture();const original=structuredClone(f.db.documents['storeOrders/multi']);let request;
+ const quote=f.provider.createQuote;f.provider.createQuote=async input=>{request=input;return quote(input);};
+ await dispatchStoreDelivery(f.args);
+ assert.equal(request.data.scheduleAt,`${original.delivery.schedule.date}T04:00:00.000Z`);
+ const saved=f.db.documents['storeOrders/multi'];
+ assert.deepEqual(saved.payment,original.payment);assert.deepEqual(saved.totals,original.totals);assert.equal(saved.total,original.total);
+ await dispatchStoreDelivery(f.args);assert.equal(f.counts().creations,1);
+});
+
+test('legacy uncertain provider submission stays locked instead of creating a duplicate booking on retry', async () => {
+ const f=legacyDispatchFixture();let calls=0;
+ f.provider.createOrder=async()=>{calls++;throw new Error('response lost after acceptance');};
+ await assert.rejects(dispatchStoreDelivery(f.args),/response lost/);
+ assert.equal(f.db.documents['storeOrders/multi'].delivery.dispatch.status,'outcome_unknown');
+ assert.equal((await dispatchStoreDelivery(f.args)).status,'outcome_unknown');assert.equal(calls,1);
+});
+
+test('legacy environment mismatch fails before changing order state or calling the provider', async () => {
+ const f=legacyDispatchFixture();f.provider.environment='production';const before=structuredClone(f.db.documents);
+ await assert.rejects(dispatchStoreDelivery(f.args),/environment does not match/);
+ assert.deepEqual(f.db.documents,before);assert.deepEqual(f.counts(),{creations:0,quotes:0});
+});
+
+test('legacy malformed requotation never submits an order and can safely retry the quotation', async () => {
+ const f=legacyDispatchFixture();f.provider.createQuote=async()=>({quotationId:'bad',priceBreakdown:{total:40,currency:'MYR'},stops:[]});
+ await assert.rejects(dispatchStoreDelivery(f.args),error=>error.details.fields.includes('sender.stopId') && error.message.includes('no booking has been submitted'));
+ assert.equal(f.counts().creations,0);assert.equal(f.db.documents['storeOrders/multi'].delivery.dispatch.status,'failed');
+});
+
+test('independent dates quote different routes and fees; payment binds every route and charges once', async () => {
+  const fixture = quoteFixture(7, 2);
+  fixture.draft.fulfilments[0].destination = { ...fixture.draft.destination, formattedAddress: 'Unit 1, Home' };
+  fixture.draft.fulfilments[1].destination = { formattedAddress: 'Floor 2, Office', latitude: '4.8', longitude: '101.3' };
+  fixture.draft.fulfilments[1].time = '15:45';
+  const quotes = new Map(); const requests = [];
+  fixture.provider.createQuote = async request => {
+    requests.push(request);
+    const id = request.data.scheduleAt;
+    const quote = { quotationId: id, expiresAt: new Date(Date.now() + 300000).toISOString(), serviceType: 'MOTORCYCLE', priceBreakdown: { total: requests.length === 1 ? 7 : 12, currency: 'MYR' }, stops: request.data.stops };
+    quotes.set(id, quote); return quote;
+  };
+  fixture.provider.retrieveQuote = async ({quotationId}) => quotes.get(quotationId);
+  const result = await createStoreDeliveryQuote({ ...fixture, slug: 'test' });
+  assert.equal(result.quote.customerDeliveryFee, 19);
+  assert.deepEqual(requests.map(request => request.data.stops[1].address), ['Unit 1, Home', 'Floor 2, Office']);
+  assert.ok(requests[1].data.scheduleAt.endsWith('07:45:00.000Z'));
+  const paymentDraft = { ...fixture.draft, deliveryQuoteId: result.quote.quotationId, deliveryPricingSnapshotId: result.pricingSnapshotId };
+  const deliverySnapshot = await revalidateDeliveryForPayment({ ...fixture, draft: paymentDraft });
+  const order = buildPendingOrder({ id: 'paid-order', orderNumber: 'TEST', store: { ...fixture.store, pickupLocations: [], pickupSessions: [] }, products: fixture.db.documents ? Object.values(fixture.db.documents).filter(value => value.price === 10) : [], optionGroups: [], draft: { ...paymentDraft, customerName: 'Guest', phone: '+60123456789', fulfilmentMethod: 'delivery', deliverySnapshot }, paymentProvider: 'stripe', paymentProviderMode: 'single_merchant' });
+  assert.equal(order.totals.deliveryFee, 19);
+  assert.equal(order.total, 59);
+  assert.equal(order.fulfilments[1].destination.formattedAddress, 'Floor 2, Office');
+  assert.equal(order.deliveryPricingSnapshot.days[1].providerDeliveryFee, 12);
+  await assert.rejects(revalidateDeliveryForPayment({ ...fixture, draft: { ...paymentDraft, fulfilments: paymentDraft.fulfilments.map((day, index) => index ? { ...day, time: '16:00' } : day) } }), /schedule|pricing/i);
+  quotes.get(requests[1].data.scheduleAt).priceBreakdown.total = 50;
+  await assert.rejects(revalidateDeliveryForPayment({ ...fixture, draft: paymentDraft }), /quotations/);
+});
+
+test('every destination must be inside configured distance; quotation failures create no payable snapshot', async () => {
+  const fixture = quoteFixture(7, 2);
+  fixture.store.delivery.fulfilment.preOrder.maximumDistanceKm = 25;
+  fixture.draft.fulfilments[1].destination = { formattedAddress: 'Too far', latitude: '1', longitude: '100' };
+  await assert.rejects(createStoreDeliveryQuote({ ...fixture, slug: 'test' }), /maximum delivery distance/);
+  assert.equal(Object.keys(fixture.db.documents).filter(key => key.startsWith('storeDeliveryQuoteSnapshots/')).length, 0);
+  delete fixture.draft.fulfilments[1].destination;
+  fixture.provider.createQuote = async () => { throw new Error('API timeout'); };
+  await assert.rejects(createStoreDeliveryQuote({ ...fixture, slug: 'test' }), /API timeout/);
+  assert.equal(Object.keys(fixture.db.documents).filter(key => key.startsWith('storeDeliveryQuoteSnapshots/')).length, 0);
+});
+
+test('same-day delivery is rejected even when Store settings permit zero advance days', () => {
+  const now = new Date('2026-10-21T02:00:00Z');
+  const config = { fulfilment: { preOrder: { enabled: true, earliestDays: 0, maximumAdvanceDays: 7, orderDays: ['wednesday','thursday'], deliveryHours: {from:'00:00',to:'23:59'} } } };
+  assert.throws(() => validatePreOrderSchedule({country:'MY'}, config, {deliveryDate:'2026-10-21', deliveryTime:'18:00'}, now), /one day/);
+  assert.equal(validatePreOrderSchedule({country:'MY'}, config, {deliveryDate:'2026-10-22',deliveryTime:'10:00'}, now).date, '2026-10-22');
+});
+
+test('dispatch uses each saved address and refresh persists tracking without changing payment', async () => {
+  const fixture = dispatchFixture();
+  fixture.db.documents['storeOrders/multi'].fulfilments[0].destination = {formattedAddress:'Unit 2, Other address',latitude:'4.8',longitude:'101.3'};
+  const original = fixture.provider.createQuote;
+  fixture.provider.createQuote = request => { assert.equal(request.data.stops[1].address, 'Unit 2, Other address'); return original(request); };
+  await dispatchStoreDelivery(fixture.args);
+  fixture.provider.retrieveOrder = async () => ({status:'ON_GOING',driverId:'rider',shareLink:'https://example.com/tracking'});
+  fixture.provider.retrieveDriver = async () => ({name:'Rider',phone:'+60123456789',plateNumber:'TEST'});
+  await refreshStoreDelivery(fixture.args);
+  const order = fixture.db.documents['storeOrders/multi'];
+  assert.equal(order.fulfilmentOperations.day_0.providerOrder.shareLink,'https://example.com/tracking');
+  assert.equal(order.fulfilmentOperations.day_0.providerOrder.driver.name,'Rider');
+  assert.equal(order.total,100); assert.equal(order.payment.amountMinor,10000);
+});
+
+test('automatic dispatch never retries a failed day; an operator can safely retry before submission', async () => {
+  const fixture = dispatchFixture();
+  fixture.provider.createQuote = async () => { throw new Error('quote unavailable'); };
+  await assert.rejects(dispatchStoreDelivery({...fixture.args, uid: undefined, internal: true}), /quote unavailable/);
+  assert.equal((await dispatchStoreDelivery({...fixture.args, uid: undefined, internal: true})).status, 'failed');
+  fixture.provider.createQuote = async request => ({quotationId:'retry',serviceType:'MOTORCYCLE',priceBreakdown:{total:7,currency:'MYR'},stops:request.data.stops.map((stop,index)=>({...stop,stopId:String(index)}))});
+  assert.equal((await dispatchStoreDelivery(fixture.args)).status,'created');
+  assert.equal(fixture.counts().creations,1);
+});
+
+test('automatic dispatch stays disabled for payment, Ready, unrelated updates and failures', async () => {
+  const { automaticDispatchDays } = await import('./storeDelivery.js');
+  const order = multiOrder();
+  assert.equal(automaticDispatchDays(order, {payment:{status:'pending'}}).length,0);
+  assert.equal(automaticDispatchDays(order, structuredClone(order)).length,0);
+  order.fulfilmentOperations.day_0.dispatch = {status:'failed'};
+  assert.deepEqual(automaticDispatchDays(order),[]);
+  assert.equal(automaticDispatchDays({...order,payment:{status:'failed'}}).length,0);
+  assert.equal(automaticDispatchDays({...order,manualOrder:true}).length,0);
+});
+
+test('anonymized DV47-shaped order dispatches only its paid Ready day, normalizes the saved phone, and never rewrites the original', async t=>{
+ t.mock.timers.enable({apis:['Date'],now:new Date('2026-10-21T02:00:00Z')});
+ const {deliveryOrderCase}=await import('./fixtures/deliveryOrderCase.js');
+ const order=deliveryOrderCase(), original=structuredClone(order), db=multiDb({'workspaces/s':{ownerId:'owner'},'storeOrders/fixture-order':order});
+ let quotes=0, bookings=0, submitted;
+ const provider={environment:'sandbox',createQuote:async request=>{quotes++;assert.equal(request.data.stops[1].address,original.delivery.recipient.address);assert.equal(request.data.scheduleAt,'2026-10-22T03:30:00.000Z');return {quotationId:'new-operational-quote',serviceType:'MOTORCYCLE',priceBreakdown:{total:9,currency:'MYR'},stops:request.data.stops.map((stop,index)=>({...stop,stopId:`fresh-${index}`}))};},createOrder:async request=>{bookings++;submitted=request;return {orderId:'fake-provider-order',status:'ASSIGNING_DRIVER'};}};
+ const args={db,provider,uid:'owner',orderId:'fixture-order',fulfilmentId:'day_20261022'};
+ // A New paid order must not skip the kitchen workflow.
+ await assert.rejects(dispatchStoreDelivery(args),/Mark this delivery day Ready/);assert.equal(quotes,0);assert.equal(bookings,0);
+ order.fulfilmentOperations.day_20261022={kitchenStatus:'Ready'};
+ await Promise.all([dispatchStoreDelivery(args),dispatchStoreDelivery(args)]);
+ assert.equal(quotes,1);assert.equal(bookings,1);
+ assert.equal(submitted.data.quotationId,'new-operational-quote');assert.equal(submitted.data.recipients[0].phone,'+60123456789');assert.equal(submitted.data.recipients[0].stopId,'fresh-1');
+ assert.deepEqual(order.delivery,original.delivery);assert.deepEqual(order.fulfilments,original.fulfilments);assert.deepEqual(order.payment,original.payment);assert.deepEqual(order.totals,original.totals);assert.equal(order.phone,original.phone);
+});
+
+test('missing recipient pin is blocked before quotation, claim or booking and names the required field',async()=>{
+ const fixture=dispatchFixture(),order=fixture.db.documents['storeOrders/multi'];
+ order.fulfilments[0].destination={formattedAddress:'Different address without coordinates'};
+ const before=structuredClone(order);
+ await assert.rejects(dispatchStoreDelivery(fixture.args),error=>error.details.fields.includes('recipients[0].coordinates'));
+ assert.deepEqual(fixture.counts(),{quotes:0,creations:0});assert.deepEqual(order,before);
+});
+
+const { previewMerchantDelivery, confirmMerchantDelivery, reconcileMerchantDelivery } = await import('./storeManualDelivery.js');
+const manualFixture = () => {
+  const fixture = dispatchFixture();
+  const original = fixture.provider.createQuote;
+  fixture.provider.createQuote = async request => ({...await original(request), expiresAt: new Date(Date.now()+300000).toISOString()});
+  return fixture;
+};
+
+test('merchant preview displays exact route, fee and service, creates no booking, confirmation claims exactly once', async () => {
+  const f=manualFixture(); const original=structuredClone(f.db.documents['storeOrders/multi']);
+  await assert.rejects(confirmMerchantDelivery(f.args), /explicitly confirm/);
+  const preview=await previewMerchantDelivery(f.args);
+  assert.equal(preview.pickupAddress,'Kitchen'); assert.equal(preview.dropoffAddress,'Customer'); assert.equal(preview.estimatedCost,40); assert.equal(preview.serviceType,'MOTORCYCLE'); assert.ok(preview.quotationId); assert.equal(f.counts().creations,0);
+  await assert.rejects(confirmMerchantDelivery({...f.args,previewId:preview.id,confirmed:false}),/explicitly confirm/);
+  const confirmed={...f.args,previewId:preview.id,confirmed:true};
+  await Promise.all(Array.from({length:6},()=>confirmMerchantDelivery(confirmed)));
+  await confirmMerchantDelivery(confirmed);
+  assert.deepEqual(f.counts(),{quotes:1,creations:1});
+  const order=f.db.documents['storeOrders/multi'];
+  for(const field of ['delivery','fulfilments','payment','total','totals']) assert.deepEqual(order[field],original[field]);
+});
+
+test('preview/confirmation rejects unpaid, non Ready, unauthorised, expired, stale route, wrong merchant and old clients', async () => {
+  for(const change of [order=>order.payment.status='failed',order=>order.fulfilmentOperations.day_0.kitchenStatus='Preparing',order=>order.fulfilmentStatus='Cancelled']) {
+    const f=manualFixture(); change(f.db.documents['storeOrders/multi']); await assert.rejects(previewMerchantDelivery(f.args)); assert.equal(f.counts().creations,0);
+  }
+  const f=manualFixture(); await assert.rejects(previewMerchantDelivery({...f.args,uid:'stranger'}));
+  const p=await previewMerchantDelivery(f.args);
+  await assert.rejects(confirmMerchantDelivery({...f.args,previewId:'forged',confirmed:true}));
+  f.db.documents['storeOrders/multi'].fulfilments[0].time='12:00';
+  await assert.rejects(confirmMerchantDelivery({...f.args,previewId:p.id,confirmed:true}),/expired or delivery details changed/);
+  const next=await previewMerchantDelivery(f.args); f.db.documents['storeOrders/multi'].fulfilmentOperations.day_0.bookingPreview.expiresAt='2020-01-01';
+  await assert.rejects(confirmMerchantDelivery({...f.args,previewId:next.id,confirmed:true}));
+  assert.equal(f.counts().creations,0);
+});
+
+test('quotation timeout cannot book; post-submission timeout locks and all replacement confirmations stay blocked', async () => {
+  const f=manualFixture(); const quote=f.provider.createQuote; f.provider.createQuote=async()=>{throw Error('quote timeout');};
+  await assert.rejects(previewMerchantDelivery(f.args),/quote timeout/); assert.equal(f.counts().creations,0);
+  f.provider.createQuote=quote;const p=await previewMerchantDelivery(f.args);let submissions=0;
+  f.provider.createOrder=async()=>{submissions++;throw Error('provider timeout');};
+  await assert.rejects(confirmMerchantDelivery({...f.args,previewId:p.id,confirmed:true}),/provider timeout/);
+  assert.equal(f.db.documents['storeOrders/multi'].fulfilmentOperations.day_0.dispatch.status,'outcome_unknown');
+  assert.equal((await confirmMerchantDelivery({...f.args,previewId:p.id,confirmed:true})).status,'outcome_unknown');
+  await assert.rejects(previewMerchantDelivery(f.args),/locked/);await assert.rejects(reconcileMerchantDelivery(f.args),/No booking ID/);assert.equal(submissions,1);
+});
+
+test('known provider rejection is safe failure; reusing consumed quote cannot submit a second request',async()=>{
+  const f=manualFixture();const p=await previewMerchantDelivery(f.args);
+  f.provider.createOrder=async()=>{const e=new Error('Wallet insufficient');e.status=402;e.details={providerCode:'ERR_INSUFFICIENT_CREDIT'};e.requestId='test-request';throw e;};
+  await assert.rejects(confirmMerchantDelivery({...f.args,previewId:p.id,confirmed:true}));
+  assert.equal(f.db.documents['storeOrders/multi'].fulfilmentOperations.day_0.dispatch.status,'failed');
+  await assert.rejects(confirmMerchantDelivery({...f.args,previewId:p.id,confirmed:true}),/expired or delivery details changed/);
+});
+
+test('DV47-shaped historical insufficient credit reconciles rejection without booking or changing paid data',async()=>{
+  const f=manualFixture();const order=f.db.documents['storeOrders/multi'];const original=structuredClone(order);
+  order.fulfilmentOperations.day_0.dispatch={status:'outcome_unknown',providerCode:'ERR_INSUFFICIENT_CREDIT',requestId:'original-request',operationalQuote:{quotationId:'original-quote'}};
+  assert.equal((await reconcileMerchantDelivery(f.args)).status,'failed');assert.equal(f.counts().creations,0);
+  assert.equal(order.fulfilmentOperations.day_0.dispatch.reconciliation.result,'confirmed_provider_rejection');
+  for(const field of ['delivery','fulfilments','payment','total','totals'])assert.deepEqual(order[field],original[field]);
+});
+
+test('unknown outcome accepts only a verified existing booking for the exact submitted quote',async()=>{
+  const f=manualFixture(),op=f.db.documents['storeOrders/multi'].fulfilmentOperations.day_0;
+  op.dispatch={status:'outcome_unknown',operationalQuote:{quotationId:'submitted-quote'}};
+  f.provider.retrieveOrder=async()=>({orderId:'known-booking',quotationId:'wrong-quote',status:'ASSIGNING_DRIVER'});
+  await assert.rejects(reconcileMerchantDelivery({...f.args,providerOrderId:'known-booking'}),/does not match/);
+  assert.equal(op.dispatch.status,'outcome_unknown');
+  f.provider.retrieveOrder=async()=>({orderId:'known-booking',quotationId:'submitted-quote',status:'ASSIGNING_DRIVER'});
+  await reconcileMerchantDelivery({...f.args,providerOrderId:'known-booking'});
+  assert.equal(op.providerOrder.orderId,'known-booking'); assert.equal(op.dispatch.status,'created');assert.equal(f.counts().creations,0);
+});
+
+test('deployed trigger is inert and the sole booking callable requires manual confirmation',async()=>{
+  const source=await (await import('node:fs/promises')).readFile(new URL('./index.js',import.meta.url),'utf8');
+  const trigger=source.slice(source.indexOf('export const dispatchReadyStoreFulfilments'),source.indexOf('// No webhook endpoint'));
+  assert.doesNotMatch(trigger,/dispatchStoreDelivery|createOrder|dispatchFulfilmentDelivery/);
+  const callable=source.slice(source.indexOf('export const dispatchStoreLalamoveDelivery'),source.indexOf('export const refreshStoreLalamoveDelivery'));
+  assert.match(callable,/confirmMerchantDelivery/);assert.match(callable,/confirmed: request.data/);
 });
