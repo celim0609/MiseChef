@@ -114,6 +114,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     fulfilmentMethod: data.fulfilmentMethod === 'delivery' ? 'delivery' : 'pickup',
     totals: data.totals && typeof data.totals === 'object' ? data.totals as StoreOrder['totals'] : undefined,
     delivery: data.delivery && typeof data.delivery === 'object' ? data.delivery as StoreOrder['delivery'] : undefined,
+    customerReminders: data.customerReminders as StoreOrder['customerReminders'],
     fulfilments: normalizeOrderFulfilments(data.fulfilments),
     fulfilmentCompletion: data.fulfilmentCompletion as StoreOrder['fulfilmentCompletion'],
     fulfilmentOperations: data.fulfilmentOperations as StoreOrder['fulfilmentOperations'],
