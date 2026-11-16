@@ -3,9 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertTriangle,
   Bot,
   ClipboardList,
   FileUp,
@@ -31,6 +30,7 @@ import ChefHome from './home/ChefHome';
 import PersonalHome from './home/PersonalHome';
 import FirstTimeHome from './home/FirstTimeHome';
 import TodaysTasks from './home/TodaysTasks';
+import OwnerSalesPerformance from './home/OwnerSalesPerformance';
 import type { CostingInvoice } from '../modules/costing/types';
 import { dashboardService, type DashboardSource, type OwnerDashboardData } from '../services/dashboardService';
 import { getAuthenticatedGreeting } from '../utils/authenticatedUser';
@@ -38,7 +38,8 @@ import { selectProvisionedDisplayName } from '../services/newUserProvisioningMod
 import { formatRegionCurrency, useWorkspaceRegion } from '../regions';
 import type { OnboardingGoal } from '../modules/onboarding';
 import type { QuickAddActionDefinition, QuickAddActionId } from '../navigation/quickAdd';
-import { formatPurchaseCostPercentage, isSameBusinessDay } from '../modules/business/purchaseKpi';
+import { getBusinessDashboardPeriodRange } from '../modules/business/accounting';
+import { formatPurchaseCostPercentage } from '../modules/business/purchaseKpi';
 
 interface HomePortfolioSummary {
   professionalTitle?: string;
@@ -55,11 +56,13 @@ interface HomeTabProps {
   onToggleFavorite: (recipeId: string) => void;
   currentUser?: User | null;
   workspaceId?: string;
+  workspaceName?: string;
+  canViewSalesRecords?: boolean;
   profile?: ChefProfile;
   customAvatarUrl?: string;
   portfolio?: HomePortfolioSummary;
   onCreateRecipe?: () => void;
-  onNavigate?: (tab: RootTab) => void;
+  onNavigate?: (tab: RootTab, search?: string) => void;
   workspaceRole?: WorkspaceMemberRole | null;
   allRecipes?: Recipe[];
   onboardingGoals?: OnboardingGoal[];
@@ -76,17 +79,18 @@ interface ActivityItem {
   tone: 'primary' | 'secondary' | 'warning';
 }
 
-const formatDate = (locale: string, date = new Date()) => new Intl.DateTimeFormat(locale, {
+const formatDate = (locale: string, timeZone: string, date: Date) => new Intl.DateTimeFormat(locale, {
   weekday: 'long',
   day: 'numeric',
   month: 'long',
-  year: 'numeric'
+  year: 'numeric',
+  timeZone
 }).format(date);
 
 const formatShortDate = (value?: string | null) => value ? value.slice(0, 10) : 'Today';
 
-const getGreeting = () => {
-  const hour = new Date().getHours();
+const getGreeting = (now: Date, timeZone: string) => {
+  const hour = Number(new Intl.DateTimeFormat('en', { hour: 'numeric', hourCycle: 'h23', timeZone }).format(now));
   if (hour < 12) return 'Good Morning';
   if (hour < 18) return 'Good Afternoon';
   return 'Good Evening';
@@ -109,19 +113,13 @@ const isExpiringSoon = (value?: string | null) => {
 
 const getInvoiceStatus = (invoice: CostingInvoice) => invoice.processingStatus || invoice.status;
 
-const getMetricState = <T,>(source: DashboardSource<T> | undefined, hasData: boolean, isLoading: boolean): OwnerMetricState => {
-  if (isLoading) return 'loading';
-  if (!source) return 'no-data';
-  if (source.status === 'permission-denied') return 'permission-denied';
-  if (source.status === 'error') return 'error';
-  return hasData ? 'ready' : 'no-data';
-};
-
 export default function HomeTab({
   recipes,
   allRecipes = recipes,
   currentUser = null,
   workspaceId,
+  workspaceName,
+  canViewSalesRecords = false,
   onCreateRecipe,
   onNavigate,
   onSelectRecipe,
@@ -135,7 +133,8 @@ export default function HomeTab({
 }: HomeTabProps) {
   const region = useWorkspaceRegion();
   const [dashboard, setDashboard] = useState<OwnerDashboardData | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const requestId = useRef(0);
   const [dashboardError, setDashboardError] = useState('');
 
   const userId = currentUser?.uid;
@@ -149,11 +148,14 @@ export default function HomeTab({
   };
   const firstTimeGreeting = getAuthenticatedGreeting('Welcome to MiseChef', greetingIdentity);
   const chefHomeGreeting = getAuthenticatedGreeting('Welcome back', greetingIdentity);
-  const ownerHomeGreeting = getAuthenticatedGreeting(getGreeting(), greetingIdentity);
+  const now = new Date();
+  const ownerHomeGreeting = getAuthenticatedGreeting(getGreeting(now, region.timeZone), greetingIdentity);
 
   const loadDashboard = useCallback(async () => {
-    if (!businessEnabled || !userId || !activeWorkspaceId) {
+    const request = ++requestId.current;
+    if (!businessEnabled || isChefHome || !userId || !activeWorkspaceId) {
       setDashboard(null);
+      setIsLoading(false);
       return;
     }
 
@@ -161,11 +163,8 @@ export default function HomeTab({
     setDashboardError('');
 
     try {
-      if (isChefHome) {
-        setDashboard(null);
-        return;
-      }
       const nextDashboard = await dashboardService.loadOwnerDashboard(userId, activeWorkspaceId, region.timeZone);
+      if (request !== requestId.current) return;
       setDashboard(nextDashboard);
       const sources = Object.values(nextDashboard);
       const permissionFailures = sources.filter(source => source.status === 'permission-denied').length;
@@ -175,8 +174,13 @@ export default function HomeTab({
           ? 'Some dashboard data is unavailable because your workspace access does not permit it.'
           : "Some dashboard data couldn't be loaded. The affected widgets are marked below.");
       }
+    } catch {
+      if (request === requestId.current) {
+        setDashboard(null);
+        setDashboardError("Dashboard data couldn't be loaded. Please retry.");
+      }
     } finally {
-      setIsLoading(false);
+      if (request === requestId.current) setIsLoading(false);
     }
   }, [activeWorkspaceId, businessEnabled, isChefHome, region.timeZone, userId]);
 
@@ -185,26 +189,28 @@ export default function HomeTab({
     window.addEventListener('misechef:invoice-lifecycle-changed', loadDashboard);
     window.addEventListener('misechef:sales-changed', loadDashboard);
     return () => {
+      requestId.current++;
       window.removeEventListener('misechef:invoice-lifecycle-changed', loadDashboard);
       window.removeEventListener('misechef:sales-changed', loadDashboard);
     };
   }, [loadDashboard]);
 
+  const dashboardFailed = !dashboard && Boolean(dashboardError);
+  const getMetricState = <T,>(source: DashboardSource<T> | undefined, hasData: boolean): OwnerMetricState => {
+    if (isLoading) return 'loading';
+    if (dashboardFailed || source?.status === 'error') return 'error';
+    if (source?.status === 'permission-denied') return 'permission-denied';
+    return source && hasData ? 'ready' : 'no-data';
+  };
+
   const invoices = dashboard?.invoices.data || [];
   const ingredients = dashboard?.ingredients.data || [];
   const suppliers = dashboard?.suppliers.data || [];
   const quotations = dashboard?.quotations.data || [];
-  const sales = dashboard?.sales.data || [];
   const dashboardRecipes = dashboard?.recipes.data || [];
   const recalculations = dashboard?.recalculations.data || [];
   const aiUsage = dashboard?.aiUsage.data || { todayRequests: 0, monthRequests: 0, monthFailures: 0, recordCount: 0 };
 
-  const now = new Date();
-  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-  const todaySalesRecords = sales.filter(sale => isSameBusinessDay(sale.date, now, region.timeZone));
-  const yesterdaySalesRecords = sales.filter(sale => isSameBusinessDay(sale.date, yesterday, region.timeZone));
-  const todaySales = todaySalesRecords.reduce((sum, sale) => sum + Number(sale.amount || 0), 0);
-  const yesterdaySales = yesterdaySalesRecords.reduce((sum, sale) => sum + Number(sale.amount || 0), 0);
   const monthlySource = dashboard?.monthlyAccounting;
   const monthlySummary = monthlySource?.data;
   const monthSales = monthlySummary?.sales ?? 0;
@@ -230,16 +236,13 @@ export default function HomeTab({
     : 0;
   const expiringQuotations = quotations.filter(quotation => isExpiringSoon(quotation.expiryDate)).length;
 
-  const todaySalesState = getMetricState(dashboard?.sales, todaySalesRecords.length > 0, isLoading);
-  const yesterdaySalesState = getMetricState(dashboard?.sales, yesterdaySalesRecords.length > 0, isLoading);
-  const monthSalesState = getMetricState(monthlySource, Boolean(monthlySummary?.availability.sales), isLoading);
-  const purchaseState = getMetricState(monthlySource, Boolean(monthlySummary?.availability.purchases), isLoading);
-  const invoiceCountState = getMetricState(dashboard?.invoices, invoices.length > 0, isLoading);
-  const aiUsageState = getMetricState(dashboard?.aiUsage, aiUsage.recordCount > 0, isLoading);
+  const monthSalesState = getMetricState(monthlySource, Boolean(monthlySummary?.availability.sales));
+  const purchaseState = getMetricState(monthlySource, Boolean(monthlySummary?.availability.purchases));
+  const invoiceCountState = getMetricState(dashboard?.invoices, true);
+  const aiUsageState = getMetricState(dashboard?.aiUsage, aiUsage.recordCount > 0);
   const purchaseRatioState = getMetricState(
     monthlySource,
-    Boolean(monthlySummary && (monthlySummary.availability.purchases || monthSales <= 0)),
-    isLoading
+    Boolean(monthlySummary && (monthlySummary.availability.purchases || monthSales <= 0))
   );
   const purchaseRatio = monthlySummary?.purchaseCostPercentage ?? null;
 
@@ -252,7 +255,7 @@ export default function HomeTab({
     dashboard?.aiUsage
   ];
   const alertPermissionDenied = alertSources.some(source => source?.status === 'permission-denied');
-  const alertFailed = alertSources.some(source => source?.status === 'error');
+  const alertFailed = dashboardFailed || alertSources.some(source => source?.status === 'error');
   const alertHasData = invoices.length > 0
     || ingredients.length > 0
     || quotations.length > 0
@@ -282,31 +285,25 @@ export default function HomeTab({
   ].filter((item): item is { id: string; title: string; detail: string } => item !== null);
 
   const dailyOperationCards = [
-    { label: 'Pending OCR', value: String(pendingOcr), icon: <ClipboardList className="h-5 w-5" />, helper: pendingOcr ? 'Waiting for OCR processing' : 'Actual pending count: 0', tone: pendingOcr ? 'warning' : 'primary', state: invoiceCountState },
+    { label: 'Pending OCR', value: String(pendingOcr), icon: <ClipboardList className="h-5 w-5" />, helper: pendingOcr ? 'Waiting for OCR processing' : 'None waiting', tone: pendingOcr ? 'warning' : 'primary', state: invoiceCountState },
     {
       label: 'Pending Invoices',
       value: String(pendingInvoices),
       icon: <PackageSearch className="h-5 w-5" />,
       helper: pendingInvoices
         ? `Waiting for import or approval${pendingInvoiceSuppliers.length ? ` • ${pendingInvoiceSuppliers.join(', ')}` : ''}`
-        : 'Actual pending count: 0',
+        : 'None waiting',
       tone: pendingInvoices ? 'warning' : 'primary',
       state: invoiceCountState,
-      onClick: () => {
-        onNavigate?.('costingInvoices');
-        window.history.replaceState(null, '', '/app/costing/invoices?status=Processed');
-      }
+      onClick: onNavigate ? () => onNavigate('costingInvoices', '?status=Processed') : undefined
     },
-    { label: 'AI Usage', value: String(aiUsage.monthRequests), icon: <Bot className="h-5 w-5" />, helper: `Today ${aiUsage.todayRequests} • Successful requests this month`, tone: aiUsage.monthFailures ? 'warning' : 'secondary', state: aiUsageState },
-    { label: 'Alerts', value: String(needsAttention.length), icon: <AlertTriangle className="h-5 w-5" />, helper: needsAttention.length ? 'Operational items need attention' : 'Actual alert count: 0', tone: needsAttention.length ? 'warning' : 'secondary', state: alertState }
+    { label: 'AI Usage', value: String(aiUsage.monthRequests), icon: <Bot className="h-5 w-5" />, helper: `${aiUsage.todayRequests} today · Successful requests this month`, tone: aiUsage.monthFailures ? 'warning' : 'secondary', state: aiUsageState }
   ];
 
   const businessPerformanceCards = [
-    { label: "Today's Sales", value: formatRegionCurrency(todaySales, region.currency), icon: <TrendingUp className="h-5 w-5" />, helper: 'Recorded sales for today', tone: 'secondary', state: todaySalesState },
-    { label: 'Yesterday Sales', value: formatRegionCurrency(yesterdaySales, region.currency), icon: <TrendingUp className="h-5 w-5" />, helper: 'Recorded sales for yesterday', tone: 'secondary', state: yesterdaySalesState },
-    { label: 'This Month Sales', value: formatRegionCurrency(monthSales, region.currency), icon: <TrendingUp className="h-5 w-5" />, helper: 'Recorded sales this month', tone: 'secondary', state: monthSalesState },
-    { label: 'Total Purchases', value: formatRegionCurrency(monthPurchases, region.currency), icon: <ReceiptText className="h-5 w-5" />, helper: 'Approved imported invoices this month', tone: 'primary', state: purchaseState },
-    { label: 'Purchase Ratio', value: formatPurchaseCostPercentage(purchaseRatio), icon: <ClipboardList className="h-5 w-5" />, helper: purchaseRatioState === 'ready' && purchaseRatio === null ? 'A positive sales total is needed for the ratio' : 'Total purchases divided by total sales', tone: 'secondary', state: purchaseRatioState }
+    { label: 'Total Revenue', value: formatRegionCurrency(monthSales, region.currency), icon: <TrendingUp className="h-5 w-5" />, helper: 'Recognized sales', tone: 'secondary', state: monthSalesState },
+    { label: 'Approved Purchases', value: formatRegionCurrency(monthPurchases, region.currency), icon: <ReceiptText className="h-5 w-5" />, helper: 'Approved, imported invoices', tone: 'primary', state: purchaseState },
+    { label: 'Purchase Ratio', value: formatPurchaseCostPercentage(purchaseRatio), icon: <ClipboardList className="h-5 w-5" />, helper: purchaseRatioState === 'ready' && purchaseRatio === null ? 'A positive sales total is needed for the ratio' : 'Approved purchases ÷ recognized sales', tone: 'secondary', state: purchaseRatioState }
   ];
 
   const recentActivity = useMemo<ActivityItem[]>(() => {
@@ -360,25 +357,13 @@ export default function HomeTab({
   });
 
   const snapshotItems = [
-    { label: 'Recipes', value: String(dashboardRecipes.length), state: getMetricState(dashboard?.recipes, dashboardRecipes.length > 0, isLoading) },
-    { label: 'Ingredients', value: String(activeIngredients.length), state: getMetricState(dashboard?.ingredients, activeIngredients.length > 0, isLoading) },
-    { label: 'Suppliers', value: String(suppliers.length), state: getMetricState(dashboard?.suppliers, suppliers.length > 0, isLoading) },
-    { label: 'Invoices', value: String(invoices.length), state: getMetricState(dashboard?.invoices, invoices.length > 0, isLoading) }
+    { label: 'Recipes', value: String(dashboardRecipes.length), state: getMetricState(dashboard?.recipes, dashboardRecipes.length > 0) },
+    { label: 'Ingredients', value: String(activeIngredients.length), state: getMetricState(dashboard?.ingredients, activeIngredients.length > 0) },
+    { label: 'Suppliers', value: String(suppliers.length), state: getMetricState(dashboard?.suppliers, suppliers.length > 0) },
+    { label: 'Invoices', value: String(invoices.length), state: getMetricState(dashboard?.invoices, true) }
   ];
   const activitySources = [dashboard?.invoices, dashboard?.ingredients, dashboard?.suppliers, dashboard?.recipes];
-  const activityDataIncomplete = activitySources.some(source => source?.status === 'permission-denied' || source?.status === 'error');
-  const purchaseRatioHeader = purchaseRatioState === 'loading'
-    ? { value: '...', label: 'Loading', className: 'bg-surface-container-high text-on-surface-variant' }
-    : purchaseRatioState === 'permission-denied'
-      ? { value: 'Access unavailable', label: 'Permission denied', className: 'bg-yellow-100 text-yellow-800' }
-      : purchaseRatioState === 'error'
-        ? { value: 'Unable to load', label: 'Error', className: 'bg-red-100 text-red-800' }
-        : purchaseRatioState === 'no-data'
-          ? { value: 'No data available', label: 'No data', className: 'bg-surface-container-high text-on-surface-variant' }
-          : purchaseRatio === null
-            ? { value: 'No sales yet', label: 'No positive sales total', className: 'bg-surface-container-high text-on-surface-variant' }
-            : { value: `${purchaseRatio.toFixed(1)}%`, label: 'Monthly actuals', className: 'bg-primary/10 text-primary' };
-
+  const activityDataIncomplete = dashboardFailed || activitySources.some(source => source?.status === 'permission-denied' || source?.status === 'error');
   if (!businessEnabled) {
     return (
       <PersonalHome
@@ -426,36 +411,53 @@ export default function HomeTab({
     );
   }
 
-  return (
-    <div className="mx-auto w-full max-w-6xl space-y-5 animate-fade-in">
-      <OwnerHomeHeader date={formatDate(region.locale)} greeting={ownerHomeGreeting} purchaseRatio={purchaseRatioHeader.value} purchaseRatioLabel={purchaseRatioHeader.label} purchaseRatioClassName={purchaseRatioHeader.className} />
+  const monthRange = getBusinessDashboardPeriodRange({ period: 'this-month', now, timeZone: region.timeZone })!;
+  const monthDateFormat = new Intl.DateTimeFormat(region.locale, { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const monthContext = monthDateFormat.formatRange(
+    new Date(monthRange.from),
+    new Date(monthRange.to)
+  );
 
-      <TodaysTasks workspaceId={activeWorkspaceId} userId={userId} />
+  return (
+    <div className="mx-auto w-full max-w-6xl min-w-0 space-y-4">
+      <OwnerHomeHeader
+        date={formatDate(region.locale, region.timeZone, now)}
+        greeting={ownerHomeGreeting}
+        workspaceName={workspaceName}
+        monthContext={monthContext}
+      />
 
       {dashboardError && (
         <div className="flex flex-col gap-3 rounded-2xl border border-error/30 bg-error/10 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="font-sans text-sm font-bold text-error">{dashboardError}</p>
+          <p role="status" className="font-sans text-sm font-bold text-error">{dashboardError}</p>
           <button type="button" onClick={loadDashboard} disabled={isLoading} className="w-fit rounded-full border border-error/30 bg-white px-4 py-2 font-sans text-xs font-extrabold text-error disabled:opacity-50">
             {isLoading ? 'Retrying...' : 'Retry'}
           </button>
         </div>
       )}
 
-      <OwnerMetricSection title="Daily Operations" description="Invoice workflow, actual AI usage, and operational alerts." cards={dailyOperationCards} isLoading={isLoading} />
+      <OwnerMetricSection title="Financial overview" cards={businessPerformanceCards} />
 
-      <OwnerMetricSection
-        title="Monthly Business Performance"
-        description="Recorded sales and approved invoice purchases. This is not actual food cost."
-        cards={businessPerformanceCards}
-        isLoading={isLoading}
-      />
+      <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)]">
+        <OwnerSalesPerformance
+          trend={monthlySummary?.trend ?? []}
+          state={monthSalesState}
+          currency={region.currency}
+          locale={region.locale}
+          onViewSales={canViewSalesRecords && onNavigate ? () => onNavigate('businessSales') : undefined}
+        />
+        <div className="grid min-w-0 items-start gap-4 md:grid-cols-2 lg:grid-cols-1">
+          <OwnerMetricSection title="Daily Operations" cards={dailyOperationCards} layout="rows" />
+          <TodaysTasks workspaceId={activeWorkspaceId} userId={userId} inline />
+        </div>
+      </div>
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+      <section className="grid items-start gap-4 md:grid-cols-2">
         <OwnerQuickActions actions={quickActions} />
-        <OwnerNeedsAttention items={needsAttention} isIncomplete={alertDataIncomplete} />
+        <OwnerNeedsAttention items={needsAttention} state={alertState} isIncomplete={alertDataIncomplete} />
       </section>
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+      <section className="grid items-start gap-4 md:grid-cols-2">
         <OwnerRecentActivity items={recentActivity} formatTimestamp={formatShortDate} isIncomplete={activityDataIncomplete} />
         <OwnerBusinessSnapshot items={snapshotItems} />
       </section>

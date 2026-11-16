@@ -763,7 +763,7 @@ export default function App() {
     );
   }, [currentUser?.uid, currentWorkspace?.id, currentWorkspaceRole, hasBusinessEntitlement]);
 
-  const handleRootNavigate = (tab: RootTab) => {
+  const handleRootNavigate = (tab: RootTab, search = '') => {
     if (addingRecipe || editingRecipe) {
       if (
         hasUnsavedRecipeChanges
@@ -833,7 +833,7 @@ export default function App() {
     if (tab !== 'costingInvoiceDetail') {
       setSelectedCostingInvoiceId(null);
     }
-    window.history.replaceState(null, '', ROOT_TAB_PATHS[tab]);
+    window.history.replaceState(null, '', ROOT_TAB_PATHS[tab] + search);
   };
 
   const availableQuickAddActions = getAvailableQuickAddActions(
@@ -2057,31 +2057,39 @@ export default function App() {
     switch (activeTab) {
       case 'home':
         return (
-          <HomeTab
-            recipes={homeRecipes}
-            allRecipes={recipes}
-            workspaceRole={currentWorkspaceRole}
-            selectedCategory={selectedHomeCategory}
-            isFavoritesFilter={isFavoritesFilterActive}
-            onSelectRecipe={setSelectedRecipe}
-            onToggleFavorite={handleToggleFavorite}
-            currentUser={currentUser}
-            workspaceId={activeWorkspaceId}
-            profile={chefProfile}
-            customAvatarUrl={customAvatarUrl}
-            portfolio={{
-              professionalTitle: portfolioData.basicProfile.professionalTitle,
-              yearsExperience: portfolioData.basicProfile.yearsExperience,
-              bio: portfolioData.basicProfile.shortBio,
-              quote: portfolioData.basicProfile.quote
-            }}
-            onCreateRecipe={() => setAddingRecipe(true)}
-            quickAddActions={availableQuickAddActions}
-            onQuickAdd={handleQuickAdd}
-            onNavigate={handleRootNavigate}
-            onboardingGoals={onboarding.goals}
-            businessEnabled={hasBusinessEntitlement}
-          />
+          <React.Fragment key={hasBusinessEntitlement && currentWorkspaceRole !== 'Chef'
+            ? JSON.stringify([currentUser?.uid, activeWorkspaceId, currentWorkspaceRole])
+            : undefined}>
+            <HomeTab
+              recipes={homeRecipes}
+              allRecipes={recipes}
+              workspaceRole={currentWorkspaceRole}
+              selectedCategory={selectedHomeCategory}
+              isFavoritesFilter={isFavoritesFilterActive}
+              onSelectRecipe={setSelectedRecipe}
+              onToggleFavorite={handleToggleFavorite}
+              currentUser={currentUser}
+              workspaceId={activeWorkspaceId}
+              workspaceName={currentWorkspace?.name}
+              canViewSalesRecords={hasBusinessEntitlement && (
+                !currentWorkspace || canAccessRootTab('businessSales', currentWorkspaceRole, currentUserRole === 'super_admin')
+              )}
+              profile={chefProfile}
+              customAvatarUrl={customAvatarUrl}
+              portfolio={{
+                professionalTitle: portfolioData.basicProfile.professionalTitle,
+                yearsExperience: portfolioData.basicProfile.yearsExperience,
+                bio: portfolioData.basicProfile.shortBio,
+                quote: portfolioData.basicProfile.quote
+              }}
+              onCreateRecipe={() => setAddingRecipe(true)}
+              quickAddActions={availableQuickAddActions}
+              onQuickAdd={handleQuickAdd}
+              onNavigate={handleRootNavigate}
+              onboardingGoals={onboarding.goals}
+              businessEnabled={hasBusinessEntitlement}
+            />
+          </React.Fragment>
         );
       case 'favorites':
         return (

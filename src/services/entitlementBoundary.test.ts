@@ -48,7 +48,7 @@ test('navigation hiding and dashboard loading use the same fail-closed entitleme
   const home = read('../components/HomeTab.tsx');
   const personalHome = read('../components/home/PersonalHome.tsx');
   assert.match(navigation, /businessTabs\.has\(tab\) && !hasBusinessEntitlement/);
-  assert.match(home, /if \(!businessEnabled \|\| !userId \|\| !activeWorkspaceId\)/);
+  assert.match(home, /if \(!businessEnabled \|\| isChefHome \|\| !userId \|\| !activeWorkspaceId\)/);
   assert.match(home, /if \(!businessEnabled\)[\s\S]*<PersonalHome/);
   assert.match(personalHome, /Add Recipe/);
   assert.match(personalHome, /My Recipes/);

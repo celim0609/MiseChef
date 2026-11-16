@@ -13,9 +13,7 @@ const renderDashboard = (displayName: string | null) => renderToStaticMarkup(
   <OwnerHomeHeader
     date="Friday, 24 July 2026"
     greeting={getAuthenticatedGreeting('Good Morning', { displayName })}
-    purchaseRatio="No data available"
-    purchaseRatioLabel="No data"
-    purchaseRatioClassName=""
+    monthContext="1–24 July"
   />
 );
 

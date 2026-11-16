@@ -195,7 +195,8 @@ test('Home monthly metrics use the same scoped period and accounting as Sales Re
   assert.match(home, /monthSales = monthlySummary\?\.sales/);
   assert.match(home, /purchaseRatio = monthlySummary\?\.purchaseCostPercentage/);
   assert.match(home, /monthlySummary\.availability\.purchases \|\| monthSales <= 0/);
-  assert.match(home, /purchaseRatio === null\s*\? \{ value: 'No sales yet'/);
+  assert.match(home, /formatPurchaseCostPercentage\(purchaseRatio\)/);
+  assert.match(home, /trend=\{monthlySummary\?\.trend/);
   assert.match(ownerService, /getBusinessDashboardPeriodRange\(\{ period: 'this-month', now: new Date\(\), timeZone \}\)/);
   assert.match(ownerService, /getDashboardSummary\(userId, workspaceId, timeZone, range\)/);
   assert.match(salesPage, /period: 'this-month', now: new Date\(\), timeZone: region\.timeZone/);

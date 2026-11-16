@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, CalendarDays, TrendingUp } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Store, TrendingUp } from 'lucide-react';
 
 export type OwnerMetricState = 'loading' | 'ready' | 'no-data' | 'permission-denied' | 'error';
 
@@ -9,7 +9,6 @@ export interface OwnerMetricCard {
   icon: React.ReactNode;
   helper: string;
   tone: string;
-  statusClassName?: string;
   state?: OwnerMetricState;
   onClick?: () => void;
 }
@@ -41,7 +40,7 @@ export interface OwnerSnapshotItem {
 }
 
 const getStateValue = (state: OwnerMetricState | undefined, value: string) => {
-  if (state === 'loading') return '...';
+  if (state === 'loading') return 'Loading…';
   if (state === 'no-data') return 'No data available';
   if (state === 'permission-denied') return 'Access unavailable';
   if (state === 'error') return 'Unable to load';
@@ -49,104 +48,78 @@ const getStateValue = (state: OwnerMetricState | undefined, value: string) => {
 };
 
 const getStateHelper = (state: OwnerMetricState | undefined, helper: string) => {
-  if (state === 'loading') return 'Loading production data...';
   if (state === 'no-data') return 'No records exist for this period.';
-  if (state === 'permission-denied') return 'Permission denied for this workspace data.';
-  if (state === 'error') return 'Data could not be loaded. Use Retry above.';
+  if (state === 'permission-denied') return 'Check workspace access.';
+  if (state === 'error') return 'Use Retry above.';
   return helper;
 };
 
-export function OwnerHomeHeader({
-  date,
-  greeting,
-  purchaseRatio,
-  purchaseRatioLabel,
-  purchaseRatioClassName
-}: {
+export function OwnerHomeHeader({ date, greeting, workspaceName, monthContext }: {
   date: string;
   greeting: string;
-  purchaseRatio: string;
-  purchaseRatioLabel: string;
-  purchaseRatioClassName: string;
+  workspaceName?: string;
+  monthContext: string;
 }) {
   return (
-    <section className="rounded-3xl border border-surface-container-high bg-surface-container-low p-6 shadow-sm sm:p-8">
-      <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-        <div className="space-y-3">
-          <div className="inline-flex items-center gap-2 rounded-full bg-secondary/10 px-3 py-1 font-sans text-[10px] font-extrabold uppercase tracking-[0.2em] text-secondary">
-            <CalendarDays className="h-3.5 w-3.5" /> {date}
-          </div>
-          <div>
-            <h1 className="font-display text-4xl font-bold tracking-tight text-primary sm:text-5xl">
-              {greeting}
-            </h1>
-            <p className="mt-3 max-w-2xl font-sans text-sm font-bold leading-relaxed text-on-surface-variant">
-              Your daily restaurant command center: sales, invoice workflow, purchasing trends, and alerts without misleading food-cost shortcuts.
-            </p>
-          </div>
-        </div>
-        <div className="rounded-2xl border border-surface-container-high bg-white px-5 py-4 shadow-sm">
-          <p className="font-sans text-[10px] font-extrabold uppercase tracking-[0.16em] text-outline">Purchase Ratio</p>
-          <p className="mt-1 font-display text-2xl font-bold text-primary">{purchaseRatio}</p>
-          <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 font-sans text-[10px] font-extrabold ${purchaseRatioClassName}`}>{purchaseRatioLabel}</span>
-        </div>
+    <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 border-b border-surface-container-high pb-4">
+      <div className="min-w-0">
+        <p className="text-sm font-bold text-on-surface-variant">{date}</p>
+        <h1 className="break-words font-display text-3xl font-bold leading-tight text-primary sm:text-4xl">{greeting}</h1>
       </div>
-    </section>
+      <div className="min-w-0 sm:text-right">
+        <p className="flex items-start gap-1.5 text-sm font-extrabold text-primary sm:justify-end">
+          <Store aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+          <span className="min-w-0 break-words">{workspaceName || 'Current workspace'}</span>
+        </p>
+        <p className="text-xs font-semibold text-on-surface-variant">Month to date · {monthContext}</p>
+      </div>
+    </header>
   );
 }
 
-export function OwnerMetricSection({
-  title,
-  description,
-  cards,
-  isLoading,
-  controls
-}: {
+export function OwnerMetricSection({ title, cards, layout = 'cards' }: {
   title: string;
-  description: string;
   cards: OwnerMetricCard[];
-  isLoading: boolean;
-  controls?: React.ReactNode;
+  layout?: 'cards' | 'rows';
 }) {
+  const isList = layout === 'rows';
+
   return (
-    <section className="space-y-4">
-      <div className={controls ? 'flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between' : 'flex items-end justify-between gap-3'}>
-        <div>
-          <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-primary">{title}</p>
-          <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">{description}</p>
-        </div>
-        {controls || (isLoading && <p className="font-sans text-xs font-extrabold text-outline">Refreshing...</p>)}
-      </div>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <section className={isList ? 'rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4' : ''}>
+      <h2 className={isList ? 'font-display text-2xl font-bold leading-none text-primary' : 'sr-only'}>{title}</h2>
+      <div className={isList ? 'mt-2 divide-y divide-surface-container-high' : 'grid gap-2.5 sm:grid-cols-3'}>
         {cards.map(card => {
+          const iconStyle = card.tone === 'warning'
+            ? 'bg-yellow-100 text-yellow-900'
+            : 'bg-primary/10 text-primary';
           const content = (
             <>
-            <span className={`inline-flex rounded-full p-2 ${card.tone === 'warning' ? 'bg-yellow-100 text-yellow-800' : card.tone === 'secondary' ? 'bg-secondary/10 text-secondary' : 'bg-primary/10 text-primary'}`}>
-              {card.icon}
-            </span>
-            <p className="mt-5 font-sans text-[10px] font-extrabold uppercase tracking-[0.16em] text-outline">{card.label}</p>
-            <p className="mt-2 font-display text-2xl font-bold text-primary">{getStateValue(card.state, card.value)}</p>
-            {card.statusClassName && (!card.state || card.state === 'ready') ? (
-              <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 font-sans text-[10px] font-extrabold ${card.statusClassName}`}>{card.helper}</span>
-            ) : (
-              <p className="mt-2 font-sans text-xs font-bold text-on-surface-variant">{getStateHelper(card.state, card.helper)}</p>
-            )}
+              <span aria-hidden="true" className={`inline-flex size-8 shrink-0 items-center justify-center rounded-lg ${iconStyle}`}>{card.icon}</span>
+              <div className="min-w-0">
+                <p className="text-sm font-extrabold text-primary">{card.label}</p>
+                {card.state !== 'loading' && (
+                  <p className="text-xs font-semibold leading-snug text-on-surface-variant">{getStateHelper(card.state, card.helper)}</p>
+                )}
+              </div>
+              <p className={`min-w-0 break-words font-bold tabular-nums text-primary ${isList
+                ? 'col-start-3 row-start-1 text-right text-sm'
+                : 'col-start-3 row-start-1 text-right text-base sm:col-span-2 sm:col-start-1 sm:row-start-2 sm:text-left sm:text-2xl'}`}>
+                {getStateValue(card.state, card.value)}
+              </p>
             </>
           );
+          const className = isList
+            ? 'grid w-full grid-cols-[auto_minmax(0,1fr)_minmax(0,5.25rem)_auto] items-center gap-2.5 py-2.5 text-left'
+            : 'grid min-w-0 grid-cols-[auto_minmax(0,1fr)_minmax(0,auto)] items-center gap-x-3 gap-y-2 rounded-xl sm:grid-cols-[auto_minmax(0,1fr)] border border-surface-container-high bg-surface-container-lowest px-3 py-2.5 sm:p-3';
 
           return card.onClick ? (
-            <button
-              key={card.label}
-              type="button"
-              onClick={card.onClick}
-              className="w-full rounded-2xl border border-surface-container-high bg-white p-5 text-left shadow-sm transition-all hover:border-primary/30 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-[0.99]"
-            >
+            <button key={card.label} type="button" onClick={card.onClick}
+              className={`${className} hover:bg-surface-container-low focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary`}>
               {content}
+              <ArrowRight aria-hidden="true" className="col-start-4 row-start-1 size-3.5 text-primary" />
             </button>
           ) : (
-            <article key={card.label} className="rounded-2xl border border-surface-container-high bg-white p-5 shadow-sm">
-              {content}
-            </article>
+            <div key={card.label} className={className}>{content}{isList && <span aria-hidden="true" className="size-3.5" />}</div>
           );
         })}
       </div>
@@ -156,12 +129,12 @@ export function OwnerMetricSection({
 
 export function OwnerQuickActions({ actions }: { actions: OwnerQuickAction[] }) {
   return (
-    <article className="rounded-2xl border border-surface-container-high bg-white p-5 shadow-sm">
-      <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-primary">Quick Actions</p>
+    <article className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4">
+      <h2 className="text-sm font-extrabold text-primary">Quick Actions</h2>
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         {actions.map(action => (
-          <button key={action.label} type="button" onClick={action.onClick} className="flex items-center gap-4 rounded-2xl border border-surface-container-high bg-surface-container-low p-4 text-left transition-all hover:border-primary/30 hover:bg-primary/5 active:scale-[0.99]">
-            <span className="rounded-full bg-primary px-3 py-3 text-on-primary">{action.icon}</span>
+          <button key={action.label} type="button" onClick={action.onClick} className="flex items-center gap-3 rounded-xl border border-surface-container-high bg-surface-container-low p-2.5 text-left hover:bg-primary/5 focus-visible:outline-2 focus-visible:outline-primary">
+            <span className="rounded-full bg-primary p-2 text-on-primary">{action.icon}</span>
             <span>
               <span className="block font-sans text-sm font-extrabold text-primary">{action.label}</span>
               <span className="mt-1 block font-sans text-xs font-bold text-on-surface-variant">{action.detail}</span>
@@ -173,30 +146,30 @@ export function OwnerQuickActions({ actions }: { actions: OwnerQuickAction[] }) 
   );
 }
 
-export function OwnerNeedsAttention({ items, isIncomplete = false }: { items: OwnerAttentionItem[]; isIncomplete?: boolean }) {
+export function OwnerNeedsAttention({ items, state, isIncomplete = false }: { items: OwnerAttentionItem[]; state: OwnerMetricState; isIncomplete?: boolean }) {
   return (
-    <article className="rounded-2xl border border-surface-container-high bg-white p-5 shadow-sm">
+    <article className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-primary">Needs Attention</p>
-          <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">Operational items that could affect today’s work.</p>
+          <h2 className="text-sm font-extrabold text-primary">Needs Attention</h2>
+          <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">{getStateValue(state, `${items.length} ${items.length === 1 ? 'alert' : 'alerts'}`)}</p>
         </div>
         <AlertTriangle className="h-5 w-5 text-outline" />
       </div>
-      <div className="mt-4 space-y-3">
+      <div className="mt-4 space-y-2">
         {isIncomplete && (
           <div className="rounded-xl border border-error/30 bg-error/10 p-4">
             <p className="font-sans text-sm font-extrabold text-error">Some alert sources are unavailable.</p>
             <p className="mt-1 font-sans text-xs font-bold text-error">Retry the dashboard before treating this list as complete.</p>
           </div>
         )}
-        {items.length > 0 ? items.map(item => (
-          <div key={item.id} className="rounded-xl border border-yellow-200 bg-yellow-50 p-4">
+        {state === 'loading' ? null : items.length > 0 ? items.map(item => (
+          <div key={item.id} className="rounded-xl border border-yellow-200 bg-yellow-50 p-2.5">
             <p className="font-sans text-sm font-extrabold text-yellow-900">{item.title}</p>
             <p className="mt-1 font-sans text-xs font-bold text-yellow-800">{item.detail}</p>
           </div>
-        )) : !isIncomplete ? (
-          <div className="rounded-xl border border-green-200 bg-green-50 p-4">
+        )) : state === 'ready' && !isIncomplete ? (
+          <div className="rounded-xl border border-green-200 bg-green-50 p-2.5">
             <p className="font-sans text-sm font-extrabold text-green-900">Nothing urgent right now.</p>
             <p className="mt-1 font-sans text-xs font-bold text-green-800">All available operational checks completed with zero alerts.</p>
           </div>
@@ -208,16 +181,16 @@ export function OwnerNeedsAttention({ items, isIncomplete = false }: { items: Ow
 
 export function OwnerRecentActivity({ items, formatTimestamp, isIncomplete = false }: { items: OwnerActivityItem[]; formatTimestamp: (timestamp: string) => string; isIncomplete?: boolean }) {
   return (
-    <article className="rounded-2xl border border-surface-container-high bg-white p-5 shadow-sm">
-      <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-primary">Recent Activity</p>
-      <div className="mt-4 space-y-3">
+    <article className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4">
+      <h2 className="text-sm font-extrabold text-primary">Recent Activity</h2>
+      <div className="mt-4 space-y-2">
         {isIncomplete && (
           <div className="rounded-xl border border-error/30 bg-error/10 p-4">
             <p className="font-sans text-sm font-extrabold text-error">Some activity sources could not be loaded.</p>
           </div>
         )}
         {items.length > 0 ? items.map(item => (
-          <div key={item.id} className="flex items-start justify-between gap-4 rounded-xl border border-surface-container-high bg-surface-container-low p-4">
+          <div key={item.id} className="flex items-start justify-between gap-4 rounded-xl border border-surface-container-high bg-surface-container-low p-2.5">
             <div>
               <p className="font-sans text-sm font-extrabold text-primary">{item.label}</p>
               <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">{item.detail}</p>
@@ -225,7 +198,7 @@ export function OwnerRecentActivity({ items, formatTimestamp, isIncomplete = fal
             <span className="shrink-0 rounded-full bg-white px-3 py-1 font-sans text-[10px] font-extrabold text-outline">{formatTimestamp(item.timestamp)}</span>
           </div>
         )) : !isIncomplete ? (
-          <div className="rounded-xl border border-surface-container-high bg-surface-container-low p-4">
+          <div className="rounded-xl border border-surface-container-high bg-surface-container-low p-2.5">
             <p className="font-sans text-sm font-extrabold text-primary">No business activity recorded yet.</p>
             <p className="mt-1 font-sans text-xs font-bold text-on-surface-variant">Use quick actions to start today’s work.</p>
           </div>
@@ -237,17 +210,17 @@ export function OwnerRecentActivity({ items, formatTimestamp, isIncomplete = fal
 
 export function OwnerBusinessSnapshot({ items }: { items: OwnerSnapshotItem[] }) {
   return (
-    <article className="rounded-2xl border border-surface-container-high bg-white p-5 shadow-sm">
+    <article className="rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="font-sans text-xs font-extrabold uppercase tracking-[0.16em] text-primary">Business Snapshot</p>
+          <h2 className="text-sm font-extrabold text-primary">Business Snapshot</h2>
           <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">Current operating data.</p>
         </div>
         <TrendingUp className="h-5 w-5 text-outline" />
       </div>
       <div className="mt-5 grid grid-cols-2 gap-3">
         {items.map(item => (
-          <div key={item.label} className="rounded-xl border border-surface-container-high bg-surface-container-low p-4 text-center">
+          <div key={item.label} className="rounded-xl border border-surface-container-high bg-surface-container-low p-2.5 text-center">
             <p className="font-display text-2xl font-bold text-primary">{getStateValue(item.state, item.value)}</p>
             <p className="mt-1 font-sans text-[10px] font-extrabold uppercase tracking-[0.14em] text-outline">{item.label}</p>
           </div>
