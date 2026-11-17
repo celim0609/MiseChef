@@ -13,6 +13,7 @@ export async function managePosOrder({db,uid,input,now=new Date()}) {
   const snapshot=await tx.get(ref),order=snapshot.data();
   if(!order)throw new HttpsError('not-found','Order not found.');
   const owner=await assertOperator({db,uid,workspaceId:order.workspaceId,financial:true,transaction:tx});
+  if(order.weeklyPosLink && order.payment.status!=='paid')throw new HttpsError('failed-precondition','Cancel the payment link before changing this order.');
   if(order.groupOrder||order.groupDelivery)throw new HttpsError('failed-precondition','Manage grouped delivery orders through their existing workflow.');
   if(input.action==='delete'&&!owner&&order.payment?.status==='paid')deny();
   if(order.deletedAt){if(input.action==='delete')return{duplicate:true,orderId:ref.id};throw new HttpsError('failed-precondition','This order has been deleted.');}

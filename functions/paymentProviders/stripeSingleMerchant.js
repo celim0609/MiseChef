@@ -32,6 +32,7 @@ const normalizeCheckoutPayment = session => {
     currency: readString(session?.currency).toUpperCase(),
     status: checkoutStatus(session, paymentIntent),
     providerStatus: readString(session?.payment_status || session?.status),
+    ...(session?.metadata?.misechefWeeklyPosAttemptId ? { checkoutSessionStatus: readString(session.status) } : {}),
     ...(session?.status === 'expired' && session?.payment_status !== 'paid' ? {promotionTerminal:true} : {}),
     ...(paymentIntent?.latest_charge && typeof paymentIntent.latest_charge==='object' && Number.isFinite(paymentIntent.latest_charge.created) ? {paidAt:new Date(paymentIntent.latest_charge.created*1000).toISOString()} : {}),
     paymentMethod: readStripePaymentMethod(paymentIntent),
@@ -98,7 +99,7 @@ export const createStripeSingleMerchantAdapter = (secretKey, { stripeClient } = 
       try { return await this.cancelPayment(id); } catch(error) { payment=await this.retrievePayment(id); if(payment.status==='paid' || payment.promotionTerminal) return payment; throw error; }
     },
 
-    async createPayment({ order, returnUrl, checkoutAccessToken }) {
+    async createPayment({ order, returnUrl, checkoutAccessToken, weeklyPosSession }) {
       const placeholder = '{CHECKOUT_SESSION_ID}';
       const urls = buildStripeCheckoutUrls({
         returnUrl,
@@ -109,7 +110,8 @@ export const createStripeSingleMerchantAdapter = (secretKey, { stripeClient } = 
         misechefOrderId: order.id,
         misechefOrderNumber: order.orderNumber,
         misechefWorkspaceId: order.workspaceId,
-        paymentProviderMode: STRIPE_PROVIDER_MODE
+        paymentProviderMode: STRIPE_PROVIDER_MODE,
+        ...(weeklyPosSession ? { misechefWeeklyPosAttemptId: weeklyPosSession.id } : {}),
       };
       const session = await stripe.checkout.sessions.create({
         mode: 'payment',
@@ -128,12 +130,13 @@ export const createStripeSingleMerchantAdapter = (secretKey, { stripeClient } = 
           }
         }],
         metadata,
+        ...(weeklyPosSession ? { expires_at: weeklyPosSession.expiresAt, payment_method_types: ['card'] } : {}),
         ...(order.promotionCodeSnapshot ? {expires_at:Math.floor(Date.parse(order.promotionCodeSnapshot.reservationExpiresAt)/1000),payment_method_types:['card']} : {}),
         payment_intent_data: { metadata }
-        // payment_method_types is intentionally omitted. Stripe dynamically presents
-        // Dashboard-enabled methods that are eligible for the currency and customer.
+        // Public checkout without a promotion retains Stripe's eligible methods.
+        // POS links use immediate card capture so expiry can safely release the lock.
       }, {
-        idempotencyKey: `misechef-order-${order.id}`
+        idempotencyKey: weeklyPosSession ? `misechef-weekly-pos-${weeklyPosSession.id}` : `misechef-order-${order.id}`
       }).catch(error=>{
         if(error.type==='StripeInvalidRequestError' && error.code!=='idempotency_key_in_use' && error.code!=='idempotency_error') error.promotionDefinitelyNotCreated=true;
         throw error;

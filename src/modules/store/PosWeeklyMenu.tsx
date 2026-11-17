@@ -1,7 +1,7 @@
 import {useState, type ReactNode} from 'react';
 import HealthyLunchMenu, {type HealthyLunchChoice} from './HealthyLunchMenu';
 import {getValidPickupDates,getPickupTimeSlots} from './storeModel';
-import {weekRangeLabel,datedWeeks,fullWeekDateStore,getWeeklyDates,getWeeklyPickupTimes,hasDatedMenu,isDatedWeekOpen,isHealthyLunchWeekBlocked,validateWeeklyMealPlan,resolveHealthyLunchDay,hasEmbeddedMenu} from '../../../functions/storeWeeklyMealPlan.js';
+import {weekRangeLabel,datedWeeks,fullWeekDateStore,getWeeklyDates,getWeeklyPickupTimes,hasDatedMenu,isDatedWeekOpen,isHealthyLunchWeekBlocked,validateWeeklyMealPlan,resolveHealthyLunchDay,hasEmbeddedMenu,validCalendarDate} from '../../../functions/storeWeeklyMealPlan.js';
 import {posStoreDate, resolvePosWeeklyDay} from '../../../functions/posWeeklyDay.js';
 import {posInitialItemDate} from './posOrderEntryModel';
 import type {StoreProduct,WorkspaceStore} from './types';
@@ -10,10 +10,16 @@ export default function PosWeeklyMenu({product,products,store,onAdd,disabled=fal
  const [choice,setChoice]=useState<HealthyLunchChoice>({mode:'week',date:''});
  const [time,setTime]=useState('');
  const [serviceDate,setServiceDate]=useState<string>();
+ const [customDate,setCustomDate]=useState(false);
+ const [menuDate,setMenuDate]=useState<string>();
  const today=unrestricted ? posStoreDate(store) : '';
  const selectedDay=serviceDate ?? (defaultDate || today);
  const dayAccess=unrestricted && choice.mode==='day';
- const selectedMeal=dayAccess ? resolvePosWeeklyDay(product,products,selectedDay,today) : null;
+ const selectedMenuDate=customDate ? menuDate ?? today : selectedDay;
+ const historicalSourceUnavailable=selectedDay < today && selectedMenuDate >= today;
+ const selectedMeal=dayAccess && !historicalSourceUnavailable ? resolvePosWeeklyDay(product,products,selectedMenuDate,today,{
+   historical: selectedDay < today || selectedMenuDate < today,
+ }) : null;
  if (unrestricted) { product={...product,healthyLunchBlockedDates:[]}; products=products.map(p=>({...p,healthyLunchBlockedDates:[]})); }
  const requestedDate=choice.date || posInitialItemDate(product,defaultDate);
  const dates=getValidPickupDates(fullWeekDateStore(store,product));
@@ -32,13 +38,22 @@ export default function PosWeeklyMenu({product,products,store,onAdd,disabled=fal
   <h3 className="mb-2 font-bold">{product.name}</h3>
   {unrestricted && !dayAccess && <label className="block text-sm font-bold">Week starting (Monday)<input type="date" value={requestedDate} onChange={event=>setChoice({...choice,date:event.target.value})} className="ml-2 rounded border p-2" /></label>}
   {dayAccess && <div className="space-y-1">
+    <label className="block text-sm font-bold">Date mode
+      <select value={customDate ? 'custom' : 'weekly'} onChange={event=>setCustomDate(event.target.value==='custom')} className="ml-2 rounded border p-2">
+        <option value="weekly">Follow Weekly Menu</option><option value="custom">Custom Date</option>
+      </select>
+    </label>
+    {customDate && <label className="block text-sm font-bold">Menu meal date
+      <input type="date" value={selectedMenuDate} onChange={event=>setMenuDate(event.target.value)} className="ml-2 rounded border p-2" />
+    </label>}
     <label className="block text-sm font-bold">Service date<input type="date" value={selectedDay} onChange={event=>setServiceDate(event.target.value)} className="ml-2 rounded border p-2" /></label>
-    {selectedMeal?.monday && <p className="text-sm">Week starting {selectedMeal.monday}</p>}
+    {selectedMeal?.monday && <p className="text-sm">{customDate ? 'Menu week starting' : 'Week starting'} {selectedMeal.monday}</p>}
+    {historicalSourceUnavailable && <p role="status" className="text-sm">Choose a dated historical menu meal for past fulfilment.</p>}
     {selectedMeal?.error && <p role="status" className="text-sm">{selectedMeal.error}</p>}
   </div>}
   {!hasDatedMenu(product) && <label className="mb-2 block text-sm font-bold">Week starting<select aria-label={`${product.name} week`} value={monday} onChange={event=>setChoice({...choice,date:event.target.value})} className="ml-2 rounded border p-2">{!weeks.length&&<option value="">No available dates</option>}{weeks.map(date=><option key={date} value={date}>{weekRangeLabel(date)}</option>)}</select></label>}
   <label className="text-sm font-bold">Fulfilment time<>{exactTime ? <input type="time" aria-label={`${product.name} fulfilment time`} value={selectedTime} onChange={event=>setTime(event.target.value)} className="ml-2 rounded-lg border p-2" /> : <select aria-label={`${product.name} fulfilment time`} value={selectedTime} onChange={event=>setTime(event.target.value)} className="ml-2 rounded-lg border p-2">{!times.length&&<option value="">No available times</option>}{times.map(time=><option key={time}>{time}</option>)}</select>}</></label>
-  <HealthyLunchMenu product={product} products={products} currency={store.currency} weeks={weeks} dayDates={dayAccess ? selectedMeal?.meal ? [selectedDay] : [] : dayDates} choice={{...choice,date:monday}} monday={monday} canOrder={Boolean(selectedTime)&&!disabled} dayUnavailable={Boolean(selectedMeal?.error)} onChange={setChoice} onAdd={choice=>onAdd(choice,selectedTime)}/>
+  <HealthyLunchMenu product={product} products={products} currency={store.currency} weeks={weeks} dayDates={dayAccess ? selectedMeal?.meal ? [selectedMenuDate] : [] : dayDates} choice={{...choice,date:monday}} monday={monday} canOrder={Boolean(selectedTime)&&!disabled&&(!dayAccess||validCalendarDate(selectedDay))} dayUnavailable={dayAccess && (historicalSourceUnavailable || Boolean(selectedMeal?.error))} onChange={setChoice} onAdd={choice=>onAdd(dayAccess ? {...choice,fulfilmentDate:selectedDay} : choice,selectedTime)}/>
   {cartFeedback}
   {!hasEmbeddedMenu(product)&&!weeks.length&&<p>No available menu dates. Review Store configuration.</p>}
  </section>;

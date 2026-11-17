@@ -41,3 +41,12 @@ test('rotation handles current and future dates but cannot establish a historica
   assert.equal(resolve('2026-11-24').meal.price, 19);
   assert.match(resolve('2026-11-10').error, /historical menu/);
 });
+
+test('custom weekend fulfilments use the Store timezone and classify history by actual fulfilment', async () => {
+  const { hasHistoricalWeeklyDay, posScheduleTime } = await import('./posWeeklyDay.js');
+  const selection = { healthyLunchDate: '2026-11-10' };
+  assert.equal(hasHistoricalWeeklyDay([selection], '2026-11-17', [{ date: '2026-11-15' }]), true);
+  assert.equal(hasHistoricalWeeklyDay([selection], '2026-11-17', [{ date: '2026-11-21' }]), false);
+  assert.equal(posScheduleTime({ country: 'MY' }, '2026-11-21', '00:00'), Date.parse('2026-11-20T16:00:00Z'));
+  assert.equal(posScheduleTime({ timeZone: 'UTC' }, '2026-11-22', '15:10'), Date.parse('2026-11-22T15:10:00Z'));
+});

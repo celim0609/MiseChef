@@ -92,7 +92,7 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
       if (existing.exists) return { orderId: readString(existing.data()?.orderId), duplicate: true };
     }
     const today = posStoreDate(checkout.store, now);
-    if (!historical && hasHistoricalWeeklyDay(input.selections, today)) {
+    if (!historical && hasHistoricalWeeklyDay(input.selections, today, input.lineSchedules)) {
       throw externalError('Use Record Historical Order for past Order by Day meals.');
     }
     let posCheckout = posFullAccess ? { ...checkout, products: checkout.products.map(product => ({ ...product, available: true })) } : checkout;
@@ -109,7 +109,7 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
     let built;
     try {
       if (historical) validateHistoricalWeeklyCart(input, posCheckout, today);
-      built = buildExternalOrderItems(input, posCheckout, now, { owner: posFullAccess });
+      built = buildExternalOrderItems(input, posCheckout, now, { owner: posFullAccess, historicalWeekly: historical });
     } catch (error) {
       throw externalError(error.message || 'Check the items and fulfilment dates.');
     }

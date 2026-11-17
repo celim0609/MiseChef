@@ -161,6 +161,8 @@ export const updateStoreOrderFulfilment = async ({
     if (order.groupDelivery && !order.groupDelivery.releasedAt) {
       throw new HttpsError('failed-precondition', 'Resolve this order in Group Delivery before fulfilment.');
     }
+    if (normalizedNextStatus === 'Cancelled' && order.weeklyPosLink && order.payment?.status !== 'paid')
+      throw new HttpsError('failed-precondition', 'Cancel the payment link before cancelling this order.');
     const currentStatus = readString(order.fulfilmentStatus);
     const legacy = legacyDailyFulfilments(order);
     if (legacy) order.fulfilments = legacy;

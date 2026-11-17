@@ -783,6 +783,7 @@ export const cancelStorePayment = async ({
     slug,
     checkoutAccessToken
   });
+  if (order.weeklyDayPos) return toPublicOrderResult(order);
   if (payment.status === PAYMENT_STATUS.paid) return toPublicOrderResult(order);
   const cancelledPayment = payment.status === PAYMENT_STATUS.cancelled
     ? payment

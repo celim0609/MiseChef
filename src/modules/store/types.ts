@@ -573,6 +573,8 @@ export interface StoreOrder {
   deletedAt?: string;
   deletedBy?: string;
   deletionReason?: string;
+  weeklyDayPos?: boolean;
+  weeklyPosLink?: { expiresAt: number };
   manualOrder?: { revision: number; draft: Record<string, unknown>; createdBy: string };
   fulfilmentMethod?: 'pickup' | 'delivery';
   totals?: { merchandiseSubtotal: number; discountTotal: number; discountedMerchandiseTotal: number; deliveryFee: number; grandTotal: number; currency: RegionCurrency };

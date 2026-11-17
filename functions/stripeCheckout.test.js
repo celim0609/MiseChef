@@ -204,3 +204,21 @@ test('Checkout return URLs cannot redirect customers outside MiseChef', () => {
     /return URL is invalid/
   );
 });
+
+test('Weekly POS Stripe session scopes idempotency to the attempt and sets explicit card checkout expiry', async () => {
+  const fake = createFakeStripe();
+  const adapter = createStripeSingleMerchantAdapter('', { stripeClient: fake.stripe });
+  const weeklyPosSession = { id: 'pos-session-key', expiresAt: 1794895200 };
+  await adapter.createPayment({
+    order,
+    returnUrl: 'https://misechef-beta-fa4bf.web.app/store/ce-lim-kitchen',
+    checkoutAccessToken: 'opaque-token',
+    weeklyPosSession,
+  });
+  const { params, options } = fake.calls.create[0];
+  assert.equal(params.client_reference_id, order.id);
+  assert.equal(params.line_items[0].price_data.unit_amount, order.payment.amountMinor);
+  assert.equal(params.expires_at, weeklyPosSession.expiresAt);
+  assert.deepEqual(params.payment_method_types, ['card']);
+  assert.equal(options.idempotencyKey, 'misechef-weekly-pos-pos-session-key');
+});

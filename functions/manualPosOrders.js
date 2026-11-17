@@ -1,3 +1,4 @@
+import { posStoreDate, posStoreTime, resolvePosWeeklyDay } from './posWeeklyDay.js';
 import { HttpsError } from "firebase-functions/v2/https";
 import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
@@ -44,7 +45,7 @@ export const malaysiaDate = (now = new Date()) =>
   new Date(now.getTime() + 28800000).toISOString().slice(0, 10);
 export function buildManualOrder(input, checkout, now = new Date(), { owner = false } = {}) {
   if (owner) checkout = { ...checkout, products: checkout.products.map(p => ({ ...p, healthyLunchBlockedDates: [] })) };
-  if (!["whatsapp", "phone", "walk_in", "other"].includes(input.source))
+  if (!["whatsapp", "phone", "walk_in", "other"].includes(input.source) && !(input.weeklyDayPos === true && input.source === "shopeefood"))
     fail("Choose a manual order source.");
   if (
     !Array.isArray(input.lines) ||
@@ -52,6 +53,10 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
     input.lines.length > 50
   )
     fail("Choose 1–50 items.");
+  const weeklyDayPos = input.weeklyDayPos === true;
+  if (weeklyDayPos && !owner) throw new HttpsError('permission-denied', 'Only Owner or Manager can create a Weekly POS day order.');
+  const today = weeklyDayPos ? posStoreDate(checkout.store, now) : '';
+  if (weeklyDayPos && !input.lines.some(line => line.selection?.healthyLunchDate)) fail('Choose a configured Weekly Menu meal.');
   const items = [];
   const days = new Map();
   const privateItems = [];
@@ -102,13 +107,26 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
     entry.allocations.push(allocation);
     days.set(key, entry);
   };
-  for (const line of input.lines) {
+  for (const draftLine of input.lines) {
+    const daySelection = weeklyDayPos && Boolean(draftLine.selection?.healthyLunchDate);
+    const immediatePickup = weeklyDayPos && !daySelection && draftLine.method === 'pickup' && !draftLine.date && !draftLine.time
+      && !isFullWeekSelection(draftLine.selection, checkout.products);
+    const line = immediatePickup ? { ...draftLine, date: today, time: posStoreTime(checkout.store, now) } : draftLine;
     if (
       !Number.isInteger(line.quantity) ||
       line.quantity < 1 ||
       line.quantity > (owner ? 10000 : 20)
     )
       fail(owner ? "Quantity must be 1–10,000." : "Quantity must be 1–20.");
+    if (weeklyDayPos && (!validCalendarDate(line.date) || line.date < today)) fail('Use Record Historical Order for past fulfilment.');
+    if (daySelection) {
+      const selection = line.selection;
+      const plan = checkout.products.find(product => product.id === selection?.healthyLunchPlanId);
+      if (line.custom || !plan || plan.id !== selection.productId || plan.productType !== 'weekly_meal_plan'
+        || plan.storeId !== checkout.store.id || plan.workspaceId !== checkout.store.workspaceId) fail('Choose a configured Weekly Menu meal.');
+      const { error } = resolvePosWeeklyDay(plan, checkout.products, selection.healthyLunchDate, today);
+      if (error) fail(error);
+    }
     const index = items.length;
     let item;
     if (line.custom) {
@@ -149,11 +167,12 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
             fail("This product configuration is invalid for this Store.");
         }
       }
+      const menuDate = daySelection ? selection.healthyLunchDate : line.date;
       // Prices and item snapshots come exclusively from the current server catalog.
       validateHealthyLunchDay(
         selection,
         checkout.products,
-        line.date,
+        menuDate,
         checkout.store.workspaceId || checkout.store.id,
       );
       [item] = buildOrderItems(
@@ -161,7 +180,7 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
         checkout.products,
         checkout.optionGroups,
         checkout.sets,
-        line.date,
+        menuDate,
         { owner, storeId: checkout.store.id, workspaceId: checkout.store.workspaceId },
       );
       if (isFullWeekSelection(selection, checkout.products)) {
@@ -288,6 +307,10 @@ export async function saveManualPosOrder({
     .digest("hex");
   const fingerprint = createHash("sha256").update(JSON.stringify(input)).digest("hex");
   const requestRef = db.collection("storeManualOrderRequests").doc(referenceId);
+  const externalOrderNumber = input.weeklyDayPos === true ? text(input.externalOrderNumber, 120) : '';
+  const externalRef = externalOrderNumber ? db.collection('storeExternalOrderReferences').doc(
+    createHash('sha256').update(`${storeId}:${input.source}:${externalOrderNumber}`).digest('hex')
+  ) : null;
   const orderRef = input.orderId
     ? db.collection("storeOrders").doc(text(input.orderId, 150, true))
     : db.collection("storeOrders").doc();
@@ -300,7 +323,11 @@ export async function saveManualPosOrder({
       if (request.data().fingerprint && request.data().fingerprint !== fingerprint) fail("This request already saved different order details. Review the saved order before retrying.");
       return { orderId: request.data().orderId, duplicate: true };
     }
+    if (externalRef && (await tx.get(externalRef)).exists)
+      fail('An order with this external reference already exists. Check View Orders.');
     const built = buildManualOrder(input, posCheckout, now, { owner: transactionPosFullAccess });
+    if (input.weeklyDayPos === true && input.expectedSubtotalMinor !== Math.round(built.total * 100))
+      fail('Menu pricing changed. Reload the catalog and review the cart.');
     const deliveryInput = manualDeliveryInput(input, checkout.products);
     const delivery = await resolvePosDeliveryCharge({ db, transaction: tx, input: deliveryInput, checkout, built, uid, fullAccess: transactionPosFullAccess, now: new Date(Math.max(now.getTime(), Date.now())) });
     const grandTotal = money(built.total + delivery.fee);
@@ -322,6 +349,8 @@ export async function saveManualPosOrder({
         previous.fulfilmentStatus !== "New")
     )
       fail("Only pending manual orders can be edited.");
+    if (previous?.weeklyDayPos || (input.orderId && input.weeklyDayPos === true))
+      fail('Cancel the pending Weekly POS order before saving a revised order.');
     if (previous && input.expectedRevision !== previous.manualOrder.revision)
       fail("This order changed. Reload before editing.");
     const reference =
@@ -362,7 +391,8 @@ export async function saveManualPosOrder({
       orderNumber: reference.orderNumber,
       pickupCode: reference.pickupCode,
       orderSource: "pos",
-      externalOrder: { source: input.source },
+      ...(input.weeklyDayPos === true ? { weeklyDayPos: true } : {}),
+      externalOrder: { source: input.source, ...(externalOrderNumber ? { externalOrderNumber } : {}) },
       manualOrder: {
         revision: (previous?.manualOrder.revision || 0) + 1,
         draft: {
@@ -380,6 +410,10 @@ export async function saveManualPosOrder({
       )
         ? "delivery"
         : "pickup",
+      ...(input.weeklyDayPos === true ? {
+        pickupDate: built.fulfilments[0].date, pickupTime: built.fulfilments[0].time,
+        pickupLocationName: built.fulfilments[0].pickupLocationName,
+      } : {}),
       fulfilmentStatus: "New",
       fulfilmentCompletion: {},
       fulfilmentOperations: {},
@@ -426,6 +460,7 @@ export async function saveManualPosOrder({
         },
       );
     }
+    if (externalRef) tx.create(externalRef, { orderId: orderRef.id, storeId, workspaceId, source: input.source, externalOrderNumber, createdAt: at });
     tx.create(requestRef, { orderId: orderRef.id, workspaceId, fingerprint, createdAt: at });
     tx.create(db.collection("storeOrderTimeline").doc(), {
       orderId: orderRef.id,
@@ -506,12 +541,18 @@ export async function confirmManualPosPayment({
       return { orderId: ref.id, duplicate: true };
     if (
       order.payment.status !== "pending" ||
+      (order.weeklyDayPos && (order.weeklyPosLink || order.payment.provider !== "manual_pos")) ||
       input.amountMinor !== order.payment.amountMinor ||
       input.expectedRevision !== order.manualOrder.revision ||
       input.received !== true ||
       !["cash", "bank_transfer", "tng", "fpx", "other"].includes(input.method)
     )
       fail("Verify the received payment, exact amount and current revision.");
+    if (order.weeklyDayPos) {
+      const store = (await tx.get(db.collection('stores').doc(order.storeId))).data();
+      if (!store || store.workspaceId !== workspaceId || order.fulfilments.some(day => day.date < posStoreDate(store, now)))
+        fail('Past fulfilments use the historical audit workflow.');
+    }
     const reference = text(input.reference, 120, true);
     tx.update(ref, {
       "payment.status": "paid",

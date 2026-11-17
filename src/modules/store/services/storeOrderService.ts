@@ -86,6 +86,8 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     : null;
   return {
     id: snapshot.id,
+    ...(data.weeklyDayPos === true ? { weeklyDayPos: true } : {}),
+    ...(data.weeklyPosLink ? { weeklyPosLink: { expiresAt: Number((data.weeklyPosLink as { expiresAt?: unknown }).expiresAt) } } : {}),
     ...(data.manualOrder ? { manualOrder: data.manualOrder as StoreOrder['manualOrder'] } : {}),
     orderNumber: readString(data.orderNumber),
     pickupCode: getOrderPickupCode(
@@ -198,6 +200,12 @@ export const storeOrderService = {
     if (!functions) throw new Error('Store ordering is unavailable.');
     return (await httpsCallable<{order: Record<string, unknown>}, {orderId: string}>(functions, 'saveStoreManualPosOrder')({order})).data;
   },
+  async manageWeeklyPosPaymentLink(input: { orderId: string; action: 'generate' | 'cancel'; returnUrl?: string }) {
+    if (!functions) throw new Error('Store payments are unavailable.');
+    return (await httpsCallable<typeof input, { status: 'active' | 'cancelled' | 'paid'; url?: string; expiresAt?: number }>(
+      functions, 'manageStoreWeeklyPosPaymentLink', { timeout: 60000 }
+    )(input)).data;
+  },
   async confirmManualPosPayment(input: Record<string, unknown>) {
     if (!functions) throw new Error('Store payments are unavailable.');
     return (await httpsCallable(functions, 'confirmStoreManualPosPayment')(input)).data;
@@ -208,7 +216,7 @@ export const storeOrderService = {
   },
   subscribePendingManualOrders(storeId: string, workspaceId: string, onData: (orders: StoreOrder[]) => void, onError: (error: Error) => void, includePaid = false) {
     if (!db || !storeId || !workspaceId) return () => undefined;
-    return onSnapshot(query(collection(db, 'storeOrders'), where('storeId','==',storeId), where('workspaceId','==',workspaceId), where('fulfilmentStatus','in',ACTIVE_FULFILMENT_STATUSES), orderBy('createdAt','desc')), snapshot => onData(snapshot.docs.map(normalizeOrder).filter(order => !order.deletedAt).filter(order => order.manualOrder && (order.payment.status === 'pending' || (includePaid && order.payment.status === 'paid')))), onError);
+    return onSnapshot(query(collection(db, 'storeOrders'), where('storeId','==',storeId), where('workspaceId','==',workspaceId), where('fulfilmentStatus','in',ACTIVE_FULFILMENT_STATUSES), orderBy('createdAt','desc')), snapshot => onData(snapshot.docs.map(normalizeOrder).filter(order => !order.deletedAt).filter(order => order.manualOrder && (order.payment.status === 'pending' || (order.weeklyDayPos && order.weeklyPosLink && order.payment.status !== 'paid') || (includePaid && order.payment.status === 'paid')))), onError);
   },
   async createExternalPosOrder(order: Record<string, unknown>) {
     if (!functions) throw new Error('Store ordering is unavailable.');

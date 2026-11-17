@@ -1,3 +1,4 @@
+import { manageWeeklyPosPaymentLink } from './weeklyPosPaymentLink.js';
 import { editStoreOrder } from './storeOrderEdits.js';
 import { listGroupDeliveryReview, getGroupDeliveryReview, estimateGroupDelivery, approveGroupDelivery } from './groupDeliveryReview.js';
 import { getGroupDeliveryConfiguration, requireGroupDeliveryBeta, requireCustomer, eligibility, configureGroupDelivery, getGroupDelivery, reserveGroupDelivery, cancelGroupDelivery, expireGroupDelivery, quoteGroupDeliveryFallback, requestGroupDeliveryCancellation, verifyGroupDeliveryFee, prepareGroupMealCheckout, releaseGroupMeal } from './groupDelivery.js';
@@ -2599,6 +2600,11 @@ export const processResumeImportJob = onDocumentCreated({
 
 export const saveStoreManualPosOrder = onCall({ region: REGION, timeoutSeconds: 30 }, request => saveManualPosOrder({ db, uid: request.auth?.uid, input: request.data?.order }));
 export const confirmStoreManualPosPayment = onCall({ region: REGION, timeoutSeconds: 30 }, request => confirmManualPosPayment({ db, uid: request.auth?.uid, input: request.data }));
+export const manageStoreWeeklyPosPaymentLink = onCall({ region: REGION, secrets: [stripeSecretKey], timeoutSeconds: 60 }, request =>
+  manageWeeklyPosPaymentLink({
+    db, uid: request.auth?.uid, input: request.data, sellingWorkspaceId: sellingWorkspaceId.value(),
+    adapter: createPaymentAdapter('stripe', { stripeSecretKey: stripeSecretKey.value() }),
+  }));
 
 export const previewStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => previewMerchantDelivery({ db, provider: createRuntimeLalamoveProvider(), uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId }));
 export const reconcileStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => reconcileMerchantDelivery({ db, provider: createRuntimeLalamoveProvider(), uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId, providerOrderId: request.data?.providerOrderId }));

@@ -9,7 +9,7 @@ import type { StoreProduct, WorkspaceStore } from './types';
 
 const dateLabel = (date: string) => scheduleDateLabel(date).replace(/^(\w{3}) /, '$1, ');
 
-export interface HealthyLunchChoice { mode: 'week' | 'day'; date: string; selectedMealOptions?: MealOptionChoice[] }
+export interface HealthyLunchChoice { mode: 'week' | 'day'; date: string; fulfilmentDate?: string; selectedMealOptions?: MealOptionChoice[] }
 interface Props {
   sharedSelection?: boolean;
   sharedUnavailable?: boolean;

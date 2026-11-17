@@ -189,7 +189,7 @@ const makeExternalOrderHarness = (overrides: Record<string, unknown> = {}) => {
     externalAddTimes:{current:new Map()},
     externalRequestIdRef: {current: 'request-1234567890'},
     externalCart: state.cart,
-    historicalCart: false, historicalCartReady: false, historicalReason: '', externalSubtotal: 0,
+    weeklyCart: false, historicalCart: false, historicalCartReady: false, historicalReason: '', externalSubtotal: 0,
     setHistoricalReason: () => {}, setHistoricalReceipt: () => {},
     creatingExternal: false,
     externalFeeReady:true,externalManualFee:false,externalFeeAmount:'',externalFeeReason:'',externalQuote:{id:'quote-1234567890',expiresAt:'2099-01-01T00:00:00Z'},
@@ -312,7 +312,7 @@ test('POS Add Order uses document flow with catalog before cart and no modal scr
   assert.match(modal, /\{externalError && <p[^>]*role="alert"[^>]*>\{externalError\}<\/p>\}\s*<button[^>]*onClick=\{\(\) => void createExternalOrder\(\)\}/);
   assert.match(modal, /aria-busy=\{creatingExternal\}/);
   assert.match(modal, /className="[^"]*w-full[^"]*bg-blue-700[^"]*disabled:cursor-not-allowed[^"]*disabled:bg-slate-200/);
-  assert.match(modal, /creatingExternal \? 'Creating…' : historicalCart \? 'Record Historical Order' : 'Confirm Order'/);
+  assert.match(modal, /creatingExternal \? 'Creating…' : historicalCart \? 'Record Historical Order' : weeklyCart/);
   assert.doesNotMatch(createExternalOrderSource, /setErrorMessage\(/);
 });
 
@@ -412,5 +412,29 @@ test('historical Weekly POS submits the audit reason and reviewed subtotal witho
   assert.equal(requests[0].expectedSubtotalMinor, 1250);
   assert.deepEqual(receipts, ['audit-record']);
   assert.equal(harness.state.open, true);
+  assert.equal(harness.state.printed, 0);
+});
+
+test('privileged Weekly Day cart saves one pending order with the independent menu and fulfilment dates', async () => {
+  const requests: Record<string, unknown>[] = [];
+  const selection = { productId: 'plan', healthyLunchPlanId: 'plan', healthyLunchDate: '2026-11-17' };
+  const order = { id: 'weekly-pending', payment: { status: 'pending' } };
+  const show: unknown[] = [];
+  const harness = makeExternalOrderHarness({
+    weeklyCart: true, externalPosFullAccess: true,
+    externalSubtotal: 22, weeklyPaymentWorkflow: 'link',
+    weeklyManualInput: { lines: [{ selection, date: '2026-11-21', quantity: 1 }] },
+    setSavedWeeklyOrder: (value: unknown) => show.push(value), setWeeklyPaymentWorkflow: () => {},
+    storeOrderService: {
+      saveManualPosOrder: async (payload: Record<string, unknown>) => { requests.push(payload); return { orderId: order.id }; },
+      getOrder: async () => order,
+      createExternalPosOrder: async () => assert.fail('Pending Weekly orders must never use the external paid flow'),
+    },
+  });
+  await Promise.all([harness.submit(), harness.submit()]);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].expectedSubtotalMinor, 2200);
+  assert.deepEqual(requests[0].lines, [{ selection, date: '2026-11-21', quantity: 1 }]);
+  assert.deepEqual(show, [{ order, workflow: 'link' }]);
   assert.equal(harness.state.printed, 0);
 });

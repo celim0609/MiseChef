@@ -697,7 +697,7 @@ test('historical Weekly Order by Day is an authorized audit record with dated pr
       db.collection('workspaceMembers').doc(`${workspaceId}_${chef}`).set({ userId: chef, workspaceId, role: 'Chef', status: 'Active' }),
       db.collection('stores').doc(workspaceId).set({
         workspaceId, slug: workspaceId, country: 'MY', currency: 'MYR', orderCutoffTime: '17:00', orderDays: ['tuesday'],
-        earliestPickupDays: 2, maximumAdvanceDays: 7, pickupLocations: [{ id: 'counter', name: 'Counter', address: 'Counter' }],
+        earliestPickupDays: 1, maximumAdvanceDays: 7, pickupLocations: [{ id: 'counter', name: 'Counter', address: 'Counter' }],
       }),
       db.collection('storeProducts').doc(productId).set({
         workspaceId, storeId: workspaceId, name: 'Weekly Menu', available: true, price: 99,
@@ -731,7 +731,7 @@ test('historical Weekly Order by Day is an authorized audit record with dated pr
     const saved = await save(manager, delivery);
     assert.equal(saved.historical, true);
     assert.equal((await save(manager, delivery)).orderId, saved.orderId);
-    await assert.rejects(save(manager, { ...delivery, historicalReason: 'Different reason' }), /different order details/);
+    await assert.rejects(save(manager, { ...delivery, historicalReason: 'Different reason' }), /different historical order details/);
 
     const record = (await db.collection('storeHistoricalWeeklyOrders').doc(saved.orderId).get()).data();
     assert.equal(record.actingUserId, manager);
@@ -747,8 +747,12 @@ test('historical Weekly Order by Day is an authorized audit record with dated pr
     assert.equal((await db.collection('storeOrders').where('workspaceId', '==', workspaceId).get()).size, 0);
     assert.equal((await db.collection('storeOrderTimeline').where('workspaceId', '==', workspaceId).get()).size, 0);
 
-    const ownerArchive = await save(owner, { ...historical, requestId: 'owner-archive-request' });
+    const ownerArchive = await save(owner, { ...historical, requestId: 'owner-archive-request',
+      lineSchedules: [{ date: '2026-11-15', time: '09:15' }] });
     assert.equal(ownerArchive.historical, true);
+    const sundayArchive = (await db.collection('storeHistoricalWeeklyOrders').doc(ownerArchive.orderId).get()).data();
+    assert.equal(sundayArchive.fulfilments[0].date, '2026-11-15');
+    assert.equal(sundayArchive.items[0].healthyLunchSnapshot.date, '2026-11-10');
     for (const [uid, date, total] of [[owner, '2026-11-17', 66], [manager, '2026-12-08', 96]]) {
       const input = { ...makeInput(date), paymentLabel: 'other_paid' };
       await assert.rejects(save(chef, input), /available fulfilment date/);
@@ -758,6 +762,147 @@ test('historical Weekly Order by Day is an authorized audit record with dated pr
       assert.equal(order.payment.status, 'paid');
       assert.equal(order.fulfilments[0].date, date);
     }
+  } finally {
+    await deleteApp(app);
+  }
+});
+
+test('Weekly POS custom fulfilment and Stripe lifecycle retain one immutable pending order', async () => {
+  const { manageWeeklyPosPaymentLink } = await import('../functions/weeklyPosPaymentLink.js');
+  const { getStorePaymentResult, handleStorePaymentWebhook, cancelStorePayment } = await import('../functions/storePayments.js');
+  const { managePosOrder } = await import('../functions/posOrderManagement.js');
+  const app = initializeApp({ projectId: 'demo-misechef-store-payment-rules' }, `weekly-stripe-${process.pid}`);
+  const db = getFirestore(app);
+  const workspaceId = `weekly-stripe-${process.pid}`;
+  const [owner, manager, chef] = ['owner', 'manager', 'chef'].map(role => `${workspaceId}-${role}`);
+  const productId = `${workspaceId}-plan`;
+  const now = new Date('2026-11-17T04:00:00Z');
+  const menuDate = '2026-11-17';
+  const serviceDate = '2026-11-21';
+  const selection = { productId, healthyLunchPlanId: productId, healthyLunchDate: menuDate, selectedOptions: [],
+    selectedMealOptions: [{ serviceDate: menuDate, optionGroupId: 'side', optionId: 'salad' }] };
+  const sessions = new Map();
+  let loseResponse = true;
+  let captureDuringCancel = false;
+  const adapter = {
+    provider: 'stripe', mode: 'single_merchant', requiresSellingWorkspace: true,
+    async createPayment({ order, weeklyPosSession, checkoutAccessToken }) {
+      assert.equal(order.payment.amountMinor, 4400);
+      const session = sessions.get(weeklyPosSession.id) || { orderId: order.id, amountMinor: 4400, currency: 'MYR',
+        providerPaymentId: `cs_test_${sessions.size + 1}`, status: 'pending', checkoutAccessToken };
+      sessions.set(weeklyPosSession.id, session);
+      if (loseResponse) { loseResponse = false; throw new Error('Simulated provider response loss'); }
+      return { providerPaymentId: session.providerPaymentId,
+        checkout: { type: 'provider_redirect', redirectUrl: `https://checkout.stripe.com/${session.providerPaymentId}` } };
+    },
+    async retrievePayment(id) {
+      const session = [...sessions.values()].find(value => value.providerPaymentId === id);
+      assert.ok(session);
+      return { ...session };
+    },
+    async cancelPayment(id) {
+      const session = [...sessions.values()].find(value => value.providerPaymentId === id);
+      if (captureDuringCancel) {
+        Object.assign(session, { status: 'paid', paymentMethod: 'card', providerTransactionId: 'pi_weekly_capture' });
+        throw new Error('Checkout completed before expiry');
+      }
+      Object.assign(session, { status: 'cancelled', promotionTerminal: true });
+      return { ...session };
+    },
+    async readWebhookUpdate(event) { return { kind: 'payment', payment: event.payment }; },
+  };
+  try {
+    const meal = { name: 'Tuesday lunch', photoUrl: 'meal.jpg', price: 20, optionGroups: [
+      { id: 'side', name: 'Side', type: 'exchange', required: true, selection: 'single',
+        options: [{ id: 'salad', name: 'Salad', priceAdjustmentMinor: 200 }] },
+    ] };
+    await Promise.all([
+      db.collection('workspaces').doc(workspaceId).set({ ownerId: owner, subscriptionPlan: 'professional', subscriptionStatus: 'active' }),
+      db.collection('workspaceMembers').doc(`${workspaceId}_${manager}`).set({ userId: manager, workspaceId, role: 'Manager', status: 'Active' }),
+      db.collection('workspaceMembers').doc(`${workspaceId}_${chef}`).set({ userId: chef, workspaceId, role: 'Chef', status: 'Active' }),
+      db.collection('stores').doc(workspaceId).set({ workspaceId, slug: workspaceId, name: 'Weekly Stripe QA',
+        country: 'MY', currency: 'MYR', paymentMethods: [{ id: 'stripe', enabled: true }],
+        earliestPickupDays: 1, orderDays: ['tuesday'], pickupLocations: [{ id: 'counter', name: 'Counter' }] }),
+      db.collection('storeProducts').doc(productId).set({ workspaceId, storeId: workspaceId, name: 'Weekly Menu',
+        productType: 'weekly_meal_plan', price: 100, available: true, weeklyMenuVersion: 2,
+        weeklyWeeks: { week1: { startMonday: '2026-11-16', meals: Object.fromEntries(['mon','tue','wed','thu','fri'].map(day => [day, meal])) } } }),
+    ]);
+    const input = { workspaceId, storeId: workspaceId, slug: workspaceId, source: 'walk_in', weeklyDayPos: true,
+      requestId: 'weekly-stripe-order-123', customerName: 'Test Customer', expectedSubtotalMinor: 4400,
+      lines: [{ selection, quantity: 2, date: serviceDate, time: '12:30', method: 'pickup' }] };
+    const save = (uid, order = input) => saveManualPosOrder({ db, uid, input: order, now });
+    await assert.rejects(save(chef), /Only Owner or Manager/);
+    await assert.rejects(save(owner, { ...input, lines: [{ ...input.lines[0], date: '2026-11-14' }] }), /Historical Order/);
+    await assert.rejects(save(owner, { ...input, weeklyDayPos: false }), /valid Healthy Lunch date/);
+    const { orderId } = await save(owner);
+    assert.equal((await save(owner)).orderId, orderId);
+    const ref = db.collection('storeOrders').doc(orderId);
+    const original = (await ref.get()).data();
+    assert.equal(original.payment.status, 'pending');
+    assert.equal(original.payment.provider, 'manual_pos');
+    assert.equal(original.items[0].healthyLunchSnapshot.date, menuDate);
+    assert.equal(original.fulfilments[0].date, serviceDate);
+    assert.equal(original.total, 44);
+
+    const manage = (uid, action, settings = {}) => manageWeeklyPosPaymentLink({
+      db, uid, input: { orderId, action, returnUrl: `https://misechef.ai/store/${workspaceId}` },
+      adapter, sellingWorkspaceId: workspaceId, now, ...settings,
+    });
+    const manual = (received = true, amountMinor = 4400) => confirmManualPosPayment({ db, uid: manager, now,
+      input: { orderId, expectedRevision: 1, received, amountMinor, method: 'cash', reference: 'QA cash receipt' } });
+    await assert.rejects(manage(chef, 'generate'), /role cannot/);
+    await assert.rejects(manage('customer', 'generate'), /role cannot/);
+    await assert.rejects(manage(undefined, 'generate'), /Sign in/);
+    await assert.rejects(manage(owner, 'generate', { sellingWorkspaceId: 'different-store' }), /unavailable/);
+    await assert.rejects(manage(owner, 'generate', { now: new Date('2026-11-21T04:10:00Z') }), /31 minutes/);
+    await assert.rejects(manual(false), /Verify the received payment/);
+    await assert.rejects(manage(manager, 'generate'), /response loss/);
+    await assert.rejects(manual(), /Verify the received payment/);
+    await assert.rejects(managePosOrder({ db, uid: owner, input: { orderId, action: 'cancel', reason: 'Test' }, now }), /Cancel the payment link/);
+    await assert.rejects(save(owner, { ...input, weeklyDayPos: false, orderId, requestId: 'weekly-stripe-edit-123' }));
+    const first = await manage(owner, 'generate');
+    assert.equal(first.status, 'active');
+    assert.equal((await manage(manager, 'generate')).url, first.url);
+    assert.equal(sessions.size, 1);
+
+    const [session] = sessions.values();
+    const guestArgs = { db, adapter, sellingWorkspaceId: workspaceId, slug: workspaceId, providerPaymentId: session.providerPaymentId };
+    await assert.rejects(getStorePaymentResult({ ...guestArgs, checkoutAccessToken: 'wrong' }), /token is invalid/);
+    const guest = await getStorePaymentResult({ ...guestArgs, checkoutAccessToken: session.checkoutAccessToken });
+    assert.equal(guest.paymentStatus, 'pending');
+    assert.equal(guest.total, 44);
+    for (const privateKey of ['workspaceId', 'manualOrder', 'phone', 'payment', 'notes']) assert.equal(guest[privateKey], undefined);
+    await cancelStorePayment({ ...guestArgs, checkoutAccessToken: session.checkoutAccessToken });
+    assert.equal(session.status, 'pending');
+    assert.equal((await manage(owner, 'cancel')).status, 'cancelled');
+    assert.equal((await manage(owner, 'cancel')).status, 'cancelled');
+    assert.equal((await ref.get()).data().payment.provider, 'manual_pos');
+    assert.equal((await ref.get()).data().payment.status, 'pending');
+    const second = await manage(manager, 'generate');
+    assert.notEqual(second.url, first.url);
+    assert.equal(sessions.size, 2);
+    captureDuringCancel = true;
+    assert.equal((await manage(owner, 'cancel')).status, 'paid');
+
+    const captured = [...sessions.values()][1];
+    const event = { id: `weekly-payment-${process.pid}`, type: 'checkout.session.completed', payment: captured };
+    await handleStorePaymentWebhook({ db, adapter, event });
+    assert.equal((await handleStorePaymentWebhook({ db, adapter, event })).duplicate, true);
+    const paid = (await ref.get()).data();
+    assert.equal(paid.payment.status, 'paid');
+    assert.deepEqual(paid.totals, original.totals);
+    assert.deepEqual(paid.items, original.items);
+    assert.deepEqual(paid.fulfilments, original.fulfilments);
+    assert.equal((await db.collection('storeOrders').where('workspaceId', '==', workspaceId).get()).size, 1);
+    assert.equal((await db.collection('storeOrderTimeline').where('orderId', '==', orderId).where('type', '==', 'payment_received').get()).size, 1);
+
+    const manualInput = { ...input, requestId: 'weekly-manual-order-123', lines: [{ ...input.lines[0], date: '2026-11-22' }] };
+    const pendingManual = await save(manager, manualInput);
+    await confirmManualPosPayment({ db, uid: owner, now, input: { orderId: pendingManual.orderId,
+      expectedRevision: 1, received: true, amountMinor: 4400, method: 'cash', reference: 'Sunday cash receipt' } });
+    const manualOrder = (await db.collection('storeOrders').doc(pendingManual.orderId).get()).data();
+    assert.equal(manualOrder.payment.status, 'paid');
+    assert.equal(manualOrder.fulfilments[0].date, '2026-11-22');
   } finally {
     await deleteApp(app);
   }

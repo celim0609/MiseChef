@@ -22,6 +22,7 @@ const bookingBlocksEdit = operation => Boolean(operation?.providerOrder?.orderId
   || ![undefined, '', 'not_started'].includes(operation?.lifecycle?.state);
 
 function assertEditable(order) {
+  if (order.weeklyDayPos && order.payment?.status !== 'paid') fail('Cancel the pending Weekly POS order before changing it.', 'failed-precondition');
   if (order.deletedAt || order.cancelledAt || ['Completed', 'Cancelled'].includes(order.fulfilmentStatus)
     || order.groupOrder || order.groupDelivery || (order.manualOrder && order.payment?.status === 'pending')) {
     fail('This order cannot be edited here.', 'failed-precondition');

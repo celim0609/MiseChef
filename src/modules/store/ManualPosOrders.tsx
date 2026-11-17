@@ -1,3 +1,4 @@
+import WeeklyPosPaymentActions from './WeeklyPosPaymentActions';
 import PasteOrderButton, {type PasteDraft} from './PasteOrderButton';
 import "./manualPosOrders.css";
 import PosAddressPicker from './PosAddressPicker';
@@ -18,6 +19,7 @@ import type {
   StoreProduct,
   StoreSet,
   StoreOptionGroup,
+  WorkspaceStore,
 } from "./types";
 import { shiftDateKey, toMalaysiaDateKey } from "./posOrderModel";
 import { getDefaultStoreSetSelections } from "./storeSetModel";
@@ -48,6 +50,7 @@ export default function ManualPosOrders({
   storeName = "",
   canRecordReminders = false,
   canPreviewWhatsApp = false,
+  canManageWeeklyPayments = false,
   pasteRequest,
   onPasteConsumed,
   onOrderChanged,
@@ -58,6 +61,7 @@ export default function ManualPosOrders({
   storeName?: string;
   canRecordReminders?: boolean;
   canPreviewWhatsApp?: boolean;
+  canManageWeeklyPayments?: boolean;
   pasteRequest?: {id:string;draft:PasteDraft} | null;
   onPasteConsumed?: ()=>void;
   onOrderChanged?: ()=>void;
@@ -83,9 +87,17 @@ export default function ManualPosOrders({
   const mainDefaults = {date:defaultDate,time:defaultTime,method:defaultMethod==='pickup'?'pickup':'delivery',deliveryArrangement:defaultMethod==='store_delivery'?'store' as const:'customer' as const,deliveryAddress:defaultDestination?.formattedAddress || '',...(defaultDestination?{destination:defaultDestination}:{})};
   const updateMain = (patch:Partial<Line>) => setDraft(d=>({...d,lines:d.lines.map(line=>line.inheritSchedule?{...line,...patch}:line)}));
 
+  const [weeklyStore, setWeeklyStore] = useState<WorkspaceStore | null>(null);
+  useEffect(() => {
+    if (!canManageWeeklyPayments) return;
+    let active = true;
+    void storeService.getWorkspaceStore(workspaceId).then(store => { if (active) setWeeklyStore(store); })
+      .catch(() => { if (active) setWeeklyStore(null); });
+    return () => { active = false; };
+  }, [canManageWeeklyPayments, workspaceId]);
   const [manualOrders, setManualOrders] = useState<StoreOrder[]>([]);
   const pending = manualOrders.filter(
-    (order) => order.payment.status === "pending",
+    (order) => order.payment.status !== "paid" && (order.payment.status === "pending" || (order.weeklyDayPos && order.weeklyPosLink)),
   );
   const paid = manualOrders.filter((order) => order.payment.status === "paid");
   const posProducts = posFullAccess ? products.map((product) => ({ ...product, available: true, healthyLunchBlockedDates: [] })) : products;
@@ -344,7 +356,11 @@ export default function ManualPosOrders({
               ?.map((day) => `${day.date} ${day.time || ""}`)
               .join(" · ")}
           </p>
-          <div className="manual-actions">
+          {order.weeklyDayPos ? <>
+            {canManageWeeklyPayments && weeklyStore?.workspaceId === workspaceId && <WeeklyPosPaymentActions
+              order={order} slug={weeklyStore.slug} stripeEnabled={weeklyStore.paymentMethods.some(method => method.id === 'stripe' && method.enabled)} />}
+            <button type="button" className="manual-secondary" onClick={() => setSaved(order)}>View details</button>
+          </> : <div className="manual-actions">
             <button
               disabled={busy}
               className="manual-secondary"
@@ -371,7 +387,7 @@ export default function ManualPosOrders({
             >
               View details
             </button>
-          </div>
+          </div>}
         </article>
       ))}
       {paid.length > 0 && (
