@@ -1,4 +1,4 @@
-import WeeklyPosPaymentActions from './WeeklyPosPaymentActions';
+import WeeklyPosPaymentActions, { type WeeklyLinkProvider } from './WeeklyPosPaymentActions';
 import PasteOrderButton, {type PasteDraft} from './PasteOrderButton';
 import "./manualPosOrders.css";
 import PosAddressPicker from './PosAddressPicker';
@@ -88,13 +88,16 @@ export default function ManualPosOrders({
   const updateMain = (patch:Partial<Line>) => setDraft(d=>({...d,lines:d.lines.map(line=>line.inheritSchedule?{...line,...patch}:line)}));
 
   const [weeklyStore, setWeeklyStore] = useState<WorkspaceStore | null>(null);
+  const [weeklyLinkProviders, setWeeklyLinkProviders] = useState<WeeklyLinkProvider[]>([]);
   useEffect(() => {
     if (!canManageWeeklyPayments) return;
     let active = true;
     void storeService.getWorkspaceStore(workspaceId).then(store => { if (active) setWeeklyStore(store); })
       .catch(() => { if (active) setWeeklyStore(null); });
+    void storeOrderService.weeklyPosPaymentProviders(storeId).then(providers => { if (active) setWeeklyLinkProviders(providers); })
+      .catch(() => { if (active) setWeeklyLinkProviders([]); });
     return () => { active = false; };
-  }, [canManageWeeklyPayments, workspaceId]);
+  }, [canManageWeeklyPayments, workspaceId, storeId]);
   const [manualOrders, setManualOrders] = useState<StoreOrder[]>([]);
   const pending = manualOrders.filter(
     (order) => order.payment.status !== "paid" && (order.payment.status === "pending" || (order.weeklyDayPos && order.weeklyPosLink)),
@@ -358,7 +361,7 @@ export default function ManualPosOrders({
           </p>
           {order.weeklyDayPos ? <>
             {canManageWeeklyPayments && weeklyStore?.workspaceId === workspaceId && <WeeklyPosPaymentActions
-              order={order} slug={weeklyStore.slug} stripeEnabled={weeklyStore.paymentMethods.some(method => method.id === 'stripe' && method.enabled)} />}
+              order={order} slug={weeklyStore.slug} providers={weeklyLinkProviders} />}
             <button type="button" className="manual-secondary" onClick={() => setSaved(order)}>View details</button>
           </> : <div className="manual-actions">
             <button

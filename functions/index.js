@@ -2600,11 +2600,30 @@ export const processResumeImportJob = onDocumentCreated({
 
 export const saveStoreManualPosOrder = onCall({ region: REGION, timeoutSeconds: 30 }, request => saveManualPosOrder({ db, uid: request.auth?.uid, input: request.data?.order }));
 export const confirmStoreManualPosPayment = onCall({ region: REGION, timeoutSeconds: 30 }, request => confirmManualPosPayment({ db, uid: request.auth?.uid, input: request.data }));
-export const manageStoreWeeklyPosPaymentLink = onCall({ region: REGION, secrets: [stripeSecretKey], timeoutSeconds: 60 }, request =>
-  manageWeeklyPosPaymentLink({
-    db, uid: request.auth?.uid, input: request.data, sellingWorkspaceId: sellingWorkspaceId.value(),
-    adapter: createPaymentAdapter('stripe', { stripeSecretKey: stripeSecretKey.value() }),
-  }));
+export const manageStoreWeeklyPosPaymentLink = onCall({
+  region: REGION, secrets: [stripeSecretKey, curlecKeyId, curlecKeySecret, curlecWebhookSecret], timeoutSeconds: 60,
+}, request => {
+  const keys = {
+    stripeSecretKey: stripeSecretKey.value(), curlecKeyId: curlecKeyId.value(),
+    curlecKeySecret: curlecKeySecret.value(), curlecPaymentLink: true,
+  };
+  const isProduction = dispatchCompatibilityProject() === 'misechef-fa4bf';
+  const curlecAvailable = (isProduction ? /^rzp_live_/ : /^rzp_test_/).test(readString(keys.curlecKeyId))
+    && readString(keys.curlecKeySecret) && readString(curlecWebhookSecret.value());
+  const configuredProviders = [
+    ...(readString(keys.stripeSecretKey) ? ['stripe'] : []),
+    ...(curlecAvailable ? ['curlec'] : []),
+  ];
+  return manageWeeklyPosPaymentLink({
+    db, uid: request.auth?.uid, input: request.data, sellingWorkspaceId: sellingWorkspaceId.value(), configuredProviders,
+    merchantIdentity: provider => provider === 'curlec' ? keys.curlecKeyId : keys.stripeSecretKey,
+    resolveAdapter: provider => {
+      if (!configuredProviders.includes(provider))
+        throw new HttpsError('failed-precondition', 'This payment provider is unavailable in this environment.');
+      return createPaymentAdapter(provider, keys);
+    },
+  });
+});
 
 export const previewStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => previewMerchantDelivery({ db, provider: createRuntimeLalamoveProvider(), uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId }));
 export const reconcileStoreLalamoveDelivery = onCall({ region: REGION, secrets: [lalamoveApiKey, lalamoveApiSecret], timeoutSeconds: 30, memory: '256MiB' }, async request => reconcileMerchantDelivery({ db, provider: createRuntimeLalamoveProvider(), uid: request.auth?.uid, orderId: request.data?.orderId, fulfilmentId: request.data?.fulfilmentId, providerOrderId: request.data?.providerOrderId }));

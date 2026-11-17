@@ -7,7 +7,7 @@ import { claimPosAdd, posDeliveryDates, currentPosQuote, type PosDestination, ty
 import GroupDeliveryReviewPanel from './GroupDeliveryReviewPanel';
 import OrderFulfilmentDetails from './OrderFulfilmentDetails';
 import {productAllowsFulfilmentDate} from '../../../functions/storeProductAvailability.js';
-import WeeklyPosPaymentActions, { type WeeklyPaymentWorkflow } from './WeeklyPosPaymentActions';
+import WeeklyPosPaymentActions, { type WeeklyLinkProvider, type WeeklyPaymentWorkflow } from './WeeklyPosPaymentActions';
 import PosWeeklyMenu from './PosWeeklyMenu';
 import HistoricalWeeklyOrderLookup from './HistoricalWeeklyOrderLookup';
 import type {HealthyLunchChoice} from './HealthyLunchMenu';
@@ -300,7 +300,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const storeToday = externalStore ? posStoreDate(externalStore, now) : '';
   const historicalCart = hasHistoricalWeeklyDay(externalOrderInput.selections, storeToday, externalOrderInput.lineSchedules);
   const weeklyCart = externalCart.some(item => item.weeklyDayPos);
-  const stripeEnabled = Boolean(externalStore?.paymentMethods?.some(method => method.id === 'stripe' && method.enabled));
+  const [weeklyLinkProviders, setWeeklyLinkProviders] = useState<WeeklyLinkProvider[]>([]);
   const weeklyManualInput = {
     workspaceId, storeId, slug: externalOrderInput.slug, source: externalSource, weeklyDayPos: true, manualPos: true,
     externalOrderNumber: externalNumber, customerName: externalName.trim() || 'Customer', phone:externalPhone, notes: externalNotes,
@@ -517,6 +517,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     setExternalError('');
     setExternalCategory('all');
     setExternalPosFullAccess(false);
+    setWeeklyLinkProviders([]);
     setHistoricalReceipt('');
     setSavedWeeklyOrder(undefined);
     setExternalOpen(true);
@@ -527,14 +528,16 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       const [workspaceRecord, memberRecord] = db && uid ? await Promise.all([getDoc(doc(db, 'workspaces', workspaceId)), getDoc(doc(db, 'workspaceMembers', `${workspaceId}_${uid}`))]) : [null, null];
       const member = memberRecord?.data();
       const posFullAccess = Boolean(uid && (workspaceRecord?.data()?.ownerId === uid || (member?.userId === uid && member?.workspaceId === workspaceId && member?.status === 'Active' && ['Owner', 'Manager'].includes(member?.role))));
-      const [products, optionGroups, sets, loadedStore] = await Promise.all([
+      const [products, optionGroups, sets, loadedStore, linkProviders] = await Promise.all([
         storeService.listManualPosProducts(workspaceId, storeId, posFullAccess),
         storeService.listOptionGroups(workspaceId),
         storeService.listSets(workspaceId),
-        storeService.getWorkspaceStore(workspaceId)
+        storeService.getWorkspaceStore(workspaceId),
+        posFullAccess ? storeOrderService.weeklyPosPaymentProviders(storeId).catch(() => []) : [],
       ]);
       if (!loadedStore || loadedStore.id !== storeId || loadedStore.workspaceId !== workspaceId) throw new Error('This Store does not match the active Workspace.');
       setExternalPosFullAccess(posFullAccess);
+      setWeeklyLinkProviders(linkProviders);
       setExternalStore(loadedStore);
       setExternalProducts(products.filter(product => product.storeId === storeId && product.workspaceId === workspaceId && (posFullAccess || product.available)));
       setExternalOptionGroups(optionGroups);
@@ -890,7 +893,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
             {historicalReceipt && <p role="status" className="px-4 py-2 text-sm font-bold">Historical order recorded. Reference {historicalReceipt}.</p>}
             {savedWeeklyOrder && externalStore && <div key={savedWeeklyOrder.order.id} className="border-b px-4 py-3">
               <WeeklyPosPaymentActions order={savedWeeklyOrder.order} slug={externalStore.slug}
-                stripeEnabled={stripeEnabled} initialWorkflow={savedWeeklyOrder.workflow} />
+                providers={weeklyLinkProviders} initialWorkflow={savedWeeklyOrder.workflow} />
             </div>}
             {externalPosFullAccess && <div key={`${workspaceId}:${historicalReceipt}`}><HistoricalWeeklyOrderLookup reference={historicalReceipt} /></div>}
             <fieldset disabled={creatingExternal} className="grid shrink-0 grid-cols-2 gap-3 border-b px-4 py-3 disabled:opacity-60">
@@ -1002,7 +1005,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               {weeklyCart && !historicalCart && <label className="mb-2 block text-sm font-bold">Payment workflow
                 <select value={weeklyPaymentWorkflow} onChange={event=>setWeeklyPaymentWorkflow(event.target.value as WeeklyPaymentWorkflow)} className="ml-2 rounded border p-2">
                   <option value="pending">Save as Pending Payment</option><option value="manual">Manual Payment</option>
-                  {stripeEnabled && <option value="link">Generate Payment Link</option>}
+                  {weeklyLinkProviders.length > 0 && <option value="link">Generate Payment Link</option>}
                 </select>
               </label>}
               {historicalCart ? <div className="mb-2 space-y-1 text-sm">

@@ -1,3 +1,4 @@
+import { weeklyPosCurlecReference } from './paymentProviders/curlecPaymentLink.js';
 import { readCheckoutCode, writeCodeReservation, prepareCodeTransition } from './storePromotionCodes.js';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
@@ -327,6 +328,15 @@ export const reconcileStorePayment = async ({ db, payment }) => {
     if (Number(payment.amountMinor) !== Number(order.payment?.amountMinor)
       || readString(payment.currency).toUpperCase() !== readString(order.currency)) {
       throw new Error('Payment amount does not match this MiseChef order.');
+    }
+    if (order.weeklyDayPos && order.payment?.provider === 'curlec' && payment.status === PAYMENT_STATUS.paid) {
+      const link = order.weeklyPosLink;
+      if (!link || order.payment.providerMode !== 'payment_link'
+        || payment.weeklyPosAttemptId !== link.attemptId
+        || payment.weeklyPosReference !== weeklyPosCurlecReference(link.attemptId)
+        || payment.weeklyPosRevision !== order.manualOrder?.revision || payment.weeklyPosExpiresAt !== link.expiresAt
+        || !/^pay_[A-Za-z0-9]+$/.test(readString(payment.providerTransactionId)))
+        throw new Error('Curlec payment does not match the saved Weekly POS attempt.');
     }
     const providerTransactionId = readString(payment.providerTransactionId);
     if (providerTransactionId) {

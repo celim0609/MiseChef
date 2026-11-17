@@ -4,16 +4,21 @@ import type { StoreOrder } from './types';
 
 export type WeeklyPaymentWorkflow = 'pending' | 'manual' | 'link';
 
-export default function WeeklyPosPaymentActions({ order, slug, stripeEnabled, initialWorkflow = 'pending' }: {
+export type WeeklyLinkProvider = 'curlec' | 'stripe';
+
+export default function WeeklyPosPaymentActions({ order, slug, providers, initialWorkflow = 'pending' }: {
   order: StoreOrder;
   slug: string;
-  stripeEnabled: boolean;
+  providers: WeeklyLinkProvider[];
   initialWorkflow?: WeeklyPaymentWorkflow;
 }) {
   const [showManual, setShowManual] = useState(initialWorkflow === 'manual');
   const [method, setMethod] = useState('bank_transfer');
   const [received, setReceived] = useState(false);
   const [reference, setReference] = useState('');
+  const [selectedProvider, setSelectedProvider] = useState<WeeklyLinkProvider>();
+  const [linkProvider, setLinkProvider] = useState<WeeklyLinkProvider>();
+  const [customerEmail, setCustomerEmail] = useState('');
   const [url, setUrl] = useState('');
   const [status, setStatus] = useState<'active' | 'cancelled' | 'paid'>();
   const [message, setMessage] = useState('');
@@ -22,6 +27,7 @@ export default function WeeklyPosPaymentActions({ order, slug, stripeEnabled, in
   const inFlight = useRef(false);
   const paid = order.payment.status === 'paid' || status === 'paid';
   const active = status === 'active' || (status !== 'cancelled' && Boolean(order.weeklyPosLink));
+  const provider = active ? linkProvider || order.weeklyPosLink?.provider : selectedProvider || providers[0];
   const run = async (action: () => Promise<void>) => {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -34,10 +40,11 @@ export default function WeeklyPosPaymentActions({ order, slug, stripeEnabled, in
   };
   const link = (action: 'generate' | 'cancel') => run(async () => {
     const result = await storeOrderService.manageWeeklyPosPaymentLink({
-      orderId: order.id, action,
-      ...(action === 'generate' ? { returnUrl: new URL(`/store/${encodeURIComponent(slug)}`, window.location.origin).toString() } : {}),
+      orderId: order.id, action, expectedRevision: order.manualOrder?.revision,
+      ...(action === 'generate' ? { provider, ...(provider === 'curlec' && !active ? { customerEmail } : {}), returnUrl: new URL(`/store/${encodeURIComponent(slug)}`, window.location.origin).toString() } : {}),
     });
     setStatus(result.status);
+    if (result.status === 'active') setLinkProvider(provider);
     setUrl(result.url || '');
     if (result.status === 'cancelled') setMessage('Payment link closed. The order remains pending.');
     setShowManual(false);
@@ -54,11 +61,21 @@ export default function WeeklyPosPaymentActions({ order, slug, stripeEnabled, in
   return <section aria-label="Weekly POS payment" className="mt-2 space-y-2 text-sm">
     <p className="font-bold">{order.orderNumber} · {order.currency} {order.total.toFixed(2)} · {paid ? 'Paid' : 'Pending payment'}</p>
     {!paid && !active && initialWorkflow === 'link' && <p>Generate the customer link from this saved order.</p>}
+    {!paid && !active && providers.length > 1 && <label className="block">Payment provider
+      <select className="ml-1 rounded border p-2" value={provider} disabled={busy}
+        onChange={event => setSelectedProvider(event.target.value as WeeklyLinkProvider)}>
+        {providers.map(option => <option key={option} value={option}>{option === 'curlec' ? 'Curlec' : 'Stripe'}</option>)}
+      </select>
+    </label>}
+    {!paid && !active && provider === 'curlec' && <label className="block">Customer email for Curlec
+      <input type="email" value={customerEmail} maxLength={254} onChange={event => setCustomerEmail(event.target.value)}
+        className="ml-1 rounded border p-2" disabled={busy} />
+    </label>}
     {!paid && <div className="flex flex-wrap gap-2">
-      {(stripeEnabled || active) && <button type="button" className={button} disabled={busy || !slug} onClick={() => void link('generate')}>
+      {(providers.length > 0 || active) && <button type="button" className={button} disabled={busy || !slug || (!active && !error && provider === 'curlec' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail.trim()))} onClick={() => void link('generate')}>
         {active ? 'Retrieve Payment Link' : 'Generate Payment Link'}
       </button>}
-      {(active || error) && (stripeEnabled || active) && <button type="button" className={button} disabled={busy} onClick={() => void link('cancel')}>Cancel Payment Link</button>}
+      {(active || error) && (providers.length > 0 || active) && <button type="button" className={button} disabled={busy} onClick={() => void link('cancel')}>Cancel Payment Link</button>}
       {!active && <button type="button" className={button} disabled={busy} onClick={() => setShowManual(value => !value)}>Manual Payment</button>}
     </div>}
     {url && !paid && <div className="flex flex-wrap items-end gap-2">

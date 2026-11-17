@@ -5,6 +5,29 @@ export const CURLEC_PAYMENT_LINK_MODE = 'payment_link';
 const API_URL = 'https://api.razorpay.com/v1/payment_links';
 const authorizationHeader = (keyId, keySecret) => `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString('base64')}`;
 const paymentLinkReferenceId = order => `mc_${readString(order.id)}`;
+export const weeklyPosCurlecReference = attemptId => `mcp_${attemptId.slice(0, 32)}`;
+const weeklyPosLinkMatches = (link, order, attempt) => /^plink_[A-Za-z0-9]+$/.test(readString(link?.id))
+  && link.reference_id === weeklyPosCurlecReference(attempt.id)
+  && link.notes?.misechefOrderId === order.id
+  && link.notes?.misechefWeeklyPosAttemptId === attempt.id
+  && String(link.notes?.misechefOrderRevision) === String(attempt.revision)
+  && link.accept_partial === false && Number(link.expire_by) === attempt.expiresAt
+  && Number(link.amount) === order.payment.amountMinor && readString(link.currency).toUpperCase() === order.currency;
+const weeklyPosCheckout = link => {
+  let url;
+  try { url = new URL(readString(link.short_url)); } catch { throw new CurlecPaymentLookupError(); }
+  if (url.protocol !== 'https:' || url.username || url.password || url.port
+    || !['rzp.io', 'rzp.in', 'razorpay.com', 'curlec.com'].some(domain => url.hostname === domain || url.hostname.endsWith(`.${domain}`)))
+    throw new CurlecPaymentLookupError();
+  return { providerPaymentId: link.id, checkout: { type: 'curlec_payment_link', redirectUrl: url.toString() } };
+};
+const weeklyPosPaymentProof = link => ({
+  weeklyPosAttemptId: readString(link.notes?.misechefWeeklyPosAttemptId),
+  weeklyPosRevision: Number(link.notes?.misechefOrderRevision),
+  weeklyPosReference: readString(link.reference_id),
+  weeklyPosExpiresAt: Number(link.expire_by),
+});
+
 const normalizeCurlecContact = phone => {
   const contact = readString(phone);
   if (/^\+60\d+$/.test(contact)) return contact;
@@ -23,6 +46,13 @@ const paymentLinkCallbackUrl = ({ returnUrl, checkoutAccessToken }) => {
 
 export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = fetch } = {}) => {
   if (!readString(keyId) || !readString(keySecret)) throw new Error('Curlec is not configured.');
+  const readWeeklyPos = async (suffix, options = {}) => {
+    const response = await fetchImpl(`${API_URL}${suffix}`, {
+      ...options, signal: AbortSignal.timeout(8000), headers: { authorization: authorizationHeader(keyId, keySecret) },
+    });
+    if (!response.ok) throw new CurlecPaymentLookupError();
+    return response.json();
+  };
   return {
     provider: 'curlec', mode: CURLEC_PAYMENT_LINK_MODE, requiresSellingWorkspace: true,
     promotionCodeLifecycle: true,
@@ -47,26 +77,67 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
       if(!['cancelled','expired'].includes(link.status) || Number(link.amount_paid)!==0) throw new Error('Payment is still pending.');
       return {providerPaymentId:id,orderId:order.id,amountMinor:order.payment.amountMinor,currency:order.currency,status:PAYMENT_STATUS.cancelled,promotionTerminal:true};
     },
-    async createPayment({ order, returnUrl, checkoutAccessToken }) {
+    async findWeeklyPosPayment({ order, weeklyPosSession }) {
+      const reference = weeklyPosCurlecReference(weeklyPosSession.id);
+      const result = await readWeeklyPos(`?reference_id=${encodeURIComponent(reference)}`);
+      if (!Array.isArray(result.payment_links)) throw new CurlecPaymentLookupError();
+      const matches = result.payment_links.filter(link => link.reference_id === reference);
+      if (!matches.length) {
+        // A nonmatching row means the merchant API did not honor the filter.
+        if (result.payment_links.length) throw new CurlecPaymentLookupError();
+        return null;
+      }
+      if (matches.length !== 1 || !weeklyPosLinkMatches(matches[0], order, weeklyPosSession))
+        throw new CurlecPaymentLookupError();
+      return weeklyPosCheckout(matches[0]);
+    },
+    async retrieveWeeklyPosPayment({ order, providerPaymentId, weeklyPosSession }) {
+      const link = await readWeeklyPos(`/${encodeURIComponent(providerPaymentId)}`);
+      if (link.id !== providerPaymentId || !weeklyPosLinkMatches(link, order, weeklyPosSession))
+        throw new CurlecPaymentLookupError();
+      const result = { providerPaymentId, orderId: order.id, amountMinor: order.payment.amountMinor, currency: order.currency };
+      if (link.status === 'paid') {
+        const captured = await this.retrieveVerifiedCapturedPayment({ order: {
+          ...order, weeklyPosLink: { attemptId: weeklyPosSession.id, expiresAt: weeklyPosSession.expiresAt },
+          payment: { ...order.payment, providerPaymentId },
+        } });
+        if (!captured) throw new CurlecPaymentLookupError();
+        return captured;
+      }
+      if (['cancelled', 'expired'].includes(link.status) && link.amount_paid === 0)
+        return { ...result, status: PAYMENT_STATUS.cancelled, promotionTerminal: true };
+      if (link.status === 'created' && link.amount_paid === 0)
+        return { ...result, status: PAYMENT_STATUS.pending, checkoutSessionStatus: 'open' };
+      return { ...result, status: PAYMENT_STATUS.processing };
+    },
+    async cancelWeeklyPosPayment(providerPaymentId) {
+      await readWeeklyPos(`/${encodeURIComponent(providerPaymentId)}/cancel`, { method: 'POST' });
+    },
+    async createPayment({ order, returnUrl, checkoutAccessToken, weeklyPosSession }) {
       const customerEmail = readString(order.customerEmail);
       if (!customerEmail) throw new Error('A valid customer email is required for a Curlec Payment Link.');
       let response;
       try {
         response = await fetchImpl(API_URL, {
           method: 'POST',
+          ...(weeklyPosSession ? { signal: AbortSignal.timeout(8000) } : {}),
           headers: { authorization: authorizationHeader(keyId, keySecret), 'content-type': 'application/json' },
           body: JSON.stringify({
             // Derived exclusively from the server-built order.
             amount: order.payment.amountMinor, currency: order.currency, accept_partial: false,
             ...(order.promotionCodeSnapshot ? {expire_by:Math.floor(Date.parse(order.promotionCodeSnapshot.reservationExpiresAt)/1000)} : {}),
-            reference_id: paymentLinkReferenceId(order), description: `Order ${order.orderNumber}`,
+            ...(weeklyPosSession ? { expire_by: weeklyPosSession.expiresAt } : {}),
+            reference_id: weeklyPosSession ? weeklyPosCurlecReference(weeklyPosSession.id) : paymentLinkReferenceId(order), description: `Order ${order.orderNumber}`,
             customer: {
-              name: readString(order.customerName), contact: normalizeCurlecContact(order.phone),
+              name: readString(order.customerName),
+              ...(!weeklyPosSession || readString(order.phone) ? { contact: normalizeCurlecContact(order.phone) } : {}),
               email: customerEmail
             },
             notify: { sms: false, email: false }, reminder_enable: false,
             callback_url: paymentLinkCallbackUrl({ returnUrl, checkoutAccessToken }), callback_method: 'get',
-            notes: { misechefOrderId: order.id, misechefOrderNumber: order.orderNumber },
+            notes: { misechefOrderId: order.id, misechefOrderNumber: order.orderNumber,
+              ...(weeklyPosSession ? { misechefWeeklyPosAttemptId: weeklyPosSession.id, misechefOrderRevision: String(weeklyPosSession.revision) } : {}),
+            },
             // Explicitly disable Card while retaining FPX and Wallets (including TNG).
             options: { checkout: { method: { fpx: true, card: false, wallet: true } } }
           })
@@ -79,6 +150,10 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
         throw error;
       }
       if (Number(paymentLink.amount) !== Number(order.payment.amountMinor) || readString(paymentLink.currency).toUpperCase() !== readString(order.currency)) throw new Error('Curlec payment link amount validation failed.');
+      if (weeklyPosSession) {
+        if (!weeklyPosLinkMatches(paymentLink, order, weeklyPosSession)) throw new CurlecPaymentLookupError();
+        return weeklyPosCheckout(paymentLink);
+      }
       return { providerPaymentId: paymentLink.id, checkout: { type: 'curlec_payment_link', redirectUrl: paymentLink.short_url } };
     },
     async retrievePayment(providerPaymentId, { db } = {}) {
@@ -94,7 +169,8 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
       let response;
       try {
         response = await fetchImpl(`${API_URL}/${encodeURIComponent(providerPaymentId)}`, {
-          headers: { authorization: authorizationHeader(keyId, keySecret) }
+          headers: { authorization: authorizationHeader(keyId, keySecret) },
+          ...(order.weeklyPosLink ? { signal: AbortSignal.timeout(8000) } : {}),
         });
       } catch {
         throw new CurlecPaymentLookupError();
@@ -114,6 +190,9 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
         || readString(paymentLink?.currency).toUpperCase() !== readString(order.currency).toUpperCase()
         || readString(paymentLink?.notes?.misechefOrderId) !== readString(order.id)
         || capturedPayments.length !== 1) return null;
+      if (order.weeklyDayPos && (!order.weeklyPosLink || !weeklyPosLinkMatches(paymentLink, order, {
+        id: order.weeklyPosLink.attemptId, revision: order.manualOrder?.revision, expiresAt: order.weeklyPosLink.expiresAt,
+      }))) return null;
       const capturedPayment = capturedPayments[0];
       return {
         providerPaymentId,
@@ -121,6 +200,7 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
         orderId: readString(order.id), amountMinor: Number(order.payment.amountMinor),
         currency: readString(order.currency).toUpperCase(), status: PAYMENT_STATUS.paid,
         ...(Number.isFinite(capturedPayment.created_at) ? {paidAt:new Date(capturedPayment.created_at*1000).toISOString()} : {}),
+        ...(order.weeklyDayPos ? weeklyPosPaymentProof(paymentLink) : {}),
         providerStatus: 'captured', paymentMethod: readString(capturedPayment.method), failureCode: ''
       };
     },
@@ -135,6 +215,13 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
       const paymentLink = event?.payload?.payment_link?.entity;
       const payment = event?.payload?.payment?.entity;
       if (!paymentLink || !payment || payment.status !== 'captured' || payment.captured !== true) throw new Error('Curlec paid event does not contain a captured payment.');
+      const weeklyPos = Boolean(paymentLink.notes?.misechefWeeklyPosAttemptId);
+      if (weeklyPos && (paymentLink.status !== 'paid' || paymentLink.accept_partial !== false
+        || !/^pay_[A-Za-z0-9]+$/.test(readString(payment.id))
+        || Number(paymentLink.amount) !== Number(payment.amount)
+        || Number(paymentLink.amount_paid) !== Number(payment.amount)
+        || readString(paymentLink.currency).toUpperCase() !== readString(payment.currency).toUpperCase()))
+        throw new Error('Curlec event did not prove a full Weekly POS payment.');
       const paymentEntry=Array.isArray(paymentLink.payments) ? paymentLink.payments.find(row=>row.payment_id===payment.id && row.status==='captured' && Number(row.amount)===Number(payment.amount)) : null;
       // The signed paid entity records its payment time; root event creation
       // time is not necessarily the capture day. API recovery uses payments[].created_at.
@@ -145,6 +232,7 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
         orderId: readString(paymentLink.notes?.misechefOrderId), amountMinor: Number(payment.amount),
         currency: readString(payment.currency).toUpperCase(), status: PAYMENT_STATUS.paid,
         ...(Number.isFinite(paidAt) ? {paidAt:new Date(paidAt*1000).toISOString()} : {}),
+        ...(weeklyPos ? weeklyPosPaymentProof(paymentLink) : {}),
         providerStatus: readString(payment.status), paymentMethod: readString(payment.method), failureCode: ''
       } };
     }

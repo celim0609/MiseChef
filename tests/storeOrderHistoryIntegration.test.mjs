@@ -845,7 +845,7 @@ test('Weekly POS custom fulfilment and Stripe lifecycle retain one immutable pen
     assert.equal(original.total, 44);
 
     const manage = (uid, action, settings = {}) => manageWeeklyPosPaymentLink({
-      db, uid, input: { orderId, action, returnUrl: `https://misechef.ai/store/${workspaceId}` },
+      db, uid, input: { orderId, action, provider: 'stripe', expectedRevision: 1, returnUrl: `https://misechef.ai/store/${workspaceId}` },
       adapter, sellingWorkspaceId: workspaceId, now, ...settings,
     });
     const manual = (received = true, amountMinor = 4400) => confirmManualPosPayment({ db, uid: manager, now,
@@ -904,6 +904,191 @@ test('Weekly POS custom fulfilment and Stripe lifecycle retain one immutable pen
     const manualOrder = (await db.collection('storeOrders').doc(pendingManual.orderId).get()).data();
     assert.equal(manualOrder.payment.status, 'paid');
     assert.equal(manualOrder.fulfilments[0].date, '2026-11-22');
+  } finally {
+    await deleteApp(app);
+  }
+});
+
+test('Curlec Weekly POS recovers one link, verifies paid events, closes unpaid links and protects guests', async () => {
+  const { createHmac } = await import('node:crypto');
+  const { createCurlecPaymentLinkAdapter } = await import('../functions/paymentProviders/curlecPaymentLink.js');
+  // Import the deployed handler without the demo emulator's project identity.
+  // All handler reads/writes below still use the explicitly injected demo DB.
+  const projectVariables = ['GCLOUD_PROJECT', 'GOOGLE_CLOUD_PROJECT', 'FIREBASE_CONFIG'];
+  const emulatorSettings = projectVariables.map(key => process.env[key]);
+  let createCurlecStorePaymentWebhookHandler;
+  try {
+    for (const key of projectVariables) delete process.env[key];
+    ({ createCurlecStorePaymentWebhookHandler } = await import('../functions/index.js'));
+  } finally {
+    projectVariables.forEach((key, index) => {
+      if (emulatorSettings[index] !== undefined) process.env[key] = emulatorSettings[index];
+    });
+  }
+  const { manageWeeklyPosPaymentLink } = await import('../functions/weeklyPosPaymentLink.js');
+  const { getStorePaymentResult } = await import('../functions/storePayments.js');
+  const app = initializeApp({ projectId: 'demo-misechef-store-payment-rules' }, `weekly-curlec-${process.pid}`);
+  const db = getFirestore(app);
+  const workspaceId = `weekly-curlec-${process.pid}`;
+  const [owner, manager, chef] = ['owner', 'manager', 'chef'].map(role => `${workspaceId}-${role}`);
+  const now = new Date('2026-11-17T04:00:00Z');
+  const secret = 'disposable-local-webhook-secret';
+  const email = 'curlec-customer@example.test';
+  const links = new Map();
+  let loseResponse = true;
+  let hideOnce = false;
+  let captureDuringCancel = false;
+  let postCount = 0;
+  const response = (body, status = 200) => new Response(JSON.stringify(body), { status });
+  const capture = link => {
+    const payment = { id: `pay_test${links.size}`, amount: link.amount, currency: link.currency,
+      status: 'captured', captured: true, method: 'fpx', created_at: Math.floor(now.getTime() / 1000) };
+    Object.assign(link, { status: 'paid', amount_paid: link.amount, payments: [{ ...payment, payment_id: payment.id }] });
+    return payment;
+  };
+  const adapter = createCurlecPaymentLinkAdapter('rzp_test_fake', 'fake-secret', {
+    fetchImpl: async (target, options) => {
+      const requestUrl = new URL(target);
+      assert.equal(requestUrl.origin, 'https://api.razorpay.com');
+      if (requestUrl.pathname === '/v1/payment_links' && options.method === 'POST') {
+        postCount++;
+        const draft = JSON.parse(options.body);
+        assert.equal(draft.customer.email, email);
+        assert.equal(draft.customer.contact, undefined);
+        assert.equal(draft.amount, 4400);
+        assert.equal(draft.currency, 'MYR');
+        assert.equal(draft.accept_partial, false);
+        assert.equal(draft.reference_id.length, 36);
+        assert.equal(draft.expire_by, Math.floor(now.getTime() / 1000) + 7200);
+        assert.equal(draft.notes.misechefOrderRevision, '1');
+        if (links.has(draft.reference_id))
+          return response({ error: { description: 'payment link creation with reference ID already attempted' } }, 400);
+        const id = `plink_test${links.size + 1}`;
+        const link = { ...draft, id, short_url: `https://rzp.io/i/${id}`, status: 'created', amount_paid: 0 };
+        links.set(draft.reference_id, link);
+        if (loseResponse) {
+          loseResponse = false;
+          hideOnce = true;
+          throw new Error('Connection ended after Curlec accepted the request');
+        }
+        return response(link);
+      }
+      if (requestUrl.pathname === '/v1/payment_links') {
+        if (hideOnce) { hideOnce = false; return response({ payment_links: [] }); }
+        const match = links.get(requestUrl.searchParams.get('reference_id'));
+        return response({ payment_links: match ? [match] : [] });
+      }
+      const [, id, operation] = requestUrl.pathname.match(/^\/v1\/payment_links\/([^/]+)(?:\/(cancel))?$/);
+      const link = [...links.values()].find(row => row.id === id);
+      if (!link) return response({}, 404);
+      if (operation === 'cancel') {
+        if (captureDuringCancel) { capture(link); return response({}, 400); }
+        link.status = 'cancelled';
+      }
+      return response(link);
+    },
+  });
+  const handler = createCurlecStorePaymentWebhookHandler({
+    webhookDb: db, createAdapter: () => adapter, getCurlecKeyId: () => 'rzp_test_fake',
+    getCurlecKeySecret: () => 'fake-secret', getWebhookSecret: () => secret,
+  });
+  const webhook = async (link, payment, eventId, signature) => {
+    const body = { event: 'payment_link.paid', payload: { payment_link: { entity: link }, payment: { entity: payment } } };
+    const rawBody = Buffer.from(JSON.stringify(body));
+    let output;
+    await handler({
+      method: 'POST', body, rawBody, get: name => name.toLowerCase() === 'x-razorpay-signature'
+        ? signature ?? createHmac('sha256', secret).update(rawBody).digest('hex')
+        : name.toLowerCase() === 'x-razorpay-event-id' ? eventId : undefined,
+    }, { status: code => ({ json: value => { output = { code, value }; }, send: value => { output = { code, value }; } }) });
+    return output;
+  };
+  try {
+    await Promise.all([
+      db.collection('workspaces').doc(workspaceId).set({ ownerId: owner, subscriptionPlan: 'professional', subscriptionStatus: 'active' }),
+      db.collection('workspaceMembers').doc(`${workspaceId}_${manager}`).set({ userId: manager, workspaceId, role: 'Manager', status: 'Active' }),
+      db.collection('workspaceMembers').doc(`${workspaceId}_${chef}`).set({ userId: chef, workspaceId, role: 'Chef', status: 'Active' }),
+      db.collection('stores').doc(workspaceId).set({ workspaceId, slug: workspaceId, country: 'MY', currency: 'MYR',
+        paymentMethods: [{ id: 'curlec', enabled: true }, { id: 'stripe', enabled: false }] }),
+    ]);
+    const createOrder = async () => {
+      const ref = db.collection('storeOrders').doc();
+      await ref.create({
+        id: ref.id, storeId: workspaceId, workspaceId, weeklyDayPos: true, fulfilmentStatus: 'New', manualOrder: { revision: 1 },
+        orderNumber: 'QA-ORDER', currency: 'MYR', storeName: 'Curlec QA', customerName: 'Customer', phone: '',
+        fulfilments: [{ date: '2026-11-21', time: '12:30', method: 'pickup', allocations: [] }],
+        payment: { provider: 'manual_pos', providerMode: 'manual', status: 'pending', amountMinor: 4400 }, total: 44,
+        notes: 'Private POS note',
+      });
+      return ref;
+    };
+    const order = await createOrder();
+    const manage = (ref, uid, action, settings = {}) => manageWeeklyPosPaymentLink({
+      db, uid, adapter, sellingWorkspaceId: workspaceId, now, ...settings,
+      input: { orderId: ref.id, action, provider: 'curlec', expectedRevision: 1, customerEmail: email,
+        returnUrl: `https://misechef-beta-fa4bf.web.app/store/${workspaceId}`, ...settings.input },
+    });
+    const availability = (uid, configuredProviders) => manageWeeklyPosPaymentLink({
+      db, uid, adapter, sellingWorkspaceId: workspaceId, configuredProviders, input: { action: 'availability', storeId: workspaceId },
+    });
+    assert.deepEqual(await availability(manager, ['curlec','stripe']), { providers: ['curlec'] });
+    assert.deepEqual(await availability(owner, ['stripe']), { providers: [] });
+    await assert.rejects(availability(chef, ['curlec']), /role cannot/);
+    await assert.rejects(manage(order, chef, 'generate'), /role cannot/);
+    await assert.rejects(manage(order, owner, 'generate', { input: { expectedRevision: 2 } }), /revision changed/);
+    await assert.rejects(manage(order, owner, 'generate', { input: { customerEmail: '' } }), /customer’s email/);
+    await assert.rejects(manage(order, owner, 'generate', { input: { provider: 'stripe' } }), /unavailable/);
+    await assert.rejects(manage(order, manager, 'generate'), /creation is unresolved/);
+    assert.equal(postCount, 1);
+    await assert.rejects(manage(order, owner, 'generate', { merchantIdentity: () => 'different-account' }), /original merchant/);
+    await assert.rejects(confirmManualPosPayment({ db, uid: owner, now, input: {
+      orderId: order.id, expectedRevision: 1, amountMinor: 4400, received: true, reference: 'Cash', method: 'cash',
+    } }), /Verify the received payment/);
+
+    const [first, retry] = await Promise.all([manage(order, owner, 'generate'), manage(order, manager, 'generate')]);
+    assert.equal(first.status, 'active');
+    assert.equal(first.url, retry.url);
+    assert.equal(postCount, 1);
+    await order.update({ 'payment.amountMinor': 4401 });
+    await assert.rejects(manage(order, owner, 'generate'), /requires reconciliation/);
+    await order.update({ 'payment.amountMinor': 4400, currency: 'SGD' });
+    await assert.rejects(manage(order, owner, 'generate'), /requires reconciliation/);
+    await order.update({ currency: 'MYR' });
+    const live = [...links.values()][0];
+    const guest = { db, adapter, sellingWorkspaceId: workspaceId, slug: workspaceId, providerPaymentId: live.id,
+      checkoutAccessToken: new URL(live.callback_url).searchParams.get('payment_access_token') };
+    assert.equal((await getStorePaymentResult(guest)).paymentStatus, 'pending');
+    await assert.rejects(getStorePaymentResult({ ...guest, checkoutAccessToken: 'wrong' }), /token is invalid/);
+    const payment = capture(live);
+    assert.equal((await webhook(live, payment, 'invalidSig', 'invalid')).code, 400);
+    assert.equal((await webhook({ ...live, amount_paid: 1 }, payment, 'partial')).code, 400);
+    assert.equal((await webhook({ ...live, notes: { ...live.notes, misechefOrderRevision: '2' } }, payment, 'revision')).code, 400);
+    assert.equal((await order.get()).data().payment.status, 'pending');
+    assert.equal((await webhook(live, payment, 'curlec-paid')).code, 200);
+    assert.equal((await webhook(live, payment, 'curlec-paid')).value.duplicate, true);
+    const paidGuest = await getStorePaymentResult(guest);
+    assert.equal(paidGuest.paymentStatus, 'paid');
+    for (const key of ['customerEmail','workspaceId','manualOrder','notes','payment']) assert.equal(paidGuest[key], undefined);
+    assert.equal((await db.collection('storeOrderTimeline').where('orderId', '==', order.id).where('type', '==', 'payment_received').get()).size, 1);
+
+    const cancellation = await createOrder();
+    await Promise.all([manage(cancellation, owner, 'generate'), manage(cancellation, manager, 'generate')]);
+    assert.equal(links.size, 2);
+    assert.equal((await manage(cancellation, manager, 'cancel')).status, 'cancelled');
+    assert.equal((await cancellation.get()).data().payment.provider, 'manual_pos');
+    await manage(cancellation, manager, 'generate');
+    const expiring = [...links.values()].at(-1);
+    const closed = [...links.values()][1];
+    const impossibleCapture = { ...closed, status: 'paid', amount_paid: closed.amount };
+    assert.equal((await webhook(impossibleCapture, { ...payment, id: 'pay_closedReplay' }, 'old-link-replay')).code, 400);
+    assert.equal((await cancellation.get()).data().payment.status, 'pending');
+    expiring.status = 'expired';
+    assert.equal((await manage(cancellation, owner, 'generate')).status, 'cancelled');
+    await manage(cancellation, owner, 'generate');
+    captureDuringCancel = true;
+    assert.equal((await manage(cancellation, owner, 'cancel')).status, 'paid');
+    assert.equal((await cancellation.get()).data().payment.status, 'paid');
+    assert.equal((await db.collection('storeOrders').where('workspaceId', '==', workspaceId).get()).size, 2);
   } finally {
     await deleteApp(app);
   }

@@ -87,7 +87,10 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
   return {
     id: snapshot.id,
     ...(data.weeklyDayPos === true ? { weeklyDayPos: true } : {}),
-    ...(data.weeklyPosLink ? { weeklyPosLink: { expiresAt: Number((data.weeklyPosLink as { expiresAt?: unknown }).expiresAt) } } : {}),
+    ...(data.weeklyPosLink ? { weeklyPosLink: {
+      expiresAt: Number((data.weeklyPosLink as { expiresAt?: unknown }).expiresAt),
+      provider: (data.weeklyPosLink as { provider?: unknown }).provider === 'curlec' ? 'curlec' as const : 'stripe' as const,
+    } } : {}),
     ...(data.manualOrder ? { manualOrder: data.manualOrder as StoreOrder['manualOrder'] } : {}),
     orderNumber: readString(data.orderNumber),
     pickupCode: getOrderPickupCode(
@@ -200,7 +203,16 @@ export const storeOrderService = {
     if (!functions) throw new Error('Store ordering is unavailable.');
     return (await httpsCallable<{order: Record<string, unknown>}, {orderId: string}>(functions, 'saveStoreManualPosOrder')({order})).data;
   },
-  async manageWeeklyPosPaymentLink(input: { orderId: string; action: 'generate' | 'cancel'; returnUrl?: string }) {
+  async weeklyPosPaymentProviders(storeId: string) {
+    if (!functions) return [];
+    return (await httpsCallable<{ storeId: string; action: 'availability' }, { providers: Array<'curlec' | 'stripe'> }>(
+      functions, 'manageStoreWeeklyPosPaymentLink'
+    )({ storeId, action: 'availability' })).data.providers;
+  },
+  async manageWeeklyPosPaymentLink(input: {
+    orderId: string; action: 'generate' | 'cancel'; expectedRevision?: number;
+    provider?: 'curlec' | 'stripe'; returnUrl?: string; customerEmail?: string;
+  }) {
     if (!functions) throw new Error('Store payments are unavailable.');
     return (await httpsCallable<typeof input, { status: 'active' | 'cancelled' | 'paid'; url?: string; expiresAt?: number }>(
       functions, 'manageStoreWeeklyPosPaymentLink', { timeout: 60000 }
