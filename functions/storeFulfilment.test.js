@@ -71,7 +71,7 @@ const paidOrder = {
   payment: { refundStatus: 'none' }
 };
 
-test('fulfilment follows Paid → Preparing → Ready → Completed and never skips', () => {
+test('fulfilment permits direct Ready but never direct Completed', () => {
   assert.equal(canTransitionStoreFulfilment({
     currentStatus: 'New',
     nextStatus: 'Preparing',
@@ -81,7 +81,7 @@ test('fulfilment follows Paid → Preparing → Ready → Completed and never sk
     currentStatus: 'New',
     nextStatus: 'Ready',
     refundStatus: 'none'
-  }), false);
+  }), true);
   assert.equal(canTransitionStoreFulfilment({
     currentStatus: 'Paid',
     nextStatus: 'Preparing',
@@ -101,7 +101,7 @@ test('fulfilment follows Paid → Preparing → Ready → Completed and never sk
     currentStatus: 'Paid',
     nextStatus: 'Ready',
     refundStatus: 'none'
-  }), false);
+  }), true);
   assert.equal(canTransitionStoreFulfilment({
     currentStatus: 'Completed',
     nextStatus: 'Preparing',
@@ -495,7 +495,7 @@ const weeklyOrder = () => ({
   ...paidOrder, orderSource: 'online', fulfilmentMethod: 'pickup', fulfilmentStatus: 'New',
   payment: { status: 'paid', refundStatus: 'none' },
   weeklyFulfilments: ['mon','tue','wed','thu','fri'].map((day, index) => ({ day, date: `2026-07-${27 + index}`, productName: `${day} meal`, pickupTime: '10:00', pickupLocationId: 'counter', quantity: 2 })),
-  weeklyCompletion: {}
+  weeklyCompletion: {}, fulfilmentOperations: Object.fromEntries(['mon','tue','wed','thu','fri'].map(day=>[day,{kitchenStatus:'Ready'}]))
 });
 
 test('daily Complete preserves snapshots and payment; parent completes only after five independent days', async () => {
@@ -538,7 +538,7 @@ test('weekly completion rejects generic parent/POS completion, invalid day, canc
 
 test('generic pickup completions are independent, idempotent and cannot bypass the parent', async () => {
   const order = { ...weeklyOrder(), weeklyFulfilments: undefined, weeklyCompletion: undefined,
-    fulfilments: [{ id: 'monday', method: 'pickup' }, { id: 'friday', method: 'pickup' }], fulfilmentCompletion: {}, total: 42 };
+    fulfilments: [{ id: 'monday', method: 'pickup' }, { id: 'friday', method: 'pickup' }], fulfilmentCompletion: {}, fulfilmentOperations:{monday:{kitchenStatus:'Ready'},friday:{kitchenStatus:'Ready'}}, total: 42 };
   const make = () => createFakeDb({ 'storeOrders/order-a': structuredClone(order), 'workspaces/workspace-a': { ownerId: 'owner-a' } });
   await assert.rejects(updateStoreOrderFulfilment({ db: make(), uid: 'owner-a', orderId: 'order-a', nextStatus: 'Completed' }), /fulfilment/);
   for (const [index, fulfilmentId] of ['friday','monday'].entries()) {
@@ -555,7 +555,7 @@ test('generic pickup completions are independent, idempotent and cannot bypass t
 
 test('new daily delivery ready action cannot manually complete parent or change paid financial data', async () => {
   const order = { ...weeklyOrder(), fulfilmentMethod: 'delivery', weeklyFulfilments: undefined,
-    fulfilments: [{ id: 'monday', method: 'delivery' }], fulfilmentCompletion: {}, fulfilmentOperations: {} };
+    fulfilments: [{ id: 'monday', method: 'delivery' }], fulfilmentCompletion: {}, fulfilmentOperations: {monday:{kitchenStatus:'Preparing'}} };
   const make = () => createFakeDb({ 'storeOrders/order-a': order, 'workspaces/workspace-a': { ownerId: 'owner-a' } });
   const db = make(); await updateStoreOrderFulfilment({ db, uid: 'owner-a', orderId: 'order-a', nextStatus: 'Ready', fulfilmentId: 'monday' });
   assert.equal(db.writes[0].data['fulfilmentOperations.monday.kitchenStatus'], 'Ready');
@@ -566,7 +566,7 @@ test('new daily delivery ready action cannot manually complete parent or change 
 
 test('daily Preparing and Ready update only the selected operation and preserve sibling and financial snapshots', async () => {
  for (const method of ['pickup','delivery']) for (const nextStatus of ['Preparing','Ready']) {
-  const order = { ...weeklyOrder(), weeklyFulfilments: undefined, fulfilments: [{id:'monday',method},{id:'friday',method}], fulfilmentCompletion:{}, fulfilmentOperations:{friday:{kitchenStatus:'Ready'}} };
+  const order = { ...weeklyOrder(), weeklyFulfilments: undefined, fulfilments: [{id:'monday',method},{id:'friday',method}], fulfilmentCompletion:{}, fulfilmentOperations:{monday:{kitchenStatus:nextStatus === 'Ready' ? 'Preparing' : 'New'},friday:{kitchenStatus:'Ready'}} };
   const original=JSON.stringify(order);
   const db=createFakeDb({'storeOrders/order-a':order,'workspaces/workspace-a':{ownerId:'owner-a'}});
   await updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus,fulfilmentId:'monday'});
@@ -581,4 +581,102 @@ test('daily kitchen updates reject cancelled and unpaid parents', async()=>{
   const db=createFakeDb({'storeOrders/order-a':{...weeklyOrder(),weeklyFulfilments:undefined,fulfilments:[{id:'monday',method:'pickup'}],...change},'workspaces/workspace-a':{ownerId:'owner-a'}});
   await assert.rejects(updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus:'Preparing',fulfilmentId:'monday'}));assert.equal(db.writes.length,0);
  }
+});
+
+test('daily Prepare rejects status skips and cancelled/unpaid POS without financial writes',async()=>{
+ for(const nextStatus of ['Completed']){
+ const db=createFakeDb({'storeOrders/order-a':{...weeklyOrder(),weeklyFulfilments:undefined,fulfilments:[{id:'monday',method:'pickup'}],fulfilmentOperations:{}},'workspaces/workspace-a':{ownerId:'owner-a'}});
+ await assert.rejects(updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus,fulfilmentId:'monday'}),/before completing/);assert.equal(db.writes.length,0);
+ }
+ const db=createFakeDb({'storeOrders/order-a':{...paidOrder,orderSource:'pos',fulfilmentStatus:'New',payment:{status:'pending'}},'workspaces/workspace-a':{ownerId:'owner-a'}});
+ await assert.rejects(updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus:'Preparing'}),/Confirm payment/);assert.equal(db.writes.length,0);
+});
+test('legacy Py Prepare materializes only recorded item-date allocations and preserves payment and Tuesday',async()=>{
+ const db=createFakeDb({'storeOrders/order-a':{...paidOrder,orderSource:'online',fulfilmentStatus:'New',payment:{status:'paid'},items:[{quantity:1,productName:'Vietnam Prawn Noodle Salad',healthyLunchSnapshot:{date:'2026-10-19'}},{quantity:2,productName:'Chicken Burrito Bowl',healthyLunchSnapshot:{date:'2026-10-20'}}]},'workspaces/workspace-a':{ownerId:'owner-a'}});
+ await updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus:'Preparing',fulfilmentId:'legacy_20261019'});
+ const patch=db.writes[0].data;assert.equal(patch['fulfilmentOperations.legacy_20261019.kitchenStatus'],'Preparing');assert.deepEqual(patch.fulfilments[0].allocations,[{itemIndex:0,quantity:1}]);assert.deepEqual(patch.fulfilments[1].allocations,[{itemIndex:1,quantity:2}]);assert.equal('payment' in patch,false);assert.equal('items' in patch,false);
+});
+test('multi-day parent cancellation preserves completion history and removes active work',async()=>{
+ const order={...weeklyOrder(),weeklyFulfilments:undefined,fulfilments:[{id:'monday',method:'pickup'},{id:'tuesday',method:'pickup'}],fulfilmentCompletion:{monday:{completedBy:'owner-a'}}};
+ const db=createFakeDb({'storeOrders/order-a':order,'workspaces/workspace-a':{ownerId:'owner-a'}});
+ await updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus:'Cancelled',cancellationReason:'Customer requested cancellation'});
+ const patch=db.writes[0].data;assert.equal(patch.fulfilmentStatus,'Cancelled');assert.equal('fulfilmentCompletion' in patch,false);assert.equal('payment' in patch,false);
+});
+
+test('direct daily Ready is atomic, idempotent, authorized and leaves payment and sibling days untouched',async()=>{
+ for(const current of ['New','Preparing','Ready']){
+ const original={...weeklyOrder(),weeklyFulfilments:undefined,fulfilments:[{id:'monday',method:'pickup'},{id:'tuesday',method:'pickup'}],fulfilmentOperations:{monday:{kitchenStatus:current},tuesday:{kitchenStatus:'New'}}};
+ const db=createFakeDb({'storeOrders/order-a':original,'workspaces/workspace-a':{ownerId:'owner-a'}});
+ await updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus:'Ready',fulfilmentId:'monday'});
+ if(current==='Ready'){assert.equal(db.writes.length,0);continue;}
+ const patch=db.writes[0].data;assert.equal(patch['fulfilmentOperations.monday.kitchenStatus'],'Ready');
+ assert.ok(!Object.keys(patch).some(key=>/payment|inventory|items|tuesday|fulfilmentStatus/.test(key)));
+ }
+ for(const change of [{payment:{status:'pending'}},{fulfilmentStatus:'Cancelled'}]){
+ const db=createFakeDb({'storeOrders/order-a':{...weeklyOrder(),weeklyFulfilments:undefined,fulfilments:[{id:'monday',method:'pickup'}],...change},'workspaces/workspace-a':{ownerId:'owner-a'}});
+ await assert.rejects(updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus:'Ready',fulfilmentId:'monday'}));assert.equal(db.writes.length,0);
+ }
+});
+
+test('delivery day cannot skip Preparing on the way to Ready',async()=>{
+ const order={...weeklyOrder(),weeklyFulfilments:undefined,fulfilments:[{id:'monday',method:'delivery'}],fulfilmentCompletion:{},fulfilmentOperations:{}};
+ const db=createFakeDb({'storeOrders/order-a':order,'workspaces/workspace-a':{ownerId:'owner-a'}});
+ await assert.rejects(updateStoreOrderFulfilment({db,uid:'owner-a',orderId:'order-a',nextStatus:'Ready',fulfilmentId:'monday'}),/Preparing before Ready/);
+ assert.equal(db.writes.length,0);
+});
+
+// Metadata writes must remain independent from payment and fulfilment operations.
+test('customer reminder records opened draft by date, requires explicit sent acknowledgement and preserves sent status', async () => {
+  const { recordStoreCustomerReminder } = await import('./storeFulfilment.js');
+  const order = { workspaceId: 'w', pickupDate: '2026-10-29' };
+  const db = createFakeDb({ 'storeOrders/o': order, 'workspaces/w': { ownerId: 'owner' } });
+  await recordStoreCustomerReminder({ db, uid: 'owner', orderId: 'o', date: '2026-10-29', status: 'draft_opened' });
+  assert.equal(db.writes.length, 1);
+  const write = JSON.stringify(db.writes);
+  assert.match(write, /customerReminders.2026-10-29/);
+  assert.doesNotMatch(write, /payment|fulfilmentStatus|owner_confirmed_sent/);
+  await assert.rejects(recordStoreCustomerReminder({ db, uid: 'owner', orderId: 'o', date: '2026-10-29', status: 'owner_confirmed_sent' }), /Open and review/);
+  order.customerReminders = { '2026-10-29': { status: 'draft_opened' } };
+  await recordStoreCustomerReminder({ db, uid: 'owner', orderId: 'o', date: '2026-10-29', status: 'owner_confirmed_sent' });
+  order.customerReminders['2026-10-29'].status = 'owner_confirmed_sent';
+  const count = db.writes.length;
+  const result = await recordStoreCustomerReminder({ db, uid: 'owner', orderId: 'o', date: '2026-10-29', status: 'draft_opened' });
+  assert.equal(result.status, 'owner_confirmed_sent'); assert.equal(db.writes.length, count);
+});
+test('customer reminder rejects unauthenticated, cross-workspace, invalid dates and unsupported states', async () => {
+  const { recordStoreCustomerReminder } = await import('./storeFulfilment.js');
+  const db = createFakeDb({ 'storeOrders/o': { workspaceId: 'w', fulfilments: [{ date: '2026-10-29' }] }, 'workspaces/w': { ownerId: 'owner' } });
+  const input = { db, uid: 'owner', orderId: 'o', date: '2026-10-29', status: 'draft_opened' };
+  for (const overrides of [{ uid: '' }, { uid: 'stranger' }, { date: '2026-10-30' }, { status: 'sent' }, { orderId: 'bad/id' }]) {
+    await assert.rejects(recordStoreCustomerReminder({ ...input, ...overrides }));
+  }
+  assert.equal(db.writes.length, 0);
+});
+test('weekly reminder dates are independent and do not use the parent pickup date', async () => {
+  const { recordStoreCustomerReminder } = await import('./storeFulfilment.js');
+  const order = { workspaceId: 'w', pickupDate: '2026-10-28', weeklyFulfilments: [{ date: '2026-10-29' }, { date: '2026-10-30' }], customerReminders: { '2026-10-29': { status: 'owner_confirmed_sent' } } };
+  const db = createFakeDb({ 'storeOrders/o': order, 'workspaces/w': { ownerId: 'owner' } });
+  await recordStoreCustomerReminder({ db, uid: 'owner', orderId: 'o', date: '2026-10-30', status: 'draft_opened' });
+  assert.match(JSON.stringify(db.writes), /customerReminders.2026-10-30/);
+  assert.doesNotMatch(JSON.stringify(db.writes), /customerReminders.2026-10-29/);
+  await assert.rejects(recordStoreCustomerReminder({ db, uid: 'owner', orderId: 'o', date: '2026-10-28', status: 'draft_opened' }));
+});
+
+test('reminder metadata fails closed for inactive Business subscriptions, including workspace owners', async () => {
+  const { recordStoreCustomerReminder } = await import('./storeFulfilment.js');
+  for (const workspace of [
+    { subscriptionPlan: 'personal' },
+    { subscriptionStatus: 'expired' },
+    { subscriptionStatus: 'canceled' },
+    { subscriptionStatus: 'trialing', trialEndsAt: '2000-01-01T00:00:00Z' }
+  ]) {
+    const db = createFakeDb({
+      'storeOrders/o': { workspaceId: 'w', pickupDate: '2026-10-29', customerReminders: { '2026-10-29': { status: 'draft_opened' } } },
+      'workspaces/w': { ownerId: 'owner', ...workspace }
+    });
+    for (const status of ['draft_opened', 'owner_confirmed_sent']) {
+      await assert.rejects(recordStoreCustomerReminder({ db, uid: 'owner', orderId: 'o', date: '2026-10-29', status }), { code: 'permission-denied' });
+    }
+    assert.equal(db.writes.length, 0, JSON.stringify(workspace));
+  }
 });

@@ -1,0 +1,12 @@
+{
+  "kind": "misechef-production-release",
+  "version": 1,
+  "buildId": "0ea8bbf3-d95a-4695-bdcc-1e440eccb131",
+  "builtAt": "2026-10-24T13:16:51.700Z",
+  "sourceCommit": "5965b3db695a84efdff3ea1c25305f5736a36127",
+  "sourceTree": "d7d19d5c7921fcbce205980d078e17385e3e9fcd",
+  "protectedBaseline": "98649c6dd735dd6b703465069005ae5902317a1b",
+  "entryAsset": "/assets/index-QMBxduOE.js",
+  "entryAssetSha256": "3bdc90d53ab4a34dba71d20f6e73b57c1dd13d1f38e2dd261e4d9930c9fb9683",
+  "storeShellAsset": "/assets/index-QMBxduOE.js"
+}

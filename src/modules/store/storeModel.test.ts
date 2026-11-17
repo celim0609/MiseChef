@@ -713,3 +713,10 @@ test('free delivery defaults stay disabled and merchant policy round-trips witho
   assert.deepEqual(normalized.delivery?.fulfilment, baseline.delivery?.fulfilment);
   assert.deepEqual(buildStoreSettingsUpdate({ ...baseline }, baseline, normalized).delivery, normalized.delivery);
 });
+
+test('POS-only release preserves configured same-day public ordering without POS bypass', () => {
+  const now = new Date('2026-11-04T04:00:00Z');
+  const store = { ...createDefaultWorkspaceStore({id:'public',name:'Public',country:'MY'},'owner',now.toISOString()), orderDays: [...DEFAULT_STORE_ORDER_DAYS], earliestPickupDays: 0 as const, maximumAdvanceDays: 7 as const, unavailableDates: [], orderCutoffTime: '' };
+  assert.equal(getValidPickupDates(store, now)[0], '2026-11-04');
+  assert.equal(getValidPickupDates({...store,unavailableDates:['2026-11-04']}, now)[0], '2026-11-05');
+});

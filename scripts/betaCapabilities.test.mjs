@@ -189,3 +189,9 @@ test('source, route, Storage, index, and Hosting regressions are each rejected',
     assert.match(result.errors.join('\n'), pattern);
   }
 });
+
+test('conditional SDK builders remain in the protected function inventory', () => {
+  assert.deepEqual(discoverFirebaseFunctions(`export const legacy = project === 'production'
+    ? onRequest({}, retired) : onDocumentWritten({}, inert);`), ['legacy']);
+  assert.deepEqual(discoverFirebaseFunctions(`export const unsafe = project ? onRequest({}, handler) : unrelated();`), []);
+});
