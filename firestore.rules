@@ -1769,6 +1769,17 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /storeHistoricalWeeklyOrders/{recordId} {
+      function canReadHistoricalOrder(workspaceId) {
+        let member = get(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId))).data;
+        return member.userId == request.auth.uid && member.workspaceId == workspaceId
+          && member.status == 'Active' && member.role in ['Owner', 'Manager'];
+      }
+      allow get: if hasActiveBusinessEntitlement(resource.data.workspaceId)
+        && (isWorkspaceDocumentOwner(resource.data.workspaceId) || canReadHistoricalOrder(resource.data.workspaceId));
+      allow list, create, update, delete: if false;
+    }
+
     match /storeOrders/{orderId} {
       // Guest checkout is created by the trusted payment function after it
       // re-prices the cart from current Store data. Clients can never write an

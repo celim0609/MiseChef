@@ -212,7 +212,7 @@ export const storeOrderService = {
   },
   async createExternalPosOrder(order: Record<string, unknown>) {
     if (!functions) throw new Error('Store ordering is unavailable.');
-    const create = httpsCallable<{ order: Record<string, unknown> }, { orderId: string; orderNumber: string; duplicate: boolean }>(functions, 'createStoreExternalPosOrder');
+    const create = httpsCallable<{ order: Record<string, unknown> }, { orderId: string; orderNumber?: string; duplicate: boolean; historical?: boolean }>(functions, 'createStoreExternalPosOrder');
     return (await create({ order })).data;
   },
   async getOrder(orderId: string): Promise<StoreOrder | null> {

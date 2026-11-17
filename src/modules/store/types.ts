@@ -111,6 +111,7 @@ export interface WorkspaceStore {
   pickupLocations: StorePickupLocation[];
   orderDays: StoreOrderDay[];
   orderCutoffTime?: string | null;
+  timeZone?: string;
   earliestPickupDays: StoreEarliestPickupDays;
   maximumAdvanceDays: StoreMaximumAdvanceDays;
   unavailableDates: string[];

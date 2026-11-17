@@ -189,6 +189,8 @@ const makeExternalOrderHarness = (overrides: Record<string, unknown> = {}) => {
     externalAddTimes:{current:new Map()},
     externalRequestIdRef: {current: 'request-1234567890'},
     externalCart: state.cart,
+    historicalCart: false, historicalCartReady: false, historicalReason: '', externalSubtotal: 0,
+    setHistoricalReason: () => {}, setHistoricalReceipt: () => {},
     creatingExternal: false,
     externalFeeReady:true,externalManualFee:false,externalFeeAmount:'',externalFeeReason:'',externalQuote:{id:'quote-1234567890',expiresAt:'2099-01-01T00:00:00Z'},
     setExternalDestination:()=>{},setExternalDestinations:()=>{},setExternalQuoteState:()=>{},
@@ -310,7 +312,7 @@ test('POS Add Order uses document flow with catalog before cart and no modal scr
   assert.match(modal, /\{externalError && <p[^>]*role="alert"[^>]*>\{externalError\}<\/p>\}\s*<button[^>]*onClick=\{\(\) => void createExternalOrder\(\)\}/);
   assert.match(modal, /aria-busy=\{creatingExternal\}/);
   assert.match(modal, /className="[^"]*w-full[^"]*bg-blue-700[^"]*disabled:cursor-not-allowed[^"]*disabled:bg-slate-200/);
-  assert.match(modal, /creatingExternal \? 'Creating…' : 'Confirm Order'/);
+  assert.match(modal, /creatingExternal \? 'Creating…' : historicalCart \? 'Record Historical Order' : 'Confirm Order'/);
   assert.doesNotMatch(createExternalOrderSource, /setErrorMessage\(/);
 });
 
@@ -388,4 +390,27 @@ test('external delivery payload preserves each selected meal date and exact time
  await harness.submit();assert.equal(harness.state.error,'');assert.equal(harness.requests.length,1);
  const payload=harness.requests[0];assert.equal(payload.source,'whatsapp');assert.equal(payload.fulfilmentMethod,'delivery');assert.equal(payload.deliveryAddress,'Unit 12, Full Street');
  assert.deepEqual(payload.lineSchedules,[{date:'2026-10-26',time:'12:13'},{date:'2026-10-28',time:'13:17'}]);assert.equal(payload.customerName,'');assert.equal(payload.phone,'');
+});
+
+test('historical Weekly POS submits the audit reason and reviewed subtotal without printing or labelling payment', async () => {
+  const requests: Record<string, unknown>[] = [];
+  const receipts: string[] = [];
+  const harness = makeExternalOrderHarness({
+    historicalCart: true, historicalCartReady: true, historicalReason: 'Order slip', externalSubtotal: 12.5,
+    setHistoricalReceipt: (id: string) => receipts.push(id),
+    storeOrderService: {
+      createExternalPosOrder: async (payload: Record<string, unknown>) => {
+        requests.push(payload);
+        return { orderId: 'audit-record', historical: true };
+      },
+      getOrder: async () => assert.fail('An audit record must never be treated as a paid order'),
+    },
+  });
+  await harness.submit();
+  assert.equal(requests[0].paymentLabel, undefined);
+  assert.equal(requests[0].historicalReason, 'Order slip');
+  assert.equal(requests[0].expectedSubtotalMinor, 1250);
+  assert.deepEqual(receipts, ['audit-record']);
+  assert.equal(harness.state.open, true);
+  assert.equal(harness.state.printed, 0);
 });

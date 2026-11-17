@@ -863,3 +863,17 @@ test('POS deletion markers, deleted-order indexes and AI usage counters remain c
  await assertFails(owner.doc('storePosPasteUsage/forged').set({count:0}));
  await assertFails(owner.doc('storePosPasteUsage/forged').get());
 });
+
+test('historical weekly audit records are server-owned and readable by reference only to the Store Owner and Manager', async () => {
+  const path = 'storeHistoricalWeeklyOrders/weekly-audit-reference';
+  await environment.withSecurityRulesDisabled(context => context.firestore().doc(path).set({ workspaceId: WORKSPACE_A }));
+  await assertSucceeds(ownerA.firestore().doc(path).get());
+  await assertSucceeds(managerA.firestore().doc(path).get());
+  for (const account of [headChefA, memberA, ownerB, customerA, anonymous]) {
+    await assertFails(account.firestore().doc(path).get());
+  }
+  await assertFails(ownerA.firestore().collection('storeHistoricalWeeklyOrders').where('workspaceId', '==', WORKSPACE_A).get());
+  await assertFails(ownerA.firestore().doc(path).update({ reason: 'Tampered' }));
+  await assertFails(managerA.firestore().doc(path).delete());
+  await assertFails(ownerA.firestore().doc('storeHistoricalWeeklyOrders/forged').set({ workspaceId: WORKSPACE_A }));
+});

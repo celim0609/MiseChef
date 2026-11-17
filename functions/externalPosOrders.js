@@ -1,3 +1,4 @@
+import { hasHistoricalWeeklyDay, posStoreDate, validateHistoricalWeeklyCart } from './posWeeklyDay.js';
 import { resolvePosDeliveryCharge } from './posDeliveryQuotes.js';
 import { buildExternalOrderItems } from './externalPosOrderModel.js';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -37,18 +38,26 @@ export const validateInput = (input, owner = false) => {
   const paymentLabel = readString(input?.paymentLabel);
   if (!EXTERNAL_SOURCES.has(source)) throw externalError('Choose a valid external order source.');
   if (externalOrderNumber.length > 120) throw externalError('External order number must be 120 characters or fewer.');
-  if (!['walk_in_paid', 'shopeefood_platform_paid', 'other_paid'].includes(paymentLabel)) throw externalError('Choose a valid payment label.');
+  const historical = input?.historicalReason !== undefined;
+  if (historical) {
+    if (!owner) throw new HttpsError('permission-denied', 'Only Owner or Manager can record a historical weekly order.');
+    if (!readString(input.historicalReason) || readString(input.historicalReason).length > 500 || paymentLabel || input.posDeliveryQuoteId) {
+      throw externalError('Enter a historical reason without a payment label or delivery quote.');
+    }
+  } else if (!['walk_in_paid', 'shopeefood_platform_paid', 'other_paid'].includes(paymentLabel)) {
+    throw externalError('Choose a valid payment label.');
+  }
   if (readString(input?.customerName).length > 120) throw externalError('Customer name must be 120 characters or fewer.');
   const phone = readString(input?.phone);
   if ((phone && phone.replace(/\D/g, '').length < 6) || phone.length > 40) throw externalError('Enter a valid phone number.');
   if (readString(input?.notes).length > 500) throw externalError('Notes must be 500 characters or fewer.');
   if (!Array.isArray(input?.selections) || !input.selections.length || input.selections.length > 50) throw externalError('Choose one or more Store items.');
   if (input.selections.some(item => !Number.isInteger(item?.quantity) || item.quantity < 1 || item.quantity > (owner ? 10000 : 20))) throw externalError(owner ? 'Choose a valid POS quantity up to 10,000.' : 'Each product quantity must be between 1 and 20.');
-  if ((source === 'shopeefood' && paymentLabel !== 'shopeefood_platform_paid') || (source === 'walk_in' && paymentLabel !== 'walk_in_paid') || (['other', 'whatsapp'].includes(source) && paymentLabel !== 'other_paid')) throw externalError('Choose the payment label that matches the order source.');
+  if (!historical && ((source === 'shopeefood' && paymentLabel !== 'shopeefood_platform_paid') || (source === 'walk_in' && paymentLabel !== 'walk_in_paid') || (['other', 'whatsapp'].includes(source) && paymentLabel !== 'other_paid'))) throw externalError('Choose the payment label that matches the order source.');
   const requestId = readString(input?.requestId);
   if (requestId && !/^[A-Za-z0-9_-]{16,100}$/.test(requestId)) throw externalError('Invalid order request.');
-  if (!requestId && !externalOrderNumber) throw externalError('An order request ID is required. Refresh POS and retry.');
-  return { source, externalOrderNumber, paymentLabel, phone, requestId };
+  if (!requestId && (historical || !externalOrderNumber)) throw externalError('An order request ID is required. Refresh POS and retry.');
+  return { source, externalOrderNumber, paymentLabel, phone, requestId, historical };
 };
 
 export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider, now = new Date() }) => {
@@ -57,30 +66,53 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
   const storeId = readString(checkoutStore.store.id) || readString(checkoutStore.store.workspaceId);
   if (!workspaceId || workspaceId !== readString(checkoutStore.store.workspaceId) || storeId !== readString(input?.storeId)) throw new HttpsError('permission-denied', 'This Store does not match the active Workspace.');
   const posFullAccess = await assertOperator({ db, uid, workspaceId, posFullAccess: true });
-  const { source, externalOrderNumber, paymentLabel, phone, requestId } = validateInput(input, posFullAccess);
+  const { source, externalOrderNumber, paymentLabel, phone, requestId, historical } = validateInput(input, posFullAccess);
   const checkout = posFullAccess ? await loadStoreCheckoutData(db, input?.slug, { includeUnavailable: true }) : checkoutStore;
   if (readString(checkout.store.workspaceId) !== workspaceId || (readString(checkout.store.id) || workspaceId) !== storeId) throw new HttpsError('permission-denied', 'This Store does not match the active Workspace.');
-  const idempotencyReference = externalOrderNumber ? db.collection('storeExternalOrderReferences').doc(idempotencyId({ storeId, source, externalOrderNumber })) : null;
+  const idempotencyReference = !historical && externalOrderNumber ? db.collection('storeExternalOrderReferences').doc(idempotencyId({ storeId, source, externalOrderNumber })) : null;
   const requestReference = requestId ? db.collection('storeExternalOrderReferences').doc(createHash('sha256').update(`${storeId}:${uid}:${requestId}`).digest('hex')) : null;
-  const fingerprint = createHash('sha256').update(JSON.stringify({source,externalOrderNumber,paymentLabel,customerName:readString(input.customerName),phone,notes:readString(input.notes),selections:input.selections,lineSchedules:input.lineSchedules,pickupLocationId:input.pickupLocationId,fulfilmentMethod:input.fulfilmentMethod,deliveryAddress:input.deliveryAddress,fulfilmentDate:input.fulfilmentDate,fulfilmentTime:input.fulfilmentTime,destination:input.destination,deliveryDestinations:input.deliveryDestinations,posDeliveryQuoteId:input.posDeliveryQuoteId,deliveryFeeOverride:input.deliveryFeeOverride})).digest('hex');
-  const orderReference = db.collection('storeOrders').doc();
+  const fingerprint = createHash('sha256').update(JSON.stringify({source,externalOrderNumber,paymentLabel,...(historical ? {historicalReason:readString(input.historicalReason),expectedSubtotalMinor:input.expectedSubtotalMinor} : {}),customerName:readString(input.customerName),phone,notes:readString(input.notes),selections:input.selections,lineSchedules:input.lineSchedules,pickupLocationId:input.pickupLocationId,fulfilmentMethod:input.fulfilmentMethod,deliveryAddress:input.deliveryAddress,fulfilmentDate:input.fulfilmentDate,fulfilmentTime:input.fulfilmentTime,destination:input.destination,deliveryDestinations:input.deliveryDestinations,posDeliveryQuoteId:input.posDeliveryQuoteId,deliveryFeeOverride:input.deliveryFeeOverride})).digest('hex');
+  const orderReference = db.collection(historical ? 'storeHistoricalWeeklyOrders' : 'storeOrders').doc();
   const commit = () => db.runTransaction(async transaction => {
     const currentPosFullAccess = await assertOperator({ db, uid, workspaceId, posFullAccess: true, transaction });
     if (posFullAccess && !currentPosFullAccess) throw new HttpsError('permission-denied', 'POS ordering access changed. Reload and try again.');
     if (requestReference) {
       const previous = await transaction.get(requestReference);
       if (previous.exists) {
-        if (previous.data().fingerprint !== fingerprint) throw externalError('This request already saved different order details. Check View Orders before starting a new order.');
-        return {orderId:previous.data().orderId,duplicate:true};
+        if (previous.data().fingerprint !== fingerprint) {
+          throw externalError(historical
+            ? 'This request already saved different historical order details. Clear the draft before recording another order.'
+            : 'This request already saved different order details. Check View Orders before starting a new order.');
+        }
+        return {orderId:previous.data().orderId,duplicate:true,...(historical ? { historical: true } : {})};
       }
     }
     if (idempotencyReference) {
       const existing = await transaction.get(idempotencyReference);
       if (existing.exists) return { orderId: readString(existing.data()?.orderId), duplicate: true };
     }
+    const today = posStoreDate(checkout.store, now);
+    if (!historical && hasHistoricalWeeklyDay(input.selections, today)) {
+      throw externalError('Use Record Historical Order for past Order by Day meals.');
+    }
+    let posCheckout = posFullAccess ? { ...checkout, products: checkout.products.map(product => ({ ...product, available: true })) } : checkout;
+    if (historical) {
+      // Re-read the scoped menu documents inside the transaction so an edit
+      // cannot race the audit write.
+      const planIds = new Set(input.selections.map(selection => selection.healthyLunchPlanId));
+      const plans = checkout.products.filter(product => planIds.has(product.id));
+      const snapshots = await Promise.all(plans.map(plan => transaction.get(db.collection('storeProducts').doc(plan.id))));
+      const products = snapshots.filter(snapshot => snapshot.exists)
+        .map(snapshot => ({ ...snapshot.data(), id: snapshot.id, available: true }));
+      posCheckout = { ...posCheckout, products };
+    }
     let built;
-    const posCheckout = posFullAccess ? { ...checkout, products: checkout.products.map(product => ({ ...product, available: true })) } : checkout;
-    try { built = buildExternalOrderItems(input, posCheckout, now, { owner: posFullAccess }); } catch(error) { throw externalError(error.message || 'Check the items and fulfilment dates.'); }
+    try {
+      if (historical) validateHistoricalWeeklyCart(input, posCheckout, today);
+      built = buildExternalOrderItems(input, posCheckout, now, { owner: posFullAccess });
+    } catch (error) {
+      throw externalError(error.message || 'Check the items and fulfilment dates.');
+    }
     const {items} = built;
     const merchandiseSubtotal = money(items.reduce((sum, item) => sum + item.lineTotal, 0));
     const charge = await resolvePosDeliveryCharge({ db, transaction, input, checkout, built, uid, fullAccess: currentPosFullAccess, now: new Date(Math.max(now.getTime(), Date.now())) });
@@ -95,6 +127,25 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
     const total = money(merchandiseSubtotal + charge.fee);
     if (!Number.isSafeInteger(Math.round(total * 100))) throw externalError('Order amount is unsafe.');
     if (total <= 0) throw externalError('Order total must be greater than zero.');
+    if (historical) {
+      if (input.expectedSubtotalMinor !== Math.round(merchandiseSubtotal * 100)) {
+        throw externalError('Historical menu pricing changed. Reload the Store catalog and review the cart.');
+      }
+      transaction.create(orderReference, {
+        id: orderReference.id, storeId, workspaceId, source, externalOrderNumber,
+        customerName: readString(input.customerName), phone, notes: readString(input.notes),
+        reason: readString(input.historicalReason), actingUserId: uid,
+        createdAt: FieldValue.serverTimestamp(),
+        currency: readString(checkout.store.currency),
+        items, fulfilments: built.fulfilments,
+        totals: { merchandiseSubtotal, discountTotal: 0, deliveryFee: charge.fee, grandTotal: total },
+        ...(charge.snapshot ? { deliveryFeeAudit: charge.snapshot } : {}),
+      });
+      transaction.create(requestReference, {
+        orderId: orderReference.id, storeId, workspaceId, requestId, fingerprint, createdAt: FieldValue.serverTimestamp(),
+      });
+      return { orderId: orderReference.id, historical: true, duplicate: false };
+    }
     const reference = await createAvailableOrderReference({ date: now, exists: async ({ orderNumber, pickupCode, businessDateKey }) => {
       const reservation = db.collection('stores').doc(storeId).collection('orderNumberReservations').doc(`${businessDateKey}_${pickupCode}`);
       const matches = db.collection('storeOrders').where('storeId', '==', storeId).where('orderNumber', '==', orderNumber).limit(1);

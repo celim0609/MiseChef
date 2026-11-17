@@ -1,3 +1,4 @@
+import { hasHistoricalWeeklyDay, posStoreDate } from './posWeeklyDay.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { buildExternalOrderItems } from './externalPosOrderModel.js';
@@ -28,6 +29,9 @@ export async function createPosDeliveryQuote({ db, uid, input, provider, authori
   input = normalizeInput(input, catalog.products);
   if (input.fulfilmentMethod !== 'delivery') fail('Choose Delivery to estimate a fee.');
   if (buildItems === buildExternalOrderItems && (!Array.isArray(input.selections) || !input.selections.length || input.selections.length > 50)) fail('Choose 1–50 cart lines.');
+  if (buildItems === buildExternalOrderItems && hasHistoricalWeeklyDay(input.selections, posStoreDate(checkout.store, now))) {
+    fail('Historical weekly orders cannot request a delivery estimate.');
+  }
   const built = buildItems(input, catalog, now, { owner: fullAccess });
   const deliveryDays = built.fulfilments.filter(day => day.method === 'delivery' && day.deliveryArrangement !== 'customer');
   const config = checkout.store.delivery;
