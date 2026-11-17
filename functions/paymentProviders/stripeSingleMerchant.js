@@ -53,12 +53,13 @@ const normalizeLegacyPaymentIntent = (paymentIntent, event) => ({
   refund: event ? readStripeRefundState(paymentIntent, event) : undefined
 });
 
-export const buildStripeCheckoutUrls = ({ returnUrl, providerPaymentId, checkoutAccessToken }) => {
+export const buildStripeCheckoutUrls = ({ returnUrl, providerPaymentId, checkoutAccessToken, weeklyPos = false }) => {
   const successUrl = new URL(returnUrl);
   successUrl.searchParams.set('payment_return', '1');
   successUrl.searchParams.set('payment_provider', STRIPE_PROVIDER_ID);
   successUrl.searchParams.set('payment_session_id', providerPaymentId);
   successUrl.searchParams.set('payment_access_token', checkoutAccessToken);
+  if (weeklyPos) successUrl.searchParams.set('weekly_pos_payment', '1');
 
   const cancelUrl = new URL(successUrl);
   cancelUrl.searchParams.set('payment_cancelled', '1');
@@ -104,7 +105,8 @@ export const createStripeSingleMerchantAdapter = (secretKey, { stripeClient } = 
       const urls = buildStripeCheckoutUrls({
         returnUrl,
         providerPaymentId: placeholder,
-        checkoutAccessToken
+        checkoutAccessToken,
+        weeklyPos: Boolean(weeklyPosSession),
       });
       const metadata = {
         misechefOrderId: order.id,
@@ -133,7 +135,7 @@ export const createStripeSingleMerchantAdapter = (secretKey, { stripeClient } = 
         ...(weeklyPosSession ? { expires_at: weeklyPosSession.expiresAt, payment_method_types: ['card'] } : {}),
         ...(order.promotionCodeSnapshot ? {expires_at:Math.floor(Date.parse(order.promotionCodeSnapshot.reservationExpiresAt)/1000),payment_method_types:['card']} : {}),
         payment_intent_data: { metadata }
-        // Public checkout without a promotion retains Stripe's eligible methods.
+        // payment_method_types is intentionally omitted for standard public checkout.
         // POS links use immediate card capture so expiry can safely release the lock.
       }, {
         idempotencyKey: weeklyPosSession ? `misechef-weekly-pos-${weeklyPosSession.id}` : `misechef-order-${order.id}`

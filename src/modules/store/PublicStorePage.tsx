@@ -103,6 +103,8 @@ type PaymentReturnReconciliation = {
   paymentSessionId: string;
   checkoutAccessToken: string;
   timedOut: boolean;
+  weeklyPos?: boolean;
+  abandoned?: boolean;
 };
 
 type SelectedDeliveryDestination = {
@@ -587,13 +589,27 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     if (!returnedProvider || !returnedPaymentSessionId || !returnedCheckoutAccessToken) return;
     const isCurlecPaymentLinkReturn = returnedProvider === 'curlec' && query.has('razorpay_payment_link_id');
     const wasCancelled = query.get('payment_cancelled') === '1';
+    const isWeeklyPosPaymentReturn = returnedProvider === 'stripe' && query.get('weekly_pos_payment') === '1';
     sessionStorage.setItem(checkoutRecoveryKey, JSON.stringify({
       slug,
       provider: returnedProvider,
       paymentSessionId: returnedPaymentSessionId,
       checkoutAccessToken: returnedCheckoutAccessToken
     } satisfies CheckoutRecovery));
-    if (isCurlecPaymentLinkReturn) {
+    if (isWeeklyPosPaymentReturn && wasCancelled) {
+      sessionStorage.removeItem(checkoutRecoveryKey);
+      setIsCheckoutOpen(true);
+      setPaymentSession(null);
+      setCheckoutError('');
+      setPaymentReturnReconciliation({
+        provider: 'stripe', paymentSessionId: returnedPaymentSessionId,
+        checkoutAccessToken: returnedCheckoutAccessToken, timedOut: false, weeklyPos: true, abandoned: true,
+      });
+      const cleanUrl = new URL(window.location.href);
+      window.history.replaceState({}, '', `${cleanUrl.pathname}${cleanUrl.hash}`);
+      return;
+    }
+    if (isCurlecPaymentLinkReturn || isWeeklyPosPaymentReturn) {
       // A Payment Link opens a full-page provider flow, so its return is a fresh
       // Store page. Re-open the existing checkout context before reading state.
       // The payment session is intentionally not restored: it must never offer
@@ -605,7 +621,8 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
         provider: returnedProvider,
         paymentSessionId: returnedPaymentSessionId,
         checkoutAccessToken: returnedCheckoutAccessToken,
-        timedOut: false
+        timedOut: false,
+        ...(isWeeklyPosPaymentReturn ? { weeklyPos: true } : {}),
       });
       const cleanUrl = new URL(window.location.href);
       cleanUrl.search = '';
@@ -1600,10 +1617,12 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
             <section aria-live="polite" aria-labelledby="payment-return-confirming-heading" className="mt-5 rounded-2xl bg-primary/5 p-4 text-primary">
               <Clock3 className="h-6 w-6" />
               <h3 id="payment-return-confirming-heading" className="mt-2 font-display text-xl font-bold">
-                {paymentReturnReconciliation.timedOut ? 'Payment confirmation is taking longer.' : 'Checking payment status…'}
+                {paymentReturnReconciliation.abandoned ? 'Payment was not completed.'
+                  : paymentReturnReconciliation.timedOut ? 'Payment confirmation is taking longer.' : 'Checking payment status…'}
               </h3>
               <p className="mt-1 font-sans text-sm font-bold text-on-surface-variant">
-                {paymentReturnReconciliation.timedOut
+                {paymentReturnReconciliation.abandoned ? 'Reopen the payment link to try again.'
+                  : paymentReturnReconciliation.timedOut
                   ? 'Please do not pay again. We are still waiting for secure payment confirmation.'
                   : 'Please do not pay again. We are securely checking the payment you just made.'}
               </p>
@@ -1670,7 +1689,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
             </section>
           )}
 
-          {paymentSession ? (
+          {paymentReturnReconciliation?.weeklyPos ? null : paymentSession ? (
             <section ref={paymentStageRef} aria-labelledby="payment-stage-heading" className="mt-5 scroll-mt-24">
               {paymentSession.groupOrder && (
                 <div className="mb-4 rounded-2xl border border-secondary/25 bg-secondary/10 p-4">

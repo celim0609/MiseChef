@@ -6,7 +6,7 @@ const page = readFileSync(new URL('./PublicStorePage.tsx', import.meta.url), 'ut
 
 test('a recognized Curlec Payment Link return opens the checkout confirmation context', () => {
   assert.match(page, /const isCurlecPaymentLinkReturn = returnedProvider === 'curlec' && query\.has\('razorpay_payment_link_id'\)/);
-  assert.match(page, /if \(isCurlecPaymentLinkReturn\) \{[\s\S]*setIsCheckoutOpen\(true\)/);
+  assert.match(page, /if \(isCurlecPaymentLinkReturn \|\| isWeeklyPosPaymentReturn\) \{[\s\S]*setIsCheckoutOpen\(true\)/);
   assert.match(page, /if \(\['paid', 'pending_verification'\]\.includes\(result\.paymentStatus\)\) \{[\s\S]*setPlacedOrder\(result\)/);
   assert.match(page, /placedOrder\.paymentStatus === 'paid' \? 'Payment Successful'/);
 });
@@ -28,4 +28,12 @@ test('reconciliation cannot restore a duplicate-payment CTA', () => {
 test('an incomplete or unrecognized return is ignored safely', () => {
   assert.match(page, /if \(!returnedProvider \|\| !returnedPaymentSessionId \|\| !returnedCheckoutAccessToken\) return/);
   assert.match(page, /query\.has\('razorpay_payment_link_id'\)\) return;/);
+});
+
+
+test('Weekly POS Stripe returns reuse polling and leaving checkout does not cancel the provider link', () => {
+  assert.match(page, /const isWeeklyPosPaymentReturn = returnedProvider === 'stripe' && query.get\('weekly_pos_payment'\) === '1'/);
+  assert.match(page, /if \(isWeeklyPosPaymentReturn && wasCancelled\) \{[\s\S]*abandoned: true[\s\S]*return;/);
+  assert.match(page, /paymentReturnReconciliation\?\.weeklyPos \? null : paymentSession/);
+  assert.ok(page.indexOf('if (isWeeklyPosPaymentReturn && wasCancelled)') < page.indexOf('const cancelReturnedPayment'));
 });

@@ -878,8 +878,9 @@ test('Weekly POS custom fulfilment and Stripe lifecycle retain one immutable pen
     assert.equal((await manage(owner, 'cancel')).status, 'cancelled');
     assert.equal((await ref.get()).data().payment.provider, 'manual_pos');
     assert.equal((await ref.get()).data().payment.status, 'pending');
-    const second = await manage(manager, 'generate');
+    const [second, secondRetry] = await Promise.all([manage(manager, 'generate'), manage(owner, 'generate')]);
     assert.notEqual(second.url, first.url);
+    assert.equal(second.url, secondRetry.url);
     assert.equal(sessions.size, 2);
     captureDuringCancel = true;
     assert.equal((await manage(owner, 'cancel')).status, 'paid');

@@ -219,6 +219,8 @@ test('Weekly POS Stripe session scopes idempotency to the attempt and sets expli
   assert.equal(params.client_reference_id, order.id);
   assert.equal(params.line_items[0].price_data.unit_amount, order.payment.amountMinor);
   assert.equal(params.expires_at, weeklyPosSession.expiresAt);
+  assert.equal(new URL(params.success_url).searchParams.get('weekly_pos_payment'), '1');
+  assert.equal(new URL(params.cancel_url).searchParams.get('weekly_pos_payment'), '1');
   assert.deepEqual(params.payment_method_types, ['card']);
   assert.equal(options.idempotencyKey, 'misechef-weekly-pos-pos-session-key');
 });
