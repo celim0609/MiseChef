@@ -988,8 +988,9 @@ test('Curlec Weekly POS recovers one link, verifies paid events, closes unpaid l
       return response(link);
     },
   });
+  const testAdapter = { ...adapter, curlecEnvironment: 'test' };
   const handler = createCurlecStorePaymentWebhookHandler({
-    webhookDb: db, createAdapter: () => adapter, getCurlecKeyId: () => 'rzp_test_fake',
+    webhookDb: db, createAdapter: () => adapter, curlecEnvironment: 'test', getCurlecKeyId: () => 'rzp_test_fake',
     getCurlecKeySecret: () => 'fake-secret', getWebhookSecret: () => secret,
   });
   const webhook = async (link, payment, eventId, signature) => {
@@ -1024,12 +1025,12 @@ test('Curlec Weekly POS recovers one link, verifies paid events, closes unpaid l
     };
     const order = await createOrder();
     const manage = (ref, uid, action, settings = {}) => manageWeeklyPosPaymentLink({
-      db, uid, adapter, sellingWorkspaceId: workspaceId, now, ...settings,
+      db, uid, adapter: testAdapter, newCurlecEnvironment: 'test', sellingWorkspaceId: workspaceId, now, ...settings,
       input: { orderId: ref.id, action, provider: 'curlec', expectedRevision: 1, customerEmail: email,
         returnUrl: `https://misechef-beta-fa4bf.web.app/store/${workspaceId}`, ...settings.input },
     });
     const availability = (uid, configuredProviders) => manageWeeklyPosPaymentLink({
-      db, uid, adapter, sellingWorkspaceId: workspaceId, configuredProviders, input: { action: 'availability', storeId: workspaceId },
+      db, uid, adapter: testAdapter, sellingWorkspaceId: workspaceId, configuredProviders, input: { action: 'availability', storeId: workspaceId },
     });
     assert.deepEqual(await availability(manager, ['curlec','stripe']), { providers: ['curlec'] });
     assert.deepEqual(await availability(owner, ['stripe']), { providers: [] });
@@ -1043,19 +1044,25 @@ test('Curlec Weekly POS recovers one link, verifies paid events, closes unpaid l
     await assert.rejects(manage(order, owner, 'generate', { merchantIdentity: () => 'different-account' }), /original merchant/);
     await assert.rejects(confirmManualPosPayment({ db, uid: owner, now, input: {
       orderId: order.id, expectedRevision: 1, amountMinor: 4400, received: true, reference: 'Cash', method: 'cash',
-    } }), /Verify the received payment/);
+    } }), /sandbox order cannot record a manual payment/);
 
     const [first, retry] = await Promise.all([manage(order, owner, 'generate'), manage(order, manager, 'generate')]);
     assert.equal(first.status, 'active');
     assert.equal(first.url, retry.url);
     assert.equal(postCount, 1);
+    assert.equal((await order.get()).data().payment.curlecEnvironment, 'test');
+    assert.equal((await manage(order, owner, 'generate', { configuredProviders: [] })).url, first.url);
+    const rollbackDraft = await createOrder();
+    await assert.rejects(manage(rollbackDraft, owner, 'generate', { configuredProviders: [] }), /unavailable/);
+    assert.equal((await rollbackDraft.get()).data().payment.provider, 'manual_pos');
+    await rollbackDraft.delete();
     await order.update({ 'payment.amountMinor': 4401 });
     await assert.rejects(manage(order, owner, 'generate'), /requires reconciliation/);
     await order.update({ 'payment.amountMinor': 4400, currency: 'SGD' });
     await assert.rejects(manage(order, owner, 'generate'), /requires reconciliation/);
     await order.update({ currency: 'MYR' });
     const live = [...links.values()][0];
-    const guest = { db, adapter, sellingWorkspaceId: workspaceId, slug: workspaceId, providerPaymentId: live.id,
+    const guest = { db, adapter: testAdapter, sellingWorkspaceId: workspaceId, slug: workspaceId, providerPaymentId: live.id,
       checkoutAccessToken: new URL(live.callback_url).searchParams.get('payment_access_token') };
     assert.equal((await getStorePaymentResult(guest)).paymentStatus, 'pending');
     await assert.rejects(getStorePaymentResult({ ...guest, checkoutAccessToken: 'wrong' }), /token is invalid/);
@@ -1068,13 +1075,15 @@ test('Curlec Weekly POS recovers one link, verifies paid events, closes unpaid l
     assert.equal((await webhook(live, payment, 'curlec-paid')).value.duplicate, true);
     const paidGuest = await getStorePaymentResult(guest);
     assert.equal(paidGuest.paymentStatus, 'paid');
+    assert.equal(paidGuest.testPayment, true);
+    assert.equal((await db.collection('storeNotifications').doc(`new-paid-order_${order.id}`).get()).exists, false);
     for (const key of ['customerEmail','workspaceId','manualOrder','notes','payment']) assert.equal(paidGuest[key], undefined);
     assert.equal((await db.collection('storeOrderTimeline').where('orderId', '==', order.id).where('type', '==', 'payment_received').get()).size, 1);
 
     const cancellation = await createOrder();
     await Promise.all([manage(cancellation, owner, 'generate'), manage(cancellation, manager, 'generate')]);
     assert.equal(links.size, 2);
-    assert.equal((await manage(cancellation, manager, 'cancel')).status, 'cancelled');
+    assert.equal((await manage(cancellation, manager, 'cancel', { configuredProviders: [] })).status, 'cancelled');
     assert.equal((await cancellation.get()).data().payment.provider, 'manual_pos');
     await manage(cancellation, manager, 'generate');
     const expiring = [...links.values()].at(-1);
@@ -1088,6 +1097,84 @@ test('Curlec Weekly POS recovers one link, verifies paid events, closes unpaid l
     captureDuringCancel = true;
     assert.equal((await manage(cancellation, owner, 'cancel')).status, 'paid');
     assert.equal((await cancellation.get()).data().payment.status, 'paid');
+    assert.equal((await db.collection('storeOrders').where('workspaceId', '==', workspaceId).get()).size, 2);
+  } finally {
+    await deleteApp(app);
+  }
+});
+
+test('public Curlec cutover keeps legacy checkout retries on live and pauses new test creation on rollback', async () => {
+  const { getStorePaymentResult } = await import('../functions/storePayments.js');
+  const { createModeBoundCurlecAdapter, storedCurlecEnvironment } = await import('../functions/curlecEnvironment.js');
+  const app = initializeApp({ projectId: 'demo-misechef-store-payment-rules' }, `curlec-cutover-${process.pid}`);
+  const db = getFirestore(app);
+  const workspaceId = `curlec-cutover-${process.pid}`;
+  const prod = `${workspaceId}-meal`;
+  const checkout = { paymentMethodId: 'curlec', customerName: 'Guest', phone: '+60123456789', pickupDate: '2026-08-24',
+    pickupTime: '10:00', pickupLocationId: 'counter', pickupSession: 'Breakfast', notes: '',
+    selections: [{ productId: prod, quantity: 1, selectedOptions: [] }] };
+  const oldDraft = { ...checkout, checkoutAttemptId: '95b3c233-9fe4-4f03-9677-2774106b5201' };
+  const testDraft = { ...checkout, checkoutAttemptId: 'a5b3c233-9fe4-4f03-9677-2774106b5201' };
+  const paidDraft = { ...checkout, checkoutAttemptId: 'b5b3c233-9fe4-4f03-9677-2774106b5201' };
+  const creations = [];
+  const captures = [];
+  const makeAdapter = mode => createModeBoundCurlecAdapter(() => ({
+    provider: 'curlec', mode: 'standard_checkout', requiresSellingWorkspace: true,
+    async createPayment({ order }) {
+      creations.push({ mode, id: order.id });
+      const id = `order_${mode}${creations.length}`;
+      return { providerPaymentId: id, checkout: { type: 'curlec_standard_checkout', orderId: id } };
+    },
+    async retrievePayment(id) {
+      const hit = (await db.collection('storeOrders').where('payment.providerPaymentId', '==', id).limit(1).get()).docs[0];
+      return { orderId: hit.id, providerPaymentId: id, status: hit.data().payment.status };
+    },
+    async retrieveVerifiedCapturedPayment({ order }) {
+      assert.equal(storedCurlecEnvironment(order), mode);
+      captures.push(mode);
+      return { orderId: order.id, providerPaymentId: order.payment.providerPaymentId, providerTransactionId: `pay_${mode}capture`,
+        amountMinor: 1200, currency: 'MYR', status: 'paid', providerStatus: 'captured' };
+    },
+  }), mode, { curlecKeyId: `rzp_${mode}_Fixture`, curlecKeySecret: 'not-real' });
+  let testOn = false;
+  const request = (draft, mode = 'test') => createStorePayment({
+    db, slug: workspaceId, sellingWorkspaceId: workspaceId, now: NOW, draft,
+    adapter: mode === 'pre-isolation' ? { ...makeAdapter('live'), curlecEnvironment: undefined } : makeAdapter(mode),
+    resolveExistingAdapter: order => makeAdapter(storedCurlecEnvironment(order)),
+    ...(mode === 'pre-isolation' ? {} : { assertNewCheckoutAllowed: () => {
+      if (!testOn) throw Error('Test Mode disabled');
+    } }),
+  });
+  try {
+    await db.collection('stores').doc(workspaceId).set({
+      workspaceId, slug: workspaceId, name: 'Cutover QA', country: 'MY', currency: 'MYR', pickupEnabled: true,
+      pickupOperatingHours: { start: '09:00', end: '18:00' }, pickupSessions: ['Breakfast'],
+      pickupLocations: [{ id: 'counter', name: 'Counter', address: '' }], orderDays: ['monday'],
+      earliestPickupDays: 0, maximumAdvanceDays: 14, unavailableDates: [], paymentMethods: [{ id: 'curlec', enabled: true }],
+    });
+    await db.collection('storeProducts').doc(prod).set({ storeId: workspaceId, workspaceId, name: 'QA meal', available: true, price: 12 });
+    const live = await request(oldDraft, 'pre-isolation');
+    assert.equal((await request(oldDraft)).paymentSessionId, live.paymentSessionId);
+    await assert.rejects(request(testDraft), /Test Mode disabled/);
+    assert.equal(creations.length, 1);
+    testOn = true;
+    const sandbox = await request(testDraft);
+    assert.equal(creations.length, 2);
+    const rows = await db.collection('storeOrders').where('workspaceId', '==', workspaceId).get();
+    assert.deepEqual(new Set(rows.docs.map(snapshot => snapshot.data().payment.curlecEnvironment)), new Set([undefined, 'test']));
+    testOn = false;
+    assert.equal((await request(testDraft)).paymentSessionId, sandbox.paymentSessionId);
+    await assert.rejects(request(paidDraft), /Test Mode disabled/);
+    const result = (session, mode) => getStorePaymentResult({ db, adapter: makeAdapter(mode),
+      sellingWorkspaceId: workspaceId, slug: workspaceId, providerPaymentId: session.paymentSessionId,
+      checkoutAccessToken: session.checkoutAccessToken });
+    await assert.rejects(result(live, 'test'), /environment does not match/);
+    await assert.rejects(result(sandbox, 'live'), /environment does not match/);
+    assert.equal((await result(live, 'live')).paymentStatus, 'paid');
+    const sandboxResult = await result(sandbox, 'test');
+    assert.equal(sandboxResult.paymentStatus, 'paid');
+    assert.equal(sandboxResult.testPayment, true);
+    assert.deepEqual(captures, ['live', 'test']);
     assert.equal((await db.collection('storeOrders').where('workspaceId', '==', workspaceId).get()).size, 2);
   } finally {
     await deleteApp(app);

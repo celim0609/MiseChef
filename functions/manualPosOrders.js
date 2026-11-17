@@ -537,6 +537,8 @@ export async function confirmManualPosPayment({
       order.fulfilmentStatus === "Cancelled"
     )
       fail("Choose an active manual preorder.");
+    if (order.payment.curlecEnvironment === 'test')
+      fail('A sandbox order cannot record a manual payment.');
     if (order.payment.status === "paid")
       return { orderId: ref.id, duplicate: true };
     if (

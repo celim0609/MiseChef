@@ -32,7 +32,7 @@ const fingerprint = (order, entry, resolved, fee) => createHash('sha256').update
   entry, resolved, environment: order.delivery?.environment, pricing: bookingPricing(order, entry, fee),
 })).digest('hex');
 const assertReady = (order, entry) => {
-  if (order.groupDelivery || order.manualOrder || order.payment?.status !== 'paid' || ['Completed', 'Cancelled'].includes(order.fulfilmentStatus) || order.fulfilmentCompletion?.[entry.id] || order.fulfilmentOperations?.[entry.id]?.kitchenStatus !== 'Ready') throw blocked('Only paid, Ready delivery fulfilments can request Lalamove.');
+  if (order.payment?.curlecEnvironment === 'test' || order.groupDelivery || order.manualOrder || order.payment?.status !== 'paid' || ['Completed', 'Cancelled'].includes(order.fulfilmentStatus) || order.fulfilmentCompletion?.[entry.id] || order.fulfilmentOperations?.[entry.id]?.kitchenStatus !== 'Ready') throw blocked('Only paid, Ready delivery fulfilments can request Lalamove.');
 };
 const assertUnbooked = operation => {
   if (operation?.providerOrder?.orderId || !['not_requested', 'failed'].includes(operation?.dispatch?.status || 'not_requested')) throw blocked('An existing or uncertain booking is locked. Reconcile it before requesting a replacement.');

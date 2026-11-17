@@ -59,6 +59,7 @@ export default function WeeklyPosPaymentActions({ order, slug, providers, initia
   });
   const button = 'rounded border px-3 py-2 font-bold disabled:opacity-50';
   return <section aria-label="Weekly POS payment" className="mt-2 space-y-2 text-sm">
+    {order.payment.curlecEnvironment === 'test' && <p className="font-bold">Curlec Test Mode</p>}
     <p className="font-bold">{order.orderNumber} · {order.currency} {order.total.toFixed(2)} · {paid ? 'Paid' : 'Pending payment'}</p>
     {!paid && !active && initialWorkflow === 'link' && <p>Generate the customer link from this saved order.</p>}
     {!paid && !active && providers.length > 1 && <label className="block">Payment provider
@@ -76,7 +77,7 @@ export default function WeeklyPosPaymentActions({ order, slug, providers, initia
         {active ? 'Retrieve Payment Link' : 'Generate Payment Link'}
       </button>}
       {(active || error) && (providers.length > 0 || active) && <button type="button" className={button} disabled={busy} onClick={() => void link('cancel')}>Cancel Payment Link</button>}
-      {!active && <button type="button" className={button} disabled={busy} onClick={() => setShowManual(value => !value)}>Manual Payment</button>}
+      {!active && order.payment.curlecEnvironment !== 'test' && <button type="button" className={button} disabled={busy} onClick={() => setShowManual(value => !value)}>Manual Payment</button>}
     </div>}
     {url && !paid && <div className="flex flex-wrap items-end gap-2">
       <label className="min-w-48 flex-1">Customer payment link
@@ -87,7 +88,7 @@ export default function WeeklyPosPaymentActions({ order, slug, providers, initia
         setMessage('Payment link copied.');
       })}>Copy link</button>
     </div>}
-    {showManual && !paid && !active && <div className="flex flex-wrap items-end gap-2">
+    {showManual && !paid && !active && order.payment.curlecEnvironment !== 'test' && <div className="flex flex-wrap items-end gap-2">
       <label>Payment method
         <select className="ml-1 rounded border p-2" value={method} onChange={event => setMethod(event.target.value)}>
           <option value="bank_transfer">Bank transfer</option><option value="cash">Cash</option>

@@ -483,6 +483,7 @@ export const fulfilmentContext = async ({ db, provider, uid, orderId, fulfilment
   const order = snapshot.data();
   if (!internal) await assertWorkspaceOperator({ db, uid, order, ownerManagerOnly });
   const entry = order.fulfilments?.find(entry => entry.id === fulfilmentId && canonicalFulfilmentMethod(order, entry) === 'delivery');
+  if (order.payment?.curlecEnvironment === 'test') throw deliveryError('Test payments cannot book a delivery.');
   if (order.groupDelivery || order.delivery?.arrangedExternally === true) throw deliveryError('This delivery is arranged externally. No Lalamove booking is needed.');
   if (!entry || canonicalFulfilmentMethod(order, entry) !== 'delivery') throw deliveryError('Choose a delivery fulfilment.');
   assertDeliveryEnvironment({ delivery: order.delivery, provider });

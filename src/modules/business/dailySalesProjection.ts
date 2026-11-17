@@ -13,7 +13,7 @@ export interface DailySalesOrder {
   total: number;
   items: OrderItem[];
   totals?: { discountedMerchandiseTotal?: number; deliveryFee?: number; discountTotal?: number; merchandiseSubtotal?: number };
-  payment: { status: string; refundedAmountMinor?: number; refundStatus?: string };
+  payment: { status: string; curlecEnvironment?: 'live' | 'test'; refundedAmountMinor?: number; refundStatus?: string };
   fulfilmentStatus: string;
   completedAt?: string;
   fulfilmentMethod?: StoreOrder['fulfilmentMethod'];
@@ -223,6 +223,7 @@ const getSalesDetails = (order: DailySalesOrder, days: SalesDay[], netMerchandis
 };
 
 export const projectOrderSalesRecords = (order: DailySalesOrder): DailySalesEntry[] => {
+  if (order.payment.curlecEnvironment === 'test') return [];
   const days = getDays(order);
   const total = minor(order.total);
   const deliveryTotal = getDeliveryTotal(order);

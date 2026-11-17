@@ -1,3 +1,4 @@
+import { assertCurlecEnvironment } from './curlecEnvironment.js';
 import { weeklyPosCurlecReference } from './paymentProviders/curlecPaymentLink.js';
 import { readCheckoutCode, writeCodeReservation, prepareCodeTransition } from './storePromotionCodes.js';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
@@ -118,6 +119,7 @@ export const recoverIncompleteStoreCheckoutAttempt = async ({
   const orderSnapshot = await orderReference.get();
   if (!orderSnapshot.exists) throw new Error('The matching MiseChef order could not be found.');
   const order = orderSnapshot.data();
+  assertCurlecEnvironment(order, activeAdapter.curlecEnvironment);
   if (readString(order?.payment?.provider) !== readString(activeAdapter.provider)
     || readString(order?.payment?.providerMode) !== readString(activeAdapter.mode)
     || !readString(order?.payment?.providerPaymentId)) return null;
@@ -133,6 +135,7 @@ export const recoverIncompleteStoreCheckoutAttempt = async ({
     if (!currentAttempt.exists || !currentOrder.exists) throw new Error('The checkout attempt changed during recovery.');
     const current = currentAttempt.data();
     const currentOrderData = currentOrder.data();
+    assertCurlecEnvironment(currentOrderData, activeAdapter.curlecEnvironment);
     if (readString(current?.providerPaymentId) && current?.checkout && readString(current?.checkoutAccessToken)) {
       return { replay: true, attempt: current, order: currentOrderData };
     }
@@ -280,6 +283,7 @@ export const claimPublicStoreGuestOrderOperation = async ({
     requiresSellingWorkspace: false,
     sellingWorkspaceId: ''
   });
+  assertCurlecEnvironment(initialOrder, adapter.curlecEnvironment);
   const orderId = readString(payment?.orderId);
   if (!orderId || readString(initialOrder.payment?.providerPaymentId) !== readString(payment.providerPaymentId)) {
     throw new HttpsError('failed-precondition', 'This payment does not match this MiseChef order.');
@@ -289,6 +293,7 @@ export const claimPublicStoreGuestOrderOperation = async ({
     const orderSnapshot = await transaction.get(orderReference);
     if (!orderSnapshot.exists) throw new HttpsError('not-found', 'The matching MiseChef order could not be found.');
     const order = orderSnapshot.data();
+    assertCurlecEnvironment(order, adapter.curlecEnvironment);
     if (readString(order.payment?.provider) !== readString(adapter.provider)
       || readString(order.payment?.providerPaymentId) !== readString(payment.providerPaymentId)
       || !hasValidCheckoutAccessToken(order, checkoutAccessToken)) {
@@ -322,6 +327,7 @@ export const reconcileStorePayment = async ({ db, payment }) => {
     const orderSnapshot = await transaction.get(orderReference);
     if (!orderSnapshot.exists) throw new Error('The matching MiseChef order could not be found.');
     const order = orderSnapshot.data();
+    assertCurlecEnvironment(order, payment.curlecEnvironment);
     if (readString(order.payment?.providerPaymentId) !== readString(payment.providerPaymentId)) {
       throw new Error('Payment does not match this MiseChef order.');
     }
@@ -353,6 +359,11 @@ export const reconcileStorePayment = async ({ db, payment }) => {
     // A payment confirmation is terminal. Gateways can legitimately send an
     // older failed/expired event after capture, but it must never undo fulfilment.
     if (previousPaymentStatus === PAYMENT_STATUS.paid && payment.status !== PAYMENT_STATUS.paid) {
+      return order;
+    }
+    if (payment.curlecEnvironment && previousPaymentStatus === PAYMENT_STATUS.paid) {
+      if (!providerTransactionId || providerTransactionId !== readString(order.payment.providerTransactionId))
+        throw new Error('A different Curlec capture is already recorded for this order.');
       return order;
     }
     const paymentStatus = payment.status;
@@ -398,7 +409,7 @@ export const reconcileStorePayment = async ({ db, payment }) => {
     const writeCodeTransition = codeTerminal ? await prepareCodeTransition({db,transaction,order:{...order,id:orderId},nextState:paymentStatus === PAYMENT_STATUS.paid ? 'committed' : 'released',reason:paymentStatus,paidAt:payment.paidAt}) : ()=>{};
     writeCodeTransition();
     transaction.update(orderReference, update);
-    if (isNewPaidOrder && !order.groupDelivery && notificationReference && !notificationSnapshot.exists) {
+    if (isNewPaidOrder && order.payment?.curlecEnvironment !== 'test' && !order.groupDelivery && notificationReference && !notificationSnapshot.exists) {
       transaction.create(notificationReference, buildStoreNotification({
         id: notificationReference.id,
         type: STORE_NOTIFICATION_TYPE.newOrder,
@@ -415,7 +426,7 @@ export const reconcileStorePayment = async ({ db, payment }) => {
         workspaceId: readString(order.workspaceId),
         storeId: readString(order.storeId),
         type: 'payment_received',
-        label: 'Payment Received',
+        label: order.payment?.curlecEnvironment === 'test' ? 'Test Payment Received' : 'Payment Received',
         previousStatus: '',
         newStatus: 'Paid',
         actingUserId: 'system:payment',
@@ -485,6 +496,8 @@ export const createStorePayment = async ({
   db,
   adapter,
   resolveAdapter,
+  resolveExistingAdapter,
+  assertNewCheckoutAllowed,
   sellingWorkspaceId,
   customerUid = '',
   promotionMemberUid = customerUid,
@@ -556,8 +569,10 @@ export const createStorePayment = async ({
     if (prior.groupMealCustomerUid && prior.groupMealCustomerUid !== customerUid) throw new HttpsError('permission-denied', 'Checkout belongs to another account.');
     if (prior.promotionCodeMemberUid && prior.promotionCodeMemberUid !== customerUid) throw new HttpsError('permission-denied','This member code checkout belongs to another account.');
     if (!readString(prior?.providerPaymentId) || !prior?.checkout || !readString(prior?.checkoutAccessToken)) {
+      const original = resolveExistingAdapter && (await db.collection('storeOrders').doc(readString(prior.orderId)).get()).data();
+      const recoveryAdapter = original?.payment?.provider === 'curlec' ? resolveExistingAdapter(original) : activeAdapter;
       const recovered = await recoverIncompleteStoreCheckoutAttempt({
-        db, checkoutAttemptReference, priorAttempt: prior, activeAdapter
+        db, checkoutAttemptReference, priorAttempt: prior, activeAdapter: recoveryAdapter
       });
       if (recovered) return recovered;
       checkoutAttemptLog('Store checkout attempt remains incomplete', {
@@ -567,6 +582,9 @@ export const createStorePayment = async ({
     }
     return replayStoreCheckoutAttempt({ db, priorAttempt: prior, mode: activeAdapter.mode });
   }
+  assertNewCheckoutAllowed?.(activeAdapter);
+  if (activeAdapter.curlecEnvironment === 'test' && (groupOrder || groupMealCheckout))
+    throw new HttpsError('failed-precondition', 'Curlec Test Mode checkout is unavailable for shared orders.');
   const { order } = await db.runTransaction(async transaction => {
     const currentGroupOrder = await revalidateCheckoutGroupInTransaction({
       db,
@@ -644,6 +662,7 @@ export const createStorePayment = async ({
       // Recovery uses the exact original provider request and idempotency key.
       // The raw capability is stored only in the server-only reservation queue.
     }
+    if (activeAdapter.curlecEnvironment) pendingOrder.payment.curlecEnvironment = activeAdapter.curlecEnvironment;
     pendingOrder.payment.checkoutAccessTokenHash = hashCheckoutAccessToken(checkoutAccessToken);
     // Store Order History performs Firestore Timestamp range queries. Keep the
     // nested payment clock as its existing provider-facing ISO value, but write
@@ -665,6 +684,7 @@ export const createStorePayment = async ({
     transaction.create(checkoutAttemptReference, {
       orderId: orderReference.id,
       storeId,
+      ...(activeAdapter.curlecEnvironment ? { curlecEnvironment: activeAdapter.curlecEnvironment } : {}),
       ...(codeReservation ? {promotionCodeMemberUid:customerUid} : {}),
       ...(groupMeal ? { groupMealCustomerUid: customerUid } : {}),
       createdAt: now.toISOString()
@@ -756,6 +776,7 @@ export const getStorePaymentResult = async ({
     checkoutAccessToken
   });
   const verificationAdapter = resolveVerificationAdapter?.(authorizedOrder) || adapter;
+  assertCurlecEnvironment(authorizedOrder, verificationAdapter.curlecEnvironment);
   // Most gateways remain webhook-owned. Curlec Standard Checkout additionally
   // supports a strictly authorized, server-side captured-payment lookup for
   // recovery when a signed webhook has not arrived.
@@ -772,7 +793,7 @@ export const getStorePaymentResult = async ({
   }
   const verifiedPayment = await verificationAdapter.retrieveVerifiedCapturedPayment({ order: authorizedOrder });
   if (!verifiedPayment) return toPublicOrderResult(authorizedOrder);
-  return toPublicOrderResult(await reconcileStorePayment({ db, payment: verifiedPayment }));
+  return toPublicOrderResult(await reconcileStorePayment({ db, payment: { ...verifiedPayment, curlecEnvironment: verificationAdapter.curlecEnvironment } }));
 };
 
 export const cancelStorePayment = async ({
@@ -793,12 +814,13 @@ export const cancelStorePayment = async ({
     slug,
     checkoutAccessToken
   });
+  assertCurlecEnvironment(order, adapter.curlecEnvironment);
   if (order.weeklyDayPos) return toPublicOrderResult(order);
   if (payment.status === PAYMENT_STATUS.paid) return toPublicOrderResult(order);
   const cancelledPayment = payment.status === PAYMENT_STATUS.cancelled
     ? payment
     : await adapter.cancelPayment(payment.providerPaymentId, { db });
-  const cancelledOrder = await reconcileStorePayment({ db, payment: cancelledPayment });
+  const cancelledOrder = await reconcileStorePayment({ db, payment: { ...cancelledPayment, curlecEnvironment: adapter.curlecEnvironment } });
   return toPublicOrderResult(cancelledOrder);
 };
 
@@ -824,6 +846,7 @@ export const handleStorePaymentWebhook = async ({ db, adapter, event, onRejectio
     if (readString(linkedOrder?.payment?.provider) === 'curlec'
       && readString(linkedOrder?.payment?.providerMode) === 'payment_link'
       && readString(linkedOrder?.payment?.providerPaymentId).startsWith('plink_')) {
+      assertCurlecEnvironment(linkedOrder, adapter.curlecEnvironment);
       return { received: true, ignored: true, reason: 'payment_link_companion_event' };
     }
   }
@@ -836,10 +859,31 @@ export const handleStorePaymentWebhook = async ({ db, adapter, event, onRejectio
     if (orders.size !== 1) throw new Error('Curlec payment has no unique MiseChef order.');
     update.payment.orderId = orders.docs[0].id;
   }
-  const eventReference = db.collection('storePaymentEvents').doc(event.id);
+  let legacyCurlecCapture;
+  if (adapter.curlecEnvironment) {
+    const saved = await db.collection('storeOrders').doc(update.payment.orderId).get();
+    if (!saved.exists) throw new Error('The matching MiseChef order could not be found.');
+    const order = { ...saved.data(), id: saved.id };
+    assertCurlecEnvironment(order, adapter.curlecEnvironment);
+    if (order.payment.providerPaymentId !== update.payment.providerPaymentId)
+      throw new Error('Payment does not match this MiseChef order.');
+    if (!order.payment.curlecEnvironment && update.payment.status === PAYMENT_STATUS.paid)
+      legacyCurlecCapture = order;
+  }
+  const eventId = adapter.curlecEnvironment === 'test' ? `curlec_test_${event.id}` : event.id;
+  const eventReference = db.collection('storePaymentEvents').doc(eventId);
   onRejectionStage?.('event_dedupe_read');
   const priorEvent = await eventReference.get();
   if (priorEvent.exists) return { received: true, duplicate: true };
+  // Verify an untagged capture against the original live merchant. Already
+  // reconciled deliveries can still be acknowledged during a provider outage.
+  if (legacyCurlecCapture) {
+    const verified = await adapter.retrieveVerifiedCapturedPayment({ order: legacyCurlecCapture });
+    if (!verified || verified.providerTransactionId !== update.payment.providerTransactionId)
+      throw new Error('The legacy Curlec capture could not be verified in Live Mode.');
+    update.payment = verified;
+  }
+  if (adapter.curlecEnvironment) update.payment = { ...update.payment, curlecEnvironment: adapter.curlecEnvironment };
   onRejectionStage?.('reconciliation');
   if (update.kind === 'refund') {
     await reconcileStoreRefund({ db, payment: update.payment });
@@ -850,6 +894,7 @@ export const handleStorePaymentWebhook = async ({ db, adapter, event, onRejectio
   await eventReference.set({
     provider: adapter.provider,
     providerMode: adapter.mode,
+    ...(adapter.curlecEnvironment ? { curlecEnvironment: adapter.curlecEnvironment } : {}),
     type: event.type,
     providerPaymentId,
     providerTransactionId: readString(update.payment?.providerTransactionId),

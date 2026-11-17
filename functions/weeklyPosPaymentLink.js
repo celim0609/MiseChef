@@ -1,3 +1,4 @@
+import { assertCurlecEnvironment } from './curlecEnvironment.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
@@ -29,7 +30,7 @@ const enabledProviders = (store, sellingWorkspaceId, configuredProviders) =>
 
 export async function manageWeeklyPosPaymentLink({
   db, uid, input, adapter, resolveAdapter = () => adapter,
-  merchantIdentity = provider => provider, configuredProviders = adapter ? [adapter.provider || 'stripe'] : [], sellingWorkspaceId, now = new Date(),
+  merchantIdentity = provider => provider, newCurlecEnvironment, configuredProviders = adapter ? [adapter.provider || 'stripe'] : [], sellingWorkspaceId, now = new Date(),
 }) {
   if (!uid) throw new HttpsError('unauthenticated', 'Sign in to manage a payment link.');
   if (input?.action === 'availability') {
@@ -57,6 +58,7 @@ export async function manageWeeklyPosPaymentLink({
     if (order.weeklyPosLink) {
       const attemptRef = db.collection('storeCheckoutAttempts').doc(order.weeklyPosLink.attemptId);
       const attempt = (await tx.get(attemptRef)).data();
+      if (attempt?.curlecEnvironment) assertCurlecEnvironment(order, attempt.curlecEnvironment);
       if (!attempt || attempt.storeId !== order.storeId || attempt.orderId !== ref.id || attempt.revision !== order.manualOrder.revision
         || attempt.provider !== order.payment.provider || attempt.mode !== order.payment.providerMode || attempt.amountMinor !== order.payment.amountMinor
         || attempt.currency !== order.currency || attempt.expiresAt !== order.weeklyPosLink.expiresAt
@@ -72,10 +74,13 @@ export async function manageWeeklyPosPaymentLink({
     const provider = readString(input.provider);
     if (!enabledProviders(store, sellingWorkspaceId, configuredProviders).includes(provider))
       fail('The selected payment provider is unavailable for this Store.');
-    const activeAdapter = resolveAdapter(provider);
-    if (activeAdapter.provider !== provider || (provider === 'curlec' && activeAdapter.mode !== 'payment_link'))
+    const environment = provider === 'curlec' ? newCurlecEnvironment : undefined;
+    if (order.payment.curlecEnvironment === 'test' && environment !== 'test')
+      fail('A sandbox order cannot use a live payment method.');
+    const activeAdapter = resolveAdapter(provider, environment);
+    if (activeAdapter.provider !== provider || activeAdapter.curlecEnvironment !== environment || (provider === 'curlec' && activeAdapter.mode !== 'payment_link'))
       fail('The selected payment provider is unavailable for this Store.');
-    const merchant = readString(merchantIdentity(provider));
+    const merchant = readString(merchantIdentity(provider, environment));
     if (!merchant) fail('The selected merchant account is unavailable.');
     const customerEmail = readString(input.customerEmail);
     if (provider === 'curlec' && (customerEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)))
@@ -97,6 +102,7 @@ export async function manageWeeklyPosPaymentLink({
       orderId: ref.id, storeId: order.storeId, revision: order.manualOrder.revision, provider, mode: activeAdapter.mode,
       amountMinor: order.payment.amountMinor, currency: order.currency, merchantFingerprint: hash(merchant),
       ...(provider === 'curlec' ? { customerEmail } : {}),
+      ...(environment ? { curlecEnvironment: environment } : {}),
       returnUrl, checkoutAccessToken, expiresAt, createdAt: now.toISOString(),
     };
     tx.create(attemptRef, attempt);
@@ -104,6 +110,7 @@ export async function manageWeeklyPosPaymentLink({
       weeklyPosLink: { attemptId, expiresAt, provider },
       weeklyPosLinkSequence: sequence,
       'payment.provider': provider,
+      ...(environment ? { 'payment.curlecEnvironment': environment } : {}),
       'payment.providerMode': activeAdapter.mode,
       'payment.checkoutAccessTokenHash': hash(checkoutAccessToken),
     });
@@ -112,12 +119,12 @@ export async function manageWeeklyPosPaymentLink({
   if (claim.status) return claim;
 
   const { order, attemptRef, attempt } = claim;
-  const merchant = readString(merchantIdentity(attempt.provider));
+  const merchant = readString(merchantIdentity(attempt.provider, attempt.curlecEnvironment));
   if (!merchant || attempt.merchantFingerprint !== hash(merchant))
     fail('The payment link requires reconciliation with its original merchant credentials.');
-  const gateway = resolveAdapter(attempt.provider);
+  const gateway = resolveAdapter(attempt.provider, attempt.curlecEnvironment);
   const curlec = attempt.provider === 'curlec';
-  if (gateway.provider !== attempt.provider || gateway.mode !== attempt.mode)
+  if (gateway.provider !== attempt.provider || gateway.mode !== attempt.mode || gateway.curlecEnvironment !== attempt.curlecEnvironment)
     fail('The saved payment provider is unavailable.');
   const weeklyPosSession = { id: attemptRef.id, expiresAt: attempt.expiresAt, revision: attempt.revision };
   const createArgs = {
@@ -210,7 +217,7 @@ export async function manageWeeklyPosPaymentLink({
     payment = await retrieve();
   }
   if (payment.status === PAYMENT_STATUS.paid) {
-    await reconcileStorePayment({ db, payment });
+    await reconcileStorePayment({ db, payment: { ...payment, curlecEnvironment: gateway.curlecEnvironment } });
     return { status: 'paid' };
   }
   if (payment.status === PAYMENT_STATUS.cancelled && payment.promotionTerminal === true) {

@@ -230,3 +230,13 @@ test('delivery records use the saved time slot for same-date POS quotes and char
   assert.deepEqual(projectDailyDeliveries(order).map(record => [record.customerFeeMinor, record.quotedCostMinor]),
     [[900, 600], [700, 400]]);
 });
+
+test('completed sandbox payments do not recognize revenue or alter the live projection', () => {
+  const original = weekly();
+  const live = projectDailySales(original);
+  assert.ok(live.length > 0);
+  assert.deepEqual(projectDailySales({ ...original, payment: { ...original.payment, curlecEnvironment: 'live' } }), live);
+  const testOrder: DailySalesOrder = { ...original, payment: { ...original.payment, curlecEnvironment: 'test' } };
+  assert.deepEqual(projectDailySales(testOrder), []);
+  assert.deepEqual(projectOrderSalesRecords(testOrder), []);
+});

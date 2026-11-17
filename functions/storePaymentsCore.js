@@ -645,6 +645,7 @@ export const toPublicPaymentOrderSummary = order => {
 };
 
 export const toPublicOrderResult = order => ({
+  ...(order.payment?.curlecEnvironment === 'test' ? { testPayment: true } : {}),
   ...(order.promotionCodeSnapshot ? { promotionCodeSnapshot: structuredClone(order.promotionCodeSnapshot) } : {}),
   ...(order.fulfilments ? { fulfilments: publicOrderFulfilments(order) } : {}),
   ...(order.weeklyFulfilments ? { weeklyFulfilments: publicWeeklyFulfilments(order) } : {}),

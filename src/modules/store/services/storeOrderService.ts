@@ -169,6 +169,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     status: readString(data.status, 'Awaiting Payment') as StoreOrder['status'],
     payment: {
       provider: readString(payment.provider, 'stripe'),
+      ...(payment.curlecEnvironment === 'live' || payment.curlecEnvironment === 'test' ? { curlecEnvironment: payment.curlecEnvironment } : {}),
       providerMode: readString(payment.providerMode, 'single_merchant') as StoreOrder['payment']['providerMode'],
       status: readString(payment.status, 'pending') as StoreOrder['payment']['status'],
       amountMinor: readNumber(payment.amountMinor),

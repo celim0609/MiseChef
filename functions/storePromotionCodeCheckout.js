@@ -1,3 +1,4 @@
+import { assertCurlecEnvironment } from './curlecEnvironment.js';
 import { HttpsError } from "firebase-functions/v2/https";
 import {
   loadStoreCheckoutData,
@@ -113,6 +114,7 @@ export const expirePromotionCodeReservations = async ({
         await db.runTransaction(async (transaction) => {
           const reference = db.collection("storeOrders").doc(order.id);
           const fresh = await transaction.get(reference);
+          assertCurlecEnvironment(fresh.data(), adapter.curlecEnvironment);
           if (
             fresh.data()?.payment?.status === "paid" ||
             fresh.data()?.payment?.providerPaymentId
@@ -139,6 +141,7 @@ export const expirePromotionCodeReservations = async ({
           await db.runTransaction(async (transaction) => {
             const ref = db.collection("storeOrders").doc(order.id);
             const fresh = await transaction.get(ref);
+            assertCurlecEnvironment(fresh.data(), adapter.curlecEnvironment);
             if (
               fresh.data()?.payment?.providerPaymentId &&
               fresh.data().payment.providerPaymentId !==
@@ -149,7 +152,7 @@ export const expirePromotionCodeReservations = async ({
               "payment.providerPaymentId": payment.providerPaymentId,
             });
           });
-        await reconcileStorePayment({ db, payment });
+        await reconcileStorePayment({ db, payment: { ...payment, curlecEnvironment: adapter.curlecEnvironment } });
       }
       results.push({ orderId: order.id, status: payment.status });
     } catch (error) {

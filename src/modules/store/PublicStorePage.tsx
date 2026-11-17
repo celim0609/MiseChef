@@ -1636,7 +1636,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
               <h3 id="order-confirmation-heading" className="mt-2 font-display text-xl font-bold">
                 {placedOrder.paymentStatus === 'paid' ? 'Payment Successful' : confirmationCopy?.heading}
               </h3>
-              <p className="mt-1 font-sans text-sm font-bold">{confirmationCopy?.message}</p>
+              <p className="mt-1 font-sans text-sm font-bold">{placedOrder.testPayment ? 'Test Mode payment. No real funds moved.' : confirmationCopy?.message}</p>
               {placedOrder.paymentStatus === 'pending_verification' && (
                 <p className="mt-3 rounded-xl bg-white px-3 py-2 font-sans text-sm font-extrabold text-green-900">You do not need to pay again.</p>
               )}

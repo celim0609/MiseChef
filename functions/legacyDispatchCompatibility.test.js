@@ -9,6 +9,7 @@ for(const project of Object.keys(contracts)) test(`${project}: actual SDK endpoi
  const source=`const m=await import('./entry.js'); console.log(JSON.stringify(Object.fromEntries(Object.entries(m).filter(([,f])=>f.__endpoint).map(([name,f])=>[name,f.__endpoint.eventTrigger?.eventType||'https']))));`;
  const actual=JSON.parse(execFileSync(process.execPath,['--input-type=module','-e',source],{cwd:new URL('.',import.meta.url),env,encoding:'utf8'}));
  for(const [name,type] of Object.entries(contracts[project])) assert.equal(actual[name],type,`${name}: trigger-type migration requires a separate reviewed name`);
+ assert.equal(actual.curlecStoreTestPaymentWebhook,project==='misechef-beta-fa4bf'?'https':undefined);
 });
 test('retired HTTP and Firestore transports cannot book, read or modify any order',async()=>{
  let status,body;const response={status(code){status=code;return this;},json(value){body=value;return this;}};

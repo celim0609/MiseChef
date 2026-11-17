@@ -22,7 +22,7 @@ const createMemoryDb = initialOrders => {
   const reference = (collection, id) => ({ collection, id, __reference: true });
   const document = (collection, id) => ({
     collection, id, __reference: true,
-    get: async () => snapshot(collections.get(collection)[id]),
+    get: async () => ({ ...snapshot(collections.get(collection)[id]), id }),
     set: async value => { collections.get(collection)[id] = copy(value); }
   });
   const db = {
@@ -162,4 +162,61 @@ test('all configured Curlec event routes are explicit', async () => {
   assert.equal((await invoke({ handler, payload: companion('payment.captured'), eventId: 'routing-captured' })).statusCode, 200);
   assert.equal((await invoke({ handler, payload: companion('order.paid'), eventId: 'routing-order-paid' })).statusCode, 200);
   assert.equal((await invoke({ handler, payload: companion('payment.failed', { status: 'failed', captured: false }), eventId: 'routing-failed' })).statusCode, 200);
+});
+
+test('Beta webhook channels verify late live captures, reject cross-mode events and isolate dedupe receipts', async () => {
+  const liveId = 'misechef-standard-order';
+  const testOrder = paymentLinkOrder();
+  testOrder.payment.curlecEnvironment = 'test';
+  const memory = createMemoryDb({ [orderId]: testOrder, [liveId]: standardOrder() });
+  const livePayload = companion('payment.captured', { orderId: 'order_standard_1', notes: { misechefOrderId: liveId } });
+  livePayload.payload.payment.entity.id = 'pay_live_capture';
+  const testPayload = paymentLinkPaid();
+  let liveLookups = 0;
+  const testSigningSecret = 'disposable-test-signing-key';
+  const modeHandler = (mode, signingSecret) => createCurlecStorePaymentWebhookHandler({
+    webhookDb: memory.db, curlecEnvironment: mode, getCurlecKeyId: () => `rzp_${mode}_Fixture`,
+    getCurlecKeySecret: () => 'fake', getWebhookSecret: () => signingSecret,
+    createAdapter: (provider, options) => ({
+      provider, mode: options.curlecPaymentLink ? 'payment_link' : 'standard_checkout',
+      readWebhookUpdate: event => {
+        const link = event.payload.payment_link?.entity;
+        const capture = event.payload.payment.entity;
+        return { kind: 'payment', payment: { orderId: link?.notes?.misechefOrderId || capture.notes.misechefOrderId,
+          providerPaymentId: link?.id || capture.order_id, providerTransactionId: capture.id,
+          status: 'paid', amountMinor: capture.amount, currency: capture.currency } };
+      },
+      retrieveVerifiedCapturedPayment: async ({ order }) => {
+        liveLookups++;
+        assert.equal(mode, 'live');
+        assert.equal(order.id, liveId);
+        return { orderId: liveId, providerPaymentId: 'order_standard_1', providerTransactionId: 'pay_live_capture',
+          status: 'paid', amountMinor: 100, currency: 'MYR' };
+      },
+    }),
+  });
+  const live = modeHandler('live', webhookSecret);
+  const sandbox = modeHandler('test', testSigningSecret);
+  const signedTest = payload => createHmac('sha256', testSigningSecret).update(JSON.stringify(payload)).digest('hex');
+  const eventId = 'same-provider-event-id';
+  assert.equal((await invoke({ handler: sandbox, payload: livePayload, signature: signedTest(livePayload), eventId })).statusCode, 400);
+  assert.equal((await invoke({ handler: live, payload: testPayload, eventId })).statusCode, 400);
+  assert.equal((await invoke({ handler: live, payload: livePayload, signature: signedTest(livePayload), eventId })).statusCode, 400);
+  assert.equal(memory.order(liveId).payment.status, 'pending');
+  assert.equal(memory.order(orderId).payment.status, 'pending');
+  const rawLive = JSON.stringify(livePayload);
+  assert.equal((await invoke({ handler: sandbox, payload: testPayload, rawBody: rawLive,
+    signature: signedTest(livePayload), eventId: 'body-swapped' })).statusCode, 400);
+  assert.equal((await invoke({ handler: live, payload: livePayload, eventId })).statusCode, 200);
+  assert.equal((await invoke({ handler: sandbox, payload: testPayload, signature: signedTest(testPayload), eventId })).statusCode, 200);
+  assert.equal(memory.order(liveId).payment.status, 'paid');
+  assert.equal(memory.order(orderId).payment.status, 'paid');
+  assert.equal((await invoke({ handler: live, payload: livePayload, eventId })).body.duplicate, true);
+  assert.equal((await invoke({ handler: sandbox, payload: testPayload, signature: signedTest(testPayload), eventId })).body.duplicate, true);
+  assert.equal(liveLookups, 1);
+  const changedCapture = paymentLinkPaid();
+  changedCapture.payload.payment.entity.id = 'pay_second';
+  assert.equal((await invoke({ handler: sandbox, payload: changedCapture,
+    signature: signedTest(changedCapture), eventId: 'second-capture' })).statusCode, 400);
+  assert.equal(memory.order(orderId).payment.providerTransactionId, 'pay_1');
 });

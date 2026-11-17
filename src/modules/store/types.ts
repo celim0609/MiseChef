@@ -644,6 +644,7 @@ export interface StoreOrder {
   payment: {
     provider: StorePaymentProviderId;
     providerMode: 'single_merchant' | 'connect' | 'merchant_gateway' | 'manual';
+    curlecEnvironment?: 'live' | 'test';
     status: 'pending' | 'pending_verification' | 'processing' | 'paid' | 'failed' | 'cancelled' | 'rejected';
     amountMinor: number;
     currency: RegionCurrency;
@@ -804,6 +805,7 @@ export interface StorePaymentSession {
 }
 
 export interface PublicStoreOrderResult {
+  testPayment?: boolean;
   promotionCodeSnapshot?: import('./promotionCodeTypes').PromotionCodeSnapshot;
   fulfilments?: PublicOrderFulfilment[];
   weeklyFulfilments?: PublicWeeklyFulfilment[];

@@ -1,3 +1,4 @@
+import { createModeBoundCurlecAdapter, storedCurlecEnvironment } from './curlecEnvironment.js';
 import { manageWeeklyPosPaymentLink } from './weeklyPosPaymentLink.js';
 import { editStoreOrder } from './storeOrderEdits.js';
 import { listGroupDeliveryReview, getGroupDeliveryReview, estimateGroupDelivery, approveGroupDelivery } from './groupDeliveryReview.js';
@@ -121,6 +122,44 @@ const lalamoveApiSecret = defineSecret('LALAMOVE_API_SECRET');
 const curlecKeyId = defineSecret('CURLEC_KEY_ID');
 const curlecKeySecret = defineSecret('CURLEC_KEY_SECRET');
 const curlecWebhookSecret = defineSecret('CURLEC_WEBHOOK_SECRET');
+const legacyCurlecKeyId = defineSecret('BETA_CURLEC_LIVE_KEY_ID');
+const legacyCurlecKeySecret = defineSecret('BETA_CURLEC_LIVE_KEY_SECRET');
+const legacyCurlecWebhookSecret = defineSecret('BETA_CURLEC_LIVE_WEBHOOK_SECRET');
+const betaCurlecTestCheckoutEnabled = defineString('BETA_CURLEC_TEST_CHECKOUT_ENABLED', { default: 'false' });
+const isBetaCurlecIsolation = dispatchCompatibilityProject() === 'misechef-beta-fa4bf';
+const curlecOrderSecrets = isBetaCurlecIsolation
+  ? [curlecKeyId, curlecKeySecret, legacyCurlecKeyId, legacyCurlecKeySecret]
+  : [curlecKeyId, curlecKeySecret];
+
+const curlecCredentials = mode => {
+  const useLegacy = isBetaCurlecIsolation && mode === 'live';
+  return {
+    curlecKeyId: (useLegacy ? legacyCurlecKeyId : curlecKeyId).value(),
+    curlecKeySecret: (useLegacy ? legacyCurlecKeySecret : curlecKeySecret).value(),
+  };
+};
+const betaTestCheckoutOn = () => isCurlecPaymentLinkRolloutEnabled(betaCurlecTestCheckoutEnabled.value());
+const betaCurlecAdapter = (mode, paymentLink) => createModeBoundCurlecAdapter(createPaymentAdapter, mode, {
+  ...curlecCredentials(mode), curlecPaymentLink: paymentLink,
+});
+const storePaymentAdapter = (provider, { order, paymentLink = false, method } = {}) => {
+  if (isBetaCurlecIsolation && provider === 'curlec') return betaCurlecAdapter(
+    order ? storedCurlecEnvironment(order) : betaTestCheckoutOn() ? 'test' : 'live',
+    order ? order.payment.providerMode === 'payment_link' : paymentLink
+  );
+  if (provider === 'curlec') return createPaymentAdapter(provider, { ...curlecCredentials('live'), curlecPaymentLink: order ? order.payment.providerMode === 'payment_link' : paymentLink });
+  return createPaymentAdapter(provider, { stripeSecretKey: stripeSecretKey.value(), method });
+};
+const adapterForPublicPayment = async (provider, providerPaymentId) => {
+  if (isBetaCurlecIsolation && provider === 'curlec') {
+    const matches = await db.collection('storeOrders').where('payment.providerPaymentId', '==', readString(providerPaymentId)).limit(2).get();
+    if (matches.size !== 1 || matches.docs[0].data().payment?.provider !== 'curlec')
+      throw new Error('The matching Curlec order could not be found.');
+    return storePaymentAdapter(provider, { order: matches.docs[0].data() });
+  }
+  return storePaymentAdapter(provider);
+};
+
 const usdaFdcApiKey = defineSecret('USDA_FDC_API_KEY');
 // Payment Links are default-deny. Each Firebase environment must opt in.
 const curlecPaymentLinkRolloutEnabled = defineString('CURLEC_PAYMENT_LINK_ROLLOUT_ENABLED', { default: 'false' });
@@ -435,7 +474,7 @@ const toStorePaymentError = error => {
 export const createPublicStorePayment = onCall({
   region: REGION,
   invoker: 'public',
-  secrets: [stripeSecretKey, curlecKeyId, curlecKeySecret, lalamoveApiKey, lalamoveApiSecret],
+  secrets: [stripeSecretKey, ...curlecOrderSecrets, lalamoveApiKey, lalamoveApiSecret],
   timeoutSeconds: 30,
   memory: '256MiB'
 }, async request => {
@@ -449,15 +488,19 @@ export const createPublicStorePayment = onCall({
     }
     return await createStorePayment({
       db,
-      resolveAdapter: paymentMethod => createPaymentAdapter(paymentMethod.provider, {
-        stripeSecretKey: stripeSecretKey.value(),
-        curlecKeyId: curlecKeyId.value(),
-        curlecKeySecret: curlecKeySecret.value(),
+      resolveAdapter: paymentMethod => storePaymentAdapter(paymentMethod.provider, {
         method: paymentMethod,
-        curlecPaymentLink: paymentMethod.provider === 'curlec'
+        paymentLink: paymentMethod.provider === 'curlec'
           && (request.data?.order?.curlecPaymentLink === true || Boolean(request.data?.order?.promotionCode))
           && isCurlecPaymentLinkRolloutEnabled(curlecPaymentLinkRolloutEnabled.value())
       }),
+      ...(isBetaCurlecIsolation ? {
+        resolveExistingAdapter: order => storePaymentAdapter(order.payment.provider, { order }),
+        assertNewCheckoutAllowed: adapter => {
+          if (adapter.provider === 'curlec' && (!betaTestCheckoutOn() || adapter.curlecEnvironment !== 'test'))
+            throw new HttpsError('failed-precondition', 'New Beta Curlec checkout is paused during Test Mode verification.');
+        },
+      } : {}),
       sellingWorkspaceId: sellingWorkspaceId.value(),
       ...(!groupMealCheckout && request.data?.order?.fulfilmentMethod === 'delivery' ? {
         deliveryProvider: createRuntimeLalamoveProvider()
@@ -563,15 +606,11 @@ export const claimPublicStoreGuestOrder = onCall({
   region: REGION,
   timeoutSeconds: 20,
   memory: '256MiB',
-  secrets: [stripeSecretKey, curlecKeyId, curlecKeySecret]
+  secrets: [stripeSecretKey, ...curlecOrderSecrets]
 }, async request => {
   if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Sign in to save this order.');
   try {
-    const adapter = createPaymentAdapter(request.data?.provider, {
-      stripeSecretKey: stripeSecretKey.value(),
-      curlecKeyId: curlecKeyId.value(),
-      curlecKeySecret: curlecKeySecret.value()
-    });
+    const adapter = await adapterForPublicPayment(request.data?.provider, request.data?.paymentSessionId);
     return await claimPublicStoreGuestOrderOperation({
       db,
       adapter,
@@ -649,26 +688,16 @@ export const reviewStoreManualPayment = onCall({
 export const getPublicStorePaymentResult = onCall({
   region: REGION,
   invoker: 'public',
-  secrets: [stripeSecretKey, curlecKeyId, curlecKeySecret],
+  secrets: [stripeSecretKey, ...curlecOrderSecrets],
   timeoutSeconds: 20,
   memory: '256MiB'
 }, async request => {
   try {
-    const adapter = createPaymentAdapter(request.data?.provider, {
-      stripeSecretKey: stripeSecretKey.value(),
-      curlecKeyId: curlecKeyId.value(),
-      curlecKeySecret: curlecKeySecret.value()
-    });
+    const adapter = await adapterForPublicPayment(request.data?.provider, request.data?.paymentSessionId);
     return await getStorePaymentResult({
       db,
       adapter,
-      resolveVerificationAdapter: authorizedOrder => createPaymentAdapter(authorizedOrder.payment?.provider, {
-        stripeSecretKey: stripeSecretKey.value(),
-        curlecKeyId: curlecKeyId.value(),
-        curlecKeySecret: curlecKeySecret.value(),
-        curlecPaymentLink: authorizedOrder.payment?.provider === 'curlec'
-          && authorizedOrder.payment?.providerMode === 'payment_link'
-      }),
+      resolveVerificationAdapter: order => storePaymentAdapter(order.payment?.provider, { order }),
       sellingWorkspaceId: sellingWorkspaceId.value(),
       slug: request.data?.slug,
       providerPaymentId: request.data?.paymentSessionId,
@@ -687,16 +716,12 @@ export const getPublicStorePaymentResult = onCall({
 export const cancelPublicStorePayment = onCall({
   region: REGION,
   invoker: 'public',
-  secrets: [stripeSecretKey, curlecKeyId, curlecKeySecret],
+  secrets: [stripeSecretKey, ...curlecOrderSecrets],
   timeoutSeconds: 20,
   memory: '256MiB'
 }, async request => {
   try {
-    const adapter = createPaymentAdapter(request.data?.provider, {
-      stripeSecretKey: stripeSecretKey.value(),
-      curlecKeyId: curlecKeyId.value(),
-      curlecKeySecret: curlecKeySecret.value()
-    });
+    const adapter = await adapterForPublicPayment(request.data?.provider, request.data?.paymentSessionId);
     return await cancelStorePayment({
       db,
       adapter,
@@ -762,7 +787,8 @@ export const createCurlecStorePaymentWebhookHandler = ({
   createAdapter = createPaymentAdapter,
   getCurlecKeyId = () => curlecKeyId.value(),
   getCurlecKeySecret = () => curlecKeySecret.value(),
-  getWebhookSecret = () => curlecWebhookSecret.value()
+  getWebhookSecret = () => curlecWebhookSecret.value(),
+  curlecEnvironment,
 } = {}) => async (request, response) => {
   if (request.method !== 'POST') {
     response.status(405).send('Method not allowed');
@@ -775,11 +801,6 @@ export const createCurlecStorePaymentWebhookHandler = ({
     rawBodyByteLength: 0
   };
   try {
-    const adapter = createAdapter('curlec', {
-      curlecKeyId: getCurlecKeyId(),
-      curlecKeySecret: getCurlecKeySecret(),
-      curlecPaymentLink: request.body?.event === 'payment_link.paid'
-    });
     const signature = request.get('X-Razorpay-Signature');
     signatureDiagnostics = getCurlecWebhookSignatureDiagnostics({
       signature,
@@ -789,7 +810,14 @@ export const createCurlecStorePaymentWebhookHandler = ({
     if (!verifyCurlecWebhookSignature(request.rawBody, signature, getWebhookSecret())) {
       throw new Error('Invalid Curlec webhook signature.');
     }
-    const payload = request.body;
+    const payload = JSON.parse(Buffer.from(request.rawBody).toString('utf8'));
+    const options = {
+      curlecKeyId: getCurlecKeyId(), curlecKeySecret: getCurlecKeySecret(),
+      curlecPaymentLink: payload?.event === 'payment_link.paid',
+    };
+    const adapter = curlecEnvironment
+      ? createModeBoundCurlecAdapter(createAdapter, curlecEnvironment, options)
+      : createAdapter('curlec', options);
     // Curlec documents this header as the duplicate-event identity. Keep the
     // signed-payload hash only as a retry-stable fallback for older deliveries.
     rejectionStage = 'dedupe_identity';
@@ -815,15 +843,30 @@ export const createCurlecStorePaymentWebhookHandler = ({
   }
 };
 
-export const curlecStorePaymentWebhookHandler = createCurlecStorePaymentWebhookHandler();
+const betaCurlecWebhookHandler = mode => createCurlecStorePaymentWebhookHandler({
+  curlecEnvironment: mode,
+  getCurlecKeyId: () => curlecCredentials(mode).curlecKeyId,
+  getCurlecKeySecret: () => curlecCredentials(mode).curlecKeySecret,
+  getWebhookSecret: () => (mode === 'live' ? legacyCurlecWebhookSecret : curlecWebhookSecret).value(),
+});
+export const curlecStorePaymentWebhookHandler = isBetaCurlecIsolation
+  ? betaCurlecWebhookHandler('live') : createCurlecStorePaymentWebhookHandler();
 
 export const curlecStorePaymentWebhook = onRequest({
   region: REGION,
   invoker: 'public',
-  secrets: [curlecKeyId, curlecKeySecret, curlecWebhookSecret],
+  secrets: isBetaCurlecIsolation ? [legacyCurlecKeyId, legacyCurlecKeySecret, legacyCurlecWebhookSecret]
+    : [curlecKeyId, curlecKeySecret, curlecWebhookSecret],
   timeoutSeconds: 30,
   memory: '256MiB'
 }, curlecStorePaymentWebhookHandler);
+
+export const curlecStoreTestPaymentWebhook = isBetaCurlecIsolation ? onRequest({
+  region: REGION, invoker: 'public', secrets: [curlecKeyId, curlecKeySecret, curlecWebhookSecret],
+  timeoutSeconds: 30, memory: '256MiB',
+}, betaCurlecWebhookHandler('test')) : () => {
+  throw new Error('Curlec Test Mode webhook is available only on Beta.');
+};
 
 export const updateStoreOrderStatus = onCall({
   region: REGION,
@@ -2601,26 +2644,25 @@ export const processResumeImportJob = onDocumentCreated({
 export const saveStoreManualPosOrder = onCall({ region: REGION, timeoutSeconds: 30 }, request => saveManualPosOrder({ db, uid: request.auth?.uid, input: request.data?.order }));
 export const confirmStoreManualPosPayment = onCall({ region: REGION, timeoutSeconds: 30 }, request => confirmManualPosPayment({ db, uid: request.auth?.uid, input: request.data }));
 export const manageStoreWeeklyPosPaymentLink = onCall({
-  region: REGION, secrets: [stripeSecretKey, curlecKeyId, curlecKeySecret, curlecWebhookSecret], timeoutSeconds: 60,
+  region: REGION, secrets: [stripeSecretKey, ...curlecOrderSecrets, curlecWebhookSecret], timeoutSeconds: 60,
 }, request => {
-  const keys = {
-    stripeSecretKey: stripeSecretKey.value(), curlecKeyId: curlecKeyId.value(),
-    curlecKeySecret: curlecKeySecret.value(), curlecPaymentLink: true,
-  };
-  const isProduction = dispatchCompatibilityProject() === 'misechef-fa4bf';
-  const curlecAvailable = (isProduction ? /^rzp_live_/ : /^rzp_test_/).test(readString(keys.curlecKeyId))
-    && readString(keys.curlecKeySecret) && readString(curlecWebhookSecret.value());
+  const newMode = isBetaCurlecIsolation ? 'test' : 'live';
+  const keys = curlecCredentials(newMode);
+  const curlecAvailable = (newMode === 'test' ? /^rzp_test_/ : /^rzp_live_/).test(readString(keys.curlecKeyId))
+    && readString(keys.curlecKeySecret) && readString(curlecWebhookSecret.value())
+    && (!isBetaCurlecIsolation || betaTestCheckoutOn());
   const configuredProviders = [
-    ...(readString(keys.stripeSecretKey) ? ['stripe'] : []),
+    ...(readString(stripeSecretKey.value()) ? ['stripe'] : []),
     ...(curlecAvailable ? ['curlec'] : []),
   ];
   return manageWeeklyPosPaymentLink({
     db, uid: request.auth?.uid, input: request.data, sellingWorkspaceId: sellingWorkspaceId.value(), configuredProviders,
-    merchantIdentity: provider => provider === 'curlec' ? keys.curlecKeyId : keys.stripeSecretKey,
-    resolveAdapter: provider => {
-      if (!configuredProviders.includes(provider))
-        throw new HttpsError('failed-precondition', 'This payment provider is unavailable in this environment.');
-      return createPaymentAdapter(provider, keys);
+    newCurlecEnvironment: isBetaCurlecIsolation ? 'test' : undefined,
+    merchantIdentity: (provider, mode) => provider === 'curlec' ? curlecCredentials(mode || newMode).curlecKeyId : stripeSecretKey.value(),
+    resolveAdapter: (provider, mode) => {
+      // Disabling new checkout never disables recovery of an already saved attempt.
+      if (provider === 'curlec' && isBetaCurlecIsolation) return betaCurlecAdapter(mode || newMode, true);
+      return storePaymentAdapter(provider, { paymentLink: true });
     },
   });
 });
@@ -2634,8 +2676,8 @@ export const previewPublicStorePromotionCode = onCall({region:REGION,invoker:'pu
   try {return await previewStorePromotionCode({db,slug:request.data?.slug,draft:request.data?.order,memberUid:verifiedPromotionMember(request.auth)});}
   catch(error) {if(error instanceof HttpsError) throw error;throw toStorePaymentError(error);}
 });
-export const expireStorePromotionCodeReservations = onSchedule({region:REGION,schedule:'every 5 minutes',secrets:[stripeSecretKey,curlecKeyId,curlecKeySecret],timeoutSeconds:180}, async ()=>{
-  const results=await expirePromotionCodeReservations({db,resolveAdapter:order=>createPaymentAdapter(order.payment.provider,{stripeSecretKey:stripeSecretKey.value(),curlecKeyId:curlecKeyId.value(),curlecKeySecret:curlecKeySecret.value(),curlecPaymentLink:order.payment.providerMode==='payment_link'})});
+export const expireStorePromotionCodeReservations = onSchedule({region:REGION,schedule:'every 5 minutes',secrets:[stripeSecretKey,...curlecOrderSecrets],timeoutSeconds:180}, async ()=>{
+  const results=await expirePromotionCodeReservations({ db, resolveAdapter: order => storePaymentAdapter(order.payment.provider, { order }) });
   logger.info('Promotion code reservation reconciliation',{processed:results.length,requiresReview:results.filter(item=>item.status==='requires_review').length});
 });
 export const recordStoreCustomerReminder = onCall({ region: REGION, timeoutSeconds: 20, memory: '256MiB' }, request => recordCustomerReminder({ db, uid: request.auth?.uid, orderId: request.data?.orderId, date: request.data?.date, status: request.data?.status }));
