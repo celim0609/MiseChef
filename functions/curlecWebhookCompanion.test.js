@@ -28,7 +28,7 @@ const createMemoryDb = initialOrders => {
   const db = {
     collection: name => ({
       doc: id => document(name, id),
-      where: () => ({ limit: () => ({ __query: true }) })
+      where: () => ({ limit: () => ({ __query: true, get: async () => ({ empty: true, size: 0, docs: [] }) }) })
     }),
     runTransaction: async callback => callback({
       get: async item => item.__query
@@ -175,7 +175,7 @@ test('Beta webhook channels verify late live captures, reject cross-mode events 
   let liveLookups = 0;
   const testSigningSecret = 'disposable-test-signing-key';
   const modeHandler = (mode, signingSecret) => createCurlecStorePaymentWebhookHandler({
-    webhookDb: memory.db, curlecEnvironment: mode, getCurlecKeyId: () => `rzp_${mode}_Fixture`,
+    webhookDb: memory.db, curlecEnvironment: mode, ignoreUnrelatedOrders: true, getCurlecKeyId: () => `rzp_${mode}_Fixture`,
     getCurlecKeySecret: () => 'fake', getWebhookSecret: () => signingSecret,
     createAdapter: (provider, options) => ({
       provider, mode: options.curlecPaymentLink ? 'payment_link' : 'standard_checkout',
@@ -199,6 +199,11 @@ test('Beta webhook channels verify late live captures, reject cross-mode events 
   const sandbox = modeHandler('test', testSigningSecret);
   const signedTest = payload => createHmac('sha256', testSigningSecret).update(JSON.stringify(payload)).digest('hex');
   const eventId = 'same-provider-event-id';
+  const foreign = companion('payment.captured', { orderId: 'order_production',
+    notes: { misechefOrderId: 'production-only-order' } });
+  const foreignResult = await invoke({ handler: live, payload: foreign, eventId: 'foreign-production' });
+  assert.equal(foreignResult.statusCode, 200);
+  assert.deepEqual(foreignResult.body, { received: true, ignored: true, reason: 'unrelated_merchant_order' });
   assert.equal((await invoke({ handler: sandbox, payload: livePayload, signature: signedTest(livePayload), eventId })).statusCode, 400);
   assert.equal((await invoke({ handler: live, payload: testPayload, eventId })).statusCode, 400);
   assert.equal((await invoke({ handler: live, payload: livePayload, signature: signedTest(livePayload), eventId })).statusCode, 400);

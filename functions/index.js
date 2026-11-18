@@ -789,6 +789,7 @@ export const createCurlecStorePaymentWebhookHandler = ({
   getCurlecKeySecret = () => curlecKeySecret.value(),
   getWebhookSecret = () => curlecWebhookSecret.value(),
   curlecEnvironment,
+  ignoreUnrelatedOrders = false,
 } = {}) => async (request, response) => {
   if (request.method !== 'POST') {
     response.status(405).send('Method not allowed');
@@ -830,7 +831,8 @@ export const createCurlecStorePaymentWebhookHandler = ({
       db: webhookDb,
       adapter,
       event,
-      onRejectionStage: stage => { rejectionStage = stage; }
+      onRejectionStage: stage => { rejectionStage = stage; },
+      ignoreUnrelatedOrders,
     });
     response.status(200).json(result);
   } catch (error) {
@@ -845,6 +847,7 @@ export const createCurlecStorePaymentWebhookHandler = ({
 
 const betaCurlecWebhookHandler = mode => createCurlecStorePaymentWebhookHandler({
   curlecEnvironment: mode,
+  ignoreUnrelatedOrders: true,
   getCurlecKeyId: () => curlecCredentials(mode).curlecKeyId,
   getCurlecKeySecret: () => curlecCredentials(mode).curlecKeySecret,
   getWebhookSecret: () => (mode === 'live' ? legacyCurlecWebhookSecret : curlecWebhookSecret).value(),

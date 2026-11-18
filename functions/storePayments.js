@@ -824,7 +824,7 @@ export const cancelStorePayment = async ({
   return toPublicOrderResult(cancelledOrder);
 };
 
-export const handleStorePaymentWebhook = async ({ db, adapter, event, onRejectionStage }) => {
+export const handleStorePaymentWebhook = async ({ db, adapter, event, onRejectionStage, ignoreUnrelatedOrders = false }) => {
   // This callback is diagnostic-only. It does not alter webhook processing or
   // reconciliation.
   onRejectionStage?.('captured_event_validation');
@@ -833,6 +833,18 @@ export const handleStorePaymentWebhook = async ({ db, adapter, event, onRejectio
     return { received: true, ignored: true };
   }
   const providerPaymentId = readString(update.payment?.providerPaymentId);
+  if (ignoreUnrelatedOrders) {
+    if (!adapter.curlecEnvironment || adapter.provider !== 'curlec')
+      throw new Error('Merchant-scoped routing requires a Curlec environment.');
+    const namedId = readString(update.payment?.orderId);
+    const namedOrder = namedId ? await db.collection('storeOrders').doc(namedId).get() : null;
+    if (!namedOrder?.exists) {
+      const matches = await db.collection('storeOrders').where('payment.providerPaymentId', '==', providerPaymentId).limit(2).get();
+      if (matches.empty) return { received: true, ignored: true, reason: 'unrelated_merchant_order' };
+      if (matches.size !== 1) throw new Error('Curlec payment has no unique MiseChef order.');
+    }
+  }
+
   // A Payment Link also emits the ordinary payment/order events. Those events
   // identify the gateway order, while the persisted local relationship is the
   // Payment Link (`plink_…`) ID. They cannot prove a state transition for that
