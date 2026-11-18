@@ -1,5 +1,6 @@
 import { PAYMENT_STATUS, readString } from '../storePaymentsCore.js';
 import { CurlecOrderCreationError, CurlecPaymentLookupError } from './curlecStandardCheckout.js';
+import { annotateCurlecLinkError, curlecBodyCategory, curlecTransportCategory, preserveCurlecLinkFailures } from '../curlecLinkDiagnostics.js';
 
 export const CURLEC_PAYMENT_LINK_MODE = 'payment_link';
 const API_URL = 'https://api.razorpay.com/v1/payment_links';
@@ -46,12 +47,28 @@ const paymentLinkCallbackUrl = ({ returnUrl, checkoutAccessToken }) => {
 
 export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = fetch } = {}) => {
   if (!readString(keyId) || !readString(keySecret)) throw new Error('Curlec is not configured.');
+  const lookupStatuses = new WeakMap();
   const readWeeklyPos = async (suffix, options = {}) => {
-    const response = await fetchImpl(`${API_URL}${suffix}`, {
-      ...options, signal: AbortSignal.timeout(8000), headers: { authorization: authorizationHeader(keyId, keySecret) },
-    });
-    if (!response.ok) throw new CurlecPaymentLookupError();
-    return response.json();
+    let response;
+    try {
+      response = await fetchImpl(`${API_URL}${suffix}`, {
+        ...options, signal: AbortSignal.timeout(8000), headers: { authorization: authorizationHeader(keyId, keySecret) },
+      });
+    } catch (error) {
+      throw annotateCurlecLinkError(error, { category: curlecTransportCategory(error) });
+    }
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw annotateCurlecLinkError(new CurlecPaymentLookupError(), {
+        category: 'provider_http_rejection', httpStatus: response.status, providerCode: body?.error?.code,
+      });
+    }
+    try {
+      const body = await response.json();
+      if (body && typeof body === 'object') lookupStatuses.set(body, response.status);
+      return body;
+    }
+    catch (error) { throw annotateCurlecLinkError(error, { category: curlecBodyCategory(error), httpStatus: response.status }); }
   };
   return {
     provider: 'curlec', mode: CURLEC_PAYMENT_LINK_MODE, requiresSellingWorkspace: true,
@@ -80,16 +97,19 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
     async findWeeklyPosPayment({ order, weeklyPosSession }) {
       const reference = weeklyPosCurlecReference(weeklyPosSession.id);
       const result = await readWeeklyPos(`?reference_id=${encodeURIComponent(reference)}`);
-      if (!Array.isArray(result.payment_links)) throw new CurlecPaymentLookupError();
+      if (!Array.isArray(result?.payment_links)) throw annotateCurlecLinkError(new CurlecPaymentLookupError(), {
+        category: 'malformed_response', httpStatus: result && typeof result === 'object' ? lookupStatuses.get(result) : null,
+      });
       const matches = result.payment_links.filter(link => link.reference_id === reference);
       if (!matches.length) {
         // A nonmatching row means the merchant API did not honor the filter.
-        if (result.payment_links.length) throw new CurlecPaymentLookupError();
+        if (result.payment_links.length) throw annotateCurlecLinkError(new CurlecPaymentLookupError(), { category: 'validation_failure', httpStatus: lookupStatuses.get(result) });
         return null;
       }
       if (matches.length !== 1 || !weeklyPosLinkMatches(matches[0], order, weeklyPosSession))
-        throw new CurlecPaymentLookupError();
-      return weeklyPosCheckout(matches[0]);
+        throw annotateCurlecLinkError(new CurlecPaymentLookupError(), { category: 'validation_failure', httpStatus: lookupStatuses.get(result) });
+      try { return weeklyPosCheckout(matches[0]); }
+      catch (error) { throw annotateCurlecLinkError(error, { category: 'validation_failure', httpStatus: lookupStatuses.get(result) }); }
     },
     async retrieveWeeklyPosPayment({ order, providerPaymentId, weeklyPosSession }) {
       const link = await readWeeklyPos(`/${encodeURIComponent(providerPaymentId)}`);
@@ -142,17 +162,27 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
             options: { checkout: { method: { fpx: true, card: false, wallet: true } } }
           })
         });
-      } catch { throw new CurlecOrderCreationError(); }
-      const paymentLink = await response.json().catch(() => ({}));
+      } catch (cause) {
+        throw annotateCurlecLinkError(preserveCurlecLinkFailures(new CurlecOrderCreationError(), cause), {
+          category: curlecTransportCategory(cause),
+        });
+      }
+      let bodyError;
+      const paymentLink = await response.json().catch(error => { bodyError = error; return {}; });
       if (!response.ok || !readString(paymentLink?.id) || !readString(paymentLink?.short_url)) {
         const error=new CurlecOrderCreationError({ httpStatus: response.status, errorCode: paymentLink?.error?.code, errorDescription: paymentLink?.error?.description || paymentLink?.error?.message });
         error.promotionDefinitelyNotCreated = [400,401,403,422].includes(response.status) && !/reference|duplicate/i.test(paymentLink?.error?.description || '');
-        throw error;
+        if (bodyError) preserveCurlecLinkFailures(error, bodyError);
+        throw annotateCurlecLinkError(error, {
+          category: !response.ok ? 'provider_http_rejection' : bodyError ? curlecBodyCategory(bodyError) : 'malformed_response',
+          httpStatus: response.status, providerCode: paymentLink?.error?.code,
+        });
       }
-      if (Number(paymentLink.amount) !== Number(order.payment.amountMinor) || readString(paymentLink.currency).toUpperCase() !== readString(order.currency)) throw new Error('Curlec payment link amount validation failed.');
+      if (Number(paymentLink.amount) !== Number(order.payment.amountMinor) || readString(paymentLink.currency).toUpperCase() !== readString(order.currency)) throw annotateCurlecLinkError(new Error('Curlec payment link amount validation failed.'), { category: 'validation_failure', httpStatus: response.status });
       if (weeklyPosSession) {
-        if (!weeklyPosLinkMatches(paymentLink, order, weeklyPosSession)) throw new CurlecPaymentLookupError();
-        return weeklyPosCheckout(paymentLink);
+        if (!weeklyPosLinkMatches(paymentLink, order, weeklyPosSession)) throw annotateCurlecLinkError(new CurlecPaymentLookupError(), { category: 'validation_failure', httpStatus: response.status });
+        try { return weeklyPosCheckout(paymentLink); }
+        catch (error) { throw annotateCurlecLinkError(error, { category: 'validation_failure', httpStatus: response.status }); }
       }
       return { providerPaymentId: paymentLink.id, checkout: { type: 'curlec_payment_link', redirectUrl: paymentLink.short_url } };
     },

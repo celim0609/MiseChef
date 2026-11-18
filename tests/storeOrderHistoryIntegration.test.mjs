@@ -1039,7 +1039,20 @@ test('Curlec Weekly POS recovers one link, verifies paid events, closes unpaid l
     await assert.rejects(manage(order, owner, 'generate', { input: { expectedRevision: 2 } }), /revision changed/);
     await assert.rejects(manage(order, owner, 'generate', { input: { customerEmail: '' } }), /customer’s email/);
     await assert.rejects(manage(order, owner, 'generate', { input: { provider: 'stripe' } }), /unavailable/);
-    await assert.rejects(manage(order, manager, 'generate'), /creation is unresolved/);
+    const diagnosticRecords = [];
+    const { getCurlecLinkFailures } = await import('../functions/curlecLinkDiagnostics.js');
+    await assert.rejects(manage(order, manager, 'generate', { onDiagnostic: record => diagnosticRecords.push(record) }), error => {
+      assert.match(error.message, /creation is unresolved/);
+      const original = getCurlecLinkFailures(error).originalError;
+      assert.equal(original.name, 'CurlecOrderCreationError');
+      assert.match(getCurlecLinkFailures(original).originalError.message, /Connection ended after Curlec accepted/);
+      return true;
+    });
+    assert.deepEqual(diagnosticRecords.map(record => [record.operation, record.outcome]),
+      [['create', 'failed'], ['recovery_lookup', 'not_found']]);
+    assert.equal(diagnosticRecords[0].category, 'transport_failure');
+    assert.equal(diagnosticRecords[0].correlationId, diagnosticRecords[1].correlationId);
+    assert.doesNotMatch(JSON.stringify(diagnosticRecords), /curlec-customer|Customer|Private POS|rzp_test|fake-secret|https:/);
     assert.equal(postCount, 1);
     await assert.rejects(manage(order, owner, 'generate', { merchantIdentity: () => 'different-account' }), /original merchant/);
     await assert.rejects(confirmManualPosPayment({ db, uid: owner, now, input: {

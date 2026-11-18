@@ -2660,6 +2660,7 @@ export const manageStoreWeeklyPosPaymentLink = onCall({
   ];
   return manageWeeklyPosPaymentLink({
     db, uid: request.auth?.uid, input: request.data, sellingWorkspaceId: sellingWorkspaceId.value(), configuredProviders,
+    onDiagnostic: diagnostic => logger.warn('Curlec Weekly POS payment operation diagnostic', diagnostic),
     newCurlecEnvironment: isBetaCurlecIsolation ? 'test' : undefined,
     merchantIdentity: (provider, mode) => provider === 'curlec' ? curlecCredentials(mode || newMode).curlecKeyId : stripeSecretKey.value(),
     resolveAdapter: (provider, mode) => {

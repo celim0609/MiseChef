@@ -1,5 +1,6 @@
 import { assertCurlecEnvironment } from './curlecEnvironment.js';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { preserveCurlecLinkFailures, recoverCurlecLinkCreation } from './curlecLinkDiagnostics.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { assertOperator } from './externalPosOrders.js';
@@ -31,6 +32,7 @@ const enabledProviders = (store, sellingWorkspaceId, configuredProviders) =>
 export async function manageWeeklyPosPaymentLink({
   db, uid, input, adapter, resolveAdapter = () => adapter,
   merchantIdentity = provider => provider, newCurlecEnvironment, configuredProviders = adapter ? [adapter.provider || 'stripe'] : [], sellingWorkspaceId, now = new Date(),
+  onDiagnostic = () => {},
 }) {
   if (!uid) throw new HttpsError('unauthenticated', 'Sign in to manage a payment link.');
   if (input?.action === 'availability') {
@@ -159,6 +161,9 @@ export async function manageWeeklyPosPaymentLink({
     if (!curlec && now.getTime() - Date.parse(attempt.createdAt) >= 23 * 3600000)
       fail('Payment link creation requires Stripe reconciliation.');
     let result;
+    let operation = 'lookup';
+    const diagnosticStarted = Date.now();
+    const correlationId = randomUUID();
     try {
       if (curlec && !claim.newlyClaimed) result = await gateway.findWeeklyPosPayment(createArgs);
       if (!result) {
@@ -166,12 +171,16 @@ export async function manageWeeklyPosPaymentLink({
         // Repeat only the original reference, which Curlec enforces as unique.
         if (curlec && attempt.expiresAt * 1000 - now.getTime() < 16 * 60000)
           fail('The Curlec payment link needs provider reconciliation before the order can be changed.');
+        operation = 'create';
         result = await gateway.createPayment(createArgs);
       }
     } catch (error) {
       if (curlec) {
-        result = await gateway.findWeeklyPosPayment(createArgs);
-        if (!result) fail('Curlec link creation is unresolved. Retry this order to recover the same link.');
+        result = await recoverCurlecLinkCreation({ originalError: error, operation,
+          lookup: () => gateway.findWeeklyPosPayment(createArgs), onDiagnostic, correlationId,
+          mode: attempt.curlecEnvironment, durationMs: Date.now() - diagnosticStarted });
+        if (!result) throw preserveCurlecLinkFailures(new HttpsError('failed-precondition',
+          'Curlec link creation is unresolved. Retry this order to recover the same link.'), error);
       } else {
         if (!claim.newlyClaimed || error.promotionDefinitelyNotCreated !== true) throw error;
         const closed = await closeUnpaid();
