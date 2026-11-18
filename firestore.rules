@@ -1836,6 +1836,10 @@ service cloud.firestore {
       allow read, create, update, delete: if false;
     }
 
+    match /storePaymentAttemptVerifications/{verificationId} {
+      allow read, write: if false;
+    }
+
     match /storeOrderTimeline/{eventId} {
       allow read: if canViewStoreOrders(resource.data.workspaceId);
       allow create, update, delete: if false;

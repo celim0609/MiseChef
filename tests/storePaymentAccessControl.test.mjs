@@ -119,6 +119,21 @@ const firestoreRules = readFileSync(new URL('../firestore.rules', import.meta.ur
 const storageRules = readFileSync(new URL('../storage.rules', import.meta.url), 'utf8');
 
 let environment;
+
+test('attempt verification audit records are server-only for every customer and workspace role', async () => {
+  const id = 'phase1-verification-access';
+  await environment.withSecurityRulesDisabled(async context => {
+    await context.firestore().collection('storePaymentAttemptVerifications').doc(id).set({
+      type: 'historical_capture_review_required', orderId: ORDER_A, requiresReview: true, financialEffect: 'none',
+    });
+  });
+  for (const uid of ['owner-a', 'manager-a', 'staff-a', 'customer-a', null]) {
+    const context = uid ? environment.authenticatedContext(uid) : environment.unauthenticatedContext();
+    const ref = context.firestore().collection('storePaymentAttemptVerifications').doc(id);
+    await assertFails(ref.get()); await assertFails(ref.set({ requiresReview: false }));
+    await assertFails(ref.update({ financialEffect: 'paid' })); await assertFails(ref.delete());
+  }
+});
 let anonymous;
 let ownerA;
 let managerA;

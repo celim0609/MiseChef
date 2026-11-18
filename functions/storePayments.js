@@ -1,4 +1,5 @@
 import { assertCurlecEnvironment } from './curlecEnvironment.js';
+import { isHistoricalCurlecWeeklyPayment, hasHistoricalCurlecProof, resolveHistoricalCurlecAttempt, verifyHistoricalCurlecPayment, auditHistoricalCurlecCapture } from './curlecAttemptSafety.js';
 import { weeklyPosCurlecReference } from './paymentProviders/curlecPaymentLink.js';
 import { readCheckoutCode, writeCodeReservation, prepareCodeTransition } from './storePromotionCodes.js';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
@@ -327,6 +328,8 @@ export const reconcileStorePayment = async ({ db, payment }) => {
     const orderSnapshot = await transaction.get(orderReference);
     if (!orderSnapshot.exists) throw new Error('The matching MiseChef order could not be found.');
     const order = orderSnapshot.data();
+    if (isHistoricalCurlecWeeklyPayment(order, payment) || hasHistoricalCurlecProof(payment))
+      return auditHistoricalCurlecCapture({ db, transaction, order, payment });
     assertCurlecEnvironment(order, payment.curlecEnvironment);
     if (readString(order.payment?.providerPaymentId) !== readString(payment.providerPaymentId)) {
       throw new Error('Payment does not match this MiseChef order.');
@@ -872,7 +875,18 @@ export const handleStorePaymentWebhook = async ({ db, adapter, event, onRejectio
     update.payment.orderId = orders.docs[0].id;
   }
   let legacyCurlecCapture;
-  if (adapter.curlecEnvironment) {
+  let historicalCapture = false;
+  if (adapter.provider === 'curlec' && adapter.mode === 'payment_link' && update.payment?.weeklyPosAttemptId) {
+    const saved = await db.collection('storeOrders').doc(update.payment.orderId).get();
+    if (saved.exists && isHistoricalCurlecWeeklyPayment(saved.data(), update.payment)) {
+      if (update.payment.status !== PAYMENT_STATUS.paid) throw new Error('Historical attempt requires capture review.');
+      await resolveHistoricalCurlecAttempt({ db, order: saved.data(), payment: update.payment,
+        mode: adapter.curlecEnvironment || adapter.curlecVerificationEnvironment,
+        merchantFingerprint: adapter.curlecMerchantFingerprint });
+      historicalCapture = true;
+    }
+  }
+  if (adapter.curlecEnvironment && !historicalCapture) {
     const saved = await db.collection('storeOrders').doc(update.payment.orderId).get();
     if (!saved.exists) throw new Error('The matching MiseChef order could not be found.');
     const order = { ...saved.data(), id: saved.id };
@@ -882,11 +896,26 @@ export const handleStorePaymentWebhook = async ({ db, adapter, event, onRejectio
     if (!order.payment.curlecEnvironment && update.payment.status === PAYMENT_STATUS.paid)
       legacyCurlecCapture = order;
   }
-  const eventId = adapter.curlecEnvironment === 'test' ? `curlec_test_${event.id}` : event.id;
+  const processingMode = adapter.curlecEnvironment || (historicalCapture ? adapter.curlecVerificationEnvironment : undefined);
+  const eventId = processingMode === 'test' ? `curlec_test_${event.id}` : event.id;
   const eventReference = db.collection('storePaymentEvents').doc(eventId);
   onRejectionStage?.('event_dedupe_read');
   const priorEvent = await eventReference.get();
-  if (priorEvent.exists) return { received: true, duplicate: true };
+  if (priorEvent.exists) {
+    if (historicalCapture) {
+      const prior = priorEvent.data();
+      if (prior.provider !== adapter.provider || prior.providerPaymentId !== update.payment.providerPaymentId
+        || prior.providerTransactionId !== update.payment.providerTransactionId || prior.type !== event.type
+        || (prior.curlecEnvironment ?? 'live') !== processingMode)
+        throw new Error('Historical webhook conflicts with its existing receipt.');
+    }
+    return { received: true, duplicate: true };
+  }
+  if (historicalCapture) {
+    const saved = await db.collection('storeOrders').doc(update.payment.orderId).get();
+    if (!saved.exists) throw new Error('The matching MiseChef order could not be found.');
+    update.payment = await verifyHistoricalCurlecPayment({ db, adapter, order: saved.data(), payment: update.payment });
+  }
   // Verify an untagged capture against the original live merchant. Already
   // reconciled deliveries can still be acknowledged during a provider outage.
   if (legacyCurlecCapture) {
@@ -895,7 +924,7 @@ export const handleStorePaymentWebhook = async ({ db, adapter, event, onRejectio
       throw new Error('The legacy Curlec capture could not be verified in Live Mode.');
     update.payment = verified;
   }
-  if (adapter.curlecEnvironment) update.payment = { ...update.payment, curlecEnvironment: adapter.curlecEnvironment };
+  if (adapter.curlecEnvironment && !historicalCapture) update.payment = { ...update.payment, curlecEnvironment: adapter.curlecEnvironment };
   onRejectionStage?.('reconciliation');
   if (update.kind === 'refund') {
     await reconcileStoreRefund({ db, payment: update.payment });
@@ -906,11 +935,11 @@ export const handleStorePaymentWebhook = async ({ db, adapter, event, onRejectio
   await eventReference.set({
     provider: adapter.provider,
     providerMode: adapter.mode,
-    ...(adapter.curlecEnvironment ? { curlecEnvironment: adapter.curlecEnvironment } : {}),
+    ...(processingMode ? { curlecEnvironment: processingMode } : {}),
     type: event.type,
     providerPaymentId,
     providerTransactionId: readString(update.payment?.providerTransactionId),
     processedAt: FieldValue.serverTimestamp()
   }, { merge: true });
-  return { received: true };
+  return { received: true, ...(historicalCapture ? { reviewRequired: true } : {}) };
 };

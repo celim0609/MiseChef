@@ -1,12 +1,14 @@
 import { PAYMENT_STATUS, readString } from '../storePaymentsCore.js';
 import { CurlecOrderCreationError, CurlecPaymentLookupError } from './curlecStandardCheckout.js';
 import { annotateCurlecLinkError, curlecBodyCategory, curlecTransportCategory, preserveCurlecLinkFailures } from '../curlecLinkDiagnostics.js';
+import { createHash } from 'node:crypto';
+import { classifyCurlecAttemptObservation, curlecAttemptReference } from '../curlecAttemptSafety.js';
 
 export const CURLEC_PAYMENT_LINK_MODE = 'payment_link';
 const API_URL = 'https://api.razorpay.com/v1/payment_links';
 const authorizationHeader = (keyId, keySecret) => `Basic ${Buffer.from(`${keyId}:${keySecret}`).toString('base64')}`;
 const paymentLinkReferenceId = order => `mc_${readString(order.id)}`;
-export const weeklyPosCurlecReference = attemptId => `mcp_${attemptId.slice(0, 32)}`;
+export const weeklyPosCurlecReference = curlecAttemptReference;
 const weeklyPosLinkMatches = (link, order, attempt) => /^plink_[A-Za-z0-9]+$/.test(readString(link?.id))
   && link.reference_id === weeklyPosCurlecReference(attempt.id)
   && link.notes?.misechefOrderId === order.id
@@ -72,7 +74,45 @@ export const createCurlecPaymentLinkAdapter = (keyId, keySecret, { fetchImpl = f
   };
   return {
     provider: 'curlec', mode: CURLEC_PAYMENT_LINK_MODE, requiresSellingWorkspace: true,
+    curlecMerchantFingerprint: createHash('sha256').update(keyId).digest('hex'),
+    curlecVerificationEnvironment: /^rzp_test_[A-Za-z0-9]+$/.test(keyId) ? 'test'
+      : /^rzp_live_[A-Za-z0-9]+$/.test(keyId) ? 'live' : 'unknown',
     promotionCodeLifecycle: true,
+    async inspectWeeklyPosAttempt({ orderId, attempt, providerPaymentId = attempt.providerPaymentId }) {
+      const unknown = reason => ({ outcome: 'ambiguous', reason, successorAllowed: false });
+      const environment = attempt.curlecEnvironment ?? (attempt.providerPaymentId ? 'live' : 'unknown');
+      if (attempt.provider !== 'curlec' || attempt.mode !== 'payment_link' || attempt.orderId !== orderId
+        || !/^[a-f0-9]{64}$/.test(attempt.id || '')
+        || environment !== this.curlecVerificationEnvironment
+        || attempt.merchantFingerprint !== this.curlecMerchantFingerprint)
+        return unknown('saved_merchant_or_mode_mismatch');
+      try {
+        let link;
+        if (providerPaymentId) {
+          if (!/^plink_[A-Za-z0-9]+$/.test(providerPaymentId)) return unknown('invalid_provider_reference');
+          link = await readWeeklyPos(`/${providerPaymentId}`);
+        } else {
+          const result = await readWeeklyPos(`?reference_id=${weeklyPosCurlecReference(attempt.id)}`);
+          if (!Array.isArray(result?.payment_links)) return unknown('malformed_lookup');
+          if (!result.payment_links.length) return classifyCurlecAttemptObservation({ link: null });
+          if (result.payment_links.length !== 1) return unknown('non_unique_lookup');
+          link = result.payment_links[0];
+        }
+        let payment;
+        const preliminary = classifyCurlecAttemptObservation({ link, attempt, orderId, providerPaymentId });
+        if (preliminary.reason === 'capture_not_fully_verified' && link.status === 'paid') {
+          const captures = (Array.isArray(link.payments) ? link.payments : []).filter(p => p.status === 'captured');
+          if (captures.length === 1 && /^pay_[A-Za-z0-9]+$/.test(captures[0].payment_id || '')) {
+            const response = await fetchImpl(`https://api.razorpay.com/v1/payments/${captures[0].payment_id}`, {
+              method: 'GET', signal: AbortSignal.timeout(8000), headers: { authorization: authorizationHeader(keyId, keySecret) },
+            });
+            if (!response.ok) return unknown('capture_lookup_unavailable');
+            payment = await response.json();
+          }
+        }
+        return classifyCurlecAttemptObservation({ link, payment, attempt, orderId, providerPaymentId });
+      } catch { return unknown('provider_lookup_unavailable'); }
+    },
     async expirePromotionPayment({order}) {
       let id=readString(order.payment.providerPaymentId);
       if(!id) {

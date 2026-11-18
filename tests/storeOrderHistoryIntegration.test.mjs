@@ -9,10 +9,75 @@ import { cleanupGroupOrder } from '../functions/groupOrders.js';
 import { updateStoreOrderFulfilment } from '../functions/storeFulfilment.js';
 import { reviewManualStorePayment, submitManualStorePayment } from '../functions/storeManualPayments.js';
 import { createStorePayment } from '../functions/storePayments.js';
+import { createHash } from 'node:crypto';
 
 const NOW = new Date('2026-08-21T16:30:00.000Z');
 const TODAY_START = Timestamp.fromDate(new Date('2026-08-21T16:00:00.000Z'));
 const TODAY_END = Timestamp.fromDate(new Date('2026-08-22T16:00:00.000Z'));
+
+test('historical Curlec attempt foundation is audit-only under concurrent deliveries and isolated across modes', async () => {
+  assert.ok(process.env.FIRESTORE_EMULATOR_HOST, 'Firestore emulator is required.');
+  const { handleStorePaymentWebhook, reconcileStorePayment } = await import('../functions/storePayments.js');
+  const { createCurlecPaymentLinkAdapter, weeklyPosCurlecReference } = await import('../functions/paymentProviders/curlecPaymentLink.js');
+  const { verifyHistoricalCurlecPayment } = await import('../functions/curlecAttemptSafety.js');
+  const app = initializeApp({ projectId: 'demo-misechef-store-payment-rules' }, `attempt-safety-${process.pid}`);
+  const db = getFirestore(app);
+  try {
+    for (const mode of ['test', 'live']) {
+      const ref = db.collection('storeOrders').doc();
+      const id = createHash('sha256').update(`phase1:${ref.id}`).digest('hex');
+      const attemptRef = db.collection('storeCheckoutAttempts').doc(id);
+      const key = `rzp_${mode}_Phase1Fixture`;
+      const fingerprint = createHash('sha256').update(key).digest('hex');
+      const oldLinkId = `plink_Phase1${ref.id}`;
+      const transactionId = `pay_Phase1${ref.id}`;
+      const attempt = { orderId: ref.id, storeId: 'phase1-store', provider: 'curlec', mode: 'payment_link', revision: 1,
+        amountMinor: 1290, currency: 'MYR', expiresAt: 1795002226, merchantFingerprint: fingerprint,
+        providerPaymentId: oldLinkId, ...(mode === 'test' ? { curlecEnvironment: mode } : {}) };
+      const current = { id: ref.id, storeId: 'phase1-store', workspaceId: 'phase1-workspace', weeklyDayPos: true,
+        manualOrder: { revision: 2 }, weeklyPosLink: { attemptId: 'b'.repeat(64), expiresAt: 1795010000 },
+        payment: { provider: 'curlec', providerMode: 'payment_link', providerPaymentId: `plink_New${ref.id}`,
+          status: 'pending', amountMinor: 1500, ...(mode === 'test' ? { curlecEnvironment: mode } : {}) },
+        currency: 'MYR', fulfilmentStatus: 'New', notes: 'Private notes must not appear in audit' };
+      const link = { id: oldLinkId, amount: 1290, amount_paid: 1290, currency: 'MYR', status: 'paid',
+        reference_id: weeklyPosCurlecReference(id), expire_by: attempt.expiresAt, accept_partial: false,
+        customer: { email: 'private@example.test' }, short_url: 'https://rzp.io/private',
+        notes: { misechefOrderId: ref.id, misechefWeeklyPosAttemptId: id, misechefOrderRevision: '1' },
+        payments: [{ payment_id: transactionId, amount: 1290, status: 'captured' }] };
+      const capture = { id: transactionId, amount: 1290, currency: 'MYR', captured: true, status: 'captured', method: 'fpx' };
+      let requests = 0;
+      const adapter = { ...createCurlecPaymentLinkAdapter(key, 'fake-secret', { fetchImpl: async (url, options) => {
+        assert.ok(!options.method || options.method === 'GET'); requests++;
+        if (url.endsWith(`/payment_links/${oldLinkId}`)) return new Response(JSON.stringify(link));
+        if (url.endsWith(`/payments/${transactionId}`)) return new Response(JSON.stringify(capture));
+        throw new Error('Unexpected provider operation');
+      } }), curlecEnvironment: mode };
+      const event = { event: 'payment_link.paid', type: 'payment_link.paid',
+        payload: { payment_link: { entity: link }, payment: { entity: capture } } };
+      await Promise.all([ref.create(current), attemptRef.create(attempt)]);
+      const beforeOrder = (await ref.get()).data(); const beforeAttempt = (await attemptRef.get()).data();
+      await Promise.all(Array.from({ length: 6 }, (_, i) => handleStorePaymentWebhook({ db, adapter,
+        event: { ...event, id: `phase1-${ref.id}-${i % 2}` } })));
+      const audits = await db.collection('storePaymentAttemptVerifications').where('orderId', '==', ref.id).get();
+      assert.equal(audits.size, 1); assert.equal(audits.docs[0].data().financialEffect, 'none');
+      assert.equal(audits.docs[0].data().mode, mode);
+      assert.doesNotMatch(JSON.stringify(audits.docs[0].data()), /private@example|Private notes|https:|fake-secret/);
+      assert.deepEqual((await ref.get()).data(), beforeOrder); assert.deepEqual((await attemptRef.get()).data(), beforeAttempt);
+      assert.equal((await db.collection('storeOrderTimeline').where('orderId', '==', ref.id).get()).size, 0);
+      assert.equal((await db.collection('storeNotifications').where('orderId', '==', ref.id).get()).size, 0);
+      const baselineRequests = requests;
+      await assert.rejects(handleStorePaymentWebhook({ db, adapter: { ...adapter, curlecEnvironment: mode === 'test' ? 'live' : 'test' },
+        event: { ...event, id: `phase1-cross-mode-${ref.id}` } }), /saved attempt/);
+      assert.equal(requests, baselineRequests);
+      const normalized = adapter.readWebhookUpdate(event).payment;
+      await assert.rejects(reconcileStorePayment({ db, payment: { ...normalized, curlecEnvironment: mode } }), /no server verification/);
+      const verified = await verifyHistoricalCurlecPayment({ db, adapter, order: current, payment: normalized });
+      await attemptRef.update({ expiresAt: attempt.expiresAt + 1 });
+      await assert.rejects(reconcileStorePayment({ db, payment: verified }), /saved attempt/);
+      assert.deepEqual((await ref.get()).data(), beforeOrder);
+    }
+  } finally { await deleteApp(app); }
+});
 
 test('actual new-order writes remain queryable after Completed and Cancelled transitions', async () => {
   assert.ok(process.env.FIRESTORE_EMULATOR_HOST, 'Firestore emulator is required.');
