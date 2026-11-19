@@ -8,7 +8,7 @@
     "rotationStartMonday": "2026-10-12",
     "rotationWeeks": {
       "week2": {
-        "coverPhotoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-e5ade864-58b9-4295-8672-2958a2840806.jpg?alt=media&token=11e5092f-8df4-4892-8b79-3e73a3ca6045",
+        "coverPhotoUrl": "https://example.test/retained-cover.jpg",
         "discount": {
           "type": "fixed_weekly_price",
           "value": 60
@@ -252,7 +252,7 @@
             "name": "Japanese Chicken Curry Rice"
           }
         },
-        "coverPhotoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-cf1cd993-5bc3-44b5-8a43-51ff9941dc3f.jpg?alt=media&token=d7e07bfa-03fd-4757-98cc-d888757c2713"
+        "coverPhotoUrl": "https://example.test/retained-cover.jpg"
       },
       "week1": {
         "meals": {
@@ -373,7 +373,7 @@
             "price": 13.9
           }
         },
-        "coverPhotoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-29da1bc9-a242-4cab-90d0-225b3c25c7f8.png?alt=media&token=17f043de-593c-4c9c-a310-c3b6ee9b34f5"
+        "coverPhotoUrl": "https://example.test/retained-cover.jpg"
       }
     },
     "available": true,
