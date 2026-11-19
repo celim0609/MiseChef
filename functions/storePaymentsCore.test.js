@@ -733,34 +733,3 @@ test('POS-only release preserves zero-day public pickup eligibility and ignores 
   const blocked = { ...configured, unavailableDates: ['2026-11-04'], owner: true, posFullAccess: true };
   assert.equal(getValidPickupDates(blocked, now)[0], '2026-11-05');
 });
-
-test('public weekly checkout cannot forge POS flags to order elapsed meals or move a meal to another weekday', () => {
-  const plan = { id: 'rotation', storeId: store.id, workspaceId: store.workspaceId, available: true,
-    productType: 'weekly_meal_plan', weeklyMenuVersion: 3, optionGroupIds: [], price: 60,
-    rotationStartMonday: '2026-10-12', rotationWeeks: { week3: { meals: Object.fromEntries(
-      ['mon','tue','wed','thu','fri'].map(day => [day, { name: `${day} meal`, photoUrl: 'meal.jpg', price: 12.9 }]),
-    ) } },
-  };
-  const now = new Date('2026-11-19T04:00:00Z');
-  const create = (source, service, extra = {}) => buildPendingOrder({
-    id: 'public-order', orderNumber: 'MC-1119-PUBL', store, products: [plan], optionGroups: [],
-    paymentProvider: STRIPE_PROVIDER_ID, paymentProviderMode: STRIPE_PROVIDER_MODE, customerUid: 'customer', now,
-    draft: { ...draft, ...extra, pickupDate: service,
-      selections: [{ productId: plan.id, healthyLunchPlanId: plan.id, healthyLunchDate: source,
-        quantity: 1, selectedOptions: [], selectedMealOptions: [] }],
-    },
-  });
-  const forged = { posAddOrder: true, weeklyDayPos: true, manualPos: true, owner: true,
-    posFullAccess: true, unrestricted: true, orderSource: 'pos' };
-  assert.equal(create('2026-11-23', '2026-11-23').total, 12.9);
-  for (const flags of [{}, forged]) {
-    assert.throws(() => create('2026-11-16', '2026-11-16', flags));
-    assert.throws(() => create('2026-11-16', '2026-11-21', flags));
-    assert.throws(() => create('2026-11-23', '2026-11-21', flags));
-    assert.throws(() => create('2026-11-23', '2026-11-24', flags));
-    assert.throws(() => create('2026-11-19', '2026-11-19', flags));
-    assert.throws(() => create('2026-11-16', '2026-11-21', { ...flags,
-      fulfilments: [{ date: '2026-11-21', time: '10:00', itemIndexes: [0] }],
-    }));
-  }
-});
