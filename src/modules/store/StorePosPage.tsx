@@ -1,4 +1,4 @@
-import { hasHistoricalPosDate, posStoreDate, resolvePosWeeklyDay } from '../../../functions/posWeeklyDay.js';
+import { hasHistoricalPosDate, posStoreDate, resolvePosAddOrderMeal } from '../../../functions/posWeeklyDay.js';
 import OrderManagementActions, {DeletedOrders} from './OrderManagementActions';
 import PasteOrderButton, {type PasteDraft} from './PasteOrderButton';
 import PosAddressPicker from './PosAddressPicker';
@@ -635,7 +635,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const addExternalMenu = (product: StoreProduct, choice: HealthyLunchChoice, time: string) => {
     const serviceDate = choice.fulfilmentDate || choice.date;
     const meal = choice.mode !== 'day' ? product : externalPosFullAccess
-      ? resolvePosWeeklyDay(product, externalProducts, choice.date, storeToday, { historical: serviceDate < storeToday || choice.date < storeToday }).meal
+      ? resolvePosAddOrderMeal(product, externalProducts, choice.date, serviceDate, storeToday).meal
       : resolveHealthyLunchDay(product, externalProducts, choice.date);
     if (!meal) return;
     if (choice.mode === 'day' && externalPosFullAccess) setOrdinaryPending(true);

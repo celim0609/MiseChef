@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { posStoreDate, posWeekMonday, resolvePosWeeklyDay } from './posWeeklyDay.js';
+import { posStoreDate, posWeekMonday, resolvePosWeeklyDay, resolvePosAddOrderMeal } from './posWeeklyDay.js';
 
 test('each day from Monday through Sunday resolves to the same Store calendar week', () => {
   for (let day = 16; day <= 22; day++) assert.equal(posWeekMonday(`2026-11-${day}`), '2026-11-16');
@@ -40,6 +40,23 @@ test('rotation handles current and future dates but cannot establish a historica
   assert.equal(resolve('2026-11-17').meal.price, 19);
   assert.equal(resolve('2026-11-24').meal.price, 19);
   assert.match(resolve('2026-11-10').error, /historical menu/);
+});
+
+test('Add Order retained meal source is independent of service history, without relaxing historical pricing', () => {
+  const plan = { weeklyMenuVersion: 3, rotationStartMonday: '2026-10-12', rotationWeeks: {
+    week3: { meals: { mon: { name: 'Retained Monday', photoUrl: 'meal.jpg', price: 12.9 } } },
+  } };
+  for (const source of ['2026-10-12', '2026-11-16', '2026-11-23']) {
+    for (const service of ['2026-11-19', '2026-11-21', '2026-12-06']) {
+      const result = resolvePosAddOrderMeal(plan, [], source, service, '2026-11-19');
+      assert.equal(result.meal.name, 'Retained Monday');
+      assert.equal(result.meal.price, 12.9);
+    }
+    assert.match(resolvePosAddOrderMeal(plan, [], source, '2026-11-18', '2026-11-19').error, /historical menu/);
+  }
+  assert.match(resolvePosAddOrderMeal(plan, [], '2026-11-22', '2026-11-23', '2026-11-19').error, /Monday through Friday/);
+  assert.match(resolvePosAddOrderMeal(plan, [], '2026-11-17', '2026-11-21', '2026-11-19').error, /No configured meal/);
+  assert.match(resolvePosWeeklyDay(plan, [], '2026-11-16', '2026-11-19').error, /historical menu/);
 });
 
 test('custom weekend fulfilments use the Store timezone and classify history by actual fulfilment', async () => {

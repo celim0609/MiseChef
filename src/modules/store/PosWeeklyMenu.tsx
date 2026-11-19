@@ -2,7 +2,7 @@ import {useState, type ReactNode} from 'react';
 import HealthyLunchMenu, {type HealthyLunchChoice} from './HealthyLunchMenu';
 import {getValidPickupDates,getPickupTimeSlots} from './storeModel';
 import {weekRangeLabel,datedWeeks,fullWeekDateStore,getWeeklyDates,getWeeklyPickupTimes,hasDatedMenu,isDatedWeekOpen,isHealthyLunchWeekBlocked,validateWeeklyMealPlan,resolveHealthyLunchDay,hasEmbeddedMenu,validCalendarDate} from '../../../functions/storeWeeklyMealPlan.js';
-import {posStoreDate, resolvePosWeeklyDay} from '../../../functions/posWeeklyDay.js';
+import {posStoreDate, resolvePosAddOrderMeal} from '../../../functions/posWeeklyDay.js';
 import {posInitialItemDate} from './posOrderEntryModel';
 import type {StoreProduct,WorkspaceStore} from './types';
 
@@ -16,9 +16,7 @@ export default function PosWeeklyMenu({product,products,store,onAdd,disabled=fal
  const selectedDay=serviceDate ?? (defaultDate || today);
  const dayAccess=unrestricted && choice.mode==='day';
  const selectedMenuDate=customDate ? menuDate ?? today : selectedDay;
- const selectedMeal=dayAccess ? resolvePosWeeklyDay(product,products,selectedMenuDate,today,{
-   historical: selectedDay < today || selectedMenuDate < today,
- }) : null;
+ const selectedMeal=dayAccess ? resolvePosAddOrderMeal(product,products,selectedMenuDate,selectedDay,today) : null;
  if (unrestricted) { product={...product,healthyLunchBlockedDates:[]}; products=products.map(p=>({...p,healthyLunchBlockedDates:[]})); }
  const requestedDate=choice.date || posInitialItemDate(product,defaultDate);
  const dates=getValidPickupDates(fullWeekDateStore(store,product));
@@ -51,6 +49,7 @@ export default function PosWeeklyMenu({product,products,store,onAdd,disabled=fal
     {customDate && <label className="block text-sm font-bold">Menu meal date
       <input type="date" value={selectedMenuDate} onChange={event=>setMenuDate(event.target.value)} className="ml-2 rounded border p-2" />
     </label>}
+    {customDate && product.weeklyMenuVersion === 3 && <p className="text-sm">Meal and price use the retained menu configuration. Menu meal date selects the dish; Service date sets fulfilment. Past fulfilment requires a dated historical menu.</p>}
     <label className="block text-sm font-bold">Service date<input type="date" value={selectedDay} onChange={event=>setServiceDate(event.target.value)} className="ml-2 rounded border p-2" /></label>
     {selectedMeal?.monday && <p className="text-sm">{customDate ? 'Menu week starting' : 'Week starting'} {selectedMeal.monday}</p>}
     {selectedMeal?.error && <p role="status" className="text-sm">{selectedMeal.error}</p>}

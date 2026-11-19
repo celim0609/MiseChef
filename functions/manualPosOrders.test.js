@@ -589,6 +589,87 @@ const addOrderCatalog = () => ({ ...checkout, products: [...products, {
       options: [{ id: 'egg', name: 'Egg', priceAdjustmentMinor: 120 }] }],
   } } } },
 }] });
+
+const rotationAddOrderCatalog = () => {
+  const archived = addOrderCatalog().products.at(-1);
+  const { weeklyWeeks, ...plan } = archived;
+  return { ...checkout, products: [...products, { ...plan, id: 'retained-rotation', weeklyMenuVersion: 3,
+    rotationStartMonday: '2026-10-12', healthyLunchBlockedDates: ['2026-11-16'],
+    rotationWeeks: { week3: { meals: { mon: weeklyWeeks.old.meals.mon,
+      tue: { name: 'Retained Tuesday meal', photoUrl: 'tuesday.jpg', price: 15 } } } },
+  }] };
+};
+const rotationDayLine = (sourceDate, serviceDate, quantity = 1) => ({
+  ...line('retained-rotation', serviceDate, quantity), selection: {
+    productId: 'retained-rotation', healthyLunchPlanId: 'retained-rotation', healthyLunchDate: sourceDate,
+    selectedOptions: [], selectedMealOptions: sourceDate.endsWith('-16')
+      ? [{ serviceDate: sourceDate, optionGroupId: 'side', optionId: 'egg' }] : [],
+  },
+});
+
+test('Owner Add Order prices elapsed rotation meals, exchanges and ordinary products on independent service dates', () => {
+  const at = new Date('2026-11-19T04:00:00Z');
+  const catalog = rotationAddOrderCatalog();
+  for (const service of ['2026-11-19', '2026-11-21', '2026-12-06']) {
+    const request = { ...input(), posAddOrder: true, lines: [
+      rotationDayLine('2026-11-16', service, 2), rotationDayLine('2026-11-17', service), line('burrito', service),
+    ] };
+    const built = buildManualOrder(request, catalog, at, { owner: true });
+    assert.equal(built.total, 61.2);
+    assert.equal(built.items.length, 3);
+    assert.equal(built.items[0].productId, 'retained-rotation');
+    assert.equal(built.items[0].unitPrice, 14.1);
+    assert.equal(built.items[0].quantity, 2);
+    assert.equal(built.items[0].healthyLunchSnapshot.date, '2026-11-16');
+    assert.equal(built.items[0].healthyLunchSnapshot.selectedMealOptions[0].optionName, 'Egg');
+    assert.equal(built.items[1].healthyLunchSnapshot.date, '2026-11-17');
+    assert.equal(built.fulfilments[0].date, service);
+    assert.equal(built.fulfilments[0].time, '12:00');
+    assert.equal(catalog.products.at(-1).available, false);
+    assert.throws(() => buildManualOrder(request, catalog, at), /Only Owner or Manager/);
+  }
+  const request = { ...input(), posAddOrder: true, lines: [rotationDayLine('2026-11-16', '2026-11-21')] };
+  assert.throws(() => buildManualOrder({ ...request, source: 'customer' }, catalog, at, { owner: true }), /manual order source/);
+  assert.throws(() => buildManualOrder({ ...request, lines: [rotationDayLine('2026-11-16', '2026-11-18')] }, catalog, at, { owner: true }), /Record Historical Order/);
+  assert.throws(() => buildManualOrder({ ...request, lines: [rotationDayLine('2026-11-16', '2026-02-30')] }, catalog, at, { owner: true }), /Record Historical Order/);
+  assert.throws(() => buildManualOrder({ ...request, posAddOrder: false, weeklyDayPos: true }, catalog, at, { owner: true }), /historical menu/);
+  const missing = rotationAddOrderCatalog(); delete missing.products.at(-1).rotationWeeks.week3.meals.mon;
+  assert.throws(() => buildManualOrder(request, missing, at, { owner: true }), /No configured meal/);
+});
+
+test('Add Order elapsed-meal save enforces server roles, ownership, price and idempotency without provider activity', async () => {
+  const catalog = rotationAddOrderCatalog();
+  const { db, docs, writes } = database({ 'workspaces/s': workspace,
+    'workspaceMembers/s_manager': { userId: 'manager', workspaceId: 's', status: 'Active', role: 'Manager' },
+    'workspaceMembers/s_staff': { userId: 'staff', workspaceId: 's', status: 'Active', role: 'Chef' },
+    'workspaceMembers/s_inactive': { userId: 'inactive', workspaceId: 's', status: 'Inactive', role: 'Manager' },
+    'stores/s': store,
+  });
+  const request = { ...input(), posAddOrder: true, weeklyDayPos: true, expectedSubtotalMinor: 2820,
+    lines: [rotationDayLine('2026-11-16', '2026-11-21', 2)] };
+  const args = { db, input: request, now: new Date('2026-11-19T04:00:00Z'), loadCheckout: async () => catalog };
+  for (const uid of ['customer', 'staff', 'inactive']) {
+    await assert.rejects(saveManualPosOrder({ ...args, uid }));
+    assert.equal(writes.length, 0);
+  }
+  await assert.rejects(saveManualPosOrder({ ...args, uid: 'manager', input: { ...request, storeId: 'other' } }), /ownership mismatch/);
+  await assert.rejects(saveManualPosOrder({ ...args, uid: 'manager', input: { ...request, expectedSubtotalMinor: 1 } }), /pricing changed/);
+  const saved = await saveManualPosOrder({ ...args, uid: 'manager' });
+  const count = writes.length;
+  assert.equal((await saveManualPosOrder({ ...args, uid: 'manager' })).orderId, saved.orderId);
+  assert.equal(writes.length, count);
+  const order = docs[`storeOrders/${saved.orderId}`];
+  assert.equal(order.orderSource, 'pos');
+  assert.equal(order.payment.status, 'pending');
+  assert.equal(order.payment.provider, 'manual_pos');
+  assert.equal(order.payment.amountMinor, 2820);
+  assert.equal(order.total, 28.2);
+  assert.deepEqual(order.fulfilmentCompletion, {});
+  assert.deepEqual(order.fulfilmentOperations, {});
+  assert.equal(order.items[0].healthyLunchSnapshot.date, '2026-11-16');
+  assert.equal(order.manualOrder.createdBy, 'manager');
+  assert.ok(!writes.some(path => /storeCheckoutAttempts|storePaymentEvents|storeNotifications|hostRewardLedger/.test(path)));
+});
 const archivedLine = date => ({ ...line('archived-menu', date, 2), selection: {
   productId: 'archived-menu', healthyLunchPlanId: 'archived-menu', healthyLunchDate: '2026-10-12',
   selectedOptions: [], selectedMealOptions: [{ serviceDate: '2026-10-12', optionGroupId: 'side', optionId: 'egg' }],

@@ -1,4 +1,4 @@
-import { posStoreDate, posStoreTime, resolvePosWeeklyDay } from './posWeeklyDay.js';
+import { posStoreDate, posStoreTime, resolvePosWeeklyDay, resolvePosAddOrderMeal } from './posWeeklyDay.js';
 import { HttpsError } from "firebase-functions/v2/https";
 import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
@@ -126,7 +126,9 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
       const plan = checkout.products.find(product => product.id === selection?.healthyLunchPlanId);
       if (line.custom || !plan || plan.id !== selection.productId || plan.productType !== 'weekly_meal_plan'
         || plan.storeId !== checkout.store.id || plan.workspaceId !== checkout.store.workspaceId) fail('Choose a configured Weekly Menu meal.');
-      const { error } = resolvePosWeeklyDay(plan, checkout.products, selection.healthyLunchDate, today);
+      const { error } = posAddOrder
+        ? resolvePosAddOrderMeal(plan, checkout.products, selection.healthyLunchDate, line.date, today)
+        : resolvePosWeeklyDay(plan, checkout.products, selection.healthyLunchDate, today);
       if (error) fail(error);
     }
     const index = items.length;

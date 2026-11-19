@@ -51,6 +51,15 @@ export function resolvePosWeeklyDay(plan, products, date, today, { historical = 
   return meal ? { monday, meal } : { monday, error: 'No configured meal for this service date.' };
 }
 
+// Add Order selects from retained configuration; the source date is not service history.
+// Callers must authenticate Owner/Manager and validate the POS Add Order source first.
+// Actual past fulfilment still requires a dated historical price, never a mutable rotation.
+export function resolvePosAddOrderMeal(plan, products, sourceDate, fulfilmentDate, today) {
+  return resolvePosWeeklyDay(plan, products, sourceDate, today, {
+    historical: fulfilmentDate < today || (sourceDate < today && !hasRotationMenu(plan)),
+  });
+}
+
 export function hasHistoricalWeeklyDay(selections, today, schedules = []) {
   return selections.some((selection, index) => {
     const date = schedules[index]?.date || selection?.healthyLunchDate;
