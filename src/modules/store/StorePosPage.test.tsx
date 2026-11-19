@@ -190,6 +190,8 @@ const makeExternalOrderHarness = (overrides: Record<string, unknown> = {}) => {
     externalRequestIdRef: {current: 'request-1234567890'},
     externalCart: state.cart,
     creatingExternal: false,
+    pendingCart: false, pendingScheduleError: '', mixedPlanError: '', pendingManualInput: {}, externalSubtotal: 20,
+    setPendingSaved: () => {}, setOrdinaryPending: () => {}, setHistoryRefreshKey: () => {},
     externalFeeReady:true,externalManualFee:false,externalFeeAmount:'',externalFeeReason:'',externalQuote:{id:'quote-1234567890',expiresAt:'2099-01-01T00:00:00Z'},
     setExternalDestination:()=>{},setExternalDestinations:()=>{},setExternalQuoteState:()=>{},
     externalMethod:'pickup', externalAddress:'', externalDate:'', externalTime:'',
@@ -310,7 +312,7 @@ test('POS Add Order uses document flow with catalog before cart and no modal scr
   assert.match(modal, /\{externalError && <p[^>]*role="alert"[^>]*>\{externalError\}<\/p>\}\s*<button[^>]*onClick=\{\(\) => void createExternalOrder\(\)\}/);
   assert.match(modal, /aria-busy=\{creatingExternal\}/);
   assert.match(modal, /className="[^"]*w-full[^"]*bg-blue-700[^"]*disabled:cursor-not-allowed[^"]*disabled:bg-slate-200/);
-  assert.match(modal, /creatingExternal \? 'Creating…' : 'Confirm Order'/);
+  assert.match(modal, /creatingExternal \? 'Creating…' : pendingCart \? 'Save as Pending Payment' : 'Confirm Order'/);
   assert.doesNotMatch(createExternalOrderSource, /setErrorMessage\(/);
 });
 
@@ -388,4 +390,34 @@ test('external delivery payload preserves each selected meal date and exact time
  await harness.submit();assert.equal(harness.state.error,'');assert.equal(harness.requests.length,1);
  const payload=harness.requests[0];assert.equal(payload.source,'whatsapp');assert.equal(payload.fulfilmentMethod,'delivery');assert.equal(payload.deliveryAddress,'Unit 12, Full Street');
  assert.deepEqual(payload.lineSchedules,[{date:'2026-10-26',time:'12:13'},{date:'2026-10-28',time:'13:17'}]);assert.equal(payload.customerName,'');assert.equal(payload.phone,'');
+});
+
+
+test('Add Order Pending uses only the existing manual backend and never the externally-paid API or receipt', async () => {
+  const calls: unknown[] = [];
+  let resolveSave!: (value: {orderId:string}) => void;
+  const save = new Promise<{orderId:string}>(resolve => { resolveSave = resolve; });
+  const harness = makeExternalOrderHarness({ pendingCart: true, externalSubtotal: 17.9,
+    pendingManualInput: {posAddOrder:true,source:'other',lines:[{quantity:1},{quantity:1}]},
+    storeOrderService: {
+      saveManualPosOrder: async (payload: unknown) => { calls.push(payload); return save; },
+      createExternalPosOrder: async () => { throw new Error('Paid endpoint must never run'); },
+      getOrder: async () => ({id:'pending',orderNumber:'QA',payment:{status:'pending'}}),
+    },
+  });
+  const first = harness.submit(); await Promise.resolve(); await harness.submit();
+  resolveSave({orderId:'pending'}); await first;
+  assert.equal(calls.length,1);
+  assert.equal((calls[0] as {expectedSubtotalMinor:number}).expectedSubtotalMinor,1790);
+  assert.equal(harness.state.error,''); assert.equal(harness.state.cart.length,0);
+  assert.equal(harness.state.printed,0); assert.equal(harness.state.open,false);
+});
+
+test('an ambiguous Pending save preserves the cart and stable request without a second call',async()=>{
+  let calls=0;
+  const harness=makeExternalOrderHarness({pendingCart:true,storeOrderService:{
+    saveManualPosOrder:async()=>{calls++;throw new Error('Connection interrupted; check View Orders');},
+  }});
+  await harness.submit();assert.equal(calls,1);assert.equal(harness.state.cart.length,1);
+  assert.equal(harness.state.open,true);assert.match(harness.state.error,/check View Orders/);
 });

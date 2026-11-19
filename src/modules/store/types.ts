@@ -576,7 +576,7 @@ export interface StoreOrder {
   deletedAt?: string;
   deletedBy?: string;
   deletionReason?: string;
-  manualOrder?: { revision: number; draft: Record<string, unknown>; createdBy: string };
+  manualOrder?: { posAddOrder?: boolean; revision: number; draft: Record<string, unknown>; createdBy: string };
   fulfilmentMethod?: 'pickup' | 'delivery';
   totals?: { merchandiseSubtotal: number; discountTotal: number; discountedMerchandiseTotal: number; deliveryFee: number; grandTotal: number; currency: RegionCurrency };
   promotionSnapshot?: StoreOrderPromotionSnapshot;

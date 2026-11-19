@@ -115,7 +115,7 @@ export default function ManualPosOrders({
     setQuoting(true); setError('');
     try {
       const input = { ...draft }; delete input.deliveryFeeOverride;
-      const quote = await storeOrderService.quotePosDelivery({ ...input, manualPos: true, workspaceId, storeId, slug });
+      const quote = await storeOrderService.quotePosDelivery({ ...input, ...(editing?.manualOrder?.posAddOrder ? { posAddOrder: true } : {}), manualPos: true, workspaceId, storeId, slug });
       setDeliveryQuote(quote); setQuoteKey(key);
     } catch (e) { setError(e instanceof Error ? e.message : 'Unable to estimate delivery.'); }
     finally { quotationInFlight.current = false; setQuoting(false); }
@@ -259,6 +259,7 @@ export default function ManualPosOrders({
       const input = { ...draft }; delete input.deliveryFeeOverride;
       const result = await storeOrderService.saveManualPosOrder({
         ...input,
+        ...(editing?.manualOrder?.posAddOrder ? { posAddOrder: true, expectedSubtotalMinor: preview.totalMinor } : {}),
         ...(hasStoreDelivery && feeMode === "manual" ? { deliveryFeeOverride: draft.deliveryFeeOverride } : {}),
         ...(hasStoreDelivery && feeMode === "estimate" ? { posDeliveryQuoteId: usableQuote?.id } : {}),
         workspaceId,
@@ -673,11 +674,11 @@ export default function ManualPosOrders({
                   ? line.selection?.healthyLunchDate
                     ? [
                         {
-                          date: line.date,
+                          date: line.selection.healthyLunchDate,
                           meal: resolveHealthyLunchDay(
                             plan,
                             posProducts,
-                            line.date,
+                            line.selection.healthyLunchDate,
                           ),
                         },
                       ]
@@ -786,7 +787,7 @@ export default function ManualPosOrders({
                       onChange={(e) =>
                         update(i, {
                           date: e.target.value,
-                          ...(line.selection?.healthyLunchDate
+                          ...(line.selection?.healthyLunchDate && !editing?.manualOrder?.posAddOrder
                             ? {
                                 selection: {
                                   ...line.selection,
@@ -805,7 +806,8 @@ export default function ManualPosOrders({
                       }
                     />
                   </label>
-                  {plan?.productType === "weekly_meal_plan" && (
+                  {editing?.manualOrder?.posAddOrder && line.selection?.healthyLunchDate && <p>Menu source: {line.selection.healthyLunchDate} · Changing fulfilment does not change the meal.</p>}
+                  {plan?.productType === "weekly_meal_plan" && !editing?.manualOrder?.posAddOrder && (
                     <label>
                       Plan selection{" "}
                       <select

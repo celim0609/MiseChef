@@ -1,3 +1,4 @@
+import { posStoreDate, resolvePosAddOrderMeal } from './posAddOrder.js';
 import { HttpsError } from "firebase-functions/v2/https";
 import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
@@ -43,8 +44,8 @@ const money = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 export const malaysiaDate = (now = new Date()) =>
   new Date(now.getTime() + 28800000).toISOString().slice(0, 10);
 export function buildManualOrder(input, checkout, now = new Date(), { owner = false } = {}) {
-  if (owner) checkout = { ...checkout, products: checkout.products.map(p => ({ ...p, healthyLunchBlockedDates: [] })) };
-  if (!["whatsapp", "phone", "walk_in", "other"].includes(input.source))
+  if (owner) checkout = { ...checkout, products: checkout.products.map(p => ({ ...p, available: true, healthyLunchBlockedDates: [] })) };
+  if (!["whatsapp", "phone", "walk_in", "other"].includes(input.source) && !(input.posAddOrder === true && input.source === "shopeefood"))
     fail("Choose a manual order source.");
   if (
     !Array.isArray(input.lines) ||
@@ -52,6 +53,11 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
     input.lines.length > 50
   )
     fail("Choose 1–50 items.");
+  const posAddOrder = input.posAddOrder === true;
+  if (posAddOrder && !owner) throw new HttpsError('permission-denied', 'Only Owner or Manager can save an Add Order pending payment.');
+  const today = posAddOrder ? posStoreDate(checkout.store, now) : '';
+  if (posAddOrder && input.lines.some(line => isFullWeekSelection(line.selection, checkout.products)))
+    fail('Keep 5-Day Plans in their existing ordering workflow.');
   const items = [];
   const days = new Map();
   const privateItems = [];
@@ -103,6 +109,17 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
     days.set(key, entry);
   };
   for (const line of input.lines) {
+    if (posAddOrder && (!validCalendarDate(line.date) || line.date < today))
+      fail('Past fulfilment requires a separately approved historical workflow.');
+    if (posAddOrder && line.selection?.healthyLunchDate) {
+      const selection = line.selection;
+      const plan = checkout.products.find(p => p.id === selection.healthyLunchPlanId);
+      if (!plan || plan.id !== selection.productId || plan.productType !== 'weekly_meal_plan'
+        || plan.storeId !== checkout.store.id || plan.workspaceId !== checkout.store.workspaceId)
+        fail('Choose a retained Weekly Menu meal belonging to this Store.');
+      const { error } = resolvePosAddOrderMeal(plan, checkout.products, selection.healthyLunchDate, line.date, today);
+      if (error) fail(error);
+    }
     if (
       !Number.isInteger(line.quantity) ||
       line.quantity < 1 ||
@@ -149,11 +166,12 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
             fail("This product configuration is invalid for this Store.");
         }
       }
+      const menuDate = posAddOrder && selection.healthyLunchDate ? selection.healthyLunchDate : line.date;
       // Prices and item snapshots come exclusively from the current server catalog.
       validateHealthyLunchDay(
         selection,
         checkout.products,
-        line.date,
+        menuDate,
         checkout.store.workspaceId || checkout.store.id,
       );
       [item] = buildOrderItems(
@@ -161,7 +179,7 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
         checkout.products,
         checkout.optionGroups,
         checkout.sets,
-        line.date,
+        menuDate,
         { owner, storeId: checkout.store.id, workspaceId: checkout.store.workspaceId },
       );
       if (isFullWeekSelection(selection, checkout.products)) {
@@ -288,6 +306,10 @@ export async function saveManualPosOrder({
     .digest("hex");
   const fingerprint = createHash("sha256").update(JSON.stringify(input)).digest("hex");
   const requestRef = db.collection("storeManualOrderRequests").doc(referenceId);
+  const externalOrderNumber = input.posAddOrder === true ? text(input.externalOrderNumber, 120) : '';
+  const externalRef = externalOrderNumber ? db.collection('storeExternalOrderReferences').doc(
+    createHash('sha256').update(`${storeId}:${input.source}:${externalOrderNumber}`).digest('hex')
+  ) : null;
   const orderRef = input.orderId
     ? db.collection("storeOrders").doc(text(input.orderId, 150, true))
     : db.collection("storeOrders").doc();
@@ -300,7 +322,20 @@ export async function saveManualPosOrder({
       if (request.data().fingerprint && request.data().fingerprint !== fingerprint) fail("This request already saved different order details. Review the saved order before retrying.");
       return { orderId: request.data().orderId, duplicate: true };
     }
+    let externalReferenceExists = false;
+    if (externalRef) {
+      const external = await tx.get(externalRef);
+      externalReferenceExists = external.exists;
+      if (external.exists && external.data().orderId !== input.orderId)
+        fail('An order with this external reference already exists. Check View Orders.');
+    }
+    const existing = input.orderId ? await tx.get(orderRef) : null;
+    const previous = existing?.data();
+    if (previous?.manualOrder?.posAddOrder && input.posAddOrder !== true)
+      fail('Preserve the Add Order source and date validation when editing this order.');
     const built = buildManualOrder(input, posCheckout, now, { owner: transactionPosFullAccess });
+    if (input.posAddOrder === true && input.expectedSubtotalMinor !== Math.round(built.total * 100))
+      fail('Menu pricing changed. Reload the catalog and review the cart.');
     const deliveryInput = manualDeliveryInput(input, checkout.products);
     const delivery = await resolvePosDeliveryCharge({ db, transaction: tx, input: deliveryInput, checkout, built, uid, fullAccess: transactionPosFullAccess, now: new Date(Math.max(now.getTime(), Date.now())) });
     const grandTotal = money(built.total + delivery.fee);
@@ -310,8 +345,6 @@ export async function saveManualPosOrder({
       const quoted = delivery.snapshot.days?.find(entry => entry.date === day.date && entry.time === day.time);
       return { ...day, destination: quoted ? { formattedAddress: quoted.destination.address, latitude: quoted.destination.latitude, longitude: quoted.destination.longitude } : { formattedAddress: deliveryInput.deliveryDestinations[day.date].formattedAddress } };
     });
-    const existing = input.orderId ? await tx.get(orderRef) : null;
-    const previous = existing?.data();
     if (
       input.orderId &&
       (!previous ||
@@ -362,11 +395,13 @@ export async function saveManualPosOrder({
       orderNumber: reference.orderNumber,
       pickupCode: reference.pickupCode,
       orderSource: "pos",
-      externalOrder: { source: input.source },
+      externalOrder: { source: input.source, ...(externalOrderNumber ? { externalOrderNumber } : {}) },
       manualOrder: {
+        ...(input.posAddOrder === true ? { posAddOrder: true } : {}),
         revision: (previous?.manualOrder.revision || 0) + 1,
         draft: {
           source: input.source,
+          ...(externalOrderNumber ? { externalOrderNumber } : {}),
           customerName: built.customerName,
           phone: built.phone,
           notes: built.notes,
@@ -426,6 +461,7 @@ export async function saveManualPosOrder({
         },
       );
     }
+    if (externalRef && !externalReferenceExists) tx.create(externalRef, { orderId: orderRef.id, storeId, workspaceId, source: input.source, externalOrderNumber, createdAt: at });
     tx.create(requestRef, { orderId: orderRef.id, workspaceId, fingerprint, createdAt: at });
     tx.create(db.collection("storeOrderTimeline").doc(), {
       orderId: orderRef.id,
@@ -512,6 +548,12 @@ export async function confirmManualPosPayment({
       !["cash", "bank_transfer", "tng", "fpx", "other"].includes(input.method)
     )
       fail("Verify the received payment, exact amount and current revision.");
+    if (order.manualOrder.posAddOrder) {
+      const store = (await tx.get(db.collection('stores').doc(order.storeId))).data();
+      if (!store || store.workspaceId !== workspaceId || order.payment.provider !== 'manual_pos'
+        || order.fulfilments.some(day => day.date < posStoreDate(store, now)))
+        fail('Past fulfilments or gateway payments cannot use this manual confirmation.');
+    }
     const reference = text(input.reference, 120, true);
     tx.update(ref, {
       "payment.status": "paid",
