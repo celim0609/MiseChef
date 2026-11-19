@@ -202,3 +202,12 @@ test('embedded meal-day previews match server prices and meal modifiers', () => 
   const built = buildManualOrder({source:'whatsapp',customerName:'QA',phone:'',lines},{store,products:[plan],optionGroups:[],sets:[]},new Date('2026-10-19T04:00:00Z'));
   assert.equal(preview.totalMinor,1410); assert.equal(preview.totalMinor,Math.round(built.total*100)); assert.equal(preview.rows[0].name,'tue bowl');
 });
+
+test('cross-day POS preview keeps configured meal exchanges and prices on the source date',()=>{
+ const plan={id:'retained',storeId:'s',workspaceId:'s',productType:'weekly_meal_plan',name:'Retained',available:false,price:99,optionGroupIds:[],photoUrl:'plan.jpg',description:'Retained test menu',createdBy:'owner',createdAt:'2026-11-01',updatedAt:'2026-11-01',weeklyMenuVersion:2,
+  weeklyWeeks:{old:{startMonday:'2026-11-16',meals:{mon:{name:'Monday retained meal',photoUrl:'meal.jpg',price:12.9,
+   optionGroups:[{id:'side',name:'Side',type:'exchange',required:true,selection:'single',options:[{id:'egg',name:'Egg',priceAdjustmentMinor:120}]}]}}}}} as StoreProduct;
+ const selection={productId:'retained',healthyLunchPlanId:'retained',healthyLunchDate:'2026-11-16',selectedOptions:[],selectedMealOptions:[{serviceDate:'2026-11-16',optionGroupId:'side',optionId:'egg'}]};
+ const result=previewManualLines([line({date:'2026-11-21',quantity:2,selection})],[plan],[],[],true);
+ assert.equal(result.totalMinor,2820);assert.equal(result.rows[0].name,'Monday retained meal');assert.equal(result.days[0].date,'2026-11-21');
+});
