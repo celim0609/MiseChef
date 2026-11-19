@@ -116,19 +116,3 @@ test('quoted POS and manual overrides preserve distinct raw and final amounts wi
  assert.equal(override.fee, 4);
  assert.equal(override.snapshot.providerDeliveryFee, null);
 });
-
-test('isolated manual POS quote retains weekly source while pricing future delivery and rejects history before provider calls',async()=>{
- const {readFileSync}=await import('node:fs');const {plan}=JSON.parse(readFileSync(new URL('./fixtures/productionWeeklyMenu.json',import.meta.url)));
- const {buildManualOrder,manualDeliveryInput}=await import('./manualPosOrders.js');
- const f=fixture();const current=new Date('2026-11-20T04:00:00Z');
- const catalog={...checkout,products:[plan]};
- const request={slug:'store',storeId:'s',workspaceId:'s',source:'other',customerName:'Local test',posAddOrder:true,manualPos:true,
-  lines:[{selection:{productId:plan.id,healthyLunchPlanId:plan.id,healthyLunchDate:'2026-11-16',selectedOptions:[],selectedMealOptions:[]},quantity:1,date:'2026-11-21',time:'12:00',method:'delivery',deliveryArrangement:'store',deliveryAddress:'Corrected unit 1',destination:input.destination}]};
- const provider={...f.args.provider,createQuote:async r=>{f.requests.push(r);return {quotationId:'quote-local',expiresAt:'2026-11-20T04:10:00Z',priceBreakdown:{total:'9.50',currency:'MYR'},serviceType:'MOTORCYCLE',stops:[]};}};
- const args={...f.args,input:request,now:current,provider,buildItems:buildManualOrder,normalizeInput:manualDeliveryInput,loadCheckout:async()=>catalog};
- const q=await createPosDeliveryQuote(args);assert.equal(f.requests.length,1);assert.equal(f.requests[0].data.scheduleAt,'2026-11-21T04:00:00.000Z');
- const built=buildManualOrder(request,catalog,current,{owner:true});assert.equal(built.items[0].healthyLunchSnapshot.date,'2026-11-16');assert.equal(built.fulfilments[0].date,'2026-11-21');
- const charge=await resolvePosDeliveryCharge({db:f.args.db,transaction:f.transaction,input:{...manualDeliveryInput(request,catalog.products),posDeliveryQuoteId:q.id},checkout:catalog,built,uid:'manager',fullAccess:true,now:current});assert.equal(charge.fee,9.5);
- await assert.rejects(createPosDeliveryQuote({...args,input:{...request,lines:[{...request.lines[0],date:'2026-11-19'}]}}),/historical workflow/);
- await assert.rejects(createPosDeliveryQuote({...args,authorize:async()=>false}),/Only Owner or Manager/);assert.equal(f.requests.length,1);
-});

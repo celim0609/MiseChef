@@ -9,7 +9,7 @@ import type { StoreProduct, WorkspaceStore } from './types';
 
 const dateLabel = (date: string) => scheduleDateLabel(date).replace(/^(\w{3}) /, '$1, ');
 
-export interface HealthyLunchChoice { mode: 'week' | 'day'; date: string; fulfilmentDate?: string; selectedMealOptions?: MealOptionChoice[] }
+export interface HealthyLunchChoice { mode: 'week' | 'day'; date: string; selectedMealOptions?: MealOptionChoice[] }
 interface Props {
   sharedSelection?: boolean;
   sharedUnavailable?: boolean;
@@ -18,7 +18,6 @@ interface Props {
   currency: WorkspaceStore['currency'];
   weeks: string[];
   dayDates: string[];
-  dayUnavailable?: boolean;
   choice: HealthyLunchChoice;
   monday?: string;
   canOrder?: boolean;
@@ -26,7 +25,7 @@ interface Props {
   onAdd?: (choice: HealthyLunchChoice) => void;
 }
 
-export default function HealthyLunchMenu({ sharedSelection = false, sharedUnavailable = false, product, products, currency, weeks, dayDates, dayUnavailable = false, choice, monday = '', canOrder = true, onChange, onAdd }: Props) {
+export default function HealthyLunchMenu({ sharedSelection = false, sharedUnavailable = false, product, products, currency, weeks, dayDates, choice, monday = '', canOrder = true, onChange, onAdd }: Props) {
   const [choices, setChoices] = useState<MealOptionChoice[]>([]);
   const dated = hasDatedMenu(product);
   const date = weeks.includes(choice.date) ? choice.date : (sharedSelection ? '' : weeks[0]) || '';
@@ -61,7 +60,7 @@ export default function HealthyLunchMenu({ sharedSelection = false, sharedUnavai
 
     {sharedSelection && (sharedUnavailable || !choice.date) && <p role="status" className="mt-3 text-sm">This shared menu is not currently available to order.</p>}
     {showDays ? <>
-      {!dailyMeals.length && !dayUnavailable && <p className="mt-4 text-sm text-on-surface-variant">No meals are currently available to order.</p>}
+      {!dailyMeals.length && <p className="mt-4 text-sm text-on-surface-variant">No meals are currently available to order.</p>}
       <ul className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-5">{dailyMeals.map(({ date, meal }) => <li key={date} className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-surface-container-high bg-white shadow-sm">
         <div className="aspect-[4/3] overflow-hidden bg-surface-container">{meal.photoUrl && <img src={meal.photoUrl} alt={meal.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" loading="lazy" />}</div>
         <div className="flex flex-1 flex-col gap-2 p-3">

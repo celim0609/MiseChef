@@ -94,7 +94,7 @@ export function previewManualLines(
           catalog,
           groups,
           sets,
-          selection.healthyLunchDate || line.date,
+          line.date,
         )[0];
         name = item.productName;
         unitMinor =
