@@ -58,13 +58,26 @@ export function hasHistoricalWeeklyDay(selections, today, schedules = []) {
   });
 }
 
-export function validateHistoricalWeeklyCart(input, checkout, today) {
+// All Add Order products share this classification; a menu source date is not fulfilment.
+export function hasHistoricalPosDate(input, today) {
+  return (input.selections || []).some((selection, index) => {
+    const date = input.lineSchedules?.[index]?.date || input.fulfilmentDate || selection?.healthyLunchDate;
+    return validCalendarDate(date) && date < today;
+  });
+}
+
+export function validateHistoricalPosCart(input, checkout, today) {
+  if (!hasHistoricalPosDate(input, today)) throw new Error('Choose at least one past fulfilment date for historical audit.');
   for (const [index, selection] of input.selections.entries()) {
-    const date = input.lineSchedules?.[index]?.date || selection.healthyLunchDate;
-    if (!validCalendarDate(date) || date >= today || !validCalendarDate(selection.healthyLunchDate) || selection.healthyLunchDate >= today
-      || !selection.healthyLunchPlanId || selection.healthyLunchPlanId !== selection.productId) {
-      throw new Error('Use a separate cart for historical Order by Day meals.');
+    const date = input.lineSchedules?.[index]?.date || input.fulfilmentDate || selection.healthyLunchDate;
+    if (!validCalendarDate(date)) throw new Error('Choose a valid historical fulfilment date.');
+    const product = checkout.products.find(product => product.id === selection.productId);
+    if (!selection.healthyLunchDate) {
+      if (product?.productType === 'weekly_meal_plan') throw new Error('Use Order by Day for historical meals; keep 5-Day Plans separate.');
+      continue;
     }
+    if (!validCalendarDate(selection.healthyLunchDate) || !selection.healthyLunchPlanId || selection.healthyLunchPlanId !== selection.productId)
+      throw new Error('Choose a configured weekly menu source.');
     const plan = checkout.products.find(product => product.id === selection.healthyLunchPlanId
       && product.storeId === checkout.store.id && product.workspaceId === checkout.store.workspaceId);
     if (!plan || plan.productType !== 'weekly_meal_plan') throw new Error('This weekly menu is unavailable.');

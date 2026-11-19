@@ -31,7 +31,9 @@ export function buildExternalOrderItems(input, checkout, now = new Date(), { own
     // A meal's selected day always wins over the order-level default.
     if (!historicalWeekly && selection.healthyLunchDate && line?.date && selection.healthyLunchDate !== line.date) throw new Error('Keep the selected weekly meal fulfilment date.');
     const menuDate = selection.healthyLunchDate;
-    const date = (historicalWeekly ? line?.date : menuDate) || line?.date || menuDate || input.fulfilmentDate;
+    const date = historicalWeekly
+      ? line?.date || input.fulfilmentDate || menuDate
+      : menuDate || line?.date || input.fulfilmentDate;
     if (historicalWeekly && !validCalendarDate(date)) throw new Error('Choose a valid historical fulfilment date.');
     const time = line?.time || input.fulfilmentTime;
     if (method === 'delivery' && (!date || !time)) throw new Error('Choose a delivery date and exact time.');

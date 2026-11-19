@@ -575,7 +575,7 @@ export interface StoreOrder {
   deletionReason?: string;
   weeklyDayPos?: boolean;
   weeklyPosLink?: { expiresAt: number; provider: 'curlec' | 'stripe' };
-  manualOrder?: { revision: number; draft: Record<string, unknown>; createdBy: string };
+  manualOrder?: { posAddOrder?: boolean; revision: number; draft: Record<string, unknown>; createdBy: string };
   fulfilmentMethod?: 'pickup' | 'delivery';
   totals?: { merchandiseSubtotal: number; discountTotal: number; discountedMerchandiseTotal: number; deliveryFee: number; grandTotal: number; currency: RegionCurrency };
   promotionSnapshot?: StoreOrderPromotionSnapshot;

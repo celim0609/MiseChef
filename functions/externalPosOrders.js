@@ -1,4 +1,4 @@
-import { hasHistoricalWeeklyDay, posStoreDate, validateHistoricalWeeklyCart } from './posWeeklyDay.js';
+import { hasHistoricalPosDate, posStoreDate, validateHistoricalPosCart } from './posWeeklyDay.js';
 import { resolvePosDeliveryCharge } from './posDeliveryQuotes.js';
 import { buildExternalOrderItems } from './externalPosOrderModel.js';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -92,15 +92,15 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
       if (existing.exists) return { orderId: readString(existing.data()?.orderId), duplicate: true };
     }
     const today = posStoreDate(checkout.store, now);
-    if (!historical && hasHistoricalWeeklyDay(input.selections, today, input.lineSchedules)) {
-      throw externalError('Use Record Historical Order for past Order by Day meals.');
+    if (!historical && hasHistoricalPosDate(input, today)) {
+      throw externalError('Use Record Historical Order for past fulfilment dates.');
     }
     let posCheckout = posFullAccess ? { ...checkout, products: checkout.products.map(product => ({ ...product, available: true })) } : checkout;
     if (historical) {
       // Re-read the scoped menu documents inside the transaction so an edit
       // cannot race the audit write.
-      const planIds = new Set(input.selections.map(selection => selection.healthyLunchPlanId));
-      const plans = checkout.products.filter(product => planIds.has(product.id));
+      const selectedIds = new Set(input.selections.flatMap(selection => [selection.productId, selection.healthyLunchPlanId, ...(selection.selectedSetItems || []).map(item => item.productId)].filter(Boolean)));
+      const plans = checkout.products.filter(product => selectedIds.has(product.id));
       const snapshots = await Promise.all(plans.map(plan => transaction.get(db.collection('storeProducts').doc(plan.id))));
       const products = snapshots.filter(snapshot => snapshot.exists)
         .map(snapshot => ({ ...snapshot.data(), id: snapshot.id, available: true }));
@@ -108,11 +108,12 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
     }
     let built;
     try {
-      if (historical) validateHistoricalWeeklyCart(input, posCheckout, today);
+      if (historical) validateHistoricalPosCart(input, posCheckout, today);
       built = buildExternalOrderItems(input, posCheckout, now, { owner: posFullAccess, historicalWeekly: historical });
     } catch (error) {
       throw externalError(error.message || 'Check the items and fulfilment dates.');
     }
+    if (!historical && built.fulfilments?.some(day => day.date < today)) throw externalError('Use Record Historical Order for past fulfilment dates.');
     const {items} = built;
     const merchandiseSubtotal = money(items.reduce((sum, item) => sum + item.lineTotal, 0));
     const charge = await resolvePosDeliveryCharge({ db, transaction, input, checkout, built, uid, fullAccess: currentPosFullAccess, now: new Date(Math.max(now.getTime(), Date.now())) });
@@ -133,6 +134,8 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
       }
       transaction.create(orderReference, {
         id: orderReference.id, storeId, workspaceId, source, externalOrderNumber,
+        recordType: 'pos_historical_audit',
+        priceBasis: 'configured_catalog_at_entry_and_dated_weekly_snapshots',
         customerName: readString(input.customerName), phone, notes: readString(input.notes),
         reason: readString(input.historicalReason), actingUserId: uid,
         createdAt: FieldValue.serverTimestamp(),

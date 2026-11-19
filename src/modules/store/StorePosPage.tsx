@@ -1,4 +1,4 @@
-import { hasHistoricalWeeklyDay, posStoreDate, resolvePosWeeklyDay } from '../../../functions/posWeeklyDay.js';
+import { hasHistoricalPosDate, posStoreDate, resolvePosWeeklyDay } from '../../../functions/posWeeklyDay.js';
 import OrderManagementActions, {DeletedOrders} from './OrderManagementActions';
 import PasteOrderButton, {type PasteDraft} from './PasteOrderButton';
 import PosAddressPicker from './PosAddressPicker';
@@ -12,7 +12,7 @@ import PosWeeklyMenu from './PosWeeklyMenu';
 import HistoricalWeeklyOrderLookup from './HistoricalWeeklyOrderLookup';
 import type {HealthyLunchChoice} from './HealthyLunchMenu';
 import {previewManualLines} from './manualPosPreview';
-import {getWeeklyDates,resolveHealthyLunchDay} from '../../../functions/storeWeeklyMealPlan.js';
+import {getWeeklyDates,resolveHealthyLunchDay,isFullWeekSelection} from '../../../functions/storeWeeklyMealPlan.js';
 import ManualPosOrders from './ManualPosOrders';
 import { getOrderTickets } from './orderTickets';
 import DailyFulfilmentQueue, { DailyFulfilmentCard } from './DailyFulfilmentQueue';
@@ -284,6 +284,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const [externalNotes, setExternalNotes] = useState('');
   const [creatingExternal, setCreatingExternal] = useState(false);
   const [externalError, setExternalError] = useState('');
+  const [ordinaryPending, setOrdinaryPending] = useState(false);
   const [weeklyPaymentWorkflow, setWeeklyPaymentWorkflow] = useState<WeeklyPaymentWorkflow>('pending');
   const [savedWeeklyOrder, setSavedWeeklyOrder] = useState<{ order: StoreOrder; workflow: WeeklyPaymentWorkflow }>();
   const [historicalReason, setHistoricalReason] = useState('');
@@ -298,11 +299,17 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     lineSchedules:externalCart.map(item=>({date:item.date || '',time:item.time || ''})),
   };
   const storeToday = externalStore ? posStoreDate(externalStore, now) : '';
-  const historicalCart = hasHistoricalWeeklyDay(externalOrderInput.selections, storeToday, externalOrderInput.lineSchedules);
+  const historicalCart = hasHistoricalPosDate(externalOrderInput, storeToday);
   const weeklyCart = externalCart.some(item => item.weeklyDayPos);
+  const fullWeekCart = externalCart.some(item => isFullWeekSelection(item.selection, externalProducts));
+  const pendingCart = weeklyCart || (externalPosFullAccess && ordinaryPending && !fullWeekCart);
+  const canChoosePayment = externalPosFullAccess && !fullWeekCart;
+  useEffect(() => {
+    if (!weeklyCart && weeklyPaymentWorkflow === 'link') setWeeklyPaymentWorkflow('pending');
+  }, [weeklyCart, weeklyPaymentWorkflow]);
   const [weeklyLinkProviders, setWeeklyLinkProviders] = useState<WeeklyLinkProvider[]>([]);
   const weeklyManualInput = {
-    workspaceId, storeId, slug: externalOrderInput.slug, source: externalSource, weeklyDayPos: true, manualPos: true,
+    workspaceId, storeId, slug: externalOrderInput.slug, source: externalSource, weeklyDayPos: weeklyCart, posAddOrder: true, manualPos: true,
     externalOrderNumber: externalNumber, customerName: externalName.trim() || 'Customer', phone:externalPhone, notes: externalNotes,
     lines: externalCart.map(item => {
       const date = item.date || externalDate;
@@ -317,8 +324,8 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     }),
   };
   const historicalCartReady = externalPosFullAccess && Boolean(historicalReason.trim())
-    && externalCart.every(item => item.selection.healthyLunchDate && item.date && item.date < storeToday);
-  const externalQuoteKey=JSON.stringify(weeklyCart && !historicalCart ? weeklyManualInput : {workspaceId,storeId,slug:externalOrderInput.slug,fulfilmentMethod:externalMethod,
+    && !fullWeekCart;
+  const externalQuoteKey=JSON.stringify(pendingCart && !historicalCart ? weeklyManualInput : {workspaceId,storeId,slug:externalOrderInput.slug,fulfilmentMethod:externalMethod,
     deliveryAddress:externalOrderInput.deliveryAddress,destination:externalDestination,deliveryDestinations:externalDestinations,
     fulfilmentDate:externalDate,fulfilmentTime:externalTime,selections:externalOrderInput.selections,lineSchedules:externalOrderInput.lineSchedules});
   const externalQuoteKeyRef=useRef(externalQuoteKey);externalQuoteKeyRef.current=externalQuoteKey;
@@ -517,6 +524,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     setExternalError('');
     setExternalCategory('all');
     setExternalPosFullAccess(false);
+    setOrdinaryPending(false);
     setWeeklyLinkProviders([]);
     setHistoricalReceipt('');
     setSavedWeeklyOrder(undefined);
@@ -551,6 +559,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const createExternalOrder = async () => {
     if (externalSubmitInFlightRef.current || !externalCart.length || creatingExternal) return;
     if (historicalCart && !historicalCartReady) return;
+    if (fullWeekCart && ordinaryPending && !weeklyCart) return;
     if (weeklyCart && !historicalCart && !externalPosFullAccess) return;
     externalSubmitInFlightRef.current = true;
     setCreatingExternal(true);
@@ -561,7 +570,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       if(!currentStore?.slug || currentStore.slug!==externalOrderInput.slug) throw new Error('Store details changed. Reload the catalog before retrying.');
       if(externalMethod==='delivery' && !externalManualFee && (!externalQuote || Date.parse(externalQuote.expiresAt)<=Date.now()+5000)) throw new Error('Delivery estimate expired. Refresh before confirming.');
       if (!externalFeeReady) throw new Error('Refresh the delivery estimate or enter an authorized manual fee.');
-      if (weeklyCart && !historicalCart) {
+      if (pendingCart && !historicalCart) {
         const pending = await storeOrderService.saveManualPosOrder({
           ...weeklyManualInput, requestId: externalRequestIdRef.current, expectedSubtotalMinor: Math.round(externalSubtotal * 100),
           ...(externalMethod === 'delivery' ? externalManualFee
@@ -629,6 +638,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       ? resolvePosWeeklyDay(product, externalProducts, choice.date, storeToday, { historical: serviceDate < storeToday || choice.date < storeToday }).meal
       : resolveHealthyLunchDay(product, externalProducts, choice.date);
     if (!meal) return;
+    if (choice.mode === 'day' && externalPosFullAccess) setOrdinaryPending(true);
     const selection = {productId:meal.id,selectedOptions:[],selectedMealOptions:choice.selectedMealOptions || [],...(choice.mode === 'day'?{healthyLunchPlanId:product.id,healthyLunchDate:choice.date}:{})};
     const key = `menu:${product.id}:${choice.mode}:${choice.date}:${serviceDate}:${time}:${JSON.stringify(selection.selectedMealOptions)}`;
     if(!claimPosAdd(externalAddTimes.current,key,Date.now()))return;
@@ -884,7 +894,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
             <header className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3">
               <div>
                 <h2 id="pos-order-entry-title" className="text-xl font-black">Add Order</h2>
-                <p className="text-xs font-bold text-slate-500">{historicalCart ? 'Historical order' : weeklyCart ? 'Weekly order · Pending payment' : externalSource === 'shopeefood' ? 'ShopeeFood · Platform Paid' : externalSource === 'walk_in' ? 'Walk-in · Paid' : externalSource === 'whatsapp' ? 'WhatsApp · Paid' : 'Other · Paid'}</p>
+                <p className="text-xs font-bold text-slate-500">{historicalCart ? 'Historical order' : pendingCart ? 'Order · Pending payment' : externalSource === 'shopeefood' ? 'ShopeeFood · Platform Paid' : externalSource === 'walk_in' ? 'Walk-in · Paid' : externalSource === 'whatsapp' ? 'WhatsApp · Paid' : 'Other · Paid'}</p>
               </div>
               <PasteOrderButton workspaceId={workspaceId} storeId={storeId} slug={externalStore?.slug || ''} products={externalOrderableProducts} sets={externalSets} disabled={externalLoading || creatingExternal} onApply={draft=>{setExternalCart([]);setExternalOpen(false);setActiveView('history');setPosSection('orders');setPasteRequest({id:crypto.randomUUID(),draft});}} />
               <button type="button" onClick={() => { setExternalOpen(false); window.scrollTo({ top: 0 }); }} disabled={creatingExternal} className="inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 py-2 font-bold hover:bg-slate-100 disabled:opacity-40"><ArrowLeft className="h-5 w-5" />Back to POS</button>
@@ -893,7 +903,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
             {historicalReceipt && <p role="status" className="px-4 py-2 text-sm font-bold">Historical order recorded. Reference {historicalReceipt}.</p>}
             {savedWeeklyOrder && externalStore && <div key={savedWeeklyOrder.order.id} className="border-b px-4 py-3">
               <WeeklyPosPaymentActions order={savedWeeklyOrder.order} slug={externalStore.slug}
-                providers={weeklyLinkProviders} initialWorkflow={savedWeeklyOrder.workflow} />
+                providers={savedWeeklyOrder.order.weeklyDayPos ? weeklyLinkProviders : []} initialWorkflow={savedWeeklyOrder.workflow} />
             </div>}
             {externalPosFullAccess && <div key={`${workspaceId}:${historicalReceipt}`}><HistoricalWeeklyOrderLookup reference={historicalReceipt} /></div>}
             <fieldset disabled={creatingExternal} className="grid shrink-0 grid-cols-2 gap-3 border-b px-4 py-3 disabled:opacity-60">
@@ -924,7 +934,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               </div>}
               <label className="text-xs font-bold text-slate-600">{externalMethod === 'delivery' ? 'Delivery' : 'Pickup'} date<input aria-label="Order fulfilment date" type="date" value={externalDate} onChange={event => setExternalDate(event.target.value)} className="mt-1 block w-full rounded-lg border p-2" /></label>
               <label className="text-xs font-bold text-slate-600">Exact {externalMethod} time<input aria-label="Order fulfilment time" type="time" value={externalTime} onChange={event => setExternalTime(event.target.value)} className="mt-1 block w-full rounded-lg border p-2" /></label>
-              <p className="col-span-2 text-xs text-slate-600">Dates and times above apply to items without their own schedule. Weekly meals keep their selected dates. {externalMethod === 'delivery' ? 'Delivery is arranged externally. Confirming this order does not book Lalamove.' : 'Leave both blank for immediate pickup.'}</p>
+              <p className="col-span-2 text-xs text-slate-600">Dates and times above apply to items without their own schedule. Each weekly meal keeps its separately selected menu source and fulfilment schedule. {externalMethod === 'delivery' ? 'Delivery is arranged externally. Confirming this order does not book Lalamove.' : 'Leave both blank for immediate pickup.'}</p>
             </fieldset>
 
             <div className="space-y-6">
@@ -978,6 +988,8 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                     </div>
                     <span className="min-w-20 text-right text-sm font-black">MYR {item.lineTotal.toFixed(2)}</span>
                   </div>
+                  {item.selection.healthyLunchDate && <p className="mt-2 text-xs font-bold">Menu source: {item.selection.healthyLunchDate}</p>}
+                  {item.weeklyDayPos && externalPosFullAccess && <div className="mt-2 flex flex-wrap gap-2 text-xs"><label>Fulfilment date<input type="date" value={item.date || ''} onChange={event=>setExternalCart(cart=>cart.map(line=>line.key===item.key?{...line,date:event.target.value}:line))} /></label><label>Fulfilment time<input type="time" value={item.time || ''} onChange={event=>setExternalCart(cart=>cart.map(line=>line.key===item.key?{...line,time:event.target.value}:line))} /></label></div>}
                   {item.date && <p className="mt-2 text-xs font-bold">{item.selection.healthyLunchDate ? item.date : externalProducts.find(product=>product.id===item.selection.productId)?.productType==='weekly_meal_plan' ? getWeeklyDates(item.date).join(' · ') : item.date} · {item.time}</p>}
                   {item.previewError && <p role="alert" className="text-sm text-red-700">{item.previewError}</p>}
                   {!item.selection.healthyLunchPlanId && externalProducts.find(product=>product.id===item.selection.productId)?.productType!=='weekly_meal_plan' && <label className="mt-2 block text-xs font-bold"><input type="checkbox" checked={Boolean(item.scheduleOverride || item.date)} disabled={creatingExternal} onChange={event=>setExternalCart(current=>current.map(line=>line.key===item.key?{...line,scheduleOverride:event.target.checked,date:event.target.checked?externalDate:'',time:event.target.checked?externalTime:''}:line))}/> Override fulfilment schedule for this item</label>}
@@ -1002,23 +1014,28 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                 {externalPosFullAccess && !externalQuote && !externalQuoting && <div className="mt-2"><label className="font-bold"><input type="checkbox" disabled={historicalCart} checked={externalManualFee} onChange={e=>{setExternalManualFee(e.target.checked);setExternalOverrideKey(externalQuoteKey);}}/> Manual delivery fee</label>{externalManualFee&&<div className="mt-2 grid gap-2"><label>Customer delivery fee (MYR)<input aria-label="Manual delivery fee" type="number" min="0" max="100000" step="0.01" value={externalFeeAmount} onChange={e=>setExternalFeeAmount(e.target.value)} className="ml-2 w-28 rounded border p-2"/></label><label>Reason<input aria-label="Manual delivery fee reason" value={externalFeeReason} maxLength={240} onChange={e=>setExternalFeeReason(e.target.value)} className="ml-2 rounded border p-2"/></label></div>}</div>}
               </section>}
               <dl className="mb-3 space-y-1 text-sm"><div className="flex justify-between"><dt>Product subtotal</dt><dd>MYR {externalSubtotal.toFixed(2)}</dd></div><div className="flex justify-between"><dt>Discounts</dt><dd>MYR 0.00</dd></div><div className="flex justify-between"><dt>Delivery fee</dt><dd>{externalFeeReady?`MYR ${Number(externalFee).toFixed(2)}`:'Pending estimate'}</dd></div><div className="flex justify-between border-t pt-2 text-base font-black"><dt>Grand total</dt><dd>{externalFeeReady?`MYR ${(Math.round((externalSubtotal+Number(externalFee))*100)/100).toFixed(2)}`:'Pending delivery fee'}</dd></div></dl>
-              {weeklyCart && !historicalCart && <label className="mb-2 block text-sm font-bold">Payment workflow
-                <select value={weeklyPaymentWorkflow} onChange={event=>setWeeklyPaymentWorkflow(event.target.value as WeeklyPaymentWorkflow)} className="ml-2 rounded border p-2">
+              {canChoosePayment && !historicalCart && <label className="mb-2 block text-sm font-bold">Payment workflow
+                <select value={!weeklyCart && !ordinaryPending ? 'external' : weeklyPaymentWorkflow} onChange={event=>{
+                  setOrdinaryPending(event.target.value !== 'external');
+                  if (event.target.value !== 'external') setWeeklyPaymentWorkflow(event.target.value as WeeklyPaymentWorkflow);
+                }} className="ml-2 rounded border p-2">
+                  {!weeklyCart && <option value="external">Existing externally-paid workflow</option>}
                   <option value="pending">Save as Pending Payment</option><option value="manual">Manual Payment</option>
-                  {weeklyLinkProviders.length > 0 && <option value="link">Generate Payment Link</option>}
+                  {weeklyCart && weeklyLinkProviders.length > 0 && <option value="link">Generate Payment Link</option>}
                 </select>
               </label>}
               {historicalCart ? <div className="mb-2 space-y-1 text-sm">
-                <p>Records the historical order for audit. Payment, sales, fulfilment and dispatch remain separate.</p>
-                {!externalCart.every(item => item.selection.healthyLunchDate && item.date && item.date < storeToday) && <p role="status">Use a separate cart for historical Order by Day meals.</p>}
+                <p>Records this entire cart for historical audit only. No payment confirmation, sales recognition, customer notification or delivery booking is created. Ordinary products use configured prices at entry; weekly meals use the selected menu snapshot.</p>
+                {fullWeekCart && <p role="status">Keep 5-Day Plans separate from historical audit entries.</p>}
                 <label className="block font-bold">Historical order reason
                   <input value={historicalReason} onChange={event => setHistoricalReason(event.target.value)} maxLength={500} className="mt-1 block w-full rounded-lg border p-2" />
                 </label>
-              </div> : !weeklyCart && <p className="mb-2 text-xs font-bold">Payment status: {externalSource==='shopeefood'?'Platform paid':'Paid externally'} · Confirm only after payment is received.</p>}
+              </div> : !pendingCart && <p className="mb-2 text-xs font-bold">Payment status: {externalSource==='shopeefood'?'Platform paid':'Paid externally'} · Confirm only after payment is received.</p>}
+              {fullWeekCart && ordinaryPending && !weeklyCart && <p role="status">5-Day Plans retain the existing externally-paid workflow. <button type="button" className="underline" onClick={()=>setOrdinaryPending(false)}>Choose existing externally-paid workflow</button></p>}
               {!hasRequiredExternalOptions && <p className="mb-2 text-sm text-amber-800">Choose the required product options to continue.</p>}
               {externalError && <p id="pos-order-entry-error" role="alert" className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-800">{externalError}</p>}
-              <button type="button" onClick={() => void createExternalOrder()} disabled={creatingExternal || (historicalCart && !historicalCartReady) || !externalFeeReady || !externalCart.length || !hasRequiredExternalOptions || externalLoading || externalCartLines.some(item=>Boolean(item.previewError))} aria-busy={creatingExternal} aria-describedby={externalError ? 'pos-order-entry-error' : undefined} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-base font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
-                {creatingExternal && <LoaderCircle aria-hidden="true" className="h-5 w-5 animate-spin" />}{creatingExternal ? 'Creating…' : historicalCart ? 'Record Historical Order' : weeklyCart ? (weeklyPaymentWorkflow === 'pending' ? 'Save as Pending Payment' : 'Save and continue to payment') : 'Confirm Order'}
+              <button type="button" onClick={() => void createExternalOrder()} disabled={creatingExternal || (fullWeekCart && ordinaryPending && !weeklyCart) || (historicalCart && !historicalCartReady) || !externalFeeReady || !externalCart.length || !hasRequiredExternalOptions || externalLoading || externalCartLines.some(item=>Boolean(item.previewError))} aria-busy={creatingExternal} aria-describedby={externalError ? 'pos-order-entry-error' : undefined} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-base font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
+                {creatingExternal && <LoaderCircle aria-hidden="true" className="h-5 w-5 animate-spin" />}{creatingExternal ? 'Creating…' : historicalCart ? 'Record Historical Order' : pendingCart ? (weeklyPaymentWorkflow === 'pending' ? 'Save as Pending Payment' : 'Save and continue to payment') : 'Confirm Order'}
               </button>
             </footer>
             </div>

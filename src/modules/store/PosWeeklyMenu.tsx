@@ -16,8 +16,7 @@ export default function PosWeeklyMenu({product,products,store,onAdd,disabled=fal
  const selectedDay=serviceDate ?? (defaultDate || today);
  const dayAccess=unrestricted && choice.mode==='day';
  const selectedMenuDate=customDate ? menuDate ?? today : selectedDay;
- const historicalSourceUnavailable=selectedDay < today && selectedMenuDate >= today;
- const selectedMeal=dayAccess && !historicalSourceUnavailable ? resolvePosWeeklyDay(product,products,selectedMenuDate,today,{
+ const selectedMeal=dayAccess ? resolvePosWeeklyDay(product,products,selectedMenuDate,today,{
    historical: selectedDay < today || selectedMenuDate < today,
  }) : null;
  if (unrestricted) { product={...product,healthyLunchBlockedDates:[]}; products=products.map(p=>({...p,healthyLunchBlockedDates:[]})); }
@@ -43,17 +42,22 @@ export default function PosWeeklyMenu({product,products,store,onAdd,disabled=fal
         <option value="weekly">Follow Weekly Menu</option><option value="custom">Custom Date</option>
       </select>
     </label>
+    {customDate && product.weeklyMenuVersion === 2 && <label className="block text-sm font-bold">Configured menu meal
+      <select aria-label={`${product.name} menu source`} value={selectedMenuDate} onChange={event=>setMenuDate(event.target.value)} className="ml-2 rounded border p-2">
+        <option value="">Choose menu meal</option>
+        {catalogDates.filter(date=>Boolean(resolveHealthyLunchDay(product,products,date))).map(date=><option key={date} value={date}>{date} · {resolveHealthyLunchDay(product,products,date)?.name}</option>)}
+      </select>
+    </label>}
     {customDate && <label className="block text-sm font-bold">Menu meal date
       <input type="date" value={selectedMenuDate} onChange={event=>setMenuDate(event.target.value)} className="ml-2 rounded border p-2" />
     </label>}
     <label className="block text-sm font-bold">Service date<input type="date" value={selectedDay} onChange={event=>setServiceDate(event.target.value)} className="ml-2 rounded border p-2" /></label>
     {selectedMeal?.monday && <p className="text-sm">{customDate ? 'Menu week starting' : 'Week starting'} {selectedMeal.monday}</p>}
-    {historicalSourceUnavailable && <p role="status" className="text-sm">Choose a dated historical menu meal for past fulfilment.</p>}
     {selectedMeal?.error && <p role="status" className="text-sm">{selectedMeal.error}</p>}
   </div>}
   {!hasDatedMenu(product) && <label className="mb-2 block text-sm font-bold">Week starting<select aria-label={`${product.name} week`} value={monday} onChange={event=>setChoice({...choice,date:event.target.value})} className="ml-2 rounded border p-2">{!weeks.length&&<option value="">No available dates</option>}{weeks.map(date=><option key={date} value={date}>{weekRangeLabel(date)}</option>)}</select></label>}
   <label className="text-sm font-bold">Fulfilment time<>{exactTime ? <input type="time" aria-label={`${product.name} fulfilment time`} value={selectedTime} onChange={event=>setTime(event.target.value)} className="ml-2 rounded-lg border p-2" /> : <select aria-label={`${product.name} fulfilment time`} value={selectedTime} onChange={event=>setTime(event.target.value)} className="ml-2 rounded-lg border p-2">{!times.length&&<option value="">No available times</option>}{times.map(time=><option key={time}>{time}</option>)}</select>}</></label>
-  <HealthyLunchMenu product={product} products={products} currency={store.currency} weeks={weeks} dayDates={dayAccess ? selectedMeal?.meal ? [selectedMenuDate] : [] : dayDates} choice={{...choice,date:monday}} monday={monday} canOrder={Boolean(selectedTime)&&!disabled&&(!dayAccess||validCalendarDate(selectedDay))} dayUnavailable={dayAccess && (historicalSourceUnavailable || Boolean(selectedMeal?.error))} onChange={setChoice} onAdd={choice=>onAdd(dayAccess ? {...choice,fulfilmentDate:selectedDay} : choice,selectedTime)}/>
+  <HealthyLunchMenu product={product} products={products} currency={store.currency} weeks={weeks} dayDates={dayAccess ? selectedMeal?.meal ? [selectedMenuDate] : [] : dayDates} choice={{...choice,date:monday}} monday={monday} canOrder={Boolean(selectedTime)&&!disabled&&(!dayAccess||validCalendarDate(selectedDay))} dayUnavailable={dayAccess && Boolean(selectedMeal?.error)} onChange={setChoice} onAdd={choice=>onAdd(dayAccess ? {...choice,fulfilmentDate:selectedDay} : choice,selectedTime)}/>
   {cartFeedback}
   {!hasEmbeddedMenu(product)&&!weeks.length&&<p>No available menu dates. Review Store configuration.</p>}
  </section>;

@@ -1,4 +1,4 @@
-import { hasHistoricalWeeklyDay, posStoreDate } from './posWeeklyDay.js';
+import { hasHistoricalPosDate, posStoreDate } from './posWeeklyDay.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { HttpsError } from 'firebase-functions/v2/https';
 import { buildExternalOrderItems } from './externalPosOrderModel.js';
@@ -29,10 +29,11 @@ export async function createPosDeliveryQuote({ db, uid, input, provider, authori
   input = normalizeInput(input, catalog.products);
   if (input.fulfilmentMethod !== 'delivery') fail('Choose Delivery to estimate a fee.');
   if (buildItems === buildExternalOrderItems && (!Array.isArray(input.selections) || !input.selections.length || input.selections.length > 50)) fail('Choose 1–50 cart lines.');
-  if (buildItems === buildExternalOrderItems && hasHistoricalWeeklyDay(input.selections, posStoreDate(checkout.store, now), input.lineSchedules)) {
-    fail('Historical weekly orders cannot request a delivery estimate.');
+  if (buildItems === buildExternalOrderItems && hasHistoricalPosDate(input, posStoreDate(checkout.store, now))) {
+    fail('Historical orders cannot request a delivery estimate.');
   }
   const built = buildItems(input, catalog, now, { owner: fullAccess });
+  if (built.fulfilments.some(day => day.date < posStoreDate(checkout.store, now))) fail('Historical orders cannot request a delivery estimate.');
   const deliveryDays = built.fulfilments.filter(day => day.method === 'delivery' && day.deliveryArrangement !== 'customer');
   const config = checkout.store.delivery;
   if (checkout.store.currency !== 'MYR' || !config?.enabled || config.provider !== 'lalamove' || config.market !== 'MY' || config.environment !== provider.environment || !config.serviceType) fail('Lalamove quotation is unavailable for this Store.');

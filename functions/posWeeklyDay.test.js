@@ -50,3 +50,13 @@ test('custom weekend fulfilments use the Store timezone and classify history by 
   assert.equal(posScheduleTime({ country: 'MY' }, '2026-11-21', '00:00'), Date.parse('2026-11-20T16:00:00Z'));
   assert.equal(posScheduleTime({ timeZone: 'UTC' }, '2026-11-22', '15:10'), Date.parse('2026-11-22T15:10:00Z'));
 });
+
+test('all Add Order types classify history by actual service date, not weekly source date', async () => {
+  const { hasHistoricalPosDate } = await import('./posWeeklyDay.js');
+  const selections = [{ productId: 'cake' }, { productId: 'menu', healthyLunchDate: '2026-11-10' }];
+  const input = { selections, fulfilmentDate: '2026-11-21', lineSchedules: [{ date: '' }, { date: '2026-11-22' }] };
+  assert.equal(hasHistoricalPosDate(input, '2026-11-19'), false);
+  assert.equal(hasHistoricalPosDate({ ...input, fulfilmentDate: '2026-11-18' }, '2026-11-19'), true);
+  assert.equal(hasHistoricalPosDate({ ...input, fulfilmentDate: '2026-11-19' }, '2026-11-19'), false);
+  assert.equal(hasHistoricalPosDate({ ...input, fulfilmentDate: '2026-02-30' }, '2026-11-19'), false);
+});

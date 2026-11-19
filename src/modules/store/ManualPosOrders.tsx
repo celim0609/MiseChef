@@ -279,6 +279,7 @@ export default function ManualPosOrders({
         workspaceId,
         storeId,
         slug,
+        ...(editing?.manualOrder?.posAddOrder ? { posAddOrder: true, expectedSubtotalMinor: preview.totalMinor } : {}),
         requestId: requestId.current,
         ...(editing
           ? {

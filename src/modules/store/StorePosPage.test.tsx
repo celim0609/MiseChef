@@ -189,7 +189,7 @@ const makeExternalOrderHarness = (overrides: Record<string, unknown> = {}) => {
     externalAddTimes:{current:new Map()},
     externalRequestIdRef: {current: 'request-1234567890'},
     externalCart: state.cart,
-    weeklyCart: false, historicalCart: false, historicalCartReady: false, historicalReason: '', externalSubtotal: 0,
+    weeklyCart: false, pendingCart: false, fullWeekCart: false, ordinaryPending: false, externalPosFullAccess: false, historicalCart: false, historicalCartReady: false, historicalReason: '', externalSubtotal: 0,
     setHistoricalReason: () => {}, setHistoricalReceipt: () => {},
     creatingExternal: false,
     externalFeeReady:true,externalManualFee:false,externalFeeAmount:'',externalFeeReason:'',externalQuote:{id:'quote-1234567890',expiresAt:'2099-01-01T00:00:00Z'},
@@ -212,6 +212,7 @@ const makeExternalOrderHarness = (overrides: Record<string, unknown> = {}) => {
     printWalkInReceipt: () => { state.printed += 1; },
     ...overrides
   };
+  scope.pendingCart = scope.weeklyCart || (scope.externalPosFullAccess && scope.ordinaryPending && !scope.fullWeekCart);
   const scoped=scope as typeof scope & {externalOrderInput?:unknown};
   scoped.externalOrderInput={workspaceId:scope.workspaceId,storeId:scope.storeId,slug:'store-a',source:scope.externalSource,customerName:scope.externalName,phone:scope.externalPhone,notes:scope.externalNotes,externalOrderNumber:scope.externalNumber,fulfilmentMethod:scope.externalMethod,deliveryAddress:scope.externalAddress,fulfilmentDate:scope.externalDate,fulfilmentTime:scope.externalTime,selections:(scope.externalCart as Array<{selection:object;quantity:number}>).map(item=>({...item.selection,quantity:item.quantity})),lineSchedules:(scope.externalCart as Array<{date?:string;time?:string}>).map(item=>({date:item.date||'',time:item.time||''}))};
   assert.ok(createExternalOrderSource.startsWith('  const createExternalOrder = async () => {'));
@@ -312,7 +313,7 @@ test('POS Add Order uses document flow with catalog before cart and no modal scr
   assert.match(modal, /\{externalError && <p[^>]*role="alert"[^>]*>\{externalError\}<\/p>\}\s*<button[^>]*onClick=\{\(\) => void createExternalOrder\(\)\}/);
   assert.match(modal, /aria-busy=\{creatingExternal\}/);
   assert.match(modal, /className="[^"]*w-full[^"]*bg-blue-700[^"]*disabled:cursor-not-allowed[^"]*disabled:bg-slate-200/);
-  assert.match(modal, /creatingExternal \? 'Creating…' : historicalCart \? 'Record Historical Order' : weeklyCart/);
+  assert.match(modal, /creatingExternal \? 'Creating…' : historicalCart \? 'Record Historical Order' : pendingCart/);
   assert.doesNotMatch(createExternalOrderSource, /setErrorMessage\(/);
 });
 
@@ -437,4 +438,32 @@ test('privileged Weekly Day cart saves one pending order with the independent me
   assert.deepEqual(requests[0].lines, [{ selection, date: '2026-11-21', quantity: 1 }]);
   assert.deepEqual(show, [{ order, workflow: 'link' }]);
   assert.equal(harness.state.printed, 0);
+});
+
+test('ordinary Add Order pending/manual choices use the saved order path without a payment provider', async () => {
+  for (const workflow of ['pending', 'manual']) {
+    const requests: Record<string, unknown>[] = [];
+    const shown: unknown[] = [];
+    const order = { id: 'ordinary-pending', payment: { status: 'pending' } };
+    const harness = makeExternalOrderHarness({ ordinaryPending: true, externalPosFullAccess: true,
+      externalSubtotal: 36, weeklyPaymentWorkflow: workflow,
+      weeklyManualInput: { posAddOrder: true, weeklyDayPos: false, lines: [{ selection: { productId: 'burger' }, quantity: 2, date: '2026-11-21', time: '12:00' }] },
+      setSavedWeeklyOrder: (value: unknown) => shown.push(value), setWeeklyPaymentWorkflow: () => {},
+      storeOrderService: {
+        saveManualPosOrder: async (payload: Record<string, unknown>) => { requests.push(payload); return { orderId: order.id }; },
+        getOrder: async () => order,
+        createExternalPosOrder: async () => assert.fail('Unpaid ordinary orders must not use external Paid creation'),
+      },
+    });
+    await Promise.all([harness.submit(), harness.submit()]);
+    assert.equal(requests.length, 1); assert.equal(requests[0].posAddOrder, true);
+    assert.equal(requests[0].expectedSubtotalMinor, 3600);
+    assert.deepEqual(shown, [{ order, workflow }]); assert.equal(harness.state.printed, 0);
+  }
+});
+
+test('adding a 5-Day Plan never silently converts a pending cart into an externally paid order', async () => {
+  const harness = makeExternalOrderHarness({ ordinaryPending: true, fullWeekCart: true, externalPosFullAccess: true });
+  await harness.submit();
+  assert.equal(harness.requests.length, 0);
 });

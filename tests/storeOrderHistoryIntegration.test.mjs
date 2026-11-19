@@ -566,11 +566,12 @@ test('POS delivery checkout uses stored quote totals, rejects stale/forged fees,
   await assert.rejects(createExternalPosOrder({...args,input:{...args.input,requestId:'pos-changed-request-12345',fulfilmentTime:'00:02'}}),/changed/);
   await db.collection('storePosDeliveryQuotes').doc(quote.id).update({expiresAt:new Date(Date.now()-1).toISOString()});
   await assert.rejects(createExternalPosOrder({...args,input:{...args.input,requestId:'pos-expired-request-12345'}}),/expired/);
-  const historical={...input,requestId:'pos-manual-request-12345',fulfilmentDate:'2020-01-01',deliveryFeeOverride:{amount:5,reason:'Historical record; provider quotation unavailable'}};
+  const historical={...input,paymentLabel:undefined,historicalReason:'Historical delivery record',expectedSubtotalMinor:2400,requestId:'pos-manual-request-12345',fulfilmentDate:'2020-01-01',deliveryFeeOverride:{amount:5,reason:'Historical record; provider quotation unavailable'}};
   await assert.rejects(createExternalPosOrder({db,uid:chef,input:historical}));
   const manual=await createExternalPosOrder({db,uid:manager,input:historical});
-  const order=(await db.collection('storeOrders').doc(manual.orderId).get()).data();
-  assert.equal(order.total,29);assert.equal(order.fulfilments[0].date,'2020-01-01');assert.equal(order.totals.deliveryFee,5);assert.equal(order.posDeliveryPricing.providerDeliveryFee,null);assert.equal(order.posDeliveryPricing.authorizedBy,manager);assert.equal(bookings,0);
+  const order=(await db.collection('storeHistoricalWeeklyOrders').doc(manual.orderId).get()).data();
+  assert.equal(manual.historical,true);assert.equal(order.totals.grandTotal,29);assert.equal(order.payment,undefined);assert.equal(order.fulfilmentStatus,undefined);assert.equal(order.fulfilments[0].date,'2020-01-01');assert.equal(order.totals.deliveryFee,5);assert.equal(order.deliveryFeeAudit.providerDeliveryFee,null);assert.equal(order.deliveryFeeAudit.authorizedBy,manager);assert.equal(bookings,0);
+  assert.equal((await db.collection('storeOrders').doc(manual.orderId).get()).exists,false);
  }finally{await deleteApp(app);}
 });
 
@@ -784,7 +785,7 @@ test('historical Weekly Order by Day is an authorized audit record with dated pr
     await assert.rejects(save(chef, historical), /Only Owner or Manager/);
     await assert.rejects(save(manager, { ...historical, paymentLabel: 'other_paid' }), /without a payment label/);
     await assert.rejects(save(manager, { ...historical, expectedSubtotalMinor: 6600 }), /pricing changed/);
-    await assert.rejects(save(manager, { ...historical, selections: [selection('2026-11-17')] }), /separate cart/);
+    await assert.rejects(save(manager, { ...historical, selections: [selection('2026-11-17')] }), /pricing changed/);
     await assert.rejects(save(manager, { ...makeInput('2026-11-03'), historicalReason: 'Audit', expectedSubtotalMinor: 3600 }), /No dated historical menu/);
 
     let providerCalls = 0;
@@ -1257,4 +1258,61 @@ test('public Curlec cutover keeps legacy checkout retries on live and pauses new
   } finally {
     await deleteApp(app);
   }
+});
+
+test('Add Order ordinary and mixed carts preserve snapshots with historical isolation and concurrent manual confirmation', async () => {
+  assert.ok(process.env.FIRESTORE_EMULATOR_HOST, 'Firestore emulator is required.');
+  const app = initializeApp({ projectId: 'demo-misechef-store-payment-rules' }, `add-order-${process.pid}`);
+  const db = getFirestore(app), workspaceId = `add-order-${process.pid}`;
+  const owner = `${workspaceId}-owner`, manager = `${workspaceId}-manager`, staff = `${workspaceId}-staff`;
+  const planId = `${workspaceId}-menu`, burgerId = `${workspaceId}-burger`;
+  const now = new Date('2026-11-19T04:00:00Z');
+  try {
+    await Promise.all([
+      db.collection('workspaces').doc(workspaceId).set({ ownerId: owner, subscriptionPlan: 'professional', subscriptionStatus: 'active' }),
+      ...[[manager, 'Manager'], [staff, 'Chef']].map(([userId, role]) => db.collection('workspaceMembers').doc(`${workspaceId}_${userId}`).set({ userId, workspaceId, status: 'Active', role })),
+      db.collection('stores').doc(workspaceId).set({ workspaceId, slug: workspaceId, name: 'QA Store', country: 'MY', currency: 'MYR',
+        pickupLocations: [{ id: 'counter', name: 'Counter', address: 'Counter' }] }),
+      db.collection('storeProducts').doc(burgerId).set({ workspaceId, storeId: workspaceId, name: 'Burger', price: 18, available: true, optionGroupIds: [] }),
+      db.collection('storeProducts').doc(planId).set({ workspaceId, storeId: workspaceId, name: 'Expired menu', price: 999,
+        available: false, productType: 'weekly_meal_plan', weeklyMenuVersion: 2, optionGroupIds: [],
+        weeklyWeeks: { archived: { startMonday: '2026-11-09', meals: { tue: { name: 'Archived Tuesday', photoUrl: 'original.jpg', price: 12.9 } } } } }),
+    ]);
+    const base = { workspaceId, storeId: workspaceId, slug: workspaceId, source: 'whatsapp', customerName: 'QA customer', fulfilmentMethod: 'pickup' };
+    const weekly = { productId: planId, healthyLunchPlanId: planId, healthyLunchDate: '2026-11-10', quantity: 2, selectedOptions: [] };
+    const burger = { productId: burgerId, quantity: 2, selectedOptions: [] };
+    const past = { ...base, requestId: 'ordinary-past-request-1234', selections: [burger], fulfilmentDate: '2026-11-18', fulfilmentTime: '12:00' };
+    await assert.rejects(createExternalPosOrder({ db, uid: owner, input: { ...past, paymentLabel: 'other_paid' }, now }), /Record Historical Order/);
+    const archive = { ...base, requestId: 'mixed-archive-request-1234', historicalReason: 'Recorded customer order',
+      selections: [weekly, burger], lineSchedules: [{ date: '2026-11-14', time: '12:00' }, { date: '2026-11-18', time: '13:00' }], expectedSubtotalMinor: 6180 };
+    await assert.rejects(createExternalPosOrder({ db, uid: staff, input: archive, now }), /Only Owner or Manager/);
+    const archived = await Promise.all([1, 2].map(() => createExternalPosOrder({ db, uid: manager, input: archive, now })));
+    assert.equal(archived[0].orderId, archived[1].orderId);
+    const record = (await db.collection('storeHistoricalWeeklyOrders').doc(archived[0].orderId).get()).data();
+    assert.equal(record.recordType, 'pos_historical_audit'); assert.equal(record.payment, undefined);
+    assert.equal(record.fulfilmentStatus, undefined); assert.equal(record.totals.grandTotal, 61.8);
+    assert.equal(record.items[0].healthyLunchSnapshot.date, '2026-11-10');
+    assert.deepEqual(record.fulfilments.map(day => day.date), ['2026-11-14', '2026-11-18']);
+    for (const collection of ['storeOrders', 'storeNotifications', 'storeOrderTimeline'])
+      assert.equal((await db.collection(collection).where('workspaceId', '==', workspaceId).get()).size, 0);
+    const ordinaryArchive = await createExternalPosOrder({ db, uid: owner, now,
+      input: { ...past, historicalReason: 'Ordinary historical product', expectedSubtotalMinor: 3600 } });
+    assert.equal(ordinaryArchive.historical, true);
+    assert.equal((await db.collection('storeProducts').doc(planId).get()).data().available, false);
+    const pending = { ...base, posAddOrder: true, requestId: 'ordinary-pending-request-1234', expectedSubtotalMinor: 3600,
+      lines: [{ selection: burger, quantity: 2, date: '2026-11-21', time: '12:00', method: 'pickup', notes: '' }] };
+    await assert.rejects(saveManualPosOrder({ db, uid: staff, input: pending, now }), /Only Owner or Manager/);
+    const results = await Promise.all([1, 2].map(() => saveManualPosOrder({ db, uid: manager, input: pending, now })));
+    assert.equal(results[0].orderId, results[1].orderId);
+    const ref = db.collection('storeOrders').doc(results[0].orderId);
+    assert.equal((await ref.get()).data().payment.status, 'pending');
+    const confirmation = { orderId: ref.id, expectedRevision: 1, amountMinor: 3600, received: true, method: 'cash', reference: 'QA-cash-receipt' };
+    const confirmations = await Promise.all([owner, manager].map(uid => confirmManualPosPayment({ db, uid, input: confirmation, now })));
+    assert.equal(confirmations.filter(result => !result.duplicate).length, 1);
+    const paid = (await ref.get()).data();
+    assert.equal(paid.payment.status, 'paid'); assert.deepEqual(paid.fulfilmentCompletion, {});
+    assert.equal(paid.fulfilmentStatus, 'New'); assert.equal(paid.total, 36);
+    assert.equal((await db.collection('storeOrderTimeline').where('orderId', '==', ref.id).where('type', '==', 'payment_received').get()).size, 1);
+    assert.equal((await db.collection('storeNotifications').where('workspaceId', '==', workspaceId).get()).size, 0);
+  } finally { await deleteApp(app); }
 });

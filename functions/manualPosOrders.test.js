@@ -579,3 +579,72 @@ test('manual delivery fee is server-added to payable totals, remains pending and
  const own=await saveManualPosOrder({db,uid:'owner',input:ownDriver,now,loadCheckout:async()=>checkout});
  assert.equal(docs[`storeOrders/${own.orderId}`].total,30);
 });
+
+const addOrderCatalog = () => ({ ...checkout, products: [...products, {
+  id: 'archived-menu', storeId: 's', workspaceId: 's', name: 'Archived menu', available: false,
+  price: 999, productType: 'weekly_meal_plan', weeklyMenuVersion: 2, optionGroupIds: [],
+  weeklyWeeks: { old: { startMonday: '2026-10-12', meals: { mon: {
+    name: 'Archived Monday meal', photoUrl: 'original.jpg', price: 12.9,
+    optionGroups: [{ id: 'side', name: 'Side', type: 'exchange', required: true, selection: 'single',
+      options: [{ id: 'egg', name: 'Egg', priceAdjustmentMinor: 120 }] }],
+  } } } },
+}] });
+const archivedLine = date => ({ ...line('archived-menu', date, 2), selection: {
+  productId: 'archived-menu', healthyLunchPlanId: 'archived-menu', healthyLunchDate: '2026-10-12',
+  selectedOptions: [], selectedMealOptions: [{ serviceDate: '2026-10-12', optionGroupId: 'side', optionId: 'egg' }],
+} });
+
+test('Add Order mixes expired menu snapshots and ordinary products on independent weekend service dates', () => {
+  const catalog = addOrderCatalog();
+  const request = { ...input(), posAddOrder: true, weeklyDayPos: true,
+    lines: [archivedLine('2026-10-24'), line('burrito', '2026-10-25')] };
+  const result = buildManualOrder(request, catalog, now, { owner: true });
+  assert.equal(result.total, 46.2);
+  assert.equal(result.items[0].productId, 'archived-menu');
+  assert.equal(result.items[0].unitPrice, 14.1);
+  assert.equal(result.items[0].healthyLunchSnapshot.date, '2026-10-12');
+  assert.equal(result.items[0].healthyLunchSnapshot.selectedMealOptions[0].optionName, 'Egg');
+  assert.deepEqual(result.fulfilments.map(day => day.date), ['2026-10-24', '2026-10-25']);
+  assert.equal(catalog.products.at(-1).available, false);
+  assert.throws(() => buildManualOrder(request, catalog, now), /Only Owner or Manager/);
+  for (const date of ['2026-02-30', '2026-10-17', ''])
+    assert.throws(() => buildManualOrder({ ...request, lines: [archivedLine(date)] }, catalog, now, { owner: true }));
+  const missing = addOrderCatalog(); missing.products.at(-1).weeklyWeeks = {};
+  assert.throws(() => buildManualOrder(request, missing, now, { owner: true }), /historical menu/);
+});
+
+test('ordinary Add Order stays pending, is duplicate-safe, and confirms only once with Owner/Manager receipt verification', async () => {
+  const { db, docs, writes } = database({ 'workspaces/s': workspace,
+    'workspaceMembers/s_manager': { userId: 'manager', workspaceId: 's', status: 'Active', role: 'Manager' },
+    'workspaceMembers/s_staff': { userId: 'staff', workspaceId: 's', status: 'Active', role: 'Chef' },
+    'stores/s': store,
+  });
+  const request = { ...input(), posAddOrder: true, source: 'shopeefood', externalOrderNumber: 'manual-reference', expectedSubtotalMinor: 3000,
+    lines: [line('prawn', '2026-10-18', 2)] };
+  const args = { db, uid: 'manager', input: request, now, loadCheckout: async () => checkout };
+  await assert.rejects(saveManualPosOrder({ ...args, uid: 'staff' }), /Only Owner or Manager/);
+  await assert.rejects(saveManualPosOrder({ ...args, input: { ...request, expectedSubtotalMinor: 1 } }), /pricing changed/);
+  const saved = await saveManualPosOrder(args);
+  assert.equal((await saveManualPosOrder(args)).orderId, saved.orderId);
+  let order = docs[`storeOrders/${saved.orderId}`];
+  assert.equal(order.payment.status, 'pending'); assert.equal(order.payment.provider, 'manual_pos');
+  assert.equal(order.manualOrder.posAddOrder, true); assert.deepEqual(order.fulfilmentCompletion, {});
+  await saveManualPosOrder({ ...args, input: { ...request, orderId: saved.orderId, expectedRevision: 1, requestId: 'edit-pending-request-1234' } });
+  order = docs[`storeOrders/${saved.orderId}`];
+  assert.equal(order.externalOrder.externalOrderNumber, 'manual-reference');
+  const confirm = { orderId: saved.orderId, expectedRevision: 2, amountMinor: 3000,
+    method: 'cash', reference: 'cash-receipt', received: true };
+  await assert.rejects(confirmManualPosPayment({ db, uid: 'staff', input: confirm, now }), /role/);
+  for (const patch of [{ received: false }, { amountMinor: 1 }, { expectedRevision: 0 }])
+    await assert.rejects(confirmManualPosPayment({ db, uid: 'owner', input: { ...confirm, ...patch }, now }));
+  order.weeklyPosLink = { attemptId: 'unresolved' };
+  await assert.rejects(confirmManualPosPayment({ db, uid: 'owner', input: confirm, now }));
+  delete order.weeklyPosLink;
+  await assert.rejects(confirmManualPosPayment({ db, uid: 'owner', input: confirm, now: new Date('2026-10-19T04:00:00Z') }), /historical audit/);
+  await confirmManualPosPayment({ db, uid: 'manager', input: confirm, now });
+  const count = writes.length;
+  assert.equal((await confirmManualPosPayment({ db, uid: 'owner', input: confirm, now })).duplicate, true);
+  assert.equal(writes.length, count);
+  assert.equal(writes.filter(path => path.endsWith('_manual_payment_confirmed')).length, 1);
+  assert.deepEqual(order.fulfilmentCompletion, {});
+});

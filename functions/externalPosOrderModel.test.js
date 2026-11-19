@@ -71,3 +71,14 @@ test('external fulfilment rejects missing delivery details, invalid times and ch
  for(const patch of [{deliveryAddress:''},{fulfilmentTime:''},{fulfilmentTime:'25:00'},{fulfilmentDate:'2026-02-30'},{fulfilmentMethod:'invalid'}]) assert.throws(()=>buildExternalOrderItems({...input,...patch},checkout,now));
  assert.throws(()=>buildExternalOrderItems({...input,selections:[{productId:'plan',healthyLunchPlanId:'plan',healthyLunchDate:'2026-10-20',quantity:1,selectedOptions:[]}],lineSchedules:[{date:'2026-10-21',time:'12:17'}]},checkout,now),/selected weekly meal/);
 });
+
+test('historical mixed Add Order keeps the menu source while applying explicit service defaults', () => {
+ const embedded={...plan,weeklyMenuVersion:2,weeklyMeals:undefined,weeklyWeeks:{week1:{startMonday:'2026-10-12',meals:{mon:{name:'Original Monday',photoUrl:'original.jpg',price:12.9}}}}};
+ const built=buildExternalOrderItems({fulfilmentMethod:'pickup',fulfilmentDate:'2026-10-17',fulfilmentTime:'11:13',
+  selections:[{productId:'plan',healthyLunchPlanId:'plan',healthyLunchDate:'2026-10-12',quantity:2,selectedOptions:[]},{productId:'rice',quantity:3,selectedOptions:[]}],
+  lineSchedules:[{date:'',time:''},{date:'2026-10-16',time:'13:00'}]}, {...checkout,products:[embedded,rice]},now,{owner:true,historicalWeekly:true});
+ assert.equal(built.items[0].healthyLunchSnapshot.date,'2026-10-12');
+ assert.equal(built.items[0].lineTotal,25.8);assert.equal(built.items[1].lineTotal,27);
+ assert.deepEqual(built.fulfilments.map(day=>day.date),['2026-10-16','2026-10-17']);
+ assert.equal(built.fulfilments[1].time,'11:13');
+});

@@ -23,7 +23,7 @@ test('authenticated quote-only POS resolves server pins, preserves corrected add
 });
 test('past schedules never block POS recording but cannot request a provider quotation',async()=>{
  const f=fixture();
- await assert.rejects(createPosDeliveryQuote({...f.args,input:{...input,fulfilmentDate:'2020-01-01'}}),/future/);
+ await assert.rejects(createPosDeliveryQuote({...f.args,input:{...input,fulfilmentDate:'2020-01-01'}}),/Historical orders cannot request a delivery estimate/);
  assert.equal(f.requests.length,0);
  const charge=await resolvePosDeliveryCharge({db:f.args.db,transaction:f.transaction,input:{...input,deliveryFeeOverride:{amount:5,reason:'Historical delivery; quotation unavailable'}},checkout,uid:'manager',fullAccess:true,now});
  assert.equal(charge.fee,5);assert.equal(charge.snapshot.providerDeliveryFee,null);
