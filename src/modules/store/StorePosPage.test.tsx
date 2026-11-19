@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import ts from 'typescript';
+import { getWeeklyDates } from '../../../functions/storeWeeklyMealPlan.js';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { calculateStoreOptionAdjustedPrice } from './storeModel';
@@ -466,4 +470,62 @@ test('adding a 5-Day Plan never silently converts a pending cart into an externa
   const harness = makeExternalOrderHarness({ ordinaryPending: true, fullWeekCart: true, externalPosFullAccess: true });
   await harness.submit();
   assert.equal(harness.requests.length, 0);
+});
+
+
+test('weekly cart has one fulfilment-time control while preserving line schedules and ordinary/5-Day controls', () => {
+  // Render the actual cart JSX so a second time input fails this regression.
+  const start = pageSource.indexOf('                  {item.weeklyDayPos && externalPosFullAccess &&');
+  const end = pageSource.indexOf('                  {item.selection.setId && externalSets', start);
+  assert.ok(start >= 0 && end > start);
+  const compiled = ts.transpileModule(`const render = () => <>${pageSource.slice(start, end)}</>;`, {
+    compilerOptions: { jsx: ts.JsxEmit.React, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const render = new Function('React', 'item', 'externalPosFullAccess', 'externalProducts', 'getWeeklyDates',
+    'creatingExternal', 'setExternalCart', 'externalDate', 'externalTime', `${compiled}\nreturn render();`);
+  type InputProps = { type?: string; value?: string; disabled?: boolean; children?: React.ReactNode;
+    onChange?: (event: { target: { value?: string; checked?: boolean } }) => void };
+  const inputs = (node: React.ReactNode): Array<React.ReactElement<InputProps>> => {
+    const found: Array<React.ReactElement<InputProps>> = [];
+    React.Children.forEach(node, child => {
+      if (!React.isValidElement<InputProps>(child)) return;
+      if (child.type === 'input') found.push(child);
+      found.push(...inputs(child.props.children));
+    });
+    return found;
+  };
+  const weekly = { key: 'weekly-day', label: 'Configured meal', weeklyDayPos: true, date: '2026-11-21', time: '12:00', quantity: 2,
+    selection: { productId: 'plan', healthyLunchPlanId: 'plan', healthyLunchDate: '2026-11-19', selectedMealOptions: [{ optionId: 'egg' }] } };
+  const ordinary = { key: 'ordinary', label: 'Cake', date: '2026-11-22', time: '13:00', quantity: 1,
+    selection: { productId: 'cake' } };
+  let cart = [weekly, ordinary];
+  const update = (change: (current: typeof cart) => typeof cart) => { cart = change(cart); };
+  const products = [{ id: 'plan', productType: 'weekly_meal_plan' }, { id: 'cake', productType: 'single' }];
+  const draw = (item: object, busy = false) => render(React, item, true, products, getWeeklyDates, busy, update, '2026-11-23', '11:00') as React.ReactNode;
+  const row = draw(weekly);
+  const fields = inputs(row);
+  const times = fields.filter(field => field.props.type === 'time');
+  assert.equal(times.length, 1);
+  assert.equal((renderToStaticMarkup(<>{row}</>).match(/type="time"/g) || []).length, 1);
+  assert.equal(times[0].props.value, '12:00');
+  const undatedWeeklyTimes = inputs(draw({ ...weekly, date: '' })).filter(field => field.props.type === 'time');
+  assert.equal(undatedWeeklyTimes.length, 1);
+  assert.equal(undatedWeeklyTimes[0].props.value, '12:00');
+  assert.equal(inputs(draw(weekly, true)).find(field => field.props.type === 'time')?.props.disabled, true);
+  times[0].props.onChange!({ target: { value: '15:37' } });
+  assert.equal(cart[0].time, '15:37');
+  assert.equal(cart[0].date, '2026-11-21');
+  assert.deepEqual(cart[0].selection, weekly.selection);
+  assert.equal(cart[1], ordinary);
+  fields.find(field => field.props.type === 'date')!.props.onChange!({ target: { value: '2026-11-22' } });
+  assert.equal(cart[0].date, '2026-11-22');
+  assert.equal(cart[0].time, '15:37');
+  assert.deepEqual(cart[0].selection, weekly.selection);
+  assert.equal(cart[0].quantity, 2);
+  const ordinaryFields = inputs(draw(ordinary));
+  assert.equal(ordinaryFields.filter(field => field.props.type === 'date').length, 1);
+  assert.equal(ordinaryFields.filter(field => field.props.type === 'time').length, 1);
+  const planFields = inputs(draw({ ...weekly, weeklyDayPos: false, date: '2026-11-23', selection: { productId: 'plan' } }));
+  assert.equal(planFields.filter(field => field.props.type === 'date').length, 0);
+  assert.equal(planFields.filter(field => field.props.type === 'time').length, 1);
 });
