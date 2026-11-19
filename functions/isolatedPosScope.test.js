@@ -30,6 +30,8 @@ test('isolated POS release preserves Production gateway, webhook, customer, deli
   assert.equal(createHash('sha256').update(readFileSync(new URL('../'+file,import.meta.url))).digest('hex'),hash,file);
  for(const file of ['weeklyPosPaymentLink.js','curlecEnvironment.js','groupDelivery.js'])
   assert.equal(existsSync(new URL('./'+file,import.meta.url)),false,file);
+ const fixture=new URL('./fixtures/productionWeeklyMenu.json',import.meta.url);
+ if(existsSync(fixture))assert.doesNotMatch(readFileSync(fixture,'utf8'),/token=|firebasestorage\.googleapis\.com/);
  const page=readFileSync(new URL('../src/modules/store/StorePosPage.tsx',import.meta.url),'utf8');
  assert.doesNotMatch(page,/weeklyPosPaymentProviders|manageWeeklyPosPaymentLink|Generate Payment Link|GroupDeliveryReviewPanel/);
 });
