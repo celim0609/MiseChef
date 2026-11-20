@@ -123,3 +123,11 @@ test('a closed shared week stays visible with Add disabled', () => {
   assert.equal((html.match(/<li /g)||[]).length,5);
   assert.match(html,/disabled=""[^>]*>Add 5-Day Plan/);
 });
+
+test('a fixed four-slot cycle renders Menu Coming Soon without previous meals, zero prices or add actions', () => {
+ const plan = {...product,weeklyWeeks:undefined,weeklyMenuVersion:3,rotationStartMonday:'2026-11-02',rotationCycleLength:4,rotationWeeks:{week1:{meals:Object.fromEntries(WEEKLY_DAYS.map(day=>[day,{name:`old ${day}`,photoUrl:'meal.jpg',price:12}]))}}} as StoreProduct;
+ for(const mode of ['week','day'] as const){
+  const html=renderToStaticMarkup(<HealthyLunchMenu product={plan} products={[]} currency="MYR" weeks={['2026-11-23']} dayDates={['2026-11-23','2026-11-24']} choice={{mode,date:'2026-11-23'}} onChange={()=>{}}/>);
+  assert.match(html,/Menu Coming Soon/);assert.doesNotMatch(html,/old mon|Final Weekly Price|MYR|>Add/);
+ }
+});

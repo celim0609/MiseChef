@@ -38,7 +38,7 @@ export function weeklySharePhoto(product, share) {
 
 export function weeklySharePreviewDate(product, share) {
   if (!share) return '';
-  const slots = WEEK_SLOTS.filter(slot => product.rotationWeeks?.[slot]);
+  const slots = product.rotationCycleLength === undefined ? WEEK_SLOTS.filter(slot => product.rotationWeeks?.[slot]) : WEEK_SLOTS.slice(0, product.rotationCycleLength);
   const monday = product.weeklyMenuVersion === 3
     ? new Date(Date.parse(`${product.rotationStartMonday}T00:00:00Z`) + slots.indexOf(share.slot) * 604800000).toISOString().slice(0, 10)
     : share.week.startMonday;

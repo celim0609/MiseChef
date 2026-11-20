@@ -297,6 +297,8 @@ export interface StoreProduct {
   weeklyWeeks?: WeeklyWeeks;
   weeklyMenuVersion?: 2 | 3;
   rotationStartMonday?: string;
+  /** Fixed calendar slots; an unconfigured slot stays unavailable. */
+  rotationCycleLength?: 1 | 2 | 3 | 4;
   rotationWeeks?: RotationWeeks;
   healthyLunchBlockedDates?: string[];
   optionGroupIds: string[];
@@ -321,6 +323,8 @@ export interface StoreProductDraft {
   weeklyWeeks?: WeeklyWeeks;
   weeklyMenuVersion?: 2 | 3;
   rotationStartMonday?: string;
+  /** Fixed calendar slots; an unconfigured slot stays unavailable. */
+  rotationCycleLength?: 1 | 2 | 3 | 4;
   rotationWeeks?: RotationWeeks;
   healthyLunchBlockedDates?: string[];
   optionGroupIds: string[];
