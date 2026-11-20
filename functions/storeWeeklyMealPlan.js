@@ -19,7 +19,9 @@ export const isHealthyLunchWeekBlocked = (plan, monday) => hasRotationMenu(plan)
 export const rotationWeekForMonday = (plan, monday) => {
   if (!hasRotationMenu(plan) || getWeeklyDates(monday).length !== 5 || getWeeklyDates(plan.rotationStartMonday).length !== 5) return undefined;
   const elapsed = (Date.parse(`${monday}T00:00:00Z`) - Date.parse(`${plan.rotationStartMonday}T00:00:00Z`)) / 604800000;
-  const weeks = rotationWeeks(plan);
+  const weeks = plan.rotationCycleLength === undefined ? rotationWeeks(plan)
+    : Number.isInteger(plan.rotationCycleLength) && plan.rotationCycleLength >= 1 && plan.rotationCycleLength <= 4
+      ? WEEK_SLOTS.slice(0, plan.rotationCycleLength).map(slot => plan.rotationWeeks?.[slot]) : [];
   return elapsed >= 0 && Number.isInteger(elapsed) && weeks.length ? weeks[elapsed % weeks.length] : undefined;
 };
 export const datedWeeks = plan => Object.values(plan?.weeklyWeeks || {}).sort((a, b) => a.startMonday.localeCompare(b.startMonday));
@@ -128,6 +130,8 @@ export const validateWeeklyStructure = product => {
   if (product.weeklyMenuVersion !== undefined && ![2, 3].includes(product.weeklyMenuVersion)) return 'Choose a supported Healthy Lunch menu format.';
   if (hasRotationMenu(product)) {
     if (product.weeklyWeeks !== undefined || product.weeklyMeals !== undefined || getWeeklyDates(product.rotationStartMonday).length !== 5) return 'Choose a valid rotation start Monday.';
+    if (product.rotationCycleLength !== undefined && (!Number.isInteger(product.rotationCycleLength) || product.rotationCycleLength < 1 || product.rotationCycleLength > 4
+      || Object.keys(product.rotationWeeks || {}).some(slot => WEEK_SLOTS.indexOf(slot) >= product.rotationCycleLength))) return 'Choose a valid rotation cycle length.';
     const weeks = product.rotationWeeks;
     if (!weeks || typeof weeks !== 'object' || Array.isArray(weeks) || !Object.keys(weeks).length || Object.keys(weeks).some(key => !WEEK_SLOTS.includes(key))) return 'Configure at least one rotation week.';
     if (Object.values(weeks).some(week => !week || Object.keys(week).some(key => !['meals', 'discount', 'legacyWeeklyPrice', 'coverPhotoUrl'].includes(key)) || !Object.hasOwn(week, 'meals') || !week.meals || Object.keys(week.meals).length !== 5 || !WEEKLY_DAYS.every(day => validEmbeddedMeal(week.meals[day])))) return 'Each rotation week needs five meals.';
