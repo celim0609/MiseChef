@@ -95,7 +95,7 @@ test('both POS history and manual saved-order details reuse the shared actions a
   const pos = read('./StorePosPage.tsx');
   const manual = read('./ManualPosOrders.tsx');
   const app = read('../../App.tsx');
-  const history = pos.slice(pos.indexOf('visibleHistoryOrders.map(order =>'));
+  const history = pos.slice(pos.indexOf('historyRows.map((row, index) =>'));
   assert.match(history, /<WhatsAppCustomerActions order=\{order\}/);
   assert.match(manual, /<WhatsAppCustomerActions order=\{saved\}/);
   assert.match(pos,/canRecordReminder=\{canRecordReminders\}/);

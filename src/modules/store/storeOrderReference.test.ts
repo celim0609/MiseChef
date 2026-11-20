@@ -28,7 +28,7 @@ test('POS cards keep the full order number and emphasize the pickup code', () =>
 test('Order History and owner views display historical and new order numbers unchanged', () => {
   assert.equal(getOrderPickupCode('MC-260816-EHXQQX'), '');
   assert.equal(getOrderPickupCode('MC-0822-A7K2'), 'A7K2');
-  assert.match(posPage, /visibleHistoryOrders\.map/);
+  assert.match(posPage, /historyRows\.map/);
   assert.match(posPage, /\{order\.orderNumber\}/);
   assert.match(ownerOrders, /\{order\.orderNumber\}/);
   assert.match(ownerOrders, /\{selectedOrder\.orderNumber\}/);
