@@ -36,7 +36,7 @@ jobs:
           docker build --build-arg BASE_IMAGE="$base" -t misechef-pos-acceptance:once context
       - name: Prove isolation and execute one acceptance run
         run: |
-          docker run --name misechef-pos-acceptance-once --network none --read-only --cap-drop ALL --security-opt no-new-privileges --ipc private --shm-size 1g --memory 7g --cpus 2 --tmpfs /tmp:rw,nosuid,size=2g --tmpfs /run:rw,nosuid,size=16m --mount type=bind,src="$GITHUB_WORKSPACE/evidence",dst=/evidence --env HOME=/tmp/home --env TMPDIR=/tmp --env CI=true --env GCLOUD_PROJECT=demo-misechef-preview --env GOOGLE_CLOUD_PROJECT=demo-misechef-preview --env FIREBASE_EMULATORS_PATH=/opt/emulators misechef-pos-acceptance:once
+          docker run --user "$(id -u):$(id -g)" --name misechef-pos-acceptance-once --network none --read-only --cap-drop ALL --security-opt no-new-privileges --ipc private --shm-size 1g --memory 7g --cpus 2 --tmpfs /tmp:rw,nosuid,size=2g --tmpfs /run:rw,nosuid,size=16m --mount type=bind,src="$GITHUB_WORKSPACE/evidence",dst=/evidence --env HOME=/tmp/home --env TMPDIR=/tmp --env CI=true --env GCLOUD_PROJECT=demo-misechef-preview --env GOOGLE_CLOUD_PROJECT=demo-misechef-preview --env FIREBASE_EMULATORS_PATH=/opt/emulators misechef-pos-acceptance:once
       - name: Record container isolation and destroy runtime
         if: always()
         run: |

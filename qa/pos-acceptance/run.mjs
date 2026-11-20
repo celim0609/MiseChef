@@ -19,7 +19,7 @@ try{
   assert.equal(process.env.GCLOUD_PROJECT,'demo-misechef-preview');assert.equal(execFileSync('ip',['-j','route'],{encoding:'utf8'}).trim(),'[]');const ifaces=JSON.parse(execFileSync('ip',['-j','link'],{encoding:'utf8'}));assert.deepEqual(ifaces.map(x=>x.ifname),['lo']);
   for(const forbidden of ['GOOGLE_APPLICATION_CREDENTIALS','FIREBASE_TOKEN','GITHUB_TOKEN','GH_TOKEN','SSH_AUTH_SOCK','AWS_ACCESS_KEY_ID'])assert.equal(process.env[forbidden],undefined);
   for(const p of ['/Users','/host','/root/.ssh','/root/.config/gcloud','/root/.config/configstore','/root/.aws','/app/integration/.git','/app/rollback/.git'])assert.equal(fs.existsSync(p),false,p);
-  assert.throws(()=>fs.writeFileSync('/app/write-canary','forbidden'),/EROFS/);
+  assert.throws(()=>fs.writeFileSync('/app/write-canary','forbidden'),/EROFS|EACCES/);
   const connect=(host,port)=>new Promise(resolve=>{const s=net.connect({host,port});s.once('connect',()=>{s.destroy();resolve('CONNECTED')});s.once('error',e=>resolve(e.code));s.setTimeout(1500,()=>{s.destroy();resolve('TIMEOUT')});});
   const external=await connect('203.0.113.1',443);assert.ok(['ENETUNREACH','EHOSTUNREACH','EPERM','EACCES'].includes(external),external);
   for(const label of ['integration','rollback']){const m=JSON.parse(fs.readFileSync('/app/'+label+'-manifest.json'));assert.equal(m.sha,results[label]);for(const[file,hash]of Object.entries(m.files))assert.equal(crypto.createHash('sha256').update(fs.readFileSync('/app/'+label+'/'+file)).digest('hex'),hash,file);assert.ok(m.omitted.every(x=>/\.env|\.secret|^\.github\/|^docs\/|^tests\/|\.test\.|^functions\/fixtures\//.test(x)));}
