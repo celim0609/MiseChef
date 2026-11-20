@@ -1,0 +1,10 @@
+{
+  "status": "PROPOSED ONLY — requires explicit Production approval",
+  "project": "misechef-fa4bf",
+  "document": "storeProducts/UYbflYMUINI5sqyqrPIO",
+  "requiredCurrentRotationStartMonday": "2026-10-12",
+  "updateMask": ["rotationStartMonday", "rotationCycleLength"],
+  "fields": {"rotationStartMonday": "2026-10-05", "rotationCycleLength": 4},
+  "preserve": ["rotationWeeks", "weeklyMenuVersion", "all prices, recipes, photos, ingredients, calories and option IDs", "all orders and historical snapshots"],
+  "expectedMappings": {"2026-11-02":"week1","2026-11-09":"week2","2026-11-16":"week3","2026-11-23":"week4","2026-11-30":"week1","2026-12-07":"week2"}
+}

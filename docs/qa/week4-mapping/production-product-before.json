@@ -1,0 +1,410 @@
+{
+  "name": "Weekly Menu",
+  "rotationStartMonday": "2026-10-12",
+  "workspaceId": "stShXwdbIzOh14ItTtQ4hRB5oBz1",
+  "rotationWeeks": {
+    "week2": {
+      "meals": {
+        "wed": {
+          "price": 12.9,
+          "recipeId": "recipe_1791877528628",
+          "name": "Korean Gochujang Tofu Rice Bowl \ud83c\udf36\ufe0f",
+          "description": "**Description**\n\nA Korean-inspired rice bowl featuring gochujang-glazed tofu, mixed brown rice, hard-boiled egg, broccoli, carrot and edamame, finished with sesame seeds, spring onion and gochujang sauce.\n\n**Allergen Alert**\n\nContains: Soy, Egg, Sesame. Gochujang may contain Wheat (Gluten).\n\n*Please inform us of any food allergies before ordering.*",
+          "calories": 492,
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-778b0dd0-257e-47ca-9406-e10a24476662.jpg?alt=media&token=e40b9eed-628f-457b-ac47-074dede4348d"
+        },
+        "thu": {
+          "calories": 593,
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-9bd82bb9-1eda-4bde-bab9-b24bf3cffc4f.jpg?alt=media&token=4a9a4a3f-f2a2-4d97-85ad-8186c9cbcb69",
+          "price": 13.9,
+          "name": "Sweet Potatoes Lettuce Chicken Salad",
+          "recipeId": "recipe_1791898024037",
+          "description": "**Description**\n\nA wholesome bowl featuring roasted chicken breast, baked yellow sweet potato, fresh lettuce, capsicum, broccoli and cherry tomatoes, served with a creamy yogurt dressing.\n\n**Allergen Alert**\n\nContains: Milk (Yogurt).\n\n*Please inform us of any food allergies before ordering.*"
+        },
+        "fri": {
+          "name": "Teriyaki Barramundi Donburi",
+          "calories": 570,
+          "description": "**Description**\n\nA Japanese-inspired rice bowl featuring tender teriyaki-glazed fish fillet, steamed rice, broccoli, carrot, edamame and cucumber, finished with sesame seeds, spring onion and light teriyaki sauce.\n\n**Allergen Alert**\n\nContains: Fish, Soy, Sesame. Teriyaki Sauce may contain Wheat (Gluten).\n\n*Please inform us of any food allergies before ordering.*",
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-d696fbd8-f5ee-400d-8b72-91299b8e92dc.jpg?alt=media&token=50e65abc-b308-42fd-8de7-795a2613e037",
+          "recipeId": "recipe_1791871435702",
+          "price": 14.9,
+          "optionGroups": [
+            {
+              "type": "exchange",
+              "required": false,
+              "options": [
+                {
+                  "priceAdjustmentMinor": 0,
+                  "name": "Chicken",
+                  "id": "438dc004-c1e3-4b6b-b6a2-62503352d030"
+                }
+              ],
+              "id": "aa951774-a436-434f-a4a7-021250affc38",
+              "name": "Exchange",
+              "selection": "single"
+            }
+          ]
+        },
+        "tue": {
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-ef0a55da-9dfd-42ea-9994-dcf3879d0c20.jpg?alt=media&token=4d86da52-8152-4dbc-908f-69b0690c4ed5",
+          "calories": 604,
+          "name": "Chicken burrito bowl",
+          "recipeId": "recipe_1791959299546",
+          "description": "**Description**\n\nA Mexican-inspired burrito bowl featuring grilled chicken breast, brown rice, black beans, sweet corn, fresh lettuce and tomato salsa, served with lime wedges and creamy avocado yogurt sauce.\n\n**Allergen Alert**\n\nContains: Milk (Yogurt).\n\n*Please inform us of any food allergies before ordering.*",
+          "price": 13.9
+        },
+        "mon": {
+          "name": "Vietnam prawn noodle salad",
+          "calories": 492,
+          "optionGroups": [
+            {
+              "type": "exchange",
+              "options": [
+                {
+                  "id": "7418ee9e-a3d1-4aaf-a6cd-e8116e3784b7",
+                  "name": "Chicken",
+                  "priceAdjustmentMinor": 0
+                }
+              ],
+              "required": false,
+              "name": "Exchange",
+              "id": "949d9a8e-2f4e-4491-a50d-a2506e88fa53",
+              "selection": "single"
+            }
+          ],
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-745fc790-5977-4693-a9fd-f5b86bdc3896.jpg?alt=media&token=fa654bc9-02cc-4b34-945a-d846171d162d",
+          "description": "**Description**\n\nA refreshing Vietnamese-inspired noodle salad featuring tender prawns, rice vermicelli, crisp vegetables, fresh coriander and crushed peanuts, served with a tangy Vietnamese fish sauce dressing.\n\n**Allergen Alert**\n\nContains: Crustaceans (Prawns), Fish (Fish Sauce), Peanuts.\n\n*Please inform us of any food allergies before ordering.*",
+          "price": 13.9,
+          "recipeId": "recipe_1791960230961"
+        }
+      },
+      "discount": {
+        "type": "fixed_weekly_price",
+        "value": 60
+      },
+      "coverPhotoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-e5ade864-58b9-4295-8672-2958a2840806.jpg?alt=media&token=11e5092f-8df4-4892-8b79-3e73a3ca6045"
+    },
+    "week4": {
+      "coverPhotoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-29da1bc9-a242-4cab-90d0-225b3c25c7f8.png?alt=media&token=17f043de-593c-4c9c-a310-c3b6ee9b34f5",
+      "meals": {
+        "tue": {
+          "description": "Tuna \u00b7 Chickpeas \u00b7 Cucumber \u00b7 Red Onion \u00b7 Mustard \u00b7 Cherry Tomato \u00b7 Lettuce \u00b7 Beibei pumpkin \u00b7 Lemon \u00b7 Corn Oil",
+          "name": "Mediterranean Chickpea Tuna Salad",
+          "price": 13.9,
+          "calories": 543,
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-9b8ed98e-ca79-4eaa-ae70-0e4162f4b621.jpg?alt=media&token=0e6277a7-28a4-4705-8719-0c74a6b0be0e",
+          "recipeId": "recipe_1794843216696"
+        },
+        "mon": {
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-aea5b255-45c3-4541-84db-28c73e80cf79.jpg?alt=media&token=e073c881-b1fd-4bcd-921f-7f0fa00f94a6",
+          "price": 13.9,
+          "calories": 578,
+          "description": "Ginger Mixed Rice \u00b7 Sambal Glazed Chicken Breast \u00b7 Cucumber \u00b7 Cherry Tomato \u00b7 Lettuce \u00b7 Hard-Boiled Egg \u00b7 Greek Yogurt",
+          "name": "Sambal Glazed Chicken with Ginger Rice Bowl",
+          "recipeId": "recipe_1794841910222"
+        },
+        "wed": {
+          "recipeId": "recipe_1794843759271",
+          "price": 12.9,
+          "description": "Mixed Rice \u00b7 Tofu \u00b7 Purple Cabbage \u00b7 Choy Sum \u00b7 Carrot \u00b7 Long Beans \u00b7 Preserved Radish \u00b7 Crushed Peanuts \u00b7 Sesame \u00b7 Lei Cha Sauce \u00b7 Matcha",
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-97c6e72e-3c05-4ec7-88e0-9d3f78f503c0.jpg?alt=media&token=12b0853d-a041-4ee1-992d-57368ee4f7ec",
+          "name": "Hakka Matcha Green Herb Rice Bowl (Lei Cha)"
+        },
+        "fri": {
+          "price": 13.9,
+          "description": "Mixed Rice \u00b7 Chicken \u00b7 Seaweed \u00b7 Cucumber \u00b7 Spinach \u00b7 Tamago \u00b7 Kimchi \u00b7 Potato \u00b7 Sweet Corn",
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-528ec413-541c-41e8-9b14-890e26ad0363.jpg?alt=media&token=a0ce2ad3-e994-4aee-b634-8cc773866601",
+          "name": "Korean  kimbap with Kimchi and Potato corn mash",
+          "optionGroups": [
+            {
+              "type": "exchange",
+              "selection": "single",
+              "required": true,
+              "id": "1bcf919f-dcc7-4a0c-ae79-52a2c8852c66",
+              "options": [
+                {
+                  "priceAdjustmentMinor": 0,
+                  "id": "2662a590-7d15-46e0-9f05-cecf2a543bc4",
+                  "name": "Chicken "
+                },
+                {
+                  "priceAdjustmentMinor": 0,
+                  "name": "Tuna ",
+                  "id": "b6b0796e-eec2-4b10-9e10-e9b765390033"
+                },
+                {
+                  "id": "16d30151-edd8-44e5-ad26-183233f425a4",
+                  "name": "Beef",
+                  "priceAdjustmentMinor": 100
+                }
+              ],
+              "name": "Exchange"
+            }
+          ],
+          "recipeId": "recipe_1794845371181"
+        },
+        "thu": {
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-3e372c69-8e3d-47d7-b45c-b271e1812dcb.jpg?alt=media&token=1c76dde4-40aa-4fc5-8189-760b7e41c415",
+          "name": "Hong Kong-Style Glazed Chicken Rice Bowl",
+          "price": 13.9,
+          "description": "Mixed Rice \u00b7 Char Siu Glazed Chicken Breast \u00b7 Siew Pak Choy \u00b7 Cucumber \u00b7 Carrot \u00b7 Hard-Boiled Egg \u00b7 Sesame \u00b7 Char Siu Sauce",
+          "recipeId": "recipe_1794844135532"
+        }
+      },
+      "discount": {
+        "value": 60,
+        "type": "fixed_weekly_price"
+      }
+    },
+    "week3": {
+      "meals": {
+        "wed": {
+          "optionGroups": [
+            {
+              "required": false,
+              "type": "exchange",
+              "options": [
+                {
+                  "id": "ab42ea5c-bc3e-42cb-a328-809f21d3a52f",
+                  "name": "Onsen Egg",
+                  "priceAdjustmentMinor": 150
+                }
+              ],
+              "id": "01a6dd56-3880-466a-9521-5e12cc9b46d1",
+              "selection": "single",
+              "name": "Exchange"
+            },
+            {
+              "selection": "single",
+              "name": "Add on",
+              "type": "add_side",
+              "required": false,
+              "id": "a7ceca29-96a0-4078-bf2a-cb340703d68c",
+              "options": [
+                {
+                  "priceAdjustmentMinor": 360,
+                  "name": "Chicken Breast",
+                  "id": "93b5a7dc-5e29-4830-8ad0-d94924a7693e"
+                },
+                {
+                  "id": "b0bfff0d-1b4b-4522-a799-91dfc85f2525",
+                  "priceAdjustmentMinor": 150,
+                  "name": "Mixed Rice(180g)"
+                }
+              ]
+            }
+          ],
+          "recipeId": "recipe_1792570897721",
+          "description": "Mixed Rice \u00b7 Pan-Seared Tofu \u00b7 Spinach \u00b7 Carrot \u00b7 Purple Cabbage \u00b7 Shiitake Mushrooms \u00b7 Green Chilli \u00b7 Egg \u00b7 Spring Onion \u00b7 Sesame Seeds \u00b7 Korean Bibimbap Sauce",
+          "calories": 449,
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-f762c8a7-674a-4069-a53b-b5261c56a226.jpg?alt=media&token=65370801-394e-45ff-841a-a2e69934b114",
+          "name": "Korean Tofu Bibimbap Bowl",
+          "price": 12.9
+        },
+        "thu": {
+          "recipeId": "recipe_1792571018640",
+          "optionGroups": [],
+          "price": 13.9,
+          "calories": 658,
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-1b60a952-5722-4d0c-bbad-6f4b8bbe17c1.jpg?alt=media&token=944df34e-9c32-446a-919e-2bd75c6a490b",
+          "name": "Baked Potato Chicken Salad",
+          "description": "Chicken Breast \u00b7 Roasted Potatoes \u00b7 Chickpeas \u00b7 Cucumber \u00b7 Onion \u00b7 Cherry Tomatoes \u00b7 Egg \u00b7 Parmesan Cheese \u00b7 Crispy Croutons \u00b7 Ranch Dressing"
+        },
+        "fri": {
+          "description": "Shredded Chicken, Sweet Corn, Cucumber, Shredded Cabbage, Wakame Seaweed, Cherry Tomatoes, White Sesame Seeds, Chili Flakes, Sesame Dressing, Rice / Buckwheat Noodles",
+          "calories": 592,
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-ce569c78-0ead-479c-a73b-ca6912202d22.jpg?alt=media&token=97393eae-d324-4689-a422-451ff36b4534",
+          "recipeId": "recipe_1792571052156",
+          "price": 13.9,
+          "optionGroups": [
+            {
+              "id": "6d3ab152-629a-43c3-9f90-0f7977df75ad",
+              "type": "exchange",
+              "required": true,
+              "selection": "single",
+              "options": [
+                {
+                  "priceAdjustmentMinor": 0,
+                  "name": "Rice (Default) ",
+                  "id": "9ac1da3a-5667-49ce-8f5c-e15b0b1367ce"
+                },
+                {
+                  "priceAdjustmentMinor": 100,
+                  "name": "Buckwheat Noodles",
+                  "id": "63c9bed6-de30-43ab-8f8b-7d2b06f152eb"
+                },
+                {
+                  "name": "Extra Vegetables (No Rice) ",
+                  "priceAdjustmentMinor": 200,
+                  "id": "493b4a5b-b4d1-42dc-abf8-3ce822546d28"
+                }
+              ],
+              "name": "Carb Choice"
+            }
+          ],
+          "name": "Spicy Sesame Shredded Chicken Bowl"
+        },
+        "tue": {
+          "optionGroups": [
+            {
+              "required": false,
+              "type": "add_side",
+              "options": [
+                {
+                  "name": "Mixed Rice ",
+                  "id": "f7dd4f7c-557c-4aa5-8df2-7bdadb0a9607",
+                  "priceAdjustmentMinor": 150
+                }
+              ],
+              "id": "2da2f201-2d3b-4f6e-ab1f-5e517b72e377",
+              "selection": "single",
+              "name": "Add On"
+            }
+          ],
+          "recipeId": "recipe_1792570780890",
+          "price": 13.9,
+          "name": "Japanese Chicken Curry Rice",
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-ec995676-20db-438b-9e40-9f482b7a12e5.jpg?alt=media&token=157fb3ff-9dd3-473a-8893-ffac701340ab",
+          "description": "Mixed Rice \u00b7 Japanese Curry Chicken Breast \u00b7 Potato \u00b7 Carrot \u00b7 Onion \u00b7 Broccoli \u00b7 Spring Onion \u00b7 Sesame Seeds",
+          "calories": 492
+        },
+        "mon": {
+          "description": "Garlic Mixed Rice \u00b7 Thai Basil Prawns \u00b7 Mango \u00b7 Cucumber \u00b7 Tomato \u00b7 Lettuce \u00b7 Purple Cabbage \u00b7 Onion \u00b7 Crushed Peanuts \u00b7 Fresh Coriander \u00b7 Thai Basil Dressing",
+          "recipeId": "recipe_1792570659160",
+          "name": "Thai Basil Prawn Rice Bowl",
+          "price": 13.9,
+          "calories": 582,
+          "optionGroups": [
+            {
+              "selection": "single",
+              "id": "ac352538-32a2-48db-9b54-e6e6453f044a",
+              "type": "exchange",
+              "required": false,
+              "name": "Exchange",
+              "options": [
+                {
+                  "priceAdjustmentMinor": 0,
+                  "name": "Chicken",
+                  "id": "496692d0-1fd0-4a2d-bd24-723774954e09"
+                }
+              ]
+            },
+            {
+              "selection": "single",
+              "options": [
+                {
+                  "priceAdjustmentMinor": 150,
+                  "name": "Mixed Rice",
+                  "id": "5859fd46-6f7e-4b8b-a3db-c43fcfeb4810"
+                }
+              ],
+              "type": "add_side",
+              "required": false,
+              "id": "047903dc-1d39-4bcc-9b48-a6975321acf5",
+              "name": "Add On"
+            },
+            {
+              "id": "9f09c9fa-6f0f-4906-8bee-54b36dda5354",
+              "type": "exchange",
+              "required": false,
+              "name": "Rice Options",
+              "options": [
+                {
+                  "id": "b8e5a6fc-dcc3-4b13-ab99-43ce1486d7c0",
+                  "name": "Replace Rice with Vegetables",
+                  "priceAdjustmentMinor": 200
+                },
+                {
+                  "id": "c8b634fa-8365-4992-a6b9-ed849c07f671",
+                  "name": "Less Rice ",
+                  "priceAdjustmentMinor": 0
+                }
+              ],
+              "selection": "single"
+            }
+          ],
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-4bad10d1-161d-42af-bbdb-82b929e80595.jpg?alt=media&token=86eda496-21fe-4344-aa69-a80a5976590d"
+        }
+      },
+      "discount": {
+        "type": "fixed_weekly_price",
+        "value": 60
+      },
+      "coverPhotoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-cf1cd993-5bc3-44b5-8a43-51ff9941dc3f.jpg?alt=media&token=d7e07bfa-03fd-4757-98cc-d888757c2713"
+    },
+    "week1": {
+      "discount": {
+        "value": 60,
+        "type": "fixed_weekly_price"
+      },
+      "meals": {
+        "fri": {
+          "recipeId": "recipe_1791359848109",
+          "name": "Soba noodle",
+          "calories": 620,
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-7e25ffe3-0a80-48eb-9c50-a3b8aed4064e.jpg?alt=media&token=3a09e335-6805-42aa-ab1f-27e0df49dad2",
+          "price": 14.9
+        },
+        "thu": {
+          "price": 13.9,
+          "name": "Baked prawn with potato salad",
+          "recipeId": "recipe_1791387753988",
+          "optionGroups": [
+            {
+              "id": "8a81252b-2dcd-43fd-b28d-0b2c0c492b2c",
+              "options": [
+                {
+                  "id": "e817a84c-d0f6-419f-9674-ba74ce25f76f",
+                  "priceAdjustmentMinor": 0,
+                  "name": "Chicken"
+                }
+              ],
+              "type": "exchange",
+              "required": false,
+              "selection": "single",
+              "name": "Exchange"
+            }
+          ],
+          "calories": 532,
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-d692cd82-eeda-42d4-b6ff-ab684d1b98ba.jpg?alt=media&token=ec12f1bf-4cc8-4ec7-91f9-c8b886a3181f"
+        },
+        "wed": {
+          "calories": 601,
+          "price": 13.9,
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-02865d7f-8496-4202-be5b-68ac7a75b9fa.jpg?alt=media&token=ce1a00cf-3680-4479-8052-1dbefd5a0e50",
+          "name": "Lemon baked chicken with garlic rice",
+          "recipeId": "recipe_1791388133620"
+        },
+        "mon": {
+          "recipeId": "recipe_1793163413454",
+          "name": "Gochujang Grilled Chicken Breast",
+          "price": 13.9,
+          "calories": 492,
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-334c77ba-87dc-48ca-9ed0-1f8dbac14e3a.jpg?alt=media&token=0bd4bb9c-bb77-49b4-9f69-84fdc48440db"
+        },
+        "tue": {
+          "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-81be0aec-4348-4a40-83f1-9d5efa9bce8e.jpg?alt=media&token=b5f97e79-069a-4046-992c-785c37d95ef1",
+          "price": 13.9,
+          "calories": 453,
+          "name": "Spicy tuna pasta",
+          "recipeId": "recipe_1791361243768"
+        }
+      }
+    }
+  },
+  "createdAt": "2026-10-14T05:17:44.819Z",
+  "photoUrl": "https://firebasestorage.googleapis.com/v0/b/misechef-fa4bf.firebasestorage.app/o/stores%2FstShXwdbIzOh14ItTtQ4hRB5oBz1%2Fproducts%2FUYbflYMUINI5sqyqrPIO%2Fmeal-623ae59d-8836-4d89-a161-877af5b69b12.jpg?alt=media&token=e3f28734-6e6e-41e1-a46b-f04f6eabb262",
+  "storeId": "stShXwdbIzOh14ItTtQ4hRB5oBz1",
+  "id": "UYbflYMUINI5sqyqrPIO",
+  "createdBy": "stShXwdbIzOh14ItTtQ4hRB5oBz1",
+  "price": 60,
+  "healthyLunchBlockedDates": [],
+  "productSlug": "week-1-menu-UYbflYMUINI5sqyqrPIO",
+  "weeklyMenuVersion": 3,
+  "updatedAt": "2026-11-20T06:07:32.180Z",
+  "optionGroupIds": [],
+  "description": "",
+  "available": true,
+  "availableDay": "all",
+  "productType": "weekly_meal_plan"
+}

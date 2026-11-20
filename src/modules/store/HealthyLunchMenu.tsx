@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { snapshotMealOptions } from '../../../functions/healthyLunchOptions.js';
 import HealthyLunchMealOptions from './HealthyLunchMealOptions';
 import type { MealOptionChoice } from './types';
-import { weeklyPricing, WEEKLY_DAYS, getWeeklyDates, weekRangeLabel, resolvePlanMeal, resolveHealthyLunchDay, hasDatedMenu } from '../../../functions/storeWeeklyMealPlan.js';
+import { weeklyPricing, WEEKLY_DAYS, getWeeklyDates, weekRangeLabel, resolvePlanMeal, resolveHealthyLunchDay, hasDatedMenu, isHealthyLunchBlocked } from '../../../functions/storeWeeklyMealPlan.js';
 import { formatRegionCurrency } from '../../regions';
 import { scheduleDateLabel } from './storeOrderFulfilments';
 import type { StoreProduct, WorkspaceStore } from './types';
@@ -31,9 +31,9 @@ export default function HealthyLunchMenu({ sharedSelection = false, sharedUnavai
   const date = weeks.includes(choice.date) ? choice.date : (sharedSelection ? '' : weeks[0]) || '';
   const selectedMonday = dated ? date : monday || date;
   const showDays = dated && choice.mode === 'day';
-  const dailyMeals = [...new Set(dayDates)].filter(date => !sharedSelection || date === choice.date).sort().flatMap(date => {
+  const dailyMeals = [...new Set(dayDates)].filter(date => !isHealthyLunchBlocked(product, date)).filter(date => !sharedSelection || date === choice.date).sort().flatMap(date => {
     const meal = resolveHealthyLunchDay(product, products, date);
-    return meal ? [{ date, meal }] : [];
+    return [{ date, meal }];
   });
   const selected = (dates: string[]) => choices.filter(choice => dates.includes(choice.serviceDate));
   const optionState = (dates: string[]) => {
@@ -44,7 +44,8 @@ export default function HealthyLunchMenu({ sharedSelection = false, sharedUnavai
   };
   const weekDates = getWeeklyDates(selectedMonday);
   const weekOptions = optionState(weekDates);
-  const pricing = (!dated || selectedMonday) ? weeklyPricing(product, products, selectedMonday) : null;
+  const menuComingSoon = dated && Boolean(selectedMonday) && WEEKLY_DAYS.some(day => !resolvePlanMeal(product, products, selectedMonday, day));
+  const pricing = !menuComingSoon && (!dated || selectedMonday) ? weeklyPricing(product, products, selectedMonday) : null;
   return <div className="mt-3 min-w-0 rounded-2xl bg-surface-container-low p-3 sm:p-4">
     <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       {dated ? <div className="inline-flex w-fit max-w-full rounded-xl border border-surface-container-high bg-white p-1" role="group" aria-label={`${product.name} ordering`}>
@@ -61,7 +62,7 @@ export default function HealthyLunchMenu({ sharedSelection = false, sharedUnavai
     {sharedSelection && (sharedUnavailable || !choice.date) && <p role="status" className="mt-3 text-sm">This shared menu is not currently available to order.</p>}
     {showDays ? <>
       {!dailyMeals.length && <p className="mt-4 text-sm text-on-surface-variant">No meals are currently available to order.</p>}
-      <ul className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-5">{dailyMeals.map(({ date, meal }) => <li key={date} className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-surface-container-high bg-white shadow-sm">
+      <ul className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-5">{dailyMeals.map(({ date, meal }) => !meal ? <li key={date} className="rounded-xl border border-surface-container-high bg-white p-3"><time dateTime={date}>{dateLabel(date)}</time><p role="status">Menu Coming Soon</p></li> : <li key={date} className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-surface-container-high bg-white shadow-sm">
         <div className="aspect-[4/3] overflow-hidden bg-surface-container">{meal.photoUrl && <img src={meal.photoUrl} alt={meal.name} className="h-full w-full object-cover" referrerPolicy="no-referrer" loading="lazy" />}</div>
         <div className="flex flex-1 flex-col gap-2 p-3">
           <time dateTime={date} className="text-xs font-extrabold text-secondary">{dateLabel(date)}</time>
@@ -76,7 +77,7 @@ export default function HealthyLunchMenu({ sharedSelection = false, sharedUnavai
           </div>
         </div>
       </li>)}</ul>
-    </> : <>
+    </> : menuComingSoon ? <p role="status" className="mt-4 text-sm">Menu Coming Soon</p> : <>
       <ul className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-5">{WEEKLY_DAYS.filter(() => !dated || Boolean(date)).map((day, index) => {
         const meal = resolvePlanMeal(product, products, selectedMonday, day);
         const dayDate = getWeeklyDates(selectedMonday)[index];
