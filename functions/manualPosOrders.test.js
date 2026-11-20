@@ -594,7 +594,7 @@ test('isolated Add Order mixes retained Production meals and ordinary products w
   for(const date of ['2026-11-20','2026-11-21','2026-11-22','2026-12-06']){
     const request={...input(),posAddOrder:true,source:'other',lines:[posSourceLine(date),line('burrito',date,2)]};
     const result=buildManualOrder(request,catalog,posNow,{owner:true});
-    assert.equal(result.total,49.9);assert.equal(result.items[0].productName,'Vietnam prawn noodle salad');
+    assert.equal(result.total,49.9);assert.equal(result.items[0].productName,'Thai Basil Prawn Rice Bowl');
     assert.equal(result.items[0].healthyLunchSnapshot.date,'2026-11-16');assert.equal(result.items[0].productId,'production-menu');
     assert.equal(result.items[1].quantity,2);assert.equal(result.fulfilments[0].date,date);assert.equal(result.fulfilments[0].time,'12:00');
     assert.throws(()=>buildManualOrder(request,catalog,posNow),/Only Owner or Manager/);

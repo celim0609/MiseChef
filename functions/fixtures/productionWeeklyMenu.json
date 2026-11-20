@@ -1,46 +1,90 @@
 {
   "capturedFrom": "misechef-fa4bf/storeProducts/UYbflYMUINI5sqyqrPIO",
   "capturedDate": "2026-11-20",
-  "note": "Read-only retained configuration. Personal data and image tokens omitted. Prices and four-slot mapping preserved.",
+  "note": "Read-only retained configuration after Production calendar mapping fix. Personal data, recipe IDs and image tokens omitted; prices, options and fixed four-slot mapping preserved.",
   "plan": {
+    "id": "production-menu",
     "price": 60,
+    "optionGroupIds": [],
+    "storeId": "s",
     "productType": "weekly_meal_plan",
-    "rotationStartMonday": "2026-10-12",
     "rotationWeeks": {
+      "week1": {
+        "discount": {
+          "value": 60,
+          "type": "fixed_weekly_price"
+        },
+        "meals": {
+          "mon": {
+            "price": 13.9,
+            "photoUrl": "https://example.test/retained-meal.jpg",
+            "calories": 492,
+            "name": "Gochujang Grilled Chicken Breast"
+          },
+          "tue": {
+            "price": 13.9,
+            "photoUrl": "https://example.test/retained-meal.jpg",
+            "calories": 453,
+            "name": "Spicy tuna pasta"
+          },
+          "wed": {
+            "price": 13.9,
+            "calories": 601,
+            "photoUrl": "https://example.test/retained-meal.jpg",
+            "name": "Lemon baked chicken with garlic rice"
+          },
+          "thu": {
+            "optionGroups": [
+              {
+                "id": "8a81252b-2dcd-43fd-b28d-0b2c0c492b2c",
+                "options": [
+                  {
+                    "id": "e817a84c-d0f6-419f-9674-ba74ce25f76f",
+                    "priceAdjustmentMinor": 0,
+                    "name": "Chicken"
+                  }
+                ],
+                "type": "exchange",
+                "required": false,
+                "selection": "single",
+                "name": "Exchange"
+              }
+            ],
+            "price": 13.9,
+            "name": "Baked prawn with potato salad",
+            "photoUrl": "https://example.test/retained-meal.jpg",
+            "calories": 532
+          },
+          "fri": {
+            "price": 14.9,
+            "calories": 620,
+            "photoUrl": "https://example.test/retained-meal.jpg",
+            "name": "Soba noodle"
+          }
+        }
+      },
       "week2": {
-        "coverPhotoUrl": "https://example.test/retained-cover.jpg",
+        "coverPhotoUrl": "https://example.test/retained-meal.jpg",
         "discount": {
           "type": "fixed_weekly_price",
           "value": 60
         },
         "meals": {
           "wed": {
-            "photoUrl": "https://example.test/retained-meal.jpg",
+            "price": 12.9,
             "name": "Korean Gochujang Tofu Rice Bowl \ud83c\udf36\ufe0f",
             "description": "**Description**\n\nA Korean-inspired rice bowl featuring gochujang-glazed tofu, mixed brown rice, hard-boiled egg, broccoli, carrot and edamame, finished with sesame seeds, spring onion and gochujang sauce.\n\n**Allergen Alert**\n\nContains: Soy, Egg, Sesame. Gochujang may contain Wheat (Gluten).\n\n*Please inform us of any food allergies before ordering.*",
-            "price": 12.9,
-            "calories": 492
-          },
-          "tue": {
-            "description": "**Description**\n\nA Mexican-inspired burrito bowl featuring grilled chicken breast, brown rice, black beans, sweet corn, fresh lettuce and tomato salsa, served with lime wedges and creamy avocado yogurt sauce.\n\n**Allergen Alert**\n\nContains: Milk (Yogurt).\n\n*Please inform us of any food allergies before ordering.*",
-            "calories": 604,
-            "price": 13.9,
-            "photoUrl": "https://example.test/retained-meal.jpg",
-            "name": "Chicken burrito bowl"
+            "calories": 492,
+            "photoUrl": "https://example.test/retained-meal.jpg"
           },
           "thu": {
-            "photoUrl": "https://example.test/retained-meal.jpg",
-            "name": "Sweet Potatoes Lettuce Chicken Salad",
-            "price": 13.9,
             "description": "**Description**\n\nA wholesome bowl featuring roasted chicken breast, baked yellow sweet potato, fresh lettuce, capsicum, broccoli and cherry tomatoes, served with a creamy yogurt dressing.\n\n**Allergen Alert**\n\nContains: Milk (Yogurt).\n\n*Please inform us of any food allergies before ordering.*",
-            "calories": 593
+            "photoUrl": "https://example.test/retained-meal.jpg",
+            "calories": 593,
+            "price": 13.9,
+            "name": "Sweet Potatoes Lettuce Chicken Salad"
           },
           "fri": {
-            "photoUrl": "https://example.test/retained-meal.jpg",
-            "price": 14.9,
-            "name": "Teriyaki Barramundi Donburi",
-            "calories": 570,
-            "description": "**Description**\n\nA Japanese-inspired rice bowl featuring tender teriyaki-glazed fish fillet, steamed rice, broccoli, carrot, edamame and cucumber, finished with sesame seeds, spring onion and light teriyaki sauce.\n\n**Allergen Alert**\n\nContains: Fish, Soy, Sesame. Teriyaki Sauce may contain Wheat (Gluten).\n\n*Please inform us of any food allergies before ordering.*",
             "optionGroups": [
               {
                 "type": "exchange",
@@ -56,9 +100,24 @@
                 "name": "Exchange",
                 "selection": "single"
               }
-            ]
+            ],
+            "name": "Teriyaki Barramundi Donburi",
+            "price": 14.9,
+            "photoUrl": "https://example.test/retained-meal.jpg",
+            "calories": 570,
+            "description": "**Description**\n\nA Japanese-inspired rice bowl featuring tender teriyaki-glazed fish fillet, steamed rice, broccoli, carrot, edamame and cucumber, finished with sesame seeds, spring onion and light teriyaki sauce.\n\n**Allergen Alert**\n\nContains: Fish, Soy, Sesame. Teriyaki Sauce may contain Wheat (Gluten).\n\n*Please inform us of any food allergies before ordering.*"
+          },
+          "tue": {
+            "calories": 604,
+            "photoUrl": "https://example.test/retained-meal.jpg",
+            "description": "**Description**\n\nA Mexican-inspired burrito bowl featuring grilled chicken breast, brown rice, black beans, sweet corn, fresh lettuce and tomato salsa, served with lime wedges and creamy avocado yogurt sauce.\n\n**Allergen Alert**\n\nContains: Milk (Yogurt).\n\n*Please inform us of any food allergies before ordering.*",
+            "price": 13.9,
+            "name": "Chicken burrito bowl"
           },
           "mon": {
+            "description": "**Description**\n\nA refreshing Vietnamese-inspired noodle salad featuring tender prawns, rice vermicelli, crisp vegetables, fresh coriander and crushed peanuts, served with a tangy Vietnamese fish sauce dressing.\n\n**Allergen Alert**\n\nContains: Crustaceans (Prawns), Fish (Fish Sauce), Peanuts.\n\n*Please inform us of any food allergies before ordering.*",
+            "name": "Vietnam prawn noodle salad",
+            "price": 13.9,
             "photoUrl": "https://example.test/retained-meal.jpg",
             "optionGroups": [
               {
@@ -76,21 +135,88 @@
                 "selection": "single"
               }
             ],
-            "price": 13.9,
-            "description": "**Description**\n\nA refreshing Vietnamese-inspired noodle salad featuring tender prawns, rice vermicelli, crisp vegetables, fresh coriander and crushed peanuts, served with a tangy Vietnamese fish sauce dressing.\n\n**Allergen Alert**\n\nContains: Crustaceans (Prawns), Fish (Fish Sauce), Peanuts.\n\n*Please inform us of any food allergies before ordering.*",
-            "name": "Vietnam prawn noodle salad",
             "calories": 492
+          }
+        }
+      },
+      "week4": {
+        "discount": {
+          "value": 60,
+          "type": "fixed_weekly_price"
+        },
+        "coverPhotoUrl": "https://example.test/retained-meal.jpg",
+        "meals": {
+          "mon": {
+            "name": "Sambal Glazed Chicken with Ginger Rice Bowl",
+            "description": "Ginger Mixed Rice \u00b7 Sambal Glazed Chicken Breast \u00b7 Cucumber \u00b7 Cherry Tomato \u00b7 Lettuce \u00b7 Hard-Boiled Egg \u00b7 Greek Yogurt",
+            "photoUrl": "https://example.test/retained-meal.jpg",
+            "price": 13.9,
+            "calories": 578
+          },
+          "tue": {
+            "price": 13.9,
+            "description": "Tuna \u00b7 Chickpeas \u00b7 Cucumber \u00b7 Red Onion \u00b7 Mustard \u00b7 Cherry Tomato \u00b7 Lettuce \u00b7 Beibei pumpkin \u00b7 Lemon \u00b7 Corn Oil",
+            "name": "Mediterranean Chickpea Tuna Salad",
+            "calories": 543,
+            "photoUrl": "https://example.test/retained-meal.jpg"
+          },
+          "fri": {
+            "photoUrl": "https://example.test/retained-meal.jpg",
+            "optionGroups": [
+              {
+                "type": "exchange",
+                "selection": "single",
+                "required": true,
+                "id": "1bcf919f-dcc7-4a0c-ae79-52a2c8852c66",
+                "options": [
+                  {
+                    "priceAdjustmentMinor": 0,
+                    "id": "2662a590-7d15-46e0-9f05-cecf2a543bc4",
+                    "name": "Chicken "
+                  },
+                  {
+                    "priceAdjustmentMinor": 0,
+                    "name": "Tuna ",
+                    "id": "b6b0796e-eec2-4b10-9e10-e9b765390033"
+                  },
+                  {
+                    "id": "16d30151-edd8-44e5-ad26-183233f425a4",
+                    "name": "Beef",
+                    "priceAdjustmentMinor": 100
+                  }
+                ],
+                "name": "Exchange"
+              }
+            ],
+            "price": 13.9,
+            "name": "Korean  kimbap with Kimchi and Potato corn mash",
+            "description": "Mixed Rice \u00b7 Chicken \u00b7 Seaweed \u00b7 Cucumber \u00b7 Spinach \u00b7 Tamago \u00b7 Kimchi \u00b7 Potato \u00b7 Sweet Corn"
+          },
+          "wed": {
+            "name": "Hakka Matcha Green Herb Rice Bowl (Lei Cha)",
+            "description": "Mixed Rice \u00b7 Tofu \u00b7 Purple Cabbage \u00b7 Choy Sum \u00b7 Carrot \u00b7 Long Beans \u00b7 Preserved Radish \u00b7 Crushed Peanuts \u00b7 Sesame \u00b7 Lei Cha Sauce \u00b7 Matcha",
+            "photoUrl": "https://example.test/retained-meal.jpg",
+            "price": 12.9
+          },
+          "thu": {
+            "price": 13.9,
+            "name": "Hong Kong-Style Glazed Chicken Rice Bowl",
+            "description": "Mixed Rice \u00b7 Char Siu Glazed Chicken Breast \u00b7 Siew Pak Choy \u00b7 Cucumber \u00b7 Carrot \u00b7 Hard-Boiled Egg \u00b7 Sesame \u00b7 Char Siu Sauce",
+            "photoUrl": "https://example.test/retained-meal.jpg"
           }
         }
       },
       "week3": {
         "discount": {
-          "type": "fixed_weekly_price",
-          "value": 60
+          "value": 60,
+          "type": "fixed_weekly_price"
         },
+        "coverPhotoUrl": "https://example.test/retained-meal.jpg",
         "meals": {
           "mon": {
-            "description": "Garlic Mixed Rice \u00b7 Thai Basil Prawns \u00b7 Mango \u00b7 Cucumber \u00b7 Tomato \u00b7 Lettuce \u00b7 Purple Cabbage \u00b7 Onion \u00b7 Crushed Peanuts \u00b7 Fresh Coriander \u00b7 Thai Basil Dressing",
+            "photoUrl": "https://example.test/retained-meal.jpg",
+            "calories": 582,
+            "name": "Thai Basil Prawn Rice Bowl",
             "optionGroups": [
               {
                 "selection": "single",
@@ -140,14 +266,37 @@
                 "selection": "single"
               }
             ],
-            "calories": 582,
             "price": 13.9,
-            "name": "Thai Basil Prawn Rice Bowl",
-            "photoUrl": "https://example.test/retained-meal.jpg"
+            "description": "Garlic Mixed Rice \u00b7 Thai Basil Prawns \u00b7 Mango \u00b7 Cucumber \u00b7 Tomato \u00b7 Lettuce \u00b7 Purple Cabbage \u00b7 Onion \u00b7 Crushed Peanuts \u00b7 Fresh Coriander \u00b7 Thai Basil Dressing"
+          },
+          "tue": {
+            "price": 13.9,
+            "optionGroups": [
+              {
+                "required": false,
+                "type": "add_side",
+                "options": [
+                  {
+                    "name": "Mixed Rice ",
+                    "id": "f7dd4f7c-557c-4aa5-8df2-7bdadb0a9607",
+                    "priceAdjustmentMinor": 150
+                  }
+                ],
+                "id": "2da2f201-2d3b-4f6e-ab1f-5e517b72e377",
+                "selection": "single",
+                "name": "Add On"
+              }
+            ],
+            "photoUrl": "https://example.test/retained-meal.jpg",
+            "calories": 492,
+            "name": "Japanese Chicken Curry Rice",
+            "description": "Mixed Rice \u00b7 Japanese Curry Chicken Breast \u00b7 Potato \u00b7 Carrot \u00b7 Onion \u00b7 Broccoli \u00b7 Spring Onion \u00b7 Sesame Seeds"
           },
           "fri": {
-            "description": "Shredded Chicken, Sweet Corn, Cucumber, Shredded Cabbage, Wakame Seaweed, Cherry Tomatoes, White Sesame Seeds, Chili Flakes, Sesame Dressing, Rice / Buckwheat Noodles",
+            "calories": 592,
             "photoUrl": "https://example.test/retained-meal.jpg",
+            "description": "Shredded Chicken, Sweet Corn, Cucumber, Shredded Cabbage, Wakame Seaweed, Cherry Tomatoes, White Sesame Seeds, Chili Flakes, Sesame Dressing, Rice / Buckwheat Noodles",
+            "price": 13.9,
             "optionGroups": [
               {
                 "id": "6d3ab152-629a-43c3-9f90-0f7977df75ad",
@@ -174,24 +323,10 @@
                 "name": "Carb Choice"
               }
             ],
-            "name": "Spicy Sesame Shredded Chicken Bowl",
-            "price": 13.9,
-            "calories": 592
-          },
-          "thu": {
-            "photoUrl": "https://example.test/retained-meal.jpg",
-            "price": 13.9,
-            "optionGroups": [],
-            "calories": 658,
-            "description": "Chicken Breast \u00b7 Roasted Potatoes \u00b7 Chickpeas \u00b7 Cucumber \u00b7 Onion \u00b7 Cherry Tomatoes \u00b7 Egg \u00b7 Parmesan Cheese \u00b7 Crispy Croutons \u00b7 Ranch Dressing",
-            "name": "Baked Potato Chicken Salad"
+            "name": "Spicy Sesame Shredded Chicken Bowl"
           },
           "wed": {
             "price": 12.9,
-            "photoUrl": "https://example.test/retained-meal.jpg",
-            "name": "Korean Tofu Bibimbap Bowl",
-            "description": "Mixed Rice \u00b7 Pan-Seared Tofu \u00b7 Spinach \u00b7 Carrot \u00b7 Purple Cabbage \u00b7 Shiitake Mushrooms \u00b7 Green Chilli \u00b7 Egg \u00b7 Spring Onion \u00b7 Sesame Seeds \u00b7 Korean Bibimbap Sauce",
-            "calories": 449,
             "optionGroups": [
               {
                 "required": false,
@@ -226,162 +361,28 @@
                   }
                 ]
               }
-            ]
-          },
-          "tue": {
-            "description": "Mixed Rice \u00b7 Japanese Curry Chicken Breast \u00b7 Potato \u00b7 Carrot \u00b7 Onion \u00b7 Broccoli \u00b7 Spring Onion \u00b7 Sesame Seeds",
-            "optionGroups": [
-              {
-                "required": false,
-                "type": "add_side",
-                "options": [
-                  {
-                    "name": "Mixed Rice ",
-                    "id": "f7dd4f7c-557c-4aa5-8df2-7bdadb0a9607",
-                    "priceAdjustmentMinor": 150
-                  }
-                ],
-                "id": "2da2f201-2d3b-4f6e-ab1f-5e517b72e377",
-                "selection": "single",
-                "name": "Add On"
-              }
             ],
-            "price": 13.9,
-            "calories": 492,
+            "description": "Mixed Rice \u00b7 Pan-Seared Tofu \u00b7 Spinach \u00b7 Carrot \u00b7 Purple Cabbage \u00b7 Shiitake Mushrooms \u00b7 Green Chilli \u00b7 Egg \u00b7 Spring Onion \u00b7 Sesame Seeds \u00b7 Korean Bibimbap Sauce",
             "photoUrl": "https://example.test/retained-meal.jpg",
-            "name": "Japanese Chicken Curry Rice"
-          }
-        },
-        "coverPhotoUrl": "https://example.test/retained-cover.jpg"
-      },
-      "week1": {
-        "meals": {
-          "tue": {
-            "photoUrl": "https://example.test/retained-meal.jpg",
-            "price": 13.9,
-            "calories": 453,
-            "name": "Spicy tuna pasta"
-          },
-          "wed": {
-            "price": 13.9,
-            "photoUrl": "https://example.test/retained-meal.jpg",
-            "calories": 601,
-            "name": "Lemon baked chicken with garlic rice"
+            "calories": 449,
+            "name": "Korean Tofu Bibimbap Bowl"
           },
           "thu": {
-            "calories": 532,
-            "price": 13.9,
-            "optionGroups": [
-              {
-                "id": "8a81252b-2dcd-43fd-b28d-0b2c0c492b2c",
-                "options": [
-                  {
-                    "id": "e817a84c-d0f6-419f-9674-ba74ce25f76f",
-                    "priceAdjustmentMinor": 0,
-                    "name": "Chicken"
-                  }
-                ],
-                "type": "exchange",
-                "required": false,
-                "selection": "single",
-                "name": "Exchange"
-              }
-            ],
-            "name": "Baked prawn with potato salad",
-            "photoUrl": "https://example.test/retained-meal.jpg"
-          },
-          "fri": {
-            "calories": 620,
-            "price": 14.9,
             "photoUrl": "https://example.test/retained-meal.jpg",
-            "name": "Soba noodle"
-          },
-          "mon": {
-            "photoUrl": "https://example.test/retained-meal.jpg",
-            "name": "Gochujang Grilled Chicken Breast",
             "price": 13.9,
-            "calories": 492
+            "calories": 658,
+            "name": "Baked Potato Chicken Salad",
+            "optionGroups": [],
+            "description": "Chicken Breast \u00b7 Roasted Potatoes \u00b7 Chickpeas \u00b7 Cucumber \u00b7 Onion \u00b7 Cherry Tomatoes \u00b7 Egg \u00b7 Parmesan Cheese \u00b7 Crispy Croutons \u00b7 Ranch Dressing"
           }
-        },
-        "discount": {
-          "value": 60,
-          "type": "fixed_weekly_price"
         }
-      },
-      "week4": {
-        "discount": {
-          "value": 60,
-          "type": "fixed_weekly_price"
-        },
-        "meals": {
-          "mon": {
-            "name": "Sambal Glazed Chicken with Ginger Rice Bowl",
-            "calories": 578,
-            "description": "Ginger Mixed Rice \u00b7 Sambal Glazed Chicken Breast \u00b7 Cucumber \u00b7 Cherry Tomato \u00b7 Lettuce \u00b7 Hard-Boiled Egg \u00b7 Greek Yogurt",
-            "price": 13.9,
-            "photoUrl": "https://example.test/retained-meal.jpg"
-          },
-          "wed": {
-            "name": "Hakka Matcha Green Herb Rice Bowl (Lei Cha)",
-            "photoUrl": "https://example.test/retained-meal.jpg",
-            "description": "Mixed Rice \u00b7 Tofu \u00b7 Purple Cabbage \u00b7 Choy Sum \u00b7 Carrot \u00b7 Long Beans \u00b7 Preserved Radish \u00b7 Crushed Peanuts \u00b7 Sesame \u00b7 Lei Cha Sauce \u00b7 Matcha",
-            "price": 12.9
-          },
-          "tue": {
-            "price": 13.9,
-            "photoUrl": "https://example.test/retained-meal.jpg",
-            "calories": 543,
-            "description": "Tuna \u00b7 Chickpeas \u00b7 Cucumber \u00b7 Red Onion \u00b7 Mustard \u00b7 Cherry Tomato \u00b7 Lettuce \u00b7 Beibei pumpkin \u00b7 Lemon \u00b7 Corn Oil",
-            "name": "Mediterranean Chickpea Tuna Salad"
-          },
-          "fri": {
-            "photoUrl": "https://example.test/retained-meal.jpg",
-            "price": 13.9,
-            "optionGroups": [
-              {
-                "type": "exchange",
-                "selection": "single",
-                "required": true,
-                "id": "1bcf919f-dcc7-4a0c-ae79-52a2c8852c66",
-                "options": [
-                  {
-                    "priceAdjustmentMinor": 0,
-                    "id": "2662a590-7d15-46e0-9f05-cecf2a543bc4",
-                    "name": "Chicken "
-                  },
-                  {
-                    "priceAdjustmentMinor": 0,
-                    "name": "Tuna ",
-                    "id": "b6b0796e-eec2-4b10-9e10-e9b765390033"
-                  },
-                  {
-                    "id": "16d30151-edd8-44e5-ad26-183233f425a4",
-                    "name": "Beef",
-                    "priceAdjustmentMinor": 100
-                  }
-                ],
-                "name": "Exchange"
-              }
-            ],
-            "description": "Mixed Rice \u00b7 Chicken \u00b7 Seaweed \u00b7 Cucumber \u00b7 Spinach \u00b7 Tamago \u00b7 Kimchi \u00b7 Potato \u00b7 Sweet Corn",
-            "name": "Korean  kimbap with Kimchi and Potato corn mash"
-          },
-          "thu": {
-            "description": "Mixed Rice \u00b7 Char Siu Glazed Chicken Breast \u00b7 Siew Pak Choy \u00b7 Cucumber \u00b7 Carrot \u00b7 Hard-Boiled Egg \u00b7 Sesame \u00b7 Char Siu Sauce",
-            "name": "Hong Kong-Style Glazed Chicken Rice Bowl",
-            "photoUrl": "https://example.test/retained-meal.jpg",
-            "price": 13.9
-          }
-        },
-        "coverPhotoUrl": "https://example.test/retained-cover.jpg"
       }
     },
+    "workspaceId": "s",
+    "rotationStartMonday": "2026-10-05",
+    "rotationCycleLength": 4,
     "available": true,
     "weeklyMenuVersion": 3,
-    "name": "Weekly Menu",
-    "id": "production-menu",
-    "storeId": "s",
-    "workspaceId": "s",
-    "optionGroupIds": []
+    "name": "Weekly Menu"
   }
 }
