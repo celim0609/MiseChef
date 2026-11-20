@@ -843,21 +843,21 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
     const preOrder = store.delivery?.fulfilment.preOrder;
     return method === 'delivery' && preOrder ? { ...store, orderDays: preOrder.orderDays, earliestPickupDays: Math.max(1, preOrder.earliestDays) as typeof preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates } : store;
   };
-  const availableHealthyDays = (plan: StoreProduct, now = new Date()): string[] => {
+  const availableHealthyDays = (plan: StoreProduct, now = new Date(), includeMissing = false): string[] => {
     const store = data!.store;
     const preOrder = store.delivery?.fulfilment.preOrder;
     const dates = [...new Set([
       ...(store.pickupEnabled ? getValidPickupDates(store, now).filter(date => getPickupTimeSlots(store, date, now).length) : []),
       ...(store.delivery?.enabled && preOrder?.enabled ? getValidPickupDates(healthyDateStore('delivery'), now).filter(date => Date.parse(`${date}T${preOrder.deliveryHours.to}:00+08:00`) > now.getTime()) : [])
     ])].sort();
-    return dates.filter(date => { const meal = resolveHealthyLunchDay(plan, data!.products, date); return meal?.available && (hasEmbeddedMenu(plan) || selectionAllowsDate({ productId: meal.id, quantity: 1, selectedOptions: [] }, data!.products, date)); });
+    return dates.filter(date => { const meal = resolveHealthyLunchDay(plan, data!.products, date); return (includeMissing && plan.rotationCycleLength !== undefined && !meal && !plan.healthyLunchBlockedDates?.includes(date) && new Date(`${date}T00:00:00Z`).getUTCDay() >= 1 && new Date(`${date}T00:00:00Z`).getUTCDay() <= 5) || meal?.available && (hasEmbeddedMenu(plan) || selectionAllowsDate({ productId: meal.id, quantity: 1, selectedOptions: [] }, data!.products, date)); });
   };
-  const availablePlanMondays = (plan: StoreProduct, method: string, now = new Date()): string[] => {
+  const availablePlanMondays = (plan: StoreProduct, method: string, now = new Date(), includeMissing = false): string[] => {
     const store = healthyDateStore(method);
     if (method === 'pickup' ? !store.pickupEnabled : !store.delivery?.enabled || !store.delivery.fulfilment.preOrder.enabled) return [];
     const dates = getValidPickupDates(fullWeekDateStore(store, plan), now);
     return (plan.weeklyWeeks !== undefined ? datedWeeks(plan).map(week => week.startMonday) : dates.filter(date => getWeeklyDates(date).length === 5))
-      .filter(monday => !validateWeeklyMealPlan(plan, data!.products, store.id, monday) && (!hasDatedMenu(plan) || isDatedWeekOpen(store, monday, now)) && !isHealthyLunchWeekBlocked(plan, monday)
+      .filter(monday => !validateWeeklyMealPlan(plan, data!.products, store.id, includeMissing && plan.rotationCycleLength !== undefined ? undefined : monday) && (!hasDatedMenu(plan) || isDatedWeekOpen(store, monday, now)) && !isHealthyLunchWeekBlocked(plan, monday)
         && (hasDatedMenu(plan) ? fullWeekServiceDatesAvailable(fullWeekDateStore(store, plan), monday, getValidPickupDates, now) : getWeeklyDates(monday).every(date => dates.includes(date)))
         && (method === 'delivery' ? store.delivery?.fulfilment.preOrder.enabled : getWeeklyPickupTimes(fullWeekDateStore(store, plan), monday, getValidPickupDates, getPickupTimeSlots, now, plan).length > 0));
   };
@@ -1339,8 +1339,8 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
   const productPriceLabel = (product: StoreProduct) => `${formatRegionCurrency(product.price, store.currency)}${hasDatedMenu(product) ? ' · 5-Day Plan' : ''}`;
   const renderWeeklyMeals = (product: StoreProduct, monday = '') => {
     if (!isWeeklyMealPlan(product)) return null;
-    const weeks = [...new Set([...(store.pickupEnabled ? availablePlanMondays(product, 'pickup', pickupClock) : []), ...(store.delivery?.enabled ? availablePlanMondays(product, 'delivery', pickupClock) : [])])].sort();
-    const dayDates = availableHealthyDays(product, pickupClock);
+    const weeks = [...new Set([...(store.pickupEnabled ? availablePlanMondays(product, 'pickup', pickupClock, true) : []), ...(store.delivery?.enabled ? availablePlanMondays(product, 'delivery', pickupClock, true) : [])])].sort();
+    const dayDates = availableHealthyDays(product, pickupClock, true);
     const share = productSlug ? readWeeklyShare(product, window.location.search) : null;
     const choice = healthyChoices[product.id] || weeklyShareChoice(product, share, weeks, dayDates) || { mode: 'week' as const, date: '' };
     const previewOnly = Boolean(share && !healthyChoices[product.id] && !choice.date);

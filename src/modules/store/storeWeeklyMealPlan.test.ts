@@ -200,3 +200,10 @@ test('dated to rotation conversion preserves discounts and drops dated-only fiel
   assert.equal(converted.rotationWeeks!.week2!.legacyWeeklyPrice, 55);
   assert.equal('startMonday' in converted.rotationWeeks!.week1!, false);
 });
+
+test('fixed rotation cycle length survives normalization, editor changes and save', () => {
+ const meals=Object.fromEntries(WEEKLY_DAYS.map(day=>[day,{name:day,photoUrl:'meal.jpg',price:12}]));
+ const plan = normalizeStoreProduct('cycle', {...legacy, productType:'weekly_meal_plan', weeklyMenuVersion:3, rotationStartMonday:'2026-11-02', rotationCycleLength:4, rotationWeeks:{week1:{meals}}, weeklyMeals:undefined});
+ const draft=getStoreProductEditorDraft(plan);assert.equal(draft.rotationCycleLength,4);
+ const saved=buildUpdatedStoreProduct(plan,prepareHealthyLunchDraft(draft),'later');assert.equal(saved.rotationCycleLength,4);
+});

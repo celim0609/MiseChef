@@ -791,6 +791,10 @@ test('rotation products save sparse weeks and blocked dates with existing mercha
   await assertFails(ref.update({ healthyLunchBlockedDates: ['2026-10-23', '2026-10-23'] }));
   await assertFails(ref.update({ rotationWeeks: { week5: { meals } } }));
   await assertFails(ref.update({ weeklyWeeks: { week1: embeddedWeekRecord('2026-10-19') } }));
+  await assertSucceeds(ref.update({rotationCycleLength:4}));
+  assert.equal((await ref.get()).data().rotationCycleLength,4);
+  for(const value of [0,5,1.5,'4',3]) await assertFails(ref.update({rotationCycleLength:value}));
+  await assertFails(customerA.firestore().doc(`storeProducts/${id}`).update({rotationCycleLength:4}));
 });
 
 test('per-meal option groups save/reload in v2/v3 with existing merchant permissions and no global option documents', async () => {
