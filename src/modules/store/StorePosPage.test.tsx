@@ -82,7 +82,7 @@ test('Order History is date-scoped independently from the realtime listener', ()
   assert.match(pageSource, /activeView !== 'history'/);
   assert.match(pageSource, /getMalaysiaDateRange\(historyDateKey\)/);
   assert.match(pageSource, /getOrdersForBusinessDate/);
-  assert.match(pageSource, /Creation date/);
+  assert.match(pageSource, /Fulfilment date/);
   assert.match(pageSource, /Completion date/);
   assert.match(pageSource, /Search order #/);
   assert.match(serviceSource, /where\('createdAt', '>=', Timestamp\.fromDate\(start\)\)/);
