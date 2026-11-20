@@ -1,4 +1,5 @@
 import { readWeeklyShare, weeklySharePhoto, weeklyShareUrl } from './weeklyMenuSharing.js';
+import { findWeeklyPreviewImage } from './weeklyPreviewImages.js';
 
 const SITE_NAME = 'MiseChef';
 const DEFAULT_STORE_DESCRIPTION = 'Browse this MiseChef Store and order ahead for pickup.';
@@ -105,7 +106,8 @@ export const buildProductSocialMetadata = ({ store, product, origin, slug, produ
     : storeImage
       ? withStoreImageVersion(storeImage, store?.updatedAt)
       : new URL(DEFAULT_STORE_IMAGE_PATH, safeOrigin).toString();
-  return { title: `${productName} | ${storeName}`, description, image, canonicalUrl: sharedUrl, siteName: SITE_NAME, type: 'product' };
+  const preview = share && !share.day ? findWeeklyPreviewImage(productImage, sharedUrl, share.slot) : null;
+  return { title: `${productName} | ${storeName}`, description, image, ...preview, canonicalUrl: sharedUrl, siteName: SITE_NAME, type: 'product' };
 };
 
 const promotionOffer = promotion => {
@@ -143,6 +145,11 @@ export const renderStoreSocialTags = metadata => {
     `<meta property="og:description" content="${description}" />`,
     `<meta property="og:image" content="${image}" />`,
     `<meta property="og:image:secure_url" content="${image}" />`,
+    ...(metadata.imageType ? [
+      `<meta property="og:image:type" content="${escapeHtmlAttribute(metadata.imageType)}" />`,
+      `<meta property="og:image:width" content="${metadata.imageWidth}" />`,
+      `<meta property="og:image:height" content="${metadata.imageHeight}" />`
+    ] : []),
     `<meta property="og:url" content="${canonicalUrl}" />`,
     `<meta property="og:type" content="${escapeHtmlAttribute(metadata.type || 'website')}" />`,
     `<meta property="og:site_name" content="${siteName}" />`,

@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "productPath": "/store/misechef-s-grab-go-store/product/week-1-menu-UYbflYMUINI5sqyqrPIO",
+  "entries": [
+    {
+      "week": "week1",
+      "bucket": "misechef-fa4bf.firebasestorage.app",
+      "objectPath": "stores/stShXwdbIzOh14ItTtQ4hRB5oBz1/products/UYbflYMUINI5sqyqrPIO/meal-623ae59d-8836-4d89-a161-877af5b69b12.jpg",
+      "sourceFile": "misechef-week1.png",
+      "sourceBytes": 174340,
+      "sourceSha256": "2698892ebcd89c9c5ed475b53fce954b3ebfefb9201ff7e051264cfd106ecb24",
+      "assetPath": "/assets/weekly-menu-preview/week1-2e0dc9ad6245bd7a1f77.jpg",
+      "width": 960,
+      "height": 1200,
+      "bytes": 180785,
+      "sha256": "2e0dc9ad6245bd7a1f77ca449a8f3867a6592004fea458cdbc19eb43e6e81e1f",
+      "sourceWidth": 960,
+      "sourceHeight": 1200
+    },
+    {
+      "week": "week2",
+      "bucket": "misechef-fa4bf.firebasestorage.app",
+      "objectPath": "stores/stShXwdbIzOh14ItTtQ4hRB5oBz1/products/UYbflYMUINI5sqyqrPIO/meal-e5ade864-58b9-4295-8672-2958a2840806.jpg",
+      "sourceFile": "misechef-week2.png",
+      "sourceBytes": 417593,
+      "sourceSha256": "a2493d76851bdbeb2e2dc4b3ae0412997fd02b63f703a6e560cca92e4b3667d7",
+      "assetPath": "/assets/weekly-menu-preview/week2-33ab71cb2e1cc95e9cda.jpg",
+      "width": 960,
+      "height": 951,
+      "bytes": 159188,
+      "sha256": "33ab71cb2e1cc95e9cda7427b7e64770b4a5767de8369aa3402b0b6057c9f8d5",
+      "sourceWidth": 1320,
+      "sourceHeight": 1308
+    },
+    {
+      "week": "week3",
+      "bucket": "misechef-fa4bf.firebasestorage.app",
+      "objectPath": "stores/stShXwdbIzOh14ItTtQ4hRB5oBz1/products/UYbflYMUINI5sqyqrPIO/meal-cf1cd993-5bc3-44b5-8a43-51ff9941dc3f.jpg",
+      "sourceFile": "misechef-week3.png",
+      "sourceBytes": 503502,
+      "sourceSha256": "817cb475623a383ca6b3ff1700161343b0ebf7ddfb2c50b10e6c0b15dc099795",
+      "assetPath": "/assets/weekly-menu-preview/week3-d4ec4cb2837c1f311d84.jpg",
+      "width": 960,
+      "height": 1278,
+      "bytes": 197602,
+      "sha256": "d4ec4cb2837c1f311d8474557f47234032f717d872841248185123d6cf046921",
+      "sourceWidth": 1313,
+      "sourceHeight": 1748
+    },
+    {
+      "week": "week4",
+      "bucket": "misechef-fa4bf.firebasestorage.app",
+      "objectPath": "stores/stShXwdbIzOh14ItTtQ4hRB5oBz1/products/UYbflYMUINI5sqyqrPIO/meal-29da1bc9-a242-4cab-90d0-225b3c25c7f8.png",
+      "sourceFile": "misechef-week4.png",
+      "sourceBytes": 2355926,
+      "sourceSha256": "1ea23309cad1d2ae43bc1ddb6d4b915c998e7e36366a658620d9444c2dde188d",
+      "assetPath": "/assets/weekly-menu-preview/week4-241734fa68af69823c02.jpg",
+      "width": 960,
+      "height": 1280,
+      "bytes": 173809,
+      "sha256": "241734fa68af69823c0230e73f7eeeca2e5acfe255b6d0d2d5064ff380be1c33",
+      "sourceWidth": 1086,
+      "sourceHeight": 1448
+    }
+  ]
+}
