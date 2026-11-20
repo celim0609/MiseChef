@@ -1,4 +1,3 @@
-import { posStoreDate, resolvePosAddOrderMeal } from '../../../functions/posAddOrder.js';
 import OrderManagementActions, {DeletedOrders} from './OrderManagementActions';
 import PasteOrderButton, {type PasteDraft} from './PasteOrderButton';
 import PosAddressPicker from './PosAddressPicker';
@@ -9,7 +8,7 @@ import {productAllowsFulfilmentDate} from '../../../functions/storeProductAvaila
 import PosWeeklyMenu from './PosWeeklyMenu';
 import type {HealthyLunchChoice} from './HealthyLunchMenu';
 import {previewManualLines} from './manualPosPreview';
-import {getWeeklyDates,resolveHealthyLunchDay,isFullWeekSelection,validCalendarDate} from '../../../functions/storeWeeklyMealPlan.js';
+import {getWeeklyDates,resolveHealthyLunchDay} from '../../../functions/storeWeeklyMealPlan.js';
 import ManualPosOrders from './ManualPosOrders';
 import { getOrderTickets } from './orderTickets';
 import DailyFulfilmentQueue, { DailyFulfilmentCard } from './DailyFulfilmentQueue';
@@ -246,8 +245,6 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   };
   useEffect(() => {setDailyHistory(null);}, [storeId, workspaceId]);
   const [externalOpen, setExternalOpen] = useState(false);
-  const [ordinaryPending, setOrdinaryPending] = useState(false);
-  const [pendingSaved, setPendingSaved] = useState<StoreOrder | null>(null);
   const [pasteRequest,setPasteRequest]=useState<{id:string;draft:PasteDraft}|null>(null);
   const [externalStore, setExternalStore] = useState<WorkspaceStore | null>(null);
   const [externalCategory, setExternalCategory] = useState<'all'|'sets'|'weekly'>('all');
@@ -290,27 +287,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     selections:externalCart.map(item=>({...item.selection,quantity:item.quantity})),
     lineSchedules:externalCart.map(item=>({date:item.date || '',time:item.time || ''})),
   };
-  const fullWeekCart = externalCart.some(item => isFullWeekSelection(item.selection, externalProducts));
-  const requiresPendingCart = externalPosFullAccess && externalCart.some(item => item.selection.healthyLunchDate && item.selection.healthyLunchDate !== item.date);
-  const pendingCart = externalPosFullAccess && !fullWeekCart && (ordinaryPending || requiresPendingCart);
-  const storeToday = externalStore ? posStoreDate(externalStore, now) : '';
-  const pendingScheduleError = pendingCart && externalCart.some(item => !validCalendarDate(item.date || externalDate)
-    || (item.date || externalDate) < storeToday || !/^([01]\d|2[0-3]):[0-5]\d$/.test(item.time || externalTime))
-    ? 'Pending orders require today or a future fulfilment date and an exact time. Past fulfilment requires a separately approved historical workflow.' : '';
-  const mixedPlanError = fullWeekCart && requiresPendingCart ? 'Keep 5-Day Plans separate from custom-date individual meals.' : '';
-  const pendingManualInput = {
-    workspaceId, storeId, slug: externalOrderInput.slug, source: externalSource, posAddOrder: true, manualPos: true,
-    externalOrderNumber: externalNumber, customerName: externalName.trim() || 'Customer', phone: externalPhone, notes: externalNotes,
-    lines: externalCart.map(item => {
-      const date = item.date || externalDate;
-      const destination = externalDestinations[date] || externalDestination;
-      return { selection: item.selection, quantity: item.quantity, date, time: item.time || externalTime, method: externalMethod,
-        deliveryArrangement: externalMethod === 'delivery' ? 'store' : 'customer',
-        deliveryAddress: externalMethod === 'delivery' ? destination?.formattedAddress || externalAddress : '',
-        ...(externalMethod === 'delivery' && destination ? { destination } : {}), notes: '' };
-    }),
-  };
-  const externalQuoteKey=JSON.stringify(pendingCart ? pendingManualInput : {workspaceId,storeId,slug:externalOrderInput.slug,fulfilmentMethod:externalMethod,
+  const externalQuoteKey=JSON.stringify({workspaceId,storeId,slug:externalOrderInput.slug,fulfilmentMethod:externalMethod,
     deliveryAddress:externalOrderInput.deliveryAddress,destination:externalDestination,deliveryDestinations:externalDestinations,
     fulfilmentDate:externalDate,fulfilmentTime:externalTime,selections:externalOrderInput.selections,lineSchedules:externalOrderInput.lineSchedules});
   const externalQuoteKeyRef=useRef(externalQuoteKey);externalQuoteKeyRef.current=externalQuoteKey;
@@ -324,13 +301,13 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     let active=true;
     setExternalQuoteState(null);setExternalQuoteError('');setExternalQuoting(false);
     setExternalManualFee(false);setExternalFeeAmount('');setExternalFeeReason('');
-    if(!externalOpen||externalMethod!=='delivery'||!externalCart.length||externalLoading||pendingScheduleError||mixedPlanError)return;
+    if(!externalOpen||externalMethod!=='delivery'||!externalCart.length||externalLoading)return;
     const order=JSON.parse(externalQuoteKey);
     if(!order.destination?.formattedAddress) {setExternalQuoteError('Enter a delivery address.');return;}
     setExternalQuoting(true);
     const timer=setTimeout(()=>{void storeOrderService.quotePosDelivery(order).then(quote=>{if(active)setExternalQuoteState({quote,key:externalQuoteKey});}).catch(error=>{if(active)setExternalQuoteError(error instanceof Error?error.message:'Delivery quotation is unavailable.');}).finally(()=>{if(active)setExternalQuoting(false);});},600);
     return ()=>{active=false;clearTimeout(timer);};
-  },[externalOpen,externalMethod,externalQuoteKey,externalLoading,pendingScheduleError,mixedPlanError]);
+  },[externalOpen,externalMethod,externalQuoteKey,externalLoading]);
   useEffect(()=>{
     if(!externalQuoteState||externalQuoteState.key!==externalQuoteKey)return;
     const timer=setTimeout(()=>{setExternalQuoteState(null);setExternalQuoteError('Delivery estimate expired. Refresh it or enter a manual fee.');},Math.max(0,Date.parse(externalQuoteState.quote.expiresAt)-Date.now()-5000));
@@ -503,7 +480,6 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     setErrorMessage('');
     setExternalError('');
     setExternalCategory('all');
-    setPendingSaved(null);
     setExternalPosFullAccess(false);
     setExternalOpen(true);
     window.scrollTo({ top: 0 });
@@ -542,24 +518,6 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       if(!currentStore?.slug || currentStore.slug!==externalOrderInput.slug) throw new Error('Store details changed. Reload the catalog before retrying.');
       if(externalMethod==='delivery' && !externalManualFee && (!externalQuote || Date.parse(externalQuote.expiresAt)<=Date.now()+5000)) throw new Error('Delivery estimate expired. Refresh before confirming.');
       if (!externalFeeReady) throw new Error('Refresh the delivery estimate or enter an authorized manual fee.');
-      if (pendingCart) {
-        if (pendingScheduleError || mixedPlanError) throw new Error(pendingScheduleError || mixedPlanError);
-        const result = await storeOrderService.saveManualPosOrder({ ...pendingManualInput,
-          requestId: externalRequestIdRef.current, expectedSubtotalMinor: Math.round(externalSubtotal * 100),
-          ...(externalMethod === 'delivery' ? externalManualFee
-            ? { deliveryFeeOverride: { amount: Number(externalFeeAmount), reason: externalFeeReason } }
-            : { posDeliveryQuoteId: externalQuote?.id } : {}),
-        });
-        const order = await storeOrderService.getOrder(result.orderId);
-        if (!order) throw new Error('The pending order was saved. Check View Orders before taking further action.');
-        setPendingSaved(order);
-        externalRequestIdRef.current = crypto.randomUUID(); externalAddTimes.current.clear();
-        setExternalCart([]); setExternalOpen(false); setExternalNumber(''); setExternalName(''); setExternalPhone(''); setExternalNotes('');
-        setExternalMethod('pickup'); setExternalAddress(''); setExternalDestination(undefined); setExternalDestinations({});
-        setExternalQuoteState(null); setExternalDate(''); setExternalTime(''); setOrdinaryPending(false);
-        setHistoryRefreshKey(key => key + 1);
-        return;
-      }
       const result = await storeOrderService.createExternalPosOrder({ ...externalOrderInput, requestId: externalRequestIdRef.current, paymentLabel,
         ...(externalMethod==='delivery' ? externalManualFee ? {deliveryFeeOverride:{amount:Number(externalFeeAmount),reason:externalFeeReason}} : {posDeliveryQuoteId:externalQuote?.id} : {}) });
       if (externalSource === 'walk_in') {
@@ -597,16 +555,12 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   });
   };
   const addExternalMenu = (product: StoreProduct, choice: HealthyLunchChoice, time: string) => {
-    const serviceDate = choice.fulfilmentDate || choice.date;
-    const meal = choice.mode !== 'day' ? product : externalPosFullAccess
-      ? resolvePosAddOrderMeal(product, externalProducts, choice.date, serviceDate, storeToday).meal
-      : resolveHealthyLunchDay(product, externalProducts, choice.date);
+    const meal = choice.mode === 'day' ? resolveHealthyLunchDay(product, externalProducts, choice.date) : product;
     if (!meal) return;
     const selection = {productId:meal.id,selectedOptions:[],selectedMealOptions:choice.selectedMealOptions || [],...(choice.mode === 'day'?{healthyLunchPlanId:product.id,healthyLunchDate:choice.date}:{})};
-    if (choice.mode === 'day' && externalPosFullAccess) setOrdinaryPending(true);
-    const key = `menu:${product.id}:${choice.mode}:${choice.date}:${serviceDate}:${time}:${JSON.stringify(selection.selectedMealOptions)}`;
+    const key = `menu:${product.id}:${choice.mode}:${choice.date}:${time}:${JSON.stringify(selection.selectedMealOptions)}`;
     if(!claimPosAdd(externalAddTimes.current,key,Date.now()))return;
-    setExternalCart(current=>current.some(item=>item.key===key)?current.map(item=>item.key===key?{...item,quantity:Math.min(externalPosFullAccess ? 10000 : 20,item.quantity+1)}:item):[...current,{key,label:meal.name,quantity:1,date:serviceDate,time,selection}]);
+    setExternalCart(current=>current.some(item=>item.key===key)?current.map(item=>item.key===key?{...item,quantity:Math.min(externalPosFullAccess ? 10000 : 20,item.quantity+1)}:item):[...current,{key,label:meal.name,quantity:1,date:choice.date,time,selection}]);
   };
   const updateExternalSetChoice = (key:string,groupId:string,productId:string,maximum:number) => setExternalCart(current=>current.map(item=>{
     if(item.key!==key)return item;
@@ -654,7 +608,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       const option = group?.options.find(candidate => candidate.id === choice.optionId && candidate.available);
       return option ? [option.priceAdjustment] : [];
     });
-    const menuPreview = product?.productType === 'weekly_meal_plan' || item.selection.healthyLunchPlanId ? previewManualLines([{quantity:item.quantity,date:item.selection.healthyLunchDate || item.date || '',time:item.time || '',method:'pickup',deliveryAddress:'',notes:'',selection:item.selection}],externalProducts,externalSets,externalOptionGroups,externalPosFullAccess).rows[0] : null;
+    const menuPreview = product?.productType === 'weekly_meal_plan' || item.selection.healthyLunchPlanId ? previewManualLines([{quantity:item.quantity,date:item.date || '',time:item.time || '',method:'pickup',deliveryAddress:'',notes:'',selection:item.selection}],externalProducts,externalSets,externalOptionGroups,externalPosFullAccess).rows[0] : null;
     const fulfilmentDate = item.date || externalDate;
     const scheduleError = !externalPosFullAccess && externalStore && !(product?.productType==='weekly_meal_plan' && !item.selection.healthyLunchDate) ? fulfilmentDate ? (!getValidPickupDates(externalStore).includes(fulfilmentDate) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(item.time || externalTime) ? 'Choose an available fulfilment date and time.' : '') : [product,...(item.selection.selectedSetItems || []).map(choice=>externalProducts.find(product=>product.id===choice.productId))].filter(Boolean).some(product=>!productAllowsFulfilmentDate(product,toMalaysiaDateKey())) ? 'Choose a fulfilment date matching the selected dish’s Available day.' : '' : '';
     const unitPrice = menuPreview ? (menuPreview.unitMinor || 0)/100 : set
@@ -743,7 +697,6 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     <section data-pos-theme={isNightMode ? 'dark' : 'light'} className={`pos-screen flex min-h-screen flex-col transition-colors ${isNightMode ? 'bg-[#07111f] text-white' : 'bg-slate-100 text-slate-950'}`}>
       <audio ref={audioRef} preload="auto" aria-hidden="true" />
       <div hidden={externalOpen}>
-      {pendingSaved && <p role="status" className="rounded border p-3 font-bold">{pendingSaved.orderNumber} · {pendingSaved.currency} {pendingSaved.total.toFixed(2)} · Pending payment. Review and confirm received payment in the existing Manual Orders section.</p>}
       <header className={`pos-light-surface flex flex-col gap-3 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:px-6 ${isNightMode ? 'border-white/10 bg-[#0b1727]' : 'border-slate-300 bg-white'}`}>
         <div className="flex min-w-0 items-center gap-3">
           <button type="button" onClick={onBack} aria-label="Back to Store" className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border ${isNightMode ? 'border-white/15 bg-white/5 text-white' : 'border-slate-300 bg-slate-100 text-slate-900'}`}><ArrowLeft className="h-6 w-6" /></button>
@@ -858,7 +811,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
             <header className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3">
               <div>
                 <h2 id="pos-order-entry-title" className="text-xl font-black">Add Order</h2>
-                <p className="text-xs font-bold text-slate-500">{pendingCart ? 'Order · Pending payment' : externalSource === 'shopeefood' ? 'ShopeeFood · Platform Paid' : externalSource === 'walk_in' ? 'Walk-in · Paid' : externalSource === 'whatsapp' ? 'WhatsApp · Paid' : 'Other · Paid'}</p>
+                <p className="text-xs font-bold text-slate-500">{externalSource === 'shopeefood' ? 'ShopeeFood · Platform Paid' : externalSource === 'walk_in' ? 'Walk-in · Paid' : externalSource === 'whatsapp' ? 'WhatsApp · Paid' : 'Other · Paid'}</p>
               </div>
               <PasteOrderButton workspaceId={workspaceId} storeId={storeId} slug={externalStore?.slug || ''} products={externalOrderableProducts} sets={externalSets} disabled={externalLoading || creatingExternal} onApply={draft=>{setExternalCart([]);setExternalOpen(false);setActiveView('history');setPosSection('orders');setPasteRequest({id:crypto.randomUUID(),draft});}} />
               <button type="button" onClick={() => { setExternalOpen(false); window.scrollTo({ top: 0 }); }} disabled={creatingExternal} className="inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 py-2 font-bold hover:bg-slate-100 disabled:opacity-40"><ArrowLeft className="h-5 w-5" />Back to POS</button>
@@ -892,7 +845,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               </div>}
               <label className="text-xs font-bold text-slate-600">{externalMethod === 'delivery' ? 'Delivery' : 'Pickup'} date<input aria-label="Order fulfilment date" type="date" value={externalDate} onChange={event => setExternalDate(event.target.value)} className="mt-1 block w-full rounded-lg border p-2" /></label>
               <label className="text-xs font-bold text-slate-600">Exact {externalMethod} time<input aria-label="Order fulfilment time" type="time" value={externalTime} onChange={event => setExternalTime(event.target.value)} className="mt-1 block w-full rounded-lg border p-2" /></label>
-              <p className="col-span-2 text-xs text-slate-600">Dates and times above apply to items without their own schedule. Weekly meals retain their menu source separately from fulfilment. {externalMethod === 'delivery' ? 'Delivery is arranged externally. Confirming this order does not book Lalamove.' : 'Leave both blank for immediate pickup.'}</p>
+              <p className="col-span-2 text-xs text-slate-600">Dates and times above apply to items without their own schedule. Weekly meals keep their selected dates. {externalMethod === 'delivery' ? 'Delivery is arranged externally. Confirming this order does not book Lalamove.' : 'Leave both blank for immediate pickup.'}</p>
             </fieldset>
 
             <div className="space-y-6">
@@ -945,8 +898,6 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                     </div>
                     <span className="min-w-20 text-right text-sm font-black">MYR {item.lineTotal.toFixed(2)}</span>
                   </div>
-                  {item.selection.healthyLunchDate && <p className="mt-2 text-xs font-bold">Menu source: {item.selection.healthyLunchDate}</p>}
-                  {externalPosFullAccess && item.selection.healthyLunchDate && <label className="mt-2 block text-xs font-bold">Fulfilment date<input type="date" aria-label={`${item.label} fulfilment date`} value={item.date || ''} disabled={creatingExternal} onChange={event=>setExternalCart(current=>current.map(line=>line.key===item.key?{...line,date:event.target.value}:line))} className="block rounded border p-2"/></label>}
                   {item.date && <p className="mt-2 text-xs font-bold">{item.selection.healthyLunchDate ? item.date : externalProducts.find(product=>product.id===item.selection.productId)?.productType==='weekly_meal_plan' ? getWeeklyDates(item.date).join(' · ') : item.date} · {item.time}</p>}
                   {item.previewError && <p role="alert" className="text-sm text-red-700">{item.previewError}</p>}
                   {!item.selection.healthyLunchPlanId && externalProducts.find(product=>product.id===item.selection.productId)?.productType!=='weekly_meal_plan' && <label className="mt-2 block text-xs font-bold"><input type="checkbox" checked={Boolean(item.scheduleOverride || item.date)} disabled={creatingExternal} onChange={event=>setExternalCart(current=>current.map(line=>line.key===item.key?{...line,scheduleOverride:event.target.checked,date:event.target.checked?externalDate:'',time:event.target.checked?externalTime:''}:line))}/> Override fulfilment schedule for this item</label>}
@@ -971,13 +922,11 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                 {externalPosFullAccess && !externalQuote && !externalQuoting && <div className="mt-2"><label className="font-bold"><input type="checkbox" checked={externalManualFee} onChange={e=>{setExternalManualFee(e.target.checked);setExternalOverrideKey(externalQuoteKey);}}/> Manual delivery fee</label>{externalManualFee&&<div className="mt-2 grid gap-2"><label>Customer delivery fee (MYR)<input aria-label="Manual delivery fee" type="number" min="0" max="100000" step="0.01" value={externalFeeAmount} onChange={e=>setExternalFeeAmount(e.target.value)} className="ml-2 w-28 rounded border p-2"/></label><label>Reason<input aria-label="Manual delivery fee reason" value={externalFeeReason} maxLength={240} onChange={e=>setExternalFeeReason(e.target.value)} className="ml-2 rounded border p-2"/></label></div>}</div>}
               </section>}
               <dl className="mb-3 space-y-1 text-sm"><div className="flex justify-between"><dt>Product subtotal</dt><dd>MYR {externalSubtotal.toFixed(2)}</dd></div><div className="flex justify-between"><dt>Discounts</dt><dd>MYR 0.00</dd></div><div className="flex justify-between"><dt>Delivery fee</dt><dd>{externalFeeReady?`MYR ${Number(externalFee).toFixed(2)}`:'Pending estimate'}</dd></div><div className="flex justify-between border-t pt-2 text-base font-black"><dt>Grand total</dt><dd>{externalFeeReady?`MYR ${(Math.round((externalSubtotal+Number(externalFee))*100)/100).toFixed(2)}`:'Pending delivery fee'}</dd></div></dl>
-              {externalPosFullAccess && !fullWeekCart && <label className="mb-2 block text-sm font-bold">Payment workflow<select aria-label="Payment workflow" value={pendingCart ? 'pending' : 'external'} onChange={event=>setOrdinaryPending(event.target.value==='pending')} className="ml-2 rounded border p-2"><option value="external" disabled={requiresPendingCart}>Existing externally-paid workflow</option><option value="pending">Save as Pending Payment</option></select></label>}
-              {!pendingCart && <p className="mb-2 text-xs font-bold">Payment status: {externalSource==='shopeefood'?'Platform paid':'Paid externally'} · Confirm only after payment is received.</p>}
-              {(pendingScheduleError || mixedPlanError) && <p role="alert" className="mb-2 text-sm text-red-700">{pendingScheduleError || mixedPlanError}</p>}
+              <p className="mb-2 text-xs font-bold">Payment status: {externalSource==='shopeefood'?'Platform paid':'Paid externally'} · Confirm only after payment is received.</p>
               {!hasRequiredExternalOptions && <p className="mb-2 text-sm text-amber-800">Choose the required product options to continue.</p>}
               {externalError && <p id="pos-order-entry-error" role="alert" className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-800">{externalError}</p>}
-              <button type="button" onClick={() => void createExternalOrder()} disabled={creatingExternal || !externalFeeReady || !externalCart.length || !hasRequiredExternalOptions || externalLoading || Boolean(pendingScheduleError || mixedPlanError) || externalCartLines.some(item=>Boolean(item.previewError))} aria-busy={creatingExternal} aria-describedby={externalError ? 'pos-order-entry-error' : undefined} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-base font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
-                {creatingExternal && <LoaderCircle aria-hidden="true" className="h-5 w-5 animate-spin" />}{creatingExternal ? 'Creating…' : pendingCart ? 'Save as Pending Payment' : 'Confirm Order'}
+              <button type="button" onClick={() => void createExternalOrder()} disabled={creatingExternal || !externalFeeReady || !externalCart.length || !hasRequiredExternalOptions || externalLoading || externalCartLines.some(item=>Boolean(item.previewError))} aria-busy={creatingExternal} aria-describedby={externalError ? 'pos-order-entry-error' : undefined} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-base font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
+                {creatingExternal && <LoaderCircle aria-hidden="true" className="h-5 w-5 animate-spin" />}{creatingExternal ? 'Creating…' : 'Confirm Order'}
               </button>
             </footer>
             </div>

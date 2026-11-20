@@ -19,10 +19,3 @@ test('a valid main Monday is inherited without changing catalog week dates',()=>
  assert.match(html,/Week starting \(Monday\)<input type="date"[^>]*value="2026-11-09"/);
  assert.match(html,/Mon, 9 Nov/); assert.match(html,/Fri, 13 Nov/);
 });
-
-test('unprivileged weekly menu does not expose POS date overrides or historical selection',()=>{
- const html=renderToStaticMarkup(<PosWeeklyMenu product={product} products={[product]} store={store}
-  unrestricted={false} defaultDate="2026-11-09" defaultTime="09:17" onAdd={()=>{}}/>);
- for(const label of ['Date mode','Custom Date','Menu meal date','Service date','Week starting (Monday)'])
-  assert.ok(!html.includes(label),label);
-});

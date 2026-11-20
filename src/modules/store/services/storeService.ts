@@ -138,11 +138,9 @@ export const storeService = {
   async getWorkspaceStore(workspaceId: string): Promise<WorkspaceStore | null> {
     if (!db || !workspaceId) return null;
     const snapshot = await getDoc(doc(db, 'stores', workspaceId));
-    if (!snapshot.exists()) return null;
-    const data = snapshot.data();
-    return { ...normalizeWorkspaceStore(snapshot.id, data),
-      ...(typeof data.timeZone === 'string' && data.timeZone.trim() ? { timeZone: data.timeZone.trim() } : {}),
-    };
+    return snapshot.exists()
+      ? normalizeWorkspaceStore(snapshot.id, snapshot.data() as Record<string, unknown>)
+      : null;
   },
 
   async ensureWorkspaceStore(
