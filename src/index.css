@@ -628,3 +628,6 @@ input:focus, textarea:focus, select:focus {
   background-color: #27613d;
   color: #ffffff;
 }
+
+/* The shared notification badge has no global error token; define it only inside POS. */
+.pos-screen .bg-error { background-color: #b91c1c; color: #ffffff; }
