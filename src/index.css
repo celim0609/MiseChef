@@ -298,190 +298,190 @@ body {
   }
 }
 
-:root[data-appearance="dark"] .bg-white,
-:root[data-appearance="dark"] .bg-background,
-:root[data-appearance="dark"] .bg-surface-container-low,
-:root[data-appearance="dark"] .bg-surface-container-lowest,
-:root[data-appearance="dark"] .bg-surface-container {
+:root[data-appearance="dark"] .bg-white:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] .bg-background:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] .bg-surface-container-low:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] .bg-surface-container-lowest:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] .bg-surface-container:where(:not(.pos-screen *)) {
   color: #f9fafb;
 }
 
-:root[data-appearance="dark"] .bg-white {
+:root[data-appearance="dark"] .bg-white:where(:not(.pos-screen *)) {
   background-color: #1f2937 !important;
 }
 
-:root[data-appearance="dark"] button.bg-white,
-:root[data-appearance="dark"] label.bg-white {
+:root[data-appearance="dark"] button.bg-white:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] label.bg-white:where(:not(.pos-screen *)) {
   background-color: transparent !important;
   border-color: #4b5563 !important;
   color: #f3f4f6 !important;
 }
 
-:root[data-appearance="dark"] .bg-primary {
+:root[data-appearance="dark"] .bg-primary:where(:not(.pos-screen *)) {
   background-color: #2d5a3d !important;
 }
 
-:root[data-appearance="dark"] .hover\:bg-primary-container:hover,
-:root[data-appearance="dark"] .hover\:bg-primary:hover {
+:root[data-appearance="dark"] .hover\:bg-primary-container:hover:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] .hover\:bg-primary:hover:where(:not(.pos-screen *)) {
   background-color: #3e7250 !important;
 }
 
-:root[data-appearance="dark"] .text-primary,
-:root[data-appearance="dark"] h1,
-:root[data-appearance="dark"] h2,
-:root[data-appearance="dark"] h3,
-:root[data-appearance="dark"] h4,
-:root[data-appearance="dark"] h5 {
+:root[data-appearance="dark"] .text-primary:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] h1:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] h2:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] h3:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] h4:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] h5:where(:not(.pos-screen *)) {
   color: #ffffff !important;
 }
 
-:root[data-appearance="dark"] .text-on-surface,
-:root[data-appearance="dark"] .text-on-background {
+:root[data-appearance="dark"] .text-on-surface:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] .text-on-background:where(:not(.pos-screen *)) {
   color: #f9fafb !important;
 }
 
-:root[data-appearance="dark"] .text-on-surface-variant,
-:root[data-appearance="dark"] .text-on-surface-variant\/85,
-:root[data-appearance="dark"] .text-on-surface-variant\/90,
-:root[data-appearance="dark"] label {
+:root[data-appearance="dark"] .text-on-surface-variant:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] .text-on-surface-variant\/85:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] .text-on-surface-variant\/90:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] label:where(:not(.pos-screen *)) {
   color: #e5e7eb !important;
 }
 
-:root[data-appearance="dark"] .text-outline,
-:root[data-appearance="dark"] .text-outline\/60,
-:root[data-appearance="dark"] .text-outline-variant,
-:root[data-appearance="dark"] .placeholder\:text-outline-variant::placeholder {
+:root[data-appearance="dark"] .text-outline:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] .text-outline\/60:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] .text-outline-variant:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] .placeholder\:text-outline-variant::placeholder:where(:not(.pos-screen *)) {
   color: #9ca3af !important;
 }
 
-:root[data-appearance="dark"] input,
-:root[data-appearance="dark"] textarea,
-:root[data-appearance="dark"] select {
+:root[data-appearance="dark"] input:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] textarea:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] select:where(:not(.pos-screen *)) {
   background-color: #374151 !important;
   border-color: #4b5563 !important;
   color: #f9fafb !important;
 }
 
-:root[data-appearance="dark"] input::placeholder,
-:root[data-appearance="dark"] textarea::placeholder {
+:root[data-appearance="dark"] input::placeholder:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] textarea::placeholder:where(:not(.pos-screen *)) {
   color: #9ca3af !important;
   opacity: 1;
 }
 
-:root[data-appearance="dark"] input:focus,
-:root[data-appearance="dark"] textarea:focus,
-:root[data-appearance="dark"] select:focus {
+:root[data-appearance="dark"] input:focus:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] textarea:focus:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] select:focus:where(:not(.pos-screen *)) {
   border-color: #6b7280 !important;
   box-shadow: 0 0 0 2px rgba(249, 250, 251, 0.18) !important;
 }
 
-:root[data-appearance="dark"] button:disabled,
-:root[data-appearance="dark"] .disabled\:bg-outline-variant:disabled,
-:root[data-appearance="dark"] .disabled\:opacity-30:disabled {
+:root[data-appearance="dark"] button:disabled:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] .disabled\:bg-outline-variant:disabled:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] .disabled\:opacity-30:disabled:where(:not(.pos-screen *)) {
   background-color: #374151 !important;
   color: #d1d5db !important;
   opacity: 0.75 !important;
 }
 
-:root[data-appearance="dark"] .border,
-:root[data-appearance="dark"] .border-surface-container,
-:root[data-appearance="dark"] .border-surface-container-high,
-:root[data-appearance="dark"] .border-outline-variant,
-:root[data-appearance="dark"] .border-outline-variant\/20 {
+:root[data-appearance="dark"] .border:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] .border-surface-container:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] .border-surface-container-high:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] .border-outline-variant:where(:not(.pos-screen *)),
+:root[data-appearance="dark"] .border-outline-variant\/20:where(:not(.pos-screen *)) {
   border-color: #4b5563 !important;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root[data-appearance="system"] .bg-white,
-  :root[data-appearance="system"] .bg-background,
-  :root[data-appearance="system"] .bg-surface-container-low,
-  :root[data-appearance="system"] .bg-surface-container-lowest,
-  :root[data-appearance="system"] .bg-surface-container {
+  :root[data-appearance="system"] .bg-white:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] .bg-background:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] .bg-surface-container-low:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] .bg-surface-container-lowest:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] .bg-surface-container:where(:not(.pos-screen *)) {
     color: #f9fafb;
   }
 
-  :root[data-appearance="system"] .bg-white {
+  :root[data-appearance="system"] .bg-white:where(:not(.pos-screen *)) {
     background-color: #1f2937 !important;
   }
 
-  :root[data-appearance="system"] button.bg-white,
-  :root[data-appearance="system"] label.bg-white {
+  :root[data-appearance="system"] button.bg-white:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] label.bg-white:where(:not(.pos-screen *)) {
     background-color: transparent !important;
     border-color: #4b5563 !important;
     color: #f3f4f6 !important;
   }
 
-  :root[data-appearance="system"] .bg-primary {
+  :root[data-appearance="system"] .bg-primary:where(:not(.pos-screen *)) {
     background-color: #2d5a3d !important;
   }
 
-  :root[data-appearance="system"] .hover\:bg-primary-container:hover,
-  :root[data-appearance="system"] .hover\:bg-primary:hover {
+  :root[data-appearance="system"] .hover\:bg-primary-container:hover:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] .hover\:bg-primary:hover:where(:not(.pos-screen *)) {
     background-color: #3e7250 !important;
   }
 
-  :root[data-appearance="system"] .text-primary,
-  :root[data-appearance="system"] h1,
-  :root[data-appearance="system"] h2,
-  :root[data-appearance="system"] h3,
-  :root[data-appearance="system"] h4,
-  :root[data-appearance="system"] h5 {
+  :root[data-appearance="system"] .text-primary:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] h1:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] h2:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] h3:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] h4:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] h5:where(:not(.pos-screen *)) {
     color: #ffffff !important;
   }
 
-  :root[data-appearance="system"] .text-on-surface,
-  :root[data-appearance="system"] .text-on-background {
+  :root[data-appearance="system"] .text-on-surface:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] .text-on-background:where(:not(.pos-screen *)) {
     color: #f9fafb !important;
   }
 
-  :root[data-appearance="system"] .text-on-surface-variant,
-  :root[data-appearance="system"] .text-on-surface-variant\/85,
-  :root[data-appearance="system"] .text-on-surface-variant\/90,
-  :root[data-appearance="system"] label {
+  :root[data-appearance="system"] .text-on-surface-variant:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] .text-on-surface-variant\/85:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] .text-on-surface-variant\/90:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] label:where(:not(.pos-screen *)) {
     color: #e5e7eb !important;
   }
 
-  :root[data-appearance="system"] .text-outline,
-  :root[data-appearance="system"] .text-outline\/60,
-  :root[data-appearance="system"] .text-outline-variant,
-  :root[data-appearance="system"] .placeholder\:text-outline-variant::placeholder {
+  :root[data-appearance="system"] .text-outline:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] .text-outline\/60:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] .text-outline-variant:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] .placeholder\:text-outline-variant::placeholder:where(:not(.pos-screen *)) {
     color: #9ca3af !important;
   }
 
-  :root[data-appearance="system"] input,
-  :root[data-appearance="system"] textarea,
-  :root[data-appearance="system"] select {
+  :root[data-appearance="system"] input:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] textarea:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] select:where(:not(.pos-screen *)) {
     background-color: #374151 !important;
     border-color: #4b5563 !important;
     color: #f9fafb !important;
   }
 
-  :root[data-appearance="system"] input::placeholder,
-  :root[data-appearance="system"] textarea::placeholder {
+  :root[data-appearance="system"] input::placeholder:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] textarea::placeholder:where(:not(.pos-screen *)) {
     color: #9ca3af !important;
     opacity: 1;
   }
 
-  :root[data-appearance="system"] input:focus,
-  :root[data-appearance="system"] textarea:focus,
-  :root[data-appearance="system"] select:focus {
+  :root[data-appearance="system"] input:focus:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] textarea:focus:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] select:focus:where(:not(.pos-screen *)) {
     border-color: #6b7280 !important;
     box-shadow: 0 0 0 2px rgba(249, 250, 251, 0.18) !important;
   }
 
-  :root[data-appearance="system"] button:disabled,
-  :root[data-appearance="system"] .disabled\:bg-outline-variant:disabled,
-  :root[data-appearance="system"] .disabled\:opacity-30:disabled {
+  :root[data-appearance="system"] button:disabled:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] .disabled\:bg-outline-variant:disabled:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] .disabled\:opacity-30:disabled:where(:not(.pos-screen *)) {
     background-color: #374151 !important;
     color: #d1d5db !important;
     opacity: 0.75 !important;
   }
 
-  :root[data-appearance="system"] .border,
-  :root[data-appearance="system"] .border-surface-container,
-  :root[data-appearance="system"] .border-surface-container-high,
-  :root[data-appearance="system"] .border-outline-variant,
-  :root[data-appearance="system"] .border-outline-variant\/20 {
+  :root[data-appearance="system"] .border:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] .border-surface-container:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] .border-surface-container-high:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] .border-outline-variant:where(:not(.pos-screen *)),
+  :root[data-appearance="system"] .border-outline-variant\/20:where(:not(.pos-screen *)) {
     border-color: #4b5563 !important;
   }
 }
@@ -531,11 +531,11 @@ input:focus, textarea:focus, select:focus {
 }
 
 .pos-screen[data-pos-theme="light"] .pos-status-heading[data-status="new"] {
-  color: #d97706 !important;
+  color: #92400e !important;
 }
 
 .pos-screen[data-pos-theme="light"] .pos-status-heading[data-status="preparing"] {
-  color: #ea580c !important;
+  color: #9a3412 !important;
 }
 
 .pos-screen[data-pos-theme="light"] .pos-status-heading[data-status="ready"] {
@@ -570,4 +570,57 @@ input:focus, textarea:focus, select:focus {
   background-color: #111827 !important;
   border-color: #475569 !important;
   color: #f8fafc !important;
+}
+
+/* Local POS appearance always wins over the surrounding dashboard appearance. */
+.pos-screen[data-pos-theme="light"] :is(h1,h2,h3,h4,h5,label) { color: inherit; }
+.pos-screen[data-pos-theme="dark"] { color-scheme: dark; }
+.pos-screen[data-pos-theme="dark"] :is(.bg-white,.pos-light-surface) {
+  background-color: #0b1727 !important;
+  color: #f1f5f9 !important;
+}
+.pos-screen[data-pos-theme="dark"] .text-slate-950 { color: #f1f5f9; }
+.pos-screen[data-pos-theme="dark"] .text-slate-600 { color: #cbd5e1; }
+.pos-screen[data-pos-theme="light"] .text-slate-400 { color: #475569; }
+.pos-screen :is(button,a,input,select,textarea,summary):focus-visible {
+  outline: 3px solid #2563eb !important;
+  outline-offset: 3px;
+}
+.pos-screen[data-pos-theme="dark"] :focus-visible { outline-color: #93c5fd !important; }
+.pos-screen button:disabled { cursor: not-allowed; opacity: .6; border-style: dashed; }
+.pos-screen nav button { transition: background-color .15s; }
+.pos-screen nav button[aria-pressed="true"],
+.pos-screen nav button[aria-current="page"] { box-shadow: inset 0 -3px 0 #93c5fd; }
+.pos-screen .pos-completed { border-inline-start: 4px solid #64748b; box-shadow: none; }
+.pos-screen .pos-completed summary { list-style-position: inside; }
+@media (max-width: 639px) {
+  .pos-screen nav { gap: .5rem; padding-inline: 1rem; }
+  .pos-screen nav button { flex: 1 1 auto; padding-inline: .75rem; }
+  .pos-screen header > div { max-width: 100%; }
+  .pos-screen { overflow-wrap: anywhere; }
+}
+
+.pos-screen[data-pos-theme="light"] {
+  --color-primary: #273f2b;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #3e5641;
+  --color-on-primary-container: #afcaaf;
+  --color-secondary: #99462a;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #fe9572;
+  --color-on-secondary-container: #762c12;
+  --color-background: #faf9f5;
+  --color-on-background: #1b1c1a;
+  --color-surface: #faf9f5;
+  --color-on-surface: #1b1c1a;
+  --color-on-surface-variant: #434842;
+  --color-surface-dim: #dbdad6;
+  --color-surface-bright: #faf9f5;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f4f4f0;
+  --color-surface-container: #efeeea;
+  --color-surface-container-high: #e9e8e4;
+  --color-surface-container-highest: #e3e2df;
+  --color-outline: #737971;
+  --color-outline-variant: #c3c8c0;
 }
