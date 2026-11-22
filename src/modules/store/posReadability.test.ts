@@ -8,7 +8,7 @@ test('dashboard dark and system-dark overrides exclude POS descendants without r
  for(const line of overrides.split('\n').filter(line=>/data-appearance/.test(line))) assert.ok(line.includes(':where(:not(.pos-screen *))'),line);
 });
 test('period tabs have explicit selected and unselected text colours; no disabled fake tabs',()=>{
- const nav=page.slice(page.indexOf('<nav aria-label="Fulfilment period"'),page.indexOf("{posSection === 'tickets' ?"));
+ const nav=page.slice(page.indexOf('<nav aria-label="Fulfilment period"'),page.indexOf('</nav>',page.indexOf('<nav aria-label="Fulfilment period"')));
  for(const value of ['aria-pressed','text-white','text-slate-100','text-slate-900','setDailyView']) assert.ok(nav.includes(value),value);
  assert.ok(!nav.includes('disabled='));
 });
