@@ -662,10 +662,3 @@ input:focus, textarea:focus, select:focus {
 .pos-screen[data-pos-theme="dark"] .manual-pos { color: #f1f5f9; }
 .pos-screen[data-pos-theme="dark"] .manual-pos .manual-muted:where(:not(.manual-dialog *)) { color: #cbd5e1; }
 .pos-screen[data-pos-theme="dark"] .manual-pos .manual-dialog { color: #0f172a; }
-
-/* Paid-order accordions/details own their Night surface; modal forms stay light. */
-.pos-screen[data-pos-theme="dark"] .manual-pos > .manual-section {
-  background-color: #0b1727;
-  color: #f1f5f9;
-  border-color: #475569;
-}
