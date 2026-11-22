@@ -623,3 +623,8 @@ input:focus, textarea:focus, select:focus {
   --color-outline: #737971;
   --color-outline-variant: #c3c8c0;
 }
+
+.pos-screen[data-pos-theme="dark"] .bg-primary {
+  background-color: #27613d;
+  color: #ffffff;
+}
