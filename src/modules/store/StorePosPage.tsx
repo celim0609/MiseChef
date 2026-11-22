@@ -91,8 +91,8 @@ const ACTIVE_COLUMNS: Array<{
   actionLabel: string;
   icon: typeof BellRing;
 }> = [
-  { status: 'New', label: 'New', border: 'border-amber-400', tint: 'bg-amber-50', badge: 'bg-amber-500 text-white', action: 'bg-amber-400 text-slate-950', actionLabel: 'Accept → Preparing', icon: BellRing },
-  { status: 'Preparing', label: 'Preparing', border: 'border-orange-500', tint: 'bg-orange-50', badge: 'bg-orange-500 text-white', action: 'bg-orange-500 text-white', actionLabel: 'Mark as Ready', icon: ChefHat },
+  { status: 'New', label: 'New', border: 'border-amber-400', tint: 'bg-amber-50', badge: 'bg-amber-200 text-amber-950', action: 'bg-amber-400 text-slate-950', actionLabel: 'Accept → Preparing', icon: BellRing },
+  { status: 'Preparing', label: 'Preparing', border: 'border-orange-500', tint: 'bg-orange-50', badge: 'bg-orange-200 text-orange-950', action: 'bg-orange-700 text-white', actionLabel: 'Mark as Ready', icon: ChefHat },
   { status: 'Ready', label: 'Ready', border: 'border-emerald-500', tint: 'bg-emerald-50', badge: 'bg-emerald-600 text-white', action: 'bg-emerald-600 text-white', actionLabel: 'Complete Order', icon: PackageCheck }
 ];
 
@@ -768,7 +768,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
           return <button key={section.id} type="button" aria-current={selected ? 'page' : undefined} onClick={() => {setPosSection(section.id === 'tickets' ? 'tickets' : 'orders'); if(section.id === 'history') openHistory(); else if(section.id === 'live') setActiveView('live');}} className={`min-h-11 rounded-xl px-5 py-2 font-bold ${selected ? 'bg-blue-600 text-white' : isNightMode ? 'bg-slate-800 text-slate-100' : 'bg-slate-100 text-slate-800'}`}>{section.label}</button>;
         })}
       </nav>
-      {posSection === 'orders' && activeView === 'live' && <nav aria-label="Fulfilment period" className="flex flex-wrap gap-2 px-4 py-3">{(['Today','Tomorrow','Upcoming','History'] as const).map(view => <button key={view} type="button" aria-pressed={dailyView === view} onClick={() => {setDailyView(view); if(view === 'History' && !dailyHistory) void loadDailyHistory();}} className={`min-h-11 rounded-full border px-5 py-2 font-bold ${dailyView === view ? 'border-blue-600 bg-blue-600 text-white' : isNightMode ? 'border-slate-600 bg-slate-800' : 'border-slate-300 bg-white'}`}>{view}</button>)}</nav>}
+      {posSection === 'orders' && activeView === 'live' && <nav aria-label="Fulfilment period" className="flex flex-wrap gap-2 px-4 py-3">{(['Today','Tomorrow','Upcoming','History'] as const).map(view => <button key={view} type="button" aria-pressed={dailyView === view} onClick={() => {setDailyView(view); if(view === 'History' && !dailyHistory) void loadDailyHistory();}} className={`min-h-11 rounded-full border px-5 py-2 font-bold ${dailyView === view ? 'border-blue-600 bg-blue-600 text-white' : isNightMode ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-900'}`}>{view}</button>)}</nav>}
       {posSection === 'tickets' ? <main className="w-full p-4 lg:p-6">
         <OrderTicketPanel orders={dailyOrders} />
         {(!dailyHistory || dailyHistory.hasMore) && <button type="button" className="mt-3 rounded border px-4 py-2 underline" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()}>{loadingDailyHistory ? 'Loading…' : 'Load older orders for reprint'}</button>}
@@ -781,7 +781,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
         <div className="p-4 lg:p-6"><DailyFulfilmentQueue canBookDelivery={canBookDelivery} view={dailyView} onUpdated={() => setHistoryRefreshKey(value => value + 1)} orders={dailyOrders} />{(!dailyHistory || dailyHistory.hasMore) && <button type="button" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()} className="mt-4 min-h-11 rounded-xl border px-4 py-2 font-bold">{loadingDailyHistory ? 'Loading…' : 'Load older fulfilments'}</button>}</div>
       ) : (
         <div className="p-4 lg:p-6" aria-label="Daily fulfilments">
-          <h2 className="text-xl font-bold">Daily fulfilments · {dailyView} {dailyView === 'Today' ? `(${todayKey}, Malaysia)` : ''}</h2>
+          <h2 className="pos-readable-heading text-xl font-bold">Daily fulfilments · {dailyView} {dailyView === 'Today' ? `(${todayKey}, Malaysia)` : ''}</h2>
           {dailyOrders.some(order => isOrderOperationallyEligible(order) && !['Completed','Cancelled'].includes(order.fulfilmentStatus) && !getOrderTickets(order).length) && <p role="status" className="mt-3 rounded-xl border border-amber-400 bg-amber-50 p-3 font-bold text-amber-950">Schedule review required: some orders have missing or inconsistent item dates. Review them in View Orders before preparation or printing.</p>}
           <p>Counts reflect this fulfilment period, not the parent order status. Future Ready meals are available under Upcoming.</p>
           <div className="mt-4 grid items-start gap-4">
@@ -822,7 +822,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               })}
             </div>
 
-            <details onToggle={event => {if(event.currentTarget.open && !dailyHistory && !loadingDailyHistory) void loadDailyHistory();}} className={`pos-light-surface rounded-xl border px-3 py-2 ${isNightMode ? 'border-slate-700 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}>
+            <details onToggle={event => {if(event.currentTarget.open && !dailyHistory && !loadingDailyHistory) void loadDailyHistory();}} className={`pos-completed pos-light-surface rounded-xl border px-3 py-2 ${isNightMode ? 'border-slate-700 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}>
               <summary className="min-h-11 cursor-pointer content-center text-sm font-black">Completed · {completedPeriodEntries.length} fulfilments · {dailyView}</summary>
               <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{completedPeriodEntries.map(({order,ticket}) => <div key={ticket.key}><DailyFulfilmentCard order={order} ticket={ticket} /></div>)}</div>
               {!completedPeriodEntries.length && <p className="py-2 text-sm">No completed fulfilments for this period.</p>}
