@@ -579,7 +579,6 @@ input:focus, textarea:focus, select:focus {
   background-color: #0b1727 !important;
   color: #f1f5f9 !important;
 }
-.pos-screen[data-pos-theme="dark"] .text-slate-950 { color: #f1f5f9; }
 .pos-screen[data-pos-theme="dark"] .text-slate-600 { color: #cbd5e1; }
 .pos-screen[data-pos-theme="light"] .text-slate-400 { color: #475569; }
 .pos-screen :is(button,a,input,select,textarea,summary):focus-visible {
