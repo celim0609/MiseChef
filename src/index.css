@@ -631,3 +631,29 @@ input:focus, textarea:focus, select:focus {
 
 /* The shared notification badge has no global error token; define it only inside POS. */
 .pos-screen .bg-error { background-color: #b91c1c; color: #ffffff; }
+
+/* Night Mode owns shared component tokens even when the dashboard is light. */
+.pos-screen[data-pos-theme="dark"] {
+  --color-primary: #ffffff;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #3e7250;
+  --color-on-primary-container: #f9fafb;
+  --color-secondary: #fbbf24;
+  --color-on-secondary: #111827;
+  --color-secondary-container: #7c2d12;
+  --color-on-secondary-container: #ffedd5;
+  --color-background: #111827;
+  --color-on-background: #f9fafb;
+  --color-surface: #111827;
+  --color-on-surface: #f9fafb;
+  --color-on-surface-variant: #e5e7eb;
+  --color-surface-dim: #111827;
+  --color-surface-bright: #1f2937;
+  --color-surface-container-lowest: #1f2937;
+  --color-surface-container-low: #1f2937;
+  --color-surface-container: #1f2937;
+  --color-surface-container-high: #374151;
+  --color-surface-container-highest: #4b5563;
+  --color-outline: #9ca3af;
+  --color-outline-variant: #4b5563;
+}
