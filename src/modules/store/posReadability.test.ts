@@ -13,7 +13,7 @@ test('period tabs have explicit selected and unselected text colours; no disable
  assert.ok(!nav.includes('disabled='));
 });
 test('local POS theme resets inherited dashboard tokens and covers focus, genuine disabled and Completed states',()=>{
- for(const value of ['--color-on-surface: #1b1c1a','--color-background: #faf9f5','summary):focus-visible','button:disabled','border-style: dashed','.pos-completed','max-width: 639px']) assert.ok(css.includes(value),value);
+ for(const value of ['--color-on-surface: #1b1c1a','--color-background: #faf9f5','--color-outline: #475569','.manual-muted:where(:not(.manual-dialog *))','.manual-pos .manual-dialog { color: #0f172a; }','summary):focus-visible','button:disabled','border-style: dashed','.pos-completed','max-width: 639px']) assert.ok(css.includes(value),value);
  assert.ok(page.includes('pos-readable-heading text-xl font-bold">Daily fulfilments'));
 });
 
