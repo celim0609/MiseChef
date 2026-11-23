@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,existsSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-// Immutable Production contract. Only the exact, approved Phase 2 read-model additions below may be stripped before comparing the original hashes.
+// Immutable Production contract. The Rules pin includes the Store product-edit
+// expression-budget fix. Only the exact Phase 2 additions below may be stripped;
+// all other gateway, payment, delivery, customer and configuration pins remain unchanged.
 const unchanged = {
   "functions/index.js": "31e48f4a3e3d5d3ee65eccd5274dcc403dea127e9b5551f6a03b8e9eb047796a",
   "functions/entry.js": "d637eaab9d24462967b8b26a683d081e7b6eb703f4e2659a17e557caefc76bf4",
@@ -19,7 +21,7 @@ const unchanged = {
   "functions/storeDelivery.js": "9633e358aaf004c04ce9145c1c94e1e4dc5e4e027e442deb277db9b81fce8fef",
   "functions/storeManualDelivery.js": "ec5c02a4c2d8f40c309ada03e84656f386a007cbc198ce40f4b4b9fd7851cd78",
   "functions/posDeliveryQuotes.js": "60756314dc2e70dde278f48c08a4b276581d16bd8eb8eb7306088d2e048e04e6",
-  "firestore.rules": "a59b8166570fe3f76c6b67598633bceeb655e07499126aa76ba08bf4e0658aea",
+  "firestore.rules": "446065534565edaf3ee8f62da6d5aa96789c226b22b35a184d57e33106c852b4",
   "firestore.indexes.json": "f02a469d27df1e8961d85c0d29e26eb1369956f92af361be457bcae161c267dc",
   "storage.rules": "1e5f500c873650b41d9f995e4659a3783cb8b036795f51155f28e58675821966",
   "firebase.json": "afaff8a3856261bee4ed66dbc14796c032866b4a5081748359af485109ccb87f",
