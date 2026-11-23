@@ -1775,6 +1775,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /system/posHistoryIndex {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    match /storeOrderHistoryIndex/{entryId} {
+      allow read: if canViewStoreOrders(resource.data.workspaceId);
+      allow write: if false;
+    }
+
     match /storeOrders/{orderId} {
       // Guest checkout is created by the trusted payment function after it
       // re-prices the cart from current Store data. Clients can never write an

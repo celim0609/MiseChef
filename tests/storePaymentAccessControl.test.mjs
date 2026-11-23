@@ -867,3 +867,25 @@ test('POS deletion markers, deleted-order indexes and AI usage counters remain c
  await assertFails(owner.doc('storePosPasteUsage/forged').set({count:0}));
  await assertFails(owner.doc('storePosPasteUsage/forged').get());
 });
+
+test('history search projection preserves order-reader scope and denies client writes', async () => {
+  await environment.withSecurityRulesDisabled(async context => {
+    await context.firestore().doc('storeOrderHistoryIndex/history-search-a').set({storeId:WORKSPACE_A,workspaceId:WORKSPACE_A,date:'2026-11-23',orderId:ORDER_A});
+  });
+  await assertSucceeds(ownerA.firestore().doc('storeOrderHistoryIndex/history-search-a').get());
+  await assertFails(environment.authenticatedContext('outsider').firestore().doc('storeOrderHistoryIndex/history-search-a').get());
+  await assertFails(environment.unauthenticatedContext().firestore().doc('storeOrderHistoryIndex/history-search-a').get());
+  await assertFails(ownerA.firestore().doc('storeOrderHistoryIndex/history-search-a').update({date:'2026-11-24'}));
+});
+
+test('history readiness is non-public and backfill checkpoints cannot be read or changed by Store clients',async()=>{
+ await environment.withSecurityRulesDisabled(async context=>{
+  await context.firestore().doc('system/posHistoryIndex').set({version:1,complete:false});
+  await context.firestore().doc('system/posHistoryIndexBackfill').set({leaseOwner:'private',lastOrderId:'private'});
+ });
+ await assertSucceeds(ownerA.firestore().doc('system/posHistoryIndex').get());
+ await assertFails(anonymous.firestore().doc('system/posHistoryIndex').get());
+ await assertFails(ownerA.firestore().doc('system/posHistoryIndex').update({complete:true}));
+ await assertFails(ownerA.firestore().doc('system/posHistoryIndexBackfill').get());
+ await assertFails(ownerA.firestore().doc('system/posHistoryIndexBackfill').update({leaseUntil:0}));
+});

@@ -121,6 +121,46 @@
         { "fieldPath": "workspaceId", "order": "ASCENDING" },
         { "fieldPath": "memberId", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "storeOrderHistoryIndex",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "storeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "workspaceId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "storeOrderHistoryIndex",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "storeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "workspaceId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "searchTerms",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "date",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [
@@ -130,6 +170,7 @@
       "indexes": [
         { "order": "ASCENDING", "queryScope": "COLLECTION_GROUP" }
       ]
-    }
+    },
+    { "collectionGroup": "storeOrderHistoryIndex", "fieldPath": "searchValues", "indexes": [] }
   ]
 }

@@ -1,3 +1,4 @@
+import {syncPosHistoryIndex, retryHistoryIndexSync} from './posHistoryIndex.js';
 import { editStoreOrder } from './storeOrderEdits.js';
 import { createPosPlaces, consumePosQuoteRate } from './posPlaces.js';
 import { managePosOrder, listDeletedPosOrders } from './posOrderManagement.js';
@@ -2627,3 +2628,5 @@ export const listDeletedStorePosOrders = onCall({region:REGION,timeoutSeconds:30
 
 export const editStoreOrderDetails = onCall({ region: REGION, timeoutSeconds: 30 }, request =>
   editStoreOrder({ db, uid: request.auth?.uid, input: request.data }));
+
+export const syncStoreOrderHistoryIndex = onDocumentWritten({document:'storeOrders/{orderId}',region:REGION,timeoutSeconds:120}, event => retryHistoryIndexSync(() => syncPosHistoryIndex(db,event.params.orderId)));
