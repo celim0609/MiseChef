@@ -896,3 +896,13 @@ test('historical weekly audit records are server-owned and readable by reference
   await assertFails(managerA.firestore().doc(path).delete());
   await assertFails(ownerA.firestore().doc('storeHistoricalWeeklyOrders/forged').set({ workspaceId: WORKSPACE_A }));
 });
+
+test('history search projection preserves order-reader scope and denies client writes', async () => {
+  await environment.withSecurityRulesDisabled(async context => {
+    await context.firestore().doc('storeOrderHistoryIndex/history-search-a').set({storeId:WORKSPACE_A,workspaceId:WORKSPACE_A,date:'2026-11-23',orderId:ORDER_A});
+  });
+  await assertSucceeds(ownerA.firestore().doc('storeOrderHistoryIndex/history-search-a').get());
+  await assertFails(environment.authenticatedContext('outsider').firestore().doc('storeOrderHistoryIndex/history-search-a').get());
+  await assertFails(environment.unauthenticatedContext().firestore().doc('storeOrderHistoryIndex/history-search-a').get());
+  await assertFails(ownerA.firestore().doc('storeOrderHistoryIndex/history-search-a').update({date:'2026-11-24'}));
+});
