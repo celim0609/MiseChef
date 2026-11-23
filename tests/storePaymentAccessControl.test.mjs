@@ -906,3 +906,47 @@ test('history search projection preserves order-reader scope and denies client w
   await assertFails(environment.unauthenticatedContext().firestore().doc('storeOrderHistoryIndex/history-search-a').get());
   await assertFails(ownerA.firestore().doc('storeOrderHistoryIndex/history-search-a').update({date:'2026-11-24'}));
 });
+
+test('full four-week Store editor saves stay within Rules budget for Owner and Manager', async () => {
+  const id = 'full-weekly-menu-edit-budget';
+  const rotationWeeks = Object.fromEntries([1, 2, 3, 4].map(slot => [`week${slot}`, {
+    coverPhotoUrl: `https://example.test/week-${slot}.jpg`,
+    discount: { type: 'fixed_weekly_price', value: 60 },
+    meals: Object.fromEntries(weeklyDays.map(day => [day, { ...embeddedMealRecord(day), optionGroups: [{
+      id: `exchange-${slot}-${day}`, name: 'Exchange', type: 'exchange', selectionType: 'single', required: false,
+      options: [{ id: 'chicken', name: 'Chicken', priceAdjustment: 0, sortOrder: 0 }], sortOrder: 0
+    }] }]))
+  }]));
+  const record = { ...createProductRecord(id), name: 'Weekly Menu', price: 60, productType: 'weekly_meal_plan',
+    weeklyMenuVersion: 3, rotationStartMonday: '2026-10-05', rotationCycleLength: 4,
+    rotationWeeks, healthyLunchBlockedDates: [], availableDay: 'all' };
+  await environment.withSecurityRulesDisabled(context => context.firestore().doc(`storeProducts/${id}`).set(record));
+  for (const context of [ownerA, managerA, headChefA]) {
+    const ref = context.firestore().doc(`storeProducts/${id}`);
+    // The frontend replaces top-level maps with setDoc + mergeFields.
+    const patch = { ...record, price: 61, description: 'Edited menu description', available: false,
+      rotationWeeks: structuredClone(rotationWeeks), healthyLunchBlockedDates: ['2026-11-30'], updatedAt: '2026-11-23T12:00:00.000Z' };
+    patch.rotationWeeks.week4.meals.fri.optionGroups[0].options[0].priceAdjustment = 1;
+    patch.rotationWeeks.week4.discount.value = 59;
+    await assertSucceeds(ref.set(patch, { mergeFields: Object.keys(patch) }));
+    const saved = (await ref.get()).data();
+    assert.equal(saved.price, 61);
+    assert.equal(saved.description, patch.description);
+    assert.equal(saved.available, false);
+    assert.deepEqual(saved.rotationWeeks, patch.rotationWeeks);
+    assert.equal(saved.createdBy, record.createdBy);
+    assert.equal(saved.createdAt, record.createdAt);
+    assert.equal(saved.photoUrl, record.photoUrl);
+  }
+  const ref = ownerA.firestore().doc(`storeProducts/${id}`);
+  for (const context of [anonymous, memberA, ownerB, customerA]) {
+    await assertFails(context.firestore().doc(`storeProducts/${id}`).update({ price: 1 }));
+  }
+  for (const patch of [{ createdBy: 'manager-a' }, { createdAt: 'changed' }, { workspaceId: WORKSPACE_B, storeId: WORKSPACE_B },
+    { productSlug: `renamed-${id}` }, { price: -1 }, { unexpected: true }, { rotationCycleLength: 3 },
+    { rotationWeeks: { ...rotationWeeks, week5: rotationWeeks.week1 } },
+    { rotationWeeks: { ...rotationWeeks, week4: { ...rotationWeeks.week4, coverPhotoUrl: 'http://invalid.test/image.jpg' } } },
+    { rotationWeeks: { ...rotationWeeks, week4: { ...rotationWeeks.week4, discount: { type: 'unknown', value: 60 } } } }]) {
+    await assertFails(ref.update(patch));
+  }
+});

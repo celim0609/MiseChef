@@ -150,9 +150,21 @@ service cloud.firestore {
         && hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef', 'Sous Chef', 'Chef', 'Finance']);
     }
 
+    // Keep product writes below the Rules expression budget by reading each
+    // authorization document once. Roles and entitlement requirements are unchanged.
+    function isActiveStoreProductMember(workspaceId) {
+      let member = get(/databases/$(database)/documents/workspaceMembers/$(workspaceMemberId(workspaceId))).data;
+      return member.status == 'Active' && member.role in ['Owner', 'Manager', 'Head Chef'];
+    }
+
     function canManageStoreProducts(workspaceId) {
-      return hasActiveBusinessEntitlement(workspaceId)
-        && hasWorkspaceRole(workspaceId, ['Owner', 'Manager', 'Head Chef']);
+      let workspace = get(/databases/$(database)/documents/workspaces/$(workspaceId)).data;
+      return signedIn()
+        && workspace.subscriptionPlan in ['starter', 'professional', 'business', 'internal_unlimited']
+        && (workspace.subscriptionStatus == 'active'
+          || (workspace.subscriptionStatus == 'trialing'
+            && workspace.trialEndsAt is timestamp && request.time < workspace.trialEndsAt))
+        && (isSuperAdmin() || workspace.ownerId == request.auth.uid || isActiveStoreProductMember(workspaceId));
     }
 
     function hasActiveBusinessEntitlement(workspaceId) {
@@ -605,15 +617,16 @@ service cloud.firestore {
     // Full amount bounds and minor-unit validation run in the shared catalogue
     // validator and authoritative checkout; keep this bounded for four weeks.
     function isValidWeeklyDiscount(week) {
-      let discount = week.get('discount', {'type': 'none', 'value': 0});
-      return discount.size() == 2 && discount.value is number && discount.value >= 0
-        && discount.type in ['none', 'percentage', 'fixed_amount', 'fixed_weekly_price'];
+      let discount = week.discount;
+      return !('discount' in week) || (discount.size() == 2 && discount.value is number && discount.value >= 0
+        && discount.type in ['none', 'percentage', 'fixed_amount', 'fixed_weekly_price']);
     }
     function isValidRotationWeek(week) {
       let meals = week.meals;
+      let cover = week.get('coverPhotoUrl', 'https://');
       return week.keys().hasOnly(['meals', 'discount', 'legacyWeeklyPrice', 'coverPhotoUrl'])
-        && (week.size() == 1 || isValidWeeklyDiscount(week))
-        && (!('coverPhotoUrl' in week) || (week.coverPhotoUrl is string && week.coverPhotoUrl.size() <= 4096 && week.coverPhotoUrl.matches('https://.*')))
+        && isValidWeeklyDiscount(week)
+        && (cover is string && cover.size() <= 4096 && cover.matches('https://.*'))
         && meals.size() == 5
         && meals.mon is map && meals.tue is map && meals.wed is map
         && meals.thu is map && meals.fri is map;
@@ -627,15 +640,16 @@ service cloud.firestore {
     }
 
     function isValidRotationProduct(data) {
+      let cycle = data.get('rotationCycleLength', 4);
       return data.productType == 'weekly_meal_plan'
         && !('weeklyWeeks' in data) && !('weeklyMeals' in data)
         && data.optionGroupIds.size() == 0
         && (!('availableDay' in data) || data.availableDay == 'all')
         && data.rotationStartMonday is string && data.rotationStartMonday.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
-        && (!('rotationCycleLength' in data) || (data.rotationCycleLength is int && data.rotationCycleLength >= 1 && data.rotationCycleLength <= 4
-          && (data.rotationCycleLength >= 4 || !('week4' in data.rotationWeeks))
-          && (data.rotationCycleLength >= 3 || !('week3' in data.rotationWeeks))
-          && (data.rotationCycleLength >= 2 || !('week2' in data.rotationWeeks))))
+        && cycle is int && cycle >= 1 && cycle <= 4
+        && (cycle >= 4 || !('week4' in data.rotationWeeks))
+        && (cycle >= 3 || !('week3' in data.rotationWeeks))
+        && (cycle >= 2 || !('week2' in data.rotationWeeks))
         && isValidRotationWeeks(data.rotationWeeks)
         && data.healthyLunchBlockedDates is list && data.healthyLunchBlockedDates.size() <= 120
         && data.healthyLunchBlockedDates.toSet().size() == data.healthyLunchBlockedDates.size();
@@ -1697,11 +1711,7 @@ service cloud.firestore {
           'optionGroupIds',
           'updatedAt'
         ])
-        && (
-          (!('productSlug' in resource.data) && !('productSlug' in request.resource.data))
-          || (('productSlug' in resource.data) && ('productSlug' in request.resource.data)
-            && request.resource.data.productSlug == resource.data.productSlug)
-        );
+        && request.resource.data.get('productSlug', '') == resource.data.get('productSlug', '');
       allow delete: if canManageStoreProducts(resource.data.workspaceId);
     }
 
