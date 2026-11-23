@@ -16,5 +16,5 @@ while (true) {
  cursor=page.docs.at(-1);
  console.log(`Indexed ${count} orders`);
 }
-await db.doc('system/posHistoryIndex').set({version:1,complete:true,completedAt:new Date().toISOString(),orders:count});
+await db.doc('system/posHistoryIndex').set({version:1,complete:true,completedAt:new Date().toISOString()});
 console.log(`Beta history search ready: ${count} orders`);
