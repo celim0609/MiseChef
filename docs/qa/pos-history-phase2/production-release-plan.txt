@@ -1,0 +1,46 @@
+POS History Phase 2 — Production release preparation
+
+Authority and scope
+- Base exclusively on live Production 8d68b373755428f69a65dfcff8871ce70b517381.
+- Integrate approved PR #199 read-model/search changes only, plus initialization fallback and audited backfill hardening required for Production readiness.
+- Preserve Production's posAddOrder imports, Weekly À La Carte, payment/delivery modules, UI fixes, environment, Firebase configuration and Storage Rules.
+- No Production deployment or Production backfill is authorized by preparation.
+
+A. Code deployment (requires separate approval)
+1. Recheck the live Production fingerprint against the recorded baseline. If changed, STOP and reintegrate.
+2. Require the exact candidate SHA to pass the immutable Production validation job and Production deployment-safety tests.
+3. Have an authorized release owner set MISECHEF_PRODUCTION_APPROVED_SHA to the exact candidate, only after explicit deployment approval. Keep the protected baseline unchanged.
+4. Use only the existing protected Production Release workflow from main and the Production Environment review gate. Deploy its full canonical resource plan; do not bypass gates or use --force.
+5. Code deployment publishes two new history indexes, additive read-only Rules, and syncStoreOrderHistoryIndex (us-central1, default Firestore database, document-written event, no platform failure policy).
+6. No migration/backfill is invoked by deployment. Marker missing/incomplete or indexes building => bounded legacy browsing with an explicit incomplete-search/count notice. Cursor sources never cross collections. Access-denied errors are not hidden by fallback.
+7. Confirm the new Function ACTIVE, both compound indexes READY, Rules parity and new live build SHA. Existing operational actions continue using canonical records.
+
+B. Data backfill (requires its own explicit approval; never automatically follows A)
+- Dedicated script: scripts/backfillPosHistoryIndex.mjs. Default mode is read-only; --execute and exact project/candidate-bound confirmation are mandatory for writes.
+- No Production invocation, including dry run, was performed during preparation. Production CLI refuses emulator routing.
+- Before execution, the script verifies the public live candidate fingerprint, Function ACTIVE, and both exact index definitions READY using GET-only metadata requests.
+- Operator credentials require canonical source reads and derived-index/checkpoint writes, plus Function/index metadata reads. No new application-role grants or secrets are required.
+- Proposed approved command (replace CANDIDATE_SHA with the approved exact SHA):
+  node scripts/backfillPosHistoryIndex.mjs --project=misechef-fa4bf --candidate="$CANDIDATE_SHA" --execute --confirm="BACKFILL POS HISTORY misechef-fa4bf $CANDIDATE_SHA" --max-orders=100 --max-writes=500 --page-size=25 --max-run-ms=120000
+- Reinvoke the same command to resume from system/posHistoryIndexBackfill.lastOrderId. The script does not rescan completed runs unless --restart is explicitly supplied.
+- Maximum 100 source orders per default invocation; 25 IDs per page plus one lookahead; maximum 500 committed writes INCLUDING metadata/checkpoints; maximum 400 index mutations in an individual order transaction. Time budget is checked between transactions (an in-flight transaction may finish after the time budget).
+- Source pages fetch IDs only. Each order is reread transactionally at its current state; out-of-order trigger/backfill execution cannot restore old data. Projection IDs are deterministic order/date keys. Unchanged projections do not write.
+- Checkpoint is written only after successful projection commit. Crash in the gap safely replays one idempotent order. A ten-minute renewable lease prevents concurrent runners; crashed leases must expire before resume. Source order/payment/delivery records are never written.
+- If an order needs more mutations than the remaining write budget, the run pauses before changing that order; increase the next run's budget within allowed limits. More than 400 mutations requires operator review; never bypass the cap blindly.
+- Only a fully exhausted, error-free scan marks system/posHistoryIndex complete. Partial/failed initialization does not advertise complete results.
+- The synchronizing Function must already be active to capture newly inserted IDs that sort behind the checkpoint. Sustained trigger failures require investigation and an explicitly authorized restart/reconciliation; there is no scheduled whole-history scan.
+- Completion checks: marker version=1/complete=true; checkpoint complete with no active lease; old order-number lookup without loading old pages; selected-range boundary checks; unique loaded-parent counts and pagination. No real payment, booking, cancellation or WhatsApp send is part of these checks.
+
+C. Rollback (separate deployment approval required)
+- Prepare a rollback commit descended directly from the candidate, never a stale baseline checkout.
+- Restore Production UI/browser/filter files exactly to the live baseline tree, retaining the additive history backend, Rules/index definitions and backfill tooling. This avoids destructive Function/index deletion prompts and preserves derived data.
+- Stop any separately running backfill and wait for its lease/in-flight transaction before rollback. Deployment never launches or stops the standalone runner automatically.
+- Do not delete the index collection or reset readiness/checkpoints during rollback. No source-record restore is necessary because no source data was migrated.
+- The retained read-only synchronization Function continues maintaining the unused derived index; baseline UI uses its previous bounded queries. Any later cleanup is a separate approved maintenance action.
+- Roll-forward can reuse the retained index after checking readiness/current source consistency. Explicit data reconciliation may be needed if a worker was interrupted or events failed.
+- The environment-approved SHA must be updated to the exact rollback SHA by the release owner after rollback approval. The rollback must pass the same ancestry and release gates.
+
+GO/NO-GO gates
+- GO for code deployment only after exact-candidate Production validation, compatibility audit and explicit approval.
+- Full historical search remains NO-GO until the separately approved backfill completes and post-backfill checks pass; legacy browsing remains available meanwhile.
+- Any changed live baseline, failed Rules/index/Function check, over-bound schedule, stale lease or missing approval is NO-GO for the affected action.

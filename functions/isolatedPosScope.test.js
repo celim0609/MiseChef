@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,existsSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-// Immutable current Production 8038706 baseline contract for this isolated POS release.
+// Immutable Production contract. Only the exact, approved Phase 2 read-model additions below may be stripped before comparing the original hashes.
 const unchanged = {
   "functions/index.js": "31e48f4a3e3d5d3ee65eccd5274dcc403dea127e9b5551f6a03b8e9eb047796a",
   "functions/entry.js": "d637eaab9d24462967b8b26a683d081e7b6eb703f4e2659a17e557caefc76bf4",
@@ -30,9 +30,39 @@ const unchanged = {
   "src/modules/store/storeProductVisibility.ts": "92295acaeab0fb12fe59ecbb240dabd1399e6d0cb2facf2bcf76380d763a3d92",
   "functions/week4Mapping.test.js": "4962f251d3b9d3bbd1d99f8421a7e726dd9a019101c5bd6f2628ce8956b225a0"
 };
+const historyImport = "import {syncPosHistoryIndex, retryHistoryIndexSync} from './posHistoryIndex.js';\n";
+const historyExport = "\nexport const syncStoreOrderHistoryIndex = onDocumentWritten({document:'storeOrders/{orderId}',region:REGION,timeoutSeconds:120}, event => retryHistoryIndexSync(() => syncPosHistoryIndex(db,event.params.orderId)));\n";
+const historyRules = `    match /system/posHistoryIndex {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    match /storeOrderHistoryIndex/{entryId} {
+      allow read: if canViewStoreOrders(resource.data.workspaceId);
+      allow write: if false;
+    }
+
+`;
+const historyIndexes = [
+ {collectionGroup:'storeOrderHistoryIndex',queryScope:'COLLECTION',fields:[{fieldPath:'storeId',order:'ASCENDING'},{fieldPath:'workspaceId',order:'ASCENDING'},{fieldPath:'date',order:'DESCENDING'}]},
+ {collectionGroup:'storeOrderHistoryIndex',queryScope:'COLLECTION',fields:[{fieldPath:'storeId',order:'ASCENDING'},{fieldPath:'workspaceId',order:'ASCENDING'},{fieldPath:'searchTerms',arrayConfig:'CONTAINS'},{fieldPath:'date',order:'DESCENDING'}]}
+];
+function stripApprovedHistoryAdditions(file, original) {
+ let value=original.toString();
+ if(!existsSync(new URL('./posHistoryIndex.js',import.meta.url)))return original;
+ const strip=(chunk,replacement='')=>{assert.equal(value.split(chunk).length,2,`Exactly one approved addition in ${file}`);value=value.replace(chunk,replacement);};
+ if(file==='functions/index.js'){strip(historyImport);strip(historyExport);}
+ if(file==='firestore.rules')strip(historyRules);
+ if(file==='firestore.indexes.json'){
+  const definitions=',\n'+historyIndexes.map(index=>'    '+JSON.stringify(index,null,2).replaceAll('\n','\n    ')).join(',\n')+'\n';
+  strip(definitions,'\n');
+  strip(',\n    { "collectionGroup": "storeOrderHistoryIndex", "fieldPath": "searchValues", "indexes": [] }\n','\n');
+ }
+ return value;
+}
 test('isolated POS release preserves Production gateway, webhook, customer, delivery, Rules and configuration bytes',()=>{
  for(const [file,hash] of Object.entries(unchanged))
-  assert.equal(createHash('sha256').update(readFileSync(new URL('../'+file,import.meta.url))).digest('hex'),hash,file);
+  assert.equal(createHash('sha256').update(stripApprovedHistoryAdditions(file,readFileSync(new URL('../'+file,import.meta.url)))).digest('hex'),hash,file);
  for(const file of ['weeklyPosPaymentLink.js','curlecEnvironment.js','groupDelivery.js'])
   assert.equal(existsSync(new URL('./'+file,import.meta.url)),false,file);
  const fixture=new URL('./fixtures/productionWeeklyMenu.json',import.meta.url);

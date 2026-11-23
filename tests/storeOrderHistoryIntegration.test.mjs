@@ -740,3 +740,63 @@ test('isolated Production Add Order serializes concurrent mixed pending saves wi
     await deleteApp(app);
   }
 });
+
+test('indexed search reaches orders beyond the creation-history page and paginates equal-date ties without gaps', async () => {
+ const {syncPosHistoryIndex}=await import('../functions/posHistoryIndex.js');
+ const app=initializeApp({projectId:'demo-misechef-store-payment-rules'},`history-search-${process.pid}`);
+ const db=getFirestore(app); const prefix=`search-${process.pid}`;
+ try {
+  for(let i=0;i<57;i++) {
+   const ref=db.collection('storeOrders').doc(`${prefix}-${String(i).padStart(3,'0')}`);
+   await ref.set({storeId:prefix,workspaceId:prefix,orderNumber:`MC-${i}`,customerName:i===0?'Historical Needle':'Shared Customer',pickupDate:'2026-11-23',items:[],createdAt:`2020-01-${String(i%28+1).padStart(2,'0')}`,fulfilmentStatus:'Completed'});
+   await syncPosHistoryIndex(db,ref.id);
+  }
+  const root=db.collection('storeOrderHistoryIndex').where('storeId','==',prefix).where('workspaceId','==',prefix);
+  const needle=await root.where('searchTerms','array-contains','nee').orderBy('date','desc').limit(51).get();
+  assert.equal(needle.size,1); assert.equal(needle.docs[0].data().orderId,`${prefix}-000`);
+  const sorted=root.where('date','>=','2026-11-23').where('date','<','2026-11-24').orderBy('date','desc');
+  const first=await sorted.limit(51).get(); const second=await sorted.startAfter(first.docs[49]).limit(51).get();
+  assert.equal(first.size,51);assert.equal(second.size,7);
+  assert.equal(new Set([...first.docs.slice(0,50),...second.docs].map(doc=>doc.id)).size,57);
+  const ref=db.collection('storeOrders').doc(`${prefix}-000`);
+  await ref.update({pickupDate:'2026-12-01',customerName:'Renamed'}); await syncPosHistoryIndex(db,ref.id);
+  assert.equal((await root.where('searchTerms','array-contains','nee').get()).size,0);
+  await ref.update({deletedAt:'now'});await syncPosHistoryIndex(db,ref.id);
+  assert.equal((await root.where('orderId','==',ref.id).get()).size,0);
+ } finally {await deleteApp(app);}
+});
+
+test('Production history backfill checkpoints bounded runs, resumes idempotently and never writes source orders',async()=>{
+ assert.ok(process.env.FIRESTORE_EMULATOR_HOST, 'Firestore emulator is required.');
+ const {runHistoryBackfill}=await import('../functions/posHistoryBackfill.js');
+ const app=initializeApp({projectId:'demo-misechef-store-payment-rules'},`history-backfill-${process.pid}`),db=getFirestore(app);
+ const options={projectId:'misechef-fa4bf',candidate:'a'.repeat(40),execute:true,confirmation:`BACKFILL POS HISTORY misechef-fa4bf ${'a'.repeat(40)}`,maxOrders:1,maxWrites:10,pageSize:1,maxRunMs:120000};
+ // A private emulator database keeps the global checkpoint independent of other suites.
+ const isolated=getFirestore(app,'history-backfill');
+ try {
+  const records=Array.from({length:4},(_,i)=>({id:`order-${i}`,storeId:'store',workspaceId:'workspace',customerName:'QA',orderNumber:`MC-${i}`,pickupDate:'2026-11-23',items:[],payment:{status:'paid'},delivery:{providerOrder:{id:'immutable-provider'}}}));
+  for(const record of records)await isolated.doc(`storeOrders/${record.id}`).set(record);
+  const first=await runHistoryBackfill({db:isolated,options});assert.equal(first.processed,1);assert.equal(first.complete,false);assert.ok(first.writes<=10);
+  assert.equal((await isolated.doc('system/posHistoryIndex').get()).data().complete,false);
+  const second=await runHistoryBackfill({db:isolated,options:{...options,maxOrders:100}});assert.equal(second.complete,true);assert.ok(second.writes<=10);
+  assert.equal((await isolated.collection('storeOrderHistoryIndex').get()).size,4);
+  const third=await runHistoryBackfill({db:isolated,options});assert.equal(third.writes,0);
+  for(const record of records)assert.deepEqual((await isolated.doc(`storeOrders/${record.id}`).get()).data(),record);
+  // Failure after projection commit but before checkpoint must replay safely.
+  await isolated.doc('system/posHistoryIndexBackfill').update({complete:false,lastOrderId:'',processed:0,leaseOwner:'',leaseUntil:0});
+  const {syncPosHistoryIndex}=await import('../functions/posHistoryIndex.js');
+  await assert.rejects(runHistoryBackfill({db:isolated,options,sync:async(db,id,bounds)=>{await syncPosHistoryIndex(db,id,bounds);throw new Error('interrupted');}}),/interrupted/);
+  assert.equal((await isolated.doc('system/posHistoryIndexBackfill').get()).data().lastOrderId,'');
+  await assert.rejects(runHistoryBackfill({db:isolated,options}),/lease/);
+  await isolated.doc('system/posHistoryIndexBackfill').update({leaseUntil:0});
+  const resumed=await runHistoryBackfill({db:isolated,options:{...options,maxOrders:100}});assert.equal(resumed.complete,true);assert.ok(resumed.writes<=10);
+  assert.equal((await isolated.collection('storeOrderHistoryIndex').get()).size,4);
+  const large={id:'000-large',storeId:'store',workspaceId:'workspace',items:[],customerName:'QA',fulfilments:Array.from({length:6},(_,i)=>({date:`2026-12-0${i+1}`}))};
+  await isolated.doc('storeOrders/000-large').set(large);
+  const bounded=await runHistoryBackfill({db:isolated,options:{...options,maxOrders:100,restart:true}});
+  assert.equal(bounded.complete,false);assert.equal(bounded.processed,0);assert.equal(bounded.reason,'write-limit');assert.ok(bounded.writes<=10);
+  assert.equal((await isolated.collection('storeOrderHistoryIndex').where('orderId','==','000-large').get()).size,0);
+  const finish=await runHistoryBackfill({db:isolated,options:{...options,maxOrders:100,maxWrites:30}});assert.equal(finish.complete,true);assert.ok(finish.writes<=30);
+  assert.deepEqual((await isolated.doc('storeOrders/000-large').get()).data(),large);
+ } finally {await deleteApp(app);}
+});
