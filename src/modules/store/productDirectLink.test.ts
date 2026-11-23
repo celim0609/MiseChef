@@ -79,7 +79,7 @@ test('direct Product page renders standalone content with the existing cart acti
 test('rules require a slug on new products and preserve it on later edits without exposing private products', () => {
   const rules = readFileSync(new URL('../../../firestore.rules', import.meta.url), 'utf8');
   assert.match(rules, /\('productSlug' in request\.resource\.data\)/);
-  assert.match(rules, /request\.resource\.data\.productSlug == resource\.data\.productSlug/);
+  assert.match(rules, /request\.resource\.data\.get\('productSlug', ''\) == resource\.data\.get\('productSlug', ''\)/);
   assert.match(rules, /allow read: if resource\.data\.available == true/);
   assert.match(rules, /'socialImageUrl'/);
   assert.match(rules, /data\.socialImageUrl is string/);
