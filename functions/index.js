@@ -2799,4 +2799,4 @@ export const listDeletedStorePosOrders = onCall({region:REGION,timeoutSeconds:30
 export const editStoreOrderDetails = onCall({ region: REGION, timeoutSeconds: 30 }, request =>
   editStoreOrder({ db, uid: request.auth?.uid, input: request.data }));
 
-export const syncStoreOrderHistoryIndex = onDocumentWritten({document:'storeOrders/{orderId}',region:REGION,timeoutSeconds:120}, event => syncPosHistoryIndex(db,event.params.orderId));
+export const syncStoreOrderHistoryIndex = onDocumentWritten({document:'storeOrders/{orderId}',region:REGION,timeoutSeconds:120,retry:true}, event => syncPosHistoryIndex(db,event.params.orderId));

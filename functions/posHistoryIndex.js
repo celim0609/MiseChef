@@ -37,6 +37,11 @@ export async function syncPosHistoryIndex(db, orderId) {
     const rows = order.exists ? historyIndexRows(order.data(), orderId) : [];
     const currentIds = new Set(rows.map(row => `${orderId}__${row.date}`));
     for (const document of old.docs) if (!currentIds.has(document.id)) transaction.delete(document.ref);
-    for (const row of rows) transaction.set(db.collection('storeOrderHistoryIndex').doc(`${orderId}__${row.date}`), row);
+    const previous = new Map(old.docs.map(document => [document.id, document.data()]));
+    for (const row of rows) {
+      const key = `${orderId}__${row.date}`;
+      const saved = previous.get(key);
+      if (!saved || Object.keys(row).some(field => JSON.stringify(saved[field]) !== JSON.stringify(row[field]))) transaction.set(db.collection('storeOrderHistoryIndex').doc(key), row);
+    }
   });
 }
