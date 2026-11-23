@@ -45,3 +45,13 @@ export async function syncPosHistoryIndex(db, orderId) {
     }
   });
 }
+
+export async function retryHistoryIndexSync(operation, pause = ms => new Promise(resolve => setTimeout(resolve, ms))) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try { return await operation(); }
+    catch (error) {
+      if (attempt === 2) throw error;
+      await pause(250 * (attempt + 1));
+    }
+  }
+}

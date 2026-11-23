@@ -22,3 +22,12 @@ test('weekly, legacy dated meals, ordinary delivery and unscheduled weekly paren
  assert.equal(historyIndexRows({...base,delivery:{schedule:{date:'2026-12-03'}}},'id')[0].date,'2026-12-03');
  assert.deepEqual(historyIndexRows({...base,items:[{weeklyPlanSnapshot:{}}]},'id'),[]);
 });
+
+test('transient index errors retry within a bounded handler and persistent failures remain visible',async()=>{
+ const {retryHistoryIndexSync}=await import('./posHistoryIndex.js');
+ let calls=0;
+ assert.equal(await retryHistoryIndexSync(async()=>{if(++calls<2)throw new Error('transient');return 'indexed';},async()=>{}),'indexed');
+ assert.equal(calls,2);calls=0;
+ await assert.rejects(retryHistoryIndexSync(async()=>{calls++;throw new Error('persistent');},async()=>{}),/persistent/);
+ assert.equal(calls,3);
+});
