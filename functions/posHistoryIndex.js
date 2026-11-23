@@ -7,7 +7,7 @@ export function historySearchTerms(value) {
   const chars = Array.from(normalizeHistorySearch(value));
   return [...new Set(chars.flatMap((_, index) => [1, 2, 3].filter(size => index + size <= chars.length).map(size => chars.slice(index, index + size).join(''))))];
 }
-export function historySearchToken(value) { return Array.from(normalizeHistorySearch(value)).slice(0, 3).join(''); }
+export function historySearchToken(value) { return Array.from(normalizeHistorySearch(value)).slice(-3).join(''); }
 export function historyIndexRows(order, orderId) {
   if (order.deletedAt || !order.storeId || !order.workspaceId || (order.groupDelivery && !order.groupDelivery.releasedAt)) return [];
   let days = order.fulfilments?.length ? order.fulfilments.map(day => canonicalFulfilmentView(order, day))

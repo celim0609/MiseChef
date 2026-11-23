@@ -8,6 +8,7 @@ test('search grams find substrings anywhere, Unicode and short searches',()=>{
   assert.ok(terms.has(historySearchToken(text)));
  }
  assert.equal(normalizeHistorySearch(' ＡISHA '),'aisha');
+ assert.equal(historySearchToken('MC-1110-TL4W'),'l4w');
 });
 test('index dates are purchased fulfilment dates and deduplicate same-day schedules',()=>{
  const order={...base,fulfilments:[{id:'one',date:'2026-11-23',method:'pickup'},{id:'two',date:'2026-11-24',method:'delivery'},{id:'three',date:'2026-11-23'}]};
