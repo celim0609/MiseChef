@@ -1,3 +1,4 @@
+import {syncPosHistoryIndex} from './posHistoryIndex.js';
 import { createModeBoundCurlecAdapter, storedCurlecEnvironment } from './curlecEnvironment.js';
 import { manageWeeklyPosPaymentLink } from './weeklyPosPaymentLink.js';
 import { editStoreOrder } from './storeOrderEdits.js';
@@ -2797,3 +2798,5 @@ export const listDeletedStorePosOrders = onCall({region:REGION,timeoutSeconds:30
 
 export const editStoreOrderDetails = onCall({ region: REGION, timeoutSeconds: 30 }, request =>
   editStoreOrder({ db, uid: request.auth?.uid, input: request.data }));
+
+export const syncStoreOrderHistoryIndex = onDocumentWritten({document:'storeOrders/{orderId}',region:REGION,timeoutSeconds:120}, event => syncPosHistoryIndex(db,event.params.orderId));

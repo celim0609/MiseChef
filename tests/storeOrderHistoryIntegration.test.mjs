@@ -1316,3 +1316,28 @@ test('Add Order ordinary and mixed carts preserve snapshots with historical isol
     assert.equal((await db.collection('storeNotifications').where('workspaceId', '==', workspaceId).get()).size, 0);
   } finally { await deleteApp(app); }
 });
+
+test('indexed search reaches orders beyond the creation-history page and paginates equal-date ties without gaps', async () => {
+ const {syncPosHistoryIndex}=await import('../functions/posHistoryIndex.js');
+ const app=initializeApp({projectId:'demo-misechef-store-payment-rules'},`history-search-${process.pid}`);
+ const db=getFirestore(app); const prefix=`search-${process.pid}`;
+ try {
+  for(let i=0;i<57;i++) {
+   const ref=db.collection('storeOrders').doc(`${prefix}-${String(i).padStart(3,'0')}`);
+   await ref.set({storeId:prefix,workspaceId:prefix,orderNumber:`MC-${i}`,customerName:i===0?'Historical Needle':'Shared Customer',pickupDate:'2026-11-23',items:[],createdAt:`2020-01-${String(i%28+1).padStart(2,'0')}`,fulfilmentStatus:'Completed'});
+   await syncPosHistoryIndex(db,ref.id);
+  }
+  const root=db.collection('storeOrderHistoryIndex').where('storeId','==',prefix).where('workspaceId','==',prefix);
+  const needle=await root.where('searchTerms','array-contains','nee').orderBy('date','desc').limit(51).get();
+  assert.equal(needle.size,1); assert.equal(needle.docs[0].data().orderId,`${prefix}-000`);
+  const sorted=root.where('date','>=','2026-11-23').where('date','<','2026-11-24').orderBy('date','desc');
+  const first=await sorted.limit(51).get(); const second=await sorted.startAfter(first.docs[49]).limit(51).get();
+  assert.equal(first.size,51);assert.equal(second.size,7);
+  assert.equal(new Set([...first.docs.slice(0,50),...second.docs].map(doc=>doc.id)).size,57);
+  const ref=db.collection('storeOrders').doc(`${prefix}-000`);
+  await ref.update({pickupDate:'2026-12-01',customerName:'Renamed'}); await syncPosHistoryIndex(db,ref.id);
+  assert.equal((await root.where('searchTerms','array-contains','nee').get()).size,0);
+  await ref.update({deletedAt:'now'});await syncPosHistoryIndex(db,ref.id);
+  assert.equal((await root.where('orderId','==',ref.id).get()).size,0);
+ } finally {await deleteApp(app);}
+});
