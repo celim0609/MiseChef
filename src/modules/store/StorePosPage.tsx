@@ -1,5 +1,4 @@
-import {searchPosHistory, type HistorySearchPage} from './services/posHistorySearchService';
-import { selectedBrowserRange, browserRows, moveBrowserDate, type BrowserMode, type BrowserPeriod } from './orderBrowserModel';
+import { browserRange, browserRows, moveBrowserDate, type BrowserMode, type BrowserPeriod } from './orderBrowserModel';
 import { posStoreDate, resolvePosAddOrderMeal } from '../../../functions/posAddOrder.js';
 import OrderManagementActions, {DeletedOrders} from './OrderManagementActions';
 import PasteOrderButton, {type PasteDraft} from './PasteOrderButton';
@@ -226,17 +225,14 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const [activeView, setActiveView] = useState<'live' | 'history'>('live');
   const [historyDateKey, setHistoryDateKey] = useState(() => toMalaysiaDateKey());
   const [historyDateBasis, setHistoryDateBasis] = useState<'created' | 'completed'>('created');
-  const [searchPage, setSearchPage] = useState<HistorySearchPage | null>(null);
-  const [searchBusy, setSearchBusy] = useState(false);
-  const [searchError, setSearchError] = useState('');
-  const [allHistoryDates, setAllHistoryDates] = useState(false);
-  const historyRequest = useRef(0);
   const [browserMode, setBrowserMode] = useState<BrowserMode>('Day');
   const [browserPeriod, setBrowserPeriod] = useState<BrowserPeriod>('History');
   const [browserPayment, setBrowserPayment] = useState('');
   const [browserMethod, setBrowserMethod] = useState('');
   const [historyFilter, setHistoryFilter] = useState<OrderHistoryFilter>('all');
   const [historySearch, setHistorySearch] = useState('');
+  const [historyOrders, setHistoryOrders] = useState<StoreOrder[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [isCompletedLoading, setIsCompletedLoading] = useState(true);
   const [historyError, setHistoryError] = useState('');
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
@@ -449,6 +445,27 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     };
   }, [activeView, completedQueryDateKey, historyDateBasis, historyRefreshKey, storeId, workspaceId]);
 
+  useEffect(() => {
+    if (activeView !== 'history' || historyDateBasis !== 'created') return;
+    let cancelled = false;
+    const { start, end } = getMalaysiaDateRange(historyDateKey);
+    setIsHistoryLoading(true);
+    setHistoryError('');
+    void storeOrderService.getOrdersForBusinessDate(storeId, workspaceId, start, end)
+      .then(nextOrders => {
+        if (!cancelled) setHistoryOrders(nextOrders);
+      })
+      .catch(error => {
+        if (!cancelled) setHistoryError(error instanceof Error ? error.message : 'Unable to load Order History.');
+      })
+      .finally(() => {
+        if (!cancelled) setIsHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView, historyDateBasis, historyDateKey, historyRefreshKey, storeId, workspaceId]);
+
   const [dailyView, setDailyView] = useState<DailyView>('Today');
   const dailyOrders = [...new Map([...(dailyHistory?.orders || []), ...completedOrders, ...orders].map(order => [order.id, order])).values()];
   const boardDailyEntries = dailyView === 'History' ? [] : dailyEntries(dailyOrders,dailyView,todayKey);
@@ -462,34 +479,20 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
 
   const completedPeriodEntries = completedEntriesForPeriod(dailyOrders, dailyView, todayKey);
   const activeOnlineOrderCount = countActiveOnlineOrders(orders);
-  const selectedRange = selectedBrowserRange(browserPeriod, historyDateKey, browserMode, todayKey);
-  const searchAllDates = browserPeriod === 'History' && allHistoryDates && Boolean(historySearch.trim());
-  const historyQueryKey = JSON.stringify([storeId, workspaceId, selectedRange.start, selectedRange.end, historySearch.trim(), searchAllDates, browserPeriod, historyRefreshKey]);
-  useEffect(() => {
-    if (activeView !== 'history') return;
-    const request = ++historyRequest.current;
-    setSearchPage(null); setSearchError(''); setSearchBusy(true);
-    const timer = setTimeout(() => {
-      void searchPosHistory({storeId,workspaceId,...selectedRange,search:historySearch,allDates:searchAllDates})
-        .then(page => {if (historyRequest.current === request) setSearchPage(page);})
-        .catch(error => {if (historyRequest.current === request) setSearchError(error instanceof Error ? error.message : 'Unable to search history.');})
-        .finally(() => {if (historyRequest.current === request) setSearchBusy(false);});
-    }, 250);
-    return () => {clearTimeout(timer); ++historyRequest.current;};
-  }, [historyQueryKey, activeView]);
-  const loadSearchPage = async () => {
-    if (!searchPage?.cursor || searchBusy) return;
-    const request = historyRequest.current;
-    setSearchBusy(true); setSearchError('');
-    try {
-      const page = await searchPosHistory({storeId,workspaceId,...selectedRange,search:historySearch,allDates:searchAllDates},searchPage.cursor,searchPage.source);
-      if (historyRequest.current === request) setSearchPage(previous => ({...page, orders:[...new Map([...(previous?.orders || []),...page.orders].map(order=>[order.id,order])).values()],scanned:(previous?.scanned||0)+page.scanned}));
-    } catch(error) {if(historyRequest.current===request) setSearchError(error instanceof Error?error.message:'Unable to load the next results.');}
-    finally {if(historyRequest.current===request) setSearchBusy(false);}
-  };
+  const historySourceOrders = useMemo(
+    () => historyDateBasis === 'completed'
+      ? completedOrders.filter(order => isOrderCompletedOnMalaysiaDate(order, historyDateKey))
+      : historyOrders,
+    [completedOrders, historyDateBasis, historyDateKey, historyOrders]
+  );
+  const visibleHistoryOrders = useMemo(
+    () => filterHistoryOrders(historySourceOrders, historyFilter, historySearch),
+    [historyFilter, historySearch, historySourceOrders]
+  );
+
   const historyRows = browserRows(
-    filterHistoryOrders(searchPage?.source === 'legacy' ? [...new Map([...searchPage.orders,...dailyOrders].map(order=>[order.id,order])).values()] : searchPage?.orders || [], historyFilter, ''),
-    browserPeriod, todayKey, searchAllDates ? {start:'0000-01-01',end:'9999-12-31'} : selectedRange, historySearch, browserPayment, browserMethod
+    filterHistoryOrders([...new Map([...historyOrders, ...dailyOrders].map(order => [order.id, order])).values()], historyFilter, ''),
+    browserPeriod, todayKey, browserRange(historyDateKey, browserMode), historySearch, browserPayment, browserMethod
   );
   const advanceOrder = async (order: StoreOrder) => {
     const nextStatus = nextFulfilmentStatus(order.fulfilmentStatus);
@@ -725,7 +728,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   };
 
   const openHistory = (filter: OrderHistoryFilter = 'all') => {
-    setBrowserPeriod('History');
+    if (!dailyHistory && !loadingDailyHistory) void loadDailyHistory();
     setHistoryDateKey(toMalaysiaDateKey());
     setHistoryDateBasis('created');
     setHistoryFilter(filter);
@@ -842,21 +845,17 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       ) : (
         <div className="flex-1 p-4 lg:p-6">
           <section className={`pos-light-surface mx-auto max-w-7xl rounded-2xl border p-4 shadow-lg lg:p-6 ${isNightMode ? 'border-slate-700 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}>
-            <nav aria-label="Order fulfilment period" className="mb-3 flex flex-wrap gap-2">{(['Today','Tomorrow','Upcoming','History'] as const).map(value => <button type="button" key={value} aria-pressed={browserPeriod === value} onClick={() => {setBrowserPeriod(value); if(value === 'Upcoming') setHistoryDateKey(shiftDateKey(todayKey,1));}} className={`rounded-lg border px-3 py-2 text-sm font-bold ${browserPeriod === value ? 'bg-blue-600 text-white' : ''}`}>{value}</button>)}</nav>
-            <div className="mb-3 flex flex-wrap gap-2">{(browserPeriod === 'History' || browserPeriod === 'Upcoming') && !searchAllDates && (['Day','Week','Month'] as const).map(value => <button type="button" key={value} aria-pressed={browserMode === value} onClick={() => setBrowserMode(value)} className={`rounded-lg border px-3 py-2 text-sm font-bold ${browserMode === value ? 'bg-blue-600 text-white' : ''}`}>{value}</button>)}
+            <nav aria-label="Order fulfilment period" className="mb-3 flex flex-wrap gap-2">{(['Today','Tomorrow','Upcoming','History'] as const).map(value => <button type="button" key={value} aria-pressed={browserPeriod === value} onClick={() => setBrowserPeriod(value)} className={`rounded-lg border px-3 py-2 text-sm font-bold ${browserPeriod === value ? 'bg-blue-600 text-white' : ''}`}>{value}</button>)}</nav>
+            <div className="mb-3 flex flex-wrap gap-2">{(['Day','Week','Month'] as const).map(value => <button type="button" key={value} aria-pressed={browserMode === value} onClick={() => setBrowserMode(value)} className={`rounded-lg border px-3 py-2 text-sm font-bold ${browserMode === value ? 'bg-blue-600 text-white' : ''}`}>{value}</button>)}
               <select aria-label="Payment status" value={browserPayment} onChange={event => setBrowserPayment(event.target.value)} className="pos-control rounded-lg border bg-transparent p-2 text-sm"><option value="">All payments</option>{['pending','processing','paid','pending_verification','failed','cancelled','rejected'].map(value => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select>
               <select aria-label="Fulfilment type" value={browserMethod} onChange={event => setBrowserMethod(event.target.value)} className="pos-control rounded-lg border bg-transparent p-2 text-sm"><option value="">All fulfilment types</option><option value="pickup">Pickup</option><option value="delivery">Delivery</option></select>
             </div>
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div><p className={`text-xs font-black uppercase tracking-[0.16em] ${isNightMode ? 'text-blue-300' : 'text-blue-700'}`}>Fulfilment date · Malaysia UTC+8</p><h2 className="pos-readable-heading mt-1 text-3xl font-black">{historyDateBasis === 'completed' ? 'Completed Orders' : 'Order History'}</h2></div><div hidden={searchAllDates || browserPeriod === 'Today' || browserPeriod === 'Tomorrow'} className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => setHistoryDateKey(toMalaysiaDateKey())} className={`min-h-12 rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}>Today</button><button type="button" onClick={() => setHistoryDateKey(shiftDateKey(toMalaysiaDateKey(), -1))} className={`min-h-12 rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}>Yesterday</button><button type="button" onClick={() => setHistoryDateKey(moveBrowserDate(historyDateKey, browserMode, -1))} aria-label="Previous date" className={`flex h-12 w-12 items-center justify-center rounded-xl border ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}><ChevronLeft className="h-6 w-6" /></button><div className={`flex min-h-12 items-center gap-2 rounded-xl border px-4 font-black ${isNightMode ? 'border-slate-600 bg-slate-900 text-white' : 'border-slate-300 bg-slate-50 text-slate-900'}`}><CalendarDays className="h-5 w-5" />{searchAllDates ? 'All fulfilment dates' : selectedRange.end === shiftDateKey(selectedRange.start,1) ? formatMalaysiaBusinessDate(selectedRange.start) : `${formatMalaysiaBusinessDate(selectedRange.start)} – ${formatMalaysiaBusinessDate(shiftDateKey(selectedRange.end,-1))}`} </div><button type="button" onClick={() => setHistoryDateKey(moveBrowserDate(historyDateKey, browserMode, 1))} aria-label="Next date" className={`flex h-12 w-12 items-center justify-center rounded-xl border disabled:opacity-35 ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}><ChevronRight className="h-6 w-6" /></button><label className={`pos-control flex min-h-12 items-center gap-2 rounded-xl border px-3 ${isNightMode ? 'border-slate-600 bg-slate-900' : 'border-slate-300 bg-white'}`}><span className="sr-only">Select date</span><input type="date" value={historyDateKey} onChange={event => event.target.value && setHistoryDateKey(event.target.value)} className="pos-control bg-transparent text-sm font-black" /></label></div></div>
-            <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="flex flex-wrap gap-2">{historyDateBasis === 'created' ? HISTORY_FILTERS.map(filter => <button key={filter.id} type="button" onClick={() => setHistoryFilter(filter.id)} aria-pressed={historyFilter === filter.id} className={`min-h-11 rounded-full px-4 text-sm font-black ${historyFilter === filter.id ? 'bg-blue-600 text-white' : isNightMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>{filter.label}</button>) : <><button type="button" aria-pressed="true" className="min-h-11 rounded-full bg-blue-600 px-4 text-sm font-black text-white">Completed</button><button type="button" onClick={() => { setHistoryDateBasis('created'); setHistoryFilter('all'); }} className={`min-h-11 rounded-full px-4 text-sm font-black ${isNightMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>View fulfilment-date History</button></>}</div><label className={`pos-control flex min-h-12 min-w-[260px] items-center gap-2 rounded-xl border px-3 ${isNightMode ? 'border-slate-600 bg-slate-900' : 'border-slate-300 bg-white'}`}><Search className="h-5 w-5 text-slate-400" /><span className="sr-only">Search customer or order number</span><input value={historySearch} onChange={event => setHistorySearch(event.target.value)} placeholder="Search order # or customer" className="pos-control w-full bg-transparent text-sm font-bold outline-none" /></label></div>
-            {browserPeriod === 'History' && <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={allHistoryDates} onChange={event=>setAllHistoryDates(event.target.checked)} />Search all fulfilment dates (when searching)</label>}
-            <p className="mt-2 text-xs font-bold">{searchAllDates ? 'Search scope: all historical fulfilment dates' : `Selected fulfilment period: ${selectedRange.start} to ${shiftDateKey(selectedRange.end,-1)} (Malaysia)`}</p>
-            {searchPage?.notice && <div role="status" className="mt-2 rounded-lg border p-3 text-sm">{searchPage.notice} <button type="button" onClick={()=>setHistoryRefreshKey(value=>value+1)} className="rounded border px-3 py-2 font-bold">Retry indexed search</button></div>}
-            {searchError && <div role="alert" className="mt-2 text-sm font-bold">{searchError} <button type="button" onClick={()=>setHistoryRefreshKey(value=>value+1)} className="rounded border px-3 py-2">Try again</button></div>}
-            <p className="mt-3 text-xs" aria-live="polite">{new Set(historyRows.map(row => row.order.id)).size} unique orders in loaded matches · {historyRows.length} order days · {searchPage?.source === 'legacy' ? 'Loaded legacy results only. Full search is initializing; counts are incomplete.' : searchPage?.hasMore ? 'More results may be available. Counts are not totals.' : searchBusy ? 'Searching…' : searchError ? 'Search incomplete.' : 'End of matching query.'}</p>
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div><p className={`text-xs font-black uppercase tracking-[0.16em] ${isNightMode ? 'text-blue-300' : 'text-blue-700'}`}>Fulfilment date · Malaysia UTC+8</p><h2 className="pos-readable-heading mt-1 text-3xl font-black">{historyDateBasis === 'completed' ? 'Completed Orders' : 'Order History'}</h2></div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => setHistoryDateKey(toMalaysiaDateKey())} className={`min-h-12 rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}>Today</button><button type="button" onClick={() => setHistoryDateKey(shiftDateKey(toMalaysiaDateKey(), -1))} className={`min-h-12 rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}>Yesterday</button><button type="button" onClick={() => setHistoryDateKey(moveBrowserDate(historyDateKey, browserMode, -1))} aria-label="Previous date" className={`flex h-12 w-12 items-center justify-center rounded-xl border ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}><ChevronLeft className="h-6 w-6" /></button><div className={`flex min-h-12 items-center gap-2 rounded-xl border px-4 font-black ${isNightMode ? 'border-slate-600 bg-slate-900 text-white' : 'border-slate-300 bg-slate-50 text-slate-900'}`}><CalendarDays className="h-5 w-5" />{formatMalaysiaBusinessDate(historyDateKey)}</div><button type="button" onClick={() => setHistoryDateKey(moveBrowserDate(historyDateKey, browserMode, 1))} aria-label="Next date" className={`flex h-12 w-12 items-center justify-center rounded-xl border disabled:opacity-35 ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}><ChevronRight className="h-6 w-6" /></button><label className={`pos-control flex min-h-12 items-center gap-2 rounded-xl border px-3 ${isNightMode ? 'border-slate-600 bg-slate-900' : 'border-slate-300 bg-white'}`}><span className="sr-only">Select date</span><input type="date" value={historyDateKey} onChange={event => event.target.value && setHistoryDateKey(event.target.value)} className="pos-control bg-transparent text-sm font-black" /></label></div></div>
+            <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="flex flex-wrap gap-2">{historyDateBasis === 'created' ? HISTORY_FILTERS.map(filter => <button key={filter.id} type="button" onClick={() => setHistoryFilter(filter.id)} aria-pressed={historyFilter === filter.id} className={`min-h-11 rounded-full px-4 text-sm font-black ${historyFilter === filter.id ? 'bg-blue-600 text-white' : isNightMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>{filter.label}</button>) : <><button type="button" aria-pressed="true" className="min-h-11 rounded-full bg-blue-600 px-4 text-sm font-black text-white">Completed</button><button type="button" onClick={() => { setHistoryDateBasis('created'); setHistoryFilter('all'); }} className={`min-h-11 rounded-full px-4 text-sm font-black ${isNightMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>View Creation-date History</button></>}</div><label className={`pos-control flex min-h-12 min-w-[260px] items-center gap-2 rounded-xl border px-3 ${isNightMode ? 'border-slate-600 bg-slate-900' : 'border-slate-300 bg-white'}`}><Search className="h-5 w-5 text-slate-400" /><span className="sr-only">Search customer or order number</span><input value={historySearch} onChange={event => setHistorySearch(event.target.value)} placeholder="Search order # or customer" className="pos-control w-full bg-transparent text-sm font-bold outline-none" /></label></div>
+            <p className="mt-3 text-xs" aria-live="polite">{new Set(historyRows.map(row => row.order.id)).size} unique orders · {historyRows.length} order days · Showing loaded history. Load more to include older orders.</p>
             <div className="mt-3 hidden grid-cols-6 gap-2 px-3 text-xs font-bold md:grid"><span>Order ID</span><span>Customer</span><span>Fulfilment date / time</span><span>Type</span><span>Payment status</span><span>Order status</span></div>
             {historyError && <p role="alert" className="mt-4 rounded-xl bg-rose-950 px-4 py-3 text-sm font-black text-rose-100">{historyError}</p>}
-            {searchBusy && !searchPage ? <p className="py-16 text-center font-black">Loading Order History…</p> : historyRows.length === 0 ? <p className={`py-16 text-center font-black ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>{searchBusy ? 'Searching…' : searchError ? 'Results unavailable.' : searchPage?.source === 'legacy' ? 'No matches in loaded legacy orders. Full search is not ready yet.' : searchPage?.hasMore ? 'No matches in results checked so far. Load the next page to continue.' : 'No orders for this fulfilment period and filter.'}</p> : <div className="mt-5 space-y-2">{historyRows.map((row, index) => {
+            {loadingDailyHistory ? <p className="py-16 text-center font-black">Loading Order History…</p> : historyRows.length === 0 ? <p className={`py-16 text-center font-black ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>No orders for this date and filter.</p> : <div className="mt-5 space-y-2">{historyRows.map((row, index) => {
               const { order } = row;
               const isCancelled = order.fulfilmentStatus === 'Cancelled';
               const isCompleted = order.fulfilmentStatus === 'Completed';
@@ -865,7 +864,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                 {(index === 0 || historyRows[index - 1].date !== row.date) && <h3 className="mt-4 border-b px-3 py-2 text-sm font-black">{formatMalaysiaBusinessDate(row.date)}</h3>}
                 <details className={`rounded-2xl border px-3 py-1 ${isCancelled ? isNightMode ? 'border-rose-800 bg-rose-950/40' : 'border-rose-200 bg-rose-50' : isNightMode ? 'border-slate-700 bg-[#081321]' : 'border-slate-200 bg-slate-50'}`}><summary className="grid min-h-11 cursor-pointer grid-cols-2 items-center gap-2 text-xs font-bold md:grid-cols-6"><span>{order.orderNumber}</span><span className="break-words">{order.customerName || 'Customer'}</span><span>{row.date}<br />{row.times.join(', ') || 'Time unavailable'}</span><span className="capitalize">{row.methods.join(', ')}</span><span>Payment: {paymentStatusLabel(order.payment.status)}</span><span>{row.statuses.join(', ')}</span></summary><div className="flex items-start justify-between gap-3"><span className={`rounded-full px-3 py-1 text-xs font-black uppercase ${isCancelled ? 'bg-rose-600 text-white' : isCompleted ? 'bg-slate-600 text-white' : 'bg-blue-600 text-white'}`}>{order.fulfilmentStatus || 'Order'}</span><time className={`text-xs font-black ${isNightMode ? 'text-slate-200' : 'text-slate-600'}`}>{historyDateBasis === 'completed' ? 'Completed' : 'Created'} {formatMalaysiaTimestamp(historyTimestamp)}</time></div><h3 className="pos-readable-heading mt-3 text-xl font-black">{order.orderNumber}</h3>{order.pickupCode && <p className={`mt-2 text-sm font-black tracking-[0.16em] ${isNightMode ? 'text-blue-200' : 'text-blue-800'}`}>Pickup {order.pickupCode}</p>}<p className={`mt-2 text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}><span className="capitalize">{order.orderSource}</span> · <span className={paymentClass(order)}>{paymentStatusLabel(order.payment.status)}</span></p><dl className="mt-3 grid grid-cols-2 gap-2"><OrderFulfilmentDetails order={order} country={storeCountry || 'MY'} /></dl><ul className={`mt-3 space-y-2 border-t pt-3 ${isNightMode ? 'border-slate-700' : 'border-slate-200'}`}>{order.items.map((item, index) => <li key={`${order.id}-history-${index}`} className="font-black">{item.quantity}× {item.productName}<HealthyLunchPurchasedOptions item={item} />{item.setSnapshot ? <span className={`block pl-5 text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.setSnapshot.selectedGroups.map(selection => formatStoreOrderSetSelection(selection, storeCountry === 'SG' ? 'SGD' : 'MYR')).join(' · ')}</span> : item.selectedOptions.length > 0 && <span className={`block pl-5 text-sm font-bold ${isNightMode ? 'text-slate-200' : 'text-slate-700'}`}>{item.selectedOptions.map(option => option.optionName).join(', ')}</span>}</li>)}</ul>{order.notes && <p className="mt-3 rounded-lg bg-amber-100 px-3 py-2 text-sm font-bold text-amber-950">Note: {order.notes}</p>}{storeCountry && <WhatsAppCustomerActions order={order} country={storeCountry} storeName={storeNameForMessages} canRecordReminder={canRecordReminders} canPreview={canPreviewWhatsApp} className="mt-4" />}{isCancelled && <div className={`mt-3 rounded-xl px-3 py-3 text-sm ${isNightMode ? 'bg-rose-950 text-rose-100' : 'bg-rose-100 text-rose-950'}`}><p className="font-black">Cancellation reason</p><p className="mt-1 font-bold">{order.cancellationReason || 'Not recorded'}</p><p className="mt-2 text-xs font-bold">Cancelled {formatMalaysiaTimestamp(order.cancelledAt)}</p></div>}<OrderManagementActions order={order} onChanged={()=>setHistoryRefreshKey(key=>key+1)} /></details></div>;
             })}</div>}
-            {searchPage?.hasMore && <button type="button" disabled={searchBusy} onClick={() => void loadSearchPage()} className="mt-3 rounded-lg border px-4 py-2 text-sm font-bold">{searchBusy ? 'Searching…' : 'Load more results'}</button>}
+            {(!dailyHistory || dailyHistory.hasMore) && <button type="button" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()} className="mt-3 rounded-lg border px-4 py-2 text-sm font-bold">{loadingDailyHistory ? 'Loading…' : 'Load more history'}</button>}
           </section>
         </div>
       )}

@@ -76,10 +76,10 @@ test('POS uses one operational header with working local theme state and no dupl
 
 test('Order History is date-scoped independently from the realtime listener', () => {
   assert.match(pageSource, /activeView !== 'history'/);
-  assert.match(pageSource, /searchPosHistory/);
-  assert.doesNotMatch(pageSource, /getOrdersForBusinessDate/);
+  assert.match(pageSource, /getMalaysiaDateRange\(historyDateKey\)/);
+  assert.match(pageSource, /getOrdersForBusinessDate/);
   assert.match(pageSource, /Fulfilment date/);
-  assert.match(pageSource, /selectedBrowserRange/);
+  assert.match(pageSource, /browserRange\(historyDateKey, browserMode\)/);
   assert.match(pageSource, /Search order #/);
   assert.match(serviceSource, /where\('createdAt', '>=', Timestamp\.fromDate\(start\)\)/);
   assert.match(serviceSource, /where\('createdAt', '<', Timestamp\.fromDate\(end\)\)/);
@@ -93,7 +93,7 @@ test('Order History is date-scoped independently from the realtime listener', ()
   assert.match(serviceSource, /where\('completedAt', '>=', start\.toISOString\(\)\)/);
   assert.match(serviceSource, /where\('completedAt', '<', end\.toISOString\(\)\)/);
   assert.match(serviceSource, /limit\(STORE_ORDER_DATE_QUERY_LIMIT\)/);
-  assert.match(pageSource, /Counts are not totals/);
+  assert.match(pageSource, /isOrderCompletedOnMalaysiaDate/);
   assert.match(pageSource, /openCompletedHistory/);
 });
 

@@ -25,7 +25,7 @@ export function browserRows(orders: StoreOrder[], period: BrowserPeriod, today: 
   const rows = new Map<string, { order: StoreOrder; date: string; times: string[]; methods: string[]; statuses: string[] }>();
   for (const order of new Map(orders.map(order => [order.id, order])).values()) {
     if (payment && order.payment.status !== payment) continue;
-    if (query && ![order.id, order.orderNumber, order.customerName].some(value => String(value || '').normalize('NFKC').toLowerCase().includes(query.normalize('NFKC')))) continue;
+    if (query && ![order.id, order.orderNumber, order.customerName].some(value => value.toLowerCase().includes(query))) continue;
     for (const ticket of getOrderTickets(order)) {
       const status = dailyStatus(order, ticket);
       const terminal = ['Completed', 'Cancelled'].includes(status);
@@ -41,9 +41,4 @@ export function browserRows(orders: StoreOrder[], period: BrowserPeriod, today: 
     }
   }
   return [...rows.values()].sort((a, b) => (period === 'History' ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)) || a.times.join().localeCompare(b.times.join()) || a.order.orderNumber.localeCompare(b.order.orderNumber));
-}
-
-export function selectedBrowserRange(period: BrowserPeriod, date: string, mode: BrowserMode, today: string) {
-  if (period === 'Today' || period === 'Tomorrow') return browserRange(period === 'Today' ? today : shiftDateKey(today, 1), 'Day');
-  return browserRange(date, mode);
 }

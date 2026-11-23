@@ -28,10 +28,3 @@ test('ranges handle Monday weeks, leap years and month boundaries', () => {
  assert.equal(moveBrowserDate('2026-03-31', 'Month', -1), '2026-02-01');
  assert.equal(moveBrowserDate('2026-12-31', 'Month', 1), '2027-01-01');
 });
-
-test('Today and Tomorrow are fixed days; Upcoming and History use the selected range', async () => {
- const {selectedBrowserRange}=await import('./orderBrowserModel');
- assert.deepEqual(selectedBrowserRange('Today','2025-01-01','Month','2026-11-23'),{start:'2026-11-23',end:'2026-11-24'});
- assert.deepEqual(selectedBrowserRange('Tomorrow','2025-01-01','Week','2026-12-31'),{start:'2027-01-01',end:'2027-01-02'});
- assert.deepEqual(selectedBrowserRange('History','2026-11-23','Week','2026-11-23'),{start:'2026-11-23',end:'2026-11-30'});
-});
