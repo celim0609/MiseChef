@@ -770,6 +770,14 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     setActiveView('history');
   };
 
+  const selectDailyView = (view: DailyView) => {
+    if (view === 'History') {
+      openHistory();
+      return;
+    }
+    setDailyView(view);
+  };
+
   const openCompletedHistory = () => {
     setHistoryDateKey(toMalaysiaDateKey());
     setHistoryDateBasis('completed');
@@ -812,7 +820,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
         })}
         {canReviewGroupDelivery && <button type="button" aria-current={posSection === 'group-delivery' ? 'page' : undefined} onClick={() => setPosSection('group-delivery')} className={`min-h-11 rounded-xl px-5 py-2 font-bold ${posSection === 'group-delivery' ? 'bg-blue-600 text-white' : isNightMode ? 'bg-slate-800 text-slate-100' : 'bg-slate-100 text-slate-800'}`}>Group Delivery / 团购配送</button>}
       </nav>
-      {posSection === 'orders' && activeView === 'live' && <nav aria-label="Fulfilment period" className="flex flex-wrap gap-2 px-4 py-3">{(['Today','Tomorrow','Upcoming','History'] as const).map(view => <button key={view} type="button" aria-pressed={dailyView === view} onClick={() => {setDailyView(view); if(view === 'History' && !dailyHistory) void loadDailyHistory();}} className={`min-h-11 rounded-full border px-5 py-2 font-bold ${dailyView === view ? 'border-blue-600 bg-blue-600 text-white' : isNightMode ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-900'}`}>{view}</button>)}</nav>}
+      {posSection === 'orders' && activeView === 'live' && <nav aria-label="Fulfilment period" className="flex flex-wrap gap-2 px-4 py-3">{(['Today','Tomorrow','Upcoming','History'] as const).map(view => <button key={view} type="button" aria-pressed={dailyView === view} onClick={() => selectDailyView(view)} className={`min-h-11 rounded-full border px-5 py-2 font-bold ${dailyView === view ? 'border-blue-600 bg-blue-600 text-white' : isNightMode ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-900'}`}>{view}</button>)}</nav>}
       {posSection === 'group-delivery' && canReviewGroupDelivery ? <GroupDeliveryReviewPanel storeId={storeId} workspaceId={workspaceId} /> : posSection === 'tickets' ? <main className="w-full p-4 lg:p-6">
         <OrderTicketPanel orders={dailyOrders} />
         {(!dailyHistory || dailyHistory.hasMore) && <button type="button" className="mt-3 rounded border px-4 py-2 underline" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()}>{loadingDailyHistory ? 'Loading…' : 'Load older orders for reprint'}</button>}
