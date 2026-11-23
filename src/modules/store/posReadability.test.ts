@@ -9,7 +9,7 @@ test('dashboard dark and system-dark overrides exclude POS descendants without r
 });
 test('period tabs have explicit selected and unselected text colours; no disabled fake tabs',()=>{
  const nav=page.slice(page.indexOf('<nav aria-label="Fulfilment period"'),page.indexOf('</nav>',page.indexOf('<nav aria-label="Fulfilment period"')));
- for(const value of ['aria-pressed','text-white','text-slate-100','text-slate-900','selectDailyView']) assert.ok(nav.includes(value),value);
+ for(const value of ['aria-pressed','text-white','text-slate-100','text-slate-900','setDailyView']) assert.ok(nav.includes(value),value);
  assert.ok(!nav.includes('disabled='));
 });
 test('local POS theme resets inherited dashboard tokens and covers focus, genuine disabled and Completed states',()=>{

@@ -1,4 +1,3 @@
-import ts from 'typescript';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
@@ -361,7 +360,7 @@ test('POS puts one header and unified section navigation before its content', ()
 test('fulfilment history renders its grid instead of mounting empty live columns', () => {
   assert.match(pageSource, /activeView === 'live' \? dailyView === 'History' \? \(/);
   assert.match(pageSource, /view=\{dailyView\}.*orders=\{dailyOrders\}/);
-  assert.match(pageSource, /onClick=\{\(\) => selectDailyView\(view\)\}/);
+  assert.match(pageSource, /if\(view === 'History' && !dailyHistory\) void loadDailyHistory/);
   const queue = readFileSync(new URL('./DailyFulfilmentQueue.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(queue, /onViewChange|aria-pressed/);
   assert.match(queue, /sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4/);
@@ -421,20 +420,4 @@ test('an ambiguous Pending save preserves the cart and stable request without a 
   }});
   await harness.submit();assert.equal(calls,1);assert.equal(harness.state.cart.length,1);
   assert.equal(harness.state.open,true);assert.match(harness.state.error,/check View Orders/);
-});
-
-
-test('POS Live History opens the existing unified browser while operational periods stay on the kitchen board', () => {
-  const source = pageSource.slice(pageSource.indexOf('  const selectDailyView ='), pageSource.indexOf('  const openCompletedHistory ='));
-  assert.ok(source.length > 0);
-  const compiled = ts.transpileModule(source + '\nreturn selectDailyView;', { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const selected: string[] = [];
-  let historyOpened = 0;
-  const select = new Function('setDailyView', 'openHistory', compiled)((view: string) => selected.push(view), () => { historyOpened++; });
-  for (const view of ['Today', 'Tomorrow', 'Upcoming']) select(view);
-  assert.deepEqual(selected, ['Today', 'Tomorrow', 'Upcoming']);
-  assert.equal(historyOpened, 0);
-  select('History');
-  assert.equal(historyOpened, 1);
-  assert.deepEqual(selected, ['Today', 'Tomorrow', 'Upcoming']);
 });
