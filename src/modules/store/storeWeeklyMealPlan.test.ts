@@ -54,7 +54,7 @@ test('public and merchant UI wire weekly schedule controls and preserve legacy d
 test('weekly and selected-day UI is read-only per meal and keeps shared pickup time and supports independent delivery times', () => {
   const page = readFileSync(new URL('./PublicStorePage.tsx', import.meta.url), 'utf8');
   assert.match(page, /groupFulfilmentSchedule\(scheduleRows.map/);
-  assert.match(page, /deliveryDays\[date\]\?\.time \|\| deliveryTime/);
+  assert.match(page, /finalDeliveryTime\(deliverySelection, date\)/);
   assert.match(page, /!weeklyCartPlan && group.dates.length > 1/);
   assert.match(page, /'Weekly schedule' : 'Selected days'/);
   assert.doesNotMatch(page, /aria-label=\{`(?:Time|Date) for \$\{row.label\}/);
@@ -67,7 +67,7 @@ test('ordinary single-product checkout keeps original date/time controls without
   const page = readFileSync(new URL('./PublicStorePage.tsx', import.meta.url), 'utf8');
   assert.match(page, /usesScheduledCheckout\(cart.length, Boolean\(weeklyCartPlan\)/);
   assert.match(page, /!groupOrder && !multiScheduleEnabled && <label/);
-  assert.match(page, /!multiScheduleEnabled && <label[^]*?aria-label="Delivery time"/);
+  assert.match(page, /!multiScheduleEnabled && <DeliveryTimeSelect label="Delivery time"/);
   assert.match(page, /aria-label="Pickup date"/);
   assert.match(page, /aria-label="Delivery date"/);
   assert.match(page, /if \(multiScheduleEnabled\) \{/);
