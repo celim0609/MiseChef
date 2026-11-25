@@ -1,3 +1,4 @@
+import { calculatePromotionPricing, applyManualDiscount } from './storePromotionPricing.js';
 import { isDeliveryTimeWithinHours } from './deliveryTimePolicy.js';
 import { posStoreDate, posStoreTime, resolvePosWeeklyDay, resolvePosAddOrderMeal } from './posWeeklyDay.js';
 import { HttpsError } from "firebase-functions/v2/https";
@@ -342,9 +343,16 @@ export async function saveManualPosOrder({
     const built = buildManualOrder(input, posCheckout, now, { owner: transactionPosFullAccess });
     if ((input.weeklyDayPos === true || input.posAddOrder === true) && input.expectedSubtotalMinor !== Math.round(built.total * 100))
       fail('Menu pricing changed. Reload the catalog and review the cart.');
+    let discountPricing;
+    try {
+      // Preserve existing POS pricing when no discount is requested. Check live offers before allowing one.
+      const pricing = calculatePromotionPricing({items:built.items, promotions:checkout.promotions || [], now, excluded:!input.manualDiscount});
+      discountPricing = applyManualDiscount({items:built.items, pricing, discount:input.manualDiscount, authorized:transactionPosFullAccess, uid, currency:checkout.store.currency || 'MYR', now});
+    } catch (error) { fail(error.message); }
+    if (input.manualDiscount && input.expectedDiscountMinor !== Math.round(discountPricing.discountTotal*100)) fail('Discount changed. Review the cart before saving.');
     const deliveryInput = manualDeliveryInput(input, checkout.products);
     const delivery = await resolvePosDeliveryCharge({ db, transaction: tx, input: deliveryInput, checkout, built, uid, fullAccess: transactionPosFullAccess, now: new Date(Math.max(now.getTime(), Date.now())) });
-    const grandTotal = money(built.total + delivery.fee);
+    const grandTotal = money(discountPricing.discountedMerchandiseTotal + delivery.fee);
     if (!Number.isSafeInteger(Math.round(grandTotal * 100)) || grandTotal > 1000000) fail('Order amount is unsafe.');
     if (delivery.snapshot) built.fulfilments = built.fulfilments.map(day => {
       if (day.method !== 'delivery' || day.deliveryArrangement !== 'store') return day;
@@ -363,9 +371,11 @@ export async function saveManualPosOrder({
         previous.fulfilmentStatus !== "New")
     )
       fail("Only pending manual orders can be edited.");
+    if (previous && !previous.manualDiscountSnapshot && (previous.totals?.discountTotal > 0 || previous.promotionCodeSnapshot || previous.promotionSnapshot?.appliedPromotions?.length)) fail('Preserve the existing promotion through its original order workflow.');
     if (previous?.manualOrder?.posAddOrder && input.posAddOrder !== true) fail('Reload this Add Order draft before editing.');
-    if (previous?.weeklyDayPos || (input.orderId && input.weeklyDayPos === true))
-      fail('Cancel the pending Weekly POS order before saving a revised order.');
+    if (previous && Boolean(previous.weeklyDayPos) !== (input.weeklyDayPos === true)) fail('Reload this Weekly POS draft before editing.');
+    if (previous?.weeklyPosLink || (previous && previous.payment.provider !== 'manual_pos')) fail('Cancel any payment link before editing this pending order.');
+    if (previous?.manualDiscountSnapshot && !transactionPosFullAccess) throw new HttpsError('permission-denied','Only Owner or Manager can edit a discounted order.');
     if (previous && input.expectedRevision !== previous.manualOrder.revision)
       fail("This order changed. Reload before editing.");
     const reference =
@@ -397,6 +407,7 @@ export async function saveManualPosOrder({
     const order = {
       ...snapshot,
       total: grandTotal,
+      ...(discountPricing.manualDiscountSnapshot ? {manualDiscountSnapshot:{...discountPricing.manualDiscountSnapshot,finalTotal:grandTotal},promotionSnapshot:discountPricing.promotionSnapshot} : previous?.manualDiscountSnapshot ? {manualDiscountSnapshot:FieldValue.delete(),promotionSnapshot:FieldValue.delete()} : {}),
       ...(delivery.snapshot ? { deliveryPricingSnapshot: delivery.snapshot } : previous?.deliveryPricingSnapshot ? { deliveryPricingSnapshot: FieldValue.delete() } : {}),
       id: orderRef.id,
       storeId,
@@ -418,6 +429,7 @@ export async function saveManualPosOrder({
           phone: built.phone,
           notes: built.notes,
           lines: input.lines,
+          ...(input.manualDiscount ? {manualDiscount:input.manualDiscount} : {}),
           ...(input.deliveryFeeOverride ? { deliveryFeeOverride: input.deliveryFeeOverride } : {}),
         },
         createdBy: previous?.manualOrder.createdBy || uid,
@@ -437,8 +449,8 @@ export async function saveManualPosOrder({
       itemCount: built.items.reduce((n, item) => n + item.quantity, 0),
       totals: {
         merchandiseSubtotal: built.total,
-        discountTotal: 0,
-        discountedMerchandiseTotal: built.total,
+        discountTotal: discountPricing.discountTotal,
+        discountedMerchandiseTotal: discountPricing.discountedMerchandiseTotal,
         deliveryFee: delivery.fee,
         grandTotal,
         currency,
@@ -489,6 +501,8 @@ export async function saveManualPosOrder({
         : "Manual order pending payment",
       actingUserId: uid,
       revision: order.manualOrder.revision,
+      ...(discountPricing.manualDiscountSnapshot ? {manualDiscount: {...discountPricing.manualDiscountSnapshot,finalTotal:grandTotal}} : {}),
+      ...(previous?.manualDiscountSnapshot ? {previousManualDiscount:previous.manualDiscountSnapshot} : {}),
       total: grandTotal,
       ...(delivery.snapshot ? { deliveryFeeAudit: delivery.snapshot } : {}),
       ...(previous ? { previousRevision: previous.manualOrder.revision, previousTotal: previous.total, previousItems: previous.items, previousFulfilments: previous.fulfilments } : {}),

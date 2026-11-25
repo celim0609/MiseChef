@@ -1,3 +1,4 @@
+import { calculatePromotionPricing, applyManualDiscount } from './storePromotionPricing.js';
 import { hasHistoricalPosDate, posStoreDate, validateHistoricalPosCart } from './posWeeklyDay.js';
 import { resolvePosDeliveryCharge } from './posDeliveryQuotes.js';
 import { buildExternalOrderItems } from './externalPosOrderModel.js';
@@ -60,18 +61,18 @@ export const validateInput = (input, owner = false) => {
   return { source, externalOrderNumber, paymentLabel, phone, requestId, historical };
 };
 
-export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider, now = new Date() }) => {
+export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider, now = new Date(), loadCheckout = loadStoreCheckoutData }) => {
   const workspaceId = readString(input?.workspaceId);
-  const checkoutStore = await loadStoreCheckoutData(db, input?.slug);
+  const checkoutStore = await loadCheckout(db, input?.slug);
   const storeId = readString(checkoutStore.store.id) || readString(checkoutStore.store.workspaceId);
   if (!workspaceId || workspaceId !== readString(checkoutStore.store.workspaceId) || storeId !== readString(input?.storeId)) throw new HttpsError('permission-denied', 'This Store does not match the active Workspace.');
   const posFullAccess = await assertOperator({ db, uid, workspaceId, posFullAccess: true });
   const { source, externalOrderNumber, paymentLabel, phone, requestId, historical } = validateInput(input, posFullAccess);
-  const checkout = posFullAccess ? await loadStoreCheckoutData(db, input?.slug, { includeUnavailable: true }) : checkoutStore;
+  const checkout = posFullAccess ? await loadCheckout(db, input?.slug, { includeUnavailable: true }) : checkoutStore;
   if (readString(checkout.store.workspaceId) !== workspaceId || (readString(checkout.store.id) || workspaceId) !== storeId) throw new HttpsError('permission-denied', 'This Store does not match the active Workspace.');
   const idempotencyReference = !historical && externalOrderNumber ? db.collection('storeExternalOrderReferences').doc(idempotencyId({ storeId, source, externalOrderNumber })) : null;
   const requestReference = requestId ? db.collection('storeExternalOrderReferences').doc(createHash('sha256').update(`${storeId}:${uid}:${requestId}`).digest('hex')) : null;
-  const fingerprint = createHash('sha256').update(JSON.stringify({source,externalOrderNumber,paymentLabel,...(historical ? {historicalReason:readString(input.historicalReason),expectedSubtotalMinor:input.expectedSubtotalMinor} : {}),customerName:readString(input.customerName),phone,notes:readString(input.notes),selections:input.selections,lineSchedules:input.lineSchedules,pickupLocationId:input.pickupLocationId,fulfilmentMethod:input.fulfilmentMethod,deliveryAddress:input.deliveryAddress,fulfilmentDate:input.fulfilmentDate,fulfilmentTime:input.fulfilmentTime,destination:input.destination,deliveryDestinations:input.deliveryDestinations,posDeliveryQuoteId:input.posDeliveryQuoteId,deliveryFeeOverride:input.deliveryFeeOverride})).digest('hex');
+  const fingerprint = createHash('sha256').update(JSON.stringify({source,externalOrderNumber,paymentLabel,...(historical ? {historicalReason:readString(input.historicalReason),expectedSubtotalMinor:input.expectedSubtotalMinor} : {}),customerName:readString(input.customerName),phone,notes:readString(input.notes),manualDiscount:input.manualDiscount,expectedDiscountMinor:input.expectedDiscountMinor,selections:input.selections,lineSchedules:input.lineSchedules,pickupLocationId:input.pickupLocationId,fulfilmentMethod:input.fulfilmentMethod,deliveryAddress:input.deliveryAddress,fulfilmentDate:input.fulfilmentDate,fulfilmentTime:input.fulfilmentTime,destination:input.destination,deliveryDestinations:input.deliveryDestinations,posDeliveryQuoteId:input.posDeliveryQuoteId,deliveryFeeOverride:input.deliveryFeeOverride})).digest('hex');
   const orderReference = db.collection(historical ? 'storeHistoricalWeeklyOrders' : 'storeOrders').doc();
   const commit = () => db.runTransaction(async transaction => {
     const currentPosFullAccess = await assertOperator({ db, uid, workspaceId, posFullAccess: true, transaction });
@@ -116,6 +117,13 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
     if (!historical && built.fulfilments?.some(day => day.date < today)) throw externalError('Use Record Historical Order for past fulfilment dates.');
     const {items} = built;
     const merchandiseSubtotal = money(items.reduce((sum, item) => sum + item.lineTotal, 0));
+    if (historical && input.manualDiscount) throw externalError('Manual discounts apply only to new orders before payment.');
+    let discountPricing;
+    try {
+      const pricing = calculatePromotionPricing({items, promotions:checkout.promotions || [], now, excluded:!input.manualDiscount});
+      discountPricing = applyManualDiscount({items, pricing, discount:input.manualDiscount, authorized:currentPosFullAccess, uid, currency:checkout.store.currency || 'MYR', now});
+    } catch(error) { throw externalError(error.message); }
+    if (input.manualDiscount && input.expectedDiscountMinor !== Math.round(discountPricing.discountTotal*100)) throw externalError('Discount changed. Review the cart before payment.');
     const charge = await resolvePosDeliveryCharge({ db, transaction, input, checkout, built, uid, fullAccess: currentPosFullAccess, now: new Date(Math.max(now.getTime(), Date.now())) });
     if (charge.snapshot) {
       built.posDeliveryPricing = charge.snapshot;
@@ -125,9 +133,9 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
         return { ...day, destination: quoted ? { formattedAddress: quoted.destination.address, latitude: quoted.destination.latitude, longitude: quoted.destination.longitude } : { formattedAddress: readString(address?.formattedAddress) || readString(input.deliveryAddress) } };
       });
     }
-    const total = money(merchandiseSubtotal + charge.fee);
+    const total = money(discountPricing.discountedMerchandiseTotal + charge.fee);
     if (!Number.isSafeInteger(Math.round(total * 100))) throw externalError('Order amount is unsafe.');
-    if (total <= 0) throw externalError('Order total must be greater than zero.');
+    if (total < 0 || (!input.manualDiscount && total === 0)) throw externalError('Order total must be non-negative.');
     if (historical) {
       if (input.expectedSubtotalMinor !== Math.round(merchandiseSubtotal * 100)) {
         throw externalError('Historical menu pricing changed. Reload the Store catalog and review the cart.');
@@ -158,7 +166,8 @@ export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider,
     } });
     const createdAt = now.toISOString();
     const paymentMethodName = paymentLabel === 'shopeefood_platform_paid' ? 'ShopeeFood / Platform Paid' : paymentLabel === 'walk_in_paid' ? 'Walk-in / Paid' : source === 'whatsapp' ? 'WhatsApp / Paid' : 'Other / Paid';
-    const order = { id: orderReference.id, orderNumber: reference.orderNumber, pickupCode: reference.pickupCode, storeId, workspaceId, orderSource: 'pos', externalOrder: { source, ...(externalOrderNumber ? { externalOrderNumber } : {}) }, storeName: readString(checkout.store.name), currency: readString(checkout.store.currency), paymentMethodId: paymentLabel, paymentMethodName, customerName: readString(input.customerName, source === 'walk_in' ? 'Walk-in customer' : 'Customer'), phone, fulfilmentMethod: 'pickup', notes: readString(input.notes), ...built, itemCount: items.reduce((sum, item) => sum + item.quantity, 0), totals: { merchandiseSubtotal, discountTotal: 0, discountedMerchandiseTotal: merchandiseSubtotal, deliveryFee: charge.fee, grandTotal: total, currency: readString(checkout.store.currency) }, total, status: 'Paid externally', fulfilmentStatus: 'New', fulfilmentUpdatedAt: null, fulfilmentUpdatedBy: '', payment: { provider: 'external', providerMode: 'platform_handled', status: 'paid', amountMinor: Math.round(total * 100), currency: readString(checkout.store.currency), providerPaymentId: '', providerTransactionId: '', providerPaymentMethod: paymentLabel, failureCode: '', refundStatus: 'none', refundedAmountMinor: 0, refundFailureCode: '', createdAt, updatedAt: createdAt }, createdAt, updatedAt: createdAt };
+    const order = { id: orderReference.id, orderNumber: reference.orderNumber, pickupCode: reference.pickupCode, storeId, workspaceId, orderSource: 'pos', externalOrder: { source, ...(externalOrderNumber ? { externalOrderNumber } : {}) }, storeName: readString(checkout.store.name), currency: readString(checkout.store.currency), paymentMethodId: paymentLabel, paymentMethodName, customerName: readString(input.customerName, source === 'walk_in' ? 'Walk-in customer' : 'Customer'), phone, fulfilmentMethod: 'pickup', notes: readString(input.notes), ...built, itemCount: items.reduce((sum, item) => sum + item.quantity, 0), totals: { merchandiseSubtotal, discountTotal: discountPricing.discountTotal, discountedMerchandiseTotal: discountPricing.discountedMerchandiseTotal, deliveryFee: charge.fee, grandTotal: total, currency: readString(checkout.store.currency) }, total, status: 'Paid externally', fulfilmentStatus: 'New', fulfilmentUpdatedAt: null, fulfilmentUpdatedBy: '', payment: { provider: 'external', providerMode: 'platform_handled', status: 'paid', amountMinor: Math.round(total * 100), currency: readString(checkout.store.currency), providerPaymentId: '', providerTransactionId: '', providerPaymentMethod: paymentLabel, failureCode: '', refundStatus: 'none', refundedAmountMinor: 0, refundFailureCode: '', createdAt, updatedAt: createdAt }, createdAt, updatedAt: createdAt };
+    if (discountPricing.manualDiscountSnapshot) Object.assign(order, {manualDiscountSnapshot:{...discountPricing.manualDiscountSnapshot,finalTotal:total}, promotionSnapshot:discountPricing.promotionSnapshot});
     const reservation = db.collection('stores').doc(storeId).collection('orderNumberReservations').doc(`${reference.businessDateKey}_${reference.pickupCode}`);
     transaction.create(reservation, { orderId: orderReference.id, orderNumber: reference.orderNumber, pickupCode: reference.pickupCode, createdAt: FieldValue.serverTimestamp() });
     transaction.create(orderReference, order);

@@ -91,6 +91,7 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
       expiresAt: Number((data.weeklyPosLink as { expiresAt?: unknown }).expiresAt),
       provider: (data.weeklyPosLink as { provider?: unknown }).provider === 'curlec' ? 'curlec' as const : 'stripe' as const,
     } } : {}),
+    ...(data.manualDiscountSnapshot ? {manualDiscountSnapshot:data.manualDiscountSnapshot as StoreOrder['manualDiscountSnapshot']} : {}),
     ...(data.manualOrder ? { manualOrder: data.manualOrder as StoreOrder['manualOrder'] } : {}),
     orderNumber: readString(data.orderNumber),
     pickupCode: getOrderPickupCode(

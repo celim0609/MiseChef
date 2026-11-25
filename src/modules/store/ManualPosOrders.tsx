@@ -1,3 +1,4 @@
+import ManualDiscountControl, {previewPosDiscount, type ManualDiscount} from './ManualDiscountControl';
 import WeeklyPosPaymentActions, { type WeeklyLinkProvider } from './WeeklyPosPaymentActions';
 import PasteOrderButton, {type PasteDraft} from './PasteOrderButton';
 import "./manualPosOrders.css";
@@ -23,7 +24,7 @@ import type {
 } from "./types";
 import { shiftDateKey, toMalaysiaDateKey } from "./posOrderModel";
 import { getDefaultStoreSetSelections } from "./storeSetModel";
-import { printManualReceipt } from "./posWalkIn";
+import { printManualReceipt, printCustomerInvoice } from "./posWalkIn";
 import { auth, db } from "../../firebase";
 import { doc, getDoc } from "firebase/firestore";
 
@@ -34,6 +35,7 @@ type Draft = {
   phone: string;
   notes: string;
   lines: Line[];
+  manualDiscount?: ManualDiscount;
   deliveryFeeOverride?: { amount: number; reason: string };
 };
 const empty = (): Draft => ({
@@ -105,6 +107,7 @@ export default function ManualPosOrders({
   const paid = manualOrders.filter((order) => order.payment.status === "paid");
   const posProducts = posFullAccess ? products.map((product) => ({ ...product, available: true, healthyLunchBlockedDates: [] })) : products;
   const preview = previewManualLines(draft.lines, posProducts, sets, groups, posFullAccess);
+  const discountPreview = previewPosDiscount(preview.rows.map(row=>row.pricingItem),draft.manualDiscount,posFullAccess);
   const money = (minor: number) => `${currency} ${(minor / 100).toFixed(2)}`;
   const [slug, setSlug] = useState("");
   const [saved, setSaved] = useState<StoreOrder | null>(null);
@@ -118,7 +121,7 @@ export default function ManualPosOrders({
   const attemptedQuoteKey = useRef('');
   const [quoteClock,setQuoteClock]=useState(Date.now());
   const [feeMode, setFeeMode] = useState<'estimate' | 'manual'>('estimate');
-  const deliveryKey = JSON.stringify({ draft, storeId, workspaceId });
+  const deliveryKey = JSON.stringify({ draft: {...draft,manualDiscount:undefined}, storeId, workspaceId });
   const hasStoreDelivery = draft.lines.some(line => line.method === 'delivery' && line.deliveryArrangement === 'store');
   const usableQuote = currentPosQuote(deliveryQuote, quoteKey, deliveryKey, quoteClock);
   const deliveryFee = hasStoreDelivery ? feeMode === 'manual' ? draft.deliveryFeeOverride?.amount : usableQuote?.customerDeliveryFee : 0;
@@ -272,8 +275,11 @@ export default function ManualPosOrders({
     setError("");
     try {
       const input = { ...draft }; delete input.deliveryFeeOverride;
+      if (discountPreview.error) throw new Error(discountPreview.error);
       const result = await storeOrderService.saveManualPosOrder({
         ...input,
+        ...(draft.manualDiscount ? {expectedDiscountMinor:discountPreview.amountMinor} : {}),
+        ...(editing?.weeklyDayPos ? {weeklyDayPos:true,expectedSubtotalMinor:preview.totalMinor} : {}),
         ...(hasStoreDelivery && feeMode === "manual" ? { deliveryFeeOverride: draft.deliveryFeeOverride } : {}),
         ...(hasStoreDelivery && feeMode === "estimate" ? { posDeliveryQuoteId: usableQuote?.id } : {}),
         workspaceId,
@@ -361,6 +367,7 @@ export default function ManualPosOrders({
               .join(" · ")}
           </p>
           {order.weeklyDayPos ? <>
+            {canManageWeeklyPayments && order.payment.status==='pending' && !order.weeklyPosLink && <button type="button" className="manual-secondary" disabled={busy} onClick={()=>void load(order)}>Edit before payment</button>}
             {canManageWeeklyPayments && weeklyStore?.workspaceId === workspaceId && <WeeklyPosPaymentActions
               order={order} slug={weeklyStore.slug} providers={weeklyLinkProviders} />}
             <button type="button" className="manual-secondary" onClick={() => setSaved(order)}>View details</button>
@@ -450,6 +457,8 @@ export default function ManualPosOrders({
               ))}
             </div>
           ))}
+          {saved.totals && <dl className="my-3 text-sm"><div>Subtotal: {saved.currency} {saved.totals.merchandiseSubtotal.toFixed(2)}</div><div>Discount: −{saved.currency} {saved.totals.discountTotal.toFixed(2)}</div><div>Delivery fee: {saved.currency} {saved.totals.deliveryFee.toFixed(2)}</div><div>Final payable: {saved.currency} {saved.total.toFixed(2)}</div></dl>}
+          {saved.payment.status==='paid' && <button type="button" className="manual-secondary" onClick={()=>{try{printCustomerInvoice(saved);}catch(error){setError(String(error));}}}>Print customer invoice</button>}
           <div key={saved.id}><WhatsAppCustomerActions order={saved} country={country} storeName={storeName} canRecordReminder={canRecordReminders} canPreview={canPreviewWhatsApp} /></div>
           <div className="manual-actions">
             {saved.payment.status === "paid" ? (
@@ -1127,15 +1136,17 @@ export default function ManualPosOrders({
                   <label>Audit reason / agreed fee reference<input disabled={busy} maxLength={240} value={draft.deliveryFeeOverride?.reason || ''} onChange={e => setDraft({ ...draft, deliveryFeeOverride: { amount: draft.deliveryFeeOverride?.amount ?? NaN, reason: e.target.value } })} /></label>
                 </>}
               </fieldset>}
+              <ManualDiscountControl value={draft.manualDiscount} onChange={manualDiscount=>setDraft({...draft,manualDiscount})} items={preview.rows.map(row=>row.pricingItem)} authorized={posFullAccess && currency==="MYR"} disabled={busy || preview.totalMinor===null} />
+              {discountPreview.error && <p role="alert">{discountPreview.error}</p>}
               <div className="manual-summary-row"><span>Product subtotal</span><span>{preview.totalMinor === null ? 'Incomplete' : money(preview.totalMinor)}</span></div>
               <div className="manual-summary-row"><span>Delivery charge</span><span>{deliveryFee === undefined ? 'Estimate required' : money(Math.round(deliveryFee * 100))}</span></div>
-              <div className="manual-summary-row"><span>Discounts</span><span>{money(0)}</span></div>
+              <div className="manual-summary-row"><span>Discounts</span><span>−{money(discountPreview.amountMinor)}</span></div>
               <div className="manual-total">
                 <span>Grand total</span>
                 <span>
                   {preview.totalMinor === null
                     ? "Complete item options"
-                    : deliveryFee === undefined || !Number.isFinite(deliveryFee) ? "Complete delivery fee" : money(preview.totalMinor + Math.round(deliveryFee * 100))}
+                    : deliveryFee === undefined || !Number.isFinite(deliveryFee) ? "Complete delivery fee" : money(preview.totalMinor - discountPreview.amountMinor + Math.round(deliveryFee * 100))}
                 </span>
               </div>
               <p className="manual-muted">

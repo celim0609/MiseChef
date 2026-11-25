@@ -582,6 +582,7 @@ export interface StoreOrder {
   deletionReason?: string;
   weeklyDayPos?: boolean;
   weeklyPosLink?: { expiresAt: number; provider: 'curlec' | 'stripe' };
+  manualDiscountSnapshot?: {version:number;type:'fixed_amount'|'percentage';value:number;reason:string;originalSubtotal:number;discountAmount:number;finalMerchandiseTotal:number;finalTotal:number;authorizedBy:string;authorizedAt:string;currency:string;stackingPolicy:'exclusive'};
   manualOrder?: { posAddOrder?: boolean; revision: number; draft: Record<string, unknown>; createdBy: string };
   fulfilmentMethod?: 'pickup' | 'delivery';
   totals?: { merchandiseSubtotal: number; discountTotal: number; discountedMerchandiseTotal: number; deliveryFee: number; grandTotal: number; currency: RegionCurrency };
