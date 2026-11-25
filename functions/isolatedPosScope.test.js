@@ -38,6 +38,10 @@ const approvedDeliveryUpdates = {
   'functions/storeDelivery.js': 'b1957eef1bae7dc00094115132d1cea4be411a4c1667d7a78405d15f1075a7e3',
   'src/modules/store/PublicStorePage.tsx': 'f0d7aff6b0acd667a55c5896e8d866a9ee40f7172916cd8c7536c1fc2b452656',
 };
+// Only the accepted manual-discount pricing extension may change this POS endpoint.
+const approvedPosDiscountUpdates = {
+  'functions/externalPosOrders.js': '8b9c7158a10e9ed46ac4866dd3b1951981aff4ed77698a4ccf9a0d64c698e34a',
+};
 const historyImport = "import {syncPosHistoryIndex, retryHistoryIndexSync} from './posHistoryIndex.js';\n";
 const historyExport = "\nexport const syncStoreOrderHistoryIndex = onDocumentWritten({document:'storeOrders/{orderId}',region:REGION,timeoutSeconds:120}, event => retryHistoryIndexSync(() => syncPosHistoryIndex(db,event.params.orderId)));\n";
 const historyRules = `    match /system/posHistoryIndex {
@@ -70,7 +74,7 @@ function stripApprovedHistoryAdditions(file, original) {
 }
 test('isolated POS release preserves Production gateway, webhook, customer, delivery, Rules and configuration bytes',()=>{
  for(const [file,hash] of Object.entries(unchanged))
-  assert.equal(createHash('sha256').update(stripApprovedHistoryAdditions(file,readFileSync(new URL('../'+file,import.meta.url)))).digest('hex'),approvedDeliveryUpdates[file] || hash,file);
+  assert.equal(createHash('sha256').update(stripApprovedHistoryAdditions(file,readFileSync(new URL('../'+file,import.meta.url)))).digest('hex'),approvedPosDiscountUpdates[file] || approvedDeliveryUpdates[file] || hash,file);
  for(const file of ['weeklyPosPaymentLink.js','curlecEnvironment.js','groupDelivery.js'])
   assert.equal(existsSync(new URL('./'+file,import.meta.url)),false,file);
  const fixture=new URL('./fixtures/productionWeeklyMenu.json',import.meta.url);
