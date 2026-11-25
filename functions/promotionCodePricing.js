@@ -1,3 +1,4 @@
+import { allocateDiscountMinor } from './storePromotionPricing.js';
 // Pure shared validation/pricing. No browser-supplied price or membership claim
 // is accepted by the server callers of these functions.
 export const promotionCodeError = (message) => {
@@ -113,22 +114,7 @@ export const pricePromotionCode = ({
   if (discountMinor < 1)
     promotionCodeError("The eligible subtotal is too small for this code.");
   // Largest remainder allocation preserves exact cents for daily delivery pricing.
-  const allocated = lineMinor.map((value, index) => ({
-    index,
-    amount: Number((BigInt(value) * BigInt(discountMinor)) / BigInt(subtotal)),
-    remainder: (BigInt(value) * BigInt(discountMinor)) % BigInt(subtotal),
-  }));
-  let extra =
-    discountMinor - allocated.reduce((sum, row) => sum + row.amount, 0);
-  for (const row of [...allocated].sort((a, b) =>
-    a.remainder === b.remainder
-      ? a.index - b.index
-      : a.remainder > b.remainder
-        ? -1
-        : 1,
-  )) {
-    if (extra-- > 0) row.amount++;
-  }
+  const allocated = allocateDiscountMinor(lineMinor, discountMinor);
   const snapshot = {
     version: 1,
     codeId: config.id,

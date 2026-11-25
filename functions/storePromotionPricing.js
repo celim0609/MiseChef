@@ -83,3 +83,49 @@ export const calculatePromotionPricing = ({ items, promotions = [], now = new Da
     }, savings: minorToMoney(lineAdjustments.filter(line => line.promotionId === promotion.id).reduce((sum, line) => sum + moneyToMinor(line.discountAmount), 0)) }));
   return { merchandiseSubtotal: minorToMoney(merchandiseSubtotalMinor), discountTotal: minorToMoney(discountMinor), discountedMerchandiseTotal: minorToMoney(merchandiseSubtotalMinor - discountMinor), promotionSnapshot: { version: 1, appliedPromotions, lineAdjustments } };
 };
+
+// Shared exact-cent allocation used by promotion codes and authorized POS discounts.
+export const allocateDiscountMinor = (lineMinor, discountMinor) => {
+  const subtotal = lineMinor.reduce((sum, value) => sum + value, 0);
+  if (!lineMinor.length || !Number.isSafeInteger(subtotal) || subtotal < 1
+    || lineMinor.some(value => !Number.isSafeInteger(value) || value < 0)
+    || !Number.isSafeInteger(discountMinor) || discountMinor < 0 || discountMinor > subtotal) throw new Error('Review your cart prices and discount.');
+  const allocated = lineMinor.map((value, index) => ({ index,
+    amount: Number(BigInt(value) * BigInt(discountMinor) / BigInt(subtotal)),
+    remainder: BigInt(value) * BigInt(discountMinor) % BigInt(subtotal) }));
+  let extra = discountMinor - allocated.reduce((sum, row) => sum + row.amount, 0);
+  for (const row of [...allocated].sort((a,b) => a.remainder === b.remainder ? a.index-b.index : a.remainder > b.remainder ? -1 : 1)) {
+    if (extra-- > 0) row.amount++;
+  }
+  return allocated;
+};
+
+// Extends existing canonical totals and line adjustments; never changes item prices or delivery fees.
+export const applyManualDiscount = ({items, pricing, discount, authorized = false, uid = '', currency = 'MYR', now = new Date()}) => {
+  if (discount === undefined || discount === null) return pricing;
+  if (!authorized || !uid) throw new Error('Only Owner or Manager can apply a manual discount.');
+  if (currency !== 'MYR') throw new Error('Manual discounts are currently available for RM orders only.');
+  if (typeof discount !== 'object' || Array.isArray(discount)
+    || Object.keys(discount).some(key => !['type','value','reason'].includes(key))
+    || !['fixed_amount','percentage'].includes(discount.type)
+    || typeof discount.value !== 'number' || !Number.isFinite(discount.value) || discount.value <= 0
+    || Math.abs(discount.value * 100 - Math.round(discount.value * 100)) > 0.000001
+    || (discount.reason !== undefined && (typeof discount.reason !== 'string' || discount.reason.trim().length > 240))) throw new Error('Enter a positive discount with up to two decimals and an optional reason of up to 240 characters.');
+  if (pricing.discountTotal > 0 || pricing.promotionCodeSnapshot || pricing.promotionSnapshot?.appliedPromotions?.length
+    || items.some(item => item.itemType === 'set' || item.weeklyPriceSnapshot?.discountAmount > 0)) throw new Error('Manual discount cannot stack with an existing promotion, Weekly Discount or Set offer. Keep the existing offer or remove the manual discount.');
+  const lineMinor = items.map(item => moneyToMinor(item.lineTotal));
+  const subtotal = lineMinor.reduce((sum, value) => sum + value, 0);
+  if (!Number.isSafeInteger(subtotal) || subtotal < 1 || subtotal !== moneyToMinor(pricing.merchandiseSubtotal)) throw new Error('Review the eligible product subtotal.');
+  const valueMinor = Math.round(discount.value * 100);
+  if (!Number.isSafeInteger(valueMinor) || (discount.type === 'percentage' && valueMinor > 10000)) throw new Error('Percentage must be at most 100%.');
+  const discountMinor = discount.type === 'percentage'
+    ? Number((BigInt(subtotal) * BigInt(valueMinor) + 5000n) / 10000n) : valueMinor;
+  if (discountMinor < 1 || discountMinor > subtotal) throw new Error('Discount must be at least RM0.01 and cannot exceed the product subtotal.');
+  const allocated = allocateDiscountMinor(lineMinor, discountMinor);
+  return { ...pricing, discountTotal: discountMinor / 100, discountedMerchandiseTotal: (subtotal-discountMinor)/100,
+    manualDiscountSnapshot: { version:1, type:discount.type, value:discount.value, reason:discount.reason?.trim() || '',
+      originalSubtotal:subtotal/100, discountAmount:discountMinor/100, finalMerchandiseTotal:(subtotal-discountMinor)/100,
+      authorizedBy:uid, authorizedAt:now.toISOString(), currency, stackingPolicy:'exclusive' },
+    promotionSnapshot:{version:1,appliedPromotions:[],lineAdjustments:allocated.map(row=>({productId:asString(items[row.index].productId),productName:asString(items[row.index].productName),quantity:items[row.index].quantity,
+      originalLineTotal:lineMinor[row.index]/100,discountAmount:row.amount/100,finalLineTotal:(lineMinor[row.index]-row.amount)/100}))} };
+};

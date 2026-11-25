@@ -186,6 +186,7 @@ const makeExternalOrderHarness = (overrides: Record<string, unknown> = {}) => {
   const lock = { current: false };
   const requests: Record<string, unknown>[] = [];
   const scope = {
+    externalDiscount: undefined, externalDiscountPreview:{amountMinor:0,error:''},setExternalDiscount:()=>{},
     externalSubmitInFlightRef: lock,
     externalAddTimes:{current:new Map()},
     externalRequestIdRef: {current: 'request-1234567890'},
@@ -318,7 +319,7 @@ test('POS Add Order uses document flow with catalog before cart and no modal scr
 });
 
 test('cart preview preserves option adjustments, Set upgrades, quantities and rounded subtotal', () => {
-  const pricingSource = pageSource.slice(pageSource.indexOf('  const externalCartLines ='), pageSource.indexOf('\n  const advanceGroup ='));
+  const pricingSource = pageSource.slice(pageSource.indexOf('  const externalCartLines ='), pageSource.indexOf('\n  const externalDiscountItems ='));
   const calculate = new Function('externalCart', 'externalProducts', 'externalOptionGroups', 'externalSets', 'calculateStoreOptionAdjustedPrice', 'calculateStoreSetAnalysis', 'externalStore', 'externalDate', 'externalTime', 'externalPosFullAccess', `${pricingSource}\nreturn { externalCartLines, externalSubtotal };`);
   const products = [{ id: 'tea', name: 'Tea', available: true, price: 10 }];
   const groups = [{ id: 'flavour', available: true, options: [{ id: 'milk', available: true, priceAdjustment: 2.5 }] }];
