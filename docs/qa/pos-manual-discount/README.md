@@ -12,12 +12,12 @@ Owner/Manager can Apply Discount, choose fixed RM or percentage, supply an optio
 
 Delivery quotes/fees operate on the original canonical items and remain unchanged. Discounts are subtracted from food/products only. Applying a discount does not invalidate a manual order delivery quote. RM-only controls match this milestone's currency requirement. Historical audit orders cannot receive manual discounts.
 
-Thermal receipts and customer invoices (Print Tickets or paid manual details) show subtotal, discount, delivery fee and payable separately. Customer invoice printing reuses the paid receipt renderer; it does not touch supplier Invoice Processing. WhatsApp, Sales Records and financial reports reuse existing saved breakdowns and canonical line adjustments.
+Legacy receipt amounts use the existing shared breakdown and display unavailable values explicitly instead of assuming a zero charge. Thermal receipts and customer invoices (Print Tickets or paid manual details) show subtotal, discount, delivery fee and payable separately. Customer invoice printing reuses the paid receipt renderer; it does not touch supplier Invoice Processing. WhatsApp, Sales Records and financial reports reuse existing saved breakdowns and canonical line adjustments.
 
 ## Validation
 
 - Full local frontend/model suite: 914 passed; full Functions suite: 721 passed before the final additional full-food-discount payment test.
-- Targeted backend suite after that test: 44 passed, including apply/edit/remove, Owner/Manager, forged/inactive role rejection, stale amount, promotion conflicts, paid edit protection, retries, exact-cent allocation and delivery exclusion.
+- Targeted backend suite including the Weekly POS edit/link safety test: 45 passed, including apply/edit/remove, Owner/Manager, forged/inactive role rejection, stale amount, promotion conflicts, paid edit protection, retries, exact-cent allocation and delivery exclusion.
 - Targeted frontend includes inline role gating, preview math, receipt/invoice/WhatsApp breakdowns, Sales Records and business-accounting reconciliation, and multiple daily fulfilments.
 - TypeScript and Beta Vite build pass. Protected CI reruns all regression and authorization tests and performs the full-resource Beta deployment.
 - No migration of existing orders; no changes to supplier Invoice Processing or Ingredient Import; no Production deployment authorized.

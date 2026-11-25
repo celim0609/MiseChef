@@ -54,3 +54,8 @@ test('daily discount allocations and recognized sales reconcile across multiple 
  assert.equal(entries.reduce((sum,row)=>sum+row.totalMinor,0),2901);
  assert.equal(entries.reduce((sum,row)=>sum+row.grossMinor,0),3001);
 });
+test('legacy receipts do not invent a zero delivery fee when the saved amount is unavailable',()=>{
+ const documents:string[]=[],previous=globalThis.window;
+ globalThis.window={open:()=>({document:{readyState:'complete',open(){},write(html:string){documents.push(html);},close(){}},focus(){},print(){}}),setTimeout(fn:()=>void){fn();}} as unknown as Window & typeof globalThis;
+ try{printCustomerReceipt({...order,totals:undefined});assert.match(documents[0],/<span>Delivery fee<\/span><span>Not available<\/span>/);}finally{globalThis.window=previous;}
+});
