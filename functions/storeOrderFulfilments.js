@@ -1,3 +1,4 @@
+import { isDeliveryTimeWithinHours } from './deliveryTimePolicy.js';
 import { publicMealOptionSnapshot } from './healthyLunchOptions.js';
 import { productAllowsFulfilmentDate } from './storeProductAvailability.js';
 import { isWeeklyMealPlan, WEEKLY_DAYS, getWeeklyDates, weeklyCartError, validateWeeklyMealPlan, resolveWeeklyMeals, isDatedWeekOpen, isHealthyLunchWeekBlocked, hasDatedMenu, fullWeekDateStore, fullWeekServiceDatesAvailable, validateHealthyLunchDay, isFullWeekSelection, resolvePlanMeal, hasEmbeddedMenu, weeklyMealSnapshot } from './storeWeeklyMealPlan.js';
@@ -56,7 +57,7 @@ export const buildOrderFulfilments = ({ store, draft, products, groupOrder, getD
     if (!owner && (weekly && hasDatedMenu(plan) ? !datedFullWeekAvailable : !dates.includes(entry.date))) throw new Error('Choose an available fulfilment date.');
     if (!owner && delivery) {
       const hours = preOrder?.deliveryHours || { from: '00:00', to: '23:59' };
-      if (preOrder?.enabled === false || entry.time < hours.from || entry.time > hours.to
+      if (preOrder?.enabled === false || !isDeliveryTimeWithinHours(entry.time, hours)
         || entry.date <= new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).format(now)) throw new Error('Order delivery at least one day ahead. Choose a future delivery time within Store hours.');
     } else if (!owner && !getTimes(store, entry.date, now).includes(entry.time)) throw new Error('Choose an available pickup time for every day.');
     const allocations = entry.itemIndexes.map(itemIndex => {

@@ -1,3 +1,4 @@
+import { isDeliveryTimeWithinHours } from './deliveryTimePolicy.js';
 import { readCheckoutCode } from './storePromotionCodes.js';
 import { pricePromotionCode } from './promotionCodePricing.js';
 import { isConfirmedProviderRejection } from './lalamoveSandbox.js';
@@ -54,7 +55,7 @@ export const validatePreOrderSchedule = (store, config, draft, now = new Date())
   const dates = getValidPickupDates({ ...store, country: store.country, orderDays: preOrder.orderDays, earliestPickupDays: preOrder.earliestDays, maximumAdvanceDays: preOrder.maximumAdvanceDays, unavailableDates: preOrder.unavailableDates }, now);
   if (!dates.includes(deliveryDate)) throw deliveryError('Choose an available delivery date.');
   const hours = preOrder.deliveryHours || { from: '00:00', to: '23:59' };
-  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(deliveryTime) || deliveryTime < readString(hours.from) || deliveryTime > readString(hours.to)) throw deliveryError('Choose a delivery time within the configured delivery hours.');
+  if (!isDeliveryTimeWithinHours(deliveryTime, hours)) throw deliveryError('Choose a delivery time within the configured delivery hours.');
   return { mode: 'preorder', date: deliveryDate, time: deliveryTime, timeZone: 'Asia/Kuala_Lumpur' };
 };
 export const validateInstantSchedule = (store, config, now = new Date()) => {
@@ -211,10 +212,12 @@ export const createStoreDeliveryQuote = async ({ db, provider, slug, draft, cust
   await Promise.all((scheduled.entries || []).map(async entry => {
     const target = validateDestination(entry.destination || draft.destination);
     assertDeliveryDistance(config, pickup, target);
-    const dayQuote = quoteSnapshot(await provider.createQuote(buildLalamoveQuoteRequest({ config, pickup, destination: target, schedule: { mode: 'preorder', date: entry.date, time: entry.time } })));
+    const quotationRequest = buildLalamoveQuoteRequest({ config, pickup, destination: target, schedule: { mode: 'preorder', date: entry.date, time: entry.time } });
+    const requestRecordedAt = new Date().toISOString();
+    const dayQuote = quoteSnapshot(await provider.createQuote(quotationRequest));
     providerRoutingDestination({ quote: dayQuote, destination: target });
     if (dayQuote.stops.length !== 2 || dayQuote.serviceType !== config.serviceType || Date.parse(dayQuote.expiresAt) <= Date.now() + DELIVERY_PAYMENT_QUOTE_MINIMUM_VALIDITY_MS || !dayQuote.quotationId || dayQuote.currency !== 'MYR' || !Number.isFinite(dayQuote.fee) || dayQuote.fee < 0 || !Number.isFinite(Date.parse(dayQuote.expiresAt))) throw deliveryError('Invalid delivery quotation.');
-    dayQuotes.push({ date: entry.date, quote: dayQuote, destination: target });
+    dayQuotes.push({ date: entry.date, time: entry.time, requestedScheduleAt: quotationRequest.data.scheduleAt, requestRecordedAt, quote: dayQuote, destination: target });
   }));
   dayQuotes.sort((a, b) => a.date.localeCompare(b.date));
   const quotation = dayQuotes[0] ? { ...dayQuotes[0].quote, priceBreakdown: dayQuotes[0].quote.priceBreakdown } : await provider.createQuote(buildLalamoveQuoteRequest({ config, pickup, destination, schedule }));
