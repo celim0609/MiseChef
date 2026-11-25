@@ -1,12 +1,9 @@
-import MerchantDeliveryPricing from '../../../store/MerchantDeliveryPricing';
 import type { DailyDeliveryRecord } from '../../dailySalesProjection';
 
 const providerNames = { lalamove: 'Lalamove', grab: 'Grab', private_driver: 'Private driver' };
 const headings = ['Delivery date', 'Order', 'Fulfilment', 'Provider', 'Customer fee', 'Actual driver cost', 'Quoted cost', 'Subsidy / surplus', 'Status', 'Tracking reference'];
 
-export default function DeliveryRecords({ deliveries, formatMoney, orderLink, workspaceId = '', canViewDeliveryPricing = false }: {
-  workspaceId?: string;
-  canViewDeliveryPricing?: boolean;
+export default function DeliveryRecords({ deliveries, formatMoney, orderLink }: {
   deliveries: DailyDeliveryRecord[];
   formatMoney: (amount: number) => string;
   orderLink: (orderId: string, fulfilmentId: string) => string;
@@ -19,7 +16,7 @@ export default function DeliveryRecords({ deliveries, formatMoney, orderLink, wo
       {deliveries.length ? (
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-left text-sm [&_td]:px-4 [&_td]:py-3 [&_th]:px-4 [&_th]:py-3">
-            <thead className="bg-surface-container-low text-primary"><tr>{headings.map(label => <th key={label} scope="col">{label}</th>)}{canViewDeliveryPricing && <th scope="col">Pricing</th>}</tr></thead>
+            <thead className="bg-surface-container-low text-primary"><tr>{headings.map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
             <tbody>
               {deliveries.map(delivery => {
                 const cost = delivery.actualCostMinor ?? delivery.quotedCostMinor;
@@ -36,7 +33,6 @@ export default function DeliveryRecords({ deliveries, formatMoney, orderLink, wo
                     <td>{balance === undefined ? '—' : `${money(Math.abs(balance))} ${balance > 0 ? 'surplus' : 'subsidy'}`}</td>
                     <td className="capitalize">{delivery.status.replaceAll('_', ' ')}</td>
                     <td>{delivery.trackingReference || '—'}</td>
-                    {canViewDeliveryPricing && <td className="min-w-72 align-top"><MerchantDeliveryPricing orderId={delivery.orderId} workspaceId={workspaceId} canView={canViewDeliveryPricing} /></td>}
                   </tr>
                 );
               })}

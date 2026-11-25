@@ -1,4 +1,3 @@
-import MerchantDeliveryPricing from './MerchantDeliveryPricing';
 import StoreOrderTotals from './StoreOrderTotals';
 import OrderManagementActions, {DeletedOrders} from './OrderManagementActions';
 import ManualDeliveryBooking from './ManualDeliveryBooking';
@@ -428,7 +427,6 @@ export default function StoreOrdersPanel({
             </div>
 
             <StoreOrderTotals order={selectedOrder} currency={currency} country={country} />
-            <MerchantDeliveryPricing order={selectedOrder} workspaceId={workspaceId} canView={canBookDelivery} />
 
             {(selectedOrder.customerRemarks ?? selectedOrder.notes) && (
               <div className="mt-5 rounded-2xl bg-yellow-50 p-4">

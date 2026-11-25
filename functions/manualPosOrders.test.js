@@ -639,17 +639,3 @@ test('Add Order saved pending state is role-bound, server-priced, duplicate-safe
  assert.equal((await confirmManualPosPayment({db,uid:'owner',input:confirm,now:posNow})).duplicate,true);assert.equal(writes.length,after);
  assert.equal(writes.filter(p=>p.endsWith('_manual_payment_confirmed')).length,1);assert.deepEqual(changed.fulfilmentCompletion,{});
 });
-
-test('special school delivery outside hours is restricted to authenticated Owner/Manager authority', async()=>{
-  const catalog={...checkout,store:{...store,delivery:{fulfilment:{preOrder:{deliveryHours:{from:'09:00',to:'18:00'}}}}}};
-  const request={...input(),lines:[{...line('prawn','2026-10-19'),method:'delivery',time:'07:30',deliveryArrangement:'store',deliveryAddress:'School gate',notes:'School arrangement agreed 07:30'}],deliveryFeeOverride:{amount:10,reason:'School agreed fee'}};
-  assert.throws(()=>buildManualOrder(request,catalog,now),/Delivery Hours/);
-  assert.equal(buildManualOrder(request,catalog,now,{owner:true}).fulfilments[0].time,'07:30');
-  const {db,docs}=database({'workspaces/s':workspace,'workspaceMembers/s_manager':{workspaceId:'s',userId:'manager',status:'Active',role:'Manager'},'workspaceMembers/s_chef':{workspaceId:'s',userId:'chef',status:'Active',role:'Chef'}});
-  for(const uid of ['owner','manager']){
-    const saved=await saveManualPosOrder({db,uid,input:{...request,requestId:`school-special-${uid}-123456`},now,loadCheckout:async()=>catalog});
-    assert.equal(docs[`storeOrders/${saved.orderId}`].fulfilments[0].time,'07:30');
-    assert.equal(docs[`storeOrders/${saved.orderId}`].manualOrder.createdBy,uid);
-  }
-  await assert.rejects(saveManualPosOrder({db,uid:'chef',input:{...request,owner:true,posFullAccess:true,requestId:'school-forged-authority-123456'},now,loadCheckout:async()=>catalog}),/Delivery Hours/);
-});

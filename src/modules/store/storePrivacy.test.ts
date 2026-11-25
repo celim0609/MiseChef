@@ -186,8 +186,7 @@ test('checkout presents only enabled methods in a compact hierarchy', () => {
   assert.match(publicStorePage, /<PaymentMethodIcon methodId=\{method\.id\}/);
   assert.match(publicStorePage, /getPaymentActionLabel\(paymentMethodId\)/);
   assert.match(publicStorePage, /return 'Continue to Payment'/);
-  assert.doesNotMatch(publicStorePage, /sticky bottom-3/);
-  assert.match(publicStorePage, /env\(safe-area-inset-bottom\)/);
+  assert.match(publicStorePage, /sticky bottom-3/);
   assert.match(publicStorePage, /cartCount > 0 && !isCheckoutOpen/);
   assert.match(publicStorePage, /customerDeliveryFee/);
   assert.match(publicStorePage, /checkoutTotal/);

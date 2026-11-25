@@ -21,10 +21,9 @@ export interface StoreDeliveryProviderOrder {
 export type StoreDeliveryProvider = 'lalamove' | 'grab' | 'private_driver';
 
 export interface FulfilmentOperation {
-  bookingPreview?: { quote?: import('./deliveryPricingBreakdown').PricingQuote; createdAt?: string };
   provider?: StoreDeliveryProvider;
   kitchenStatus?: string;
-  dispatch?: { requoteFee?: number; operationalQuote?: import('./deliveryPricingBreakdown').PricingQuote; submissionStartedAt?: string; status?: string; errorCode?: string; identity?: string; fields?: string[]; providerCode?: string; requestId?: string };
+  dispatch?: { status?: string; errorCode?: string; identity?: string; fields?: string[]; providerCode?: string; requestId?: string };
   lifecycle?: { state?: string; providerStatus?: string };
   providerOrder?: StoreDeliveryProviderOrder & { driverId?: string; driver?: { name?: string; phone?: string; plateNumber?: string } };
 }
@@ -544,10 +543,9 @@ export interface StoreNotification {
 }
 
 interface SavedDeliveryCharge {
-  dayQuotes?: Array<{ date: string; time?: string; quote: import('./deliveryPricingBreakdown').PricingQuote }>;
   customerDeliveryFee?: number;
   providerDeliveryFee?: number | null;
-  days?: Array<{ date: string; time?: string; merchandiseSubtotal?: number; customerDeliveryFee?: number; providerDeliveryFee?: number; freeDeliveryApplied?: boolean; collectedBufferMinor?: number; maximumExtraCostMinor?: number }>;
+  days?: Array<{ date: string; time?: string; merchandiseSubtotal?: number; customerDeliveryFee?: number; providerDeliveryFee?: number; freeDeliveryApplied?: boolean }>;
 }
 
 export interface StoreOrder {
@@ -556,7 +554,6 @@ export interface StoreOrder {
   deliveryFeeReviewRequired?: boolean;
   posDeliveryPricing?: SavedDeliveryCharge;
   deliveryPricingSnapshot?: SavedDeliveryCharge & {
-    firstQuote?: import('./deliveryPricingBreakdown').PricingQuote;
     firstDayFee?: number;
     fulfilmentCount?: number;
     finalDeliveryTotal?: number;
@@ -591,13 +588,11 @@ export interface StoreOrder {
     fulfilmentMode?: 'preorder' | 'instant';
     schedule?: { mode?: 'preorder' | 'instant'; date?: string; time?: string; session?: string };
     // The fields below are server-controlled mutable delivery operations only.
-    bookingPreview?: FulfilmentOperation['bookingPreview'];
-    dispatch?: FulfilmentOperation['dispatch'] & { attempt?: number };
+    dispatch?: { status?: string; errorCode?: string; attempt?: number };
     lifecycle?: { state?: 'not_started' | 'assigning_driver' | 'driver_assigned' | 'picked_up' | 'completed' | 'canceled' | 'expired' | 'rejected'; providerStatus?: string; changedAt?: string; history?: Array<{ state: string; providerStatus: string; source: string; occurredAt: string }> };
     providerOrder?: StoreDeliveryProviderOrder & { driverId?: string; driver?: { name?: string; phone?: string; plateNumber?: string; photo?: string; coordinates?: { lat?: string; lng?: string; updatedAt?: string } } };
     recipient?: { address?: string; instructions?: string };
-    dayQuotes?: Array<{ date: string; quote: import('./deliveryPricingBreakdown').PricingQuote }>;
-    quote?: import('./deliveryPricingBreakdown').PricingQuote;
+    quote?: { fee?: number; quotationId?: string; expiresAt?: string };
   };
   customerUid?: string;
   groupOrder?: {
