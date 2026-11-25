@@ -41,7 +41,6 @@ export function previewManualLines(
     let name = line.custom?.name || "Custom Item";
     let unitMinor = 0;
     let error = "";
-    let pricingItem: import("./types").StoreOrder["items"][number] | undefined;
     let dates = [line.date];
     try {
       if (
@@ -97,7 +96,6 @@ export function previewManualLines(
           sets,
           selection.healthyLunchDate || line.date,
         )[0];
-        pricingItem = item;
         name = item.productName;
         unitMinor =
           Math.round(item.unitPrice * 100) +
@@ -115,7 +113,6 @@ export function previewManualLines(
     }
     return {
       index,
-      pricingItem: {...pricingItem, productName:name, quantity:line.quantity, lineTotal:unitMinor*line.quantity/100},
       name,
       unitMinor,
       totalMinor: error ? null : unitMinor * line.quantity,

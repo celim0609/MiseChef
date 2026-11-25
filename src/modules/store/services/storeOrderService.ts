@@ -86,7 +86,6 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
     : null;
   return {
     id: snapshot.id,
-    ...(data.manualDiscountSnapshot ? {manualDiscountSnapshot:data.manualDiscountSnapshot as StoreOrder['manualDiscountSnapshot']} : {}),
     ...(data.manualOrder ? { manualOrder: data.manualOrder as StoreOrder['manualOrder'] } : {}),
     orderNumber: readString(data.orderNumber),
     pickupCode: getOrderPickupCode(

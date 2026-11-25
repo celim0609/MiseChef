@@ -35,14 +35,14 @@ export function nextDailyStatus(order: StoreOrder, ticket: OrderTicket): StoreOr
 }
 
 export type DailyView = 'Today' | 'Tomorrow' | 'Upcoming' | 'History';
-export function ticketInDailyView(date: string, view: DailyView, today: string, selectedDate?: string) {
-  return view === 'Upcoming' ? (selectedDate ? date === selectedDate && date > today : date > today) : view === 'Tomorrow' ? date === shiftDateKey(today,1) : view === 'History' ? date < today : date === today;
+export function ticketInDailyView(date: string, view: DailyView, today: string) {
+  return view === 'Upcoming' ? date > today : view === 'Tomorrow' ? date === shiftDateKey(today,1) : view === 'History' ? date < today : date === today;
 }
-export function dailyEntries(orders: StoreOrder[], view: DailyView, today: string, selectedDate?: string) {
+export function dailyEntries(orders: StoreOrder[], view: DailyView, today: string) {
   return [...new Map(orders.map(order => [order.id,order])).values()].filter(isOrderOperationallyEligible).flatMap(order => getOrderTickets(order).filter(ticket => {
     if (view !== 'History' && !ticket.fulfilmentId && !ticket.weeklyDay) return false;
     const terminal = ['Completed','Cancelled'].includes(dailyStatus(order,ticket));
-    return view === 'History' ? terminal || ticket.date < today : !terminal && ticketInDailyView(ticket.date,view,today,selectedDate);
+    return view === 'History' ? terminal || ticket.date < today : !terminal && ticketInDailyView(ticket.date,view,today);
   }).map(ticket => ({order,ticket,status:dailyStatus(order,ticket)}))).sort((a,b) => `${a.ticket.date} ${a.ticket.time}`.localeCompare(`${b.ticket.date} ${b.ticket.time}`) || a.ticket.key.localeCompare(b.ticket.key));
 }
 export function dailyActions(order: StoreOrder, ticket: OrderTicket): Exclude<StoreOrder['fulfilmentStatus'], ''>[] {
@@ -69,6 +69,6 @@ export function orderMatchesStatusInPeriod(order: StoreOrder, period: 'Today' | 
 
 
 // Completed is a fulfilment-period summary, including completed days of active parents.
-export function completedEntriesForPeriod(orders: StoreOrder[], view: DailyView, today: string, selectedDate?: string) {
-  return dailyEntries(orders, 'History', today).filter(entry => entry.status === 'Completed' && ticketInDailyView(entry.ticket.date, view, today, selectedDate));
+export function completedEntriesForPeriod(orders: StoreOrder[], view: DailyView, today: string) {
+  return dailyEntries(orders, 'History', today).filter(entry => entry.status === 'Completed' && ticketInDailyView(entry.ticket.date, view, today));
 }

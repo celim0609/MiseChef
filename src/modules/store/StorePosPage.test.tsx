@@ -186,7 +186,6 @@ const makeExternalOrderHarness = (overrides: Record<string, unknown> = {}) => {
   const lock = { current: false };
   const requests: Record<string, unknown>[] = [];
   const scope = {
-    externalDiscount: undefined, externalDiscountPreview:{amountMinor:0,error:''},setExternalDiscount:()=>{},
     externalSubmitInFlightRef: lock,
     externalAddTimes:{current:new Map()},
     externalRequestIdRef: {current: 'request-1234567890'},
@@ -319,7 +318,7 @@ test('POS Add Order uses document flow with catalog before cart and no modal scr
 });
 
 test('cart preview preserves option adjustments, Set upgrades, quantities and rounded subtotal', () => {
-  const pricingSource = pageSource.slice(pageSource.indexOf('  const externalCartLines ='), pageSource.indexOf('\n  const externalDiscountItems ='));
+  const pricingSource = pageSource.slice(pageSource.indexOf('  const externalCartLines ='), pageSource.indexOf('\n  const advanceGroup ='));
   const calculate = new Function('externalCart', 'externalProducts', 'externalOptionGroups', 'externalSets', 'calculateStoreOptionAdjustedPrice', 'calculateStoreSetAnalysis', 'externalStore', 'externalDate', 'externalTime', 'externalPosFullAccess', `${pricingSource}\nreturn { externalCartLines, externalSubtotal };`);
   const products = [{ id: 'tea', name: 'Tea', available: true, price: 10 }];
   const groups = [{ id: 'flavour', available: true, options: [{ id: 'milk', available: true, priceAdjustment: 2.5 }] }];
@@ -431,12 +430,10 @@ test('POS Live History opens the existing unified browser while operational peri
   const compiled = ts.transpileModule(source + '\nreturn selectDailyView;', { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   const selected: string[] = [];
   let historyOpened = 0;
-  const resetDates: string[] = [];
-  const select = new Function('setDailyView', 'openHistory', 'setUpcomingDate', 'shiftDateKey', 'todayKey', compiled)((view: string) => selected.push(view), () => { historyOpened++; }, (date: string) => resetDates.push(date), (date: string, days: number) => days === 1 ? '2026-11-26' : date, '2026-11-25');
+  const select = new Function('setDailyView', 'openHistory', compiled)((view: string) => selected.push(view), () => { historyOpened++; });
   for (const view of ['Today', 'Tomorrow', 'Upcoming']) select(view);
   assert.deepEqual(selected, ['Today', 'Tomorrow', 'Upcoming']);
   assert.equal(historyOpened, 0);
-  assert.deepEqual(resetDates, ['2026-11-26']);
   select('History');
   assert.equal(historyOpened, 1);
   assert.deepEqual(selected, ['Today', 'Tomorrow', 'Upcoming']);

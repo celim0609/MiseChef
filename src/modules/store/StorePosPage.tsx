@@ -1,5 +1,3 @@
-import ManualDiscountControl, {previewPosDiscount, type ManualDiscount} from './ManualDiscountControl';
-import UpcomingDateSelector from './UpcomingDateSelector';
 import {searchPosHistory, type HistorySearchPage} from './services/posHistorySearchService';
 import { selectedBrowserRange, browserRows, moveBrowserDate, type BrowserMode, type BrowserPeriod } from './orderBrowserModel';
 import { posStoreDate, resolvePosAddOrderMeal } from '../../../functions/posAddOrder.js';
@@ -270,7 +268,6 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const externalOrderableProducts = externalPosFullAccess ? externalProducts.map(product => ({ ...product, available: true, healthyLunchBlockedDates: [] })) : externalProducts;
   const [externalSets, setExternalSets] = useState<StoreSet[]>([]);
   const [externalOptionGroups, setExternalOptionGroups] = useState<StoreOptionGroup[]>([]);
-  const [externalDiscount,setExternalDiscount]=useState<ManualDiscount>();
   const [externalCart, setExternalCart] = useState<ExternalCartItem[]>([]);
   const [externalSource, setExternalSource] = useState('shopeefood');
   const [externalMethod, setExternalMethod] = useState<'pickup' | 'delivery'>('pickup');
@@ -453,20 +450,19 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   }, [activeView, completedQueryDateKey, historyDateBasis, historyRefreshKey, storeId, workspaceId]);
 
   const [dailyView, setDailyView] = useState<DailyView>('Today');
-  const [upcomingDate, setUpcomingDate] = useState(() => shiftDateKey(toMalaysiaDateKey(), 1));
   const dailyOrders = [...new Map([...(dailyHistory?.orders || []), ...completedOrders, ...orders].map(order => [order.id, order])).values()];
-  const boardDailyEntries = dailyView === 'History' ? [] : dailyEntries(dailyOrders,dailyView,todayKey,upcomingDate);
+  const boardDailyEntries = dailyView === 'History' ? [] : dailyEntries(dailyOrders,dailyView,todayKey);
   const groupedOrders = useMemo(() => ACTIVE_COLUMNS.reduce<Record<ActivePosStatus, ReturnType<typeof buildGroupKitchenEntries>>>(
     (groups, column) => {
-      groups[column.status] = buildGroupKitchenEntries(orders.filter(order => !order.fulfilments?.length && !order.weeklyFulfilments?.length && !getOrderTickets(order).some(ticket => ticket.fulfilmentId) && getOrderTickets(order).some(ticket => ticketInDailyView(ticket.date,dailyView,todayKey,upcomingDate)) && dailyView !== 'History'), column.status, storePickupSessions);
+      groups[column.status] = buildGroupKitchenEntries(orders.filter(order => !order.fulfilments?.length && !order.weeklyFulfilments?.length && !getOrderTickets(order).some(ticket => ticket.fulfilmentId) && getOrderTickets(order).some(ticket => ticketInDailyView(ticket.date,dailyView,todayKey)) && dailyView !== 'History'), column.status, storePickupSessions);
       return groups;
     },
     { New: [], Preparing: [], Ready: [] }
-  ), [orders, storePickupSessions, todayKey, dailyView, upcomingDate]);
+  ), [orders, storePickupSessions, todayKey, dailyView]);
 
-  const completedPeriodEntries = completedEntriesForPeriod(dailyOrders, dailyView, todayKey, upcomingDate);
+  const completedPeriodEntries = completedEntriesForPeriod(dailyOrders, dailyView, todayKey);
   const activeOnlineOrderCount = countActiveOnlineOrders(orders);
-  const selectedRange = selectedBrowserRange(browserPeriod, historyDateKey, browserPeriod === 'Upcoming' ? 'Day' : browserMode, todayKey);
+  const selectedRange = selectedBrowserRange(browserPeriod, historyDateKey, browserMode, todayKey);
   const searchAllDates = browserPeriod === 'History' && allHistoryDates && Boolean(historySearch.trim());
   const historyQueryKey = JSON.stringify([storeId, workspaceId, selectedRange.start, selectedRange.end, historySearch.trim(), searchAllDates, browserPeriod, historyRefreshKey]);
   useEffect(() => {
@@ -515,7 +511,6 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     setExternalError('');
     setExternalCategory('all');
     setPendingSaved(null);
-    setExternalDiscount(undefined);
     setExternalPosFullAccess(false);
     setExternalOpen(true);
     window.scrollTo({ top: 0 });
@@ -553,11 +548,10 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       const currentStore=await storeService.getWorkspaceStore(workspaceId);
       if(!currentStore?.slug || currentStore.slug!==externalOrderInput.slug) throw new Error('Store details changed. Reload the catalog before retrying.');
       if(externalMethod==='delivery' && !externalManualFee && (!externalQuote || Date.parse(externalQuote.expiresAt)<=Date.now()+5000)) throw new Error('Delivery estimate expired. Refresh before confirming.');
-      if (externalDiscountPreview.error) throw new Error(externalDiscountPreview.error);
       if (!externalFeeReady) throw new Error('Refresh the delivery estimate or enter an authorized manual fee.');
       if (pendingCart) {
         if (pendingScheduleError || mixedPlanError) throw new Error(pendingScheduleError || mixedPlanError);
-        const result = await storeOrderService.saveManualPosOrder({ ...pendingManualInput, ...(externalDiscount ? {manualDiscount:externalDiscount,expectedDiscountMinor:externalDiscountPreview.amountMinor} : {}),
+        const result = await storeOrderService.saveManualPosOrder({ ...pendingManualInput,
           requestId: externalRequestIdRef.current, expectedSubtotalMinor: Math.round(externalSubtotal * 100),
           ...(externalMethod === 'delivery' ? externalManualFee
             ? { deliveryFeeOverride: { amount: Number(externalFeeAmount), reason: externalFeeReason } }
@@ -567,14 +561,13 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
         if (!order) throw new Error('The pending order was saved. Check View Orders before taking further action.');
         setPendingSaved(order);
         externalRequestIdRef.current = crypto.randomUUID(); externalAddTimes.current.clear();
-        setExternalDiscount(undefined);
         setExternalCart([]); setExternalOpen(false); setExternalNumber(''); setExternalName(''); setExternalPhone(''); setExternalNotes('');
         setExternalMethod('pickup'); setExternalAddress(''); setExternalDestination(undefined); setExternalDestinations({});
         setExternalQuoteState(null); setExternalDate(''); setExternalTime(''); setOrdinaryPending(false);
         setHistoryRefreshKey(key => key + 1);
         return;
       }
-      const result = await storeOrderService.createExternalPosOrder({ ...externalOrderInput, ...(externalDiscount ? {manualDiscount:externalDiscount,expectedDiscountMinor:externalDiscountPreview.amountMinor} : {}), requestId: externalRequestIdRef.current, paymentLabel,
+      const result = await storeOrderService.createExternalPosOrder({ ...externalOrderInput, requestId: externalRequestIdRef.current, paymentLabel,
         ...(externalMethod==='delivery' ? externalManualFee ? {deliveryFeeOverride:{amount:Number(externalFeeAmount),reason:externalFeeReason}} : {posDeliveryQuoteId:externalQuote?.id} : {}) });
       if (externalSource === 'walk_in') {
         try {
@@ -584,7 +577,6 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
           // The persisted order remains available for POS-card reprint.
         }
       }
-      setExternalDiscount(undefined);
       externalRequestIdRef.current = crypto.randomUUID();
       externalAddTimes.current.clear();
       setExternalOpen(false); setExternalNumber(''); setExternalName(''); setExternalPhone(''); setExternalNotes(''); setExternalCart([]); setExternalMethod('pickup'); setExternalAddress('');setExternalDestination(undefined);setExternalDestinations({});setExternalQuoteState(null); setExternalDate(''); setExternalTime('');
@@ -675,12 +667,9 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     const unitPrice = menuPreview ? (menuPreview.unitMinor || 0)/100 : set
       ? calculateStoreSetAnalysis(set, externalProducts, item.selection.selectedSetItems || []).sellingPrice
       : calculateStoreOptionAdjustedPrice(product?.price || 0, adjustments);
-    return { ...item, pricingItem: menuPreview?.pricingItem, previewError:menuPreview?.error || scheduleError, unitPrice, lineTotal: Math.round((unitPrice * item.quantity + Number.EPSILON) * 100) / 100 };
+    return { ...item, previewError:menuPreview?.error || scheduleError, unitPrice, lineTotal: Math.round((unitPrice * item.quantity + Number.EPSILON) * 100) / 100 };
   });
   const externalSubtotal = Math.round((externalCartLines.reduce((sum, item) => sum + item.lineTotal, 0) + Number.EPSILON) * 100) / 100;
-
-  const externalDiscountItems = externalCartLines.map(item=>({...item.pricingItem,productId:item.selection.productId,quantity:item.quantity,lineTotal:item.lineTotal,...(item.selection.setId?{itemType:'set'}:{})}));
-  const externalDiscountPreview = previewPosDiscount(externalDiscountItems,externalDiscount,externalPosFullAccess);
 
   const advanceGroup = async (entry: Extract<GroupKitchenEntry, { kind: 'group' }>) => {
     if (!entry.batchAction || updatingGroupId || updatingOrderId) return;
@@ -750,7 +739,6 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       openHistory();
       return;
     }
-    if (view === 'Upcoming') setUpcomingDate(shiftDateKey(todayKey, 1));
     setDailyView(view);
   };
 
@@ -809,11 +797,9 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
         <div className="p-4 lg:p-6"><DailyFulfilmentQueue canBookDelivery={canBookDelivery} view={dailyView} onUpdated={() => setHistoryRefreshKey(value => value + 1)} orders={dailyOrders} />{(!dailyHistory || dailyHistory.hasMore) && <button type="button" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()} className="mt-4 min-h-11 rounded-xl border px-4 py-2 font-bold">{loadingDailyHistory ? 'Loading…' : 'Load older fulfilments'}</button>}</div>
       ) : (
         <div className="p-4 lg:p-6" aria-label="Daily fulfilments">
-          {dailyView === 'Upcoming' && <UpcomingDateSelector value={upcomingDate} today={todayKey} onChange={setUpcomingDate} night={isNightMode} />}
-          <h2 className="pos-readable-heading text-xl font-bold">Daily fulfilments · {dailyView === 'Upcoming' ? formatMalaysiaBusinessDate(upcomingDate) : dailyView} {dailyView === 'Today' ? `(${todayKey}, Malaysia)` : ''}</h2>
+          <h2 className="pos-readable-heading text-xl font-bold">Daily fulfilments · {dailyView} {dailyView === 'Today' ? `(${todayKey}, Malaysia)` : ''}</h2>
           {dailyOrders.some(order => isOrderOperationallyEligible(order) && !['Completed','Cancelled'].includes(order.fulfilmentStatus) && !getOrderTickets(order).length) && <p role="status" className="mt-3 rounded-xl border border-amber-400 bg-amber-50 p-3 font-bold text-amber-950">Schedule review required: some orders have missing or inconsistent item dates. Review them in View Orders before preparation or printing.</p>}
           <p>Counts reflect this fulfilment period, not the parent order status. Future Ready meals are available under Upcoming.</p>
-          {dailyView === 'Upcoming' && !isLoading && !boardDailyEntries.length && !ACTIVE_COLUMNS.some(column => groupedOrders[column.status].length) && !completedPeriodEntries.length && <p role="status" className="mt-3 rounded-xl border p-4 text-sm font-bold">No orders scheduled for {formatMalaysiaBusinessDate(upcomingDate)}.</p>}
           <div className="mt-4 grid items-start gap-4">
             <div aria-label="Active kitchen board" className="grid grid-cols-1 items-start gap-3 lg:grid-cols-3">
               {ACTIVE_COLUMNS.map(column => {
@@ -865,12 +851,11 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
         <div className="flex-1 p-4 lg:p-6">
           <section className={`pos-light-surface mx-auto max-w-7xl rounded-2xl border p-4 shadow-lg lg:p-6 ${isNightMode ? 'border-slate-700 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}>
             <nav aria-label="Order fulfilment period" className="mb-3 flex flex-wrap gap-2">{(['Today','Tomorrow','Upcoming','History'] as const).map(value => <button type="button" key={value} aria-pressed={browserPeriod === value} onClick={() => {setBrowserPeriod(value); if(value === 'Upcoming') setHistoryDateKey(shiftDateKey(todayKey,1));}} className={`rounded-lg border px-3 py-2 text-sm font-bold ${browserPeriod === value ? 'bg-blue-600 text-white' : ''}`}>{value}</button>)}</nav>
-            {browserPeriod === 'Upcoming' && <UpcomingDateSelector value={historyDateKey} today={todayKey} onChange={setHistoryDateKey} night={isNightMode} />}
-            <div className="mb-3 flex flex-wrap gap-2">{browserPeriod === 'History' && !searchAllDates && (['Day','Week','Month'] as const).map(value => <button type="button" key={value} aria-pressed={browserMode === value} onClick={() => setBrowserMode(value)} className={`rounded-lg border px-3 py-2 text-sm font-bold ${browserMode === value ? 'bg-blue-600 text-white' : ''}`}>{value}</button>)}
+            <div className="mb-3 flex flex-wrap gap-2">{(browserPeriod === 'History' || browserPeriod === 'Upcoming') && !searchAllDates && (['Day','Week','Month'] as const).map(value => <button type="button" key={value} aria-pressed={browserMode === value} onClick={() => setBrowserMode(value)} className={`rounded-lg border px-3 py-2 text-sm font-bold ${browserMode === value ? 'bg-blue-600 text-white' : ''}`}>{value}</button>)}
               <select aria-label="Payment status" value={browserPayment} onChange={event => setBrowserPayment(event.target.value)} className="pos-control rounded-lg border bg-transparent p-2 text-sm"><option value="">All payments</option>{['pending','processing','paid','pending_verification','failed','cancelled','rejected'].map(value => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select>
               <select aria-label="Fulfilment type" value={browserMethod} onChange={event => setBrowserMethod(event.target.value)} className="pos-control rounded-lg border bg-transparent p-2 text-sm"><option value="">All fulfilment types</option><option value="pickup">Pickup</option><option value="delivery">Delivery</option></select>
             </div>
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div><p className={`text-xs font-black uppercase tracking-[0.16em] ${isNightMode ? 'text-blue-300' : 'text-blue-700'}`}>Fulfilment date · Malaysia UTC+8</p><h2 className="pos-readable-heading mt-1 text-3xl font-black">{browserPeriod === 'Upcoming' ? 'Upcoming Orders' : historyDateBasis === 'completed' ? 'Completed Orders' : 'Order History'}</h2></div><div hidden={searchAllDates || browserPeriod === 'Upcoming' || browserPeriod === 'Today' || browserPeriod === 'Tomorrow'} className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => setHistoryDateKey(toMalaysiaDateKey())} className={`min-h-12 rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}>Today</button><button type="button" onClick={() => setHistoryDateKey(shiftDateKey(toMalaysiaDateKey(), -1))} className={`min-h-12 rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}>Yesterday</button><button type="button" onClick={() => setHistoryDateKey(moveBrowserDate(historyDateKey, browserMode, -1))} aria-label="Previous date" className={`flex h-12 w-12 items-center justify-center rounded-xl border ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}><ChevronLeft className="h-6 w-6" /></button><div className={`flex min-h-12 items-center gap-2 rounded-xl border px-4 font-black ${isNightMode ? 'border-slate-600 bg-slate-900 text-white' : 'border-slate-300 bg-slate-50 text-slate-900'}`}><CalendarDays className="h-5 w-5" />{searchAllDates ? 'All fulfilment dates' : selectedRange.end === shiftDateKey(selectedRange.start,1) ? formatMalaysiaBusinessDate(selectedRange.start) : `${formatMalaysiaBusinessDate(selectedRange.start)} – ${formatMalaysiaBusinessDate(shiftDateKey(selectedRange.end,-1))}`} </div><button type="button" onClick={() => setHistoryDateKey(moveBrowserDate(historyDateKey, browserMode, 1))} aria-label="Next date" className={`flex h-12 w-12 items-center justify-center rounded-xl border disabled:opacity-35 ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}><ChevronRight className="h-6 w-6" /></button><label className={`pos-control flex min-h-12 items-center gap-2 rounded-xl border px-3 ${isNightMode ? 'border-slate-600 bg-slate-900' : 'border-slate-300 bg-white'}`}><span className="sr-only">Select date</span><input type="date" value={historyDateKey} onChange={event => event.target.value && setHistoryDateKey(event.target.value)} className="pos-control bg-transparent text-sm font-black" /></label></div></div>
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div><p className={`text-xs font-black uppercase tracking-[0.16em] ${isNightMode ? 'text-blue-300' : 'text-blue-700'}`}>Fulfilment date · Malaysia UTC+8</p><h2 className="pos-readable-heading mt-1 text-3xl font-black">{historyDateBasis === 'completed' ? 'Completed Orders' : 'Order History'}</h2></div><div hidden={searchAllDates || browserPeriod === 'Today' || browserPeriod === 'Tomorrow'} className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => setHistoryDateKey(toMalaysiaDateKey())} className={`min-h-12 rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}>Today</button><button type="button" onClick={() => setHistoryDateKey(shiftDateKey(toMalaysiaDateKey(), -1))} className={`min-h-12 rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}>Yesterday</button><button type="button" onClick={() => setHistoryDateKey(moveBrowserDate(historyDateKey, browserMode, -1))} aria-label="Previous date" className={`flex h-12 w-12 items-center justify-center rounded-xl border ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}><ChevronLeft className="h-6 w-6" /></button><div className={`flex min-h-12 items-center gap-2 rounded-xl border px-4 font-black ${isNightMode ? 'border-slate-600 bg-slate-900 text-white' : 'border-slate-300 bg-slate-50 text-slate-900'}`}><CalendarDays className="h-5 w-5" />{searchAllDates ? 'All fulfilment dates' : selectedRange.end === shiftDateKey(selectedRange.start,1) ? formatMalaysiaBusinessDate(selectedRange.start) : `${formatMalaysiaBusinessDate(selectedRange.start)} – ${formatMalaysiaBusinessDate(shiftDateKey(selectedRange.end,-1))}`} </div><button type="button" onClick={() => setHistoryDateKey(moveBrowserDate(historyDateKey, browserMode, 1))} aria-label="Next date" className={`flex h-12 w-12 items-center justify-center rounded-xl border disabled:opacity-35 ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}><ChevronRight className="h-6 w-6" /></button><label className={`pos-control flex min-h-12 items-center gap-2 rounded-xl border px-3 ${isNightMode ? 'border-slate-600 bg-slate-900' : 'border-slate-300 bg-white'}`}><span className="sr-only">Select date</span><input type="date" value={historyDateKey} onChange={event => event.target.value && setHistoryDateKey(event.target.value)} className="pos-control bg-transparent text-sm font-black" /></label></div></div>
             <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="flex flex-wrap gap-2">{historyDateBasis === 'created' ? HISTORY_FILTERS.map(filter => <button key={filter.id} type="button" onClick={() => setHistoryFilter(filter.id)} aria-pressed={historyFilter === filter.id} className={`min-h-11 rounded-full px-4 text-sm font-black ${historyFilter === filter.id ? 'bg-blue-600 text-white' : isNightMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>{filter.label}</button>) : <><button type="button" aria-pressed="true" className="min-h-11 rounded-full bg-blue-600 px-4 text-sm font-black text-white">Completed</button><button type="button" onClick={() => { setHistoryDateBasis('created'); setHistoryFilter('all'); }} className={`min-h-11 rounded-full px-4 text-sm font-black ${isNightMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>View fulfilment-date History</button></>}</div><label className={`pos-control flex min-h-12 min-w-[260px] items-center gap-2 rounded-xl border px-3 ${isNightMode ? 'border-slate-600 bg-slate-900' : 'border-slate-300 bg-white'}`}><Search className="h-5 w-5 text-slate-400" /><span className="sr-only">Search customer or order number</span><input value={historySearch} onChange={event => setHistorySearch(event.target.value)} placeholder="Search order # or customer" className="pos-control w-full bg-transparent text-sm font-bold outline-none" /></label></div>
             {browserPeriod === 'History' && <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={allHistoryDates} onChange={event=>setAllHistoryDates(event.target.checked)} />Search all fulfilment dates (when searching)</label>}
             <p className="mt-2 text-xs font-bold">{searchAllDates ? 'Search scope: all historical fulfilment dates' : `Selected fulfilment period: ${selectedRange.start} to ${shiftDateKey(selectedRange.end,-1)} (Malaysia)`}</p>
@@ -943,7 +928,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
 
             <div className="space-y-6">
             <div role="region" aria-label="Store products" className="p-4">
-              <div role="status" aria-live="polite" className="mb-3 flex justify-between rounded-lg bg-blue-50 p-3 font-bold text-blue-950"><span>{externalCart.reduce((sum,item)=>sum+item.quantity,0)} items in cart</span><span>MYR {externalFeeReady?(Math.round((externalSubtotal-externalDiscountPreview.amountMinor/100+Number(externalFee))*100)/100).toFixed(2):externalSubtotal.toFixed(2)}{!externalFeeReady?' · delivery pending':''}</span></div>
+              <div role="status" aria-live="polite" className="mb-3 flex justify-between rounded-lg bg-blue-50 p-3 font-bold text-blue-950"><span>{externalCart.reduce((sum,item)=>sum+item.quantity,0)} items in cart</span><span>MYR {externalFeeReady?(Math.round((externalSubtotal+Number(externalFee))*100)/100).toFixed(2):externalSubtotal.toFixed(2)}{!externalFeeReady?' · delivery pending':''}</span></div>
               <div aria-label="Catalog categories" className="mb-3 grid grid-cols-3 gap-2 bg-white pb-2">
                 {(['all','sets','weekly'] as const).map(category => <button key={category} type="button" aria-pressed={externalCategory === category} onClick={() => setExternalCategory(category)} className={`min-h-11 rounded-lg border px-2 py-2 text-sm font-bold ${externalCategory === category ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}>{category === 'all' ? 'All Products' : category === 'sets' ? 'Sets' : 'Weekly'}</button>)}
               </div>
@@ -1016,15 +1001,13 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                 {!externalQuote&&!externalQuoting&&externalCart.length>0&&<button type="button" className="mt-2 rounded border px-3 py-2 font-bold" onClick={()=>{setExternalManualFee(false);setExternalQuoteState(null);setExternalQuoteError('');setExternalQuoting(true);const key=externalQuoteKey;void storeOrderService.quotePosDelivery(JSON.parse(key)).then(quote=>{if(key===externalQuoteKeyRef.current)setExternalQuoteState({quote,key});}).catch(error=>{if(key===externalQuoteKeyRef.current)setExternalQuoteError(error.message);}).finally(()=>{if(key===externalQuoteKeyRef.current)setExternalQuoting(false);});}}>Refresh estimate</button>}
                 {externalPosFullAccess && !externalQuote && !externalQuoting && <div className="mt-2"><label className="font-bold"><input type="checkbox" checked={externalManualFee} onChange={e=>{setExternalManualFee(e.target.checked);setExternalOverrideKey(externalQuoteKey);}}/> Manual delivery fee</label>{externalManualFee&&<div className="mt-2 grid gap-2"><label>Customer delivery fee (MYR)<input aria-label="Manual delivery fee" type="number" min="0" max="100000" step="0.01" value={externalFeeAmount} onChange={e=>setExternalFeeAmount(e.target.value)} className="ml-2 w-28 rounded border p-2"/></label><label>Reason<input aria-label="Manual delivery fee reason" value={externalFeeReason} maxLength={240} onChange={e=>setExternalFeeReason(e.target.value)} className="ml-2 rounded border p-2"/></label></div>}</div>}
               </section>}
-              <ManualDiscountControl value={externalDiscount} onChange={setExternalDiscount} items={externalDiscountItems} authorized={externalPosFullAccess && externalStore?.currency==='MYR'} disabled={creatingExternal || !externalCart.length} />
-              {externalDiscountPreview.error && <p role="alert" className="mb-2 text-sm text-red-700">{externalDiscountPreview.error}</p>}
-              <dl className="mb-3 space-y-1 text-sm"><div className="flex justify-between"><dt>Product subtotal</dt><dd>MYR {externalSubtotal.toFixed(2)}</dd></div><div className="flex justify-between"><dt>Discounts</dt><dd>−MYR {(externalDiscountPreview.amountMinor/100).toFixed(2)}</dd></div><div className="flex justify-between"><dt>Delivery fee</dt><dd>{externalFeeReady?`MYR ${Number(externalFee).toFixed(2)}`:'Pending estimate'}</dd></div><div className="flex justify-between border-t pt-2 text-base font-black"><dt>Grand total</dt><dd>{externalFeeReady?`MYR ${(Math.round((externalSubtotal-externalDiscountPreview.amountMinor/100+Number(externalFee))*100)/100).toFixed(2)}`:'Pending delivery fee'}</dd></div></dl>
+              <dl className="mb-3 space-y-1 text-sm"><div className="flex justify-between"><dt>Product subtotal</dt><dd>MYR {externalSubtotal.toFixed(2)}</dd></div><div className="flex justify-between"><dt>Discounts</dt><dd>MYR 0.00</dd></div><div className="flex justify-between"><dt>Delivery fee</dt><dd>{externalFeeReady?`MYR ${Number(externalFee).toFixed(2)}`:'Pending estimate'}</dd></div><div className="flex justify-between border-t pt-2 text-base font-black"><dt>Grand total</dt><dd>{externalFeeReady?`MYR ${(Math.round((externalSubtotal+Number(externalFee))*100)/100).toFixed(2)}`:'Pending delivery fee'}</dd></div></dl>
               {externalPosFullAccess && !fullWeekCart && <label className="mb-2 block text-sm font-bold">Payment workflow<select aria-label="Payment workflow" value={pendingCart ? 'pending' : 'external'} onChange={event=>setOrdinaryPending(event.target.value==='pending')} className="ml-2 rounded border p-2"><option value="external" disabled={requiresPendingCart}>Existing externally-paid workflow</option><option value="pending">Save as Pending Payment</option></select></label>}
               {!pendingCart && <p className="mb-2 text-xs font-bold">Payment status: {externalSource==='shopeefood'?'Platform paid':'Paid externally'} · Confirm only after payment is received.</p>}
               {(pendingScheduleError || mixedPlanError) && <p role="alert" className="mb-2 text-sm text-red-700">{pendingScheduleError || mixedPlanError}</p>}
               {!hasRequiredExternalOptions && <p className="mb-2 text-sm text-amber-800">Choose the required product options to continue.</p>}
               {externalError && <p id="pos-order-entry-error" role="alert" className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-800">{externalError}</p>}
-              <button type="button" onClick={() => void createExternalOrder()} disabled={creatingExternal || Boolean(externalDiscountPreview.error) || !externalFeeReady || !externalCart.length || !hasRequiredExternalOptions || externalLoading || Boolean(pendingScheduleError || mixedPlanError) || externalCartLines.some(item=>Boolean(item.previewError))} aria-busy={creatingExternal} aria-describedby={externalError ? 'pos-order-entry-error' : undefined} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-base font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
+              <button type="button" onClick={() => void createExternalOrder()} disabled={creatingExternal || !externalFeeReady || !externalCart.length || !hasRequiredExternalOptions || externalLoading || Boolean(pendingScheduleError || mixedPlanError) || externalCartLines.some(item=>Boolean(item.previewError))} aria-busy={creatingExternal} aria-describedby={externalError ? 'pos-order-entry-error' : undefined} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-base font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
                 {creatingExternal && <LoaderCircle aria-hidden="true" className="h-5 w-5 animate-spin" />}{creatingExternal ? 'Creating…' : pendingCart ? 'Save as Pending Payment' : 'Confirm Order'}
               </button>
             </footer>

@@ -1,4 +1,4 @@
-import { printCustomerReceipt, printCustomerInvoice } from './posWalkIn';
+import { printCustomerReceipt } from './posWalkIn';
 import { useState } from 'react';
 import type { StoreOrder } from './types';
 import { getOrderTickets, printOrderTickets } from './orderTickets';
@@ -53,7 +53,7 @@ export default function OrderTicketPanel({ orders }: { orders: StoreOrder[] }) {
     </div>
     <div className="mb-4 flex flex-wrap gap-2">{[...new Set(selectedTickets.map(ticket => ticket.orderId))].map(id => {
       const order = orders.find(order => order.id === id);
-      return order?.payment.status === 'paid' ? <span key={id} className="flex flex-wrap gap-2"><button type="button" key={id} className="rounded-lg border px-3 py-2" onClick={() => {try {printCustomerReceipt(order);} catch(error) {setError(error instanceof Error ? error.message : 'Unable to print receipt.');}}}>Customer receipt · {order.orderNumber}</button><button type="button" className="rounded-lg border px-3 py-2" onClick={()=>{try{printCustomerInvoice(order);}catch(error){setError(error instanceof Error?error.message:"Unable to print invoice.");}}}>Customer invoice · {order.orderNumber}</button></span> : null;
+      return order?.payment.status === 'paid' ? <button type="button" key={id} className="rounded-lg border px-3 py-2" onClick={() => {try {printCustomerReceipt(order);} catch(error) {setError(error instanceof Error ? error.message : 'Unable to print receipt.');}}}>Customer receipt · {order.orderNumber}</button> : null;
     })}</div>
     <label className="text-sm"><input type="checkbox" className="mr-2" checked={reprint} onChange={event => setReprint(event.target.checked)} />Mark as REPRINT</label>
     {error && <p role="alert" className="mt-3 text-red-700">{error}</p>}

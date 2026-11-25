@@ -1,4 +1,3 @@
-import {createExternalPosOrder} from './externalPosOrders.js';
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -655,64 +654,17 @@ test('special school delivery outside hours is restricted to authenticated Owner
   await assert.rejects(saveManualPosOrder({db,uid:'chef',input:{...request,owner:true,posFullAccess:true,requestId:'school-forged-authority-123456'},now,loadCheckout:async()=>catalog}),/Delivery Hours/);
 });
 
-test('Owner and Manager save authorized discounts with separate unchanged delivery and exact payable', async()=>{
- for(const uid of ['owner','manager']){
-  const {db,docs}=database({'workspaces/s':workspace,'workspaceMembers/s_manager':{userId:'manager',workspaceId:'s',role:'Manager',status:'Active'}});
-  const request={...input(),manualDiscount:{type:'percentage',value:10,reason:'Goodwill'},expectedDiscountMinor:510,deliveryFeeOverride:{amount:7,reason:'Agreed fee'},lines:input().lines.map(line=>({...line,method:'delivery',deliveryArrangement:'store',deliveryAddress:'School gate'}))};
-  const result=await saveManualPosOrder({db,uid,input:request,now,loadCheckout:async()=>checkout});
-  const order=docs[`storeOrders/${result.orderId}`];
-  assert.deepEqual(order.totals,{merchandiseSubtotal:51,discountTotal:5.1,discountedMerchandiseTotal:45.9,deliveryFee:7,grandTotal:52.9,currency:'MYR'});
-  assert.equal(order.payment.amountMinor,5290);assert.equal(order.manualDiscountSnapshot.authorizedBy,uid);assert.equal(order.manualDiscountSnapshot.finalTotal,52.9);assert.equal(order.manualOrder.draft.manualDiscount.reason,'Goodwill');
-  const edited=await saveManualPosOrder({db,uid,input:{...request,requestId:'edit-discount-12345678',orderId:order.id,expectedRevision:1,manualDiscount:{type:'fixed_amount',value:1},expectedDiscountMinor:100},now,loadCheckout:async()=>checkout});
-  assert.equal(docs[`storeOrders/${edited.orderId}`].total,57);
-  await saveManualPosOrder({db,uid,input:{...request,requestId:'remove-discount-12345678',orderId:order.id,expectedRevision:2,manualDiscount:undefined},now,loadCheckout:async()=>checkout});
-  const removed=docs[`storeOrders/${order.id}`];assert.equal(removed.total,58);assert.equal(removed.totals.discountTotal,0);assert.equal(removed.manualOrder.draft.manualDiscount,undefined);
- }
-});
-test('backend rejects forged roles, stale discount, active offers and paid edits before any write',async()=>{
- const promotion={id:'offer',storeId:'s',workspaceId:'s',name:'Existing offer',type:'percentage',percentageOff:10,active:true,eligibleProductIds:['prawn'],startsAt:'2020-01-01',minimumQuantity:0,minimumOrderAmount:0};
- for(const scenario of ['chef','inactive-manager','stale','offer','paid']){
-  const {db,docs,writes}=database({'workspaces/s':workspace,'workspaceMembers/s_chef':{workspaceId:'s',userId:'chef',status:'Active',role:'Chef'},'workspaceMembers/s_inactive-manager':{workspaceId:'s',userId:'inactive-manager',status:'Inactive',role:'Manager'}});
-  const request={...input(),manualDiscount:{type:'fixed_amount',value:1},expectedDiscountMinor:100,owner:true,posFullAccess:true};
-  if(scenario==='stale') request.expectedDiscountMinor=99;
-  if(scenario==='paid'){const result=await saveManualPosOrder({db,uid:'owner',input:input(),now,loadCheckout:async()=>checkout});Object.assign(docs[`storeOrders/${result.orderId}`].payment,{status:'paid'});Object.assign(request,{orderId:result.orderId,expectedRevision:1,requestId:'paid-edit-discount-12345'});writes.length=0;}
-  await assert.rejects(saveManualPosOrder({db,uid:['chef','inactive-manager'].includes(scenario)?scenario:'owner',input:request,now,loadCheckout:async()=>({...checkout,promotions:scenario==='offer'?[promotion]:[]})}));
-  assert.equal(writes.length,0,scenario);
- }
-});
-test('new paid Add Order uses the same discount totals and idempotency, without revising paid records',async()=>{
+test('rollback preserves discounted pending totals and permits only existing exact-amount confirmation',async()=>{
  const {db,docs,writes}=database({'workspaces/s':workspace});
- const request={slug:'gg',storeId:'s',workspaceId:'s',source:'walk_in',requestId:'discount-walkin-123456',paymentLabel:'walk_in_paid',selections:[{productId:'prawn',quantity:2,selectedOptions:[]}],manualDiscount:{type:'fixed_amount',value:3,reason:'Owner goodwill'},expectedDiscountMinor:300};
- const result=await createExternalPosOrder({db,uid:'owner',input:request,now,loadCheckout:async()=>checkout});
+ const result=await saveManualPosOrder({db,uid:'owner',input:input(),now,loadCheckout:async()=>checkout});
  const order=docs[`storeOrders/${result.orderId}`];
- assert.equal(order.payment.status,'paid');assert.equal(order.total,27);assert.equal(order.payment.amountMinor,2700);assert.equal(order.totals.merchandiseSubtotal,30);assert.equal(order.totals.discountTotal,3);assert.equal(order.manualDiscountSnapshot.authorizedBy,'owner');
- const before=JSON.stringify(order),count=writes.length;
- assert.equal((await createExternalPosOrder({db,uid:'owner',input:request,now,loadCheckout:async()=>checkout})).duplicate,true);
- assert.equal(writes.length,count);
- await assert.rejects(createExternalPosOrder({db,uid:'owner',input:{...request,manualDiscount:{type:'percentage',value:50},expectedDiscountMinor:1500},now,loadCheckout:async()=>checkout}),/different order details/);
- assert.equal(JSON.stringify(docs[`storeOrders/${result.orderId}`]),before);
-});
-test('a full food discount never discounts delivery and payment accepts only the saved final amount',async()=>{
- const {db,docs}=database({'workspaces/s':workspace});
- const request={...input(),manualDiscount:{type:'percentage',value:100},expectedDiscountMinor:5100,deliveryFeeOverride:{amount:7,reason:'Agreed fee'},lines:input().lines.map(line=>({...line,method:'delivery',deliveryArrangement:'store',deliveryAddress:'School gate'}))};
- const result=await saveManualPosOrder({db,uid:'owner',input:request,now,loadCheckout:async()=>checkout});
- const order=docs[`storeOrders/${result.orderId}`];assert.equal(order.total,7);assert.equal(order.totals.discountedMerchandiseTotal,0);assert.equal(order.payment.amountMinor,700);
- const confirmation={orderId:order.id,expectedRevision:1,amountMinor:5800,received:true,method:'cash',reference:'QA cash'};
- await assert.rejects(confirmManualPosPayment({db,uid:'owner',input:confirmation,now}),/exact amount/);
- await confirmManualPosPayment({db,uid:'owner',input:{...confirmation,amountMinor:700},now});
- assert.equal(docs[`storeOrders/${order.id}`].payment.status,'paid');
-});
-test('Production Add Order pending discount edits preserve daily snapshots and block unresolved payment links',async()=>{
- const catalog=checkout;
- const {db,docs}=database({'workspaces/s':workspace});
- const request={...input(),posAddOrder:true,expectedSubtotalMinor:3000,lines:[line('prawn','2026-10-19',2)],manualDiscount:{type:'fixed_amount',value:2},expectedDiscountMinor:200};
- const args={db,uid:'owner',input:request,now,loadCheckout:async()=>catalog};
- const saved=await saveManualPosOrder(args);
- const order=docs[`storeOrders/${saved.orderId}`],items=JSON.stringify(order.items),days=JSON.stringify(order.fulfilments);
- order.weeklyPosLink={attemptId:'unresolved'};
- const edit={...request,orderId:order.id,expectedRevision:1,requestId:'weekly-discount-edit-1234',manualDiscount:{type:'percentage',value:10},expectedDiscountMinor:300};
- await assert.rejects(saveManualPosOrder({...args,input:edit}),/payment link/);
- delete order.weeklyPosLink;
- await saveManualPosOrder({...args,input:edit});
- const edited=docs[`storeOrders/${saved.orderId}`];assert.equal(edited.total,27);assert.equal(edited.manualOrder.posAddOrder,true);assert.equal(JSON.stringify(edited.items),items);assert.equal(JSON.stringify(edited.fulfilments),days);
+ order.manualDiscountSnapshot={version:1,type:'fixed_amount',value:1,discountAmount:1,authorizedBy:'owner'};
+ order.totals={merchandiseSubtotal:51,discountTotal:1,discountedMerchandiseTotal:50,deliveryFee:0,grandTotal:50,currency:'MYR'};
+ order.total=50;order.payment.amountMinor=5000;
+ const before=JSON.stringify(order);writes.length=0;
+ await assert.rejects(saveManualPosOrder({db,uid:'owner',input:{...input(),orderId:order.id,expectedRevision:1,requestId:'rollback-safe-edit-12345'},now,loadCheckout:async()=>checkout}),/retains its saved amount/);
+ assert.equal(writes.length,0);assert.equal(JSON.stringify(docs[`storeOrders/${order.id}`]),before);
+ await assert.rejects(confirmManualPosPayment({db,uid:'owner',input:{orderId:order.id,expectedRevision:1,amountMinor:5100,received:true,method:'cash',reference:'QA'},now}),/exact amount/);
+ await confirmManualPosPayment({db,uid:'owner',input:{orderId:order.id,expectedRevision:1,amountMinor:5000,received:true,method:'cash',reference:'QA'},now});
+ assert.equal(docs[`storeOrders/${order.id}`].total,50);assert.equal(docs[`storeOrders/${order.id}`].payment.amountMinor,5000);assert.equal(docs[`storeOrders/${order.id}`].manualDiscountSnapshot.discountAmount,1);
 });
