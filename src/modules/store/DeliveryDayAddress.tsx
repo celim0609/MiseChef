@@ -9,6 +9,8 @@ export default function DeliveryDayAddress({ date, value, onChange }: { date: st
   const [error, setError] = useState('');
   const session = useRef(crypto.randomUUID());
   const generation = useRef(0);
+  // Collapsing Edit or closing checkout must invalidate in-flight place selections.
+  useEffect(() => () => { generation.current++; }, []);
   useEffect(() => {
     if (!custom || query.length < 3 || value?.latitude) return;
     const controller = new AbortController();
