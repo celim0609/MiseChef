@@ -430,10 +430,12 @@ test('POS Live History opens the existing unified browser while operational peri
   const compiled = ts.transpileModule(source + '\nreturn selectDailyView;', { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   const selected: string[] = [];
   let historyOpened = 0;
-  const select = new Function('setDailyView', 'openHistory', compiled)((view: string) => selected.push(view), () => { historyOpened++; });
+  const resetDates: string[] = [];
+  const select = new Function('setDailyView', 'openHistory', 'setUpcomingDate', 'shiftDateKey', 'todayKey', compiled)((view: string) => selected.push(view), () => { historyOpened++; }, (date: string) => resetDates.push(date), (date: string, days: number) => days === 1 ? '2026-11-26' : date, '2026-11-25');
   for (const view of ['Today', 'Tomorrow', 'Upcoming']) select(view);
   assert.deepEqual(selected, ['Today', 'Tomorrow', 'Upcoming']);
   assert.equal(historyOpened, 0);
+  assert.deepEqual(resetDates, ['2026-11-26']);
   select('History');
   assert.equal(historyOpened, 1);
   assert.deepEqual(selected, ['Today', 'Tomorrow', 'Upcoming']);
