@@ -2182,7 +2182,7 @@ export default function App() {
       case 'businessSales':
       case 'businessSuppliers':
         if (!currentWorkspace || !hasBusinessEntitlement) return null;
-        return <BusinessPage activeTab={activeTab} userId={currentUser?.uid} workspaceId={activeWorkspaceId} quickAddRequest={quickAddRequest} onQuickAddHandled={handleQuickAddHandled} />;
+        return <BusinessPage activeTab={activeTab} userId={currentUser?.uid} workspaceId={activeWorkspaceId} canViewDeliveryPricing={currentWorkspaceRole === 'Owner' || currentWorkspaceRole === 'Manager'} quickAddRequest={quickAddRequest} onQuickAddHandled={handleQuickAddHandled} />;
       case 'personalExpenses':
         if (!currentWorkspace || !hasBusinessEntitlement) return null;
         return (

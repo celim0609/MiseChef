@@ -6,16 +6,17 @@ import type { QuickAddRequest } from '../../navigation/quickAdd';
 
 interface BusinessPageProps {
   activeTab: RootTab;
+  canViewDeliveryPricing?: boolean;
   userId?: string;
   workspaceId?: string;
   quickAddRequest?: QuickAddRequest | null;
   onQuickAddHandled?: (requestId: number) => void;
 }
 
-export default function BusinessPage({ activeTab, userId, workspaceId, quickAddRequest, onQuickAddHandled }: BusinessPageProps) {
+export default function BusinessPage({ activeTab, userId, workspaceId, quickAddRequest, onQuickAddHandled, canViewDeliveryPricing = false }: BusinessPageProps) {
   switch (activeTab) {
     case 'businessSales':
-      return <BusinessSalesPage userId={userId} workspaceId={workspaceId} />;
+      return <BusinessSalesPage userId={userId} workspaceId={workspaceId} canViewDeliveryPricing={canViewDeliveryPricing} />;
     case 'businessSuppliers':
       return <SuppliersPage userId={userId} workspaceId={workspaceId} openCreateRequest={quickAddRequest?.action === 'supplier' ? quickAddRequest.requestId : undefined} onQuickAddHandled={onQuickAddHandled} />;
     case 'business':
