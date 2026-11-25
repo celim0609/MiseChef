@@ -1,3 +1,4 @@
+import { isDeliveryTimeWithinHours } from './deliveryTimePolicy.js';
 import { posStoreDate, posStoreTime, resolvePosWeeklyDay, resolvePosAddOrderMeal } from './posWeeklyDay.js';
 import { HttpsError } from "firebase-functions/v2/https";
 import { createHash } from "node:crypto";
@@ -71,6 +72,10 @@ export function buildManualOrder(input, checkout, now = new Date(), { owner = fa
       !["pickup", "delivery"].includes(line.method)
     )
       fail("Choose a valid fulfilment time and method.");
+    // Only authenticated Owner/Manager authority may bypass Store delivery hours.
+    const deliveryHours = checkout.store.delivery?.fulfilment?.preOrder?.deliveryHours;
+    if (!owner && line.method === 'delivery' && line.deliveryArrangement === 'store' && deliveryHours
+      && !isDeliveryTimeWithinHours(line.time, deliveryHours)) fail('Choose a time within Delivery Hours, or ask an Owner/Manager to record the special arrangement.');
     // Building items never calls a provider. Store delivery fees are resolved at save.
     if (
       !owner && line.method === "pickup" &&

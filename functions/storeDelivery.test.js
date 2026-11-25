@@ -840,3 +840,34 @@ test('changed provider quote and kitchen roles cannot submit a reviewed booking'
   await assert.rejects(confirmMerchantDelivery({ ...f.args, confirmed: true, previewId: p.id }), /changed or expired/);
   assert.equal(f.counts().creations, 0);
 });
+
+test('checkout time integrity: quotation requests, stored request metadata and payment fulfilments use each accepted time', async () => {
+  for (const count of [1, 3, 5]) {
+    const f = quoteFixture(12.4, count), requests = [];
+    const create = f.provider.createQuote;
+    f.provider.createQuote = async request => { requests.push(structuredClone(request)); return create(request); };
+    f.draft.fulfilments = f.draft.fulfilments.map((day, i) => ({ ...day, time: i === count-1 && count>1 ? '12:00' : '11:00' }));
+    const result = await createStoreDeliveryQuote({ ...f, slug:'test' });
+    const stored = f.db.documents[`storeDeliveryQuoteSnapshots/${result.pricingSnapshotId}`];
+    assert.deepEqual(stored.dayQuotes.map(day => day.time), f.draft.fulfilments.map(day=>day.time));
+    for (const day of stored.dayQuotes) {
+      const expected = new Date(`${day.date}T${day.time}:00+08:00`).toISOString();
+      assert.equal(day.requestedScheduleAt, expected);assert.ok(requests.some(r=>r.data.scheduleAt===expected));
+      assert.ok(Number.isFinite(Date.parse(day.requestRecordedAt)));
+    }
+    const draft = { ...f.draft, deliveryQuoteId:result.quote.quotationId,deliveryPricingSnapshotId:result.pricingSnapshotId };
+    const snapshot = await revalidateDeliveryForPayment({ ...f,draft });
+    assert.deepEqual(snapshot.dayQuotes.map(day=>day.time),f.draft.fulfilments.map(day=>day.time));
+    await assert.rejects(revalidateDeliveryForPayment({...f,draft:{...draft,fulfilments:draft.fulfilments.map(day=>({...day,time:'09:00'}))}}), /schedule or delivery pricing/);
+  }
+});
+
+test('every daily time is validated before provider retrieval or payment preparation; invalid hours fail closed', async()=>{
+  for (const time of ['08:59','18:01','25:00']) {
+    const f=quoteFixture(12.4,5);let calls=0;f.provider.retrieveQuote=async()=>{calls++;throw Error('provider must not be called');};
+    f.draft.fulfilments[4].time=time;
+    await assert.rejects(revalidateDeliveryForPayment({...f,draft:f.draft}));assert.equal(calls,0);
+  }
+  const f=quoteFixture(12.4,1);f.store.delivery.fulfilment.preOrder.deliveryHours={from:'18:00',to:'09:00'};
+  await assert.rejects(createStoreDeliveryQuote({...f,slug:'test'}),/hours/i);assert.equal(f.quoteCount(),0);
+});

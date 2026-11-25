@@ -500,7 +500,7 @@ export default function ManualPosOrders({
             <PasteOrderButton workspaceId={workspaceId} storeId={storeId} slug={slug} products={posProducts} sets={sets} disabled={busy} onApply={pasted=>{setDraft(pasted);setFeeMode(pasted.deliveryFeeOverride?'manual':'estimate');setDeliveryQuote(null);}} />
             <p className="manual-muted">
               Save as Pending Payment. Confirm only after payment is actually
-              received. {posFullAccess ? "Owner and Manager can record any fulfilment date and time, including historical orders." : "Preorders start tomorrow; immediate Walk-in stays available under Add Order."} Choose store delivery for a quote or use customer-arranged delivery.
+              received. {posFullAccess ? "Owner and Manager can record any fulfilment date and time, including special school deliveries outside Delivery Hours and historical orders. Record the agreed arrangement in remarks." : "Preorders start tomorrow; immediate Walk-in stays available under Add Order."} Choose store delivery for a quote or use customer-arranged delivery.
             </p>
             <fieldset disabled={busy} className="manual-section manual-grid">
               <legend>1. Customer &amp; Fulfilment</legend>
