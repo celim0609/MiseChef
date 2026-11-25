@@ -1,3 +1,4 @@
+import MerchantDeliveryPricing from '../../../store/MerchantDeliveryPricing';
 import { useEffect, useState } from 'react';
 import { businessService } from '../../services';
 import { storeOrderService } from '../../../store/services';
@@ -13,11 +14,12 @@ const controlClass = 'mt-1 block w-full rounded-xl border border-surface-contain
 const tableClass = 'w-full text-left text-sm [&_td]:px-4 [&_td]:py-3 [&_th]:px-4 [&_th]:py-3';
 const displayStatus = (value: string) => value.replaceAll('_', ' ');
 
-function OriginalOrder({ orderId, workspaceId, fulfilmentId, timeZone }: {
+function OriginalOrder({ orderId, workspaceId, fulfilmentId, timeZone, canViewDeliveryPricing }: {
   orderId: string;
   workspaceId: string;
   fulfilmentId: string;
   timeZone: string;
+  canViewDeliveryPricing?: boolean;
 }) {
   const [order, setOrder] = useState<StoreOrder | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,6 +49,7 @@ function OriginalOrder({ orderId, workspaceId, fulfilmentId, timeZone }: {
         <div><dt className="font-bold">Completion action</dt><dd>{completion && Number.isFinite(Date.parse(completion)) ? <time dateTime={completion}>{formatTimestamp.format(new Date(completion))}</time> : '—'}</dd></div>
         <div><dt className="font-bold">Original order total</dt><dd>{formatRegionCurrency(order.total, order.currency)}</dd></div>
       </dl>
+      <MerchantDeliveryPricing order={order} workspaceId={workspaceId} canView={canViewDeliveryPricing} />
       <ul className="list-disc space-y-1 pl-5 text-sm">
         {order.items.map((item, index) => (
           <li key={index}>{item.quantity} × {item.productName} · {formatRegionCurrency(item.lineTotal, order.currency)}</li>
@@ -56,7 +59,7 @@ function OriginalOrder({ orderId, workspaceId, fulfilmentId, timeZone }: {
   );
 }
 
-export default function BusinessSalesPage({ userId, workspaceId }: { userId?: string; workspaceId?: string }) {
+export default function BusinessSalesPage({ userId, workspaceId, canViewDeliveryPricing = false }: { userId?: string; workspaceId?: string; canViewDeliveryPricing?: boolean }) {
   const region = useWorkspaceRegion();
   const workspace = workspaceId || userId || '';
   const [params] = useState(() => new URLSearchParams(window.location.search));
@@ -139,9 +142,9 @@ export default function BusinessSalesPage({ userId, workspaceId }: { userId?: st
         </>}
       </div>
 
-      {selectedOrder && workspace && <OriginalOrder orderId={selectedOrder} workspaceId={workspace} fulfilmentId={params.get('fulfilment') || ''} timeZone={region.timeZone} />}
+      {selectedOrder && workspace && <OriginalOrder orderId={selectedOrder} workspaceId={workspace} fulfilmentId={params.get('fulfilment') || ''} timeZone={region.timeZone} canViewDeliveryPricing={canViewDeliveryPricing} />}
       {error ? <p role="alert" className="text-error">{error}</p> : !report ? <p role="status">Loading sales records…</p> : view === 'deliveries' ? (
-        <DeliveryRecords deliveries={report.deliveries} formatMoney={money} orderLink={(id, fulfilment) => link('deliveries', id, fulfilment)} />
+        <DeliveryRecords workspaceId={workspace} canViewDeliveryPricing={canViewDeliveryPricing} deliveries={report.deliveries} formatMoney={money} orderLink={(id, fulfilment) => link('deliveries', id, fulfilment)} />
       ) : view === 'legacy' ? (
         <section className="space-y-3 rounded-2xl border border-surface-container-high bg-white p-5">
           <h3 className="font-display text-xl font-bold">Legacy Manual Sales</h3>
