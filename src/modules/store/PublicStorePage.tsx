@@ -1,3 +1,4 @@
+import CompactDeliverySchedule from './CompactDeliverySchedule';
 import DeliveryTimeSelect from './DeliveryTimeSelect';
 import { deliveryTimeSelectionReducer, emptyDeliveryTimeSelection, finalDeliveryTime, hasDeliveryOverrides, type DeliveryDaySelection } from './deliveryTimeSelection';
 import { isDeliveryTimeWithinHours } from '../../../functions/deliveryTimePolicy.js';
@@ -1819,7 +1820,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
               </div>
               </section>
 
-              <form id="store-checkout-form" onSubmit={startPayment} className="mt-5 flex flex-col gap-5 pb-28">
+              <form id="store-checkout-form" onSubmit={startPayment} className="mt-5 flex flex-col gap-5 pb-4">
                 <fieldset disabled={isPlacingOrder} className="contents">
                 {import.meta.env.VITE_FIREBASE_PROJECT_ID === 'misechef-beta-fa4bf' && !groupOrder && <GroupDeliveryStoreLink slug={slug} />}
                 {paymentMethods.length === 1 ? (
@@ -1960,7 +1961,24 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
 
                 {multiScheduleEnabled && <section aria-label={weeklyCartPlan ? 'Weekly schedule' : 'Selected days'} className="order-0 space-y-3">
                   <h3 className="font-bold text-primary">{weeklyCartPlan ? 'Weekly schedule' : 'Selected days'}</h3>
-                  {dayGroups.map(group => <div key={group.date} className="rounded-xl bg-surface-container-low p-3">
+                  {fulfilmentMethod === 'delivery' ? <>
+                    <DeliveryTimeSelect label="General delivery time — applies to all dates" hours={store.delivery.fulfilment.preOrder.deliveryHours} value={deliveryTime} onChange={setDeliveryTime} />
+                    <CompactDeliverySchedule resetKey={`${isCheckoutOpen}:${selectedWeekMonday}`} days={dayGroups.map(group => {
+                      const customAddress = deliveryDays[group.date]?.destination;
+                      const address = customAddress || deliveryDestination;
+                      return { date: group.date, mealName: group.rows.map(row => row.label).join(', '), time: finalDeliveryTime(deliverySelection, group.date),
+                        timeOverride: Boolean(deliveryDays[group.date]?.time && deliveryDays[group.date].time !== deliveryTime), addressOverride: Boolean(customAddress),
+                        address: address?.formattedAddress, addressReady: Boolean(address?.formattedAddress.trim() && address.latitude && address.longitude) };
+                    })} renderEditor={date => <>
+                      {!weeklyCartPlan && dayGroups.find(group => group.date === date)!.dates.length > 1 && <label className="block text-sm font-bold">Day<select aria-label={`Delivery day for ${date}`} value={date} onChange={event => {
+                        const group = dayGroups.find(group => group.date === date)!;
+                        setLineSchedule(current => ({ ...current, ...Object.fromEntries(group.rows.map(row => [row.key, { date: event.target.value, time: '' }])) }));
+                      }} className="mt-1 block min-h-12 w-full rounded-xl border p-2">{dayGroups.find(group => group.date === date)!.dates.map(option => <option key={option} value={option}>{scheduleDateLabel(option)}</option>)}</select></label>}
+                      <DeliveryTimeSelect label={`Delivery time for ${date}`} hours={store.delivery.fulfilment.preOrder.deliveryHours} value={finalDeliveryTime(deliverySelection,date)} onChange={time => updateDeliverySelection({type:'day',date,time})} />
+                      {deliveryDays[date]?.time && deliveryDays[date].time !== deliveryTime && <button type="button" className="min-h-11 text-xs font-bold underline" onClick={() => updateDeliverySelection({type:'day',date,time:''})}>Reset to general time{deliveryTime ? ` · ${formatPickupTimeLabel(deliveryTime,store.country)}` : ''}</button>}
+                      <DeliveryDayAddress date={date} value={deliveryDays[date]?.destination} onChange={destination => updateDeliverySelection({type:'destination',date,destination})} />
+                    </>} />
+                  </> : <>                  {dayGroups.map(group => <div key={group.date} className="rounded-xl bg-surface-container-low p-3">
                     <p className="font-bold">{scheduleDateLabel(group.date)} — {group.rows.map(row => row.label).join(', ')}</p>
                     {!weeklyCartPlan && group.dates.length > 1 && <label className="block mt-2">Day
                       <select aria-label={`Day for ${group.rows.map(row => row.label).join(', ')}`} value={group.date} onChange={event => {
@@ -1968,9 +1986,8 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                         setLineSchedule(current => ({ ...current, ...Object.fromEntries(group.rows.map(row => [row.key, { date, time: '' }])) }));
                       }} className="m-2 rounded-lg p-2">{group.dates.map(date => <option key={date} value={date}>{scheduleDateLabel(date)}</option>)}</select>
                     </label>}
-                    {fulfilmentMethod === 'delivery' && <><DeliveryTimeSelect label={`Delivery time for ${group.date}`} inherit hours={store.delivery.fulfilment.preOrder.deliveryHours} value={deliveryDays[group.date]?.time || ''} onChange={time => updateDeliverySelection({type:'day',date:group.date,time})} />{deliveryDays[group.date]?.time && deliveryDays[group.date].time !== deliveryTime && <p className="mt-1 text-xs font-bold text-amber-800">Per-date override: {formatPickupTimeLabel(deliveryDays[group.date].time, store.country)}</p>}<DeliveryDayAddress date={group.date} value={deliveryDays[group.date]?.destination} onChange={destination => updateDeliverySelection({type:'destination',date:group.date,destination})} /></>}
-                  </div>)}
-                  {fulfilmentMethod === 'delivery' ? <DeliveryTimeSelect label="General delivery time — applies to all dates" hours={store.delivery.fulfilment.preOrder.deliveryHours} value={deliveryTime} onChange={setDeliveryTime} /> : <label className="block">Pickup time
+                  </div>)}</>}
+                  {fulfilmentMethod === 'pickup' && <label className="block">Pickup time
                     <select aria-label="Pickup time" required value={pickupTime} onChange={event => setPickupTime(event.target.value)} className="m-2 rounded-lg p-2">
                       <option value="">Choose a pickup time</option>
                       {sharedPickupTimes.map(time => <option key={time} value={time}>{formatPickupTimeLabel(time, store.country)}</option>)}
@@ -1980,13 +1997,13 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
 
 
                 {fulfilmentMethod === 'delivery' && <section aria-label="Final delivery times" className="order-1 space-y-3 rounded-xl border border-surface-container-high p-3">
-                  <h3 className="font-bold text-primary">Final delivery times · Malaysia time</h3>
+                  <h3 className="font-bold text-primary">Review delivery times · Malaysia time</h3>
                   <p className="text-xs">Delivery hours: {formatPickupTimeLabel(store.delivery.fulfilment.preOrder.deliveryHours.from, store.country)}–{formatPickupTimeLabel(store.delivery.fulfilment.preOrder.deliveryHours.to, store.country)}. Changing the general time applies it to all dates.</p>
                   {Object.keys(deliverySelection.pendingOverrides).length > 0 && <div className="space-y-2 rounded-lg bg-amber-50 p-3 text-xs">
                     <p>The general time now applies to all dates. Previous per-date overrides were removed: {Object.entries<DeliveryDaySelection>(deliverySelection.pendingOverrides).map(([date, day]) => `${date} ${day.time}`).join(', ')}.</p>
                     <button type="button" className="min-h-11 font-bold underline" onClick={() => updateDeliverySelection({type:'preserve'})}>Confirm keeping these previous per-date overrides</button>
                   </div>}
-                  {(multiScheduleEnabled ? activeDeliveryDates : [deliveryDate]).map(date => <p key={date} className="text-sm font-bold">{date || 'Choose a delivery date'} · {finalDeliveryTime(deliverySelection,date) ? formatPickupTimeLabel(finalDeliveryTime(deliverySelection,date),store.country) : 'Choose a delivery time'}{deliveryDays[date]?.time && deliveryDays[date].time !== deliveryTime ? ' · Per-date override' : ''}</p>)}
+                  {(!multiScheduleEnabled ? [deliveryDate] : []).map(date => <p key={date} className="text-sm font-bold">{date || 'Choose a delivery date'} · {finalDeliveryTime(deliverySelection,date) ? formatPickupTimeLabel(finalDeliveryTime(deliverySelection,date),store.country) : 'Choose a delivery time'}{deliveryDays[date]?.time && deliveryDays[date].time !== deliveryTime ? ' · Per-date override' : ''}</p>)}
                   {deliveryOverrides && <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={deliverySelection.overridesConfirmed} onChange={event => updateDeliverySelection({type:'confirm',confirmed:event.target.checked})} />I confirm the per-date time overrides shown above.</label>}
                 </section>}
 
@@ -2022,7 +2039,7 @@ export default function PublicStorePage({ slug, productSlug, promotionId, groupO
                 {checkoutError && <p role="alert" className="order-7 rounded-2xl bg-error/10 p-3 font-sans text-xs font-bold text-error">{checkoutError}</p>}
                 </fieldset>
               </form>
-              <div className="sticky bottom-3 z-30 -mx-2 rounded-2xl bg-white/95 p-2 shadow-xl shadow-primary/10 backdrop-blur lg:bottom-4 lg:mx-0 lg:shadow-lg">
+              <div className="mt-4 rounded-2xl border-t border-surface-container-high bg-white p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
                 <button form="store-checkout-form" type="submit" disabled={isPlacingOrder || !deliveryQuoteReady || !cartDateAllowed} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 py-3.5 font-sans text-sm font-extrabold text-on-primary shadow-lg shadow-primary/20 disabled:opacity-50">
                   {isPlacingOrder ? <><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> Processing payment…</> : fulfilmentMethod === 'delivery' && isRefreshingDeliveryQuote ? 'Checking delivery fee…' : fulfilmentMethod === 'delivery' && !deliveryQuoteReady ? isCalculatingDelivery ? 'Calculating delivery fee…' : checkoutError ? 'Delivery fee unavailable' : 'Delivery fee pending' : fulfilmentMethod === 'delivery' && deliveryPriceConfirmation ? `Confirm updated total · ${formatRegionCurrency(checkoutTotal, store.currency)}` : `${getPaymentActionLabel(paymentMethodId)} · ${formatRegionCurrency(checkoutTotal, store.currency)}`}
                 </button>
