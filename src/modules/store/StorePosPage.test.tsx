@@ -186,7 +186,7 @@ const makeExternalOrderHarness = (overrides: Record<string, unknown> = {}) => {
   const lock = { current: false };
   const requests: Record<string, unknown>[] = [];
   const scope = {
-    promotionState:{ready:true,error:''},externalDiscount: undefined, externalDiscountPreview:{amountMinor:0,manualAmountMinor:0,expectation:undefined,error:''},setExternalDiscount:()=>{},
+    externalDiscount: undefined, externalDiscountPreview:{amountMinor:0,error:''},setExternalDiscount:()=>{},
     externalSubmitInFlightRef: lock,
     externalAddTimes:{current:new Map()},
     externalRequestIdRef: {current: 'request-1234567890'},

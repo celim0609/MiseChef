@@ -1,4 +1,3 @@
-import {usePosPromotions} from './usePosPromotions';
 import ManualDiscountControl, {previewPosDiscount, type ManualDiscount} from './ManualDiscountControl';
 import UpcomingDateSelector from './UpcomingDateSelector';
 import {searchPosHistory, type HistorySearchPage} from './services/posHistorySearchService';
@@ -272,7 +271,6 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
   const [externalSets, setExternalSets] = useState<StoreSet[]>([]);
   const [externalOptionGroups, setExternalOptionGroups] = useState<StoreOptionGroup[]>([]);
   const [externalDiscount,setExternalDiscount]=useState<ManualDiscount>();
-  const promotionState=usePosPromotions(workspaceId,storeId,externalStore?.slug || '',externalOpen);
   const [externalCart, setExternalCart] = useState<ExternalCartItem[]>([]);
   const [externalSource, setExternalSource] = useState('shopeefood');
   const [externalMethod, setExternalMethod] = useState<'pickup' | 'delivery'>('pickup');
@@ -555,12 +553,11 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
       const currentStore=await storeService.getWorkspaceStore(workspaceId);
       if(!currentStore?.slug || currentStore.slug!==externalOrderInput.slug) throw new Error('Store details changed. Reload the catalog before retrying.');
       if(externalMethod==='delivery' && !externalManualFee && (!externalQuote || Date.parse(externalQuote.expiresAt)<=Date.now()+5000)) throw new Error('Delivery estimate expired. Refresh before confirming.');
-      if (!promotionState.ready) throw new Error(promotionState.error || 'Wait for promotion pricing to load.');
       if (externalDiscountPreview.error) throw new Error(externalDiscountPreview.error);
       if (!externalFeeReady) throw new Error('Refresh the delivery estimate or enter an authorized manual fee.');
       if (pendingCart) {
         if (pendingScheduleError || mixedPlanError) throw new Error(pendingScheduleError || mixedPlanError);
-        const result = await storeOrderService.saveManualPosOrder({ ...pendingManualInput, expectedPosPricing:externalDiscountPreview.expectation, ...(externalDiscount ? {manualDiscount:externalDiscount,expectedDiscountMinor:externalDiscountPreview.manualAmountMinor} : {}),
+        const result = await storeOrderService.saveManualPosOrder({ ...pendingManualInput, ...(externalDiscount ? {manualDiscount:externalDiscount,expectedDiscountMinor:externalDiscountPreview.amountMinor} : {}),
           requestId: externalRequestIdRef.current, expectedSubtotalMinor: Math.round(externalSubtotal * 100),
           ...(externalMethod === 'delivery' ? externalManualFee
             ? { deliveryFeeOverride: { amount: Number(externalFeeAmount), reason: externalFeeReason } }
@@ -577,7 +574,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
         setHistoryRefreshKey(key => key + 1);
         return;
       }
-      const result = await storeOrderService.createExternalPosOrder({ ...externalOrderInput, expectedPosPricing:externalDiscountPreview.expectation, ...(externalDiscount ? {manualDiscount:externalDiscount,expectedDiscountMinor:externalDiscountPreview.manualAmountMinor} : {}), requestId: externalRequestIdRef.current, paymentLabel,
+      const result = await storeOrderService.createExternalPosOrder({ ...externalOrderInput, ...(externalDiscount ? {manualDiscount:externalDiscount,expectedDiscountMinor:externalDiscountPreview.amountMinor} : {}), requestId: externalRequestIdRef.current, paymentLabel,
         ...(externalMethod==='delivery' ? externalManualFee ? {deliveryFeeOverride:{amount:Number(externalFeeAmount),reason:externalFeeReason}} : {posDeliveryQuoteId:externalQuote?.id} : {}) });
       if (externalSource === 'walk_in') {
         try {
@@ -670,7 +667,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     const adjustments = item.selection.selectedOptions.flatMap(choice => {
       const group = externalOptionGroups.find(candidate => candidate.id === choice.groupId && candidate.available);
       const option = group?.options.find(candidate => candidate.id === choice.optionId && candidate.available);
-      return option ? Array(choice.quantity || 1).fill(option.priceAdjustment) : [];
+      return option ? [option.priceAdjustment] : [];
     });
     const menuPreview = product?.productType === 'weekly_meal_plan' || item.selection.healthyLunchPlanId ? previewManualLines([{quantity:item.quantity,date:item.selection.healthyLunchDate || item.date || '',time:item.time || '',method:'pickup',deliveryAddress:'',notes:'',selection:item.selection}],externalProducts,externalSets,externalOptionGroups,externalPosFullAccess).rows[0] : null;
     const fulfilmentDate = item.date || externalDate;
@@ -678,14 +675,13 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     const unitPrice = menuPreview ? (menuPreview.unitMinor || 0)/100 : set
       ? calculateStoreSetAnalysis(set, externalProducts, item.selection.selectedSetItems || []).sellingPrice
       : calculateStoreOptionAdjustedPrice(product?.price || 0, adjustments);
-    return { ...item, pricingItem: menuPreview?.pricingItem || {productId:product?.id || set?.id,productName:product?.name || set?.name,basePrice:product?.price || 0,itemType:set?'set':'product'}, previewError:menuPreview?.error || scheduleError, unitPrice, lineTotal: Math.round((unitPrice * item.quantity + Number.EPSILON) * 100) / 100 };
+    return { ...item, pricingItem: menuPreview?.pricingItem, previewError:menuPreview?.error || scheduleError, unitPrice, lineTotal: Math.round((unitPrice * item.quantity + Number.EPSILON) * 100) / 100 };
   });
   const externalSubtotal = Math.round((externalCartLines.reduce((sum, item) => sum + item.lineTotal, 0) + Number.EPSILON) * 100) / 100;
 
-  const externalDiscountItems = externalCartLines.map(item=>({...item.pricingItem,productId:item.selection.productId || item.selection.setId || item.pricingItem?.productId,quantity:item.quantity,lineTotal:item.lineTotal,...(item.selection.setId?{itemType:'set'}:{})}));
-  const externalDiscountPreview = previewPosDiscount(externalDiscountItems,externalDiscount,externalPosFullAccess,promotionState.promotions,promotionState.now);
+  const externalDiscountItems = externalCartLines.map(item=>({...item.pricingItem,productId:item.selection.productId,quantity:item.quantity,lineTotal:item.lineTotal,...(item.selection.setId?{itemType:'set'}:{})}));
+  const externalDiscountPreview = previewPosDiscount(externalDiscountItems,externalDiscount,externalPosFullAccess);
 
-  const catalogPromotion=(product:StoreProduct)=>previewPosDiscount([{productId:product.id,productName:product.name,basePrice:product.price,lineTotal:product.price,quantity:1}],undefined,false,promotionState.promotions,promotionState.now).automaticPricing;
   const advanceGroup = async (entry: Extract<GroupKitchenEntry, { kind: 'group' }>) => {
     if (!entry.batchAction || updatingGroupId || updatingOrderId) return;
     setUpdatingGroupId(entry.groupId);
@@ -947,7 +943,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
 
             <div className="space-y-6">
             <div role="region" aria-label="Store products" className="p-4">
-              <div role="status" aria-live="polite" className="mb-3 flex justify-between rounded-lg bg-blue-50 p-3 font-bold text-blue-950"><span>{externalCart.reduce((sum,item)=>sum+item.quantity,0)} items in cart</span><span>MYR {externalFeeReady?(Math.round((externalSubtotal-externalDiscountPreview.amountMinor/100+Number(externalFee))*100)/100).toFixed(2):(externalSubtotal-externalDiscountPreview.amountMinor/100).toFixed(2)}{!externalFeeReady?' · delivery pending':''}</span></div>
+              <div role="status" aria-live="polite" className="mb-3 flex justify-between rounded-lg bg-blue-50 p-3 font-bold text-blue-950"><span>{externalCart.reduce((sum,item)=>sum+item.quantity,0)} items in cart</span><span>MYR {externalFeeReady?(Math.round((externalSubtotal-externalDiscountPreview.amountMinor/100+Number(externalFee))*100)/100).toFixed(2):externalSubtotal.toFixed(2)}{!externalFeeReady?' · delivery pending':''}</span></div>
               <div aria-label="Catalog categories" className="mb-3 grid grid-cols-3 gap-2 bg-white pb-2">
                 {(['all','sets','weekly'] as const).map(category => <button key={category} type="button" aria-pressed={externalCategory === category} onClick={() => setExternalCategory(category)} className={`min-h-11 rounded-lg border px-2 py-2 text-sm font-bold ${externalCategory === category ? 'border-blue-700 bg-blue-700 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}>{category === 'all' ? 'All Products' : category === 'sets' ? 'Sets' : 'Weekly'}</button>)}
               </div>
@@ -961,7 +957,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                     <div className="relative aspect-[16/9] shrink-0 overflow-hidden bg-slate-100">{product.photoUrl ? <img src={product.photoUrl} alt="" className="absolute inset-0 h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs font-bold text-slate-400">No image</div>}</div>
                     <div className="flex flex-1 flex-col gap-2 p-3">
                       <h3 className="break-words text-sm font-black">{product.name}</h3>
-                      <p className="mt-auto text-sm font-bold text-slate-600">{promotionState.ready && catalogPromotion(product).discountTotal>0 ? <><del className="mr-2 text-xs font-normal">MYR {product.price.toFixed(2)}</del><span>MYR {catalogPromotion(product).discountedMerchandiseTotal.toFixed(2)}</span><small className="block">{catalogPromotion(product).promotionSnapshot.appliedPromotions.map((p:{name:string})=>p.name).join(", ")}</small></> : <>MYR {product.price.toFixed(2)}</>}</p>
+                      <p className="mt-auto text-sm font-bold text-slate-600">MYR {product.price.toFixed(2)}</p>
                       <PosProductAdd name={product.name} quantity={externalCart.find(item=>item.key===`product:${product.id}`)?.quantity || 0} onAdd={()=>addExternalProduct(product)} onDecrease={()=>updateExternalCartQuantity(`product:${product.id}`,-1)} disabled={creatingExternal} max={externalPosFullAccess?10000:20}/>
                     </div>
                   </article>
@@ -985,7 +981,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-black">Cart</h3><button type="button" disabled={creatingExternal || !externalCart.length} onClick={()=>{if(!window.confirm('Clear this draft? Check View Orders first if a previous submission had a connection error.'))return;setExternalCart([]); setExternalMethod('pickup'); setExternalAddress('');setExternalDestination(undefined);setExternalDestinations({});setExternalQuoteState(null); setExternalDate(''); setExternalTime('');setExternalNumber('');setExternalName('');setExternalPhone('');setExternalNotes('');setExternalError('');externalAddTimes.current.clear();externalRequestIdRef.current=crypto.randomUUID();}} className="text-xs underline">Clear draft</button></div>
               <div className="space-y-2">
                 {externalCartLines.length === 0 && <p className="py-2 text-sm text-slate-500">Cart is empty</p>}
-                {externalCartLines.map((item,index) => <div key={item.key} className="rounded-lg border border-slate-200 bg-white p-3">
+                {externalCartLines.map(item => <div key={item.key} className="rounded-lg border border-slate-200 bg-white p-3">
                   <div className="flex flex-wrap items-center gap-3">
                     <div className="min-w-0 basis-full sm:basis-auto sm:flex-1"><p className="text-sm font-bold">{item.label}</p><p className="text-xs text-slate-500">MYR {item.unitPrice.toFixed(2)} each</p></div>
                     <div className="flex items-center gap-2">
@@ -993,7 +989,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                       <input type="number" min={1} max={externalPosFullAccess ? 10000 : 20} step={1} inputMode="numeric" aria-label={`${item.label} quantity`} value={item.quantity} onChange={event => setExternalCartQuantity(item.key, Number(event.target.value))} disabled={creatingExternal} className="w-20 rounded-lg border border-slate-300 px-1 text-center text-sm font-black" />
                       <button type="button" onClick={() => updateExternalCartQuantity(item.key, 1)} disabled={creatingExternal || item.quantity >= (externalPosFullAccess ? 10000 : 20)} aria-label={`Increase ${item.label} quantity`} className="h-8 w-8 rounded-lg border border-slate-300 font-black disabled:opacity-40">+</button>
                     </div>
-                    <span className="min-w-20 text-right text-sm font-black">{(externalDiscountPreview.automaticPricing.promotionSnapshot.lineAdjustments[index]?.discountAmount || 0)>0 ? <><del className="block text-xs font-normal">MYR {item.lineTotal.toFixed(2)}</del><span>MYR {externalDiscountPreview.automaticPricing.promotionSnapshot.lineAdjustments[index].finalLineTotal.toFixed(2)}</span><small className="block">Automatic promotion{externalDiscount?.application==='replace'?' · replaced':''}</small></> : <>MYR {item.lineTotal.toFixed(2)}</>}</span>
+                    <span className="min-w-20 text-right text-sm font-black">MYR {item.lineTotal.toFixed(2)}</span>
                   </div>
                   {item.selection.healthyLunchDate && <p className="mt-2 text-xs font-bold">Menu source: {item.selection.healthyLunchDate}</p>}
                   {externalPosFullAccess && item.selection.healthyLunchDate && <label className="mt-2 block text-xs font-bold">Fulfilment date<input type="date" aria-label={`${item.label} fulfilment date`} value={item.date || ''} disabled={creatingExternal} onChange={event=>setExternalCart(current=>current.map(line=>line.key===item.key?{...line,date:event.target.value}:line))} className="block rounded border p-2"/></label>}
@@ -1020,16 +1016,15 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                 {!externalQuote&&!externalQuoting&&externalCart.length>0&&<button type="button" className="mt-2 rounded border px-3 py-2 font-bold" onClick={()=>{setExternalManualFee(false);setExternalQuoteState(null);setExternalQuoteError('');setExternalQuoting(true);const key=externalQuoteKey;void storeOrderService.quotePosDelivery(JSON.parse(key)).then(quote=>{if(key===externalQuoteKeyRef.current)setExternalQuoteState({quote,key});}).catch(error=>{if(key===externalQuoteKeyRef.current)setExternalQuoteError(error.message);}).finally(()=>{if(key===externalQuoteKeyRef.current)setExternalQuoting(false);});}}>Refresh estimate</button>}
                 {externalPosFullAccess && !externalQuote && !externalQuoting && <div className="mt-2"><label className="font-bold"><input type="checkbox" checked={externalManualFee} onChange={e=>{setExternalManualFee(e.target.checked);setExternalOverrideKey(externalQuoteKey);}}/> Manual delivery fee</label>{externalManualFee&&<div className="mt-2 grid gap-2"><label>Customer delivery fee (MYR)<input aria-label="Manual delivery fee" type="number" min="0" max="100000" step="0.01" value={externalFeeAmount} onChange={e=>setExternalFeeAmount(e.target.value)} className="ml-2 w-28 rounded border p-2"/></label><label>Reason<input aria-label="Manual delivery fee reason" value={externalFeeReason} maxLength={240} onChange={e=>setExternalFeeReason(e.target.value)} className="ml-2 rounded border p-2"/></label></div>}</div>}
               </section>}
-              <ManualDiscountControl value={externalDiscount} onChange={setExternalDiscount} items={externalDiscountItems} authorized={externalPosFullAccess && externalStore?.currency==='MYR'} promotions={promotionState.promotions} now={promotionState.now} disabled={creatingExternal || !promotionState.ready || !externalCart.length} />
-              {!promotionState.ready && <p role="status">{promotionState.error || "Loading automatic promotion pricing…"}</p>}
+              <ManualDiscountControl value={externalDiscount} onChange={setExternalDiscount} items={externalDiscountItems} authorized={externalPosFullAccess && externalStore?.currency==='MYR'} disabled={creatingExternal || !externalCart.length} />
               {externalDiscountPreview.error && <p role="alert" className="mb-2 text-sm text-red-700">{externalDiscountPreview.error}</p>}
-              <dl className="mb-3 space-y-1 text-sm"><div className="flex justify-between"><dt>Product subtotal</dt><dd>MYR {externalSubtotal.toFixed(2)}</dd></div><div className="flex justify-between"><dt>Automatic promotions</dt><dd>−MYR {(externalDiscountPreview.automaticAmountMinor/100).toFixed(2)}</dd></div><div className="flex justify-between"><dt>Manual discount</dt><dd>−MYR {(externalDiscountPreview.manualAmountMinor/100).toFixed(2)}</dd></div><div className="flex justify-between"><dt>Delivery fee</dt><dd>{externalFeeReady?`MYR ${Number(externalFee).toFixed(2)}`:'Pending estimate'}</dd></div><div className="flex justify-between border-t pt-2 text-base font-black"><dt>Grand total</dt><dd>{externalFeeReady?`MYR ${(Math.round((externalSubtotal-externalDiscountPreview.amountMinor/100+Number(externalFee))*100)/100).toFixed(2)}`:'Pending delivery fee'}</dd></div></dl>
+              <dl className="mb-3 space-y-1 text-sm"><div className="flex justify-between"><dt>Product subtotal</dt><dd>MYR {externalSubtotal.toFixed(2)}</dd></div><div className="flex justify-between"><dt>Discounts</dt><dd>−MYR {(externalDiscountPreview.amountMinor/100).toFixed(2)}</dd></div><div className="flex justify-between"><dt>Delivery fee</dt><dd>{externalFeeReady?`MYR ${Number(externalFee).toFixed(2)}`:'Pending estimate'}</dd></div><div className="flex justify-between border-t pt-2 text-base font-black"><dt>Grand total</dt><dd>{externalFeeReady?`MYR ${(Math.round((externalSubtotal-externalDiscountPreview.amountMinor/100+Number(externalFee))*100)/100).toFixed(2)}`:'Pending delivery fee'}</dd></div></dl>
               {externalPosFullAccess && !fullWeekCart && <label className="mb-2 block text-sm font-bold">Payment workflow<select aria-label="Payment workflow" value={pendingCart ? 'pending' : 'external'} onChange={event=>setOrdinaryPending(event.target.value==='pending')} className="ml-2 rounded border p-2"><option value="external" disabled={requiresPendingCart}>Existing externally-paid workflow</option><option value="pending">Save as Pending Payment</option></select></label>}
               {!pendingCart && <p className="mb-2 text-xs font-bold">Payment status: {externalSource==='shopeefood'?'Platform paid':'Paid externally'} · Confirm only after payment is received.</p>}
               {(pendingScheduleError || mixedPlanError) && <p role="alert" className="mb-2 text-sm text-red-700">{pendingScheduleError || mixedPlanError}</p>}
               {!hasRequiredExternalOptions && <p className="mb-2 text-sm text-amber-800">Choose the required product options to continue.</p>}
               {externalError && <p id="pos-order-entry-error" role="alert" className="mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-800">{externalError}</p>}
-              <button type="button" onClick={() => void createExternalOrder()} disabled={creatingExternal || !promotionState.ready || Boolean(externalDiscountPreview.error) || !externalFeeReady || !externalCart.length || !hasRequiredExternalOptions || externalLoading || Boolean(pendingScheduleError || mixedPlanError) || externalCartLines.some(item=>Boolean(item.previewError))} aria-busy={creatingExternal} aria-describedby={externalError ? 'pos-order-entry-error' : undefined} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-base font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
+              <button type="button" onClick={() => void createExternalOrder()} disabled={creatingExternal || Boolean(externalDiscountPreview.error) || !externalFeeReady || !externalCart.length || !hasRequiredExternalOptions || externalLoading || Boolean(pendingScheduleError || mixedPlanError) || externalCartLines.some(item=>Boolean(item.previewError))} aria-busy={creatingExternal} aria-describedby={externalError ? 'pos-order-entry-error' : undefined} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-3 text-base font-black text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500">
                 {creatingExternal && <LoaderCircle aria-hidden="true" className="h-5 w-5 animate-spin" />}{creatingExternal ? 'Creating…' : pendingCart ? 'Save as Pending Payment' : 'Confirm Order'}
               </button>
             </footer>

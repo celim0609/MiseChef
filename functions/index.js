@@ -1,4 +1,3 @@
-import {getPosPromotionCatalog} from './posPromotionCatalog.js';
 import {syncPosHistoryIndex, retryHistoryIndexSync} from './posHistoryIndex.js';
 import { editStoreOrder } from './storeOrderEdits.js';
 import { createPosPlaces, consumePosQuoteRate } from './posPlaces.js';
@@ -259,7 +258,6 @@ export const getPublicDiscoverContent = onCall({
 }));
 
 export const getPublicStorePromotions = onCall({ region: REGION }, async request => {
-  if(request.data?.pos === true) return getPosPromotionCatalog({db,uid:request.auth?.uid,input:request.data});
   const slug = readString(request.data?.slug).toLowerCase();
   const storeSnapshot = await db.collection('stores').where('slug', '==', slug).limit(1).get();
   if (storeSnapshot.empty) return { promotions: [] };

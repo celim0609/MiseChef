@@ -20,7 +20,7 @@ test('invalid, forged, over-subtotal and over-percentage discounts are rejected'
  assert.throws(()=>apply({type:'fixed_amount',value:1},{authorized:false}),/Owner or Manager/);
  assert.throws(()=>apply({type:'fixed_amount',value:1},{uid:''}),/Owner or Manager/);
 });
-test('implicit stacking, promotion codes and carts with no eligible product subtotal are rejected',()=>{
- for(const extra of [{pricing:{...calculatePromotionPricing({items}),discountTotal:1}},{pricing:{...calculatePromotionPricing({items}),promotionCodeSnapshot:{code:'KEEP'}}},{items:[{...items[0],weeklyPriceSnapshot:{discountAmount:2}}]},{items:[{...items[0],itemType:'set'}]}]) assert.throws(()=>apply({type:'fixed_amount',value:1},extra),/Explicitly choose|Weekly Discounts|Set offers|promotion code|eligible product subtotal/);
+test('existing offers, weekly discounts, Sets and codes never stack or get overwritten',()=>{
+ for(const extra of [{pricing:{...calculatePromotionPricing({items}),discountTotal:1}},{pricing:{...calculatePromotionPricing({items}),promotionCodeSnapshot:{code:'KEEP'}}},{items:[{...items[0],weeklyPriceSnapshot:{discountAmount:2}}]},{items:[{...items[0],itemType:'set'}]}]) assert.throws(()=>apply({type:'fixed_amount',value:1},extra),/cannot stack/);
  const pricing=calculatePromotionPricing({items});assert.equal(applyManualDiscount({pricing,discount:undefined}),pricing);
 });

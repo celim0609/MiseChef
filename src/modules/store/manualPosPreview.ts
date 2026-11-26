@@ -115,7 +115,7 @@ export function previewManualLines(
     }
     return {
       index,
-      pricingItem: {...pricingItem,...(!pricingItem?{basePrice:unitMinor/100,productId:''} : {}), productName:name, quantity:line.quantity, lineTotal:unitMinor*line.quantity/100},
+      pricingItem: {...pricingItem, productName:name, quantity:line.quantity, lineTotal:unitMinor*line.quantity/100},
       name,
       unitMinor,
       totalMinor: error ? null : unitMinor * line.quantity,

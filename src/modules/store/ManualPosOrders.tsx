@@ -1,4 +1,3 @@
-import {usePosPromotions} from './usePosPromotions';
 import ManualDiscountControl, {previewPosDiscount, type ManualDiscount} from './ManualDiscountControl';
 import PasteOrderButton, {type PasteDraft} from './PasteOrderButton';
 import "./manualPosOrders.css";
@@ -93,11 +92,9 @@ export default function ManualPosOrders({
   const paid = manualOrders.filter((order) => order.payment.status === "paid");
   const posProducts = posFullAccess ? products.map((product) => ({ ...product, available: true, healthyLunchBlockedDates: [] })) : products;
   const preview = previewManualLines(draft.lines, posProducts, sets, groups, posFullAccess);
-
+  const discountPreview = previewPosDiscount(preview.rows.map(row=>row.pricingItem),draft.manualDiscount,posFullAccess);
   const money = (minor: number) => `${currency} ${(minor / 100).toFixed(2)}`;
   const [slug, setSlug] = useState("");
-  const promotionState=usePosPromotions(workspaceId,storeId,slug,open);
-  const discountPreview=previewPosDiscount(preview.rows.map(row=>row.pricingItem),draft.manualDiscount,posFullAccess,promotionState.promotions,promotionState.now);
   const [saved, setSaved] = useState<StoreOrder | null>(null);
   const [editing, setEditing] = useState<StoreOrder | null>(null);
   const [error, setError] = useState("");
@@ -263,12 +260,9 @@ export default function ManualPosOrders({
     setError("");
     try {
       const input = { ...draft }; delete input.deliveryFeeOverride;
-      if (!promotionState.ready) throw new Error(promotionState.error || 'Wait for promotion pricing to load.');
       if (discountPreview.error) throw new Error(discountPreview.error);
       const result = await storeOrderService.saveManualPosOrder({
         ...input,
-        expectedPosPricing:discountPreview.expectation,
-        ...(draft.manualDiscount ? {expectedDiscountMinor:discountPreview.manualAmountMinor} : {}),
         ...(editing?.manualOrder?.posAddOrder ? { posAddOrder: true, expectedSubtotalMinor: preview.totalMinor } : {}),
         ...(hasStoreDelivery && feeMode === "manual" ? { deliveryFeeOverride: draft.deliveryFeeOverride } : {}),
         ...(hasStoreDelivery && feeMode === "estimate" ? { posDeliveryQuoteId: usableQuote?.id } : {}),
@@ -441,7 +435,7 @@ export default function ManualPosOrders({
               ))}
             </div>
           ))}
-          {saved.totals && <dl className="my-3 text-sm"><div>Subtotal: {saved.currency} {saved.totals.merchandiseSubtotal.toFixed(2)}</div><div>Automatic promotions: −{saved.currency} {(saved.totals.automaticDiscountTotal ?? (saved.manualDiscountSnapshot?0:saved.totals.discountTotal)).toFixed(2)}</div><div>Manual discount: −{saved.currency} {(saved.totals.manualDiscountTotal ?? (saved.manualDiscountSnapshot?saved.totals.discountTotal:0)).toFixed(2)}</div><div>Delivery fee: {saved.currency} {saved.totals.deliveryFee.toFixed(2)}</div><div>Final payable: {saved.currency} {saved.total.toFixed(2)}</div></dl>}
+          {saved.totals && <dl className="my-3 text-sm"><div>Subtotal: {saved.currency} {saved.totals.merchandiseSubtotal.toFixed(2)}</div><div>Discount: −{saved.currency} {saved.totals.discountTotal.toFixed(2)}</div><div>Delivery fee: {saved.currency} {saved.totals.deliveryFee.toFixed(2)}</div><div>Final payable: {saved.currency} {saved.total.toFixed(2)}</div></dl>}
           {saved.payment.status==='paid' && <button type="button" className="manual-secondary" onClick={()=>{try{printCustomerInvoice(saved);}catch(error){setError(String(error));}}}>Print customer invoice</button>}
           <div key={saved.id}><WhatsAppCustomerActions order={saved} country={country} storeName={storeName} canRecordReminder={canRecordReminders} canPreview={canPreviewWhatsApp} /></div>
           <div className="manual-actions">
@@ -1053,7 +1047,6 @@ export default function ManualPosOrders({
                       </select>
                     </label>
                   ))}
-                  {(discountPreview.automaticPricing.promotionSnapshot.lineAdjustments[i]?.discountAmount || 0)>0 && <p className="text-sm font-bold">Automatic promotional subtotal: {money(Math.round(discountPreview.automaticPricing.promotionSnapshot.lineAdjustments[i].finalLineTotal*100))} · saving {money(Math.round(discountPreview.automaticPricing.promotionSnapshot.lineAdjustments[i].discountAmount*100))}{draft.manualDiscount?.application==='replace'?' (replaced by manual discount)':''}</p>}
                   {preview.rows[i].error && (
                     <p role="alert">{preview.rows[i].error}</p>
                   )}
@@ -1122,12 +1115,11 @@ export default function ManualPosOrders({
                   <label>Audit reason / agreed fee reference<input disabled={busy} maxLength={240} value={draft.deliveryFeeOverride?.reason || ''} onChange={e => setDraft({ ...draft, deliveryFeeOverride: { amount: draft.deliveryFeeOverride?.amount ?? NaN, reason: e.target.value } })} /></label>
                 </>}
               </fieldset>}
-              <ManualDiscountControl value={draft.manualDiscount} onChange={manualDiscount=>setDraft({...draft,manualDiscount})} items={preview.rows.map(row=>row.pricingItem)} authorized={posFullAccess && currency==="MYR"} promotions={promotionState.promotions} now={promotionState.now} disabled={busy || !promotionState.ready || preview.totalMinor===null} />
-              {!promotionState.ready && <p role="status">{promotionState.error || "Loading automatic promotion pricing…"}</p>}
+              <ManualDiscountControl value={draft.manualDiscount} onChange={manualDiscount=>setDraft({...draft,manualDiscount})} items={preview.rows.map(row=>row.pricingItem)} authorized={posFullAccess && currency==="MYR"} disabled={busy || preview.totalMinor===null} />
               {discountPreview.error && <p role="alert">{discountPreview.error}</p>}
               <div className="manual-summary-row"><span>Product subtotal</span><span>{preview.totalMinor === null ? 'Incomplete' : money(preview.totalMinor)}</span></div>
               <div className="manual-summary-row"><span>Delivery charge</span><span>{deliveryFee === undefined ? 'Estimate required' : money(Math.round(deliveryFee * 100))}</span></div>
-              <div className="manual-summary-row"><span>Automatic promotions</span><span>−{money(discountPreview.automaticAmountMinor)}</span></div><div className="manual-summary-row"><span>Manual discount</span><span>−{money(discountPreview.manualAmountMinor)}</span></div>
+              <div className="manual-summary-row"><span>Discounts</span><span>−{money(discountPreview.amountMinor)}</span></div>
               <div className="manual-total">
                 <span>Grand total</span>
                 <span>
@@ -1153,7 +1145,7 @@ export default function ManualPosOrders({
             <div className="manual-actions">
               <button
                 disabled={
-                  busy || !promotionState.ready || Boolean(discountPreview.error) ||
+                  busy ||
                   !slug ||
                   !draft.lines.length ||
                   !draft.customerName.trim() ||

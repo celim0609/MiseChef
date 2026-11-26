@@ -3,7 +3,7 @@ import test from 'node:test';
 import React from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import ManualDiscountControl,{previewPosDiscount} from './ManualDiscountControl';
-import {applyManualDiscount,calculatePromotionPricing,calculatePosPricing,posPricingExpectation} from '../../../functions/storePromotionPricing.js';
+import {applyManualDiscount,calculatePromotionPricing} from '../../../functions/storePromotionPricing.js';
 import {customerActionMessage} from './customerCommunicationModel';
 import {printCustomerReceipt,printCustomerInvoice} from './posWalkIn';
 import {projectOrderSalesRecords} from '../business/dailySalesProjection';
@@ -14,7 +14,7 @@ const discount={type:'percentage' as const,value:12.5,reason:'Goodwill'};
 const pricing=applyManualDiscount({items,pricing:calculatePromotionPricing({items}),discount,authorized:true,uid:'owner'});
 const order={id:'discount',orderNumber:'MC-DISCOUNT',storeName:'Store',customerName:'QA',phone:'0164209116',currency:'MYR',orderSource:'pos',externalOrder:{source:'walk_in'},createdAt:'2026-11-25T01:00:00Z',total:24.51,totals:{...pricing,deliveryFee:7,grandTotal:24.51,currency:'MYR'},manualDiscountSnapshot:{...pricing.manualDiscountSnapshot,finalTotal:24.51},promotionSnapshot:pricing.promotionSnapshot,items,payment:{status:'paid',refundStatus:'none',refundedAmountMinor:0,amountMinor:2451},fulfilmentStatus:'Completed',completedAt:'2026-11-26T04:00:00Z',fulfilments:[{id:'daily',date:'2026-11-26',time:'12:00',method:'delivery',destination:{formattedAddress:'School gate'},allocations:[{itemIndex:0,quantity:1}]}],fulfilmentCompletion:{daily:{completedAt:'2026-11-26T04:00:00Z'}}} as unknown as StoreOrder;
 test('discount preview uses backend cents math and validates quantity changes',()=>{
- const preview=previewPosDiscount(items,discount,true);assert.equal(preview.amountMinor,250);assert.equal(preview.manualAmountMinor,250);assert.equal(preview.error,'');
+ assert.deepEqual(previewPosDiscount(items,discount,true),{amountMinor:250,error:''});
  assert.match(previewPosDiscount(items,discount,false).error,/Owner or Manager/);
  assert.match(previewPosDiscount(items,{type:'fixed_amount',value:21},true).error,/subtotal/);
 });
@@ -32,7 +32,7 @@ test('receipts and customer invoices show original subtotal, discount, delivery 
  try{
   printCustomerReceipt(order);printCustomerInvoice(order);
   assert.equal(documents.length,2);
-  for(const html of documents)for(const label of ['Subtotal','MYR 20.01','Manual discount','MYR 2.50','Delivery fee','MYR 7.00','MYR 24.51'])assert.ok(html.includes(label),label);
+  for(const html of documents)for(const label of ['Subtotal','MYR 20.01','Discount (12.5%)','MYR 2.50','Delivery fee','MYR 7.00','MYR 24.51'])assert.ok(html.includes(label),label);
   assert.ok(documents[1].includes('Customer invoice'));
   printCustomerInvoice({...order,payment:{...order.payment,status:'pending'}});assert.equal(documents.length,2);
   assert.equal(JSON.stringify(order),original);
@@ -58,20 +58,4 @@ test('legacy receipts do not invent a zero delivery fee when the saved amount is
  const documents:string[]=[],previous=globalThis.window;
  globalThis.window={open:()=>({document:{readyState:'complete',open(){},write(html:string){documents.push(html);},close(){}},focus(){},print(){}}),setTimeout(fn:()=>void){fn();}} as unknown as Window & typeof globalThis;
  try{printCustomerReceipt({...order,totals:undefined});assert.match(documents[0],/<span>Delivery fee<\/span><span>Not available<\/span>/);}finally{globalThis.window=previous;}
-});
-
-test('automatic and explicit manual choices reconcile frontend, documents, Sales Records and accounting',()=>{
- const now=new Date('2026-11-26T04:00:00Z');
- const promotion={id:'offer',storeId:'s',workspaceId:'s',name:'Lunch offer',active:true,type:'fixed_amount',fixedAmountOff:4,eligibleProductIds:['food'],minimumQuantity:0,minimumOrderAmount:0,startsAt:'2026-01-01',endsAt:null};
- for(const application of ['keep','replace','stack'] as const){
-  const manual=application==='keep'?undefined:{type:'percentage' as const,value:10,application};
-  const pricing=calculatePosPricing({items,promotions:[promotion],discount:manual,authorized:true,uid:'owner',now});
-  const preview=previewPosDiscount(items,manual,true,[promotion as any],now);
-  assert.deepEqual(preview.expectation,posPricingExpectation(pricing));assert.equal(preview.error,'');
-  const total=Number((pricing.discountedMerchandiseTotal+7).toFixed(2));
-  const saved={...order,total,totals:{...pricing,deliveryFee:7,grandTotal:total,currency:'MYR'},manualDiscountSnapshot:pricing.manualDiscountSnapshot,promotionSnapshot:pricing.promotionSnapshot,payment:{...order.payment,amountMinor:Math.round(total*100)}} as StoreOrder;
-  const rows=projectOrderSalesRecords(saved);assert.equal(rows.reduce((n,r)=>n+r.totalMinor,0),Math.round(total*100));assert.equal(rows.reduce((n,r)=>n+r.discountMinor,0),Math.round(pricing.discountTotal*100));
-  const report=calculateBusinessAccounting({from:'2026-11-26',to:'2026-11-26',invoices:[],manualSales:[],storeOrders:[saved],timeZone:'Asia/Kuala_Lumpur'});assert.equal(report.totalSales,total);
-  const message=customerActionMessage(saved,'confirm','','','Store');for(const label of ['Automatic promotions','Manual discount',total.toFixed(2)])assert.ok(message.includes(label),label);
- }
 });
