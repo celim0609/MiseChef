@@ -1,0 +1,77 @@
+/* POS-only presentation tokens. Financial, fulfilment and permission paths stay in their existing components. */
+.pos-screen { --pos-surface:#fff; --pos-soft:#f8fafc; --pos-line:#dce3ec; --pos-ink:#182436; --pos-muted:#526176; font-size:14px; line-height:1.45; }
+.pos-screen[data-pos-theme="dark"] { --pos-surface:#122033; --pos-soft:#0b1727; --pos-line:#34445b; --pos-ink:#eef4fc; --pos-muted:#b8c8dd; }
+.pos-screen .pos-page-title { font-size:20px; line-height:1.25; }
+.pos-screen .pos-workspace-name { color:var(--pos-muted); font-size:12px; margin-top:2px; }
+.pos-screen h2 { font-size:18px; line-height:1.35; }
+.pos-screen h3 { font-size:16px; line-height:1.35; }
+.pos-screen .font-black { font-weight:650; }
+.pos-screen header { gap:12px; padding:12px 16px; }
+.pos-screen nav { padding-block:8px; gap:6px; }
+.pos-screen nav button { font-size:13px; padding:8px 12px; border-radius:6px; }
+.pos-screen :is(button,summary) { touch-action:manipulation; }
+.pos-screen :is(.rounded-2xl,.rounded-3xl) { border-radius:8px; }
+.pos-screen :is(.shadow-lg,.shadow-2xl) { box-shadow:none; }
+.pos-screen main > div > .flex-1 { padding:12px 16px; }
+.pos-screen main section.max-w-7xl { max-width:none; padding:14px; border:0; box-shadow:none; border-radius:8px; }
+.pos-screen table { font-size:13px; }
+.pos-screen table :is(th,td) { padding:8px 10px; }
+.pos-screen .pos-filters { border-block:1px solid var(--pos-line); margin-bottom:12px; padding:8px 0; }
+.pos-screen .pos-filters summary { cursor:pointer; font-size:13px; font-weight:600; padding:4px 0; }
+.pos-screen .pos-filters[open] summary { margin-bottom:8px; }
+.pos-screen .pos-secondary-menu > details { margin:0; padding:8px; border:0; font-size:12px; border-radius:6px; }
+.pos-screen .pos-secondary-menu summary { min-height:28px; display:flex; align-items:center; cursor:pointer; }
+.pos-screen .pos-new-order-bar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:10px 16px; border-bottom:1px solid var(--pos-line); background:var(--pos-surface); }
+.pos-screen .pos-new-order-bar button { border:1px solid var(--pos-line); border-radius:6px; padding:8px 12px; min-height:36px; }
+.pos-screen .pos-new-order-bar strong { margin-right:8px; }
+.pos-screen .pos-entry-layout { display:grid; gap:12px; align-items:start; }
+.pos-screen .pos-cart-panel { min-width:0; background:var(--pos-surface); border:1px solid var(--pos-line); border-radius:8px; }
+.pos-screen .pos-cart-panel footer { padding:12px; border-top:1px solid var(--pos-line); }
+.pos-screen [aria-label="Order cart"] { padding:12px; }
+.pos-screen [aria-label="Order cart"] .space-y-2 > div { border-width:0 0 1px; border-radius:0; padding:10px 0; }
+.pos-screen [aria-label="Manual discount"] { padding:8px 0; border:0; border-top:1px solid var(--pos-line); border-radius:0; margin:8px 0; color:var(--pos-ink); }
+.pos-screen [aria-label="Manual discount"] label { font-size:13px; }
+.pos-screen [aria-label="Manual discount"] select[aria-label="Discount type"] { width:68px; }
+.pos-screen [aria-label="Manual discount"] :is(input,select) { max-width:100%; }
+.pos-screen .pos-manual-refined { margin:0; padding:0 16px; color:var(--pos-ink); }
+.pos-screen .pos-manual-refined:empty { display:none; }
+.pos-screen .pos-manual-refined .manual-overlay { position:static; padding:0; background:transparent; overflow:visible; }
+.pos-screen .pos-manual-refined .manual-dialog { max-width:1200px; padding:14px; margin:12px auto; background:var(--pos-surface); color:var(--pos-ink); border-radius:8px; box-shadow:none; }
+.pos-screen .pos-manual-refined .manual-dialog h2 { font-size:20px; }
+.pos-screen .pos-manual-refined .manual-section { padding:12px 0; margin:10px 0; border:0; border-top:1px solid var(--pos-line); border-radius:0; background:transparent; }
+.pos-screen .pos-manual-refined .manual-summary { padding:12px; margin:10px 0; background:var(--pos-soft); border:1px solid var(--pos-line); }
+.pos-screen .pos-manual-refined .manual-total { font-size:18px; padding-top:8px; margin-top:8px; border-color:var(--pos-line); }
+.pos-screen .pos-manual-refined .manual-actions { gap:8px; margin-top:10px; }
+.pos-screen .pos-manual-refined :is(.manual-secondary,.manual-primary) { padding:8px 12px; min-height:36px; font-size:13px; }
+.pos-screen .pos-manual-refined .manual-grid,.pos-screen .pos-manual-refined .manual-fields { gap:10px; }
+.pos-screen .pos-pending-list { max-width:1200px; margin:12px auto; }
+.pos-screen .pos-pending-list > article { background:var(--pos-surface); border:0; border-bottom:1px solid var(--pos-line); border-radius:0; margin:0; padding:12px; }
+.pos-screen[data-pos-theme="dark"] .pos-manual-refined :is(input:not([type="checkbox"]),select,textarea,.manual-secondary) { background:var(--pos-soft); border-color:var(--pos-line); color:var(--pos-ink); }
+.pos-screen[data-pos-theme="dark"] .pos-manual-refined .manual-muted { color:var(--pos-muted); }
+.pos-screen[data-pos-theme="dark"] [aria-label="Manual discount"] :is(input,select) { background:var(--pos-soft); color:var(--pos-ink); border-color:var(--pos-line); }
+@media(min-width:1024px) {
+ .pos-screen .pos-entry-layout { grid-template-columns:minmax(0,1.7fr) minmax(350px,1fr); }
+ .pos-screen .pos-entry-layout > [aria-label="Store products"] { padding:12px; }
+ .pos-screen header :is(button.min-h-12,button.h-12) { min-height:36px; height:36px; }
+ .pos-screen header button.h-12 { width:36px; }
+ .pos-screen .pos-pending-list > article { display:grid; grid-template-columns:1fr auto; gap:4px 16px; }
+ .pos-screen .pos-pending-list > article .manual-actions { grid-column:2; grid-row:1 / span 3; align-self:center; margin:0; }
+}
+@media(max-width:700px) {
+ .pos-screen { overflow-wrap:anywhere; }
+ .pos-screen header { padding:10px 12px; }
+ .pos-screen header > div { min-width:0; }
+ .pos-screen nav button { min-height:44px; padding-inline:10px; }
+ .pos-screen main section.max-w-7xl { padding:10px; }
+ .pos-screen table { min-width:0; }
+ .pos-screen table :is(th,td) { padding:8px 6px; }
+ .pos-screen .pos-manual-refined { padding-inline:8px; }
+ .pos-screen .pos-manual-refined .manual-dialog { padding:12px; }
+ .pos-screen :is(input,select,textarea) { max-width:100%; }
+ .pos-screen .pos-manual-refined :is(input,select,textarea) { font-size:16px; }
+ .pos-screen :is(.pos-new-order-bar button,.manual-actions button,[aria-label="Manual discount"] button) { min-height:44px; }
+ .pos-screen .pos-entry-layout { gap:8px; }
+}
+.pos-screen[data-pos-theme="dark"] .manual-pos.pos-manual-refined .manual-dialog { color:var(--pos-ink); }
+.pos-screen .pos-cart-panel footer > button { width:auto; min-width:180px; font-size:14px; }
+@media(max-width:700px) { .pos-screen .pos-cart-panel footer > button { width:100%; } }

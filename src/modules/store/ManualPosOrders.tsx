@@ -57,6 +57,11 @@ export default function ManualPosOrders({
   pasteRequest,
   onPasteConsumed,
   onOrderChanged,
+  refined = false,
+  createRequest = 0,
+  showPending = true,
+  onPendingCountChange,
+  onPanelChange,
 }: {
   workspaceId: string;
   storeId: string;
@@ -68,6 +73,11 @@ export default function ManualPosOrders({
   pasteRequest?: {id:string;draft:PasteDraft} | null;
   onPasteConsumed?: ()=>void;
   onOrderChanged?: ()=>void;
+  refined?: boolean;
+  createRequest?: number;
+  showPending?: boolean;
+  onPendingCountChange?: (count:number)=>void;
+  onPanelChange?: (open:boolean)=>void;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(empty);
@@ -333,20 +343,25 @@ export default function ManualPosOrders({
       setBusy(false);
     }
   };
+  useEffect(()=>{onPendingCountChange?.(pending.length);},[pending.length,onPendingCountChange]);
+  useEffect(()=>{onPanelChange?.(Boolean(open || saved || pay));},[open,saved,pay,onPanelChange]);
+  const handledCreate = useRef(0);
+  useEffect(()=>{if(createRequest && createRequest!==handledCreate.current){handledCreate.current=createRequest;setSaved(null);void load();}},[createRequest]);
   const input = "rounded border p-2 text-slate-950 bg-white";
   return (
     <section
-      className="manual-pos m-4 rounded-xl border p-4"
+      className={refined ? "manual-pos pos-manual-refined" : "manual-pos m-4 rounded-xl border p-4"}
       aria-label="Manual POS orders"
     >
-      <button
+      {!refined && <button
         disabled={busy}
         className="rounded bg-blue-700 p-3 font-bold text-white"
         onClick={() => void load()}
       >
         Create Manual Order
-      </button>
-      {error && <p role="alert">{error}</p>}
+      </button>}
+      {error && (!refined || showPending || open || saved || pay) && <p role="alert">{error}</p>}
+      {(!refined || (showPending && !open && !saved && !pay)) && <div className="pos-pending-list">
       <h3 className="mt-3 font-bold">
         Pending Manual Payments ({pending.length})
       </h3>
@@ -363,6 +378,7 @@ export default function ManualPosOrders({
             {order.orderNumber} · {order.customerName}
           </b>
           <p>
+            {refined && <button type="button" disabled={busy} className="manual-secondary" onClick={()=>setOpen(false)}>Back to orders</button>}
             <span className="manual-badge">Pending Payment</span> ·{" "}
             {order.currency} {order.total.toFixed(2)}
           </p>
@@ -406,7 +422,8 @@ export default function ManualPosOrders({
           </div>}
         </article>
       ))}
-      {paid.length > 0 && (
+      </div>}
+      {!refined && paid.length > 0 && (
         <details className="manual-section">
           <summary>Paid / Confirmed manual orders ({paid.length})</summary>
           {paid.map((order) => (
@@ -502,8 +519,8 @@ export default function ManualPosOrders({
       {open && (
         <div className="manual-overlay">
           <section
-            role="dialog"
-            aria-modal="true"
+            role={refined ? "region" : "dialog"}
+            aria-modal={refined ? undefined : true}
             aria-label="Create Manual Order"
             className="manual-dialog"
           >
@@ -1169,7 +1186,7 @@ export default function ManualPosOrders({
                 received and eligible for preparation.
               </p>
             </section>
-            {error && <p role="alert">{error}</p>}
+            {error && (!refined || showPending || open || saved || pay) && <p role="alert">{error}</p>}
             <div className="manual-actions">
               <button
                 disabled={
@@ -1196,8 +1213,8 @@ export default function ManualPosOrders({
       {pay && (
         <div className="manual-overlay" style={{ zIndex: 120 }}>
           <section
-            role="dialog"
-            aria-modal="true"
+            role={refined ? "region" : "dialog"}
+            aria-modal={refined ? undefined : true}
             aria-label="Confirm received payment"
             className="manual-dialog"
             style={{ maxWidth: 560 }}
@@ -1250,7 +1267,7 @@ export default function ManualPosOrders({
               existing payment; it does not charge the customer. The saved
               amount and revision are verified securely.
             </p>
-            {error && <p role="alert">{error}</p>}
+            {error && (!refined || showPending || open || saved || pay) && <p role="alert">{error}</p>}
             <button
               disabled={busy || !received || !reference.trim()}
               className="manual-primary"
