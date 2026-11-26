@@ -197,6 +197,10 @@ const normalizeOrder = (snapshot: QueryDocumentSnapshot<DocumentData>): StoreOrd
 };
 
 export const storeOrderService = {
+  async listPosPromotions(workspaceId:string,storeId:string,slug:string):Promise<import('../types').StorePromotion[]> {
+    if(!functions)throw new Error('POS promotion pricing is unavailable.');
+    return (await httpsCallable<unknown,{promotions:import('../types').StorePromotion[]}>(functions,'getPublicStorePromotions')({pos:true,workspaceId,storeId,slug})).data.promotions;
+  },
   async quotePosDelivery(order: Record<string, unknown>): Promise<import('../posOrderEntryModel').PosQuote> {
     if (!functions) throw new Error('Delivery quotation is unavailable.');
     return (await httpsCallable<{order: Record<string, unknown>}, import('../posOrderEntryModel').PosQuote>(functions, 'quoteStorePosDelivery', {timeout:120000})({order})).data;

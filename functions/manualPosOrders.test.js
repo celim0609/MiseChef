@@ -1,3 +1,4 @@
+import {calculatePosPricing,posPricingExpectation} from './storePromotionPricing.js';
 import {createExternalPosOrder} from './externalPosOrders.js';
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -751,7 +752,7 @@ test('Owner and Manager save authorized discounts with separate unchanged delive
   const request={...input(),manualDiscount:{type:'percentage',value:10,reason:'Goodwill'},expectedDiscountMinor:510,deliveryFeeOverride:{amount:7,reason:'Agreed fee'},lines:input().lines.map(line=>({...line,method:'delivery',deliveryArrangement:'store',deliveryAddress:'School gate'}))};
   const result=await saveManualPosOrder({db,uid,input:request,now,loadCheckout:async()=>checkout});
   const order=docs[`storeOrders/${result.orderId}`];
-  assert.deepEqual(order.totals,{merchandiseSubtotal:51,discountTotal:5.1,discountedMerchandiseTotal:45.9,deliveryFee:7,grandTotal:52.9,currency:'MYR'});
+  assert.deepEqual(order.totals,{merchandiseSubtotal:51,discountTotal:5.1,automaticDiscountTotal:0,manualDiscountTotal:5.1,discountedMerchandiseTotal:45.9,deliveryFee:7,grandTotal:52.9,currency:'MYR'});
   assert.equal(order.payment.amountMinor,5290);assert.equal(order.manualDiscountSnapshot.authorizedBy,uid);assert.equal(order.manualDiscountSnapshot.finalTotal,52.9);assert.equal(order.manualOrder.draft.manualDiscount.reason,'Goodwill');
   const edited=await saveManualPosOrder({db,uid,input:{...request,requestId:'edit-discount-12345678',orderId:order.id,expectedRevision:1,manualDiscount:{type:'fixed_amount',value:1},expectedDiscountMinor:100},now,loadCheckout:async()=>checkout});
   assert.equal(docs[`storeOrders/${edited.orderId}`].total,57);
@@ -805,4 +806,30 @@ test('Weekly POS pending discount edits preserve daily snapshots and block unres
  delete order.weeklyPosLink;
  await saveManualPosOrder({...args,input:edit});
  const edited=docs[`storeOrders/${saved.orderId}`];assert.equal(edited.total,25.38);assert.equal(edited.weeklyDayPos,true);assert.equal(JSON.stringify(edited.items),items);assert.equal(JSON.stringify(edited.fulfilments),days);
+});
+
+test('automatic and explicitly stacked POS pricing persists identically for pending and paid Add Order paths',async()=>{
+ const offer={id:'offer',storeId:'s',workspaceId:'s',name:'Product offer',type:'fixed_amount',fixedAmountOff:4,active:true,eligibleProductIds:['prawn'],startsAt:'2020-01-01',minimumQuantity:0,minimumOrderAmount:0};
+ const catalog={...checkout,promotions:[offer]};
+ for(const application of ['keep','replace','stack']){
+  const {db,docs,writes}=database({'workspaces/s':workspace});
+  const manualDiscount=application==='keep'?undefined:{type:'percentage',value:10,application};
+  const request={...input(),manualDiscount};
+  const pricing=calculatePosPricing({items:buildManualOrder(request,catalog,now,{owner:true}).items,promotions:[offer],discount:manualDiscount,authorized:true,uid:'owner',now});
+  Object.assign(request,{expectedPosPricing:posPricingExpectation(pricing),expectedDiscountMinor:Math.round(pricing.manualDiscountTotal*100)});
+  const saved=await saveManualPosOrder({db,uid:'owner',input:request,now,loadCheckout:async()=>catalog});
+  const order=docs[`storeOrders/${saved.orderId}`];
+  assert.equal(order.total,application==='keep'?47:application==='replace'?45.9:42.3);
+  assert.equal(order.totals.automaticDiscountTotal,application==='replace'?0:4);
+  assert.equal(order.payment.amountMinor,Math.round(order.total*100));
+  assert.deepEqual(order.promotionSnapshot,pricing.promotionSnapshot);
+  assert.equal(order.items[0].basePrice,15);
+  const count=writes.length;
+  await assert.rejects(saveManualPosOrder({db,uid:'owner',input:{...request,requestId:'stale-auto-preview-1234',expectedPosPricing:{...request.expectedPosPricing,automaticMinor:999}},now,loadCheckout:async()=>catalog}),/pricing changed/);
+  assert.equal(writes.length,count);
+  const external={slug:'gg',storeId:'s',workspaceId:'s',source:'walk_in',requestId:`auto-walkin-${application}-123456`,paymentLabel:'walk_in_paid',selections:[{productId:'prawn',quantity:1,selectedOptions:[]},{productId:'burrito',quantity:2,selectedOptions:[]}],manualDiscount,expectedDiscountMinor:request.expectedDiscountMinor,expectedPosPricing:request.expectedPosPricing};
+  const paid=await createExternalPosOrder({db,uid:'owner',input:external,now,loadCheckout:async()=>catalog});
+  const paidOrder=docs[`storeOrders/${paid.orderId}`];assert.equal(paidOrder.total,order.total);assert.deepEqual(paidOrder.totals,order.totals);
+  const before=JSON.stringify(paidOrder);await createExternalPosOrder({db,uid:'owner',input:external,now,loadCheckout:async()=>catalog});assert.equal(JSON.stringify(docs[`storeOrders/${paid.orderId}`]),before);
+ }
 });
