@@ -60,6 +60,7 @@ export default function ManualPosOrders({
   refined = false,
   createRequest = 0,
   showPending = true,
+  onCreateConsumed,
   onPendingCountChange,
   onPanelChange,
 }: {
@@ -76,6 +77,7 @@ export default function ManualPosOrders({
   refined?: boolean;
   createRequest?: number;
   showPending?: boolean;
+  onCreateConsumed?: ()=>void;
   onPendingCountChange?: (count:number)=>void;
   onPanelChange?: (open:boolean)=>void;
 }) {
@@ -346,7 +348,7 @@ export default function ManualPosOrders({
   useEffect(()=>{onPendingCountChange?.(pending.length);},[pending.length,onPendingCountChange]);
   useEffect(()=>{onPanelChange?.(Boolean(open || saved || pay));},[open,saved,pay,onPanelChange]);
   const handledCreate = useRef(0);
-  useEffect(()=>{if(createRequest && createRequest!==handledCreate.current){handledCreate.current=createRequest;setSaved(null);void load();}},[createRequest]);
+  useEffect(()=>{if(!createRequest){handledCreate.current=0;return;}if(createRequest!==handledCreate.current){handledCreate.current=createRequest;onCreateConsumed?.();setSaved(null);void load();}},[createRequest]);
   const input = "rounded border p-2 text-slate-950 bg-white";
   return (
     <section
