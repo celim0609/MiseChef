@@ -380,7 +380,6 @@ export default function ManualPosOrders({
             {order.orderNumber} · {order.customerName}
           </b>
           <p>
-            {refined && <button type="button" disabled={busy} className="manual-secondary" onClick={()=>setOpen(false)}>Back to orders</button>}
             <span className="manual-badge">Pending Payment</span> ·{" "}
             {order.currency} {order.total.toFixed(2)}
           </p>
@@ -529,6 +528,7 @@ export default function ManualPosOrders({
             <h2 className="text-xl font-bold">
               {editing ? `Edit ${editing.orderNumber}` : "Create Manual Order"}
             </h2>
+            {refined && <button type="button" disabled={busy} className="manual-secondary" onClick={()=>setOpen(false)}>Back to orders</button>}
             <span className="manual-badge">Pending Payment</span>
             <PasteOrderButton workspaceId={workspaceId} storeId={storeId} slug={slug} products={posProducts} sets={sets} disabled={busy} onApply={pasted=>{setDraft(pasted);setFeeMode(pasted.deliveryFeeOverride?'manual':'estimate');setDeliveryQuote(null);}} />
             <p className="manual-muted">
