@@ -53,6 +53,7 @@ export const validateInput = (input, owner = false) => {
 };
 
 export const createExternalPosOrder = async ({ db, uid, input, deliveryProvider, now = new Date(), loadCheckout = loadStoreCheckoutData }) => {
+  if (input?.expectedPosPricing !== undefined) throw externalError('POS promotion release was rolled back. Reload POS before creating or editing orders.');
   const workspaceId = readString(input?.workspaceId);
   const checkoutStore = await loadCheckout(db, input?.slug);
   const storeId = readString(checkoutStore.store.id) || readString(checkoutStore.store.workspaceId);

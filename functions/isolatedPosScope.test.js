@@ -64,6 +64,7 @@ function stripApprovedHistoryAdditions(file, original) {
  if(!existsSync(new URL('./posHistoryIndex.js',import.meta.url)))return original;
  const strip=(chunk,replacement='')=>{assert.equal(value.split(chunk).length,2,`Exactly one approved addition in ${file}`);value=value.replace(chunk,replacement);};
  if(file==='functions/index.js'){strip(historyImport);strip(historyExport);}
+ if(file==='functions/externalPosOrders.js')strip("  if (input?.expectedPosPricing !== undefined) throw externalError('POS promotion release was rolled back. Reload POS before creating or editing orders.');\n");
  if(file==='firestore.rules')strip(historyRules);
  if(file==='firestore.indexes.json'){
   const definitions=',\n'+historyIndexes.map(index=>'    '+JSON.stringify(index,null,2).replaceAll('\n','\n    ')).join(',\n')+'\n';

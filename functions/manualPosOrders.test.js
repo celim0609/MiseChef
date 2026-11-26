@@ -741,3 +741,9 @@ test('rollback preserves newer automatic/stacked/replaced pending snapshots and 
   const count=writes.length;assert.equal((await confirmManualPosPayment({db,uid:'owner',input:confirmation,now})).duplicate,true);assert.equal(writes.length,count);
  }
 });
+test('rollback rejects cached promotion-client pricing payloads before catalog, quotation or order writes',async()=>{
+ const db=new Proxy({}, {get(){throw Error('Rollback must reject before database access');}});
+ const args={db,uid:'owner',input:{expectedPosPricing:{automaticMinor:800}},now,loadCheckout:async()=>{throw Error('Rollback must reject before loading catalog');}};
+ await assert.rejects(saveManualPosOrder(args),/rolled back.*Reload POS/);
+ await assert.rejects(createExternalPosOrder(args),/rolled back.*Reload POS/);
+});

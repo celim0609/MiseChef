@@ -295,6 +295,8 @@ export async function saveManualPosOrder({
       "unauthenticated",
       "Sign in to create a manual order.",
     );
+  if (input?.expectedPosPricing !== undefined)
+    fail("POS promotion release was rolled back. Reload POS before creating or editing orders.");
   const checkoutStore = await loadCheckout(db, input?.slug);
   const workspaceId = readString(checkoutStore.store.workspaceId);
   const storeId = readString(checkoutStore.store.id) || workspaceId;
