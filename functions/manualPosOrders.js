@@ -1,4 +1,4 @@
-import { calculatePromotionPricing, applyManualDiscount } from './storePromotionPricing.js';
+import { calculatePosPricing, assertPosPricingExpected } from './storePromotionPricing.js';
 import { isDeliveryTimeWithinHours } from './deliveryTimePolicy.js';
 import { posStoreDate, resolvePosAddOrderMeal } from './posAddOrder.js';
 import { HttpsError } from "firebase-functions/v2/https";
@@ -344,11 +344,10 @@ export async function saveManualPosOrder({
       fail('Menu pricing changed. Reload the catalog and review the cart.');
     let discountPricing;
     try {
-      // Preserve existing POS pricing when no discount is requested. Check live offers before allowing one.
-      const pricing = calculatePromotionPricing({items:built.items, promotions:checkout.promotions || [], now, excluded:!input.manualDiscount});
-      discountPricing = applyManualDiscount({items:built.items, pricing, discount:input.manualDiscount, authorized:transactionPosFullAccess, uid, currency:checkout.store.currency || 'MYR', now});
-    } catch (error) { fail(error.message); }
-    if (input.manualDiscount && input.expectedDiscountMinor !== Math.round(discountPricing.discountTotal*100)) fail('Discount changed. Review the cart before saving.');
+      // Recompute applicable offers and the explicitly authorized manual choice before saving.
+      discountPricing = calculatePosPricing({items:built.items,promotions:(checkout.promotions || []).filter(p=>p.storeId===storeId && p.workspaceId===workspaceId),discount:input.manualDiscount,authorized:transactionPosFullAccess,uid,currency:checkout.store.currency || 'MYR',now,excluded:false});
+      assertPosPricingExpected(input,discountPricing);
+    } catch(error) { fail(error.message); }
     const deliveryInput = manualDeliveryInput(input, checkout.products);
     const delivery = await resolvePosDeliveryCharge({ db, transaction: tx, input: deliveryInput, checkout, built, uid, fullAccess: transactionPosFullAccess, now: new Date(Math.max(now.getTime(), Date.now())) });
     const grandTotal = money(discountPricing.discountedMerchandiseTotal + delivery.fee);
@@ -368,7 +367,7 @@ export async function saveManualPosOrder({
         previous.fulfilmentStatus !== "New")
     )
       fail("Only pending manual orders can be edited.");
-    if (previous && !previous.manualDiscountSnapshot && (previous.totals?.discountTotal > 0 || previous.promotionCodeSnapshot || previous.promotionSnapshot?.appliedPromotions?.length)) fail('Preserve the existing promotion through its original order workflow.');
+    if (previous?.promotionCodeSnapshot) fail('Preserve the existing promotion code through its original workflow.');
     if (previous?.weeklyPosLink || (previous && previous.payment.provider !== 'manual_pos')) fail('Cancel any payment link before editing this pending order.');
     if (previous?.manualDiscountSnapshot && !transactionPosFullAccess) throw new HttpsError('permission-denied','Only Owner or Manager can edit a discounted order.');
     if (previous && input.expectedRevision !== previous.manualOrder.revision)
@@ -402,7 +401,8 @@ export async function saveManualPosOrder({
     const order = {
       ...snapshot,
       total: grandTotal,
-      ...(discountPricing.manualDiscountSnapshot ? {manualDiscountSnapshot:{...discountPricing.manualDiscountSnapshot,finalTotal:grandTotal},promotionSnapshot:discountPricing.promotionSnapshot} : previous?.manualDiscountSnapshot ? {manualDiscountSnapshot:FieldValue.delete(),promotionSnapshot:FieldValue.delete()} : {}),
+      ...(discountPricing.manualDiscountSnapshot ? {manualDiscountSnapshot:{...discountPricing.manualDiscountSnapshot,finalTotal:grandTotal},} : previous?.manualDiscountSnapshot ? {manualDiscountSnapshot:FieldValue.delete()} : {}),
+      promotionSnapshot:discountPricing.promotionSnapshot,
       ...(delivery.snapshot ? { deliveryPricingSnapshot: delivery.snapshot } : previous?.deliveryPricingSnapshot ? { deliveryPricingSnapshot: FieldValue.delete() } : {}),
       id: orderRef.id,
       storeId,
@@ -439,7 +439,7 @@ export async function saveManualPosOrder({
       itemCount: built.items.reduce((n, item) => n + item.quantity, 0),
       totals: {
         merchandiseSubtotal: built.total,
-        discountTotal: discountPricing.discountTotal,
+        discountTotal: discountPricing.discountTotal, automaticDiscountTotal:discountPricing.automaticDiscountTotal, manualDiscountTotal:discountPricing.manualDiscountTotal,
         discountedMerchandiseTotal: discountPricing.discountedMerchandiseTotal,
         deliveryFee: delivery.fee,
         grandTotal,

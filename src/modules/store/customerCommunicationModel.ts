@@ -159,7 +159,8 @@ export function customerActionMessage(order: StoreOrder, action: CustomerAction,
     } else if (dailyFees.length) {
       lines.push('Daily delivery breakdown: Not available');
     }
-    if (discount) lines.push(`Discounts: −${money(discount)}`);
+    if(breakdown.automaticDiscount !== undefined) lines.push(`Automatic promotions: −${money(breakdown.automaticDiscount)}`,`Manual discount: −${money(breakdown.manualDiscount || 0)}`);
+    else if (discount) lines.push(`Discounts: −${money(discount)}`);
     lines.push(`Final Total: ${money(finalTotal)}`);
     const promotions = remarks(...(order.promotionSnapshot?.appliedPromotions ?? []).map(promotion => promotion.name),
       order.promotionCodeSnapshot?.code);

@@ -38,9 +38,9 @@ const approvedDeliveryUpdates = {
   'functions/storeDelivery.js': 'b1957eef1bae7dc00094115132d1cea4be411a4c1667d7a78405d15f1075a7e3',
   'src/modules/store/PublicStorePage.tsx': 'f0d7aff6b0acd667a55c5896e8d866a9ee40f7172916cd8c7536c1fc2b452656',
 };
-// Only the accepted manual-discount pricing extension may change this POS endpoint.
+// Only the accepted automatic/manual POS pricing composition may change this endpoint.
 const approvedPosDiscountUpdates = {
-  'functions/externalPosOrders.js': '8b9c7158a10e9ed46ac4866dd3b1951981aff4ed77698a4ccf9a0d64c698e34a',
+  'functions/externalPosOrders.js': '6e1d22da9b98fd2466fc4f1b31e95a0d176b29812983c3828aa4a8d70c1efcfc',
 };
 const historyImport = "import {syncPosHistoryIndex, retryHistoryIndexSync} from './posHistoryIndex.js';\n";
 const historyExport = "\nexport const syncStoreOrderHistoryIndex = onDocumentWritten({document:'storeOrders/{orderId}',region:REGION,timeoutSeconds:120}, event => retryHistoryIndexSync(() => syncPosHistoryIndex(db,event.params.orderId)));\n";
@@ -63,7 +63,7 @@ function stripApprovedHistoryAdditions(file, original) {
  let value=original.toString();
  if(!existsSync(new URL('./posHistoryIndex.js',import.meta.url)))return original;
  const strip=(chunk,replacement='')=>{assert.equal(value.split(chunk).length,2,`Exactly one approved addition in ${file}`);value=value.replace(chunk,replacement);};
- if(file==='functions/index.js'){strip(historyImport);strip(historyExport);}
+ if(file==='functions/index.js'){strip(historyImport);strip(historyExport);strip("import {getPosPromotionCatalog} from './posPromotionCatalog.js';\n");strip("  if(request.data?.pos === true) return getPosPromotionCatalog({db,uid:request.auth?.uid,input:request.data});\n");}
  if(file==='firestore.rules')strip(historyRules);
  if(file==='firestore.indexes.json'){
   const definitions=',\n'+historyIndexes.map(index=>'    '+JSON.stringify(index,null,2).replaceAll('\n','\n    ')).join(',\n')+'\n';

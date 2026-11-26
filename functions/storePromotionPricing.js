@@ -100,32 +100,67 @@ export const allocateDiscountMinor = (lineMinor, discountMinor) => {
   return allocated;
 };
 
-// Extends existing canonical totals and line adjustments; never changes item prices or delivery fees.
+// POS composes discounts on the existing promotion engine and canonical line adjustments.
+export const calculatePosPricing = ({items, promotions = [], discount, authorized = false, uid = '', currency = 'MYR', now = new Date(), excluded = false}) => {
+  const automatic = calculatePromotionPricing({items, promotions, now, excluded});
+  return applyManualDiscount({items, pricing:{...automatic, automaticDiscountTotal:automatic.discountTotal, manualDiscountTotal:0}, discount, authorized, uid, currency, now});
+};
+export const posPricingExpectation = pricing => ({
+  subtotalMinor:moneyToMinor(pricing.merchandiseSubtotal), automaticMinor:moneyToMinor(pricing.automaticDiscountTotal || 0),
+  manualMinor:moneyToMinor(pricing.manualDiscountTotal || 0), merchandiseMinor:moneyToMinor(pricing.discountedMerchandiseTotal),
+  promotions:[...(pricing.promotionSnapshot?.appliedPromotions || [])].sort((a,b)=>a.promotionId.localeCompare(b.promotionId)).map(p=>({id:p.promotionId,type:p.type,terms:p.terms,savingsMinor:moneyToMinor(p.savings)})),
+  lines:(pricing.promotionSnapshot?.lineAdjustments || []).map(line=>({id:line.productId,quantity:line.quantity,originalMinor:moneyToMinor(line.originalLineTotal),discountMinor:moneyToMinor(line.discountAmount),finalMinor:moneyToMinor(line.finalLineTotal)})),
+  replacedPromotions:(pricing.manualDiscountSnapshot?.replacedPromotions || []).map(p=>({id:p.promotionId,type:p.type,terms:p.terms,savingsMinor:moneyToMinor(p.savings)})),
+  application:pricing.manualDiscountSnapshot?.stackingPolicy || 'keep'
+});
+export const assertPosPricingExpected = (input, pricing) => {
+  if (input.expectedPosPricing !== undefined || pricing.automaticDiscountTotal > 0 || pricing.manualDiscountSnapshot?.automaticDiscountOffered > 0) {
+    if (JSON.stringify(input.expectedPosPricing) !== JSON.stringify(posPricingExpectation(pricing))) throw new Error('Promotion or discount pricing changed. Refresh and review the current cart before payment.');
+  }
+  if (input.manualDiscount && input.expectedDiscountMinor !== moneyToMinor(pricing.manualDiscountTotal || 0)) throw new Error('Discount changed. Review the cart before payment.');
+};
+
 export const applyManualDiscount = ({items, pricing, discount, authorized = false, uid = '', currency = 'MYR', now = new Date()}) => {
   if (discount === undefined || discount === null) return pricing;
   if (!authorized || !uid) throw new Error('Only Owner or Manager can apply a manual discount.');
   if (currency !== 'MYR') throw new Error('Manual discounts are currently available for RM orders only.');
   if (typeof discount !== 'object' || Array.isArray(discount)
-    || Object.keys(discount).some(key => !['type','value','reason'].includes(key))
+    || Object.keys(discount).some(key => !['type','value','reason','application'].includes(key))
     || !['fixed_amount','percentage'].includes(discount.type)
     || typeof discount.value !== 'number' || !Number.isFinite(discount.value) || discount.value <= 0
     || Math.abs(discount.value * 100 - Math.round(discount.value * 100)) > 0.000001
+    || (discount.application !== undefined && !['keep','replace','stack'].includes(discount.application))
     || (discount.reason !== undefined && (typeof discount.reason !== 'string' || discount.reason.trim().length > 240))) throw new Error('Enter a positive discount with up to two decimals and an optional reason of up to 240 characters.');
-  if (pricing.discountTotal > 0 || pricing.promotionCodeSnapshot || pricing.promotionSnapshot?.appliedPromotions?.length
-    || items.some(item => item.itemType === 'set' || item.weeklyPriceSnapshot?.discountAmount > 0)) throw new Error('Manual discount cannot stack with an existing promotion, Weekly Discount or Set offer. Keep the existing offer or remove the manual discount.');
+  if (pricing.promotionCodeSnapshot) throw new Error('Manual discount cannot stack with a promotion code.');
+  const offeredAutomaticMinor = moneyToMinor(pricing.discountTotal || 0);
+  if (offeredAutomaticMinor > 0 && !discount.application) throw new Error('An automatic promotion is applied. Explicitly choose keep, replace or stack.');
+  if (discount.application === 'keep') return pricing;
+  const stack = discount.application === 'stack';
   const lineMinor = items.map(item => moneyToMinor(item.lineTotal));
   const subtotal = lineMinor.reduce((sum, value) => sum + value, 0);
   if (!Number.isSafeInteger(subtotal) || subtotal < 1 || subtotal !== moneyToMinor(pricing.merchandiseSubtotal)) throw new Error('Review the eligible product subtotal.');
+  const automatic = items.map((item,index)=>stack ? moneyToMinor(pricing.promotionSnapshot?.lineAdjustments?.[index]?.discountAmount || 0) : 0);
+  const eligible = items.map((item,index)=>({index,amount:lineMinor[index]-automatic[index]}))
+    .filter(row=>items[row.index].itemType !== 'set' && !(items[row.index].weeklyPriceSnapshot?.discountAmount > 0));
+  const eligibleSubtotal = eligible.reduce((sum,row)=>sum+row.amount,0);
+  if (!eligibleSubtotal) throw new Error('Manual discount cannot apply to Weekly Discounts or Set offers; choose eligible products with a remaining subtotal.');
   const valueMinor = Math.round(discount.value * 100);
   if (!Number.isSafeInteger(valueMinor) || (discount.type === 'percentage' && valueMinor > 10000)) throw new Error('Percentage must be at most 100%.');
-  const discountMinor = discount.type === 'percentage'
-    ? Number((BigInt(subtotal) * BigInt(valueMinor) + 5000n) / 10000n) : valueMinor;
-  if (discountMinor < 1 || discountMinor > subtotal) throw new Error('Discount must be at least RM0.01 and cannot exceed the product subtotal.');
-  const allocated = allocateDiscountMinor(lineMinor, discountMinor);
-  return { ...pricing, discountTotal: discountMinor / 100, discountedMerchandiseTotal: (subtotal-discountMinor)/100,
-    manualDiscountSnapshot: { version:1, type:discount.type, value:discount.value, reason:discount.reason?.trim() || '',
-      originalSubtotal:subtotal/100, discountAmount:discountMinor/100, finalMerchandiseTotal:(subtotal-discountMinor)/100,
-      authorizedBy:uid, authorizedAt:now.toISOString(), currency, stackingPolicy:'exclusive' },
-    promotionSnapshot:{version:1,appliedPromotions:[],lineAdjustments:allocated.map(row=>({productId:asString(items[row.index].productId),productName:asString(items[row.index].productName),quantity:items[row.index].quantity,
-      originalLineTotal:lineMinor[row.index]/100,discountAmount:row.amount/100,finalLineTotal:(lineMinor[row.index]-row.amount)/100}))} };
+  const discountMinor = discount.type === 'percentage' ? Number((BigInt(eligibleSubtotal) * BigInt(valueMinor) + 5000n) / 10000n) : valueMinor;
+  if (discountMinor < 1 || discountMinor > eligibleSubtotal) throw new Error('Discount must be at least RM0.01 and cannot exceed the eligible product subtotal.');
+  const allocated = allocateDiscountMinor(eligible.map(row=>row.amount),discountMinor);
+  const manual = items.map(()=>0);allocated.forEach(row=>{manual[eligible[row.index].index]=row.amount;});
+  const automaticMinor = automatic.reduce((sum,value)=>sum+value,0), combined = automaticMinor+discountMinor;
+  return {...pricing, automaticDiscountTotal:automaticMinor/100, manualDiscountTotal:discountMinor/100,
+    discountTotal:combined/100, discountedMerchandiseTotal:(subtotal-combined)/100,
+    manualDiscountSnapshot:{version:2,type:discount.type,value:discount.value,reason:discount.reason?.trim() || '',originalSubtotal:subtotal/100,
+      eligibleSubtotal:eligibleSubtotal/100,discountAmount:discountMinor/100,automaticDiscountAmount:automaticMinor/100,
+      automaticDiscountOffered:offeredAutomaticMinor/100,finalMerchandiseTotal:(subtotal-combined)/100,authorizedBy:uid,authorizedAt:now.toISOString(),currency,
+      stackingPolicy:offeredAutomaticMinor>0?(stack?'stack':'replace'):'exclusive',
+      ...(offeredAutomaticMinor>0&&!stack?{replacedPromotions:pricing.promotionSnapshot?.appliedPromotions || []}:{})},
+    promotionSnapshot:{version:1,appliedPromotions:stack?(pricing.promotionSnapshot?.appliedPromotions || []):[],lineAdjustments:items.map((item,index)=>({
+      productId:asString(item.productId),productName:asString(item.productName),quantity:item.quantity,originalLineTotal:lineMinor[index]/100,
+      automaticDiscountAmount:automatic[index]/100,manualDiscountAmount:manual[index]/100,discountAmount:(automatic[index]+manual[index])/100,finalLineTotal:(lineMinor[index]-automatic[index]-manual[index])/100,
+      ...(stack&&pricing.promotionSnapshot?.lineAdjustments?.[index]?.promotionId?{promotionId:pricing.promotionSnapshot.lineAdjustments[index].promotionId}:{})}))}
+  };
 };

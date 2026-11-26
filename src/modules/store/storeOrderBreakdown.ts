@@ -33,6 +33,8 @@ export function getStoreOrderBreakdown(order: StoreOrder) {
   }) : [];
   return {
     subtotal, deliveryFee, dailyDeliveryFees,
+    automaticDiscount:isAmount(totals?.automaticDiscountTotal)?totals.automaticDiscountTotal:undefined,
+    manualDiscount:isAmount(totals?.manualDiscountTotal)?totals.manualDiscountTotal:undefined,
     discount: isAmount(totals?.discountTotal) ? totals.discountTotal : undefined,
     finalTotal: order.hasSavedCommunicationTotal !== false && isAmount(order.total) ? order.total : undefined,
     currency: totals?.currency ?? order.currency
