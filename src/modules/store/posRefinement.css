@@ -75,3 +75,5 @@
 .pos-screen[data-pos-theme="dark"] .manual-pos.pos-manual-refined .manual-dialog { color:var(--pos-ink); }
 .pos-screen .pos-cart-panel footer > button { width:auto; min-width:180px; font-size:14px; }
 @media(max-width:700px) { .pos-screen .pos-cart-panel footer > button { width:100%; } }
+.pos-screen section.max-w-7xl [class*="grid-cols-6"] { font-size:13px; }
+.pos-screen section.max-w-7xl > .space-y-2 > div { border-radius:0; border-width:0 0 1px; box-shadow:none; }
