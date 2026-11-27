@@ -58,3 +58,9 @@ test('weekly rows keep unauthorized payment and edit controls absent while retai
  for(const action of ['Manual Payment','Confirm Payment','Retrieve Payment Link','Cancel Payment Link','Edit before payment'])assert.ok(!html.includes(action),action);
  assert.match(html,/View details/);
 });
+
+test('multi-day orders keep a compact first fulfilment with an additional-day count and full date tooltip',()=>{
+ const fulfilments=Array.from({length:5},(_,i)=>({date:`2026-11-${23+i}`,time:'12:00'}));
+ const html=renderToStaticMarkup(<Rows pending={[{...base,fulfilments}]}/>);
+ assert.match(html,/\+4 more fulfilments/);assert.match(html,/title="2026-11-23 12:00.*2026-11-27 12:00"/);
+});

@@ -381,7 +381,7 @@ export default function ManualPosOrders({
         <article key={order.id} className="pos-pending-row" aria-label={`Pending order ${order.orderNumber}`}>
           <b className="pos-pending-number" data-label="Order Number">{order.orderNumber}</b>
           <span className="pos-pending-customer" data-label="Customer">{order.customerName || "—"}</span>
-          <span className="pos-pending-date" data-label="Fulfilment Date/Time">{order.fulfilments?.map((day) => `${day.date} ${day.time || ""}`).join(" · ") || "—"}</span>
+          <span className="pos-pending-date" data-label="Fulfilment Date/Time" title={order.fulfilments?.map((day) => `${day.date} ${day.time || ""}`).join(" · ")}>{order.fulfilments?.length ? <>{order.fulfilments[0].date} {order.fulfilments[0].time || ""}{order.fulfilments.length > 1 && <small className="block">+{order.fulfilments.length - 1} more fulfilments</small>}</> : "—"}</span>
           <span className="pos-pending-method" data-label="Payment Method">{(order.weeklyPosLink?.provider || order.payment.providerPaymentMethod || (order.payment.provider !== 'manual' ? order.payment.provider : '') || 'Not selected').replaceAll('_', ' ')}</span>
           <strong className="pos-pending-amount" data-label="Amount">{order.currency === 'MYR' ? 'RM' : order.currency} {order.total.toFixed(2)}</strong>
           <span className="pos-pending-status" data-label="Status"><span className="manual-badge">Pending Payment</span></span>
