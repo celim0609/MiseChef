@@ -44,7 +44,7 @@
 .pos-screen .pos-manual-refined .manual-actions { gap:8px; margin-top:10px; }
 .pos-screen .pos-manual-refined :is(.manual-secondary,.manual-primary) { padding:8px 12px; min-height:36px; font-size:13px; }
 .pos-screen .pos-manual-refined .manual-grid,.pos-screen .pos-manual-refined .manual-fields { gap:10px; }
-.pos-screen .pos-pending-list { max-width:1200px; margin:12px auto; }
+.pos-screen .pos-pending-list { margin:12px auto; }
 .pos-screen .pos-pending-list > article { background:var(--pos-surface); border:0; border-bottom:1px solid var(--pos-line); border-radius:0; margin:0; padding:12px; }
 .pos-screen[data-pos-theme="dark"] .pos-manual-refined :is(input:not([type="checkbox"]),select,textarea,.manual-secondary) { background:var(--pos-soft); border-color:var(--pos-line); color:var(--pos-ink); }
 .pos-screen[data-pos-theme="dark"] .pos-manual-refined .manual-muted { color:var(--pos-muted); }
@@ -54,8 +54,7 @@
  .pos-screen .pos-entry-layout > [aria-label="Store products"] { padding:12px; }
  .pos-screen header :is(button.min-h-12,button.h-12) { min-height:36px; height:36px; }
  .pos-screen header button.h-12 { width:36px; }
- .pos-screen .pos-pending-list > article { display:grid; grid-template-columns:1fr auto; gap:4px 16px; }
- .pos-screen .pos-pending-list > article .manual-actions { grid-column:2; grid-row:1 / span 3; align-self:center; margin:0; }
+
 }
 @media(max-width:700px) {
  .pos-screen { overflow-wrap:anywhere; }
@@ -77,3 +76,39 @@
 @media(max-width:700px) { .pos-screen .pos-cart-panel footer > button { width:100%; } }
 .pos-screen section.max-w-7xl [class*="grid-cols-6"] { font-size:13px; }
 .pos-screen section.max-w-7xl > .space-y-2 > div { border-radius:0; border-width:0 0 1px; box-shadow:none; }
+
+/* Pending payments: one aligned row per order, with details expanded in flow. */
+.pos-screen .pos-pending-head,.pos-screen .pos-pending-list > .pos-pending-row { display:grid; grid-template-columns:116px minmax(120px,1fr) 144px 100px 82px 118px 340px; align-items:center; gap:12px; font-size:13px; }
+.pos-screen .pos-pending-head { padding:8px 12px; color:var(--pos-muted); font-weight:600; border-bottom:1px solid var(--pos-line); }
+.pos-screen .pos-pending-list > .pos-pending-row { min-height:64px; padding:8px 12px; }
+.pos-screen .pos-pending-row > * { min-width:0; }
+.pos-screen .pos-pending-customer { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.pos-screen .pos-pending-amount { white-space:nowrap; }
+.pos-screen .pos-pending-method { text-transform:capitalize; }
+.pos-screen .pos-pending-status .manual-badge { white-space:nowrap; font-size:11px; padding:4px 6px; }
+.pos-screen .pos-pending-actions,.pos-screen .pos-pending-payment { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.pos-screen .pos-pending-actions { align-self:center; }
+.pos-screen .pos-pending-actions :is(button,summary) { min-height:34px; height:auto; padding:6px 8px; margin:0; border:1px solid var(--pos-line); border-radius:6px; font-size:12px; line-height:20px; white-space:nowrap; cursor:pointer; align-self:center; width:auto; }
+.pos-screen .pos-pending-actions button { min-width:0; }
+.pos-screen .pos-pending-actions details > div { display:flex; flex-wrap:wrap; gap:6px; padding-top:6px; }
+.pos-screen .pos-pending-more summary,.pos-screen .pos-payment-options summary { list-style:none; background:var(--pos-soft); color:var(--pos-ink); }
+.pos-screen .pos-payment-options { order:2; }
+.pos-screen .pos-pending-payment > div { margin:0; }
+.pos-screen .pos-pending-payment > :is(label,p,[role="alert"],[role="status"]) { flex-basis:100%; }
+.pos-screen .pos-payment-options[open] { flex-basis:100%; }
+.pos-screen .pos-payment-options :is(input,select) { max-width:100%; }
+@media(max-width:1279px) {
+ .pos-screen .pos-pending-head { display:none; }
+ .pos-screen .pos-pending-list > .pos-pending-row { grid-template-columns:1fr auto; gap:6px 12px; padding:12px; }
+ .pos-screen .pos-pending-number { grid-column:1; grid-row:1; }
+ .pos-screen .pos-pending-customer { grid-column:1; grid-row:2; }
+ .pos-screen .pos-pending-amount { grid-column:2; grid-row:1; text-align:right; }
+ .pos-screen .pos-pending-status { grid-column:2; grid-row:2; text-align:right; }
+ .pos-screen .pos-pending-date,.pos-screen .pos-pending-method { grid-column:1 / -1; color:var(--pos-muted); }
+ .pos-screen .pos-pending-date::before { content:"Fulfilment: "; }
+ .pos-screen .pos-pending-method::before { content:"Payment method: "; }
+ .pos-screen .pos-pending-actions { grid-column:1 / -1; }
+}
+@media(max-width:700px) {
+ .pos-screen .pos-pending-actions :is(button,summary) { min-height:44px; padding:10px 9px; }
+}

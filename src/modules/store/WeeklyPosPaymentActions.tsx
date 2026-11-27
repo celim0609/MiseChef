@@ -6,11 +6,12 @@ export type WeeklyPaymentWorkflow = 'pending' | 'manual' | 'link';
 
 export type WeeklyLinkProvider = 'curlec' | 'stripe';
 
-export default function WeeklyPosPaymentActions({ order, slug, providers, initialWorkflow = 'pending' }: {
+export default function WeeklyPosPaymentActions({ order, slug, providers, initialWorkflow = 'pending', compact = false }: {
   order: StoreOrder;
   slug: string;
   providers: WeeklyLinkProvider[];
   initialWorkflow?: WeeklyPaymentWorkflow;
+  compact?: boolean;
 }) {
   const [showManual, setShowManual] = useState(initialWorkflow === 'manual');
   const [method, setMethod] = useState('bank_transfer');
@@ -58,9 +59,14 @@ export default function WeeklyPosPaymentActions({ order, slug, providers, initia
     setShowManual(false);
   });
   const button = 'rounded border px-3 py-2 font-bold disabled:opacity-50';
-  return <section aria-label="Weekly POS payment" className="mt-2 space-y-2 text-sm">
+  return <section aria-label="Weekly POS payment" className={compact ? "pos-pending-payment" : "mt-2 space-y-2 text-sm"}>
+    {!compact && <>
     {order.payment.curlecEnvironment === 'test' && <p className="font-bold">Curlec Test Mode</p>}
     <p className="font-bold">{order.orderNumber} · {order.currency} {order.total.toFixed(2)} · {paid ? 'Paid' : 'Pending payment'}</p>
+    </>}
+    <details hidden={compact && !(order.payment.curlecEnvironment === 'test' || (!paid && (active || error || providers.length > 1 || provider === 'curlec' || initialWorkflow === 'link')))} className={compact ? "pos-payment-options" : undefined} open={compact ? undefined : true}>
+      <summary hidden={!compact}>Payment options</summary>
+      {compact && order.payment.curlecEnvironment === 'test' && <p className="font-bold">Curlec Test Mode</p>}
     {!paid && !active && initialWorkflow === 'link' && <p>Generate the customer link from this saved order.</p>}
     {!paid && !active && providers.length > 1 && <label className="block">Payment provider
       <select className="ml-1 rounded border p-2" value={provider} disabled={busy}
@@ -72,11 +78,13 @@ export default function WeeklyPosPaymentActions({ order, slug, providers, initia
       <input type="email" value={customerEmail} maxLength={254} onChange={event => setCustomerEmail(event.target.value)}
         className="ml-1 rounded border p-2" disabled={busy} />
     </label>}
+      {compact && !paid && (active || error) && (providers.length > 0 || active) && <button type="button" className={button} disabled={busy} onClick={() => void link('cancel')}>Cancel Payment Link</button>}
+    </details>
     {!paid && <div className="flex flex-wrap gap-2">
       {(providers.length > 0 || active) && <button type="button" className={button} disabled={busy || !slug || (!active && !error && provider === 'curlec' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail.trim()))} onClick={() => void link('generate')}>
         {active ? 'Retrieve Payment Link' : 'Generate Payment Link'}
       </button>}
-      {(active || error) && (providers.length > 0 || active) && <button type="button" className={button} disabled={busy} onClick={() => void link('cancel')}>Cancel Payment Link</button>}
+      {!compact && (active || error) && (providers.length > 0 || active) && <button type="button" className={button} disabled={busy} onClick={() => void link('cancel')}>Cancel Payment Link</button>}
       {!active && order.payment.curlecEnvironment !== 'test' && <button type="button" className={button} disabled={busy} onClick={() => setShowManual(value => !value)}>Manual Payment</button>}
     </div>}
     {url && !paid && <div className="flex flex-wrap items-end gap-2">
@@ -96,7 +104,7 @@ export default function WeeklyPosPaymentActions({ order, slug, providers, initia
         </select>
       </label>
       <label>Payment reference<input className="ml-1 rounded border p-2" value={reference} onChange={event => setReference(event.target.value)} maxLength={120} /></label>
-      <label><input type="checkbox" checked={received} onChange={event => setReceived(event.target.checked)} /> I received {order.currency} {order.total.toFixed(2)}</label>
+      <label><input type="checkbox" checked={received} onChange={event => setReceived(event.target.checked)} /> I received {compact && order.currency === 'MYR' ? 'RM' : order.currency} {order.total.toFixed(2)}</label>
       <button type="button" className={button} disabled={busy || !received || !reference.trim()} onClick={() => void confirm()}>Confirm Payment Received</button>
     </div>}
     {message && <p role="status">{message}</p>}

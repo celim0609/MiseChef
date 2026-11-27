@@ -374,34 +374,22 @@ export default function ManualPosOrders({
       {!pending.length && (
         <p className="manual-muted">No manual orders awaiting payment.</p>
       )}
+      {refined && pending.length > 0 && <div className="pos-pending-head" aria-hidden="true">
+        <span>Order Number</span><span>Customer</span><span>Fulfilment Date/Time</span><span>Payment Method</span><span>Amount</span><span>Status</span><span>Actions</span>
+      </div>}
       {pending.map((order) => (
-        <article key={order.id} className="my-2 rounded border p-3">
-          <b>
-            {order.orderNumber} · {order.customerName}
-          </b>
-          <p>
-            <span className="manual-badge">Pending Payment</span> ·{" "}
-            {order.currency} {order.total.toFixed(2)}
-          </p>
-          <p className="manual-muted">
-            {order.fulfilments
-              ?.map((day) => `${day.date} ${day.time || ""}`)
-              .join(" · ")}
-          </p>
-          {order.weeklyDayPos ? <>
-            {canManageWeeklyPayments && order.payment.status==='pending' && !order.weeklyPosLink && <button type="button" className="manual-secondary" disabled={busy} onClick={()=>void load(order)}>Edit before payment</button>}
-            {canManageWeeklyPayments && weeklyStore?.workspaceId === workspaceId && <WeeklyPosPaymentActions
-              order={order} slug={weeklyStore.slug} providers={weeklyLinkProviders} />}
-            <button type="button" className="manual-secondary" onClick={() => setSaved(order)}>View details</button>
-          </> : <div className="manual-actions">
-            <button
-              disabled={busy}
-              className="manual-secondary"
-              onClick={() => void load(order)}
-            >
-              Edit before payment
-            </button>
-            <button
+        <article key={order.id} className="pos-pending-row" aria-label={`Pending order ${order.orderNumber}`}>
+          <b className="pos-pending-number" data-label="Order Number">{order.orderNumber}</b>
+          <span className="pos-pending-customer" data-label="Customer">{order.customerName || "—"}</span>
+          <span className="pos-pending-date" data-label="Fulfilment Date/Time">{order.fulfilments?.map((day) => `${day.date} ${day.time || ""}`).join(" · ") || "—"}</span>
+          <span className="pos-pending-method" data-label="Payment Method">{(order.weeklyPosLink?.provider || order.payment.providerPaymentMethod || (order.payment.provider !== 'manual' ? order.payment.provider : '') || 'Not selected').replaceAll('_', ' ')}</span>
+          <strong className="pos-pending-amount" data-label="Amount">{order.currency === 'MYR' ? 'RM' : order.currency} {order.total.toFixed(2)}</strong>
+          <span className="pos-pending-status" data-label="Status"><span className="manual-badge">Pending Payment</span></span>
+          <div className="pos-pending-actions">
+            {order.weeklyDayPos ? <>
+              {canManageWeeklyPayments && weeklyStore?.workspaceId === workspaceId && <WeeklyPosPaymentActions compact
+                order={order} slug={weeklyStore.slug} providers={weeklyLinkProviders} />}
+            </> : <button
               disabled={busy}
               className="manual-primary"
               onClick={() => {
@@ -411,16 +399,15 @@ export default function ManualPosOrders({
                 setReference("");
                 setError("");
               }}
-            >
-              Confirm Payment
-            </button>
-            <button
-              className="manual-secondary"
-              onClick={() => setSaved(order)}
-            >
-              View details
-            </button>
-          </div>}
+            >Confirm Payment</button>}
+            <details className="pos-pending-more">
+              <summary aria-label={`More actions for ${order.orderNumber}`}>More <span aria-hidden="true">⋯</span></summary>
+              <div>
+                {(!order.weeklyDayPos || (canManageWeeklyPayments && order.payment.status==='pending' && !order.weeklyPosLink)) && <button type="button" className="manual-secondary" disabled={busy} onClick={()=>void load(order)}>Edit before payment</button>}
+                <button type="button" className="manual-secondary" onClick={() => setSaved(order)}>View details</button>
+              </div>
+            </details>
+          </div>
         </article>
       ))}
       </div>}
