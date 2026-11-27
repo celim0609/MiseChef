@@ -97,7 +97,8 @@ test('Order History is date-scoped independently from the realtime listener', ()
   assert.match(serviceSource, /where\('completedAt', '>=', start\.toISOString\(\)\)/);
   assert.match(serviceSource, /where\('completedAt', '<', end\.toISOString\(\)\)/);
   assert.match(serviceSource, /limit\(STORE_ORDER_DATE_QUERY_LIMIT\)/);
-  assert.match(pageSource, /Counts are not totals/);
+  assert.match(pageSource, /orders shown/);
+  assert.doesNotMatch(pageSource, /unique orders in loaded matches|End of matching query/);
   assert.match(pageSource, /openCompletedHistory/);
 });
 

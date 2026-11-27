@@ -191,3 +191,112 @@
  .pos-screen .manual-order-workspace .manual-main-controls { grid-template-columns:minmax(120px,1fr) minmax(90px,.65fr) minmax(150px,1.3fr) auto; }
  .pos-screen .manual-main-controls .manual-immediate { grid-column:auto; white-space:nowrap; }
 }
+
+/* Shared POS header and order-browser presentation only. */
+.pos-screen .pos-shared-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; min-height:52px; padding:8px 16px; color:var(--pos-ink); }
+.pos-screen .pos-header-identity,.pos-screen .pos-header-actions { display:flex; align-items:center; gap:6px; min-width:0; }
+.pos-screen .pos-header-identity h1 { font-size:18px; font-weight:700; margin:0 4px; }
+.pos-screen .pos-live-indicator { display:inline-flex; align-items:center; gap:5px; color:#047857; background:#d1fae5; border-radius:20px; padding:3px 8px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; }
+.pos-screen .pos-live-indicator > span { width:6px; height:6px; background:#10b981; border-radius:50%; }
+.pos-screen[data-pos-theme="dark"] .pos-live-indicator { color:#6ee7b7; background:#064e3b; }
+.pos-screen .pos-shared-header .pos-header-icon,.pos-screen .pos-shared-header .pos-new-order-trigger,.pos-screen .pos-shared-header .pos-owner-overflow > summary,.pos-screen .pos-header-notifications button[aria-haspopup="menu"] { display:inline-flex; align-items:center; justify-content:center; min-height:36px; height:36px; border:1px solid var(--pos-line); border-radius:6px; padding:6px 10px; font-size:13px; line-height:20px; color:var(--pos-ink); background:var(--pos-surface); }
+.pos-screen .pos-shared-header .pos-header-icon,.pos-screen .pos-shared-header .pos-owner-overflow > summary,.pos-screen .pos-header-notifications button[aria-haspopup="menu"] { width:36px; padding:0; flex-shrink:0; }
+.pos-screen .pos-header-actions .pos-new-order-trigger { background:#2563eb; border-color:#2563eb; color:white; gap:8px; }
+.pos-screen .pos-header-icon[aria-pressed="true"] { color:#2563eb; background:#eff6ff; border-color:#93c5fd; }
+.pos-screen[data-pos-theme="dark"] .pos-header-icon[aria-pressed="true"] { color:#bfdbfe; background:#172e50; border-color:#3b82f6; }
+.pos-screen .pos-new-order-dropdown,.pos-screen .pos-owner-overflow { position:relative; }
+.pos-screen .pos-header-menu,.pos-screen .pos-owner-menu { position:absolute; right:0; top:calc(100% + 6px); z-index:90; width:240px; max-width:calc(100vw - 24px); padding:6px; border:1px solid var(--pos-line); border-radius:8px; background:var(--pos-surface); color:var(--pos-ink); box-shadow:0 8px 24px #0002; }
+.pos-screen .pos-header-menu > button { display:block; width:100%; padding:8px 10px; text-align:left; border-radius:5px; font-size:13px; min-height:36px; }
+.pos-screen .pos-owner-overflow { margin:0; }
+.pos-screen .pos-shared-header .pos-owner-overflow > summary { cursor:pointer; list-style:none; font-size:20px; }
+.pos-screen .pos-owner-menu { width:360px; max-height:70vh; overflow:auto; }
+.pos-screen .pos-owner-menu > details { margin:0; padding:8px; border:0; border-radius:0; color:inherit; background:transparent; font-size:13px; }
+.pos-screen .pos-owner-menu summary { cursor:pointer; padding:4px 0; }
+.pos-screen .pos-header-notifications [role="menu"] { max-width:calc(100vw - 24px); }
+.pos-screen .pos-audio-warning { font-size:12px; color:#b45309; }
+.pos-screen [aria-label="POS sections"] { padding:6px 16px; gap:4px; }
+.pos-screen [aria-label="POS sections"] > button { min-height:34px; padding:6px 10px; line-height:20px; font-size:13px; }
+.pos-screen .pos-order-browser { border:0; box-shadow:none; border-radius:0; }
+.pos-screen .pos-browser-view-row { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; }
+.pos-screen .pos-browser-view-row h2 { margin:0; font-size:18px; font-weight:650; }
+.pos-screen .pos-browser-view-row nav { display:inline-flex; flex-wrap:wrap; gap:2px; margin:0; padding:3px; border:1px solid var(--pos-line); border-radius:7px; background:var(--pos-soft); }
+.pos-screen .pos-browser-view-row nav > button { min-height:32px; border:0; border-radius:5px; padding:4px 10px; font-size:13px; line-height:20px; }
+.pos-screen .pos-browser-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.pos-screen .pos-browser-search { display:flex; align-items:center; gap:6px; flex:1 1 220px; min-width:180px; max-width:420px; min-height:36px; padding:0 10px; border:1px solid var(--pos-line); border-radius:6px; background:var(--pos-surface); }
+.pos-screen .pos-browser-search input { width:100%; min-width:0; height:34px; border:0; background:transparent; outline:none; font-size:13px; }
+.pos-screen .pos-browser-date-actions { display:flex; align-items:center; gap:4px; }
+.pos-screen .pos-browser-date-actions[hidden] { display:none; }
+.pos-screen .pos-browser-toolbar :is(.pos-browser-date-actions > button,.pos-browser-filters > summary) { display:inline-flex; align-items:center; justify-content:center; min-height:36px; height:36px; padding:6px 9px; border:1px solid var(--pos-line); border-radius:6px; font-size:13px; line-height:20px; background:var(--pos-surface); cursor:pointer; }
+.pos-screen .pos-browser-date { display:flex; align-items:center; min-height:36px; border:1px solid var(--pos-line); border-radius:6px; padding:0 6px; }
+.pos-screen .pos-browser-date input { width:134px; min-height:34px; border:0; font-size:13px; color:inherit; background:transparent; cursor:pointer; }
+.pos-screen .pos-browser-filters { position:relative; margin-left:auto; order:3; }
+.pos-screen .pos-browser-filters > summary { list-style:none; gap:10px; }
+.pos-screen .pos-browser-filter-panel { position:absolute; top:calc(100% + 6px); right:0; z-index:50; width:360px; max-width:calc(100vw - 32px); border:1px solid var(--pos-line); border-radius:8px; background:var(--pos-surface); padding:12px; box-shadow:0 8px 24px #0002; }
+.pos-screen .pos-browser-filter-panel :is(button,select) { min-height:34px; font-size:13px; padding:6px 8px; border-radius:5px; }
+.pos-screen .pos-browser-filter-panel select { max-width:100%; color:inherit; background:var(--pos-surface); }
+.pos-screen .pos-browser-status { display:flex; flex-wrap:wrap; gap:12px; margin-top:8px; font-size:12px; color:var(--pos-muted); }
+.pos-screen .pos-order-browser [aria-label="Upcoming fulfilment date"] { display:contents; }
+.pos-screen .pos-order-browser [aria-label="Upcoming fulfilment date"] > div:first-child { order:2; flex:0 1 300px; min-width:0; gap:4px; }
+.pos-screen .pos-order-browser [aria-label="Upcoming fulfilment date"] > div:first-child :is(button,label) { min-height:36px; height:36px; }
+.pos-screen .pos-order-browser [aria-label="Upcoming fulfilment date"] > div:first-child button { width:36px; }
+.pos-screen .pos-order-browser [aria-label="Monday to Sunday"] { order:4; flex-basis:100%; display:grid; grid-template-columns:repeat(7,minmax(0,72px)); margin-top:0; }
+.pos-screen .pos-order-browser [aria-label="Monday to Sunday"] button { min-height:36px; padding:1px 2px; }
+.pos-screen .pos-order-browser [aria-label="Monday to Sunday"] span { line-height:15px; }
+.pos-screen :is(.pos-shared-header,.pos-order-browser,[aria-label="POS sections"]) :is(button,summary):focus-visible { outline:2px solid #3b82f6; outline-offset:2px; }
+.pos-screen .pos-order-browser :is(input,select):focus-visible,.pos-screen .pos-browser-search:focus-within { outline:2px solid #3b82f6; outline-offset:1px; }
+.pos-screen :is(.pos-shared-header,.pos-order-browser,[aria-label="POS sections"]) button:disabled { opacity:.45; cursor:not-allowed; }
+.pos-screen :is(.pos-header-menu > button,.pos-browser-date-actions > button,.pos-browser-filter-panel button):hover { background:var(--pos-soft); }
+@media(max-width:700px) {
+ .pos-screen .pos-shared-header { padding:8px; gap:8px; }
+ .pos-screen .pos-header-actions { gap:4px; flex-wrap:wrap; margin-left:auto; }
+ .pos-screen .pos-shared-header :is(.pos-header-icon,.pos-new-order-trigger,.pos-owner-overflow > summary),.pos-screen .pos-header-notifications button[aria-haspopup="menu"] { min-height:44px; height:44px; }
+ .pos-screen .pos-shared-header .pos-header-icon,.pos-screen .pos-shared-header .pos-owner-overflow > summary,.pos-screen .pos-header-notifications button[aria-haspopup="menu"] { width:44px; }
+ .pos-screen .pos-header-menu > button { min-height:44px; }
+ .pos-screen [aria-label="POS sections"] { padding-inline:8px; }
+ .pos-screen [aria-label="POS sections"] > button { min-height:44px; }
+ .pos-screen .pos-browser-view-row { align-items:stretch; }
+ .pos-screen .pos-browser-view-row nav { width:100%; }
+ .pos-screen .pos-browser-view-row nav > button { flex:1; min-height:40px; padding-inline:6px; }
+ .pos-screen .pos-browser-search { flex-basis:100%; max-width:none; min-height:44px; }
+ .pos-screen .pos-browser-search input { height:42px; font-size:16px; }
+ .pos-screen .pos-browser-date-actions { flex-wrap:wrap; gap:4px; }
+ .pos-screen .pos-browser-toolbar :is(.pos-browser-date-actions > button,.pos-browser-filters > summary),.pos-screen .pos-browser-date { min-height:44px; height:44px; }
+ .pos-screen .pos-browser-date input { min-height:42px; font-size:16px; width:140px; }
+ .pos-screen .pos-browser-filters { position:static; }
+ .pos-screen .pos-browser-filters[open] { flex-basis:100%; }
+ .pos-screen .pos-browser-filter-panel { position:static; width:100%; max-width:none; margin-top:6px; box-shadow:none; }
+ .pos-screen .pos-browser-filter-panel :is(button,select) { min-height:44px; }
+ .pos-screen .pos-order-browser [aria-label="Upcoming fulfilment date"] > div:first-child { flex:1 1 260px; }
+ .pos-screen .pos-order-browser [aria-label="Upcoming fulfilment date"] > div:first-child :is(button,label) { min-height:44px; height:44px; }
+ .pos-screen .pos-order-browser [aria-label="Upcoming fulfilment date"] > div:first-child button { width:44px; }
+ .pos-screen .pos-order-browser [aria-label="Monday to Sunday"] { grid-template-columns:repeat(7,minmax(0,1fr)); }
+ .pos-screen .pos-order-browser [aria-label="Monday to Sunday"] button { min-height:44px; }
+}
+
+@media(max-width:700px) {
+ .pos-screen .pos-new-order-dropdown .pos-header-menu { left:0; right:auto; }
+ .pos-screen .pos-header-actions { position:relative; }
+ .pos-screen .pos-header-notifications > div { position:static; }
+}
+@media(max-width:700px) {
+ .pos-screen .pos-header-notifications [role="menu"] { position:absolute; inset:auto 0 auto auto; top:calc(100% + 6px); margin:0; width:min(384px,calc(100vw - 24px)); }
+}
+.pos-screen .pos-browser-shortcuts,.pos-screen .pos-browser-calendar { display:flex; align-items:center; gap:4px; }
+.pos-screen .pos-browser-date-actions :is(.pos-browser-shortcuts,.pos-browser-calendar) > button { display:inline-flex; align-items:center; justify-content:center; min-height:36px; height:36px; padding:6px 9px; border:1px solid var(--pos-line); border-radius:6px; font-size:13px; line-height:20px; background:var(--pos-surface); }
+@media(max-width:700px) {
+ .pos-screen .pos-browser-view-row nav { flex-wrap:nowrap; }
+ .pos-screen .pos-browser-view-row nav > button { flex:1 1 auto; white-space:nowrap; font-size:12px; }
+ .pos-screen .pos-browser-date-actions:not([hidden]) { display:contents; }
+ .pos-screen .pos-browser-shortcuts { order:1; }
+ .pos-screen .pos-browser-calendar { order:2; flex-basis:100%; }
+ .pos-screen .pos-browser-calendar .pos-browser-date { flex:1; }
+ .pos-screen .pos-browser-calendar input { width:100%; min-width:0; }
+ .pos-screen .pos-browser-date-actions :is(.pos-browser-shortcuts,.pos-browser-calendar) > button { min-height:44px; height:44px; }
+ .pos-screen .pos-browser-filters { order:1; }
+ .pos-screen .pos-order-browser [aria-label="Upcoming fulfilment date"] > div:first-child { order:1; flex:1 1 210px; }
+ .pos-screen .pos-order-browser [aria-label="Upcoming fulfilment date"] label > svg { display:none; }
+}
+.pos-screen .pos-browser-date-actions button:hover,.pos-screen .pos-header-icon:not([aria-pressed="true"]):hover { background:var(--pos-soft); }
+.pos-screen .pos-header-actions .pos-new-order-trigger:hover { background:#1d4ed8; }
+.pos-screen .pos-browser-filter-panel button[aria-pressed="true"]:hover { background:#1d4ed8; color:#fff; }
+.pos-screen .pos-browser-view-row nav > button:not([aria-pressed="true"]):hover,.pos-screen [aria-label="POS sections"] > button:not([aria-current="page"]):not([aria-pressed="true"]):hover { background:var(--pos-line); }
