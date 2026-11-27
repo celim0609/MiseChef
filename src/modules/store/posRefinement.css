@@ -88,7 +88,7 @@
 .pos-screen .pos-pending-status .manual-badge { white-space:nowrap; font-size:11px; padding:4px 6px; }
 .pos-screen .pos-pending-actions,.pos-screen .pos-pending-payment { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
 .pos-screen .pos-pending-actions { align-self:center; }
-.pos-screen .pos-pending-actions :is(button,summary) { min-height:34px; height:auto; padding:6px 8px; margin:0; border:1px solid var(--pos-line); border-radius:6px; font-size:12px; line-height:20px; white-space:nowrap; cursor:pointer; align-self:center; width:auto; }
+.pos-screen .pos-manual-refined .pos-pending-actions :is(button,summary) { min-height:34px; height:auto; padding:6px 8px; margin:0; border:1px solid var(--pos-line); border-radius:6px; font-size:13px; line-height:20px; white-space:nowrap; cursor:pointer; align-self:center; width:auto; }
 .pos-screen .pos-pending-actions button { min-width:0; }
 .pos-screen .pos-pending-actions details > div { display:flex; flex-wrap:wrap; gap:6px; padding-top:6px; }
 .pos-screen .pos-pending-more summary,.pos-screen .pos-payment-options summary { list-style:none; background:var(--pos-soft); color:var(--pos-ink); }
@@ -110,7 +110,7 @@
  .pos-screen .pos-pending-actions { grid-column:1 / -1; }
 }
 @media(max-width:700px) {
- .pos-screen .pos-pending-actions :is(button,summary) { min-height:44px; padding:10px 9px; }
+ .pos-screen .pos-manual-refined .pos-pending-actions :is(button,summary) { min-height:44px; padding:10px 9px; }
 }
 
 .pos-screen .pos-payment-secondary { display:flex; flex-wrap:wrap; gap:6px; padding-top:6px; }
