@@ -39,3 +39,22 @@ test('ManualPosOrders.tsx payment state, service calls and permission calculatio
  const source=readFileSync(new URL('./ManualPosOrders.tsx',import.meta.url),'utf8');
  assert.equal(createHash('sha256').update(source.slice(source.indexOf('  const [open'),source.indexOf('  const input ='))).digest('hex'),'0bbf0f1c85c427e1fcd4d573c507bd3263a7d800ce2c4a78da3df57a89acdbe3');
 });
+const manualSource=readFileSync(new URL('./ManualPosOrders.tsx',import.meta.url),'utf8');
+const rowStart=manualSource.indexOf('      {refined && pending.length > 0');
+const rowEnd=manualSource.indexOf('      </div>}\n      {!refined && paid.length',rowStart);
+const rowModule:any={};
+const rowCode=ts.transpileModule(`export default function Rows({pending,canManageWeeklyPayments=true}){const refined=true,weeklyStore={workspaceId:'s',slug:'s'},workspaceId='s',weeklyLinkProviders=[],busy=false;const load=()=>{},setSaved=()=>{},setPay=()=>{},setMethod=()=>{},setReceived=()=>{},setReference=()=>{},setError=()=>{};return <div>${manualSource.slice(rowStart,rowEnd)}</div>}`,{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.React}}).outputText;
+new Function('exports','React','WeeklyPosPaymentActions',rowCode)(rowModule,React,Actions);
+const Rows=rowModule.default;
+test('pending row displays its number, amount and status once and retains all seven columns',()=>{
+ const order={...base,customerName:'QA',weeklyDayPos:true,fulfilments:[{date:'2026-11-27',time:'12:00'}]};
+ const before=JSON.stringify(order),html=renderToStaticMarkup(<Rows pending={[order]}/>);
+ for(const label of ['Order Number','Customer','Fulfilment Date/Time','Payment Method','Amount','Status','Actions'])assert.ok(html.includes(label));
+ assert.equal((html.match(/>MC-123</g)||[]).length,1);assert.equal((html.match(/RM 17\.90/g)||[]).length,1);assert.equal((html.match(/>Pending Payment</g)||[]).length,1);
+ assert.match(html,/Manual Payment/);assert.match(html,/View details/);assert.match(html,/Edit before payment/);assert.equal(JSON.stringify(order),before);
+});
+test('weekly rows keep unauthorized payment and edit controls absent while retaining details',()=>{
+ const html=renderToStaticMarkup(<Rows pending={[{...base,weeklyDayPos:true,weeklyPosLink:{provider:'curlec'}}]} canManageWeeklyPayments={false}/>);
+ for(const action of ['Manual Payment','Confirm Payment','Retrieve Payment Link','Cancel Payment Link','Edit before payment'])assert.ok(!html.includes(action),action);
+ assert.match(html,/View details/);
+});

@@ -388,7 +388,10 @@ export default function ManualPosOrders({
           <div className="pos-pending-actions">
             {order.weeklyDayPos ? <>
               {canManageWeeklyPayments && weeklyStore?.workspaceId === workspaceId && <WeeklyPosPaymentActions compact
-                order={order} slug={weeklyStore.slug} providers={weeklyLinkProviders} />}
+                order={order} slug={weeklyStore.slug} providers={weeklyLinkProviders} >
+                {order.payment.status==='pending' && !order.weeklyPosLink && <button type="button" className="manual-secondary" disabled={busy} onClick={()=>void load(order)}>Edit before payment</button>}
+                <button type="button" className="manual-secondary" onClick={() => setSaved(order)}>View details</button>
+              </WeeklyPosPaymentActions>}
             </> : <button
               disabled={busy}
               className="manual-primary"
@@ -400,13 +403,13 @@ export default function ManualPosOrders({
                 setError("");
               }}
             >Confirm Payment</button>}
-            <details className="pos-pending-more">
+            {(!order.weeklyDayPos || !canManageWeeklyPayments || weeklyStore?.workspaceId !== workspaceId) && <details className="pos-pending-more">
               <summary aria-label={`More actions for ${order.orderNumber}`}>More <span aria-hidden="true">⋯</span></summary>
               <div>
                 {(!order.weeklyDayPos || (canManageWeeklyPayments && order.payment.status==='pending' && !order.weeklyPosLink)) && <button type="button" className="manual-secondary" disabled={busy} onClick={()=>void load(order)}>Edit before payment</button>}
                 <button type="button" className="manual-secondary" onClick={() => setSaved(order)}>View details</button>
               </div>
-            </details>
+            </details>}
           </div>
         </article>
       ))}

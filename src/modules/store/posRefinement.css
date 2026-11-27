@@ -44,7 +44,7 @@
 .pos-screen .pos-manual-refined .manual-actions { gap:8px; margin-top:10px; }
 .pos-screen .pos-manual-refined :is(.manual-secondary,.manual-primary) { padding:8px 12px; min-height:36px; font-size:13px; }
 .pos-screen .pos-manual-refined .manual-grid,.pos-screen .pos-manual-refined .manual-fields { gap:10px; }
-.pos-screen .pos-pending-list { margin:12px auto; }
+.pos-screen .pos-pending-list { max-width:none; margin:12px auto; }
 .pos-screen .pos-pending-list > article { background:var(--pos-surface); border:0; border-bottom:1px solid var(--pos-line); border-radius:0; margin:0; padding:12px; }
 .pos-screen[data-pos-theme="dark"] .pos-manual-refined :is(input:not([type="checkbox"]),select,textarea,.manual-secondary) { background:var(--pos-soft); border-color:var(--pos-line); color:var(--pos-ink); }
 .pos-screen[data-pos-theme="dark"] .pos-manual-refined .manual-muted { color:var(--pos-muted); }
@@ -112,3 +112,5 @@
 @media(max-width:700px) {
  .pos-screen .pos-pending-actions :is(button,summary) { min-height:44px; padding:10px 9px; }
 }
+
+.pos-screen .pos-payment-secondary { display:flex; flex-wrap:wrap; gap:6px; padding-top:6px; }

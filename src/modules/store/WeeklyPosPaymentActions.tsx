@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { storeOrderService } from './services';
 import type { StoreOrder } from './types';
 
@@ -6,12 +6,13 @@ export type WeeklyPaymentWorkflow = 'pending' | 'manual' | 'link';
 
 export type WeeklyLinkProvider = 'curlec' | 'stripe';
 
-export default function WeeklyPosPaymentActions({ order, slug, providers, initialWorkflow = 'pending', compact = false }: {
+export default function WeeklyPosPaymentActions({ order, slug, providers, initialWorkflow = 'pending', compact = false, children }: {
   order: StoreOrder;
   slug: string;
   providers: WeeklyLinkProvider[];
   initialWorkflow?: WeeklyPaymentWorkflow;
   compact?: boolean;
+  children?: ReactNode;
 }) {
   const [showManual, setShowManual] = useState(initialWorkflow === 'manual');
   const [method, setMethod] = useState('bank_transfer');
@@ -64,8 +65,9 @@ export default function WeeklyPosPaymentActions({ order, slug, providers, initia
     {order.payment.curlecEnvironment === 'test' && <p className="font-bold">Curlec Test Mode</p>}
     <p className="font-bold">{order.orderNumber} · {order.currency} {order.total.toFixed(2)} · {paid ? 'Paid' : 'Pending payment'}</p>
     </>}
-    <details hidden={compact && !(order.payment.curlecEnvironment === 'test' || (!paid && (active || error || providers.length > 1 || provider === 'curlec' || initialWorkflow === 'link')))} className={compact ? "pos-payment-options" : undefined} open={compact ? undefined : true}>
-      <summary hidden={!compact}>Payment options</summary>
+    <details hidden={compact && !children && !(order.payment.curlecEnvironment === 'test' || (!paid && (active || error || providers.length > 1 || provider === 'curlec' || initialWorkflow === 'link')))} className={compact ? "pos-payment-options" : undefined} open={compact ? undefined : true}>
+      <summary hidden={!compact}>{children ? <>More <span aria-hidden="true">⋯</span></> : 'Payment options'}</summary>
+      {children && <div className="pos-payment-secondary">{children}</div>}
       {compact && order.payment.curlecEnvironment === 'test' && <p className="font-bold">Curlec Test Mode</p>}
     {!paid && !active && initialWorkflow === 'link' && <p>Generate the customer link from this saved order.</p>}
     {!paid && !active && providers.length > 1 && <label className="block">Payment provider
