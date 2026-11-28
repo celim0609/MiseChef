@@ -43,13 +43,14 @@ export default function OrderManagementActions({order,onChanged,editOnly=false}:
   </section></div>}
  </>;
 }
-export function DeletedOrders({workspaceId,storeId}:{workspaceId:string;storeId:string}){
+export function DeletedOrders({workspaceId,storeId,compact=false}:{workspaceId:string;storeId:string;compact?:boolean}){
  const access=useAccess(workspaceId),[orders,setOrders]=useState<StoreOrder[]>([]),[cursor,setCursor]=useState<{date:string;id:string}|null>(null),[loaded,setLoaded]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');const inFlight=useRef(false);
  const load=async(more=false)=>{if(inFlight.current)return;inFlight.current=true;setBusy(true);setError('');try{if(!functions)throw Error('Order history unavailable.');const result=await httpsCallable<unknown,{orders:StoreOrder[];cursor:{date:string;id:string}|null}>(functions,'listDeletedStorePosOrders')({workspaceId,storeId,...(more&&cursor?{cursor}:{})});setOrders(old=>more?[...old,...result.data.orders]:result.data.orders);setCursor(result.data.cursor);setLoaded(true);}catch(e){setError(e instanceof Error?e.message:'Unable to load deleted orders.');}finally{setBusy(false);inFlight.current=false;}};
  if(!access.owner)return null;
- return <details className="my-3 rounded-xl border bg-white p-3 text-slate-950"><summary className="cursor-pointer font-bold" onClick={()=>{if(!loaded)void load();}}>Deleted Orders · Owner only</summary>
+ const content=<details className="my-3 rounded-xl border bg-white p-3 text-slate-950"><summary className="cursor-pointer font-bold" onClick={()=>{if(!loaded)void load();}}>Deleted Orders · Owner only</summary>
   <button type="button" disabled={busy} onClick={()=>void load()} className="my-2 rounded border px-3 py-2 text-sm">{busy?'Loading…':'Refresh'}</button>{error&&<p role="alert" className="text-red-700">{error}</p>}
   {orders.map(order=><details key={order.id} className="my-2 rounded border p-3"><summary className="cursor-pointer text-sm font-bold">Deleted · {order.orderNumber} · {order.customerName} · {order.payment.status} · {order.currency} {order.total.toFixed(2)}</summary><p className="text-sm">Deleted {order.deletedAt} · {order.deletionReason}</p><p className="text-sm">Original fulfilment: {order.fulfilmentStatus}</p>{order.items.map((item,i)=><p className="text-sm" key={i}>{item.quantity} × {item.productName}</p>)}</details>)}
   {loaded&&!orders.length&&<p className="text-sm">No deleted orders.</p>}{cursor&&<button type="button" disabled={busy} onClick={()=>void load(true)} className="rounded border px-3 py-2">Load older deleted orders</button>}
  </details>;
+ return compact ? <details className="pos-owner-overflow"><summary aria-label="Owner options" title="Owner options"><span aria-hidden="true">⋯</span></summary><div className="pos-owner-menu">{content}</div></details> : content;
 }

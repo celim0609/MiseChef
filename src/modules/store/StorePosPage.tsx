@@ -1,3 +1,4 @@
+import './posRefinement.css';
 import {usePosPromotions} from './usePosPromotions';
 import ManualDiscountControl, {previewPosDiscount, type ManualDiscount} from './ManualDiscountControl';
 import UpcomingDateSelector from './UpcomingDateSelector';
@@ -209,6 +210,20 @@ interface StorePosPageProps {
 }
 
 export default function StorePosPage({ storeId, workspaceId, workspaceName, onBack, notificationAction, canBookDelivery = false, canRecordReminders = false, canPreviewWhatsApp = false }: StorePosPageProps) {
+  const [newOrderOpen,setNewOrderOpen]=useState(false);
+  const newOrderMenuRef=useRef<HTMLDivElement>(null);
+  useEffect(()=>{
+    if(!newOrderOpen)return;
+    const closeOutside=(event:PointerEvent)=>{if(!newOrderMenuRef.current?.contains(event.target as Node))setNewOrderOpen(false);};
+    const closeEscape=(event:KeyboardEvent)=>{if(event.key==='Escape'){setNewOrderOpen(false);newOrderMenuRef.current?.querySelector<HTMLButtonElement>('[data-new-order-trigger]')?.focus();}};
+    newOrderMenuRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    window.addEventListener('pointerdown',closeOutside);window.addEventListener('keydown',closeEscape);
+    return()=>{window.removeEventListener('pointerdown',closeOutside);window.removeEventListener('keydown',closeEscape);};
+  },[newOrderOpen]);
+  const [manualCreateRequest,setManualCreateRequest]=useState(0);
+  const [pendingView,setPendingView]=useState(false);
+  const [pendingCount,setPendingCount]=useState(0);
+  const [manualPanelOpen,setManualPanelOpen]=useState(false);
   const [posSection, setPosSection] = useState<'orders' | 'tickets'>('orders');
   useEffect(() => { setPosSection('orders'); }, [storeId, workspaceId]);
   const [orders, setOrders] = useState<StoreOrder[]>([]);
@@ -771,44 +786,54 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
     ? isNightMode ? 'text-emerald-300' : 'text-emerald-700'
     : isNightMode ? 'text-amber-300' : 'text-amber-700';
 
+  const historyOrderCount=new Set(historyRows.map(row=>row.order.id)).size;
   return (
     <section data-pos-theme={isNightMode ? 'dark' : 'light'} className={`pos-screen flex min-h-screen flex-col transition-colors ${isNightMode ? 'bg-[#07111f] text-white' : 'bg-slate-100 text-slate-950'}`}>
       <audio ref={audioRef} preload="auto" aria-hidden="true" />
       <div hidden={externalOpen}>
-      {pendingSaved && <p role="status" className="rounded border p-3 font-bold">{pendingSaved.orderNumber} · {pendingSaved.currency} {pendingSaved.total.toFixed(2)} · Pending payment. Review and confirm received payment in the existing Manual Orders section.</p>}
-      <header className={`pos-light-surface flex flex-col gap-3 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:px-6 ${isNightMode ? 'border-white/10 bg-[#0b1727]' : 'border-slate-300 bg-white'}`}>
-        <div className="flex min-w-0 items-center gap-3">
-          <button type="button" onClick={onBack} aria-label="Back to Store" className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border ${isNightMode ? 'border-white/15 bg-white/5 text-white' : 'border-slate-300 bg-slate-100 text-slate-900'}`}><ArrowLeft className="h-6 w-6" /></button>
-          <div className="min-w-0">
-            <div className="flex items-center gap-3"><span className={`text-lg font-black ${isNightMode ? 'text-white' : 'text-slate-950'}`}>POS</span><span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-black uppercase tracking-[0.16em] ${isNightMode ? 'bg-emerald-500/15 text-emerald-300' : 'bg-emerald-100 text-emerald-800'}`}><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-500" /> Live</span></div>
-            <h1 className={`pos-page-title truncate text-2xl font-black tracking-tight sm:text-3xl ${isNightMode ? 'text-white' : 'text-slate-950'}`}>{workspaceName}</h1>
-          </div>
+      {pendingSaved && <p role="status" className="px-4 py-2 text-sm">{pendingSaved.orderNumber} · {pendingSaved.currency === 'MYR' ? 'RM' : pendingSaved.currency} {pendingSaved.total.toFixed(2)} · Pending payment. <button type="button" className="underline" onClick={()=>{setPosSection('orders');setPendingView(true);}}>Review Pending payments</button></p>}
+      <header className={`pos-shared-header pos-light-surface ${isNightMode ? 'border-white/10 bg-[#0b1727]' : 'border-slate-300 bg-white'}`}>
+        <div className="pos-header-identity" title={workspaceName}>
+          <button type="button" onClick={onBack} disabled={manualPanelOpen} aria-label="Back to Store" title="Back to Store" className="pos-header-icon"><ArrowLeft size={18} /></button>
+          <h1 className="pos-page-title">POS</h1><span className="pos-live-indicator"><span aria-hidden="true" />Live</span>
         </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {audioBlocked && <p className="text-sm font-bold text-amber-300">Tap Sound to enable alerts.</p>}
-          {posSection === 'orders' && activeView === 'history' && <button type="button" onClick={openExternalOrder} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-black text-white">+ Add Order</button>}
-          <button type="button" onClick={() => setIsNightMode(current => !current)} aria-pressed={isNightMode} className={`inline-flex min-h-12 items-center gap-2 rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-blue-400/60 bg-blue-500/10 text-white' : 'border-slate-300 bg-slate-100 text-slate-900'}`}><Moon className="h-5 w-5" /><span>Night Mode</span><span className={`relative h-6 w-11 rounded-full transition-colors ${isNightMode ? 'bg-blue-500' : 'bg-slate-300'}`} aria-hidden="true"><span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-transform ${isNightMode ? 'translate-x-6' : 'translate-x-1'}`} /></span></button>
-          <button type="button" onClick={toggleSound} aria-pressed={soundEnabled} className={`inline-flex min-h-12 items-center gap-2 rounded-xl border px-4 text-sm font-black ${isNightMode ? 'border-blue-500/40 bg-blue-500/10 text-blue-200' : 'border-blue-300 bg-blue-50 text-blue-800'}`}>{soundEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}Sound {soundEnabled ? 'On' : 'Off'}</button>
-          {notificationAction}
+        <div className="pos-header-actions">
+          {audioBlocked && <p role="status" className="pos-audio-warning">Tap Sound to enable alerts.</p>}
+          {posSection === 'orders' && <div ref={newOrderMenuRef} className="pos-new-order-dropdown" onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node))setNewOrderOpen(false);}}>
+            <button data-new-order-trigger type="button" disabled={manualPanelOpen} aria-haspopup="menu" aria-expanded={newOrderOpen} onClick={()=>setNewOrderOpen(value=>!value)} className="pos-new-order-trigger">New Order <span aria-hidden="true">▾</span></button>
+            {newOrderOpen && <div role="menu" aria-label="New Order" className="pos-header-menu" onKeyDown={event=>{
+              if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;event.preventDefault();
+              const items=Array.from((event.currentTarget as HTMLDivElement).querySelectorAll('[role="menuitem"]')) as HTMLButtonElement[];
+              const index=items.indexOf(document.activeElement as HTMLButtonElement);
+              items[event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:-1)+items.length)%items.length]?.focus();
+            }}>
+              <button type="button" role="menuitem" onClick={()=>{setNewOrderOpen(false);setPendingView(false);openExternalOrder();}}>Add Order</button>
+              <button type="button" role="menuitem" onClick={()=>{setNewOrderOpen(false);setPendingView(false);setPosSection('orders');setManualCreateRequest(value=>value+1);}}>Create Manual Order</button>
+            </div>}
+          </div>}
+          <button type="button" onClick={() => setIsNightMode(current => !current)} aria-pressed={isNightMode} aria-label="Night Mode" title={isNightMode ? 'Switch to light theme' : 'Switch to dark theme'} className="pos-header-icon"><Moon size={18} /></button>
+          <button type="button" onClick={toggleSound} aria-pressed={soundEnabled} aria-label={`Sound ${soundEnabled ? 'On' : 'Off'}`} title={soundEnabled ? 'Mute order alerts' : 'Enable order alerts'} className="pos-header-icon">{soundEnabled ? <Volume2 size={18} /> : <VolumeX size={18} />}</button>
+          <div className="pos-header-notifications" title="Store notifications">{notificationAction}</div>
+          <DeletedOrders compact workspaceId={workspaceId} storeId={storeId} />
         </div>
       </header>
 
       <nav aria-label="POS sections" className={`flex flex-wrap gap-2 border-b px-4 py-3 ${isNightMode ? 'border-slate-700 bg-[#0b1727]' : 'border-slate-300 bg-white'}`}>
         {([{id:'live',label:'POS Live'},{id:'history',label:'View Orders'},{id:'tickets',label:'Print Tickets'}] as const).map(section => {
-          const selected = section.id === 'tickets' ? posSection === 'tickets' : posSection === 'orders' && activeView === section.id;
-          return <button key={section.id} type="button" aria-current={selected ? 'page' : undefined} onClick={() => {setPosSection(section.id === 'tickets' ? 'tickets' : 'orders'); if(section.id === 'history') openHistory(); else if(section.id === 'live') setActiveView('live');}} className={`min-h-11 rounded-xl px-5 py-2 font-bold ${selected ? 'bg-blue-600 text-white' : isNightMode ? 'bg-slate-800 text-slate-100' : 'bg-slate-100 text-slate-800'}`}>{section.label}</button>;
+          const selected = !pendingView && !manualPanelOpen && (section.id === 'tickets' ? posSection === 'tickets' : posSection === 'orders' && activeView === section.id);
+          return <button key={section.id} type="button" disabled={manualPanelOpen} aria-current={selected ? 'page' : undefined} onClick={() => {setPendingView(false);setPosSection(section.id === 'tickets' ? 'tickets' : 'orders'); if(section.id === 'history') openHistory(); else if(section.id === 'live') setActiveView('live');}} className={`min-h-11 rounded-xl px-5 py-2 font-bold ${selected ? 'bg-blue-600 text-white' : isNightMode ? 'bg-slate-800 text-slate-100' : 'bg-slate-100 text-slate-800'}`}>{section.label}</button>;
         })}
+        <button type="button" disabled={manualPanelOpen} className={pendingView ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-800"} aria-pressed={pendingView} onClick={()=>{setPosSection('orders');setPendingView(value=>!value);}}>Pending payments ({pendingCount})</button>
       </nav>
-      {posSection === 'orders' && activeView === 'live' && <nav aria-label="Fulfilment period" className="flex flex-wrap gap-2 px-4 py-3">{(['Today','Tomorrow','Upcoming','History'] as const).map(view => <button key={view} type="button" aria-pressed={dailyView === view} onClick={() => selectDailyView(view)} className={`min-h-11 rounded-full border px-5 py-2 font-bold ${dailyView === view ? 'border-blue-600 bg-blue-600 text-white' : isNightMode ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-900'}`}>{view}</button>)}</nav>}
+      {posSection === 'orders' && activeView === 'live' && !pendingView && !manualPanelOpen && <nav aria-label="Fulfilment period" className="flex flex-wrap gap-2 px-4 py-3">{(['Today','Tomorrow','Upcoming','History'] as const).map(view => <button key={view} type="button" aria-pressed={dailyView === view} onClick={() => selectDailyView(view)} className={`min-h-11 rounded-full border px-5 py-2 font-bold ${dailyView === view ? 'border-blue-600 bg-blue-600 text-white' : isNightMode ? 'border-slate-600 bg-slate-800 text-slate-100' : 'border-slate-300 bg-white text-slate-900'}`}>{view}</button>)}</nav>}
       {posSection === 'tickets' ? <main className="w-full p-4 lg:p-6">
         <OrderTicketPanel orders={dailyOrders} />
         {(!dailyHistory || dailyHistory.hasMore) && <button type="button" className="mt-3 rounded border px-4 py-2 underline" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()}>{loadingDailyHistory ? 'Loading…' : 'Load older orders for reprint'}</button>}
       </main> : <main className="flex-1 min-w-0">
-      {activeView === 'history' && <DeletedOrders workspaceId={workspaceId} storeId={storeId} />}
-      {activeView === 'history' && <ManualPosOrders onOrderChanged={()=>setHistoryRefreshKey(key=>key+1)} pasteRequest={pasteRequest} onPasteConsumed={()=>setPasteRequest(null)} workspaceId={workspaceId} storeId={storeId} country={storeCountry || 'MY'} storeName={storeNameForMessages} canRecordReminders={canRecordReminders} canPreviewWhatsApp={canPreviewWhatsApp} />}
+      {posSection === 'orders' && <ManualPosOrders refined createRequest={manualCreateRequest} onCreateConsumed={()=>setManualCreateRequest(0)} showPending={pendingView} onPendingCountChange={setPendingCount} onPanelChange={setManualPanelOpen} onOrderChanged={()=>setHistoryRefreshKey(key=>key+1)} pasteRequest={pasteRequest} onPasteConsumed={()=>setPasteRequest(null)} workspaceId={workspaceId} storeId={storeId} country={storeCountry || 'MY'} storeName={storeNameForMessages} canRecordReminders={canRecordReminders} canPreviewWhatsApp={canPreviewWhatsApp} />}
       {errorMessage && <p role="alert" className="mx-4 mt-3 rounded-xl border border-red-400 bg-red-950 px-5 py-3 text-sm font-black text-red-100 lg:mx-6">{errorMessage}</p>}
 
+      <div hidden={pendingView || manualPanelOpen}>
       {activeView === 'live' ? dailyView === 'History' ? (
         <div className="p-4 lg:p-6"><DailyFulfilmentQueue canBookDelivery={canBookDelivery} view={dailyView} onUpdated={() => setHistoryRefreshKey(value => value + 1)} orders={dailyOrders} />{(!dailyHistory || dailyHistory.hasMore) && <button type="button" disabled={loadingDailyHistory} onClick={() => void loadDailyHistory()} className="mt-4 min-h-11 rounded-xl border px-4 py-2 font-bold">{loadingDailyHistory ? 'Loading…' : 'Load older fulfilments'}</button>}</div>
       ) : (
@@ -867,20 +892,32 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
         </div>
       ) : (
         <div className="flex-1 p-4 lg:p-6">
-          <section className={`pos-light-surface mx-auto max-w-7xl rounded-2xl border p-4 shadow-lg lg:p-6 ${isNightMode ? 'border-slate-700 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}>
+          <section className={`pos-order-browser pos-light-surface mx-auto max-w-7xl ${isNightMode ? 'bg-[#0b1727] text-white' : 'bg-white text-slate-950'}`}>
+            <div className="pos-browser-view-row"><h2>{browserPeriod === 'Upcoming' ? 'Upcoming Orders' : browserPeriod === 'Today' ? 'Today’s Orders' : browserPeriod === 'Tomorrow' ? 'Tomorrow’s Orders' : historyDateBasis === 'completed' ? 'Completed Orders' : 'Order History'}</h2>
             <nav aria-label="Order fulfilment period" className="mb-3 flex flex-wrap gap-2">{(['Today','Tomorrow','Upcoming','History'] as const).map(value => <button type="button" key={value} aria-pressed={browserPeriod === value} onClick={() => {setBrowserPeriod(value); if(value === 'Upcoming') setHistoryDateKey(shiftDateKey(todayKey,1));}} className={`rounded-lg border px-3 py-2 text-sm font-bold ${browserPeriod === value ? 'bg-blue-600 text-white' : ''}`}>{value}</button>)}</nav>
-            {browserPeriod === 'Upcoming' && <UpcomingDateSelector value={historyDateKey} today={todayKey} onChange={setHistoryDateKey} night={isNightMode} />}
-            <div className="mb-3 flex flex-wrap gap-2">{browserPeriod === 'History' && !searchAllDates && (['Day','Week','Month'] as const).map(value => <button type="button" key={value} aria-pressed={browserMode === value} onClick={() => setBrowserMode(value)} className={`rounded-lg border px-3 py-2 text-sm font-bold ${browserMode === value ? 'bg-blue-600 text-white' : ''}`}>{value}</button>)}
+            </div>
+            <div className="pos-browser-toolbar">
+              <label className="pos-browser-search"><Search size={16} /><span className="sr-only">Search customer or order number</span><input value={historySearch} onChange={event => setHistorySearch(event.target.value)} placeholder="Search order # or customer" /></label>
+              <div hidden={searchAllDates || browserPeriod === 'Upcoming' || browserPeriod === 'Today' || browserPeriod === 'Tomorrow'} className="pos-browser-date-actions" aria-label="History date navigation">
+                <div className="pos-browser-shortcuts"><button type="button" onClick={() => setHistoryDateKey(toMalaysiaDateKey())}>Today</button>
+                <button type="button" onClick={() => setHistoryDateKey(shiftDateKey(toMalaysiaDateKey(), -1))}>Yesterday</button>
+                </div><div className="pos-browser-calendar"><button type="button" onClick={() => setHistoryDateKey(moveBrowserDate(historyDateKey, browserMode, -1))} aria-label="Previous date"><ChevronLeft size={16} /></button>
+                <label className="pos-browser-date" title="Fulfilment date · Malaysia UTC+8"><span className="sr-only">Select date</span><input type="date" value={historyDateKey} onClick={event=>{try{event.currentTarget.showPicker?.();}catch{}}} onChange={event => event.target.value && setHistoryDateKey(event.target.value)} /></label>
+                <button type="button" onClick={() => setHistoryDateKey(moveBrowserDate(historyDateKey, browserMode, 1))} aria-label="Next date"><ChevronRight size={16} /></button></div>
+              </div>
+              {browserPeriod === 'Upcoming' && <UpcomingDateSelector value={historyDateKey} today={todayKey} onChange={setHistoryDateKey} night={isNightMode} />}
+            <details className="pos-browser-filters"><summary>Filters <span aria-hidden="true">▾</span></summary><div className="pos-browser-filter-panel"><div className="mb-3 flex flex-wrap gap-2">{browserPeriod === 'History' && !searchAllDates && (['Day','Week','Month'] as const).map(value => <button type="button" key={value} aria-pressed={browserMode === value} onClick={() => setBrowserMode(value)} className={`rounded-lg border px-3 py-2 text-sm font-bold ${browserMode === value ? 'bg-blue-600 text-white' : ''}`}>{value}</button>)}
               <select aria-label="Payment status" value={browserPayment} onChange={event => setBrowserPayment(event.target.value)} className="pos-control rounded-lg border bg-transparent p-2 text-sm"><option value="">All payments</option>{['pending','processing','paid','pending_verification','failed','cancelled','rejected'].map(value => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select>
               <select aria-label="Fulfilment type" value={browserMethod} onChange={event => setBrowserMethod(event.target.value)} className="pos-control rounded-lg border bg-transparent p-2 text-sm"><option value="">All fulfilment types</option><option value="pickup">Pickup</option><option value="delivery">Delivery</option></select>
+            </div><div className="flex flex-wrap gap-2">{historyDateBasis === 'created' ? HISTORY_FILTERS.map(filter => <button key={filter.id} type="button" onClick={() => setHistoryFilter(filter.id)} aria-pressed={historyFilter === filter.id} className={`min-h-11 rounded-full px-4 text-sm font-black ${historyFilter === filter.id ? 'bg-blue-600 text-white' : isNightMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>{filter.label}</button>) : <><button type="button" aria-pressed="true" className="min-h-11 rounded-full bg-blue-600 px-4 text-sm font-black text-white">Completed</button><button type="button" onClick={() => { setHistoryDateBasis('created'); setHistoryFilter('all'); }} className={`min-h-11 rounded-full px-4 text-sm font-black ${isNightMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>View fulfilment-date History</button></>}</div>{browserPeriod === 'History' && <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={allHistoryDates} onChange={event=>setAllHistoryDates(event.target.checked)} />Search all fulfilment dates (when searching)</label>}</div></details>
             </div>
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between"><div><p className={`text-xs font-black uppercase tracking-[0.16em] ${isNightMode ? 'text-blue-300' : 'text-blue-700'}`}>Fulfilment date · Malaysia UTC+8</p><h2 className="pos-readable-heading mt-1 text-3xl font-black">{browserPeriod === 'Upcoming' ? 'Upcoming Orders' : historyDateBasis === 'completed' ? 'Completed Orders' : 'Order History'}</h2></div><div hidden={searchAllDates || browserPeriod === 'Upcoming' || browserPeriod === 'Today' || browserPeriod === 'Tomorrow'} className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => setHistoryDateKey(toMalaysiaDateKey())} className={`min-h-12 rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}>Today</button><button type="button" onClick={() => setHistoryDateKey(shiftDateKey(toMalaysiaDateKey(), -1))} className={`min-h-12 rounded-xl border px-3 text-sm font-black ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}>Yesterday</button><button type="button" onClick={() => setHistoryDateKey(moveBrowserDate(historyDateKey, browserMode, -1))} aria-label="Previous date" className={`flex h-12 w-12 items-center justify-center rounded-xl border ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}><ChevronLeft className="h-6 w-6" /></button><div className={`flex min-h-12 items-center gap-2 rounded-xl border px-4 font-black ${isNightMode ? 'border-slate-600 bg-slate-900 text-white' : 'border-slate-300 bg-slate-50 text-slate-900'}`}><CalendarDays className="h-5 w-5" />{searchAllDates ? 'All fulfilment dates' : selectedRange.end === shiftDateKey(selectedRange.start,1) ? formatMalaysiaBusinessDate(selectedRange.start) : `${formatMalaysiaBusinessDate(selectedRange.start)} – ${formatMalaysiaBusinessDate(shiftDateKey(selectedRange.end,-1))}`} </div><button type="button" onClick={() => setHistoryDateKey(moveBrowserDate(historyDateKey, browserMode, 1))} aria-label="Next date" className={`flex h-12 w-12 items-center justify-center rounded-xl border disabled:opacity-35 ${isNightMode ? 'border-slate-600 text-white' : 'border-slate-300 text-slate-900'}`}><ChevronRight className="h-6 w-6" /></button><label className={`pos-control flex min-h-12 items-center gap-2 rounded-xl border px-3 ${isNightMode ? 'border-slate-600 bg-slate-900' : 'border-slate-300 bg-white'}`}><span className="sr-only">Select date</span><input type="date" value={historyDateKey} onChange={event => event.target.value && setHistoryDateKey(event.target.value)} className="pos-control bg-transparent text-sm font-black" /></label></div></div>
-            <div className="mt-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div className="flex flex-wrap gap-2">{historyDateBasis === 'created' ? HISTORY_FILTERS.map(filter => <button key={filter.id} type="button" onClick={() => setHistoryFilter(filter.id)} aria-pressed={historyFilter === filter.id} className={`min-h-11 rounded-full px-4 text-sm font-black ${historyFilter === filter.id ? 'bg-blue-600 text-white' : isNightMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>{filter.label}</button>) : <><button type="button" aria-pressed="true" className="min-h-11 rounded-full bg-blue-600 px-4 text-sm font-black text-white">Completed</button><button type="button" onClick={() => { setHistoryDateBasis('created'); setHistoryFilter('all'); }} className={`min-h-11 rounded-full px-4 text-sm font-black ${isNightMode ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>View fulfilment-date History</button></>}</div><label className={`pos-control flex min-h-12 min-w-[260px] items-center gap-2 rounded-xl border px-3 ${isNightMode ? 'border-slate-600 bg-slate-900' : 'border-slate-300 bg-white'}`}><Search className="h-5 w-5 text-slate-400" /><span className="sr-only">Search customer or order number</span><input value={historySearch} onChange={event => setHistorySearch(event.target.value)} placeholder="Search order # or customer" className="pos-control w-full bg-transparent text-sm font-bold outline-none" /></label></div>
-            {browserPeriod === 'History' && <label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={allHistoryDates} onChange={event=>setAllHistoryDates(event.target.checked)} />Search all fulfilment dates (when searching)</label>}
-            <p className="mt-2 text-xs font-bold">{searchAllDates ? 'Search scope: all historical fulfilment dates' : `Selected fulfilment period: ${selectedRange.start} to ${shiftDateKey(selectedRange.end,-1)} (Malaysia)`}</p>
-            {searchPage?.notice && <div role="status" className="mt-2 rounded-lg border p-3 text-sm">{searchPage.notice} <button type="button" onClick={()=>setHistoryRefreshKey(value=>value+1)} className="rounded border px-3 py-2 font-bold">Retry indexed search</button></div>}
+            <div className="pos-browser-status" aria-live="polite">
+              {searchPage && <span title="Number of orders shown">{historyOrderCount} order{historyOrderCount===1?'':'s'} shown</span>}
+              {searchBusy && <span>Searching…</span>}
+              {searchPage?.hasMore && <span>More orders may be available. Load more to continue.</span>}
+              {searchAllDates && <span>Searching all fulfilment dates.</span>}
+            </div>
             {searchError && <div role="alert" className="mt-2 text-sm font-bold">{searchError} <button type="button" onClick={()=>setHistoryRefreshKey(value=>value+1)} className="rounded border px-3 py-2">Try again</button></div>}
-            <p className="mt-3 text-xs" aria-live="polite">{new Set(historyRows.map(row => row.order.id)).size} unique orders in loaded matches · {historyRows.length} order days · {searchPage?.source === 'legacy' ? 'Loaded legacy results only. Full search is initializing; counts are incomplete.' : searchPage?.hasMore ? 'More results may be available. Counts are not totals.' : searchBusy ? 'Searching…' : searchError ? 'Search incomplete.' : 'End of matching query.'}</p>
             <div className="mt-3 hidden grid-cols-6 gap-2 px-3 text-xs font-bold md:grid"><span>Order ID</span><span>Customer</span><span>Fulfilment date / time</span><span>Type</span><span>Payment status</span><span>Order status</span></div>
             {historyError && <p role="alert" className="mt-4 rounded-xl bg-rose-950 px-4 py-3 text-sm font-black text-rose-100">{historyError}</p>}
             {searchBusy && !searchPage ? <p className="py-16 text-center font-black">Loading Order History…</p> : historyRows.length === 0 ? <p className={`py-16 text-center font-black ${isNightMode ? 'text-slate-300' : 'text-slate-600'}`}>{searchBusy ? 'Searching…' : searchError ? 'Results unavailable.' : searchPage?.source === 'legacy' ? 'No matches in loaded legacy orders. Full search is not ready yet.' : searchPage?.hasMore ? 'No matches in results checked so far. Load the next page to continue.' : 'No orders for this fulfilment period and filter.'}</p> : <div className="mt-5 space-y-2">{historyRows.map((row, index) => {
@@ -897,6 +934,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
         </div>
       )}
 
+      </div>
       </main>}
 
       <footer className={`pos-light-surface mx-3 mb-3 grid gap-2 rounded-xl border px-4 py-2 sm:grid-cols-3 lg:mx-4 ${isNightMode ? 'border-slate-700 bg-[#0b1727] text-white' : 'border-slate-300 bg-white text-slate-950'}`}><div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /><span><span className="block text-[10px] font-bold text-slate-400">Last Updated</span><span className="text-xs font-black">{lastUpdated ? lastUpdated.toLocaleTimeString() : 'Connecting…'}</span></span></div><div className="flex items-center gap-2"><Store className="h-5 w-5 text-slate-400" /><span><span className="block text-[10px] font-bold text-slate-400">Store</span><span className="text-xs font-black">{storeDisplayName}</span></span></div><div className="flex items-center gap-2"><BellRing className="h-5 w-5 text-emerald-500" /><span><span className="block text-[10px] font-bold text-slate-400">Active Online Orders</span><span className="text-xs font-black">{activeOnlineOrderCount}</span></span></div></footer>
@@ -945,7 +983,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
               <p className="col-span-2 text-xs text-slate-600">Dates and times above apply to items without their own schedule. Weekly meals retain their menu source separately from fulfilment. {externalMethod === 'delivery' ? 'Delivery is arranged externally. Confirming this order does not book Lalamove.' : 'Leave both blank for immediate pickup.'}</p>
             </fieldset>
 
-            <div className="space-y-6">
+            <div className="pos-entry-layout">
             <div role="region" aria-label="Store products" className="p-4">
               <div role="status" aria-live="polite" className="mb-3 flex justify-between rounded-lg bg-blue-50 p-3 font-bold text-blue-950"><span>{externalCart.reduce((sum,item)=>sum+item.quantity,0)} items in cart</span><span>MYR {externalFeeReady?(Math.round((externalSubtotal-externalDiscountPreview.amountMinor/100+Number(externalFee))*100)/100).toFixed(2):(externalSubtotal-externalDiscountPreview.amountMinor/100).toFixed(2)}{!externalFeeReady?' · delivery pending':''}</span></div>
               <div aria-label="Catalog categories" className="mb-3 grid grid-cols-3 gap-2 bg-white pb-2">
@@ -981,6 +1019,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
             </div>
 
             <div className="border-t bg-slate-50">
+            <div className="pos-cart-panel">
             <section aria-label="Order cart" className="px-4 py-3">
               <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-black">Cart</h3><button type="button" disabled={creatingExternal || !externalCart.length} onClick={()=>{if(!window.confirm('Clear this draft? Check View Orders first if a previous submission had a connection error.'))return;setExternalCart([]); setExternalMethod('pickup'); setExternalAddress('');setExternalDestination(undefined);setExternalDestinations({});setExternalQuoteState(null); setExternalDate(''); setExternalTime('');setExternalNumber('');setExternalName('');setExternalPhone('');setExternalNotes('');setExternalError('');externalAddTimes.current.clear();externalRequestIdRef.current=crypto.randomUUID();}} className="text-xs underline">Clear draft</button></div>
               <div className="space-y-2">
@@ -1033,6 +1072,7 @@ export default function StorePosPage({ storeId, workspaceId, workspaceName, onBa
                 {creatingExternal && <LoaderCircle aria-hidden="true" className="h-5 w-5 animate-spin" />}{creatingExternal ? 'Creating…' : pendingCart ? 'Save as Pending Payment' : 'Confirm Order'}
               </button>
             </footer>
+            </div>
             </div>
             </div>
           </section>

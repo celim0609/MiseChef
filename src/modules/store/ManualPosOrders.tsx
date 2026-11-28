@@ -54,6 +54,12 @@ export default function ManualPosOrders({
   pasteRequest,
   onPasteConsumed,
   onOrderChanged,
+  refined = false,
+  createRequest = 0,
+  showPending = true,
+  onCreateConsumed,
+  onPendingCountChange,
+  onPanelChange,
 }: {
   workspaceId: string;
   storeId: string;
@@ -64,6 +70,12 @@ export default function ManualPosOrders({
   pasteRequest?: {id:string;draft:PasteDraft} | null;
   onPasteConsumed?: ()=>void;
   onOrderChanged?: ()=>void;
+  refined?: boolean;
+  createRequest?: number;
+  showPending?: boolean;
+  onCreateConsumed?: ()=>void;
+  onPendingCountChange?: (count:number)=>void;
+  onPanelChange?: (open:boolean)=>void;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(empty);
@@ -317,20 +329,30 @@ export default function ManualPosOrders({
       setBusy(false);
     }
   };
+  useEffect(()=>{onPendingCountChange?.(pending.length);},[pending.length,onPendingCountChange]);
+  useEffect(()=>{onPanelChange?.(Boolean(open || saved || pay));},[open,saved,pay,onPanelChange]);
+  const handledCreate = useRef(0);
+  useEffect(()=>{if(!createRequest){handledCreate.current=0;return;}if(createRequest!==handledCreate.current){handledCreate.current=createRequest;onCreateConsumed?.();setSaved(null);void load();}},[createRequest]);
   const input = "rounded border p-2 text-slate-950 bg-white";
+  const [productSearch,setProductSearch]=useState("");
+  const [productCategory,setProductCategory]=useState<'menu'|'weekly'|'sets'|'private'>('menu');
+  useEffect(()=>{if(open){setProductSearch("");setProductCategory('menu');}},[open]);
+  const displayMoney=(minor:number)=>refined && currency==='MYR' ? money(minor).replace(/^MYR /,'RM ') : money(minor);
+  const matchesProductSearch=(name:string)=>name.toLocaleLowerCase().includes(productSearch.trim().toLocaleLowerCase());
   return (
     <section
-      className="manual-pos m-4 rounded-xl border p-4"
+      className={refined ? "manual-pos pos-manual-refined" : "manual-pos m-4 rounded-xl border p-4"}
       aria-label="Manual POS orders"
     >
-      <button
+      {!refined && <button
         disabled={busy}
         className="rounded bg-blue-700 p-3 font-bold text-white"
         onClick={() => void load()}
       >
         Create Manual Order
-      </button>
-      {error && <p role="alert">{error}</p>}
+      </button>}
+      {error && (!refined || showPending || open || saved || pay) && <p role="alert">{error}</p>}
+      {(!refined || (showPending && !open && !saved && !pay)) && <div className="pos-pending-list">
       <h3 className="mt-3 font-bold">
         Pending Manual Payments ({pending.length})
       </h3>
@@ -341,28 +363,18 @@ export default function ManualPosOrders({
       {!pending.length && (
         <p className="manual-muted">No manual orders awaiting payment.</p>
       )}
+      {refined && pending.length > 0 && <div className="pos-pending-head" aria-hidden="true">
+        <span>Order Number</span><span>Customer</span><span>Fulfilment Date/Time</span><span>Payment Method</span><span>Amount</span><span>Status</span><span>Actions</span>
+      </div>}
       {pending.map((order) => (
-        <article key={order.id} className="my-2 rounded border p-3">
-          <b>
-            {order.orderNumber} · {order.customerName}
-          </b>
-          <p>
-            <span className="manual-badge">Pending Payment</span> ·{" "}
-            {order.currency} {order.total.toFixed(2)}
-          </p>
-          <p className="manual-muted">
-            {order.fulfilments
-              ?.map((day) => `${day.date} ${day.time || ""}`)
-              .join(" · ")}
-          </p>
-          <div className="manual-actions">
-            <button
-              disabled={busy}
-              className="manual-secondary"
-              onClick={() => void load(order)}
-            >
-              Edit before payment
-            </button>
+        <article key={order.id} className="pos-pending-row" aria-label={`Pending order ${order.orderNumber}`}>
+          <b className="pos-pending-number" data-label="Order Number">{order.orderNumber}</b>
+          <span className="pos-pending-customer" data-label="Customer">{order.customerName || "—"}</span>
+          <span className="pos-pending-date" data-label="Fulfilment Date/Time" title={order.fulfilments?.map((day) => `${day.date} ${day.time || ""}`).join(" · ")}>{order.fulfilments?.length ? <>{order.fulfilments[0].date} {order.fulfilments[0].time || ""}{order.fulfilments.length > 1 && <small className="block">+{order.fulfilments.length - 1} more fulfilments</small>}</> : "—"}</span>
+          <span className="pos-pending-method" data-label="Payment Method">{(order.weeklyPosLink?.provider || order.payment.providerPaymentMethod || (order.payment.provider !== 'manual' ? order.payment.provider : '') || 'Not selected').replaceAll('_', ' ')}</span>
+          <strong className="pos-pending-amount" data-label="Amount">{order.currency === 'MYR' ? 'RM' : order.currency} {order.total.toFixed(2)}</strong>
+          <span className="pos-pending-status" data-label="Status"><span className="manual-badge">Pending Payment</span></span>
+          <div className="pos-pending-actions">
             <button
               disabled={busy}
               className="manual-primary"
@@ -373,19 +385,19 @@ export default function ManualPosOrders({
                 setReference("");
                 setError("");
               }}
-            >
-              Confirm Payment
-            </button>
-            <button
-              className="manual-secondary"
-              onClick={() => setSaved(order)}
-            >
-              View details
-            </button>
+            >Confirm Payment</button>
+            <details className="pos-pending-more">
+              <summary aria-label={`More actions for ${order.orderNumber}`}>More <span aria-hidden="true">⋯</span></summary>
+              <div>
+                <button type="button" className="manual-secondary" disabled={busy} onClick={()=>void load(order)}>Edit before payment</button>
+                <button type="button" className="manual-secondary" onClick={() => setSaved(order)}>View details</button>
+              </div>
+            </details>
           </div>
         </article>
       ))}
-      {paid.length > 0 && (
+      </div>}
+      {!refined && paid.length > 0 && (
         <details className="manual-section">
           <summary>Paid / Confirmed manual orders ({paid.length})</summary>
           {paid.map((order) => (
@@ -481,22 +493,24 @@ export default function ManualPosOrders({
       {open && (
         <div className="manual-overlay">
           <section
-            role="dialog"
-            aria-modal="true"
+            role={refined ? "region" : "dialog"}
+            aria-modal={refined ? undefined : true}
             aria-label="Create Manual Order"
-            className="manual-dialog"
+            className="manual-dialog manual-order-workspace"
           >
-            <h2 className="text-xl font-bold">
+            <div className="manual-workspace-header"><h2 className="text-xl font-bold">
               {editing ? `Edit ${editing.orderNumber}` : "Create Manual Order"}
             </h2>
+            {refined && <button type="button" disabled={busy} className="manual-secondary" onClick={()=>setOpen(false)}>Back to orders</button>}
             <span className="manual-badge">Pending Payment</span>
             <PasteOrderButton workspaceId={workspaceId} storeId={storeId} slug={slug} products={posProducts} sets={sets} disabled={busy} onApply={pasted=>{setDraft(pasted);setFeeMode(pasted.deliveryFeeOverride?'manual':'estimate');setDeliveryQuote(null);}} />
-            <p className="manual-muted">
+            </div><details className="manual-order-guidance"><summary>Order guidance</summary><p className="manual-muted">
               Save as Pending Payment. Confirm only after payment is actually
               received. {posFullAccess ? "Owner and Manager can record any fulfilment date and time, including special school deliveries outside Delivery Hours and historical orders. Record the agreed arrangement in remarks." : "Preorders start tomorrow; immediate Walk-in stays available under Add Order."} Choose store delivery for a quote or use customer-arranged delivery.
-            </p>
-            <fieldset disabled={busy} className="manual-section manual-grid">
-              <legend>1. Customer &amp; Fulfilment</legend>
+            </p></details>
+            <div className="manual-workspace-grid"><div className="manual-workspace-left">
+            <fieldset disabled={busy} className="manual-section manual-grid manual-customer-fields">
+              <legend>Customer &amp; fulfilment</legend>
               <label>
                 Source{" "}
                 <select
@@ -534,6 +548,7 @@ export default function ManualPosOrders({
                   }
                 />
               </label>
+              <details className="manual-order-notes" open={draft.notes ? true : undefined}><summary>Order notes (optional)</summary>
               <label>
                 Order notes{" "}
                 <textarea
@@ -545,7 +560,8 @@ export default function ManualPosOrders({
                   }
                 />
               </label>
-              <div className="manual-grid col-span-full">
+              </details>
+              <div className="manual-grid col-span-full manual-main-controls">
                 <label>
                   Main fulfilment date
                   <input
@@ -563,22 +579,16 @@ export default function ManualPosOrders({
                     onChange={(e) => {setDefaultTime(e.target.value);updateMain({time:e.target.value});}}
                   />
                 </label>
-                {posFullAccess&&<button type="button" onClick={()=>{const date=toMalaysiaDateKey(),time=new Date(Date.now()+28800000).toISOString().slice(11,16);setDefaultDate(date);setDefaultTime(time);setDefaultMethod('pickup');updateMain({date,time,method:'pickup'});}}>Immediate pickup</button>}
+
                 <label>Fulfilment<select value={defaultMethod} onChange={e=>{setDefaultMethod(e.target.value);updateMain({method:e.target.value==='pickup'?'pickup':'delivery',deliveryArrangement:e.target.value==='store_delivery'?'store':'customer'});}}><option value="pickup">Pickup</option><option value="store_delivery">Store delivery</option><option value="delivery">Customer-arranged delivery</option></select></label>
+                {posFullAccess&&<button className="manual-secondary manual-immediate" type="button" onClick={()=>{const date=toMalaysiaDateKey(),time=new Date(Date.now()+28800000).toISOString().slice(11,16);setDefaultDate(date);setDefaultTime(time);setDefaultMethod('pickup');updateMain({date,time,method:'pickup'});}}>Immediate pickup</button>}
                 {defaultMethod!=='pickup'&&<PosAddressPicker label="Main delivery address" disabled={busy} value={defaultDestination} onChange={destination=>{setDefaultDestination(destination);updateMain({destination,deliveryAddress:destination.formattedAddress});}}/>}
               </div>
             </fieldset>
-            <section className="manual-section">
-              <h3>2. Product Selection</h3>
-              <p role="status" className="manual-muted">{draft.lines.reduce((sum,line)=>sum+line.quantity,0)} items in cart · Product subtotal {preview.totalMinor===null?"Incomplete":money(preview.totalMinor)}</p>
+            <section className="manual-section manual-product-selection">
+              <h3>Product selection</h3>
               {catalogLoading && (
                 <p role="status">Loading this Store’s catalog…</p>
-              )}
-              {!catalogLoading && slug && (
-                <p className="manual-muted">
-                  {products.length} menu items · {sets.length} sets ·{" "}
-                  {privateItems.length} private items available
-                </p>
               )}
               {!catalogLoading && slug && !products.length && !sets.length && (
                 <p role="status">
@@ -586,12 +596,14 @@ export default function ManualPosOrders({
                   make products available in Store management.
                 </p>
               )}
-              <fieldset disabled={busy || !slug} className="manual-grid mt-4">
-                <legend className="font-bold">Choose an item to add</legend>
-                <label>
-                  Menu / weekly plan
+              <fieldset disabled={busy || !slug} className="manual-product-picker">
+                <legend className="sr-only">Choose an item to add</legend>
+                <label>Search products<input type="search" value={productSearch} onChange={e=>setProductSearch(e.target.value)} placeholder="Search menu, plans, sets or private items" /></label>
+                <div className="manual-product-tabs" aria-label="Product categories">{([['menu','Menu'],['weekly','Weekly Plans'],['sets','Meal Sets'],['private','Private Items']] as const).map(([category,label])=><button key={category} type="button" aria-pressed={productCategory===category} onClick={()=>setProductCategory(category)}>{label}</button>)}</div>
+                {(productCategory==='menu' || productCategory==='weekly') && <label>
+                  {productCategory==='weekly' ? 'Weekly plan' : 'Menu'}
                   <select
-                    aria-label="Add menu item"
+                    aria-label={productCategory==='weekly' ? 'Add weekly plan' : 'Add menu item'}
                     className={input}
                     value=""
                     onChange={(e) => {
@@ -599,15 +611,15 @@ export default function ManualPosOrders({
                       if (p) add({ productId: p.id, selectedOptions: [] });
                     }}
                   >
-                    <option value="">Add menu / weekly plan…</option>
-                    {products.map((p) => (
+                    <option value="">{productCategory==='weekly' ? 'Add weekly plan…' : 'Add menu item…'}</option>
+                    {products.filter(p=>(productCategory==='weekly' ? p.productType==='weekly_meal_plan' : p.productType!=='weekly_meal_plan') && matchesProductSearch(p.name)).map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name} · {p.price.toFixed(2)}
                       </option>
                     ))}
                   </select>
-                </label>
-                <label>
+                </label>}
+                {productCategory==='sets' && <label>
                   Meal set
                   <select
                     aria-label="Add set"
@@ -627,20 +639,20 @@ export default function ManualPosOrders({
                     }}
                   >
                     <option value="">Add set…</option>
-                    {sets.map((s) => (
+                    {sets.filter(s=>matchesProductSearch(s.name)).map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name}
                       </option>
                     ))}
                   </select>
-                </label>
+                </label>}
                 <button
-                  className="manual-secondary"
+                  className="manual-secondary manual-custom-action"
                   onClick={() => add(undefined, { name: "", unitPrice: 0 })}
                 >
                   Add Custom Item
                 </button>
-                <label>
+                {productCategory==='private' && <label>
                   Saved private items
                   <select
                     aria-label="Add saved private item"
@@ -657,21 +669,18 @@ export default function ManualPosOrders({
                     }}
                   >
                     <option value="">Saved private POS items…</option>
-                    {privateItems.map((p, i) => (
+                    {privateItems.map((p,i)=>({p,i})).filter(({p})=>matchesProductSearch(p.name)).map(({p,i}) => (
                       <option key={i} value={i}>
                         {p.name}
                       </option>
                     ))}
                   </select>
-                </label>
+                </label>}
               </fieldset>
             </section>
-            {!draft.lines.length && (
-              <p className="manual-section">
-                Your order is empty. Choose a menu item, set or Custom Item
-                above. Items use the main fulfilment schedule unless you choose an override.
-              </p>
-            )}
+            </div><aside className="manual-workspace-cart" aria-label="Manual order cart"><h3>Cart ({draft.lines.reduce((sum,line)=>sum+line.quantity,0)})</h3>
+            {!draft.lines.length && <p className="manual-muted">Choose a product to start this order.</p>}
+            <div className="manual-cart-items">
             {draft.lines.map((line, i) => {
               const product = posProducts.find(
                 (p) => p.id === line.selection?.productId,
@@ -708,18 +717,18 @@ export default function ManualPosOrders({
                 <fieldset
                   key={i}
                   disabled={busy}
-                  className="manual-section manual-fields"
+                  className={`manual-section manual-fields manual-cart-line${line.custom ? ' manual-cart-custom' : ''}`}
                 >
                   <legend className="font-bold">
                     {line.custom
                       ? "Custom Item"
                       : product?.name || set?.name || "Item"}
                   </legend>
-                  <p className="manual-muted">
-                    Unit: {money(preview.rows[i].unitMinor)} · Subtotal:{" "}
+                  <p className="manual-muted manual-line-price">
+                    Unit: {displayMoney(preview.rows[i].unitMinor)} · Subtotal:{" "}
                     {preview.rows[i].totalMinor === null
                       ? "Complete item"
-                      : money(preview.rows[i].totalMinor!)}
+                      : displayMoney(preview.rows[i].totalMinor!)}
                   </p>
                   {line.custom && (
                     <>
@@ -771,8 +780,8 @@ export default function ManualPosOrders({
                       </label>
                     </>
                   )}
-                  <label>
-                    Quantity{" "}
+                  <label className="manual-line-quantity">
+                    <span className="sr-only">Quantity</span>
                     <input
                       className={input}
                       type="number"
@@ -784,6 +793,7 @@ export default function ManualPosOrders({
                       }
                     />
                   </label>
+                  <details className="manual-item-settings" open={plan?.productType==='weekly_meal_plan' || !line.inheritSchedule ? true : undefined}><summary>Fulfilment &amp; item notes</summary><div className="manual-item-settings-grid">
                   {plan?.productType!=="weekly_meal_plan"&&<label><input type="checkbox" checked={!line.inheritSchedule} onChange={e=>update(i,e.target.checked?{inheritSchedule:false}:{...mainDefaults,inheritSchedule:true})}/> Override main fulfilment for this item</label>}
                   {line.inheritSchedule&&<p className="manual-muted">Main schedule · {line.date} · {line.time} · {line.method}</p>}
                   <label style={line.inheritSchedule?{display:'none'}:undefined}>
@@ -896,6 +906,7 @@ export default function ManualPosOrders({
                       onChange={(e) => update(i, { notes: e.target.value })}
                     />
                   </label>
+                  </div></details>
                   {product?.optionGroupIds?.map((id) => {
                     const g = groups.find((g) => g.id === id);
                     return (
@@ -1053,7 +1064,7 @@ export default function ManualPosOrders({
                       </select>
                     </label>
                   ))}
-                  {(discountPreview.automaticPricing.promotionSnapshot.lineAdjustments[i]?.discountAmount || 0)>0 && <p className="text-sm font-bold">Automatic promotional subtotal: {money(Math.round(discountPreview.automaticPricing.promotionSnapshot.lineAdjustments[i].finalLineTotal*100))} · saving {money(Math.round(discountPreview.automaticPricing.promotionSnapshot.lineAdjustments[i].discountAmount*100))}{draft.manualDiscount?.application==='replace'?' (replaced by manual discount)':''}</p>}
+                  {(discountPreview.automaticPricing.promotionSnapshot.lineAdjustments[i]?.discountAmount || 0)>0 && <p className="text-sm font-bold">Automatic promotional subtotal: {displayMoney(Math.round(discountPreview.automaticPricing.promotionSnapshot.lineAdjustments[i].finalLineTotal*100))} · saving {displayMoney(Math.round(discountPreview.automaticPricing.promotionSnapshot.lineAdjustments[i].discountAmount*100))}{draft.manualDiscount?.application==='replace'?' (replaced by manual discount)':''}</p>}
                   {preview.rows[i].error && (
                     <p role="alert">{preview.rows[i].error}</p>
                   )}
@@ -1071,16 +1082,13 @@ export default function ManualPosOrders({
                 </fieldset>
               );
             })}
+            </div>
             <section
               className="manual-summary"
               aria-label="Daily order summary"
             >
-              <h3>3. Cart &amp; Order Summary</h3>
-              {!preview.days.length && (
-                <p className="manual-muted">
-                  Your daily allocations and subtotals will appear here.
-                </p>
-              )}
+              <h3>Pricing &amp; payment</h3>
+              {preview.days.length>0 && <details className="manual-allocation-details"><summary>Daily fulfilment breakdown</summary>
               {preview.days.map((day) => (
                 <div className="manual-day" key={day.date}>
                   <strong>{day.date} · Malaysia time</strong>
@@ -1095,7 +1103,7 @@ export default function ManualPosOrders({
                       <span>
                         {entry.amountMinor === null
                           ? "Incomplete"
-                          : money(entry.amountMinor)}
+                          : displayMoney(entry.amountMinor)}
                       </span>
                     </div>
                   ))}
@@ -1104,11 +1112,12 @@ export default function ManualPosOrders({
                     <strong>
                       {day.entries.some((e) => e.amountMinor === null)
                         ? "Incomplete"
-                        : money(day.totalMinor)}
+                        : displayMoney(day.totalMinor)}
                     </strong>
                   </div>
                 </div>
               ))}
+              </details>}
               {hasStoreDelivery && <fieldset className="manual-section">
                 <legend>Delivery fee</legend>
                 <label>Fee source<select value={feeMode} disabled={busy || quoting} onChange={e => setFeeMode(e.target.value as 'estimate' | 'manual')}>
@@ -1116,7 +1125,7 @@ export default function ManualPosOrders({
                 </select></label>
                 {feeMode === 'estimate' ? <>
                   <button type="button" disabled={busy || quoting} onClick={() => void quoteDelivery()}>{quoting ? 'Estimating…' : 'Refresh delivery estimate'}</button>
-                  {usableQuote ? <p role="status">Customer charge {money(Math.round(usableQuote.customerDeliveryFee * 100))} · provider cost {money(Math.round(usableQuote.providerDeliveryFee * 100))}. Expires {new Date(usableQuote.expiresAt).toLocaleTimeString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })} MYT.</p> : <p>Refresh after changing items, addresses or schedules.</p>}
+                  {usableQuote ? <p role="status">Customer charge {displayMoney(Math.round(usableQuote.customerDeliveryFee * 100))} · provider cost {displayMoney(Math.round(usableQuote.providerDeliveryFee * 100))}. Expires {new Date(usableQuote.expiresAt).toLocaleTimeString('en-MY', { timeZone: 'Asia/Kuala_Lumpur' })} MYT.</p> : <p>Refresh after changing items, addresses or schedules.</p>}
                 </> : <>
                   <label>Customer delivery charge<input disabled={busy} type="number" min="0" max="100000" step="0.01" value={draft.deliveryFeeOverride?.amount ?? ''} onChange={e => setDraft({ ...draft, deliveryFeeOverride: { amount: e.target.value === '' ? NaN : Number(e.target.value), reason: draft.deliveryFeeOverride?.reason || '' } })} /></label>
                   <label>Audit reason / agreed fee reference<input disabled={busy} maxLength={240} value={draft.deliveryFeeOverride?.reason || ''} onChange={e => setDraft({ ...draft, deliveryFeeOverride: { amount: draft.deliveryFeeOverride?.amount ?? NaN, reason: e.target.value } })} /></label>
@@ -1125,31 +1134,31 @@ export default function ManualPosOrders({
               <ManualDiscountControl value={draft.manualDiscount} onChange={manualDiscount=>setDraft({...draft,manualDiscount})} items={preview.rows.map(row=>row.pricingItem)} authorized={posFullAccess && currency==="MYR"} promotions={promotionState.promotions} now={promotionState.now} disabled={busy || !promotionState.ready || preview.totalMinor===null} />
               {!promotionState.ready && <p role="status">{promotionState.error || "Loading automatic promotion pricing…"}</p>}
               {discountPreview.error && <p role="alert">{discountPreview.error}</p>}
-              <div className="manual-summary-row"><span>Product subtotal</span><span>{preview.totalMinor === null ? 'Incomplete' : money(preview.totalMinor)}</span></div>
-              <div className="manual-summary-row"><span>Delivery charge</span><span>{deliveryFee === undefined ? 'Estimate required' : money(Math.round(deliveryFee * 100))}</span></div>
-              <div className="manual-summary-row"><span>Automatic promotions</span><span>−{money(discountPreview.automaticAmountMinor)}</span></div><div className="manual-summary-row"><span>Manual discount</span><span>−{money(discountPreview.manualAmountMinor)}</span></div>
+              <div className="manual-summary-row"><span>Product subtotal</span><span>{preview.totalMinor === null ? 'Incomplete' : displayMoney(preview.totalMinor)}</span></div>
+              <div className="manual-summary-row"><span>Delivery charge</span><span>{deliveryFee === undefined ? 'Estimate required' : displayMoney(Math.round(deliveryFee * 100))}</span></div>
+              <div className="manual-summary-row"><span>Automatic promotions</span><span>−{displayMoney(discountPreview.automaticAmountMinor)}</span></div><div className="manual-summary-row"><span>Manual discount</span><span>−{displayMoney(discountPreview.manualAmountMinor)}</span></div>
               <div className="manual-total">
                 <span>Grand total</span>
                 <span>
                   {preview.totalMinor === null
                     ? "Complete item options"
-                    : deliveryFee === undefined || !Number.isFinite(deliveryFee) ? "Complete delivery fee" : money(preview.totalMinor - discountPreview.amountMinor + Math.round(deliveryFee * 100))}
+                    : deliveryFee === undefined || !Number.isFinite(deliveryFee) ? "Complete delivery fee" : displayMoney(preview.totalMinor - discountPreview.amountMinor + Math.round(deliveryFee * 100))}
                 </span>
               </div>
+              <details className="manual-pricing-guidance"><summary>Pricing &amp; payment guidance</summary>
               <p className="manual-muted">
                 Preview uses current catalog prices. The server validates the
                 final saved amount. Weekly package prices are allocated across
                 five days for this summary.
               </p>
-              <h3 className="mt-4">4. Payment &amp; Confirmation</h3>
-              <span className="manual-badge">Pending Payment</span>
               <p className="manual-muted">
                 Saving does not confirm payment. After saving, use Pending
                 Manual Payments → Confirm Payment. Paid / Confirmed means funds
                 received and eligible for preparation.
               </p>
+              </details>
             </section>
-            {error && <p role="alert">{error}</p>}
+            {error && (!refined || showPending || open || saved || pay) && <p role="alert">{error}</p>}
             <div className="manual-actions">
               <button
                 disabled={
@@ -1170,14 +1179,15 @@ export default function ManualPosOrders({
                 Close
               </button>
             </div>
+            </aside></div>
           </section>
         </div>
       )}
       {pay && (
         <div className="manual-overlay" style={{ zIndex: 120 }}>
           <section
-            role="dialog"
-            aria-modal="true"
+            role={refined ? "region" : "dialog"}
+            aria-modal={refined ? undefined : true}
             aria-label="Confirm received payment"
             className="manual-dialog"
             style={{ maxWidth: 560 }}
@@ -1230,7 +1240,7 @@ export default function ManualPosOrders({
               existing payment; it does not charge the customer. The saved
               amount and revision are verified securely.
             </p>
-            {error && <p role="alert">{error}</p>}
+            {error && (!refined || showPending || open || saved || pay) && <p role="alert">{error}</p>}
             <button
               disabled={busy || !received || !reference.trim()}
               className="manual-primary"
