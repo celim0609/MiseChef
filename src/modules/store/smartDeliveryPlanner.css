@@ -212,7 +212,8 @@
     min-height: 44px;
   }
   .smart-toolbar > label {
-    flex: 1;
+    flex: 1 1 145px;
+    min-width: 145px;
   }
   .smart-badge {
     font-size: 11px;
