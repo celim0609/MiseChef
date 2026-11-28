@@ -2,6 +2,7 @@ import { createStripeSingleMerchantAdapter } from '../functions/paymentProviders
 import { createStorePayment, handleStorePaymentWebhook } from '../functions/storePayments.js';
 import { updateStoreOrderFulfilment } from '../functions/storeFulfilment.js';
 import { listGroupDeliveryReview, getGroupDeliveryReview, estimateGroupDelivery, approveGroupDelivery } from '../functions/groupDeliveryReview.js';
+import { compareSmartDelivery, SMART_DEFAULTS } from '../functions/smartDeliveryPlanner.js';
 import assert from 'node:assert/strict';
 import { after, before, beforeEach, test } from 'node:test';
 import { readFileSync } from 'node:fs';
@@ -33,6 +34,40 @@ beforeEach(async () => {
   await db.doc('groupDeliveryConfigs/store').set(config);
 });
 after(async () => { await env?.cleanup(); if (app) await deleteApp(app); });
+
+const smartArgs = () => ({ db, uid:'owner',storeId:'store',workspaceId:'workspace',projectId,
+  clock:()=>now,resolvePlace:async placeId=>({address:placeId,latitude:4.641,longitude:placeId==='a'?101.14:101.141}),
+  input:{date,pickupTime:'11:00',limits:SMART_DEFAULTS,destinations:['a','b'].map(id=>({id,label:id,placeId:id,windowStart:'11:00',windowEnd:'11:30'}))},
+  provider:{environment:'sandbox',createQuote:async ({data})=>({quotationId:'mock-quote',scheduleAt:data.scheduleAt,serviceType:data.serviceType,expiresAt:'2026-11-01T00:05:00Z',priceBreakdown:{total:data.stops.length===2?'10':'12',currency:'MYR'},stops:data.stops,isRouteOptimized:data.isRouteOptimized})}
+});
+const smartStore = () => db.doc('stores/store').update({delivery:{provider:'lalamove',market:'MY',environment:'sandbox',serviceType:'MOTORCYCLE',pickup:{address:'QA kitchen',latitude:4.63,longitude:101.14},fixedDeliveryBuffer:{enabled:true,amountMinor:200,maximumExtraCostMinor:500}}});
+test('Smart Delivery authenticates private review and quotes without changing pilot, orders or financial records',async()=>{
+ await smartStore(); const configBefore=(await db.doc('groupDeliveryConfigs/store').get()).data();
+ const r=await compareSmartDelivery(smartArgs());assert.equal(r.routes[1].manual.totalMinor,1400);assert.equal(r.routes[1].manual.recommended,true);
+ assert.deepEqual((await db.doc('groupDeliveryConfigs/store').get()).data(),configBefore);
+ for(const collection of ['storeOrders','storePayments','storePaymentEvents','deliveryGroups'])assert.equal((await db.collection(collection).get()).size,0);
+ await assert.rejects(compareSmartDelivery({...smartArgs(),uid:'customer'}),{code:'permission-denied'});
+ await db.doc('workspaceMembers/workspace_manager').set({userId:'manager',workspaceId:'workspace',status:'Active',role:'Manager'});
+ assert.equal((await compareSmartDelivery({...smartArgs(),uid:'manager'})).routes.length,2);
+ await db.doc('workspaceMembers/workspace_manager').update({status:'Inactive'});
+ await assert.rejects(compareSmartDelivery({...smartArgs(),uid:'manager'}),{code:'permission-denied'});
+ await assertFails(getDoc(doc(env.authenticatedContext('manager').firestore(),'groupDeliveryRateLimits/smart-delivery-provider')));
+});
+test('Smart Delivery concurrent quote-budget reservations cannot oversubscribe the provider minute',async()=>{
+ await smartStore();await db.doc('groupDeliveryRateLimits/smart-delivery-provider').set({windowStart:now.getTime(),count:24});
+ const r=await Promise.allSettled([compareSmartDelivery(smartArgs()),compareSmartDelivery(smartArgs())]);
+ assert.equal(r.filter(v=>v.status==='fulfilled').length,1);assert.equal(r.filter(v=>v.status==='rejected'&&v.reason.code==='resource-exhausted').length,1);
+ assert.equal((await db.doc('groupDeliveryRateLimits/smart-delivery-provider').get()).data().count,28);
+});
+test('Smart Delivery rejects store changes during quoting and forged saved-order time changes',async()=>{
+ await smartStore();const args=smartArgs(),original=args.provider.createQuote;let changed=false;
+ args.provider.createQuote=async request=>{if(!changed){changed=true;await db.doc('stores/store').update({'delivery.fixedDeliveryBuffer.amountMinor':300});}return original(request);};
+ await assert.rejects(compareSmartDelivery(args),/configuration changed/);
+ const day={id:'day',method:'delivery',date,time:'11:20'};
+ await db.doc('storeOrders/saved').set({storeId:'store',workspaceId:'workspace',fulfilments:[day],delivery:{recipient:{address:'QA customer',latitude:4.641,longitude:101.14}}});
+ const forged=smartArgs();forged.input.destinations=[{id:'saved_day',orderId:'saved',fulfilmentId:'day',windowStart:'11:00',windowEnd:'12:00'}];
+ await assert.rejects(compareSmartDelivery(forged),/times cannot be changed/);
+});
 
 test('joins unpaid; concurrent duplicate requests count once and create no Store order or payment', async () => {
   const results = await Promise.all(Array.from({length:6}, () => reserve()));

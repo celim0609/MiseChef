@@ -1,0 +1,227 @@
+.smart-planner {
+  padding: 16px;
+  color: var(--pos-ink);
+  max-width: 1500px;
+  margin: auto;
+  min-width: 0;
+}
+.smart-planner fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.smart-planner h2,
+.smart-planner h3,
+.smart-planner h4 {
+  margin: 0 0 8px;
+}
+.smart-planner p {
+  margin: 8px 0;
+}
+.smart-muted {
+  color: var(--pos-muted);
+  font-size: 12px;
+}
+.smart-section-heading,
+.smart-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.smart-badge {
+  font-size: 12px;
+  padding: 4px 8px;
+  background: var(--pos-soft);
+  border: 1px solid var(--pos-line);
+  border-radius: 6px;
+}
+.smart-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+.smart-planner label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  min-width: 0;
+}
+.smart-planner input,
+.smart-planner select,
+.smart-planner button,
+.smart-planner summary {
+  border: 1px solid var(--pos-line);
+  background: var(--pos-surface);
+  color: var(--pos-ink);
+  border-radius: 6px;
+  min-height: 36px;
+  padding: 7px 10px;
+  font: inherit;
+}
+.smart-planner input,
+.smart-planner select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.smart-planner button,
+.smart-planner summary {
+  cursor: pointer;
+}
+.smart-planner :disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.smart-planner details {
+  min-width: 0;
+}
+.smart-settings[open] {
+  flex-basis: 100%;
+}
+.smart-limits {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding-top: 12px;
+}
+.smart-card {
+  padding: 14px;
+  border: 1px solid var(--pos-line);
+  background: var(--pos-surface);
+  border-radius: 8px;
+  min-width: 0;
+}
+.smart-entry-grid,
+.smart-route-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.smart-grow {
+  flex: 1;
+}
+.smart-suggestion {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-top: 6px;
+}
+.smart-destination {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) 130px 130px auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--pos-line);
+}
+.smart-break {
+  overflow-wrap: anywhere;
+}
+.smart-planner .smart-primary {
+  background: #2454e8;
+  color: white;
+  margin-top: 12px;
+  font-weight: 600;
+}
+.smart-warning {
+  padding: 10px;
+  border: 1px solid #d59435;
+  border-radius: 6px;
+  color: var(--pos-ink);
+  background: var(--pos-soft);
+}
+.smart-good {
+  padding: 10px;
+  border: 1px solid #329d79;
+  border-radius: 6px;
+  background: var(--pos-soft);
+}
+.smart-table-wrap {
+  overflow: auto;
+  max-width: 100%;
+}
+.smart-planner table {
+  width: 100%;
+  text-align: left;
+  border-collapse: collapse;
+  white-space: nowrap;
+}
+.smart-planner td,
+.smart-planner th {
+  border-bottom: 1px solid var(--pos-line);
+  padding: 8px;
+}
+.smart-planner [aria-pressed="true"] {
+  background: #2454e8;
+  color: white;
+}
+.smart-planner dl > div,
+.smart-allocation {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 6px 0;
+}
+.smart-planner dd {
+  margin: 0;
+  white-space: nowrap;
+}
+.smart-planner ol {
+  padding-left: 24px;
+}
+.smart-results {
+  margin-top: 20px;
+}
+.smart-planner select {
+  margin-top: 8px;
+}
+.smart-planner input {
+  color-scheme: light;
+}
+.pos-screen[data-pos-theme="dark"] .smart-planner input {
+  color-scheme: dark;
+}
+@media (max-width: 700px) {
+  .smart-planner {
+    padding: 12px;
+  }
+  .smart-entry-grid,
+  .smart-route-grid {
+    grid-template-columns: 1fr;
+  }
+  .smart-limits {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .smart-destination {
+    grid-template-columns: 1fr 1fr;
+  }
+  .smart-destination > div:first-child {
+    grid-column: 1/-1;
+  }
+  .smart-planner button,
+  .smart-planner summary,
+  .smart-planner input,
+  .smart-planner select {
+    min-height: 44px;
+  }
+  .smart-toolbar > label {
+    flex: 1;
+  }
+  .smart-badge {
+    font-size: 11px;
+  }
+  .smart-planner dl > div,
+  .smart-allocation {
+    flex-wrap: wrap;
+  }
+  .smart-planner .smart-inline {
+    align-items: flex-end;
+  }
+}

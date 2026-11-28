@@ -1,8 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { groupDeliveryReviewService as api, type GroupReviewDetail, type GroupReviewSummary } from './services/groupDeliveryReviewService';
 import GroupDeliveryReviewDetails from './GroupDeliveryReviewDetails';
+import SmartDeliveryPlanner from './SmartDeliveryPlanner';
+import './smartDeliveryPlanner.css';
 const message=(e:unknown)=>e instanceof Error?e.message:'Please retry. / 请重试。';
 export default function GroupDeliveryReviewPanel({storeId,workspaceId}:{storeId:string;workspaceId:string}) {
+  return <SmartDeliveryPlanner storeId={storeId} workspaceId={workspaceId}/>;
+}
+// Retained for existing pilot records; Phase 1 planner does not activate this flow.
+export function LegacyGroupDeliveryReviewPanel({storeId,workspaceId}:{storeId:string;workspaceId:string}) {
   const [groups,setGroups]=useState<GroupReviewSummary[]>([]),[detail,setDetail]=useState<GroupReviewDetail>();
   const [areaId, setAreaId] = useState('');
   const [areas, setAreas] = useState<Array<{areaId: string; areaName: string}>>([]);

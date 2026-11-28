@@ -1,4 +1,5 @@
 export * from './index.js';
+export * from './smartDeliveryEndpoint.js';
 
 import { readFileSync } from 'node:fs';
 import { getFirestore } from 'firebase-admin/firestore';
