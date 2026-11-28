@@ -41,87 +41,56 @@ export function SmartDeliveryResults({
 }) {
   const expired = Date.parse(result.expiresAt) <= now;
   const [selected, setSelected] = useState(result.routes.length - 1);
+  const [kind, setKind] = useState<"manual" | "optimized">("manual");
   const route = result.routes[selected] || result.routes.at(-1)!;
-  const preview = (q: PlannerPreview, title: string) => (
-    <section className="smart-card">
-      <h3>{title}</h3>
-      <p className="smart-muted">
-        {q.providerOptimized
-          ? "Provider optimization confirmed"
-          : title === "Optimized route"
-            ? "Provider returned its route; optimization not confirmed"
-            : "Entered destination order"}
-      </p>
-      <strong>{money(q.feeMinor)} provider quote</strong>
-      <dl>
-        <div>
-          <dt>One route buffer</dt>
-          <dd>{money(q.bufferMinor)}</dd>
-        </div>
-        <div>
-          <dt>Proposed delivery fees</dt>
-          <dd>{money(q.totalMinor)}</dd>
-        </div>
-        <div>
-          <dt>Provider cost saving</dt>
-          <dd>{money(q.providerSavingsMinor)}</dd>
-        </div>
-        <div>
-          <dt>Customer saving after buffer¹</dt>
-          <dd>{money(q.savingsMinor)}</dd>
-        </div>
-        <div>
-          <dt>Merchant exposure / subsidy</dt>
-          <dd>{money(q.merchantExposureMinor)} / RM0.00</dd>
-        </div>
-        <div>
-          <dt>Maximum extra cost policy</dt>
-          <dd>{money(q.maximumExtraCostMinor)}</dd>
-        </div>
-      </dl>
-      <p className={q.recommended && !expired ? "smart-good" : "smart-warning"}>
-        {expired
-          ? "Expired · refresh comparison"
-          : !q.timing.feasible
-            ? "Rejected · planning time misses a window or duration limit"
-            : !q.economical
-              ? "Rejected · no net customer saving"
-              : "Eligible for internal review · preview only"}
-      </p>
-      <p>Planned duration: {q.timing.durationMinutes} min</p>
-      <ol>
-        {q.timing.arrivals.map((a) => (
-          <li key={a.id}>
-            {a.label} · {a.arrival}{" "}
-            <span className="smart-muted">
-              ({a.windowStart}–{a.windowEnd})
-            </span>
-            {!a.withinWindow ? " · Outside window" : ""}
-          </li>
-        ))}
-      </ol>
-      <details>
-        <summary>Quotation evidence</summary>
-        <p className="smart-break">ID: {q.quotationId}</p>
-        <p>
-          Expires{" "}
-          {new Date(q.expiresAt).toLocaleTimeString("en-MY", {
-            timeZone: "Asia/Kuala_Lumpur",
-          })}{" "}
-          MYT
-        </p>
-      </details>
-      <h4>Proportional fee preview</h4>
-      {result.draft.destinations.slice(0, route.count).map((d, i) => (
-        <div className="smart-allocation" key={d.id}>
-          <span>{d.label}</span>
-          <span>
-            {money(result.individual[i].feeMinor)} → {money(q.allocations[i])}
-          </span>
-        </div>
-      ))}
-    </section>
-  );
+  const selectedKind =
+    kind === "optimized" && route.optimized ? "optimized" : "manual";
+  const chosen = selectedKind === "optimized" ? route.optimized! : route.manual;
+  const policy = result.pricingPolicy;
+  const policyLabel =
+    policy?.status === "applied"
+      ? "Existing Store policy applied once per route"
+      : policy?.status === "missing"
+        ? "No fixed-buffer policy configured for this Beta Store"
+        : policy?.status === "disabled"
+          ? "Fixed-buffer policy disabled in Store Settings"
+          : policy?.status === "vehicle_not_applicable"
+            ? "Fixed-buffer policy does not apply to this vehicle/service"
+            : policy?.status === "invalid"
+              ? "Stored fixed-buffer policy is invalid; no policy applied"
+              : "Policy details unavailable for this comparison";
+  const status = (q: PlannerPreview) =>
+    expired
+      ? "Expired · refresh comparison"
+      : !q.timing.feasible
+        ? "Rejected · assumption-based schedule misses a window or duration limit"
+        : !q.economical
+          ? "Rejected · no net customer saving"
+          : "Eligible for internal review · preview only";
+  const maximum = (q: PlannerPreview) =>
+    policy?.status === "applied"
+      ? money(q.maximumExtraCostMinor)
+      : policy?.status === "missing"
+        ? "Not configured"
+        : policy
+          ? "Not active"
+          : money(q.maximumExtraCostMinor);
+  const metrics: Array<[string, (q: PlannerPreview) => React.ReactNode]> = [
+    ["Individual provider costs", () => money(route.individualTotalMinor)],
+    ["Combined provider quote", (q) => money(q.feeMinor)],
+    ["One applicable route buffer", (q) => money(q.bufferMinor)],
+    ["Proposed delivery fees", (q) => money(q.totalMinor)],
+    ["Provider cost saving", (q) => money(q.providerSavingsMinor)],
+    ["Customer saving after buffer¹", (q) => money(q.savingsMinor)],
+    [
+      "Projected merchant exposure / subsidy",
+      (q) => `${money(q.merchantExposureMinor)} / RM0.00`,
+    ],
+    ["Maximum extra cost protection", maximum],
+    ["Assumed total duration", (q) => `${q.timing.durationMinutes} min`],
+    ["Review status", status],
+  ];
+  const destinations = result.draft.destinations.slice(0, route.count);
   return (
     <section aria-label="Smart Delivery comparison" className="smart-results">
       <div className="smart-section-heading">
@@ -131,14 +100,13 @@ export function SmartDeliveryResults({
           className={expired ? "smart-warning" : "smart-muted"}
         >
           {expired
-            ? "Expired"
-            : `Valid for ${Math.max(0, Math.floor((Date.parse(result.expiresAt) - now) / 1000))}s`}
+            ? "Expired · refresh comparison"
+            : "Quotation available · preview only"}
         </span>
       </div>
       <p>{result.pricingNotice}</p>
-      <p className="smart-muted">{result.arrivalBasis}</p>
       <div className="smart-table-wrap">
-        <table>
+        <table aria-label="Incremental quotation comparison">
           <thead>
             <tr>
               <th>Stops</th>
@@ -168,14 +136,183 @@ export function SmartDeliveryResults({
           </tbody>
         </table>
       </div>
-      <div className="smart-route-grid">
-        {preview(route.manual, "Manual route")}
-        {route.optimized && preview(route.optimized, "Optimized route")}
+      <p className="smart-muted">
+        {policyLabel}. Financial previews and customer charges are unchanged.
+      </p>
+      <div className="smart-table-wrap">
+        <table
+          aria-label="Manual and optimized route comparison"
+          className="smart-route-comparison"
+        >
+          <thead>
+            <tr>
+              <th scope="col">Compare routes</th>
+              <th scope="col">
+                <button
+                  aria-pressed={selectedKind === "manual"}
+                  onClick={() => setKind("manual")}
+                >
+                  Select manual route
+                </button>
+              </th>
+              <th scope="col">
+                {route.optimized ? (
+                  <button
+                    aria-pressed={selectedKind === "optimized"}
+                    onClick={() => setKind("optimized")}
+                  >
+                    Select optimized route
+                  </button>
+                ) : (
+                  "Optimized · not available"
+                )}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {metrics.map(([label, value]) => (
+              <tr key={label}>
+                <th scope="row">{label}</th>
+                <td>{value(route.manual)}</td>
+                <td>{route.optimized ? value(route.optimized) : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
+      <section
+        className="smart-card smart-selected-route"
+        aria-label="Selected route schedule and allocation"
+      >
+        <h3>Selected {selectedKind} route · schedule and fee preview</h3>
+        <p className="smart-warning">
+          Fixed-duration assumptions: {result.draft.limits.legMinutes} minutes
+          per leg, {result.draft.limits.serviceMinutes} minutes per stop, plus
+          waiting. These are not actual travel times or guaranteed arrival
+          times.
+        </p>
+        <p className="smart-muted">
+          Saved customer windows stay unchanged. Assumed total duration:{" "}
+          {chosen.timing.durationMinutes} min.
+        </p>
+        <div className="smart-table-wrap">
+          <table aria-label="Selected route delivery schedule and fee allocation">
+            <thead>
+              <tr>
+                <th>Customer</th>
+                <th>Delivery window · MYT</th>
+                <th>Assumed arrival · MYT</th>
+                <th>Individual quote</th>
+                <th>Proposed fee</th>
+                <th>Saving¹</th>
+              </tr>
+            </thead>
+            <tbody>
+              {chosen.timing.arrivals.map((a) => {
+                const i = destinations.findIndex((d) => d.id === a.id);
+                return (
+                  <tr key={a.id}>
+                    <th scope="row">{a.label}</th>
+                    <td>
+                      {a.windowStart}–{a.windowEnd}
+                    </td>
+                    <td>
+                      {a.arrival}
+                      {!a.withinWindow ? " · Outside window" : ""}
+                    </td>
+                    <td>{money(result.individual[i].feeMinor)}</td>
+                    <td>{money(chosen.allocations[i])}</td>
+                    <td>
+                      {money(
+                        result.individual[i].feeMinor - chosen.allocations[i],
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <details className="smart-quote-details">
+        <summary>Quotation IDs, expiry and technical evidence</summary>
+        <p>
+          Comparison expires{" "}
+          {new Date(result.expiresAt).toLocaleString("en-MY", {
+            timeZone: "Asia/Kuala_Lumpur",
+          })}{" "}
+          MYT ·{" "}
+          {expired
+            ? "Expired"
+            : `${Math.max(0, Math.floor((Date.parse(result.expiresAt) - now) / 1000))}s remaining`}
+        </p>
+        <p className="smart-muted">{result.arrivalBasis}</p>
+        <p>
+          Policy source: Store Settings → Delivery → Fixed Delivery Buffer.
+          Status: {policy?.status || "unavailable"}
+          {policy ? ` · Vehicle: ${policy.serviceType}` : ""}.
+        </p>
+        {policy && (
+          <p>
+            Stored buffer:{" "}
+            {policy.configuredBufferMinor === null
+              ? "Not configured"
+              : money(policy.configuredBufferMinor)}{" "}
+            · Stored maximum extra cost:{" "}
+            {policy.configuredMaximumExtraCostMinor === null
+              ? "Not configured"
+              : money(policy.configuredMaximumExtraCostMinor)}
+          </p>
+        )}
+        {(
+          [
+            ["Manual route", route.manual],
+            ["Optimized route", route.optimized],
+          ] as const
+        ).map(
+          ([title, q]) =>
+            q && (
+              <div key={title}>
+                <strong>{title}</strong>
+                <p className="smart-break">
+                  Quotation ID: {q.quotationId} · Expires{" "}
+                  {new Date(q.expiresAt).toLocaleTimeString("en-MY", {
+                    timeZone: "Asia/Kuala_Lumpur",
+                  })}{" "}
+                  MYT
+                </p>
+                <p>
+                  {q.providerOptimized
+                    ? "Provider optimization confirmed"
+                    : "Provider optimization not confirmed / manual sequence"}
+                </p>
+                <p className="smart-break">
+                  Sequence:{" "}
+                  {q.sequence
+                    .map(
+                      (id) =>
+                        destinations.find((d) => d.id === id)?.label || id,
+                    )
+                    .join(" → ")}
+                </p>
+              </div>
+            ),
+        )}
+        <h4>Individual quotation evidence</h4>
+        {result.individual.slice(0, route.count).map((q, i) => (
+          <p className="smart-break" key={i}>
+            {destinations[i].label} · ID: {q.quotationId} · Expires{" "}
+            {new Date(q.expiresAt).toLocaleTimeString("en-MY", {
+              timeZone: "Asia/Kuala_Lumpur",
+            })}{" "}
+            MYT
+          </p>
+        ))}
+      </details>
       <p className="smart-muted">
         ¹Compared with individual provider quotations before individual buffers
-        or promotions. Actual paid fees are unchanged. Negative savings are
-        rejected. Saved exact times remain on the original orders.
+        or promotions. Actual paid fees are unchanged. Uneconomical or
+        infeasible routes are rejected.
       </p>
     </section>
   );

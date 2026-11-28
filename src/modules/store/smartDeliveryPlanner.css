@@ -179,6 +179,29 @@
 .smart-results {
   margin-top: 20px;
 }
+.smart-selected-route,
+.smart-quote-details {
+  margin-top: 12px;
+}
+.smart-route-comparison {
+  white-space: normal !important;
+  table-layout: fixed;
+}
+.smart-route-comparison th,
+.smart-route-comparison td {
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+.smart-route-comparison th:first-child {
+  width: 34%;
+}
+.smart-route-comparison button {
+  width: 100%;
+  white-space: normal;
+}
+.smart-quote-details > div {
+  margin: 10px 0;
+}
 .smart-planner select {
   margin-top: 8px;
 }

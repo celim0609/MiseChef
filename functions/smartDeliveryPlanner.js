@@ -406,6 +406,31 @@ export const compareSmartDelivery = async (args) => {
   const individual = [];
   for (const d of draft.destinations) individual.push(await quote([d]));
   const buffer = fixedDeliveryBuffer(store.delivery, serviceType);
+  // Explain the existing policy decision without changing fee calculation or
+  // applying defaults when the Store has no applicable buffer policy.
+  const configured = store.delivery.fixedDeliveryBuffer;
+  const pricingPolicy = {
+    status: buffer
+      ? "applied"
+      : !configured
+        ? "missing"
+        : serviceType !== "MOTORCYCLE"
+          ? "vehicle_not_applicable"
+          : configured.enabled !== true
+            ? "disabled"
+            : "invalid",
+    serviceType,
+    configuredBufferMinor:
+      Number.isSafeInteger(configured?.amountMinor) &&
+      configured.amountMinor >= 0
+        ? configured.amountMinor
+        : null,
+    configuredMaximumExtraCostMinor:
+      Number.isSafeInteger(configured?.maximumExtraCostMinor) &&
+      configured.maximumExtraCostMinor >= 0
+        ? configured.maximumExtraCostMinor
+        : null,
+  };
   const routes = [];
   for (let count = 1; count <= n; count++) {
     const destinations = draft.destinations.slice(0, count),
@@ -455,6 +480,7 @@ export const compareSmartDelivery = async (args) => {
     fail("Comparison expired while quoting. Request a fresh comparison.");
   return {
     environment: "sandbox",
+    pricingPolicy,
     currency: "MYR",
     createdAt: clock().toISOString(),
     expiresAt,

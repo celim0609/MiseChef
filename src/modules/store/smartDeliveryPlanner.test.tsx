@@ -121,6 +121,12 @@ test("comparison separates provider cost, allocation, assumptions, exposure and 
     arrivalBasis: "Planning assumption only",
     pricingNotice: "Sandbox mock values",
   };
+  result.pricingPolicy = {
+    status: "missing",
+    serviceType: "MOTORCYCLE",
+    configuredBufferMinor: null,
+    configuredMaximumExtraCostMinor: null,
+  };
   const html = renderToStaticMarkup(
     <SmartDeliveryResults
       result={result}
@@ -132,7 +138,7 @@ test("comparison separates provider cost, allocation, assumptions, exposure and 
     "RM12.00",
     "RM2.00",
     "RM14.00",
-    "Merchant exposure",
+    "Projected merchant exposure",
     "RM0.00",
     "Planning assumption only",
     "Sandbox mock values",
@@ -141,4 +147,52 @@ test("comparison separates provider cost, allocation, assumptions, exposure and 
   ])
     assert.ok(html.includes(label), label);
   assert.doesNotMatch(html, /Eligible for internal review/);
+  assert.match(html, /No fixed-buffer policy configured for this Beta Store/);
+  assert.match(html, /Not configured/);
+  assert.equal(
+    (
+      html.match(
+        /aria-label="Selected route delivery schedule and fee allocation"/g,
+      ) || []
+    ).length,
+    1,
+  );
+  assert.equal(
+    (html.match(/aria-label="Manual and optimized route comparison"/g) || [])
+      .length,
+    1,
+  );
+  assert.match(html, /not actual travel times or guaranteed arrival times/);
+  const visible = html.replace(/<details[\s\S]*?<\/details>/g, "");
+  assert.doesNotMatch(
+    visible,
+    /qa-quote|Expires|remaining|Planning assumption only/,
+  );
+  assert.match(html, /<details[^>]*>[\s\S]*qa-quote/);
+  // Both alternatives remain comparable, while only one schedule is rendered.
+  result.routes[0].optimized = {
+    ...q,
+    quotationId: "optimized-quote",
+    providerOptimized: true,
+  };
+  const active = renderToStaticMarkup(
+    <SmartDeliveryResults
+      result={result}
+      now={Date.parse("2026-11-28T00:01:00Z")}
+    />,
+  );
+  assert.match(active, /Select manual route/);
+  assert.match(active, /Select optimized route/);
+  assert.equal(
+    (
+      active.match(
+        /aria-label="Selected route delivery schedule and fee allocation"/g,
+      ) || []
+    ).length,
+    1,
+  );
+  assert.doesNotMatch(
+    active.replace(/<details[\s\S]*?<\/details>/g, ""),
+    /optimized-quote|qa-quote/,
+  );
 });

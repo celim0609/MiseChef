@@ -223,6 +223,56 @@ test("comparison obtains individual and incremental manual/optimized quotes, no 
     ["stores/store", "workspaces/workspace"],
   );
 });
+test("policy explanation distinguishes missing, disabled, vehicle-specific and configured values without changing fees", async () => {
+  for (const [status, policy, vehicle] of [
+    ["missing", undefined, "MOTORCYCLE"],
+    [
+      "disabled",
+      { enabled: false, amountMinor: 321, maximumExtraCostMinor: 987 },
+      "MOTORCYCLE",
+    ],
+    [
+      "vehicle_not_applicable",
+      { enabled: true, amountMinor: 321, maximumExtraCostMinor: 987 },
+      "CAR",
+    ],
+    [
+      "invalid",
+      { enabled: true, amountMinor: -1, maximumExtraCostMinor: 987 },
+      "MOTORCYCLE",
+    ],
+    [
+      "applied",
+      { enabled: true, amountMinor: 321, maximumExtraCostMinor: 987 },
+      "MOTORCYCLE",
+    ],
+  ]) {
+    const h = harness(),
+      delivery = h.data.get("stores/store").delivery;
+    delivery.fixedDeliveryBuffer = policy;
+    delivery.serviceType = vehicle;
+    const original = h.args.provider.createQuote;
+    h.args.provider.createQuote = async (request) => ({
+      ...(await original(request)),
+      serviceType: request.data.serviceType,
+    });
+    const r = await compareSmartDelivery(h.args);
+    assert.equal(r.pricingPolicy.status, status);
+    assert.equal(
+      r.routes[1].manual.bufferMinor,
+      status === "applied" ? 321 : 0,
+    );
+    assert.equal(
+      r.routes[1].manual.maximumExtraCostMinor,
+      status === "applied" ? 987 : 0,
+    );
+    assert.equal(r.routes[1].manual.feeMinor, 1200);
+    assert.equal(
+      r.routes[1].manual.totalMinor,
+      status === "applied" ? 1521 : 1200,
+    );
+  }
+});
 test("authorization, Production, provider errors and rate budget fail closed before recommendations", async () => {
   for (const change of [
     { uid: "other" },

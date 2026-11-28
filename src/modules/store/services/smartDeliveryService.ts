@@ -56,6 +56,13 @@ export type PlannerPreview = PlannerQuote & {
   allocations: number[];
 };
 export type PlannerComparison = {
+  pricingPolicy?: {
+    status:
+      "applied" | "missing" | "disabled" | "vehicle_not_applicable" | "invalid";
+    serviceType: string;
+    configuredBufferMinor: number | null;
+    configuredMaximumExtraCostMinor: number | null;
+  };
   expiresAt: string;
   createdAt: string;
   draft: PlannerDraft;
